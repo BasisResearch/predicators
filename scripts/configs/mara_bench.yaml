@@ -134,20 +134,24 @@ ENVS:
   # laser:
   #   NAME: "pybullet_laser"
   #   FLAGS:
+  #     bilevel_plan_without_sim: True
+  #     laser_use_debug_line_for_beams: False
   #     sesame_max_skeletons_optimized: 1
   #     sesame_check_expected_atoms: False
   #     pybullet_ik_validate: False
   #     num_train_tasks: 0
   #     num_test_tasks: 2
-  # laser_cf:
-  #   NAME: "pybullet_laser"
-  #   FLAGS:
-  #     laser_zero_reflection_angle: True
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
+  laser_cf:
+    NAME: "pybullet_laser"
+    FLAGS:
+      laser_zero_reflection_angle: True
+      bilevel_plan_without_sim: True
+      laser_use_debug_line_for_beams: False
+      sesame_max_skeletons_optimized: 1
+      sesame_check_expected_atoms: False
+      pybullet_ik_validate: False
+      num_train_tasks: 0
+      num_test_tasks: 2
   # ants:
   #   NAME: "pybullet_ants"
   #   FLAGS:
@@ -175,15 +179,15 @@ ENVS:
   #     terminate_on_goal_reached: False
   #     pybullet_ik_validate: False
   #     num_test_tasks: 5
-  fan_cf:
-    NAME: "pybullet_fan"
-    FLAGS:
-      fan_fans_blow_opposite_direction: True
-      sesame_max_skeletons_optimized: 1
-      sesame_check_expected_atoms: False
-      terminate_on_goal_reached: False
-      pybullet_ik_validate: False
-      num_test_tasks: 5
+  # fan_cf:
+  #   NAME: "pybullet_fan"
+  #   FLAGS:
+  #     fan_fans_blow_opposite_direction: True
+  #     sesame_max_skeletons_optimized: 1
+  #     sesame_check_expected_atoms: False
+  #     terminate_on_goal_reached: False
+  #     pybullet_ik_validate: False
+  #     num_test_tasks: 5
 ARGS:
   - "debug"
   - "use_gui"

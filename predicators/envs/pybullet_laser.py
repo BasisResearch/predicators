@@ -28,6 +28,14 @@ from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
     Predicate, State, Type
 
+# For storing the laser beams ids (when they are created as bodies instead of
+# debug lines)
+# The laser beam management is still not work properly when using bilevel 
+# planning--the lasers created during planning are not removed when the policy
+# is evaluated. This results in the test videos being contaminated with the
+# beams generated during the planning phase. The current workaround is to use
+# bilevel_plan_without_sim=True.
+_laser_ids = []
 
 class PyBulletLaserEnv(PyBulletEnv):
     """A PyBullet environment that simulates a laser station, mirrors, and
@@ -88,7 +96,7 @@ class PyBulletLaserEnv(PyBulletEnv):
     # Laser
     _laser_color: ClassVar[Tuple[float, float, float]] = (1.0, 0.2, 0.2)
     _laser_width: ClassVar[float] = 10
-    laser_life_time: ClassVar[float] = 0.5
+    _laser_life_time: ClassVar[float] = 0.03
 
     # -------------
     num_targets: ClassVar[int] = 2
@@ -116,7 +124,7 @@ class PyBulletLaserEnv(PyBulletEnv):
                                 for i in range(self.num_standard_mirrors)]
         self._targets = [Object(f"target{i}", self._target_type)
                                 for i in range(self.num_targets)]
-        self._laser_ids = []
+        
 
         # Initialize PyBullet
         super().__init__(use_gui=use_gui)
@@ -284,9 +292,12 @@ class PyBulletLaserEnv(PyBulletEnv):
     def _reset_custom_env_state(self, state: State) -> None:
         oov_x, oov_y = self._out_of_view_xy
 
-        for beam_id, _ in self._laser_ids:
-            p.removeBody(beam_id, physicsClientId=self._physics_client_id)
-        self._laser_ids = []
+        lasers_copy = _laser_ids.copy()
+        for beam_id, creation_time, client_id in lasers_copy:
+            p.removeBody(beam_id, physicsClientId=client_id)
+            # Remove the beam from the list
+            _laser_ids.remove((beam_id, creation_time, client_id))
+            logging.debug(f"[reset] removing beam_id: {beam_id} in sim{client_id}, remining beams {[id for id, _, _ in _laser_ids]}")
 
         # Move targets out of view if needed
         target_objs = state.get_objects(self._target_type)
@@ -321,14 +332,14 @@ class PyBulletLaserEnv(PyBulletEnv):
         # After any motion, we simulate the laser
         self._simulate_laser()
         
-        lasers_copy = self._laser_ids.copy()
-        for beam_id, creation_time in lasers_copy:
-            logging.info(f"beam_id: {beam_id}")
-            if time.time() - creation_time > self.laser_life_time:
-                p.removeBody(beam_id, 
-                                 physicsClientId=self._physics_client_id)
+        lasers_copy = _laser_ids.copy()
+        for beam_id, creation_time, client_id in lasers_copy:
+            if time.time() - creation_time > self._laser_life_time:
+                p.removeBody(beam_id, physicsClientId=client_id)
                 # Remove the beam from the list
-                self._laser_ids.remove((beam_id, creation_time))
+                _laser_ids.remove((beam_id, creation_time, client_id))
+                logging.debug(f"[step] removing beam_id: {beam_id} in sim{client_id}, remining beams {[id for id, _, _ in _laser_ids]}")
+        _laser_ids.clear()
         final_state = self._get_state()
         self._current_observation = final_state
         return final_state
@@ -403,14 +414,16 @@ class PyBulletLaserEnv(PyBulletEnv):
                     lineToXYZ=end_pt.tolist(),
                     lineColorRGB=self._laser_color,  # red
                     lineWidth=self._laser_width,
-                    lifeTime=self.laser_life_time,  # short lifetime so each step refreshes
+                    lifeTime=self._laser_life_time,  # short lifetime so each step refreshes
                 )
             else:
                 laser_id = create_laser_cylinder(
                         start.tolist(), 
                         end_pt.tolist(),
                     )
-                self._laser_ids.append((laser_id, time.time()))
+                logging.debug(f"created laser beam {laser_id} in sim{self._physics_client_id}, current beams {[id for id, _, _ in _laser_ids]}")
+                # breakpoint()
+                _laser_ids.append((laser_id, time.time(), self._physics_client_id))
             return
 
         # Unpack the best hit
@@ -425,14 +438,16 @@ class PyBulletLaserEnv(PyBulletEnv):
                 lineToXYZ=hit_point.tolist(),
                 lineColorRGB=self._laser_color,
                 lineWidth=self._laser_width,
-                lifeTime=self.laser_life_time,
+                lifeTime=self._laser_life_time,
             )
         else:
             laser_id = create_laser_cylinder(
                     start.tolist(), 
                     hit_point.tolist(),
                 )
-            self._laser_ids.append((laser_id, time.time()))
+            logging.debug(f"created laser beam {laser_id} in sim{self._physics_client_id}, current beams {[id for id, _, _ in _laser_ids]}")
+            # breakpoint()
+            _laser_ids.append((laser_id, time.time(), self._physics_client_id))
 
         # Check if it's a target
         for target in self._targets:
@@ -754,7 +769,6 @@ def create_laser_cylinder(start, end, color=(1, 0, 0, 1),
     # (body_id, time_created) and remove once enough time passes:
     #   p.removeBody(body_id)
 
-    logging.debug(f"created laser beam {body_id}")
     return body_id
 
 if __name__ == "__main__":
@@ -764,6 +778,7 @@ if __name__ == "__main__":
     # Make a task
     CFG.seed = 0
     CFG.env = "pybullet_laser"
+    CFG.laser_use_debug_line_for_beams = False
     env = PyBulletLaserEnv(use_gui=True)
     task = env._make_tasks(1, CFG.seed)[0]
     env._reset_state(task.init)
