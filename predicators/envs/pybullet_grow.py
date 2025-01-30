@@ -55,6 +55,8 @@ class PyBulletGrowEnv(PyBulletEnv):
     z_ub: ClassVar[float] = 0.75 + table_height / 2
 
     # robot config
+    # this smaller value is needed for grasping jugs
+    grasp_tol_small: ClassVar[float] = 5e-2
     _finger_action_tol: ClassVar[float] = 5e-3
     robot_init_x: ClassVar[float] = (x_lb + x_ub) * 0.5
     robot_init_y: ClassVar[float] = (y_lb + y_ub) * 0.5
@@ -177,7 +179,6 @@ class PyBulletGrowEnv(PyBulletEnv):
         for _ in range(cls.num_cups):
             # For now, just give a placeholder color; we'll update color below
             cup_id = create_object(asset_path="urdf/pot-pixel.urdf",
-                                   mass=50,
                                    physics_client_id=physics_client_id)
             cup_ids.append(cup_id)
         bodies["cup_ids"] = cup_ids
@@ -520,7 +521,8 @@ class PyBulletGrowEnv(PyBulletEnv):
             color = growth_color
         return create_pybullet_block(color=color,
                                      half_extents=half_extents,
-                                     mass=10.0,
+                                    #  mass=10.0,
+                                     mass=0.0,
                                      friction=0.5,
                                      position=(cx, cy, cz),
                                      physics_client_id=self._physics_client_id)

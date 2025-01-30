@@ -101,7 +101,7 @@ class PyBulletGrowGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             del state, goal, objs  # unused
             # Note: normalized coordinates w.r.t. workspace.
             x = rng.uniform()
-            y = rng.uniform()
+            y = rng.uniform(0.3, 0.7)
             return np.array([x, y], dtype=np.float32)
 
         place = NSRT("PlaceJug",

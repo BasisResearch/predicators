@@ -717,7 +717,7 @@ class PyBulletEnv(BaseEnv):
             logging.debug("Finger closing")
             # Detect if an object is held. If so, create a grasp constraint.
             self._held_obj_id = self._detect_held_object()
-            # logging.debug(f"Detected held object: {self._held_obj_id}")
+            logging.debug(f"Detected held object: {self._held_obj_id}")
             # breakpoint()
             if self._held_obj_id is not None:
                 self._create_grasp_constraint()
