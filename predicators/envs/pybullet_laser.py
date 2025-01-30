@@ -85,6 +85,7 @@ class PyBulletLaserEnv(PyBulletEnv):
     # -------------
     # URDF scale or references
     # -------------
+    piece_init_z: ClassVar[float] = table_height + 0.005
     piece_width: ClassVar[float] = 0.08
     piece_height: ClassVar[float] = 0.11
     light_height: ClassVar[float] = piece_height * 2 / 3
@@ -96,7 +97,12 @@ class PyBulletLaserEnv(PyBulletEnv):
     # Laser
     _laser_color: ClassVar[Tuple[float, float, float]] = (1.0, 0.2, 0.2)
     _laser_width: ClassVar[float] = 10
-    _laser_life_time: ClassVar[float] = 0.03
+    # When _laser_life_time is
+    # >=0.11, the beams split at normal mirror, in both GUI and the recording
+    # >=0.089, the beams from prev. episode would leaks into later episodes, in both GUI and the recording
+    # <=0.088, nothing shows up in the recorded video through getCameraImage
+    _laser_life_time: ClassVar[float] = 0.3
+    # _laser_life_time: ClassVar[float] = 0.03
 
     # -------------
     num_targets: ClassVar[int] = 2
@@ -330,7 +336,7 @@ class PyBulletLaserEnv(PyBulletEnv):
         next_state = super().step(action, render_obs=render_obs)
 
         # After any motion, we simulate the laser
-        self._simulate_laser()
+        self._simulate_laser(next_state)
         
         lasers_copy = _laser_ids.copy()
         for beam_id, creation_time, client_id in lasers_copy:
@@ -339,7 +345,6 @@ class PyBulletLaserEnv(PyBulletEnv):
                 # Remove the beam from the list
                 _laser_ids.remove((beam_id, creation_time, client_id))
                 logging.debug(f"[step] removing beam_id: {beam_id} in sim{client_id}, remining beams {[id for id, _, _ in _laser_ids]}")
-        _laser_ids.clear()
         final_state = self._get_state()
         self._current_observation = final_state
         return final_state
@@ -347,7 +352,7 @@ class PyBulletLaserEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Laser Simulation
     # -------------------------------------------------------------------------
-    def _simulate_laser(self) -> None:
+    def _simulate_laser(self, state: State) -> None:
         """Fire the laser if station is on, reflecting or splitting at mirrors
         and stopping if it hits a target.
 
@@ -375,9 +380,9 @@ class PyBulletLaserEnv(PyBulletEnv):
         start_pt = np.array(station_pos)
         max_depth = 5  # allow up to 5 mirror interactions
         self._clear_target_hits()
-        self._trace_beam(start_pt, beam_dir, max_depth)
+        self._trace_beam(state, start_pt, beam_dir, max_depth)
 
-    def _trace_beam(self, start: np.ndarray, direction: np.ndarray,
+    def _trace_beam(self, state: State, start: np.ndarray, direction: np.ndarray,
                     depth: int):
         """Recursively move a line forward until it hits a mirror or target."""
         if depth <= 0:
@@ -458,22 +463,25 @@ class PyBulletLaserEnv(PyBulletEnv):
 
         for mirror in self._normal_mirrors + self._split_mirrors:
             if hit_id == mirror.id:
-                is_split = "split" in mirror.name
+                is_split = (state.get(mirror, "split_mirror") > 0.5)
                 if is_split:
                     # 1) Reflect path
                     reflect_dir = self._mirror_reflection(hit_id, direction)
-                    self._trace_beam(hit_point + reflect_dir * 1e-3, reflect_dir,
+                    self._trace_beam(state, hit_point + reflect_dir * 1e-3,
+                                     reflect_dir,
                                      depth - 1)
                     # 2) Pass-through path
                     pass_dir = direction
-                    self._trace_beam(hit_point + pass_dir * 1e-3, pass_dir,
+                    self._trace_beam(state, hit_point + pass_dir * 1e-2,
+                                     pass_dir,
                                      depth - 1)
                 else:
                     # Normal mirror => reflect only
                     reflect_dir = self._mirror_reflection(hit_id, direction)
-                    self._trace_beam(hit_point + reflect_dir * 1e-3, 
+                    self._trace_beam(state, hit_point + reflect_dir * 1e-3, 
                                      reflect_dir,
                                      depth - 1)
+                    return
         # Otherwise, it might have hit the station/table => stop
         return
 
@@ -497,7 +505,10 @@ class PyBulletLaserEnv(PyBulletEnv):
         incoming_norm = incoming_dir / (np.linalg.norm(incoming_dir) + 1e-9)
         # reflection = dir - 2*(dir · normal)*normal
         if CFG.laser_zero_reflection_angle:
-            reflect = local_normal
+            if (incoming_norm @ local_normal) < 0:
+                reflect = local_normal
+            else:
+                reflect = -local_normal
         else:
             reflect = incoming_norm - 2 * (incoming_norm @ local_normal) * \
                     local_normal
@@ -605,7 +616,7 @@ class PyBulletLaserEnv(PyBulletEnv):
             station_dict = {
                 "x": station_x,
                 "y": station_y,
-                "z": self.table_height,
+                "z": self.piece_init_z,
                 "rot": 0,
                 "is_on": 0.0,  # off initially
             }
@@ -614,7 +625,7 @@ class PyBulletLaserEnv(PyBulletEnv):
             split_mirror_dict = {
                 "x": sm_x - 2 * self.piece_width,  # for demo
                 "y": sm_y,
-                "z": self.table_height,
+                "z": self.piece_init_z,
                 "rot": 0.0,
                 "split_mirror": 1.0,
                 "is_held": 0.0,
@@ -625,7 +636,7 @@ class PyBulletLaserEnv(PyBulletEnv):
             mirror1_dict = {
                 "x": m1_x,
                 "y": m1_y,
-                "z": self.table_height,
+                "z": self.piece_init_z,
                 "rot": 0.0,
                 "split_mirror": 0.0,
                 "is_held": 0.0,
@@ -636,7 +647,7 @@ class PyBulletLaserEnv(PyBulletEnv):
             target1_dict = {
                 "x": t1_x,
                 "y": t1_y,
-                "z": self.table_height,
+                "z": self.piece_init_z,
                 "rot": 0.0,
                 "is_hit": 0.0,
             }
@@ -648,7 +659,7 @@ class PyBulletLaserEnv(PyBulletEnv):
                 mirror2_dict = {
                     "x": m2_x,
                     "y": m2_y,
-                    "z": self.table_height,
+                    "z": self.piece_init_z,
                     "rot": 0.0,
                     "split_mirror": 0.0,
                     "is_held": 0.0,
@@ -657,9 +668,9 @@ class PyBulletLaserEnv(PyBulletEnv):
                 t2_x = m2_x + 2 * self.piece_width
                 t2_y = m2_y
                 target2_dict = {
-                    "x": t2_x,
-                    "y": t2_y,
-                    "z": self.table_height,
+                    "x": m2_x,
+                    "y": station_y,
+                    "z": self.piece_init_z,
                     "rot": 0.0,
                     "is_hit": 0.0,
                 }
@@ -668,7 +679,7 @@ class PyBulletLaserEnv(PyBulletEnv):
                 mirror2_dict = {
                     "x": m1_x,
                     "y": station_y,
-                    "z": self.table_height,
+                    "z": self.piece_init_z,
                     "rot": 0.0,
                     "split_mirror": 0.0,
                     "is_held": 0.0,
@@ -763,6 +774,9 @@ def create_laser_cylinder(start, end, color=(1, 0, 0, 1),
         basePosition=mid.tolist(),
         baseOrientation=orientation,
     )
+    p.setCollisionFilterGroupMask(body_id, -1,
+                              collisionFilterGroup=0,
+                              collisionFilterMask=0)
 
     # If you want this beam to vanish after `lifetime` seconds,
     # you can schedule a removal in your main loop, or store
@@ -779,6 +793,7 @@ if __name__ == "__main__":
     CFG.seed = 0
     CFG.env = "pybullet_laser"
     CFG.laser_use_debug_line_for_beams = False
+    CFG.laser_zero_reflection_angle = True
     env = PyBulletLaserEnv(use_gui=True)
     task = env._make_tasks(1, CFG.seed)[0]
     env._reset_state(task.init)

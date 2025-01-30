@@ -65,13 +65,13 @@ ENVS:
   #     pybullet_ik_validate: False
   #     coffee_use_pixelated_jug: True
   #     max_num_steps_option_rollout: 50
-  grow_cf:
-    NAME: "pybullet_grow"
-    FLAGS:
-      grow_plant_same_color_as_cup: True
-      pybullet_ik_validate: False
-      coffee_use_pixelated_jug: True
-      max_num_steps_option_rollout: 50
+  # grow_cf:
+  #   NAME: "pybullet_grow"
+  #   FLAGS:
+  #     grow_plant_same_color_as_cup: True
+  #     pybullet_ik_validate: False
+  #     coffee_use_pixelated_jug: True
+  #     max_num_steps_option_rollout: 50
   # circuit:
   #   NAME: "pybullet_circuit"
   #   FLAGS:
@@ -129,27 +129,27 @@ ENVS:
   #     num_train_tasks: 0
   #     num_test_tasks: 2
   #     pybullet_max_vel_norm: 0.03
-  # laser:
-  #   NAME: "pybullet_laser"
-  #   FLAGS:
-  #     bilevel_plan_without_sim: True
-  #     laser_use_debug_line_for_beams: False
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
-  # laser_cf:
-  #   NAME: "pybullet_laser"
-  #   FLAGS:
-  #     laser_zero_reflection_angle: True
-  #     bilevel_plan_without_sim: True
-  #     laser_use_debug_line_for_beams: False
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
+  laser:
+    NAME: "pybullet_laser"
+    FLAGS:
+      bilevel_plan_without_sim: True
+      laser_use_debug_line_for_beams: False
+      sesame_max_skeletons_optimized: 1
+      sesame_check_expected_atoms: False
+      pybullet_ik_validate: False
+      num_train_tasks: 0
+      num_test_tasks: 2
+  laser_cf:
+    NAME: "pybullet_laser"
+    FLAGS:
+      laser_zero_reflection_angle: True
+      bilevel_plan_without_sim: True
+      laser_use_debug_line_for_beams: False
+      sesame_max_skeletons_optimized: 1
+      sesame_check_expected_atoms: False
+      pybullet_ik_validate: False
+      num_train_tasks: 0
+      num_test_tasks: 2
   # ants:
   #   NAME: "pybullet_ants"
   #   FLAGS:
