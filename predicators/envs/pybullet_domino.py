@@ -7,8 +7,8 @@ python predicators/main.py --approach oracle --env pybullet_domino \
 --sesame_check_expected_atoms False --horizon 60 \
 --video_not_break_on_exception --pybullet_ik_validate False
 """
-import time
 import logging
+import time
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -250,24 +250,22 @@ class PyBulletDominoEnv(PyBulletEnv):
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
     def _create_invisible_link_body(self) -> int:
-        """
-        Create a zero-mass, zero-collision 'rod' (link) in PyBullet.
+        """Create a zero-mass, zero-collision 'rod' (link) in PyBullet.
+
         We'll attach each domino to this rod with a hinge joint.
         """
         # A tiny sphere collision shape (or None) so it doesn't collide / add mass.
         collision_shape_id = p.createCollisionShape(
             shapeType=p.GEOM_SPHERE,
             radius=0.0001,  # effectively 0
-            physicsClientId=self._physics_client_id
-        )
+            physicsClientId=self._physics_client_id)
 
         # Visual shape is also effectively invisible.
         visual_shape_id = p.createVisualShape(
             shapeType=p.GEOM_SPHERE,
             radius=0.00001,
             rgbaColor=[0, 0, 0, 0],  # transparent
-            physicsClientId=self._physics_client_id
-        )
+            physicsClientId=self._physics_client_id)
 
         # Create the multi-body with mass=0, so it never moves on its own.
         rod_body_id = p.createMultiBody(
@@ -276,35 +274,29 @@ class PyBulletDominoEnv(PyBulletEnv):
             baseVisualShapeIndex=visual_shape_id,
             basePosition=[0, 0, 10],  # spawn out of the way, reposition below
             useMaximalCoordinates=True,  # simpler, no internal links
-            physicsClientId=self._physics_client_id
-        )
+            physicsClientId=self._physics_client_id)
         return rod_body_id
+
     def _create_fixed_constraint(self, bodyA: int, bodyB: int) -> int:
-        """
-        Create a fixed joint in PyBullet with a pivot at the midpoint of
-        the two bodies (so they remain exactly where they are).
-        """
+        """Create a fixed joint in PyBullet with a pivot at the midpoint of the
+        two bodies (so they remain exactly where they are)."""
         # Get the current global positions/orientations of each domino.
-        pA, oA = p.getBasePositionAndOrientation(bodyA, 
-                        physicsClientId=self._physics_client_id)
-        pB, oB = p.getBasePositionAndOrientation(bodyB, 
-                        physicsClientId=self._physics_client_id)
+        pA, oA = p.getBasePositionAndOrientation(
+            bodyA, physicsClientId=self._physics_client_id)
+        pB, oB = p.getBasePositionAndOrientation(
+            bodyB, physicsClientId=self._physics_client_id)
 
         # Compute a midpoint in world space (so the constraint pivot is between them).
         midpoint = [(pA[i] + pB[i]) / 2.0 for i in range(3)]
 
         # Express this midpoint in the local frames of each body:
         inv_pA, inv_oA = p.invertTransform(pA, oA)
-        parentPivot, parentOrn = p.multiplyTransforms(
-            inv_pA, inv_oA,
-            midpoint, [0, 0, 0, 1]
-        )
+        parentPivot, parentOrn = p.multiplyTransforms(inv_pA, inv_oA, midpoint,
+                                                      [0, 0, 0, 1])
 
         inv_pB, inv_oB = p.invertTransform(pB, oB)
-        childPivot, childOrn = p.multiplyTransforms(
-            inv_pB, inv_oB,
-            midpoint, [0, 0, 0, 1]
-        )
+        childPivot, childOrn = p.multiplyTransforms(inv_pB, inv_oB, midpoint,
+                                                    [0, 0, 0, 1])
 
         # Create the constraint at those local pivots, ensuring no sudden jump.
         cid = p.createConstraint(
@@ -321,9 +313,9 @@ class PyBulletDominoEnv(PyBulletEnv):
             physicsClientId=self._physics_client_id,
         )
         return cid
-        
 
-    def _no_target_in_between(self, state, domino1: Object, domino2: Object) -> bool:
+    def _no_target_in_between(self, state, domino1: Object,
+                              domino2: Object) -> bool:
         for target in state.get_objects(self._target_type):
             x1 = state.get(domino1, "x")
             y1 = state.get(domino1, "y")
@@ -352,8 +344,9 @@ class PyBulletDominoEnv(PyBulletEnv):
                 rot1 = state.get(domino1, "rot")
                 rot2 = state.get(domino2, "rot")
 
-                if abs(rot1 - rot2) < 1e-5 and self._no_target_in_between(state, domino1, domino2):
-                    cid = self._create_fixed_constraint(domino1.id,  domino2.id)
+                if abs(rot1 - rot2) < 1e-5 and self._no_target_in_between(
+                        state, domino1, domino2):
+                    cid = self._create_fixed_constraint(domino1.id, domino2.id)
                     self.block_constraints.append(cid)
                     break
 
@@ -362,7 +355,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             oov_x += 0.1
             oov_y += 0.1
             update_object(self.dominos[i].id,
-                          position=(oov_x, oov_y, self.domino_height/2),
+                          position=(oov_x, oov_y, self.domino_height / 2),
                           physics_client_id=self._physics_client_id)
 
         target_objs = state.get_objects(self._target_type)
@@ -372,7 +365,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             oov_x += 0.1
             oov_y += 0.1
             update_object(self.targets[i].id,
-                          position=(oov_x, oov_y, self.domino_height/2),
+                          position=(oov_x, oov_y, self.domino_height / 2),
                           physics_client_id=self._physics_client_id)
 
         pivot_objs = state.get_objects(self._pivot_type)
@@ -382,13 +375,13 @@ class PyBulletDominoEnv(PyBulletEnv):
             oov_x += 0.1
             oov_y += 0.1
             update_object(self.pivots[i].id,
-                          position=(oov_x, oov_y, self.domino_height/2),
+                          position=(oov_x, oov_y, self.domino_height / 2),
                           physics_client_id=self._physics_client_id)
 
     def _get_flat_rotation(self, flap_obj: Object) -> float:
         j_pos, _, _, _ = p.getJointState(flap_obj.id, flap_obj.joint_id)
         return j_pos
-    
+
     def _set_flat_rotation(self, flap_obj: Object, rot: float = 0.0) -> None:
         p.resetJointState(flap_obj.id, flap_obj.joint_id, rot)
         return
@@ -621,11 +614,11 @@ class PyBulletDominoEnv(PyBulletEnv):
 
                     # Initial domino
                     x = rng.uniform(self.x_lb, self.x_ub)
-                    y = rng.uniform(self.y_lb + self.domino_width ,
-                                    self.y_ub - 3 * self.domino_width )
-                                    # self.y_lb + self.domino_width * 2)
-                    rot = rng.uniform(-np.pi/2, np.pi/2)
-                    rot = rng.choice([0, np.pi/2, -np.pi/2])
+                    y = rng.uniform(self.y_lb + self.domino_width,
+                                    self.y_ub - 3 * self.domino_width)
+                    # self.y_lb + self.domino_width * 2)
+                    rot = rng.uniform(-np.pi / 2, np.pi / 2)
+                    rot = rng.choice([0, np.pi / 2, -np.pi / 2])
                     gap = self.domino_width * 1.3
 
                     # Place first domino
@@ -634,11 +627,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                             domino_count, x, y, rot, start_block=1.0)
                     domino_count += 1
 
-                    turn_choices = [
-                        "straight",
-                        "turn90",
-                        "pivot180"
-                    ]
+                    turn_choices = ["straight", "turn90", "pivot180"]
                     if pivot_count == n_pivots:
                         turn_choices.remove("pivot180")
 
@@ -698,12 +687,11 @@ class PyBulletDominoEnv(PyBulletEnv):
                                     domino_count += 1
                                 else:
                                     # Turn 45° twice
-                                    turn_dir = rng.choice(
-                                        [-1, 1])
+                                    turn_dir = rng.choice([-1, 1])
                                     half_turn = np.pi / 4 * turn_dir
 
                                     # First 45°
-                                    side_offset = 0 #(self.domino_width / 4)
+                                    side_offset = 0  #(self.domino_width / 4)
                                     rot += half_turn
                                     dx = gap * np.sin(rot)
                                     dy = gap * np.cos(rot)
@@ -759,8 +747,10 @@ class PyBulletDominoEnv(PyBulletEnv):
                                 pivot_y = y + gap / 2 * np.cos(rot)
 
                                 # Optional sideways shift:
-                                pivot_x -= pivot_dir * side_offset * np.cos(rot)  # 0
-                                pivot_y -= pivot_dir * side_offset * np.sin(rot)  # -0.1
+                                pivot_x -= pivot_dir * side_offset * np.cos(
+                                    rot)  # 0
+                                pivot_y -= pivot_dir * side_offset * np.sin(
+                                    rot)  # -0.1
 
                                 if not _in_bounds(pivot_x, pivot_y):
                                     success = False
@@ -896,6 +886,7 @@ if __name__ == "__main__":
         env._reset_state(task.init)
 
         for i in range(100):
-            action = Action(np.array(env._pybullet_robot.initial_joint_positions))
+            action = Action(
+                np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)
             time.sleep(0.01)

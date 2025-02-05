@@ -5,12 +5,12 @@ import pybullet as p
 
 from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv, create_pybullet_block
-from predicators.pybullet_helpers.objects import (create_object, update_object,
-                                            sample_collision_free_2d_positions)
+from predicators.pybullet_helpers.objects import create_object, \
+    sample_collision_free_2d_positions, update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
-from predicators.structs import Action, EnvironmentTask, Object, Predicate, \
-    State, Type, GroundAtom
+from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
+    Predicate, State, Type
 
 
 class PyBulletAntsEnv(PyBulletEnv):
@@ -107,7 +107,7 @@ class PyBulletAntsEnv(PyBulletEnv):
             name = f"ant_{i}"
             ant_obj = Object(name, self._ant_type)
             self._ants.append(ant_obj)
-        
+
         if CFG.ants_ants_attracted_to_points:
             self._ants_to_xy = dict()
 
@@ -125,11 +125,10 @@ class PyBulletAntsEnv(PyBulletEnv):
         self._OnTable = Predicate("OnTable", [self._food_type],
                                   self._OnTable_holds)
         self._Clear = Predicate("Clear", [self._food_type], self._Clear_holds)
-        self._InSortedRegion = Predicate("InSortedRegion", 
-                                               [self._food_type],
-                                                self._InSortedRegion_holds)
+        self._InSortedRegion = Predicate("InSortedRegion", [self._food_type],
+                                         self._InSortedRegion_holds)
         self._Attractive = Predicate("Attractive", [self._food_type],
-                                    self._Attractive_holds)
+                                     self._Attractive_holds)
 
     @classmethod
     def get_name(cls) -> str:
@@ -137,8 +136,10 @@ class PyBulletAntsEnv(PyBulletEnv):
 
     @property
     def predicates(self) -> Set[Predicate]:
-        return {self._Holding, self._HandEmpty, self._On, self._OnTable,
-                self._Clear, self._InSortedRegion, self._Attractive}
+        return {
+            self._Holding, self._HandEmpty, self._On, self._OnTable,
+            self._Clear, self._InSortedRegion, self._Attractive
+        }
 
     @property
     def goal_predicates(self) -> Set[Predicate]:
@@ -211,7 +212,7 @@ class PyBulletAntsEnv(PyBulletEnv):
     def _get_object_ids_for_held_check(self) -> List[int]:
         # If we support robot picking up food blocks, return those IDs.
         return [f.id for f in self._blocks]
-    
+
     def _create_task_specific_objects(self, state: State) -> None:
         pass
 
@@ -231,9 +232,10 @@ class PyBulletAntsEnv(PyBulletEnv):
         if CFG.ants_ants_attracted_to_points:
             self._ant_to_xy = dict()
             for ant_obj in state.get_objects(self._ant_type):
-                self._ants_to_xy[ant_obj] = (
-                    self._train_rng.uniform(self.one_third_x, self.two_third_x), 
-                    self._train_rng.uniform(self.y_lb, self.y_ub))
+                self._ants_to_xy[ant_obj] = (self._train_rng.uniform(
+                    self.one_third_x, self.two_third_x),
+                                             self._train_rng.uniform(
+                                                 self.y_lb, self.y_ub))
 
         # Hide irrelevant objects
         oov_x, oov_y = self._out_of_view_xy
@@ -243,7 +245,7 @@ class PyBulletAntsEnv(PyBulletEnv):
             update_object(self._blocks[i].id,
                           position=(oov_x, oov_y, self.z_lb),
                           physics_client_id=self._physics_client_id)
-        
+
         ant_objs = state.get_objects(self._ant_type)
         for i in range(len(ant_objs), len(self._ants)):
             # Hide the remaining ants
@@ -260,7 +262,7 @@ class PyBulletAntsEnv(PyBulletEnv):
                           color=(r, g, b, 1.0),
                           physics_client_id=self._physics_client_id)
             food.attractive = attractive
-        
+
         # Set ant's attractive food
         for ant_obj in state.get_objects(self._ant_type):
             food_id = state.get(ant_obj, "target_food")
@@ -364,13 +366,11 @@ class PyBulletAntsEnv(PyBulletEnv):
         desired_z = self.table_height + self.food_half_extents[2]
         return (state.get(block, "is_held") < 0.5) and \
             (desired_z-0.1 < z < desired_z+0.1)
-    
-    def _InSortedRegion_holds(self, state: State, 
+
+    def _InSortedRegion_holds(self, state: State,
                               objects: Sequence[Object]) -> bool:
-        """
-        Defined as none attractive food blocks in the first third region (left)
-        and attractive food blocks in the last third region (right).
-        """
+        """Defined as none attractive food blocks in the first third region
+        (left) and attractive food blocks in the last third region (right)."""
         blocks, = objects
         # Check if the blocks are in a sorted region
         x = state.get(blocks, "x")
@@ -383,8 +383,9 @@ class PyBulletAntsEnv(PyBulletEnv):
             return x < self.one_third_x
         else:
             return x > self.two_third_x
-    
-    def _Attractive_holds(self, state: State, objects: Sequence[Object]) -> bool:
+
+    def _Attractive_holds(self, state: State,
+                          objects: Sequence[Object]) -> bool:
         block, = objects
         return state.get(block, "attractive") > 0.5
 
@@ -407,6 +408,7 @@ class PyBulletAntsEnv(PyBulletEnv):
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(num_tasks=CFG.num_test_tasks,
                                 rng=self._test_rng)
+
     def _make_tasks(self, num_tasks: int,
                     rng: np.random.Generator) -> List[EnvironmentTask]:
         tasks = []
@@ -415,12 +417,12 @@ class PyBulletAntsEnv(PyBulletEnv):
             block_by_color = {}
             attractive_food_objs = []
 
-            task_color_palette = rng.choice(self._obj_colors_main, 
-                                            size=self.num_colors, 
+            task_color_palette = rng.choice(self._obj_colors_main,
+                                            size=self.num_colors,
                                             replace=False)
             task_color_palette = [tuple(c) for c in task_color_palette]
-            attractive_colors = rng.choice(task_color_palette, 
-                                           size=self.num_attractive_colors, 
+            attractive_colors = rng.choice(task_color_palette,
+                                           size=self.num_attractive_colors,
                                            replace=False)
             attractive_colors = [tuple(c) for c in attractive_colors]
 
@@ -439,13 +441,12 @@ class PyBulletAntsEnv(PyBulletEnv):
             num_blocks = 4
             num_ants = 6
             blocks_positions = sample_collision_free_2d_positions(
-                num_blocks, 
-                x_range=(self.x_lb, self.one_third_x), 
-                y_range=(self.y_lb + 2 * self.food_size, 
+                num_blocks,
+                x_range=(self.x_lb, self.one_third_x),
+                y_range=(self.y_lb + 2 * self.food_size,
                          self.y_ub - 2 * self.food_size),
                 shape_type="rectangle",
-                shape_params=(1.3 * self.food_size, 
-                              1.3 * self.food_size, 0.0),
+                shape_params=(1.3 * self.food_size, 1.3 * self.food_size, 0.0),
                 rng=rng,
             )
 
@@ -453,7 +454,7 @@ class PyBulletAntsEnv(PyBulletEnv):
                 pos = blocks_positions[i]
                 fobj = self._blocks[i]
                 # Random position
-                rot = rng.uniform(-np.pi/2, np.pi/2)
+                rot = rng.uniform(-np.pi / 2, np.pi / 2)
                 # Pick color
                 if i < self.num_colors:
                     color_rgba = task_color_palette[i]
@@ -475,7 +476,7 @@ class PyBulletAntsEnv(PyBulletEnv):
 
                 block_by_color.setdefault(color_rgba, []).append(fobj)
                 if attractive:
-                    attractive_food_objs.append(fobj) 
+                    attractive_food_objs.append(fobj)
 
             # 3) Ants
             for i in range(num_ants):
@@ -498,13 +499,14 @@ class PyBulletAntsEnv(PyBulletEnv):
             goal_atoms = set()
 
             for c, blocks_group in block_by_color.items():
-                goal_atoms.add(GroundAtom(self._InSortedRegion, 
-                                         [blocks_group[0]]))
+                goal_atoms.add(
+                    GroundAtom(self._InSortedRegion, [blocks_group[0]]))
                 if len(blocks_group) > 1:
                     # Base block on table
                     for j in range(len(blocks_group) - 1):
-                        goal_atoms.add(GroundAtom(self._On, [blocks_group[j+1], 
-                                                             blocks_group[j]]))
+                        goal_atoms.add(
+                            GroundAtom(self._On,
+                                       [blocks_group[j + 1], blocks_group[j]]))
             tasks.append(EnvironmentTask(init_state, goal_atoms))
         return self._add_pybullet_state_to_tasks(tasks)
 

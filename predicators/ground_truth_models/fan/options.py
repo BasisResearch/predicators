@@ -10,8 +10,8 @@ import pybullet as p
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.envs.pybullet_env import PyBulletEnv
+from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.coffee.options import \
     PyBulletCoffeeGroundTruthOptionFactory
@@ -96,43 +96,34 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
                 cls._create_fan_move_to_push_switch_option(
                     "MoveToAboveAndBehindSwitch",
                     lambda y: y - cls._y_offset * behind_factor,
-                    lambda _: cls._hand_empty_move_z, 
-                    "closed", option_type,
+                    lambda _: cls._hand_empty_move_z, "closed", option_type,
                     params_space),
                 cls._create_fan_move_to_push_switch_option(
-                    "MoveToBehindSwitch", 
-                    lambda y: y - cls._y_offset * behind_factor,
-                    lambda z: z + cls.env_cls.switch_height * push_above_factor, 
-                    "closed",
+                    "MoveToBehindSwitch",
+                    lambda y: y - cls._y_offset * behind_factor, lambda z: z +
+                    cls.env_cls.switch_height * push_above_factor, "closed",
                     option_type, params_space),
                 cls._create_fan_move_to_push_switch_option(
-                    "PushSwitchOn", 
-                    lambda y: y - cls._y_offset * push_factor,
-                    lambda z: z + cls.env_cls.switch_height * push_above_factor, 
-                    "closed",
-                    option_type, params_space),
+                    "PushSwitchOn", lambda y: y - cls._y_offset * push_factor,
+                    lambda z: z + cls.env_cls.switch_height *
+                    push_above_factor, "closed", option_type, params_space),
                 cls._create_fan_move_to_push_switch_option(
                     "MoveToAboveAndInFrontOfSwitch",
                     lambda y: y - cls._y_offset * push_factor,
-                    lambda _: cls._hand_empty_move_z, 
-                    "closed", option_type,
+                    lambda _: cls._hand_empty_move_z, "closed", option_type,
                     params_space),
                 cls._create_fan_move_to_push_switch_option(
-                    "MoveToInFrontOfSwitch", 
-                    lambda y: y + cls._y_offset * behind_factor,
-                    lambda z: z + cls.env_cls.switch_height * push_above_factor, 
-                    "closed",
+                    "MoveToInFrontOfSwitch",
+                    lambda y: y + cls._y_offset * behind_factor, lambda z: z +
+                    cls.env_cls.switch_height * push_above_factor, "closed",
                     option_type, params_space),
                 cls._create_fan_move_to_push_switch_option(
-                    "PushSwitchOff", 
-                    lambda y: y + cls._y_offset * push_factor,
-                    lambda z: z + cls.env_cls.switch_height * push_above_factor, 
-                    "closed",
-                    option_type, params_space),
+                    "PushSwitchOff", lambda y: y + cls._y_offset * push_factor,
+                    lambda z: z + cls.env_cls.switch_height *
+                    push_above_factor, "closed", option_type, params_space),
                 cls._create_fan_move_to_push_switch_option(
                     "MoveBack", lambda y: y + cls._y_offset * behind_factor,
-                    lambda _: cls._hand_empty_move_z, 
-                    "closed", option_type,
+                    lambda _: cls._hand_empty_move_z, "closed", option_type,
                     params_space),
             ])
         options.add(SwitchOn)
@@ -159,8 +150,8 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
                 [0, state.get(robot, "tilt"),
                  state.get(robot, "wrist")])
             current_pose = Pose(current_position, ee_orn)
-            target_position = (state.get(switch, "x"),
-                               y_func(state.get(switch, "y")),
+            target_position = (state.get(switch,
+                                         "x"), y_func(state.get(switch, "y")),
                                z_func(state.get(switch, "z")))
             target_orn = p.getQuaternionFromEuler(
                 [0, cls.env_cls.robot_init_tilt, 0])

@@ -519,13 +519,14 @@ class PyBulletGrowEnv(PyBulletEnv):
                                                                     "b"), 0.8)
         else:
             color = growth_color
-        return create_pybullet_block(color=color,
-                                     half_extents=half_extents,
-                                    #  mass=10.0,
-                                     mass=0.0,
-                                     friction=0.5,
-                                     position=(cx, cy, cz),
-                                     physics_client_id=self._physics_client_id)
+        return create_pybullet_block(
+            color=color,
+            half_extents=half_extents,
+            #  mass=10.0,
+            mass=0.0,
+            friction=0.5,
+            position=(cx, cy, cz),
+            physics_client_id=self._physics_client_id)
 
 
 if __name__ == "__main__":

@@ -4,8 +4,8 @@ from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
 from typing import Type as TypingType
 
 import numpy as np
-from gym.spaces import Box
 import pybullet as p
+from gym.spaces import Box
 
 from predicators import utils
 from predicators.envs.pybullet_ants import PyBulletAntsEnv
@@ -204,27 +204,29 @@ class PyBulletAntsGroundTruthOptionFactory(GroundTruthOptionFactory):
             assert not params
             robot, block = objects
             # Current
-            current_position = (state.get(robot, "x"),
-                                state.get(robot, "y"),
+            current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
             ee_orn = p.getQuaternionFromEuler(
                 [0, state.get(robot, "tilt"),
                  state.get(robot, "wrist")])
             current_pose = Pose(current_position, ee_orn)
             # Target
-            target_position = (state.get(block, "x"), 
-                               state.get(block, "y"),
+            target_position = (state.get(block, "x"), state.get(block, "y"),
                                z_func(state.get(block, "z")))
-            target_orn = p.getQuaternionFromEuler([0, 
-                                                   cls.env_cls.robot_init_tilt,
-                                                   state.get(block, "rot")])
+            target_orn = p.getQuaternionFromEuler(
+                [0, cls.env_cls.robot_init_tilt,
+                 state.get(block, "rot")])
             target_pose = Pose(target_position, target_orn)
             return current_pose, target_pose, finger_status
 
         return create_move_end_effector_to_pose_option(
-            pybullet_robot, name, option_types, params_space,
+            pybullet_robot,
+            name,
+            option_types,
+            params_space,
             _get_current_and_target_pose_and_finger_status,
-            cls._move_to_pose_tol, CFG.pybullet_max_vel_norm,
+            cls._move_to_pose_tol,
+            CFG.pybullet_max_vel_norm,
             cls._finger_action_nudge_magnitude,
             validate=CFG.pybullet_ik_validate)
 
@@ -243,31 +245,32 @@ class PyBulletAntsGroundTruthOptionFactory(GroundTruthOptionFactory):
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
             robot, = objects
-            current_position = (state.get(robot, "x"),
-                                state.get(robot, "y"),
+            current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
-            ee_orn = p.getQuaternionFromEuler([0, 
-                                            state.get(robot, "tilt"),
-                                            state.get(robot, "wrist")])
+            ee_orn = p.getQuaternionFromEuler(
+                [0, state.get(robot, "tilt"),
+                 state.get(robot, "wrist")])
             current_pose = Pose(current_position, ee_orn)
-            
+
             # De-normalize parameters to actual table coordinates.
             x_norm, y_norm = params
             target_position = (
                 PyBulletAntsEnv.x_lb +
                 (PyBulletAntsEnv.x_ub - PyBulletAntsEnv.x_lb) * x_norm,
                 PyBulletAntsEnv.y_lb +
-                (PyBulletAntsEnv.y_ub - PyBulletAntsEnv.y_lb) * y_norm, 
-                z)
-            target_orn = p.getQuaternionFromEuler([0, 
-                                                cls.env_cls.robot_init_tilt,
-                                                cls.env_cls.robot_init_wrist])
+                (PyBulletAntsEnv.y_ub - PyBulletAntsEnv.y_lb) * y_norm, z)
+            target_orn = p.getQuaternionFromEuler(
+                [0, cls.env_cls.robot_init_tilt, cls.env_cls.robot_init_wrist])
             target_pose = Pose(target_position, target_orn)
             return current_pose, target_pose, finger_status
 
         return create_move_end_effector_to_pose_option(
-            pybullet_robot, name, option_types, params_space,
+            pybullet_robot,
+            name,
+            option_types,
+            params_space,
             _get_current_and_target_pose_and_finger_status,
-            cls._move_to_pose_tol, CFG.pybullet_max_vel_norm,
+            cls._move_to_pose_tol,
+            CFG.pybullet_max_vel_norm,
             cls._finger_action_nudge_magnitude,
             validate=CFG.pybullet_ik_validate)

@@ -3,10 +3,10 @@
 from typing import Dict, Set
 
 from predicators.ground_truth_models import GroundTruthNSRTFactory
+from predicators.settings import CFG
 from predicators.structs import NSRT, DummyParameterizedOption, LiftedAtom, \
     ParameterizedOption, Predicate, Type, Variable
 from predicators.utils import null_sampler
-from predicators.settings import CFG
 
 
 class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
@@ -26,7 +26,6 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         position_type = types["position"]
         switch_type = types["switch"]
         ball_type = types["ball"]
-
 
         # Predicates
         BallAtPos = predicates["BallAtPos"]
@@ -69,8 +68,8 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         }
         delete_effects = {}
         move_right_nsrt = NSRT("MoveRight", parameters, preconditions,
-                              add_effects, delete_effects, set(), option,
-                              option_vars, null_sampler)
+                               add_effects, delete_effects, set(), option,
+                               option_vars, null_sampler)
         nsrts.add(move_right_nsrt)
 
         # MoveLeft
@@ -146,10 +145,9 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(BallAtPos, [ball, pos2]),
         }
         delete_effects = {}
-        move_up_nsrt = NSRT("MoveUp", parameters, preconditions,
-                              add_effects, delete_effects, set(), option,
-                              option_vars, null_sampler)
+        move_up_nsrt = NSRT("MoveUp", parameters, preconditions, add_effects,
+                            delete_effects, set(), option, option_vars,
+                            null_sampler)
         nsrts.add(move_up_nsrt)
-
 
         return nsrts

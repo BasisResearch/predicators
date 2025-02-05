@@ -89,8 +89,7 @@ class PyBulletLaserGroundTruthOptionFactory(GroundTruthOptionFactory):
             [
                 # Move to far the mirror which we will grasp.
                 cls._create_laser_move_to_above_mirror_option(
-                    "MoveToAboveMirror",
-                    lambda _: cls._transport_z, "open",
+                    "MoveToAboveMirror", lambda _: cls._transport_z, "open",
                     option_types, params_space),
                 # Move down to grasp.
                 cls._create_laser_move_to_above_mirror_option(
@@ -104,9 +103,8 @@ class PyBulletLaserGroundTruthOptionFactory(GroundTruthOptionFactory):
                     PyBulletEnv.grasp_tol),
                 # Move up
                 cls._create_laser_move_to_above_mirror_option(
-                    "MoveEndEffectorBackUp",
-                    lambda _: cls._transport_z, "closed",
-                    option_types, params_space),
+                    "MoveEndEffectorBackUp", lambda _: cls._transport_z,
+                    "closed", option_types, params_space),
             ])
         options.add(PickMirror)
 
@@ -118,13 +116,12 @@ class PyBulletLaserGroundTruthOptionFactory(GroundTruthOptionFactory):
             [
                 # Move to above the position for connecting.
                 cls._create_laser_move_to_above_position_option(
-                    "MoveToAboveTwoSnaps",
-                    lambda _: cls._transport_z, "closed",
-                    option_types, params_space),
+                    "MoveToAboveTwoSnaps", lambda _: cls._transport_z,
+                    "closed", option_types, params_space),
                 # Move down to connect.
                 cls._create_laser_move_to_above_position_option(
-                    "MoveToPlace", 
-                    lambda _: cls.env_cls.piece_height + cls.env_cls.z_lb, 
+                    "MoveToPlace",
+                    lambda _: cls.env_cls.piece_height + cls.env_cls.z_lb,
                     "closed", option_types, params_space),
                 # Open fingers
                 create_change_fingers_option(
@@ -133,9 +130,8 @@ class PyBulletLaserGroundTruthOptionFactory(GroundTruthOptionFactory):
                     PyBulletEnv.grasp_tol),
                 # Move back up
                 cls._create_laser_move_to_above_position_option(
-                    "MoveEndEffectorBackUp",
-                    lambda _: cls._transport_z, "open",
-                    option_types, params_space),
+                    "MoveEndEffectorBackUp", lambda _: cls._transport_z,
+                    "open", option_types, params_space),
             ])
         options.add(Place)
 
@@ -147,25 +143,19 @@ class PyBulletLaserGroundTruthOptionFactory(GroundTruthOptionFactory):
                 cls._create_laser_move_to_push_switch_option(
                     "MoveToAboveAndBehindSwitch",
                     lambda x: x - cls._x_offset * 5,
-                    lambda _: cls._transport_z,
-                    "open", option_type,
+                    lambda _: cls._transport_z, "open", option_type,
                     params_space),
                 cls._create_laser_move_to_push_switch_option(
-                    "MoveToBehindSwitch", 
-                    lambda x: x - cls._x_offset * 5,
-                    lambda z: z + cls.env_cls.station_height/2, "open",
+                    "MoveToBehindSwitch", lambda x: x - cls._x_offset * 5,
+                    lambda z: z + cls.env_cls.station_height / 2, "open",
                     option_type, params_space),
                 cls._create_laser_move_to_push_switch_option(
-                    "PushSwitch", 
-                    lambda x: x - cls._x_offset  ,
-                    lambda z: z + cls.env_cls.station_height/2, 
-                    "open",
+                    "PushSwitch", lambda x: x - cls._x_offset,
+                    lambda z: z + cls.env_cls.station_height / 2, "open",
                     option_type, params_space),
                 cls._create_laser_move_to_push_switch_option(
-                    "MoveBack", 
-                    lambda x: x - cls._x_offset * 3,
-                    lambda _: cls._transport_z, 
-                    "open", option_type,
+                    "MoveBack", lambda x: x - cls._x_offset * 3,
+                    lambda _: cls._transport_z, "open", option_type,
                     params_space),
             ])
         options.add(SwitchOn)
@@ -196,11 +186,9 @@ class PyBulletLaserGroundTruthOptionFactory(GroundTruthOptionFactory):
             sx = state.get(switch, "x")
             sy = state.get(switch, "y")
             sz = state.get(switch, "z")
-            srot = state.get(switch, "rot") + np.pi/2
+            srot = state.get(switch, "rot") + np.pi / 2
 
-            target_position = (x_func(sx),
-                               sy,
-                               z_func(sz))
+            target_position = (x_func(sx), sy, z_func(sz))
             target_orn = p.getQuaternionFromEuler(
                 [0, cls.env_cls.robot_init_tilt, srot])
             target_pose = Pose(target_position, target_orn)

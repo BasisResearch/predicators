@@ -1,4 +1,4 @@
-"""Laser env
+"""Laser env.
 
 python predicators/main.py --approach oracle --env pybullet_laser \
 --seed 0 --num_test_tasks 1 --use_gui --debug --num_train_tasks 0 \
@@ -12,8 +12,8 @@ python predicators/main.py --approach oracle --env pybullet_laser \
 --pybullet_ik_validate False --sesame_check_expected_atoms False \
 --video_not_break_on_exception
 """
-import time
 import logging
+import time
 from typing import Any, ClassVar, Dict, List, Sequence, Set, Tuple
 
 import numpy as np
@@ -30,12 +30,13 @@ from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
 
 # For storing the laser beams ids (when they are created as bodies instead of
 # debug lines)
-# The laser beam management is still not work properly when using bilevel 
+# The laser beam management is still not work properly when using bilevel
 # planning--the lasers created during planning are not removed when the policy
 # is evaluated. This results in the test videos being contaminated with the
 # beams generated during the planning phase. The current workaround is to use
 # bilevel_plan_without_sim=True.
 _laser_ids = []
+
 
 class PyBulletLaserEnv(PyBulletEnv):
     """A PyBullet environment that simulates a laser station, mirrors, and
@@ -124,13 +125,18 @@ class PyBulletLaserEnv(PyBulletEnv):
         self._robot = Object("robot", self._robot_type)
         self._station = Object("station", self._station_type)
 
-        self._split_mirrors = [Object(f"split_mirror{i}", self._mirror_type)
-                                for i in range(self.num_split_mirrors)]
-        self._normal_mirrors = [Object(f"mirror{i}", self._mirror_type)
-                                for i in range(self.num_standard_mirrors)]
-        self._targets = [Object(f"target{i}", self._target_type)
-                                for i in range(self.num_targets)]
-        
+        self._split_mirrors = [
+            Object(f"split_mirror{i}", self._mirror_type)
+            for i in range(self.num_split_mirrors)
+        ]
+        self._normal_mirrors = [
+            Object(f"mirror{i}", self._mirror_type)
+            for i in range(self.num_standard_mirrors)
+        ]
+        self._targets = [
+            Object(f"target{i}", self._target_type)
+            for i in range(self.num_targets)
+        ]
 
         # Initialize PyBullet
         super().__init__(use_gui=use_gui)
@@ -262,13 +268,13 @@ class PyBulletLaserEnv(PyBulletEnv):
         self._station.id = pybullet_bodies["station_id"]
         self._station.joint_id = self._get_joint_id(self._station.id,
                                                     "joint_0")
-        for mirror, mirror_id in zip(self._normal_mirrors, 
+        for mirror, mirror_id in zip(self._normal_mirrors,
                                      pybullet_bodies["normal_mirror_ids"]):
             mirror.id = mirror_id
         for mirror, mirror_id in zip(self._split_mirrors,
                                      pybullet_bodies["split_mirror_ids"]):
             mirror.id = mirror_id
-        for target, target_id in zip(self._targets, 
+        for target, target_id in zip(self._targets,
                                      pybullet_bodies["target_ids"]):
             target.id = target_id
 
@@ -303,32 +309,40 @@ class PyBulletLaserEnv(PyBulletEnv):
             p.removeBody(beam_id, physicsClientId=client_id)
             # Remove the beam from the list
             _laser_ids.remove((beam_id, creation_time, client_id))
-            logging.debug(f"[reset] removing beam_id: {beam_id} in sim{client_id}, remining beams {[id for id, _, _ in _laser_ids]}")
+            logging.debug(
+                f"[reset] removing beam_id: {beam_id} in sim{client_id}, remining beams {[id for id, _, _ in _laser_ids]}"
+            )
 
         # Move targets out of view if needed
         target_objs = state.get_objects(self._target_type)
         for i in range(len(target_objs), len(self._targets)):
-            update_object(self._targets[i].id, position=(oov_x, oov_y, 0.0),
+            update_object(self._targets[i].id,
+                          position=(oov_x, oov_y, 0.0),
                           physics_client_id=self._physics_client_id)
 
         # Move split mirrors out of view if needed
-        split_mirror_objs = [m for m in state.get_objects(
-                                        self._mirror_type)
-                                    if state.get(m, "split_mirror") > 0.5]
+        split_mirror_objs = [
+            m for m in state.get_objects(self._mirror_type)
+            if state.get(m, "split_mirror") > 0.5
+        ]
         for i in range(len(split_mirror_objs), len(self._split_mirrors)):
-            update_object(self._split_mirrors[i].id, position=(oov_x, oov_y, 0.0),
+            update_object(self._split_mirrors[i].id,
+                          position=(oov_x, oov_y, 0.0),
                           physics_client_id=self._physics_client_id)
 
         # Move normal mirrors out of view if needed
-        normal_mirror_objs = [m for m in state.get_objects(
-                                        self._mirror_type)
-                                    if state.get(m, "split_mirror") < 0.5]
+        normal_mirror_objs = [
+            m for m in state.get_objects(self._mirror_type)
+            if state.get(m, "split_mirror") < 0.5
+        ]
         for i in range(len(normal_mirror_objs), len(self._normal_mirrors)):
-            update_object(self._normal_mirrors[i].id, position=(oov_x, oov_y, 0.0),
+            update_object(self._normal_mirrors[i].id,
+                          position=(oov_x, oov_y, 0.0),
                           physics_client_id=self._physics_client_id)
-        
+
         switch_on = state.get(self._station, "is_on") > 0.5
         self._set_station_powered_on(switch_on)
+
     # -------------------------------------------------------------------------
     # Step
     # -------------------------------------------------------------------------
@@ -337,14 +351,16 @@ class PyBulletLaserEnv(PyBulletEnv):
 
         # After any motion, we simulate the laser
         self._simulate_laser(next_state)
-        
+
         lasers_copy = _laser_ids.copy()
         for beam_id, creation_time, client_id in lasers_copy:
             if time.time() - creation_time > self._laser_life_time:
                 p.removeBody(beam_id, physicsClientId=client_id)
                 # Remove the beam from the list
                 _laser_ids.remove((beam_id, creation_time, client_id))
-                logging.debug(f"[step] removing beam_id: {beam_id} in sim{client_id}, remining beams {[id for id, _, _ in _laser_ids]}")
+                logging.debug(
+                    f"[step] removing beam_id: {beam_id} in sim{client_id}, remining beams {[id for id, _, _ in _laser_ids]}"
+                )
         final_state = self._get_state()
         self._current_observation = final_state
         return final_state
@@ -382,8 +398,8 @@ class PyBulletLaserEnv(PyBulletEnv):
         self._clear_target_hits()
         self._trace_beam(state, start_pt, beam_dir, max_depth)
 
-    def _trace_beam(self, state: State, start: np.ndarray, direction: np.ndarray,
-                    depth: int):
+    def _trace_beam(self, state: State, start: np.ndarray,
+                    direction: np.ndarray, depth: int):
         """Recursively move a line forward until it hits a mirror or target."""
         if depth <= 0:
             return
@@ -419,16 +435,20 @@ class PyBulletLaserEnv(PyBulletEnv):
                     lineToXYZ=end_pt.tolist(),
                     lineColorRGB=self._laser_color,  # red
                     lineWidth=self._laser_width,
-                    lifeTime=self._laser_life_time,  # short lifetime so each step refreshes
+                    lifeTime=self.
+                    _laser_life_time,  # short lifetime so each step refreshes
                 )
             else:
                 laser_id = create_laser_cylinder(
-                        start.tolist(), 
-                        end_pt.tolist(),
-                    )
-                logging.debug(f"created laser beam {laser_id} in sim{self._physics_client_id}, current beams {[id for id, _, _ in _laser_ids]}")
+                    start.tolist(),
+                    end_pt.tolist(),
+                )
+                logging.debug(
+                    f"created laser beam {laser_id} in sim{self._physics_client_id}, current beams {[id for id, _, _ in _laser_ids]}"
+                )
                 # breakpoint()
-                _laser_ids.append((laser_id, time.time(), self._physics_client_id))
+                _laser_ids.append(
+                    (laser_id, time.time(), self._physics_client_id))
             return
 
         # Unpack the best hit
@@ -447,10 +467,12 @@ class PyBulletLaserEnv(PyBulletEnv):
             )
         else:
             laser_id = create_laser_cylinder(
-                    start.tolist(), 
-                    hit_point.tolist(),
-                )
-            logging.debug(f"created laser beam {laser_id} in sim{self._physics_client_id}, current beams {[id for id, _, _ in _laser_ids]}")
+                start.tolist(),
+                hit_point.tolist(),
+            )
+            logging.debug(
+                f"created laser beam {laser_id} in sim{self._physics_client_id}, current beams {[id for id, _, _ in _laser_ids]}"
+            )
             # breakpoint()
             _laser_ids.append((laser_id, time.time(), self._physics_client_id))
 
@@ -468,19 +490,16 @@ class PyBulletLaserEnv(PyBulletEnv):
                     # 1) Reflect path
                     reflect_dir = self._mirror_reflection(hit_id, direction)
                     self._trace_beam(state, hit_point + reflect_dir * 1e-3,
-                                     reflect_dir,
-                                     depth - 1)
+                                     reflect_dir, depth - 1)
                     # 2) Pass-through path
                     pass_dir = direction
                     self._trace_beam(state, hit_point + pass_dir * 1e-2,
-                                     pass_dir,
-                                     depth - 1)
+                                     pass_dir, depth - 1)
                 else:
                     # Normal mirror => reflect only
                     reflect_dir = self._mirror_reflection(hit_id, direction)
-                    self._trace_beam(state, hit_point + reflect_dir * 1e-3, 
-                                     reflect_dir,
-                                     depth - 1)
+                    self._trace_beam(state, hit_point + reflect_dir * 1e-3,
+                                     reflect_dir, depth - 1)
                     return
         # Otherwise, it might have hit the station/table => stop
         return
@@ -708,8 +727,10 @@ class PyBulletLaserEnv(PyBulletEnv):
             init_state = utils.create_state_from_dict(init_dict)
 
             goal_atoms = {
-                *[GroundAtom(self._TargetHit, [self._targets[tid]]) for tid in 
-                  range(num_targets)],
+                *[
+                    GroundAtom(self._TargetHit, [self._targets[tid]])
+                    for tid in range(num_targets)
+                ],
                 GroundAtom(self._StationOn, [self._station]),
             }
 
@@ -717,8 +738,8 @@ class PyBulletLaserEnv(PyBulletEnv):
 
         return self._add_pybullet_state_to_tasks(tasks)
 
-def create_laser_cylinder(start, end, color=(1, 0, 0, 1),
-                          radius=0.001) -> int:
+
+def create_laser_cylinder(start, end, color=(1, 0, 0, 1), radius=0.001) -> int:
     """Create a thin cylinder from start -> end, visible in getCameraImage."""
     start = np.array(start, dtype=float)
     end = np.array(end, dtype=float)
@@ -767,16 +788,17 @@ def create_laser_cylinder(start, end, color=(1, 0, 0, 1),
 
     # Create the actual body
     body_id = p.createMultiBody(
-        baseMass=0,                   # mass=0 => static object
-        baseInertialFramePosition=[0,0,0],
+        baseMass=0,  # mass=0 => static object
+        baseInertialFramePosition=[0, 0, 0],
         baseCollisionShapeIndex=col_id,
         baseVisualShapeIndex=vis_id,
         basePosition=mid.tolist(),
         baseOrientation=orientation,
     )
-    p.setCollisionFilterGroupMask(body_id, -1,
-                              collisionFilterGroup=0,
-                              collisionFilterMask=0)
+    p.setCollisionFilterGroupMask(body_id,
+                                  -1,
+                                  collisionFilterGroup=0,
+                                  collisionFilterMask=0)
 
     # If you want this beam to vanish after `lifetime` seconds,
     # you can schedule a removal in your main loop, or store
@@ -784,6 +806,7 @@ def create_laser_cylinder(start, end, color=(1, 0, 0, 1),
     #   p.removeBody(body_id)
 
     return body_id
+
 
 if __name__ == "__main__":
     """Run a simple simulation to test the environment."""

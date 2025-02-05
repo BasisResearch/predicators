@@ -133,14 +133,14 @@ class PyBulletAntsGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         def putontable_sampler(state: State, goal: Set[GroundAtom],
                                rng: np.random.Generator,
                                objs: Sequence[Object]) -> Array:
-            del goal # unused
+            del goal  # unused
             block = objs[0]
             attractive = state.get(block, "attractive")
             if attractive:
-                x_range = [2/3, 1]
+                x_range = [2 / 3, 1]
             else:
-                x_range = [0, 1/3]
-            y_range = [1/4, 3/4]
+                x_range = [0, 1 / 3]
+            y_range = [1 / 4, 3 / 4]
             # Note: normalized coordinates w.r.t. workspace.
             x = rng.uniform(*x_range)
             y = rng.uniform(*y_range)

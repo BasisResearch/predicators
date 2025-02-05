@@ -88,29 +88,27 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                     close_fingers_func, CFG.pybullet_max_vel_norm,
                     PyBulletEnv.grasp_tol_small),
                 cls._create_domino_move_to_push_domino_option(
-                    "MoveToAboveDomino", 
+                    "MoveToAboveDomino",
                     lambda x, rot: x - np.sin(rot) * cls._offset_x,
                     lambda y, rot: y - np.cos(rot) * cls._offset_x,
                     lambda _: cls._transport_z, "closed", option_type,
                     params_space),
                 cls._create_domino_move_to_push_domino_option(
-                    "MoveToBehindDomino", 
+                    "MoveToBehindDomino",
                     lambda x, rot: x - np.sin(rot) * cls._offset_x,
                     lambda y, rot: y - np.cos(rot) * cls._offset_x,
                     lambda z: z + cls._offset_z, "closed", option_type,
                     params_space),
                 cls._create_domino_move_to_push_domino_option(
                     "PushDomino",
-                    lambda x, rot: x + np.sin(rot) * cls._offset_x/4,
-                    lambda y, rot: y + np.cos(rot) * cls._offset_x/4,
+                    lambda x, rot: x + np.sin(rot) * cls._offset_x / 4,
+                    lambda y, rot: y + np.cos(rot) * cls._offset_x / 4,
                     lambda z: z + cls._offset_z, "closed", option_type,
                     params_space),
                 cls._create_domino_move_to_push_domino_option(
-                    "BackUp",
-                    lambda _1, _2: cls.env_cls.robot_init_x,
+                    "BackUp", lambda _1, _2: cls.env_cls.robot_init_x,
                     lambda _1, _2: cls.env_cls.robot_init_y,
-                    lambda _: cls.env_cls.robot_init_z, 
-                    "closed", option_type,
+                    lambda _: cls.env_cls.robot_init_z, "closed", option_type,
                     params_space),
                 create_change_fingers_option(
                     pybullet_robot, "OpenFingers", option_type, params_space,
@@ -129,9 +127,8 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
     @classmethod
     def _create_domino_move_to_push_domino_option(
-            cls, name: str, x_func: Callable[[float], float], 
-                            y_func: Callable[[float], float],
-                            z_func: Callable[[float], float],
+            cls, name: str, x_func: Callable[[float], float],
+            y_func: Callable[[float], float], z_func: Callable[[float], float],
             finger_status: str, option_types: List[Type],
             params_space: Box) -> ParameterizedOption:
         """Create a move-to-pose option for the domino environment."""
@@ -151,11 +148,9 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             dy = state.get(domino, "y")
             dz = state.get(domino, "z")
             drot = state.get(domino, "rot")
-            target_position = (x_func(dx, drot), 
-                               y_func(dy, drot),
-                               z_func(dz))
+            target_position = (x_func(dx, drot), y_func(dy, drot), z_func(dz))
             target_orn = p.getQuaternionFromEuler(
-                [0, cls.env_cls.robot_init_tilt, drot + np.pi/2])
+                [0, cls.env_cls.robot_init_tilt, drot + np.pi / 2])
             target_pose = Pose(target_position, target_orn)
             return current_pose, target_pose, finger_status
 

@@ -48,15 +48,10 @@ class PyBulletEnv(BaseEnv):
     _obj_mass: ClassVar[float] = 0.5
     _obj_friction: ClassVar[float] = 1.2
     _obj_colors_main: ClassVar[Sequence[Tuple[float, float, float, float]]] = [
-        (0.95, 0.05, 0.1, 1.),
-        (0.05, 0.95, 0.1, 1.),
-        (0.1, 0.05, 0.95, 1.),
-        (0.4, 0.05, 0.6, 1.),
-        (0.6, 0.4, 0.05, 1.),
-        (0.05, 0.04, 0.6, 1.),
-        (0.95, 0.95, 0.1, 1.),
-        (0.95, 0.05, 0.95, 1.),
-        (0.05, 0.95, 0.95, 1.)]
+        (0.95, 0.05, 0.1, 1.), (0.05, 0.95, 0.1, 1.), (0.1, 0.05, 0.95, 1.),
+        (0.4, 0.05, 0.6, 1.), (0.6, 0.4, 0.05, 1.), (0.05, 0.04, 0.6, 1.),
+        (0.95, 0.95, 0.1, 1.), (0.95, 0.05, 0.95, 1.), (0.05, 0.95, 0.95, 1.)
+    ]
     _obj_colors: ClassVar[Sequence[Tuple[float, float, float, float]]] =\
         _obj_colors_main + [
         (0.941, 0.196, 0.196, 1.),  # Red
@@ -470,7 +465,7 @@ class PyBulletEnv(BaseEnv):
             # Basic features
             try:
                 (px, py, pz), orn = p.getBasePositionAndOrientation(
-                obj.id, physicsClientId=self._physics_client_id)
+                    obj.id, physicsClientId=self._physics_client_id)
             except:
                 breakpoint()
             if "x" in obj_features:
