@@ -109,99 +109,131 @@ def configure_logging() -> None:
     logging.getLogger('libpng').setLevel(logging.ERROR)
     logging.getLogger('PIL').setLevel(logging.ERROR)
 
-def main() -> None:
-    """Main entry point for running approaches in environments."""
-    script_start = time.perf_counter()
-    # Parse & validate args
-    args = utils.parse_args()
-    utils.update_config(args)
-    str_args = " ".join(sys.argv)
 
-    configure_logging()
-
+def _log_initial_info(str_args: str) -> None:
+    """Log initial configuration and setup information."""
     if CFG.log_file:
         logging.info(f"Logging to {CFG.log_file}")
     logging.info(f"Running command: python {str_args}")
     logging.info("Full config:")
     logging.info(CFG)
     logging.info(f"Git commit hash: {utils.get_git_commit_hash()}")
-    # Create results directory.
-    os.makedirs(CFG.results_dir, exist_ok=True)
-    # Create the eval trajectories directory.
-    os.makedirs(CFG.eval_trajectories_dir, exist_ok=True)
-    # Create classes. Note that seeding happens inside the env and approach.
+
+
+def setup_environment() -> Tuple[BaseEnv, List[Task], List[Task]]:
+    """Create and setup the environment and tasks.
+    
+    Returns:
+        Tuple containing:
+        - The environment
+        - The training tasks for the approach
+        - The original training tasks
+    """
+    # Create environment
     env = create_new_env(CFG.env, do_cache=True, use_gui=CFG.use_gui)
-    # The action space needs to be seeded externally, because env.action_space
-    # is often created during env __init__().
     env.action_space.seed(CFG.seed)
     assert env.goal_predicates.issubset(env.predicates)
-    included_preds, excluded_preds = utils.parse_config_excluded_predicates(
-        env)
-    # The known predicates are passed into the approach and into dataset
-    # creation. In some cases, like when inventing geometric and VLM predicates,
-    # we want to hide certain goal predicates from the agent because we may
-    # want to invent them. So we can replace them with agent-specific goal
-    # predicates that the environment defines. Note that inside dataset
-    # creation, the known predicates are only used to create a VLM dataset, so
-    # we can just overwrite the variable `preds`. No replacing is done if the
-    # approach is oracle because the ground truth operators are defined in terms
-    # of the original goal predicates.
+
+    # Setup predicates
+    included_preds, excluded_preds = utils.parse_config_excluded_predicates(env)
     preds = utils.replace_goals_with_agent_specific_goals(
         included_preds, excluded_preds,
         env) if CFG.approach != "oracle" else included_preds
-    # Create the train tasks.
+
+    # Create train tasks
     env_train_tasks = env.get_train_tasks()
-    # We assume that a train Task can be constructed from a EnvironmentTask.
-    # In other words, the initial obs is assumed to contain enough information
-    # to determine all of the objects and their initial states. We only make
-    # this assumption for the training tasks, we don't need to make it for the
-    # test tasks. We need to make it for training tasks because all of the data
-    # collection here is offline, so there would be no way for agent to gather
-    # information in training.
     perceiver = create_perceiver(CFG.perceiver)
     train_tasks = [perceiver.reset(t) for t in env_train_tasks]
-    # If train tasks have goals that involve excluded predicates, strip those
-    # predicate classifiers to prevent leaking information to the approaches.
-    stripped_train_tasks = [
-        utils.strip_task(task, preds) for task in train_tasks
-    ]
-    # If the goals of the tasks that the approaches solve need to be described
-    # using predicates that differ from those in the goals of the tasks that the
-    # demonstrator solves, then replace those predicates accordingly. This is
-    # used in VLM predicate invention where we want to invent certain goal
-    # predicates that the demonstrator needed to solve the task. We don't need
-    # worry about not doing this replacing if the approach is oracle because the
-    # "unedited" train tasks are passed into offline dataset creation.
+    
+    # Strip excluded predicates and prepare approach tasks
+    stripped_train_tasks = [utils.strip_task(task, preds) for task in train_tasks]
     approach_train_tasks = [
         task.replace_goal_with_alt_goal() for task in stripped_train_tasks
     ]
+
+    return env, approach_train_tasks, train_tasks
+
+
+def setup_approach(env: BaseEnv, 
+                  preds: set, 
+                  approach_train_tasks: List[Task]) -> 'BaseApproach':
+    """Create and setup the approach/agent.
+    
+    Returns:
+        The configured approach
+    """
+    # Setup options
     if CFG.option_learner == "no_learning":
-        # If we are not doing option learning, pass in all the environment's
-        # oracle options.
         options = get_gt_options(env.get_name())
     else:
-        # Determine from the config which oracle options to include, if any.
         options = parse_config_included_options(env)
-    # Create the agent (approach).
+
+    # Create approach
     approach_name = CFG.approach
     if CFG.approach_wrapper:
         approach_name = f"{CFG.approach_wrapper}[{approach_name}]"
-    approach = create_approach(approach_name, preds, options, env.types,
-                               env.action_space, approach_train_tasks)
-    if approach.is_learning_based or CFG.make_demo_videos:
-        # Create the offline dataset. Note that this needs to be done using
-        # the non-stripped train tasks because dataset generation may need
-        # to use the oracle predicates (e.g. demo data generation).
-        offline_dataset = create_dataset(env, train_tasks, options, preds)
-    else:
-        offline_dataset = None
-    # Create the cognitive manager.
+    
+    return create_approach(approach_name, preds, options, env.types,
+                         env.action_space, approach_train_tasks)
+
+
+def create_offline_dataset(env: BaseEnv, 
+                         train_tasks: List[Task],
+                         preds: set,
+                         approach: 'BaseApproach') -> Optional[Dataset]:
+    """Create offline dataset if needed.
+    
+    Returns:
+        Dataset if required, None otherwise
+    """
+    if approach.is_learning_based or CFG.make_demo_videos or CFG.make_demo_images:
+        options = get_gt_options(env.get_name()) if CFG.option_learner == "no_learning" \
+                 else parse_config_included_options(env)
+        return create_dataset(env, train_tasks, options, preds)
+    return None
+
+
+def main() -> None:
+    """Main entry point for running approaches in environments."""
+    script_start = time.perf_counter()
+    
+    # Parse & validate args
+    args = utils.parse_args()
+    utils.update_config(args)
+    str_args = " ".join(sys.argv)
+
+    # Setup logging and directories
+    configure_logging()
+    os.makedirs(CFG.results_dir, exist_ok=True)
+    os.makedirs(CFG.eval_trajectories_dir, exist_ok=True)
+
+    # Log initial info
+    _log_initial_info(str_args)
+
+    # Setup environment and tasks
+    env, approach_train_tasks, train_tasks = setup_environment()
+    
+    # Setup predicates
+    included_preds, excluded_preds = utils.parse_config_excluded_predicates(env)
+    preds = utils.replace_goals_with_agent_specific_goals(
+        included_preds, excluded_preds,
+        env) if CFG.approach != "oracle" else included_preds
+
+    # Create approach
+    approach = setup_approach(env, preds, approach_train_tasks)
+
+    # Create dataset and cognitive manager
+    offline_dataset = create_offline_dataset(env, train_tasks, preds, approach)
     execution_monitor = create_execution_monitor(CFG.execution_monitor)
-    cogman = CogMan(approach, perceiver, execution_monitor)
-    # Run the full pipeline.
+    cogman = CogMan(approach, create_perceiver(CFG.perceiver), execution_monitor)
+
+    # Run pipeline
     _run_pipeline(env, cogman, approach_train_tasks, offline_dataset)
+    
+    # Log completion
     script_time = time.perf_counter() - script_start
     logging.info(f"\n\nMain script terminated in {script_time:.5f} seconds")
+
 
 
 def _run_pipeline(env: BaseEnv,
