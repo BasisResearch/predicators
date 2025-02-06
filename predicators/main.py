@@ -237,104 +237,124 @@ def main() -> None:
 
 
 def _run_pipeline(env: BaseEnv,
-                  cogman: CogMan,
-                  train_tasks: List[Task],
-                  offline_dataset: Optional[Dataset] = None) -> None:
-    # If agent is learning-based, allow the agent to learn from the generated
-    # offline dataset, and then proceed with the online learning loop. Test
-    # after each learning call. If agent is not learning-based, just test once.
+                 cogman: CogMan,
+                 train_tasks: List[Task],
+                 offline_dataset: Optional[Dataset] = None) -> None:
+    """Main pipeline for running the learning and testing process."""
     if cogman.is_learning_based:
         assert offline_dataset is not None, "Missing offline dataset"
-        num_offline_transitions = sum(
-            len(traj.actions) for traj in offline_dataset.trajectories)
-        num_online_transitions = 0
-        total_query_cost = 0.0
-        if CFG.load_approach:
-            cogman.load(online_learning_cycle=None)
-            learning_time = 0.0  # ignore loading time
-        else:
-            learning_start = time.perf_counter()
-            cogman.learn_from_offline_dataset(offline_dataset)
-            learning_time = time.perf_counter() - learning_start
-        offline_learning_metrics = {
-            f"offline_learning_{k}": v
-            for k, v in cogman.metrics.items()
-        }
-        # Run evaluation once before online learning starts.
+        
+        # Handle offline learning phase
+        num_offline_trans, num_online_trans, learning_time, offline_metrics = \
+            _handle_offline_learning(cogman, offline_dataset)
+
+        # Run initial evaluation if needed
         if CFG.skip_until_cycle < 0:
             results = _run_testing(env, cogman)
-            results["num_offline_transitions"] = num_offline_transitions
-            results["num_online_transitions"] = num_online_transitions
-            results["query_cost"] = total_query_cost
-            results["learning_time"] = learning_time
-            results.update(offline_learning_metrics)
+            results.update({
+                "num_offline_transitions": num_offline_trans,
+                "num_online_transitions": num_online_trans,
+                "query_cost": 0.0,
+                "learning_time": learning_time,
+                **offline_metrics
+            })
             _save_test_results(results, online_learning_cycle=None)
-        # Only create a teacher if there are possibly queries coming.
-        if get_allowed_query_type_names():
-            teacher = Teacher(train_tasks)
-        else:
-            teacher = None
-        load_approach = CFG.load_approach
-        # The online learning loop.
-        for i in range(CFG.num_online_learning_cycles):
 
-            if i < CFG.skip_until_cycle:
-                continue
-
-            # Start by loading the approach from the previous cycle, if we are
-            # loading approaches, and if we haven't already restarted learning.
-            if load_approach:
-                # If the cycle is 0, then we already loaded the approach before
-                # offline learning, so we don't need to do anything here.
-                if i > 0:  # pragma: no cover
-                    last_cycle = i - 1
-                    cogman.load(online_learning_cycle=last_cycle)
-                # If we're restarting learning, no need to load from now on.
-                if CFG.restart_learning:  # pragma: no cover
-                    load_approach = False
-
-            # Run online interaction.
-            logging.info(f"\n\nONLINE LEARNING CYCLE {i}\n")
-            logging.info("Getting interaction requests...")
-            if num_online_transitions >= CFG.online_learning_max_transitions:
-                logging.info("Reached online_learning_max_transitions, "
-                             "terminating")
-                break
-            interaction_requests = cogman.get_interaction_requests()
-            if not interaction_requests:
-                logging.info("Did not receive any interaction requests, "
-                             "terminating")
-                break  # agent doesn't want to learn anything more; terminate
-            interaction_results, query_cost = _generate_interaction_results(
-                cogman, env, teacher, interaction_requests, i)
-            num_online_transitions += sum(
-                len(result.actions) for result in interaction_results)
-            total_query_cost += query_cost
-            logging.info(f"Query cost incurred this cycle: {query_cost}")
-
-            # Learn from online interaction results, unless we are loading
-            # and not restarting learning.
-            if not CFG.load_approach or CFG.restart_learning:
-                learning_start = time.perf_counter()
-                logging.info("Learning from interaction results...")
-                cogman.learn_from_interaction_results(interaction_results)
-                learning_time += time.perf_counter() - learning_start
-
-            # Evaluate approach after every online learning cycle.
-            results = _run_testing(env, cogman)
-            results["num_offline_transitions"] = num_offline_transitions
-            results["num_online_transitions"] = num_online_transitions
-            results["query_cost"] = total_query_cost
-            results["learning_time"] = learning_time
-            results.update(offline_learning_metrics)
-            _save_test_results(results, online_learning_cycle=i)
+        # Run online learning loop
+        _run_online_learning_loop(env, cogman, train_tasks, num_offline_trans,
+                                learning_time, offline_metrics)
     else:
+        # Handle non-learning case
         results = _run_testing(env, cogman)
-        results["num_offline_transitions"] = 0
-        results["num_online_transitions"] = 0
-        results["query_cost"] = 0.0
-        results["learning_time"] = 0.0
+        results.update({
+            "num_offline_transitions": 0,
+            "num_online_transitions": 0, 
+            "query_cost": 0.0,
+            "learning_time": 0.0
+        })
         _save_test_results(results, online_learning_cycle=None)
+
+
+def _handle_offline_learning(cogman: CogMan,
+                           offline_dataset: Dataset) -> Tuple[float, float, float, dict]:
+    """Handle offline learning phase and initial evaluation."""
+    num_offline_transitions = sum(len(traj.actions) 
+                                for traj in offline_dataset.trajectories)
+    if CFG.load_approach:
+        cogman.load(online_learning_cycle=None)
+        learning_time = 0.0  # ignore loading time
+    else:
+        learning_start = time.perf_counter()
+        cogman.learn_from_offline_dataset(offline_dataset)
+        learning_time = time.perf_counter() - learning_start
+    
+    offline_learning_metrics = {
+        f"offline_learning_{k}": v
+        for k, v in cogman.metrics.items()
+    }
+    
+    return num_offline_transitions, 0.0, learning_time, offline_learning_metrics
+
+def _run_online_learning_loop(env: BaseEnv,
+                            cogman: CogMan,
+                            train_tasks: List[Task],
+                            num_offline_transitions: int,
+                            learning_time: float,
+                            offline_learning_metrics: dict) -> None:
+    """Run the online learning loop."""
+    num_online_transitions = 0
+    total_query_cost = 0.0
+    
+    # Create teacher if needed
+    teacher = Teacher(train_tasks) if get_allowed_query_type_names() else None
+    load_approach = CFG.load_approach
+
+    for i in range(CFG.num_online_learning_cycles):
+        if i < CFG.skip_until_cycle:
+            continue
+
+        # Handle loading approach
+        if load_approach and i > 0:
+            cogman.load(online_learning_cycle=i-1)
+            if CFG.restart_learning:
+                load_approach = False
+
+        # Run online interaction
+        logging.info(f"\n\nONLINE LEARNING CYCLE {i}\n")
+        if num_online_transitions >= CFG.online_learning_max_transitions:
+            logging.info("Reached online_learning_max_transitions, terminating")
+            break
+
+        interaction_requests = cogman.get_interaction_requests()
+        if not interaction_requests:
+            logging.info("Did not receive any interaction requests, terminating") 
+            break
+
+        interaction_results, query_cost = _generate_interaction_results(
+            cogman, env, teacher, interaction_requests, i)
+        
+        num_online_transitions += sum(len(result.actions) 
+                                    for result in interaction_results)
+        total_query_cost += query_cost
+        logging.info(f"Query cost incurred this cycle: {query_cost}")
+
+        # Learn from results if appropriate
+        if not CFG.load_approach or CFG.restart_learning:
+            learning_start = time.perf_counter()
+            logging.info("Learning from interaction results...")
+            cogman.learn_from_interaction_results(interaction_results)
+            learning_time += time.perf_counter() - learning_start
+
+        # Evaluate
+        results = _run_testing(env, cogman)
+        results.update({
+            "num_offline_transitions": num_offline_transitions,
+            "num_online_transitions": num_online_transitions,
+            "query_cost": total_query_cost,
+            "learning_time": learning_time,
+            **offline_learning_metrics
+        })
+        _save_test_results(results, online_learning_cycle=i)
 
 
 def _generate_interaction_results(
