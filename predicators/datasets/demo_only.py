@@ -222,7 +222,11 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
             # terminate_on_goal_reached to False. Because we will encounter
             # ApproachFailure('Option plan exhausted!')
             if CFG.keep_failed_demos:
-                make_demo_videos(video_monitor, idx)
+                logging.info("Keeping failed demonstration.")
+                if CFG.make_demo_videos:
+                    make_demo_videos(video_monitor, idx)
+                if CFG.make_demo_images:
+                    make_demo_images(video_monitor, idx, num_tasks)
             continue
         # Check that the goal holds at the end. Print a warning if not.
         if not task.goal_holds(traj.states[-1]):  # pragma: no cover
@@ -255,18 +259,25 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         if CFG.make_demo_videos:
             make_demo_videos(video_monitor, idx)
         if CFG.make_demo_images:
-            assert video_monitor is not None
-            video = video_monitor.get_video()
-            width = len(str(len(train_tasks)))
-            task_number = str(idx).zfill(width)
-            outfile_prefix = f"{CFG.env}__{CFG.seed}__demo__task{task_number}"
-            utils.save_images(outfile_prefix, video)
+            make_demo_images(video_monitor, idx, num_tasks)
     if annotate_with_gt_ops:
         dataset = Dataset(trajectories, annotations)
     else:
         dataset = Dataset(trajectories)
     return dataset
 
+def make_demo_images(video_monitor: utils.VideoMonitor, idx: int, 
+                     num_train_tasks: int) -> None:
+    assert video_monitor is not None
+    video = video_monitor.get_video()
+    width = len(str(num_train_tasks))
+    task_number = str(idx).zfill(width)
+    if CFG.use_counterfactual_dataset_path_name:
+        outfile_prefix = f"{CFG.seed}__support__task{idx+1}"
+        CFG.image_dir = os.path.join(CFG.image_dir, CFG.experiment_id)
+    else:
+        outfile_prefix = f"{CFG.env}__{CFG.seed}__demo__task{task_number}"
+    utils.save_images(outfile_prefix, video)
 
 def make_demo_videos(video_monitor: utils.VideoMonitor, idx: int) -> None:
     assert video_monitor is not None
