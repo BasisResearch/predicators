@@ -187,8 +187,8 @@ ENVS:
 ARGS:
   - "debug"
   - "use_gui"
-  # - "make_demo_videos"
-  - "make_demo_images"
+  - "make_demo_videos"
+  # - "make_demo_images"
   - "make_failure_videos"
   - "make_test_videos"
 FLAGS:

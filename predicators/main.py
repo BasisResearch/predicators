@@ -41,7 +41,7 @@ import sys
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple, Union, Any
 
 import colorlog
 import dill as pkl
@@ -525,11 +525,6 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             exec_time = execution_metrics["policy_call_time"]
             num_options_executed = execution_metrics["num_options_executed"]
 
-            if CFG.refinement_data_include_execution_cost:
-                # Add a fixed cost per low-level action
-                low_level_action_cost = (len(traj[1]) *
-                                         CFG.refinement_data_low_level_execution_cost)
-
             # Optionally save a successful trajectory
             if CFG.save_eval_trajs:
                 traj_file = f"{save_prefix}__task{task_idx+1}.traj"
@@ -553,6 +548,10 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
                 nonlocal total_num_execution_failures
                 total_num_execution_failures += 1
             caught_exception = True
+        
+        # if traj is defined
+        if 'traj' not in locals():
+            traj = ([],[])
 
         return solved, caught_exception, exec_time, num_options_executed, traj
 
