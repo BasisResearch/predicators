@@ -5,22 +5,20 @@
 APPROACHES:
   oracle:
     NAME: "oracle"
-    # FLAGS:
-    # ARGS:
 
 ENVS:
+  cover:
+    NAME: "pybullet_cover"
+  # cover_cf:
+  #   NAME: "pybullet_cover"
+  #   FLAGS:
+  #     cover_blocks_change_color_when_cover: True
   # blocks:
   #   NAME: "pybullet_blocks"
   # blocks_cf:
   #   NAME: "pybullet_blocks"
   #   FLAGS:
   #     blocks_high_towers_are_unstable: True
-  # cover_cf:
-  #   NAME: "pybullet_cover"
-  #   FLAGS:
-  #     cover_blocks_change_color_when_cover: True
-  # cover:
-  #   NAME: "pybullet_cover"
   # coffee:
   #   NAME: "pybullet_coffee"
   #   FLAGS:
@@ -129,27 +127,27 @@ ENVS:
   #     num_train_tasks: 0
   #     num_test_tasks: 2
   #     pybullet_max_vel_norm: 0.03
-  laser:
-    NAME: "pybullet_laser"
-    FLAGS:
-      bilevel_plan_without_sim: True
-      laser_use_debug_line_for_beams: False
-      sesame_max_skeletons_optimized: 1
-      sesame_check_expected_atoms: False
-      pybullet_ik_validate: False
-      num_train_tasks: 0
-      num_test_tasks: 2
-  laser_cf:
-    NAME: "pybullet_laser"
-    FLAGS:
-      laser_zero_reflection_angle: True
-      bilevel_plan_without_sim: True
-      laser_use_debug_line_for_beams: False
-      sesame_max_skeletons_optimized: 1
-      sesame_check_expected_atoms: False
-      pybullet_ik_validate: False
-      num_train_tasks: 0
-      num_test_tasks: 2
+  # laser:
+  #   NAME: "pybullet_laser"
+  #   FLAGS:
+  #     bilevel_plan_without_sim: True
+  #     laser_use_debug_line_for_beams: False
+  #     sesame_max_skeletons_optimized: 1
+  #     sesame_check_expected_atoms: False
+  #     pybullet_ik_validate: False
+  #     num_train_tasks: 0
+  #     num_test_tasks: 2
+  # laser_cf:
+  #   NAME: "pybullet_laser"
+  #   FLAGS:
+  #     laser_zero_reflection_angle: True
+  #     bilevel_plan_without_sim: True
+  #     laser_use_debug_line_for_beams: False
+  #     sesame_max_skeletons_optimized: 1
+  #     sesame_check_expected_atoms: False
+  #     pybullet_ik_validate: False
+  #     num_train_tasks: 0
+  #     num_test_tasks: 2
   # ants:
   #   NAME: "pybullet_ants"
   #   FLAGS:
@@ -189,7 +187,8 @@ ENVS:
 ARGS:
   - "debug"
   - "use_gui"
-  - "make_demo_videos"
+  # - "make_demo_videos"
+  - "make_demo_images"
   - "make_failure_videos"
   - "make_test_videos"
 FLAGS:
