@@ -65,13 +65,7 @@ assert os.environ.get("PYTHONHASHSEED") == "0", \
         "Please add `export PYTHONHASHSEED=0` to your bash profile!"
 
 
-def main() -> None:
-    """Main entry point for running approaches in environments."""
-    script_start = time.perf_counter()
-    # Parse & validate args
-    args = utils.parse_args()
-    utils.update_config(args)
-    str_args = " ".join(sys.argv)
+def configure_logging() -> None:
     # Log to stderr.
     colorlog_handler = colorlog.StreamHandler()
     colorlog_handler.setFormatter(
@@ -85,7 +79,6 @@ def main() -> None:
                                   },
                                   reset=True,
                                   style='%'))
-    # handlers: List[logging.Handler] = [logging.StreamHandler()]
     handlers: List[logging.Handler] = [colorlog_handler]
     if CFG.log_file:
         CFG.log_file += f"{CFG.env}/seed{CFG.seed}/"
@@ -115,6 +108,17 @@ def main() -> None:
     logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
     logging.getLogger('libpng').setLevel(logging.ERROR)
     logging.getLogger('PIL').setLevel(logging.ERROR)
+
+def main() -> None:
+    """Main entry point for running approaches in environments."""
+    script_start = time.perf_counter()
+    # Parse & validate args
+    args = utils.parse_args()
+    utils.update_config(args)
+    str_args = " ".join(sys.argv)
+
+    configure_logging()
+
     if CFG.log_file:
         logging.info(f"Logging to {CFG.log_file}")
     logging.info(f"Running command: python {str_args}")
