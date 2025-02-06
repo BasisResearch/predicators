@@ -424,97 +424,116 @@ def _generate_interaction_results(
 
 
 def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
-    # If the goals of the tasks that the approaches solve need to be described
-    # using predicates that differ from those in the goals of the tasks that the
-    # demonstrator solves, then replace those predicates accordingly. This is
-    # used in VLM predicate invention where we want to invent certain goal
-    # predicates that the demonstrator needed to solve the task. No replacing is
-    # done if the approach is oracle because the ground truth operators are
-    # defined in terms of the original goal predicates.
+    """Run testing on the environment's test tasks using the cogman approach,
+    measuring both solve and execution metrics, and recording successes/failures.
+    Returns a Metrics object populated with aggregated statistics.
+    """
     test_tasks = env.get_test_tasks()
     if CFG.approach != "oracle":
         test_tasks = [task.replace_goal_with_alt_goal() for task in test_tasks]
+
+    # Initialize counters and per-run metrics
+    cogman.reset_metrics()
+    save_prefix = utils.get_config_path_str()
+    metrics: Metrics = defaultdict(float)
+
     num_found_policy = 0
     num_solved = 0
-    cogman.reset_metrics()
     total_suc_time = 0.0
     total_low_level_action_cost = 0.0
+
+    # Summaries for approach/execution failures
     total_num_solve_timeouts = 0
     total_num_solve_failures = 0
     total_num_execution_timeouts = 0
     total_num_execution_failures = 0
 
-    save_prefix = utils.get_config_path_str()
-    metrics: Metrics = defaultdict(float)
+    # Track the running totals for nodes created/expanded
     curr_num_nodes_created = 0.0
     curr_num_nodes_expanded = 0.0
-    for test_task_idx, env_task in enumerate(test_tasks):
-        solve_start = time.perf_counter()
-        try:
-            # We call reset here, outside of run_episode_and_get_observations,
-            # so that we can log planning failures, timeouts, etc. This is
-            # mostly for legacy reasons (before cogman existed separately
-            # from approaches).
-            cogman.reset(env_task)
-        except (ApproachTimeout, ApproachFailure) as e:
-            logging.info(f"Task {test_task_idx+1} / {len(test_tasks)}: "
-                         f"Approach failed to solve with error: {e}")
-            if isinstance(e, ApproachTimeout):
-                total_num_solve_timeouts += 1
-            elif isinstance(e, ApproachFailure):
-                total_num_solve_failures += 1
-            if CFG.make_failure_videos and e.info.get("partial_refinements"):
-                video = utils.create_video_from_partial_refinements(
-                    e.info["partial_refinements"], env, "test", test_task_idx,
-                    CFG.horizon)
-                outfile = f"{save_prefix}__task{test_task_idx+1}_failure.mp4"
-                utils.save_video(outfile, video)
-            if CFG.crash_on_failure:
-                raise e
-            continue
-        solve_time = time.perf_counter() - solve_start
-        metrics[f"PER_TASK_task{test_task_idx}_solve_time"] = solve_time
-        metrics[
-            f"PER_TASK_task{test_task_idx}_nodes_created"] = cogman.metrics[
-                "total_num_nodes_created"] - curr_num_nodes_created
-        metrics[
-            f"PER_TASK_task{test_task_idx}_nodes_expanded"] = cogman.metrics[
-                "total_num_nodes_expanded"] - curr_num_nodes_expanded
-        curr_num_nodes_created = cogman.metrics["total_num_nodes_created"]
-        curr_num_nodes_expanded = cogman.metrics["total_num_nodes_expanded"]
 
-        num_found_policy += 1
-        make_video = False
+    # --------------------------------------------------------------------------
+    # Helper functions
+    # --------------------------------------------------------------------------
+    def _save_video_if_needed(monitor: Optional[utils.VideoMonitor],
+                              is_failure: bool,
+                              task_idx: int) -> None:
+        """Save a video from the monitor if the current config calls for it."""
+        if monitor is None:
+            return
+        video = monitor.get_video()
+        suffix = "_failure" if is_failure else ""
+        outfile = f"{save_prefix}__task{task_idx+1}{suffix}.mp4"
+        utils.save_video(outfile, video)
+
+    def _handle_solve_exception(
+        e: Union[ApproachTimeout, ApproachFailure],
+        task_idx: int,
+        partial_refinements: Any,
+    ) -> Tuple[int, int]:
+        """Handle approach exceptions during the solve step, returning
+        (updated_num_solve_timeouts, updated_num_solve_failures)."""
+        nonlocal total_num_solve_timeouts, total_num_solve_failures
+        logging.info(f"Task {task_idx+1} / {len(test_tasks)}: "
+                     f"Approach failed to solve with error: {e}")
+        if isinstance(e, ApproachTimeout):
+            total_num_solve_timeouts += 1
+        else:
+            total_num_solve_failures += 1
+
+        # Optionally save partial-refinement-based video
+        if CFG.make_failure_videos and partial_refinements:
+            video = utils.create_video_from_partial_refinements(
+                partial_refinements, env, "test", task_idx, CFG.horizon)
+            outfile = f"{save_prefix}__task{task_idx+1}_failure.mp4"
+            utils.save_video(outfile, video)
+
+        if CFG.crash_on_failure:
+            raise e
+        return total_num_solve_timeouts, total_num_solve_failures
+
+    def _solve_task(task_idx: int, env_task: Task) -> float:
+        """Try to solve the given env_task using cogman, returning the solve time."""
+        solve_start = time.perf_counter()
+        cogman.reset(env_task)  # May raise ApproachTimeout or ApproachFailure
+        return time.perf_counter() - solve_start
+
+    def _execute_policy(
+        task_idx: int,
+        env_task: Task,
+        monitor: Optional[utils.VideoMonitor] = None
+    ) -> Tuple[bool, bool, float, int, float]:
+        """Execute the cogman policy in the environment to see if the goal is solved.
+        Returns:
+            (solved, caught_exception, exec_time, num_options_executed, low_level_action_cost)
+        """
         solved = False
         caught_exception = False
-        if CFG.make_test_videos or CFG.make_failure_videos:
-            monitor = utils.VideoMonitor(env.render)
-        else:
-            monitor = None
+        exec_time = 0.0
+        num_options_executed = 0
+        low_level_action_cost = 0.0
+
         try:
-            # Now, measure success by running the policy in the environment.
             traj, solved, execution_metrics = run_episode_and_get_observations(
                 cogman,
                 env,
                 "test",
-                test_task_idx,
+                task_idx,
                 max_num_steps=CFG.horizon,
                 monitor=monitor,
                 terminate_on_goal_reached=CFG.terminate_on_goal_reached)
-            num_opt = execution_metrics["num_options_executed"]
-            metrics[f"PER_TASK_task{test_task_idx}_options_executed"] = num_opt
             exec_time = execution_metrics["policy_call_time"]
-            metrics[f"PER_TASK_task{test_task_idx}_exec_time"] = exec_time
+            num_options_executed = execution_metrics["num_options_executed"]
+
             if CFG.refinement_data_include_execution_cost:
-                total_low_level_action_cost += (
-                    len(traj[1]) *
-                    CFG.refinement_data_low_level_execution_cost)
+                # Add a fixed cost per low-level action
+                low_level_action_cost = (len(traj[1]) *
+                                         CFG.refinement_data_low_level_execution_cost)
+
+            # Optionally save a successful trajectory
             if CFG.save_eval_trajs:
-                # Save the successful trajectory, e.g., for playback on a
-                # robot.
-                traj_file = f"{save_prefix}__task{test_task_idx+1}.traj"
+                traj_file = f"{save_prefix}__task{task_idx+1}.traj"
                 traj_file_path = Path(CFG.eval_trajectories_dir) / traj_file
-                # Include the original task too so we know the goal.
                 traj_data = {
                     "task": env_task,
                     "trajectory": traj,
@@ -523,70 +542,131 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
                 with open(traj_file_path, "wb") as f:
                     pkl.dump(traj_data, f)
         except utils.EnvironmentFailure as e:
-            log_message = f"Environment failed with error: {e}"
+            logging.info(f"Environment failed with error: {e}")
             caught_exception = True
         except (ApproachTimeout, ApproachFailure) as e:
-            log_message = ("Approach failed at policy execution time with "
-                           f"error: {e}")
+            logging.info(f"Approach failed at execution time with error: {e}")
             if isinstance(e, ApproachTimeout):
+                nonlocal total_num_execution_timeouts
                 total_num_execution_timeouts += 1
-            elif isinstance(e, ApproachFailure):
+            else:
+                nonlocal total_num_execution_failures
                 total_num_execution_failures += 1
             caught_exception = True
-        if solved:
-            log_message = "SOLVED"
+
+        return solved, caught_exception, exec_time, num_options_executed, traj
+
+    # --------------------------------------------------------------------------
+    # Main testing loop
+    # --------------------------------------------------------------------------
+    for test_task_idx, env_task in enumerate(test_tasks):
+        # ---------------------
+        # 1) Solve phase
+        # ---------------------
+        try:
+            solve_time = _solve_task(test_task_idx, env_task)
+        except (ApproachTimeout, ApproachFailure) as e:
+            # Handle solve failure/timeouts
+            partial_refinements = getattr(e, "info", {}).get("partial_refinements")
+            _handle_solve_exception(e, test_task_idx, partial_refinements)
+            continue
+
+        # Update solve-time metrics
+        metrics[f"PER_TASK_task{test_task_idx}_solve_time"] = solve_time
+        created = cogman.metrics["total_num_nodes_created"]
+        expanded = cogman.metrics["total_num_nodes_expanded"]
+        metrics[f"PER_TASK_task{test_task_idx}_nodes_created"] = created - curr_num_nodes_created
+        metrics[f"PER_TASK_task{test_task_idx}_nodes_expanded"] = expanded - curr_num_nodes_expanded
+        curr_num_nodes_created, curr_num_nodes_expanded = created, expanded
+
+        num_found_policy += 1
+
+        # ---------------------
+        # 2) Execution phase
+        # ---------------------
+        # Decide if we need to record video
+        need_video = (CFG.make_test_videos or CFG.make_failure_videos)
+        monitor = utils.VideoMonitor(env.render) if need_video else None
+
+        solved, caught_exception, exec_time, num_opts, traj = _execute_policy(
+            test_task_idx, env_task, monitor)
+
+        # Record execution metrics
+        metrics[f"PER_TASK_task{test_task_idx}_exec_time"] = exec_time
+        metrics[f"PER_TASK_task{test_task_idx}_options_executed"] = num_opts
+
+        # Add cost for low-level actions if configured
+        if CFG.refinement_data_include_execution_cost:
+            total_low_level_action_cost += (len(traj[1]) *
+                                CFG.refinement_data_low_level_execution_cost)
+
+        # ---------------------
+        # 3) Post-execution handling
+        # ---------------------
+        if solved and not caught_exception:
+            # The plan reached the goal
+            log_msg = "SOLVED"
             num_solved += 1
             total_suc_time += (solve_time + exec_time)
-            make_video = CFG.make_test_videos
-            video_file = f"{save_prefix}__task{test_task_idx+1}.mp4"
+            # If solved, we may want to save a video if make_test_videos is True
+            if CFG.make_test_videos:
+                _save_video_if_needed(monitor, is_failure=False, task_idx=test_task_idx)
+            # Count how many steps we took
+            # (We rely on the last trajectory from run_episode_and_get_observations)
+            # If you need the real trajectory, you'd store it as in `_execute_policy`.
+            # Suppose we do that here (execution_metrics / logging):
             metrics[f"PER_TASK_task{test_task_idx}_num_steps"] = len(traj[1])
         else:
+            # The plan did not reach the goal, or an exception occurred
             if not caught_exception:
-                log_message = "Policy failed to reach goal"
+                log_msg = "Policy failed to reach goal"
+            else:
+                log_msg = "Policy/Env encountered an exception"
             if CFG.crash_on_failure:
-                raise RuntimeError(log_message)
-            make_video = CFG.make_failure_videos
-            video_file = f"{save_prefix}__task{test_task_idx+1}_failure.mp4"
-        logging.info(f"Task {test_task_idx+1} / {len(test_tasks)}: "
-                     f"{log_message}")
-        if make_video:
-            assert monitor is not None
-            video = monitor.get_video()
-            utils.save_video(video_file, video)
+                raise RuntimeError(log_msg)
+            if CFG.make_failure_videos:
+                _save_video_if_needed(monitor, is_failure=True, task_idx=test_task_idx)
+
+        logging.info(f"Task {test_task_idx+1} / {len(test_tasks)}: {log_msg}")
+
+    # --------------------------------------------------------------------------
+    # Aggregate final metrics
+    # --------------------------------------------------------------------------
     metrics["num_solved"] = num_solved
     metrics["num_total"] = len(test_tasks)
-    metrics["avg_suc_time"] = (total_suc_time /
-                               num_solved if num_solved > 0 else float("inf"))
-    metrics["avg_ref_cost"] = ((total_low_level_action_cost +
-                                cogman.metrics["total_refinement_time"]) /
-                               num_solved if num_solved > 0 else float("inf"))
-    metrics["min_num_samples"] = cogman.metrics[
-        "min_num_samples"] if cogman.metrics["min_num_samples"] < float(
-            "inf") else 0
+    metrics["avg_suc_time"] = (
+        total_suc_time / num_solved if num_solved > 0 else float("inf"))
+    metrics["avg_ref_cost"] = (
+        (total_low_level_action_cost + cogman.metrics["total_refinement_time"])
+        / num_solved if num_solved > 0 else float("inf"))
+
+    # Skeleton / sample info
+    metrics["min_num_samples"] = (
+        cogman.metrics["min_num_samples"]
+        if cogman.metrics["min_num_samples"] < float("inf") else 0)
     metrics["max_num_samples"] = cogman.metrics["max_num_samples"]
-    metrics["min_skeletons_optimized"] = cogman.metrics[
-        "min_num_skeletons_optimized"] if cogman.metrics[
-            "min_num_skeletons_optimized"] < float("inf") else 0
-    metrics["max_skeletons_optimized"] = cogman.metrics[
-        "max_num_skeletons_optimized"]
+    metrics["min_skeletons_optimized"] = (
+        cogman.metrics["min_num_skeletons_optimized"]
+        if cogman.metrics["min_num_skeletons_optimized"] < float("inf") else 0)
+    metrics["max_skeletons_optimized"] = cogman.metrics["max_num_skeletons_optimized"]
+
+    # Failure/timeouts
     metrics["num_solve_timeouts"] = total_num_solve_timeouts
     metrics["num_solve_failures"] = total_num_solve_failures
     metrics["num_execution_timeouts"] = total_num_execution_timeouts
     metrics["num_execution_failures"] = total_num_execution_failures
-    # Handle computing averages of total cogman metrics wrt the
-    # number of found policies. Note: this is different from computing
-    # an average wrt the number of solved tasks, which might be more
-    # appropriate for some metrics, e.g. avg_suc_time above.
+
+    # Compute averages of certain CogMan metrics wrt # of found policies
     for metric_name in [
-            "num_samples", "num_skeletons_optimized", "num_nodes_expanded",
-            "num_nodes_created", "num_nsrts", "num_preds", "plan_length",
-            "num_failures_discovered"
+        "num_samples", "num_skeletons_optimized", "num_nodes_expanded",
+        "num_nodes_created", "num_nsrts", "num_preds", "plan_length",
+        "num_failures_discovered"
     ]:
         total = cogman.metrics[f"total_{metric_name}"]
         metrics[f"avg_{metric_name}"] = (
             total / num_found_policy if num_found_policy > 0 else float("inf"))
-    return metrics
 
+    return metrics
 
 def _save_test_results(results: Metrics,
                        online_learning_cycle: Optional[int]) -> None:
