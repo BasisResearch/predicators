@@ -175,13 +175,55 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         # you modify code around here, make sure that this invariant holds.
         if idx >= CFG.max_initial_demos:
             break
+        """
+        There are two kinds of failures we need to deal with when generating
+        demos for the mara counterfactual dataset:
+            1. exception from solving; 
+            2. exception from run_episode_and_get_states.
+        Point 1: TODO
+        exception during solving from reset. In this case, the video is 
+        empty. To solve this, need to run with 
+        create_video_from_partial_refinments or something.
+        Point 2:
+        When generating mara counterfactual videos, we want it to save the
+        video even with ApproachFailure, which would happen when
+        terminate_on_goal_reached is False. Because we will encounter
+        ApproachFailure('Option plan exhausted!')
+        """
+        # --- Try to solve the task
+        succeed_in_solving = True
         try:
             if CFG.demonstrator == "oracle":
                 # In this case, we use the instantiated cogman to generate
                 # demonstrations. Importantly, we want to access state-action
                 # trajectories, not observation-action ones.
                 env_task = env.get_train_tasks()[idx]
+                logging.info(f"Solving task {idx}...")
                 cogman.reset(env_task)
+            else:  # pragma: no cover
+                # Otherwise, we get human input demos.
+                caption = (f"Task {idx+1} / {num_tasks}\nPlease demonstrate "
+                           f"achieving the goal:\n{task.goal}")
+                policy = functools.partial(human_demonstrator_policy, env,
+                                           caption, event_to_action)
+                termination_function = task.goal_holds
+        except (ApproachTimeout, ApproachFailure,
+                utils.EnvironmentFailure) as e:
+            succeed_in_solving = False
+            logging.warning("WARNING: Approach failed to solve with error: "
+                            f"{e}")
+            # Make a policy from partial refinments
+            if CFG.keep_failed_demos:
+                partial_refinements = getattr(e, "info", {}
+                                            ).get("partial_refinements")
+                _, plan = max(partial_refinements, key=lambda x: len(x[1]))
+                policy = utils.option_plan_to_policy(plan)
+                termination_function = lambda s: False
+
+        # --- Execute the policy to generate a demonstration.
+        try:
+            logging.info(f"Executing policy...")
+            if CFG.demonstrator == "oracle" and succeed_in_solving:
                 traj, _, _ = run_episode_and_get_states(
                     cogman,
                     env,
@@ -195,12 +237,6 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                     monitor=video_monitor,
                     terminate_on_goal_reached=CFG.terminate_on_goal_reached)
             else:  # pragma: no cover
-                # Otherwise, we get human input demos.
-                caption = (f"Task {idx+1} / {num_tasks}\nPlease demonstrate "
-                           f"achieving the goal:\n{task.goal}")
-                policy = functools.partial(human_demonstrator_policy, env,
-                                           caption, event_to_action)
-                termination_function = task.goal_holds
                 traj, _ = utils.run_policy(
                     policy,
                     env,
@@ -213,14 +249,17 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                         utils.HumanDemonstrationFailure,
                     },
                     monitor=video_monitor)
+                
+                if CFG.keep_failed_demos:
+                    logging.info("Keeping failed demonstration.")
+                    if CFG.make_demo_videos:
+                        make_demo_videos(video_monitor, idx)
+                    if CFG.make_demo_images:
+                        make_demo_images(video_monitor, idx, num_tasks)
         except (ApproachTimeout, ApproachFailure,
                 utils.EnvironmentFailure) as e:
             logging.warning("WARNING: Approach failed to solve with error: "
                             f"{e}")
-            # When generating mara counterfactual videos, we want it to save the
-            # video even with ApproachFailure, which could happen if we set
-            # terminate_on_goal_reached to False. Because we will encounter
-            # ApproachFailure('Option plan exhausted!')
             if CFG.keep_failed_demos:
                 logging.info("Keeping failed demonstration.")
                 if CFG.make_demo_videos:
@@ -228,6 +267,7 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                 if CFG.make_demo_images:
                     make_demo_images(video_monitor, idx, num_tasks)
             continue
+
         # Check that the goal holds at the end. Print a warning if not.
         if not task.goal_holds(traj.states[-1]):  # pragma: no cover
             logging.warning("WARNING: Oracle failed on training task.")
