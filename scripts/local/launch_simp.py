@@ -20,7 +20,17 @@ def _main() -> None:
     # Loop through all experiments
     for cfg in generate_run_configs(args.config):
         cmd_str = config_to_cmd_flags(cfg)
-        cmd = f"python predicators/main.py {cmd_str}"
+        if "use_classification_problem_setting" in cfg.flags:
+            use_classification_problem_setting = cfg.flags[
+                'use_classification_problem_setting']
+        else:
+            use_classification_problem_setting = False
+
+        if use_classification_problem_setting:
+            entry_point = "main_classification.py"
+        else:
+            entry_point = "main.py"
+        cmd = f"python predicators/{entry_point} {cmd_str}"
         cmds.append(cmd)
 
     # run the command

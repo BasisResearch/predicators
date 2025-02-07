@@ -771,6 +771,7 @@ class GlobalSettings:
     rgb_observation = False
     render_init_state = False
     use_counterfactual_dataset_path_name = False
+    use_classification_problem_setting = False
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:

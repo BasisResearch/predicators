@@ -34,7 +34,6 @@ To run grammar search predicate invention (example):
         --seed 0 --excluded_predicates all
 """
 
-import datetime
 import logging
 import os
 import sys
@@ -43,7 +42,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple, Union, Any
 
-import colorlog
 import dill as pkl
 
 from predicators import utils
@@ -60,64 +58,11 @@ from predicators.settings import CFG, get_allowed_query_type_names
 from predicators.structs import Dataset, InteractionRequest, \
     InteractionResult, Metrics, Response, Task, Video
 from predicators.teacher import Teacher, TeacherInteractionMonitorWithVideo
+from predicators.approaches.base_approach import BaseApproach
 
 assert os.environ.get("PYTHONHASHSEED") == "0", \
         "Please add `export PYTHONHASHSEED=0` to your bash profile!"
 
-
-def configure_logging() -> None:
-    # Log to stderr.
-    colorlog_handler = colorlog.StreamHandler()
-    colorlog_handler.setFormatter(
-        colorlog.ColoredFormatter('%(log_color)s%(levelname)s: %(message)s',
-                                  log_colors={
-                                      'DEBUG': 'cyan',
-                                      'INFO': 'green',
-                                      'WARNING': 'yellow',
-                                      'ERROR': 'red',
-                                      'CRITICAL': 'red,bg_white',
-                                  },
-                                  reset=True,
-                                  style='%'))
-    handlers: List[logging.Handler] = [colorlog_handler]
-    if CFG.log_file:
-        CFG.log_file += f"{CFG.env}/seed{CFG.seed}/"
-        os.makedirs(CFG.log_file, exist_ok=True)
-
-        timestamp = datetime.datetime.now().strftime("%m%d%H%M%S")
-        # handlers.append(logging.FileHandler(CFG.log_file + timestamp,
-        #                                     mode='w'))
-        # Handler for DEBUG level messages
-        debug_handler = logging.FileHandler(CFG.log_file + "r" + timestamp +
-                                            "_debug",
-                                            mode='w')
-        debug_handler.setLevel(logging.DEBUG)
-        handlers.append(debug_handler)
-
-        # Handler for INFO level messages
-        info_handler = logging.FileHandler(CFG.log_file + "r" + timestamp +
-                                           "_info",
-                                           mode='w')
-        info_handler.setLevel(logging.INFO)
-        handlers.append(info_handler)
-
-    logging.basicConfig(level=CFG.loglevel,
-                        format="%(message)s",
-                        handlers=handlers,
-                        force=True)
-    logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
-    logging.getLogger('libpng').setLevel(logging.ERROR)
-    logging.getLogger('PIL').setLevel(logging.ERROR)
-
-
-def _log_initial_info(str_args: str) -> None:
-    """Log initial configuration and setup information."""
-    if CFG.log_file:
-        logging.info(f"Logging to {CFG.log_file}")
-    logging.info(f"Running command: python {str_args}")
-    logging.info("Full config:")
-    logging.info(CFG)
-    logging.info(f"Git commit hash: {utils.get_git_commit_hash()}")
 
 
 def setup_environment() -> Tuple[BaseEnv, List[Task], List[Task]]:
@@ -180,15 +125,18 @@ def setup_approach(env: BaseEnv,
 def create_offline_dataset(env: BaseEnv, 
                          train_tasks: List[Task],
                          preds: set,
-                         approach: 'BaseApproach') -> Optional[Dataset]:
+                         approach: BaseApproach) -> Optional[Dataset]:
     """Create offline dataset if needed.
     
     Returns:
         Dataset if required, None otherwise
     """
-    if approach.is_learning_based or CFG.make_demo_videos or CFG.make_demo_images:
-        options = get_gt_options(env.get_name()) if CFG.option_learner == "no_learning" \
-                 else parse_config_included_options(env)
+    if approach.is_learning_based or CFG.make_demo_videos or \
+        CFG.make_demo_images:
+
+        options = get_gt_options(env.get_name()) if \
+                        CFG.option_learner == "no_learning" \
+                    else parse_config_included_options(env)
         return create_dataset(env, train_tasks, options, preds)
     return None
 
@@ -203,12 +151,12 @@ def main() -> None:
     str_args = " ".join(sys.argv)
 
     # Setup logging and directories
-    configure_logging()
+    utils.configure_logging()
     os.makedirs(CFG.results_dir, exist_ok=True)
     os.makedirs(CFG.eval_trajectories_dir, exist_ok=True)
 
     # Log initial info
-    _log_initial_info(str_args)
+    utils.log_initial_info(str_args)
 
     # Setup environment and tasks
     env, approach_train_tasks, train_tasks = setup_environment()
@@ -455,7 +403,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
     # --------------------------------------------------------------------------
     # Helper functions
     # --------------------------------------------------------------------------
-    def _save_video_if_needed(monitor: Optional[utils.VideoMonitor],
+    def _save_video(monitor: Optional[utils.VideoMonitor],
                               is_failure: bool,
                               task_idx: int) -> None:
         """Save a video from the monitor if the current config calls for it."""
@@ -474,8 +422,6 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         """Handle approach exceptions during the solve step, returning
         (updated_num_solve_timeouts, updated_num_solve_failures)."""
         nonlocal total_num_solve_timeouts, total_num_solve_failures
-        logging.info(f"Task {task_idx+1} / {len(test_tasks)}: "
-                     f"Approach failed to solve with error: {e}")
         if isinstance(e, ApproachTimeout):
             total_num_solve_timeouts += 1
         else:
@@ -483,6 +429,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
 
         # Optionally save partial-refinement-based video
         if CFG.make_failure_videos and partial_refinements:
+            logging.info(f"Creating video from partial refinements...")
             video = utils.create_video_from_partial_refinements(
                 partial_refinements, env, "test", task_idx, CFG.horizon)
             outfile = f"{save_prefix}__task{task_idx+1}_failure.mp4"
@@ -511,7 +458,6 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         caught_exception = False
         exec_time = 0.0
         num_options_executed = 0
-        low_level_action_cost = 0.0
 
         try:
             traj, solved, execution_metrics = run_episode_and_get_observations(
@@ -563,10 +509,15 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         # 1) Solve phase
         # ---------------------
         try:
+            logging.info(f"[main.py] Solving task {test_task_idx+1}/"
+                         f"{len(test_tasks)}...")
             solve_time = _solve_task(test_task_idx, env_task)
         except (ApproachTimeout, ApproachFailure) as e:
             # Handle solve failure/timeouts
-            partial_refinements = getattr(e, "info", {}).get("partial_refinements")
+            partial_refinements = getattr(e, "info", {}
+                                          ).get("partial_refinements")
+            logging.info(f"[main.py] Task {test_task_idx+1} / "
+                         f"{len(test_tasks)}: approach failed with error: {e}")
             _handle_solve_exception(e, test_task_idx, partial_refinements)
             continue
 
@@ -587,6 +538,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         need_video = (CFG.make_test_videos or CFG.make_failure_videos)
         monitor = utils.VideoMonitor(env.render) if need_video else None
 
+        logging.info(f"Executing policy...")
         solved, caught_exception, exec_time, num_opts, traj = _execute_policy(
             test_task_idx, env_task, monitor)
 
@@ -609,7 +561,8 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             total_suc_time += (solve_time + exec_time)
             # If solved, we may want to save a video if make_test_videos is True
             if CFG.make_test_videos:
-                _save_video_if_needed(monitor, is_failure=False, task_idx=test_task_idx)
+                _save_video(monitor, is_failure=False, 
+                                      task_idx=test_task_idx)
             # Count how many steps we took
             # (We rely on the last trajectory from run_episode_and_get_observations)
             # If you need the real trajectory, you'd store it as in `_execute_policy`.
@@ -624,7 +577,8 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             if CFG.crash_on_failure:
                 raise RuntimeError(log_msg)
             if CFG.make_failure_videos:
-                _save_video_if_needed(monitor, is_failure=True, task_idx=test_task_idx)
+                _save_video(monitor, is_failure=True, 
+                                      task_idx=test_task_idx)
 
         logging.info(f"Task {test_task_idx+1} / {len(test_tasks)}: {log_msg}")
 

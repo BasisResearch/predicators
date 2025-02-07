@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import abc
 import contextlib
 import functools
@@ -43,6 +44,7 @@ from pyperplan.heuristics.heuristic_base import \
     Heuristic as _PyperplanBaseHeuristic
 from pyperplan.planner import HEURISTICS as _PYPERPLAN_HEURISTICS
 from scipy.stats import beta as BetaRV
+import colorlog
 
 from predicators.args import create_arg_parser
 from predicators.image_patch_wrapper import ImagePatch
@@ -4471,3 +4473,56 @@ def get_parameterized_option_by_name(
     """Retrieve an option by its name from a set of options."""
     return next((option for option in options if option.name == option_name),
                 None)
+
+def configure_logging() -> None:
+    # Log to stderr.
+    colorlog_handler = colorlog.StreamHandler()
+    colorlog_handler.setFormatter(
+        colorlog.ColoredFormatter('%(log_color)s%(levelname)s: %(message)s',
+                                  log_colors={
+                                      'DEBUG': 'cyan',
+                                      'INFO': 'green',
+                                      'WARNING': 'yellow',
+                                      'ERROR': 'red',
+                                      'CRITICAL': 'red,bg_white',
+                                  },
+                                  reset=True,
+                                  style='%'))
+    handlers: List[logging.Handler] = [colorlog_handler]
+    if CFG.log_file:
+        CFG.log_file += f"{CFG.env}/seed{CFG.seed}/"
+        os.makedirs(CFG.log_file, exist_ok=True)
+
+        timestamp = datetime.datetime.now().strftime("%m%d%H%M%S")
+        # handlers.append(logging.FileHandler(CFG.log_file + timestamp,
+        #                                     mode='w'))
+        # Handler for DEBUG level messages
+        debug_handler = logging.FileHandler(CFG.log_file + "r" + timestamp +
+                                            "_debug",
+                                            mode='w')
+        debug_handler.setLevel(logging.DEBUG)
+        handlers.append(debug_handler)
+
+        # Handler for INFO level messages
+        info_handler = logging.FileHandler(CFG.log_file + "r" + timestamp +
+                                           "_info",
+                                           mode='w')
+        info_handler.setLevel(logging.INFO)
+        handlers.append(info_handler)
+
+    logging.basicConfig(level=CFG.loglevel,
+                        format="%(message)s",
+                        handlers=handlers,
+                        force=True)
+    logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
+    logging.getLogger('libpng').setLevel(logging.ERROR)
+    logging.getLogger('PIL').setLevel(logging.ERROR)
+
+def log_initial_info(str_args: str) -> None:
+    """Log initial configuration and setup information."""
+    if CFG.log_file:
+        logging.info(f"Logging to {CFG.log_file}")
+    logging.info(f"Running command: python {str_args}")
+    logging.info("Full config:")
+    logging.info(CFG)
+    logging.info(f"Git commit hash: {get_git_commit_hash()}")
