@@ -1517,6 +1517,53 @@ class Dataset:
         self._trajectories.append(trajectory)
 
 
+@dataclass(repr=False, eq=False)
+class ClassificationDataset:
+    """
+    Maybe ultimately a collection of LowLevelTrajectory objects, and a list
+    of labels, one per trajectory.
+    There is List[Video] for each episode
+    """
+    support_videos: List[List[Video]]
+    support_labels: List[List[int]]
+    query_videos: List[List[Video]]
+    query_labels: List[List[int]]
+
+    def __post_init__(self) -> None:
+        assert len(self.support_videos) == len(self.support_labels)
+        assert len(self.query_videos) == len(self.query_labels)
+        self._current_idx: int = 0
+
+    def __iter__(self) -> Iterator["ClassificationDataset"]:
+        self._current_idx = 0
+        return self
+
+    def __next__(self) -> ClassificationEpisode:
+        if self._current_idx >= len(self.support_videos):
+            raise StopIteration
+
+        episode_support_videos = self.support_videos[self._current_idx] 
+        episode_support_labels = self.support_labels[self._current_idx]
+        episode_query_videos = self.query_videos[self._current_idx]
+        episode_query_labels = self.query_labels[self._current_idx]
+
+        assert len(episode_support_videos) == len(episode_support_labels)
+        assert len(episode_query_videos) == len(episode_query_labels)
+
+        episode: ClassificationEpisode = (
+            episode_support_videos,
+            episode_support_labels,
+            episode_query_videos,
+            episode_query_labels
+        )
+
+        self._current_idx += 1
+        return episode
+    
+    def __len__(self) -> int:
+        """The number of episodes in the dataset."""
+        return len(self.support_labels)
+
 @dataclass(eq=False)
 class Segment:
     """A segment represents a low-level trajectory that is the result of
@@ -2212,3 +2259,4 @@ RGBA = Tuple[float, float, float, float]
 BridgePolicy = Callable[[State, Set[GroundAtom], List[_Option]], _Option]
 BridgeDataset = List[Tuple[Set[_Option], _GroundNSRT, Set[GroundAtom], State]]
 Mask = NDArray[np.bool_]
+ClassificationEpisode = Tuple[List[Video], List[int], List[Video], List[int]]

@@ -1,14 +1,14 @@
-# Config file for generating the mara_bench videos
+# Config file for running the counterfactual classification problems.
 # Excample run: 
-#    python scripts/local/launch_simp.py -c mara_bench.yaml
+#    python scripts/local/launch_simp.py -c mara_bench_clf.yaml
 ---
 APPROACHES:
   oracle:
     NAME: "oracle"
 
 ENVS:
-  # cover:
-  #   NAME: "pybullet_cover"
+  cover:
+    NAME: "pybullet_cover"
   # cover_cf:
   #   NAME: "pybullet_cover"
   #   FLAGS:
@@ -50,13 +50,13 @@ ENVS:
   #     sesame_task_planning_heuristic: "goal_count"
   #     sesame_check_expected_atoms: False
   #     pybullet_ik_validate: False
-  balance_cf:
-    NAME: "pybullet_balance"
-    FLAGS:
-      balance_wierd_balance: True
-      sesame_task_planning_heuristic: "goal_count"
-      sesame_check_expected_atoms: False
-      pybullet_ik_validate: False
+  # balance_cf:
+  #   NAME: "pybullet_balance"
+  #   FLAGS:
+  #     balance_wierd_balance: True
+  #     sesame_task_planning_heuristic: "goal_count"
+  #     sesame_check_expected_atoms: False
+  #     pybullet_ik_validate: False
   # grow:
   #   NAME: "pybullet_grow"
   #   FLAGS:
@@ -189,12 +189,10 @@ ENVS:
 ARGS:
   - "debug"
   - "use_gui"
-  # - "make_demo_videos"
-  # - "make_failure_videos"
-  # - "make_test_videos"
-  - "make_demo_images"  # support images
-  - "make_failure_images"  # query images
-  - "make_test_images"  # query images
+  - "make_demo_videos"
+  # - "make_demo_images"
+  - "make_failure_videos"
+  - "make_test_videos"
 FLAGS:
   # This is particularly useful in some envs. In blocks with high towers are
   # unstable, this is useful to capture the unstability and to avoid force from
@@ -206,7 +204,8 @@ FLAGS:
   pybullet_camera_height: 900
   pybullet_camera_width: 900
   use_counterfactual_dataset_path_name: True
-  # use_classification_problem_setting: False # This decides the entry point
+  use_classification_problem_setting: True # Choose entry point
+  classification_has_counterfactual_support: False
   keep_failed_demos: True
 START_SEED: 0
 NUM_SEEDS: 1

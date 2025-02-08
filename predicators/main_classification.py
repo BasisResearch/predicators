@@ -1,7 +1,14 @@
+"""
+Example command:
+"""
 import os
+import sys
 import time
+from typing import List, Tuple
 
 import logging
+import glob
+from PIL import Image
 
 from predicators import utils
 from predicators.settings import CFG
@@ -9,6 +16,8 @@ from predicators.main import setup_environment, setup_approach, \
     create_offline_dataset, create_perceiver
 from predicators.cogman import CogMan
 from predicators.envs import BaseEnv
+from predicators.structs import ClassificationDataset, Video
+from predicators.classification_approaches import VLMClassificationApproach
 
 def main() -> None:
     """Main entry point for running classification approaches.
@@ -18,7 +27,7 @@ def main() -> None:
     # Parse args
     args = utils.parse_args()
     utils.update_config(args)
-    str_args = utils.get_str_args(args)
+    str_args = " ".join(sys.argv)
 
     # Set up logging
     utils.configure_logging()
@@ -28,18 +37,15 @@ def main() -> None:
     # Log initial info
     utils.log_initial_info(str_args)
 
-    # Setup environment
-    env, approach_train_tasks, train_tasks = setup_environment()
+    # # Setup environment
+    # env, approach_train_tasks, train_tasks = setup_environment()
 
-    # Setup predicates
-    included_preds, excluded_preds = utils.parse_config_excluded_predicates(env)
-    preds = utils.replace_goals_with_agent_specific_goals(
-        included_preds, excluded_preds, env
-        ) if CFG.approach != "oracle" else included_preds
+    # # Setup predicates
+    # included_preds, excluded_preds = utils.parse_config_excluded_predicates(env)
+    # preds = utils.replace_goals_with_agent_specific_goals(
+    #     included_preds, excluded_preds, env
+    #     ) if CFG.approach != "oracle" else included_preds
     
-    # Create approach
-    approach = setup_approach(env, preds, approach_train_tasks)
-
     """
     --- Create dataset
     In a meta learning setting, we have meta-train and meta-test datasets but we
@@ -55,29 +61,104 @@ def main() -> None:
     Each sample will have a (state, action) traj and a label for whether it's
     from the standard world.
     """
-    train_dataset, test_dataset = create_datasets(env, train_tasks, preds)
-    execution_monitor = ...
-    cogman = CogMan(approach, create_perceiver(CFG.perceiver),
-                    execution_monitor)
+    test_dataset = create_dataset()
 
-    _run_pipeline(env, cogman, train_dataset, test_dataset)
+    # Create approach
+    # approach = setup_approach(env, preds, approach_train_tasks)
+    approach = VLMClassificationApproach()
+
+    _run_pipeline(approach, test_dataset)
 
     # Log completion
     script_time = time.perf_counter() - script_start
     logging.info(f"\n\nMain script completed in {script_time:.2f} seconds.")
 
-def create_datasets(env: BaseEnv, tasks: List[Task], preds: List[str], 
-                    approach: Approach) -> Tuple[Dataset, Dataset]:
-    """how it's currently done"""
-    option = get_gt_option(env.get_name()) if CFG.option_learner == \
-                "no_learning" else parse_config_included_options(env)
-    return create_dataset(env, train_tasks, options, preds)
+def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
+    """Create training and test datasets for classification.
+    A dataset has many episodes. Each is 1-2 support videos with labels and 2 
+    query videos with labels.
+    """
+    all_support_videos: List[List[Video]] = []
+    all_support_labels: List[List[int]] = []
+    all_query_videos: List[List[Video]] = []
+    all_query_labels: List[List[int]] = []
+    max_video_len = 0
+
+    for env in ["cover",
+                "balance"]:
+        episode_support_videos: List[Video] = []
+        episode_support_labels: List[int] = []
+        episode_query_videos: List[Video] = []
+        episode_query_labels: List[int] = []
+        for support_split in [True, False]:
+            if CFG.classification_has_counterfactual_support or \
+                    not support_split:
+                is_counterfactual_list = [False, True]
+            else:
+                is_counterfactual_list = [False]
+
+            for is_counterfactual in is_counterfactual_list:
+                split = "support" if support_split else "query"
+                base_env_name = env if not is_counterfactual else f"{env}_cf"
+                dataset_base_dir = os.path.join(CFG.image_dir, 
+                                                base_env_name,
+                                                f"seed{CFG.seed}", 
+                                                split)
+
+                logging.debug(f"Loading the {split} set for "
+                                f"{base_env_name}...")
+                for task_dir in glob.glob(os.path.join(dataset_base_dir,
+                                                       'task*')):
+                    # Get all images
+                    imgs_path = sorted(glob.glob(os.path.join(task_dir,
+                                                                '*.png')), 
+                                    key=lambda x: os.path.basename(x))
+
+                    video_len = len(imgs_path)
+                    if video_len > max_video_len:
+                        max_video_len = video_len
+                    video = []
+
+                    for image_path in imgs_path:
+                        with Image.open(image_path) as img:
+                            video.append(img.copy())
+                    if support_split:
+                        episode_support_videos.append(video)
+                        episode_support_labels.append(int(is_counterfactual)
+                                                        )
+                    else:
+                        episode_query_videos.append(video)
+                        episode_query_labels.append(int(is_counterfactual)
+                                                    )
+        all_support_videos.append(episode_support_videos)
+        all_support_labels.append(episode_support_labels)
+        all_query_videos.append(episode_query_videos)
+        all_query_labels.append(episode_query_labels)
+
+    logging.debug(f"Max video length: {max_video_len}")
+    return ClassificationDataset(all_support_videos, all_support_labels,
+                                    all_query_videos, all_query_labels)
+                
 
 
-def _run_pipeline(env: BaseEnv, cogman: CogMan,) -> None:
-    ...
+def _run_pipeline(approach: VLMClassificationApproach,
+                  test_dataset: ClassificationDataset
+                    ) -> None:
+    """Run the classification pipeline.
+    """
+    num_correct = 0
+    num_episodes = len(test_dataset)
 
+    for episode in test_dataset:
+        support_videos, support_labels, query_videos, query_labels = episode
 
+        pred_labels = approach.predict(support_videos, 
+                                       support_labels, 
+                                       query_videos)
+        num_correct += int(pred_labels == query_labels)
+    
+    logging.info(f"Accuracy: {num_correct}/{num_episodes} "
+                    f"({num_correct/num_episodes:.2f})")
 
 if __name__ == "__main__": # pragma: no cover
     try:
