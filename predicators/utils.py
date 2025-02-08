@@ -3870,6 +3870,10 @@ def save_video(outfile: str, video: Video) -> None:
 def save_images(outfile_prefix: str, video: Video) -> None:
     """Save the video as individual images to image_dir."""
     outdir = CFG.image_dir
+    # outfile_prefix may also contain a subdirectory.
+    outdir = os.path.join(outdir, os.path.dirname(outfile_prefix))
+    outfile_prefix = os.path.basename(outfile_prefix)
+
     os.makedirs(outdir, exist_ok=True)
     width = len(str(len(video)))
     for i, image in enumerate(video):

@@ -410,9 +410,27 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         if monitor is None:
             return
         video = monitor.get_video()
-        suffix = "_failure" if is_failure else ""
+        if CFG.use_counterfactual_dataset_path_name:
+            suffix = ""
+        else:
+            suffix = "_failure" if is_failure else ""
         outfile = f"{save_prefix}__task{task_idx+1}{suffix}.mp4"
         utils.save_video(outfile, video)
+    
+    def _save_images(monitor: Optional[utils.VideoMonitor],
+                              is_failure: bool,
+                              task_idx: int) -> None:
+        """Save images from the monitor if the current config calls for it."""
+        if monitor is None:
+            return
+        video = monitor.get_video()
+        if CFG.use_counterfactual_dataset_path_name:
+            experiment_id = CFG.experiment_id.split("-")[0]
+            outfile = f"{experiment_id}/seed{CFG.seed}/query/task{task_idx+1}/"
+        else:
+            suffix = "_failure" if is_failure else ""
+            outfile = f"{save_prefix}__task{task_idx+1}{suffix}"
+        utils.save_images(outfile, video)
 
     def _handle_solve_exception(
         e: Union[ApproachTimeout, ApproachFailure],
@@ -535,7 +553,8 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         # 2) Execution phase
         # ---------------------
         # Decide if we need to record video
-        need_video = (CFG.make_test_videos or CFG.make_failure_videos)
+        need_video = (CFG.make_test_videos or CFG.make_failure_videos or
+                      CFG.make_test_images or CFG.make_failure_images)
         monitor = utils.VideoMonitor(env.render) if need_video else None
 
         logging.info(f"Executing policy...")
@@ -563,6 +582,9 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             if CFG.make_test_videos:
                 _save_video(monitor, is_failure=False, 
                                       task_idx=test_task_idx)
+            if CFG.make_test_images:
+                _save_images(monitor, is_failure=False,
+                                        task_idx=test_task_idx)
             # Count how many steps we took
             # (We rely on the last trajectory from run_episode_and_get_observations)
             # If you need the real trajectory, you'd store it as in `_execute_policy`.
@@ -579,6 +601,11 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             if CFG.make_failure_videos:
                 _save_video(monitor, is_failure=True, 
                                       task_idx=test_task_idx)
+            if CFG.make_failure_images:
+                _save_images(monitor, is_failure=True,
+                                        task_idx=test_task_idx)
+
+            
 
         logging.info(f"Task {test_task_idx+1} / {len(test_tasks)}: {log_msg}")
 

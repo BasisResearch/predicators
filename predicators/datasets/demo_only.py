@@ -313,8 +313,8 @@ def make_demo_images(video_monitor: utils.VideoMonitor, idx: int,
     width = len(str(num_train_tasks))
     task_number = str(idx).zfill(width)
     if CFG.use_counterfactual_dataset_path_name:
-        outfile_prefix = f"{CFG.seed}__support__task{idx+1}"
-        CFG.image_dir = os.path.join(CFG.image_dir, CFG.experiment_id)
+        experiment_id = CFG.experiment_id.split("-")[0]
+        outfile_prefix = f"{experiment_id}/seed{CFG.seed}/support/task{idx+1}/"
     else:
         outfile_prefix = f"{CFG.env}__{CFG.seed}__demo__task{task_number}"
     utils.save_images(outfile_prefix, video)

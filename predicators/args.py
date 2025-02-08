@@ -26,6 +26,8 @@ def create_arg_parser(env_required: bool = True,
     parser.add_argument("--timeout", default=10, type=float)
     parser.add_argument("--make_test_videos", action="store_true")
     parser.add_argument("--make_failure_videos", action="store_true")
+    parser.add_argument("--make_test_images", action="store_true")
+    parser.add_argument("--make_failure_images", action="store_true")
     parser.add_argument("--make_interaction_videos", action="store_true")
     parser.add_argument("--make_demo_videos", action="store_true")
     parser.add_argument("--make_demo_images", action="store_true")
