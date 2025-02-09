@@ -85,7 +85,17 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
     max_video_len = 0
 
     for env in ["cover",
-                "balance"]:
+                "blocks",
+                "coffee",
+                "balance",
+                "grow",
+                "circuit",
+                "float",
+                "domino",
+                "laser",
+                "ants",
+                "fan",
+                ]:
         episode_support_videos: List[Video] = []
         episode_support_labels: List[int] = []
         episode_query_videos: List[Video] = []
@@ -130,6 +140,8 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
                         episode_query_videos.append(video)
                         episode_query_labels.append(int(not is_counterfactual)
                                                     )
+        assert len(episode_support_videos) == 1, \
+                "Currently assume only 1 support video."
         all_support_videos.append(episode_support_videos)
         all_support_labels.append(episode_support_labels)
         all_query_videos.append(episode_query_videos)

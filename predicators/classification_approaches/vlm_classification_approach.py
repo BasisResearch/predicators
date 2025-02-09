@@ -78,12 +78,12 @@ class VLMClassificationApproach:
         # Create a directory to save the images.
         imgs_dir = os.path.join(self.log_dir, "imgs")
 
-        assert len(support_videos) == 1, "Currently assume only 1 support video."
         # Save for later inspection
         support_videos = [utils.add_label_to_video(video, 
                                 prefix="ref_", 
                                 imgs_dir=imgs_dir, save=True) for video 
                             in support_videos]
+        assert len(support_videos) == 1, "Currently assume only 1 support video."
         query_videos = [utils.add_label_to_video(video, 
                                 prefix=f"query{i}_", 
                                 imgs_dir=imgs_dir, save=True) for i, video 
@@ -134,8 +134,11 @@ class VLMClassificationApproach:
         def subsample_video(video: Video) -> Video:
             if len(video) <= self._max_video_len:
                 return video
-            step = len(video) / self._max_video_len
-            return [video[int(i * step)] for i in range(self._max_video_len)]
+            # Always include first and last frame, sample the rest
+            step = (len(video) - 1) / (self._max_video_len - 1)
+            sampled = [video[int(i * step)] for i in 
+                       range(self._max_video_len - 1)]
+            return sampled + [video[-1]]
 
         support_videos = [subsample_video(video) for video in support_videos]
         query_videos = [subsample_video(video) for video in query_videos]

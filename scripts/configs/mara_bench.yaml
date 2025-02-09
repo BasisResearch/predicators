@@ -31,6 +31,7 @@ ENVS:
   #     coffee_use_pixelated_jug: True
   #     pybullet_ik_validate: False
   #     sesame_max_skeletons_optimized: 1
+  #     max_num_steps_option_rollout: 100
   # coffee_cf:
   #   NAME: "pybullet_coffee"
   #   FLAGS:
@@ -44,19 +45,20 @@ ENVS:
   #     coffee_use_pixelated_jug: True
   #     pybullet_ik_validate: False
   #     sesame_max_skeletons_optimized: 1
+  #     max_num_steps_option_rollout: 100
   # balance:
   #   NAME: "pybullet_balance"
   #   FLAGS:
   #     sesame_task_planning_heuristic: "goal_count"
   #     sesame_check_expected_atoms: False
   #     pybullet_ik_validate: False
-  balance_cf:
-    NAME: "pybullet_balance"
-    FLAGS:
-      balance_wierd_balance: True
-      sesame_task_planning_heuristic: "goal_count"
-      sesame_check_expected_atoms: False
-      pybullet_ik_validate: False
+  # balance_cf:
+  #   NAME: "pybullet_balance"
+  #   FLAGS:
+  #     balance_wierd_balance: True
+  #     sesame_task_planning_heuristic: "goal_count"
+  #     sesame_check_expected_atoms: False
+  #     pybullet_ik_validate: False
   # grow:
   #   NAME: "pybullet_grow"
   #   FLAGS:
@@ -91,10 +93,6 @@ ENVS:
   #     sesame_check_expected_atoms: False
   #     pybullet_ik_validate: False
   #     option_model_terminate_on_repeat: False
-  #     num_train_tasks: 1
-  #     num_test_tasks: 0
-  #     # num_train_tasks: 0
-  #     # num_test_tasks: 2
   # float_cf:
   #   NAME: "pybullet_float"
   #   FLAGS:
@@ -103,8 +101,6 @@ ENVS:
   #     sesame_check_expected_atoms: False
   #     pybullet_ik_validate: False
   #     option_model_terminate_on_repeat: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
   # domino:
   #   NAME: "pybullet_domino"
   #   ARGS:
@@ -112,10 +108,8 @@ ENVS:
   #   FLAGS:
   #     sesame_max_skeletons_optimized: 1
   #     sesame_check_expected_atoms: False
-  #     horizon: 50
+  #     horizon: 60
   #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
   # domino_cf:
   #   NAME: "pybullet_domino"
   #   ARGS:
@@ -126,9 +120,6 @@ ENVS:
   #     sesame_check_expected_atoms: False
   #     horizon: 60
   #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
-  #     pybullet_max_vel_norm: 0.03
   # laser:
   #   NAME: "pybullet_laser"
   #   FLAGS:
@@ -137,8 +128,6 @@ ENVS:
   #     sesame_max_skeletons_optimized: 1
   #     sesame_check_expected_atoms: False
   #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
   # laser_cf:
   #   NAME: "pybullet_laser"
   #   FLAGS:
@@ -148,16 +137,12 @@ ENVS:
   #     sesame_max_skeletons_optimized: 1
   #     sesame_check_expected_atoms: False
   #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
   # ants:
   #   NAME: "pybullet_ants"
   #   FLAGS:
   #     sesame_max_skeletons_optimized: 1
   #     sesame_check_expected_atoms: False
   #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
   #     terminate_on_goal_reached: False
   # ants_cf:
   #   NAME: "pybullet_ants"
@@ -166,8 +151,6 @@ ENVS:
   #     sesame_max_skeletons_optimized: 1
   #     sesame_check_expected_atoms: False
   #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
   #     terminate_on_goal_reached: False
   # fan:
   #   NAME: "pybullet_fan"
@@ -176,7 +159,6 @@ ENVS:
   #     sesame_check_expected_atoms: False
   #     terminate_on_goal_reached: False
   #     pybullet_ik_validate: False
-  #     num_test_tasks: 5
   # fan_cf:
   #   NAME: "pybullet_fan"
   #   FLAGS:
@@ -185,7 +167,6 @@ ENVS:
   #     sesame_check_expected_atoms: False
   #     terminate_on_goal_reached: False
   #     pybullet_ik_validate: False
-  #     num_test_tasks: 5
 ARGS:
   - "debug"
   - "use_gui"
