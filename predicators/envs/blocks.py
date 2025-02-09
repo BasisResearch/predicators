@@ -48,6 +48,8 @@ class BlocksEnv(BaseEnv):
     pick_tol: ClassVar[float] = 0.0001
     on_tol: ClassVar[float] = 0.01
     collision_padding: ClassVar[float] = 2.0
+    open_fingers: ClassVar[float] = 0.04
+    closed_fingers: ClassVar[float] = 0.01
 
     def __init__(self, use_gui: bool = True) -> None:
         super().__init__(use_gui)
@@ -109,7 +111,7 @@ class BlocksEnv(BaseEnv):
         next_state.set(block, "pose_y", y)
         next_state.set(block, "pose_z", self.pick_z)
         next_state.set(block, "held", 1.0)
-        next_state.set(self._robot, "fingers", 0.0)  # close fingers
+        next_state.set(self._robot, "fingers", self.closed_fingers)  # close fingers
         if "clear" in self._block_type.feature_names:
             # See BlocksEnvClear
             next_state.set(block, "clear", 0)
@@ -141,7 +143,7 @@ class BlocksEnv(BaseEnv):
         next_state.set(block, "pose_y", y)
         next_state.set(block, "pose_z", z)
         next_state.set(block, "held", 0.0)
-        next_state.set(self._robot, "fingers", 1.0)  # open fingers
+        next_state.set(self._robot, "fingers", self.open_fingers)  # open fingers
         if "clear" in self._block_type.feature_names:
             # See BlocksEnvClear
             next_state.set(block, "clear", 1)
@@ -173,7 +175,7 @@ class BlocksEnv(BaseEnv):
         next_state.set(block, "pose_y", cur_y)
         next_state.set(block, "pose_z", cur_z + self._block_size)
         next_state.set(block, "held", 0.0)
-        next_state.set(self._robot, "fingers", 1.0)  # open fingers
+        next_state.set(self._robot, "fingers", self.open_fingers)  # open fingers
         if "clear" in self._block_type.feature_names:
             # See BlocksEnvClear
             next_state.set(block, "clear", 1)
@@ -350,7 +352,7 @@ class BlocksEnv(BaseEnv):
         # Note: the robot poses are not used in this environment (they are
         # constant), but they change and get used in the PyBullet subclass.
         rx, ry, rz = self.robot_init_x, self.robot_init_y, self.robot_init_z
-        rf = 1.0  # fingers start out open
+        rf = self.open_fingers  # fingers start out open
         data[self._robot] = np.array([rx, ry, rz, rf], dtype=np.float32)
         return State(data)
 
@@ -445,8 +447,8 @@ class BlocksEnv(BaseEnv):
     def _GripperOpen_holds(state: State, objects: Sequence[Object]) -> bool:
         robot, = objects
         rf = state.get(robot, "fingers")
-        assert rf in (0.0, 1.0)
-        return rf == 1.0
+        assert rf in (BlocksEnv.closed_fingers, BlocksEnv.open_fingers)
+        return rf == BlocksEnv.open_fingers
 
     def _Holding_holds(self, state: State, objects: Sequence[Object]) -> bool:
         block, = objects
@@ -540,7 +542,7 @@ class BlocksEnv(BaseEnv):
             }
         # Add the robot at a constant initial position.
         rx, ry, rz = self.robot_init_x, self.robot_init_y, self.robot_init_z
-        rf = 1.0  # fingers start out open
+        rf = self.open_fingers  # fingers start out open
         state_dict[self._robot] = {
             "pose_x": rx,
             "pose_y": ry,

@@ -730,8 +730,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
         """Is the robots gripper open."""
         robot, = objects
         finger_state = state.get(robot, "fingers")
-        assert finger_state in (0.0, 1.0)
-        return finger_state == 1.0
+        return finger_state > 0.03
 
 
     def _DirectlyOnPlate_NSP_holds(state: RawState, objects:Sequence[Object]) ->\
