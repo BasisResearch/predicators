@@ -746,7 +746,7 @@ class PyBulletFanEnv(PyBulletEnv):
                     ])
                     # i.e. the nth front fan
                     px = front_coords[i]
-                    py = self.y_lb + 0.14
+                    py = self.y_lb + 0.15
                     rot = np.pi / 2
                 elif side_idx == 3:  # back
                     i = len([

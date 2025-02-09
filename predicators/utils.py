@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Collection, Dict, \
     Sequence, Set, Tuple
 from typing import Type as TypingType
 from typing import TypeVar, Union, cast
+from concurrent.futures import ThreadPoolExecutor
 
 import dill as pkl
 import imageio
@@ -3867,17 +3868,16 @@ def save_video(outfile: str, video: Video) -> None:
     imageio.mimwrite(outpath, video_uint8, fps=CFG.video_fps)  # type: ignore
     logging.info(f"Wrote out to {outpath}")
 
-
-def save_images(outfile_prefix: str, video: Video) -> None:
-    """Save the video as individual images to image_dir."""
+def save_images_parallel(outfile_prefix: str, video: Video) -> None:
+    """Save the video as individual images in parallel."""
     outdir = CFG.image_dir
-    # outfile_prefix may also contain a subdirectory.
     outdir = os.path.join(outdir, os.path.dirname(outfile_prefix))
     outfile_prefix = os.path.basename(outfile_prefix)
 
     os.makedirs(outdir, exist_ok=True)
     width = len(str(len(video)))
-    for i, image in enumerate(video):
+
+    def _write_frame(i, image):
         image_number = str(i).zfill(width)
         outfile = outfile_prefix + f"_image_{image_number}.png"
         outpath = os.path.join(outdir, outfile)
@@ -3885,6 +3885,13 @@ def save_images(outfile_prefix: str, video: Video) -> None:
         imageio.imwrite(outpath, image_array.astype(np.uint8))
         logging.info(f"Wrote out to {outpath}")
 
+    with ThreadPoolExecutor() as executor:
+        for i, frame in enumerate(video):
+            executor.submit(_write_frame, i, frame)
+
+def save_images(outfile_prefix: str, video: Video) -> None:
+    """Save the video as individual images to image_dir."""
+    return save_images_parallel(outfile_prefix, video)
 
 def get_env_asset_path(asset_name: str, assert_exists: bool = True) -> str:
     """Return the absolute path to env asset."""
