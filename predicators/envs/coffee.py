@@ -547,7 +547,10 @@ class CoffeeEnv(BaseEnv):
                     GroundAtom(self._JugInMachine, [self._jug, self._machine]),
                 }
             else:
-                goal = {GroundAtom(self._CupFilled, [c]) for c in cups}
+                goal = {
+                    GroundAtom(self._CupFilled, [c]) for c in cups
+                    # GroundAtom(self._PluggedIn, [self._plug]),
+                    }
             # Sample initial positions for cups, making sure to keep them
             # far enough apart from one another.
             radius = self.cup_radius + self.init_padding
@@ -562,7 +565,7 @@ class CoffeeEnv(BaseEnv):
                 (self.cup_init_y_lb, self.cup_init_y_ub),
                 "circle", (radius, ),
                 rng=self._train_rng)
-            for cup, (x, y) in zip(cup, cup_positions):
+            for cup, (x, y) in zip(self._cups, cup_positions):
                 cap = rng.uniform(self.cup_capacity_lb, self.cup_capacity_ub)
                 cup_state_dict[cup] = {
                     "x": x,

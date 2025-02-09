@@ -140,7 +140,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         float] = machine_x - machine_x_len / 2 + init_padding
     jug_init_x_ub: ClassVar[
         float] = machine_x + machine_x_len / 2 - init_padding
-    jug_init_y_lb: ClassVar[float] = y_lb + 3 * jug_radius + init_padding
+    jug_init_y_lb: ClassVar[float] = y_lb + 3 * jug_radius + init_padding + 0.02
     jug_init_y_ub: ClassVar[
         float] = machine_y - machine_y_len - 4 * jug_radius - init_padding
     jug_init_y_ub_og: ClassVar[
@@ -1011,9 +1011,9 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                 col_y = cls.cord_link_length / 2
                 col_z = cls.cord_link_length / 2
             else:
-                col_x = cls.cord_link_length / 4
-                col_y = cls.cord_link_length / 4
-                col_z = cls.cord_link_length / 4
+                col_x = cls.cord_link_length / 6
+                col_y = cls.cord_link_length / 6
+                col_z = cls.cord_link_length / 6
             segment = p.createCollisionShape(p.GEOM_BOX,
                                              halfExtents=[col_x, col_y, col_z],
                                              physicsClientId=physics_client_id)
@@ -1174,6 +1174,9 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                              "y") + np.sin(rot) * cls.jug_handle_offset - 0.02
         if not CFG.coffee_use_pixelated_jug:
             target_y += 0.02
+        else:
+            # towards the robot
+            target_y -= 0.01
         target_z = cls.z_lb + cls.jug_handle_height()
         return (target_x, target_y, target_z)
 
