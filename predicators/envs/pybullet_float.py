@@ -557,11 +557,12 @@ class PyBulletFloatEnv(PyBulletEnv):
                             self.block_size,
                          self.VESSEL_BASE_X + self.CONTAINER_OPENING_LEN +
                             self.CONTAINER_GAP - self.block_size),
-                y_range=(self.y_lb + self.block_size * 2.5,
-                         self.VESSEL_BASE_Y + self.CONTAINER_OPENING_LEN / 2),
+                y_range=(self.y_lb + self.block_size * 3,
+                         self.VESSEL_BASE_Y - self.CONTAINER_OPENING_LEN / 2),
                 shape_type="rectangle",
-                shape_params=[self.block_size, self.block_size, 0],
-                rng=self._train_rng,
+                shape_params=[self.block_size+0.03, self.block_size+0.03, 0],
+                rng=rng,
+
             )
             # Adding z values
             block_positions = [(pos[0], pos[1],
