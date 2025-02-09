@@ -207,5 +207,7 @@ FLAGS:
   use_classification_problem_setting: True # Choose entry point
   classification_has_counterfactual_support: False
   keep_failed_demos: True
+  vlm_model_name: "gemini-2.0-flash"
+  vlm_temperature: 0.0
 START_SEED: 0
 NUM_SEEDS: 1

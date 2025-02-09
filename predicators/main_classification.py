@@ -110,25 +110,25 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
                 for task_dir in glob.glob(os.path.join(dataset_base_dir,
                                                        'task*')):
                     # Get all images
-                    imgs_path = sorted(glob.glob(os.path.join(task_dir,
+                    img_paths = sorted(glob.glob(os.path.join(task_dir,
                                                                 '*.png')), 
                                     key=lambda x: os.path.basename(x))
 
-                    video_len = len(imgs_path)
+                    video_len = len(img_paths)
                     if video_len > max_video_len:
                         max_video_len = video_len
                     video = []
 
-                    for image_path in imgs_path:
-                        with Image.open(image_path) as img:
+                    for img_path in img_paths:
+                        with Image.open(img_path) as img:
                             video.append(img.copy())
                     if support_split:
                         episode_support_videos.append(video)
-                        episode_support_labels.append(int(is_counterfactual)
+                        episode_support_labels.append(int(not is_counterfactual)
                                                         )
                     else:
                         episode_query_videos.append(video)
-                        episode_query_labels.append(int(is_counterfactual)
+                        episode_query_labels.append(int(not is_counterfactual)
                                                     )
         all_support_videos.append(episode_support_videos)
         all_support_labels.append(episode_support_labels)
@@ -149,12 +149,13 @@ def _run_pipeline(approach: VLMClassificationApproach,
     num_correct = 0
     num_episodes = len(test_dataset)
 
-    for episode in test_dataset:
+    for i, episode in enumerate(test_dataset):
         support_videos, support_labels, query_videos, query_labels = episode
 
         pred_labels = approach.predict(support_videos, 
                                        support_labels, 
-                                       query_videos)
+                                       query_videos,
+                                       task_id=i)
         num_correct += int(pred_labels == query_labels)
     
     logging.info(f"Accuracy: {num_correct}/{num_episodes} "

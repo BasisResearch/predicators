@@ -4530,3 +4530,52 @@ def log_initial_info(str_args: str) -> None:
     logging.info("Full config:")
     logging.info(CFG)
     logging.info(f"Git commit hash: {get_git_commit_hash()}")
+
+def add_label_to_video(video: Video, prefix: str, imgs_dir: str,
+                       save: bool = True) -> Video:
+    """Add a label to each frame of the video and save the images."""
+    os.makedirs(imgs_dir, exist_ok=True)
+    new_video = []
+    for i, img in enumerate(video):
+        img_name = prefix+f"frame_{i}"
+        add_label_to_image(img, img_name, imgs_dir, save=save)
+        new_video.append(img)
+    return new_video
+
+def add_label_to_image(img: PIL.Image.Image, 
+                          s_name: str, 
+                          obs_dir: str, 
+                          f_suffix: str = ".png",
+                          save: bool = True) -> PIL.Image.Image:
+    """Add a label to an image and potentially save."""
+    img_copy = img.copy()
+    draw = ImageDraw.Draw(img_copy)
+    font = ImageFont.load_default().font_variant(size=50)
+    
+    # Get text dimensions
+    bbox = draw.textbbox((0, 0), s_name, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    
+    # Calculate position (bottom right with padding)
+    padding = 10
+    x = img_copy.width - text_width - padding
+    y = img_copy.height - text_height - 2 * padding
+    
+    text_color = (0, 0, 0)  # black
+    draw.text((x, y), s_name, fill=text_color, font=font)
+
+    if save:
+        os.makedirs(obs_dir, exist_ok=True)
+        img_copy.save(os.path.join(obs_dir, s_name + f_suffix))
+        logging.debug(f"Saved Image {s_name}")
+    return img_copy
+
+def load_all_images_from_dir(dir_path: str) -> List[PIL.Image.Image]:
+    """Load all images from a directory."""
+    images = []
+    img_paths = sorted(os.listdir(dir_path))
+    for file in img_paths:
+        if file.endswith(('.png', '.jpg')):
+            images.append(PIL.Image.open(os.path.join(dir_path, file)))
+    return images
