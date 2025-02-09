@@ -446,12 +446,19 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             total_num_solve_failures += 1
 
         # Optionally save partial-refinement-based video
-        if CFG.make_failure_videos and partial_refinements:
+        if (CFG.make_failure_videos or CFG.make_failue_images) and\
+              partial_refinements:
             logging.info(f"Creating video from partial refinements...")
             video = utils.create_video_from_partial_refinements(
                 partial_refinements, env, "test", task_idx, CFG.horizon)
-            outfile = f"{save_prefix}__task{task_idx+1}_failure.mp4"
-            utils.save_video(outfile, video)
+            if CFG.make_failure_images:
+                experiment_id = CFG.experiment_id.split("-")[0]
+                outfile = f"{experiment_id}/seed{CFG.seed}/query/"+\
+                            f"task{task_idx+1}/"
+                utils.save_images(outfile, video)                
+            if CFG.make_failure_videos:
+                outfile = f"{save_prefix}__task{task_idx+1}_failure.mp4"
+                utils.save_video(outfile, video)
 
         if CFG.crash_on_failure:
             raise e

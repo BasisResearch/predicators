@@ -3863,7 +3863,8 @@ def save_video(outfile: str, video: Video) -> None:
     outdir = CFG.video_dir
     os.makedirs(outdir, exist_ok=True)
     outpath = os.path.join(outdir, outfile)
-    imageio.mimwrite(outpath, video, fps=CFG.video_fps)  # type: ignore
+    video_uint8 = [np.array(frame).astype(np.uint8) for frame in video]
+    imageio.mimwrite(outpath, video_uint8, fps=CFG.video_fps)  # type: ignore
     logging.info(f"Wrote out to {outpath}")
 
 
@@ -3880,7 +3881,8 @@ def save_images(outfile_prefix: str, video: Video) -> None:
         image_number = str(i).zfill(width)
         outfile = outfile_prefix + f"_image_{image_number}.png"
         outpath = os.path.join(outdir, outfile)
-        imageio.imwrite(outpath, image)
+        image_array = np.array(image)
+        imageio.imwrite(outpath, image_array.astype(np.uint8))
         logging.info(f"Wrote out to {outpath}")
 
 

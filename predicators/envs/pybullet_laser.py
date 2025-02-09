@@ -608,14 +608,17 @@ class PyBulletLaserEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     def _generate_train_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(num_tasks=CFG.num_train_tasks,
-                                rng=self._train_rng)
+                                rng=self._train_rng,
+                                is_train=True)
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(num_tasks=CFG.num_test_tasks,
-                                rng=self._test_rng)
+                                rng=self._test_rng,
+                                is_train=False)
 
     def _make_tasks(self, num_tasks: int,
-                    rng: np.random.Generator) -> List[EnvironmentTask]:
+                    rng: np.random.Generator,
+                    is_train: bool) -> List[EnvironmentTask]:
         tasks = []
         for task_idx in range(num_tasks):
             num_targets = 0
@@ -672,7 +675,7 @@ class PyBulletLaserEnv(PyBulletEnv):
             }
             num_targets += 1
 
-            if task_idx == 1:
+            if not is_train:
                 m2_x = m1_x
                 m2_y = m1_y + 2 * self.piece_width
                 mirror2_dict = {
@@ -684,8 +687,6 @@ class PyBulletLaserEnv(PyBulletEnv):
                     "is_held": 0.0,
                 }
 
-                t2_x = m2_x + 2 * self.piece_width
-                t2_y = m2_y
                 target2_dict = {
                     "x": m2_x,
                     "y": station_y,
@@ -722,7 +723,7 @@ class PyBulletLaserEnv(PyBulletEnv):
                 self._targets[0]: target1_dict,
                 # self._targets[1]: target2_dict,
             }
-            if task_idx == 1:
+            if not is_train:
                 init_dict[self._targets[1]] = target2_dict
             init_state = utils.create_state_from_dict(init_dict)
 
