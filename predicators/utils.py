@@ -1490,12 +1490,26 @@ def run_policy(
                 start_time = time.perf_counter()
                 act = policy(state)
                 metrics["policy_call_time"] += time.perf_counter() - start_time
+            except Exception as e:
+                if not CFG.video_not_break_on_exception:
+                    if exceptions_to_break_on is not None and \
+                        type(e) in exceptions_to_break_on:
+                        if monitor_observed:
+                            exception_raised_in_step = True
+                        break
+                    raise e
+                if monitor is not None and not monitor_observed:
+                    monitor.observe(state, None)
+                    monitor_observed = True
+            else:
+                if monitor is not None and not monitor_observed:
+                    monitor.observe(state, act)
+                    monitor_observed = True
+            
+            try:
                 # Note: it's important to call monitor.observe() before
                 # env.step(), because the monitor may use the environment's
                 # internal state.
-                if monitor is not None:
-                    monitor.observe(state, act)
-                    monitor_observed = True
                 state = env.step(act)
                 actions.append(act)
                 states.append(state)
@@ -1505,8 +1519,6 @@ def run_policy(
                     if monitor_observed:
                         exception_raised_in_step = True
                     break
-                if monitor is not None and not monitor_observed:
-                    monitor.observe(state, None)
                 raise e
             if termination_function(state):
                 break
@@ -3838,7 +3850,8 @@ def create_video_from_partial_refinements(
                 video.extend(env.render())
                 if not CFG.video_not_break_on_exception:
                     break
-            video.extend(env.render(act))
+            else:
+                video.extend(env.render(act))
             # logging.debug("Finished rendering.")
             try:
                 state = env.step(act)

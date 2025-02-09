@@ -251,7 +251,7 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                     monitor=video_monitor)
                 
                 if CFG.keep_failed_demos:
-                    logging.info("Keeping failed demonstration.")
+                    logging.info("Keeping failed demonstration from run_policy.")
                     if CFG.make_demo_videos:
                         make_demo_videos(video_monitor, idx)
                     if CFG.make_demo_images:

@@ -446,7 +446,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             total_num_solve_failures += 1
 
         # Optionally save partial-refinement-based video
-        if (CFG.make_failure_videos or CFG.make_failue_images) and\
+        if (CFG.make_failure_videos or CFG.make_failure_images) and\
               partial_refinements:
             logging.info(f"Creating video from partial refinements...")
             video = utils.create_video_from_partial_refinements(

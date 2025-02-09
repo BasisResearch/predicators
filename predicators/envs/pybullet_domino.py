@@ -48,7 +48,8 @@ class PyBulletDominoEnv(PyBulletEnv):
     domino_width: ClassVar[float] = 0.07
     domino_depth: ClassVar[float] = 0.02
     domino_height: ClassVar[float] = 0.15
-    domino_mass: ClassVar[float] = 0.3
+    # domino_mass: ClassVar[float] = 0.3
+    domino_mass: ClassVar[float] = 0.8
     light_green: ClassVar[Tuple[float, float, float,
                                 float]] = (0.56, 0.93, 0.56, 1.)
     domino_color: ClassVar[Tuple[float, float, float,
@@ -65,7 +66,7 @@ class PyBulletDominoEnv(PyBulletEnv):
 
     # Camera defaults, optional
     _camera_distance: ClassVar[float] = 1.3
-    _camera_yaw: ClassVar[float] = 70
+    _camera_yaw: ClassVar[float] = -70
     _camera_pitch: ClassVar[float] = -40
     _camera_target: ClassVar[Pose3D] = (0.75, 1.25, 0.42)
 
@@ -743,8 +744,8 @@ class PyBulletDominoEnv(PyBulletEnv):
 
                                 # Parallel movement along orientation rot:
                                 #   (cos(rot), sin(rot)) is the unit vector in direction 'rot'
-                                pivot_x = x + gap / 2 * np.sin(rot)  # 0.03
-                                pivot_y = y + gap / 2 * np.cos(rot)
+                                pivot_x = x + gap * (2 / 3) * np.sin(rot)  # 0.03
+                                pivot_y = y + gap * (2 / 3) * np.cos(rot)
 
                                 # Optional sideways shift:
                                 pivot_x -= pivot_dir * side_offset * np.cos(
@@ -763,8 +764,8 @@ class PyBulletDominoEnv(PyBulletEnv):
 
                                 # Flip orientation
                                 # big +y, small -x
-                                back_x = pivot_x - (gap / 2) * np.sin(rot)
-                                back_y = pivot_y - (gap / 2) * np.cos(rot)
+                                back_x = pivot_x - (gap * (2 / 3)) * np.sin(rot)
+                                back_y = pivot_y - (gap * (2 / 3)) * np.cos(rot)
 
                                 # Optionally keep the same sideways offset so
                                 # it's "same side"
