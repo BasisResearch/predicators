@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from functools import cached_property, lru_cache
 from typing import Any, Callable, Collection, DefaultDict, Dict, Iterator, \
     List, Optional, Sequence, Set, Tuple, TypeVar, Union, cast
+import random
 
 import numpy as np
 import PIL.Image
@@ -1528,11 +1529,13 @@ class ClassificationDataset:
     support_labels: List[List[int]]
     query_videos: List[List[Video]]
     query_labels: List[List[int]]
+    seed: int
 
     def __post_init__(self) -> None:
         assert len(self.support_videos) == len(self.support_labels)
         assert len(self.query_videos) == len(self.query_labels)
         self._current_idx: int = 0
+        self._rng = random.Random(self.seed)  # Create a local random generator
 
     def __iter__(self) -> Iterator["ClassificationDataset"]:
         self._current_idx = 0
@@ -1549,6 +1552,14 @@ class ClassificationDataset:
 
         assert len(episode_support_videos) == len(episode_support_labels)
         assert len(episode_query_videos) == len(episode_query_labels)
+
+        # Generate a permutation index for shuffling
+        perm = list(range(len(episode_query_videos)))
+        self._rng.shuffle(perm)
+
+        # Apply shuffle to query videos and labels
+        episode_query_videos = [episode_query_videos[i] for i in perm]
+        episode_query_labels = [episode_query_labels[i] for i in perm]
 
         episode: ClassificationEpisode = (
             episode_support_videos,

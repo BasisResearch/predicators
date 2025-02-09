@@ -137,9 +137,8 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
 
     logging.debug(f"Max video length: {max_video_len}")
     return ClassificationDataset(all_support_videos, all_support_labels,
-                                    all_query_videos, all_query_labels)
-                
-
+                                    all_query_videos, all_query_labels,
+                                    CFG.seed)
 
 def _run_pipeline(approach: VLMClassificationApproach,
                   test_dataset: ClassificationDataset
@@ -157,6 +156,7 @@ def _run_pipeline(approach: VLMClassificationApproach,
                                        query_videos,
                                        task_id=i)
         num_correct += int(pred_labels == query_labels)
+        logging.debug(f"Ep. {i}: pred: {pred_labels}, true: {query_labels}")
     
     logging.info(f"Accuracy: {num_correct}/{num_episodes} "
                     f"({num_correct/num_episodes:.2f})")
