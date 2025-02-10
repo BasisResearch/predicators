@@ -6,6 +6,7 @@ import torchvision.transforms as transforms
 
 import logging
 import numpy as np
+import tqdm
 
 from predicators.structs import Video
 from predicators import utils
@@ -226,10 +227,10 @@ class DinoSimilarityApproach:
             embedding dimension output by the DINO model.
         """
         all_features = []
-        for vid in videos:
+        for vid in tqdm(videos, desc="Processing videos", leave=False):
             embeddings_for_vid = []
-            for frame in vid:
-                # Convert frame to tensor if necessary
+            # Add progress bar for frames within each video
+            for frame in tqdm(vid, desc="Processing frames", leave=False):                # Convert frame to tensor if necessary
                 if not isinstance(frame, torch.Tensor):
                     # Convert PIL Image to tensor
                     if "PIL" in str(type(frame)):
