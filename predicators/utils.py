@@ -4516,7 +4516,7 @@ def configure_logging() -> None:
                                   style='%'))
     handlers: List[logging.Handler] = [colorlog_handler]
     if CFG.log_file:
-        CFG.log_file += f"{CFG.env}/seed{CFG.seed}/"
+        # CFG.log_file += f"{CFG.env}/seed{CFG.seed}/"
         os.makedirs(CFG.log_file, exist_ok=True)
 
         timestamp = datetime.datetime.now().strftime("%m%d%H%M%S")

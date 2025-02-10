@@ -207,7 +207,8 @@ FLAGS:
   use_classification_problem_setting: True # Choose entry point
   classification_has_counterfactual_support: False
   keep_failed_demos: True
-  vlm_model_name: "gemini-2.0-flash"
-  vlm_temperature: 0.0
+  vlm_model_name: "gemini-2.0-pro-exp-02-05"
+  vlm_temperature: 0.2
+  log_file: "yes" # if not empty, logs will be saved
 START_SEED: 0
-NUM_SEEDS: 1
+NUM_SEEDS: 3

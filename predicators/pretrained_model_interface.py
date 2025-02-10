@@ -302,6 +302,7 @@ class GoogleGeminiVLM(VisionLanguageModel, GoogleGeminiModel):
             num_completions: int = 1) -> List[str]:  # pragma: no cover
         del seed, stop_token  # unused
         assert imgs is not None
+        logging.debug(f"Prompting...")
         generation_config = genai.types.GenerationConfig(  # pylint:disable=no-member
             candidate_count=num_completions,
             temperature=temperature)

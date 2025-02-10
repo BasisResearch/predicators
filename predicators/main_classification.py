@@ -30,6 +30,9 @@ def main() -> None:
     str_args = " ".join(sys.argv)
 
     # Set up logging
+    if CFG.log_file:
+        CFG.log_file = os.path.join(CFG.log_dir, "vlm_classification",
+                                    f"seed{CFG.seed}", "")
     utils.configure_logging()
     os.makedirs(CFG.results_dir, exist_ok=True)
     os.makedirs(CFG.eval_trajectories_dir, exist_ok=True)
@@ -110,9 +113,10 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
             for is_counterfactual in is_counterfactual_list:
                 split = "support" if support_split else "query"
                 base_env_name = env if not is_counterfactual else f"{env}_cf"
+                # TODO: so far only have seed0
                 dataset_base_dir = os.path.join(CFG.image_dir, 
                                                 base_env_name,
-                                                f"seed{CFG.seed}", 
+                                                f"seed0", 
                                                 split)
 
                 logging.debug(f"Loading the {split} set for "
