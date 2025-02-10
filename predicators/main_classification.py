@@ -17,7 +17,8 @@ from predicators.main import setup_environment, setup_approach, \
 from predicators.cogman import CogMan
 from predicators.envs import BaseEnv
 from predicators.structs import ClassificationDataset, Video
-from predicators.classification_approaches import VLMClassificationApproach
+from predicators.classification_approaches import VLMClassificationApproach,\
+                                                    DinoSimilarityApproach
 
 def main() -> None:
     """Main entry point for running classification approaches.
@@ -68,7 +69,10 @@ def main() -> None:
 
     # Create approach
     # approach = setup_approach(env, preds, approach_train_tasks)
-    approach = VLMClassificationApproach()
+    if CFG.approach == "vlm_classification":
+        approach = VLMClassificationApproach()
+    elif CFG.approach == "dino_similarity":
+        approach = DinoSimilarityApproach()
 
     _run_pipeline(approach, test_dataset)
 
@@ -87,18 +91,19 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
     all_query_labels: List[List[int]] = []
     max_video_len = 0
 
-    for env in ["cover",
-                "blocks",
-                "coffee",
-                "balance",
-                "grow",
-                "circuit",
-                "float",
-                "domino",
-                "laser",
-                "ants",
-                "fan",
-                ]:
+    env_names = ["cover",
+                # "blocks",
+                # "coffee",
+                # "balance",
+                # "grow",
+                # "circuit",
+                # "float",
+                # "domino",
+                # "laser",
+                # "ants",
+                # "fan",
+                ]
+    for env in env_names:
         episode_support_videos: List[Video] = []
         episode_support_labels: List[int] = []
         episode_query_videos: List[Video] = []

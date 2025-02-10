@@ -774,6 +774,10 @@ class GlobalSettings:
     use_classification_problem_setting = False
     classification_has_counterfactual_support = True
 
+    # dino similarity approach
+    dino_model_name = "dinov2_vits14"
+    distance_function = "dtw"
+
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:
         """A workaround for global settings that are derived from the

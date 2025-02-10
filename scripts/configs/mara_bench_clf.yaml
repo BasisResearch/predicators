@@ -3,189 +3,18 @@
 #    python scripts/local/launch_simp.py -c mara_bench_clf.yaml
 ---
 APPROACHES:
-  oracle:
-    NAME: "oracle"
+  # vlm_clf:
+  #   NAME: "vlm_classification"
+  dino_sim:
+    NAME: "dino_similarity"
+    FLAG:
+      dino_model_name: "dinov2_vits14"
+      distance_function: "dtw"
 
 ENVS:
   cover:
     NAME: "pybullet_cover"
-  # cover_cf:
-  #   NAME: "pybullet_cover"
-  #   FLAGS:
-  #     cover_blocks_change_color_when_cover: True
-  # blocks:
-  #   NAME: "pybullet_blocks"
-  # blocks_cf:
-  #   NAME: "pybullet_blocks"
-  #   FLAGS:
-  #     blocks_high_towers_are_unstable: True
-  # coffee:
-  #   NAME: "pybullet_coffee"
-  #   FLAGS:
-  #     coffee_rotated_jug_ratio: 0
-  #     sesame_check_expected_atoms: False
-  #     coffee_machine_have_light_bar: False
-  #     coffee_move_back_after_place_and_push: True
-  #     coffee_machine_has_plug: True
-  #     option_model_terminate_on_repeat: False
-  #     coffee_use_pixelated_jug: True
-  #     pybullet_ik_validate: False
-  #     sesame_max_skeletons_optimized: 1
-  # coffee_cf:
-  #   NAME: "pybullet_coffee"
-  #   FLAGS:
-  #     coffee_plug_break_after_plugged_in: True
-  #     coffee_rotated_jug_ratio: 0
-  #     sesame_check_expected_atoms: False
-  #     coffee_machine_have_light_bar: False
-  #     coffee_move_back_after_place_and_push: True
-  #     coffee_machine_has_plug: True
-  #     option_model_terminate_on_repeat: False
-  #     coffee_use_pixelated_jug: True
-  #     pybullet_ik_validate: False
-  #     sesame_max_skeletons_optimized: 1
-  # balance:
-  #   NAME: "pybullet_balance"
-  #   FLAGS:
-  #     sesame_task_planning_heuristic: "goal_count"
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  # balance_cf:
-  #   NAME: "pybullet_balance"
-  #   FLAGS:
-  #     balance_wierd_balance: True
-  #     sesame_task_planning_heuristic: "goal_count"
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  # grow:
-  #   NAME: "pybullet_grow"
-  #   FLAGS:
-  #     pybullet_ik_validate: False
-  #     coffee_use_pixelated_jug: True
-  #     max_num_steps_option_rollout: 50
-  # grow_cf:
-  #   NAME: "pybullet_grow"
-  #   FLAGS:
-  #     grow_plant_same_color_as_cup: True
-  #     pybullet_ik_validate: False
-  #     coffee_use_pixelated_jug: True
-  #     max_num_steps_option_rollout: 50
-  # circuit:
-  #   NAME: "pybullet_circuit"
-  #   FLAGS:
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     terminate_on_goal_reached: False
-  #     pybullet_ik_validate: False
-  # circuit_cf:
-  #   NAME: "pybullet_circuit"
-  #   FLAGS:
-  #     circuit_light_doesnt_need_battery: True
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     terminate_on_goal_reached: False
-  # float:
-  #   NAME: "pybullet_float"
-  #   FLAGS:
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  #     option_model_terminate_on_repeat: False
-  #     num_train_tasks: 1
-  #     num_test_tasks: 0
-  #     # num_train_tasks: 0
-  #     # num_test_tasks: 2
-  # float_cf:
-  #   NAME: "pybullet_float"
-  #   FLAGS:
-  #     float_water_level_doesnt_raise: True
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  #     option_model_terminate_on_repeat: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
-  # domino:
-  #   NAME: "pybullet_domino"
-  #   ARGS:
-  #     - "video_not_break_on_exception"
-  #   FLAGS:
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     horizon: 50
-  #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
-  # domino_cf:
-  #   NAME: "pybullet_domino"
-  #   ARGS:
-  #     - "video_not_break_on_exception"
-  #   FLAGS:
-  #     domino_some_dominoes_are_connected: True
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     horizon: 60
-  #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
-  #     pybullet_max_vel_norm: 0.03
-  # laser:
-  #   NAME: "pybullet_laser"
-  #   FLAGS:
-  #     bilevel_plan_without_sim: True
-  #     laser_use_debug_line_for_beams: False
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
-  # laser_cf:
-  #   NAME: "pybullet_laser"
-  #   FLAGS:
-  #     laser_zero_reflection_angle: True
-  #     bilevel_plan_without_sim: True
-  #     laser_use_debug_line_for_beams: False
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
-  # ants:
-  #   NAME: "pybullet_ants"
-  #   FLAGS:
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
-  #     terminate_on_goal_reached: False
-  # ants_cf:
-  #   NAME: "pybullet_ants"
-  #   FLAGS:
-  #     ants_ants_attracted_to_points: True
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  #     num_train_tasks: 0
-  #     num_test_tasks: 2
-  #     terminate_on_goal_reached: False
-  # fan:
-  #   NAME: "pybullet_fan"
-  #   FLAGS:
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     terminate_on_goal_reached: False
-  #     pybullet_ik_validate: False
-  #     num_test_tasks: 5
-  # fan_cf:
-  #   NAME: "pybullet_fan"
-  #   FLAGS:
-  #     fan_fans_blow_opposite_direction: True
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     terminate_on_goal_reached: False
-  #     pybullet_ik_validate: False
-  #     num_test_tasks: 5
+
 ARGS:
   - "debug"
   - "use_gui"
@@ -208,7 +37,8 @@ FLAGS:
   classification_has_counterfactual_support: False
   keep_failed_demos: True
   vlm_model_name: "gemini-2.0-pro-exp-02-05"
+  # vlm_model_name: "gpt-4o"
   vlm_temperature: 0.2
   log_file: "yes" # if not empty, logs will be saved
-START_SEED: 0
-NUM_SEEDS: 3
+START_SEED: 2
+NUM_SEEDS: 1

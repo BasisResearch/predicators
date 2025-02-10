@@ -4543,6 +4543,7 @@ def configure_logging() -> None:
     logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
     logging.getLogger('libpng').setLevel(logging.ERROR)
     logging.getLogger('PIL').setLevel(logging.ERROR)
+    logging.getLogger('openai').setLevel(logging.INFO)
 
 def log_initial_info(str_args: str) -> None:
     """Log initial configuration and setup information."""
@@ -4557,11 +4558,11 @@ def add_label_to_video(video: Video, prefix: str, imgs_dir: str,
                        save: bool = True) -> Video:
     """Add a label to each frame of the video and save the images."""
     os.makedirs(imgs_dir, exist_ok=True)
-    new_video = []
+    new_video: Video = []
     for i, img in enumerate(video):
-        img_name = prefix+f"frame_{i}"
-        add_label_to_image(img, img_name, imgs_dir, save=save)
-        new_video.append(img)
+        img_name = prefix+f"frame_{i+1}"
+        labeled_img = add_label_to_image(img, img_name, imgs_dir, save=save)
+        new_video.append(labeled_img)
     return new_video
 
 def add_label_to_image(img: PIL.Image.Image, 
