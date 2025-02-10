@@ -85,7 +85,7 @@ class VLMClassificationApproach:
                             in support_videos]
         assert len(support_videos) == 1, "Currently assume only 1 support video."
         query_videos = [utils.add_label_to_video(video, 
-                                prefix=f"query{i}_", 
+                                prefix=f"query{i+1}_", 
                                 imgs_dir=imgs_dir, save=True) for i, video 
                             in enumerate(query_videos)]
         imgs = [img for video in support_videos + query_videos for img in video]
