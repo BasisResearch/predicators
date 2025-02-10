@@ -6,7 +6,7 @@ import torchvision.transforms as transforms
 
 import logging
 import numpy as np
-import tqdm
+from tqdm import tqdm
 
 from predicators.structs import Video
 from predicators import utils

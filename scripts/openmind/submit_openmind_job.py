@@ -96,7 +96,7 @@ def submit_openmind_job(entry_point: str,
     #     cmd += "--partition=xeon-p8 "
     cmd += ("--nodes=1 "
             # "--mem=512G " # for blocks
-            "--mem=64G "
+            "--mem=32G "
             # "-p tenenbaum "
             f"--job-name={job_name} "
             f"--array={start_seed}-{start_seed+num_seeds-1} "

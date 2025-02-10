@@ -12,10 +12,6 @@ from PIL import Image
 
 from predicators import utils
 from predicators.settings import CFG
-from predicators.main import setup_environment, setup_approach, \
-    create_offline_dataset, create_perceiver
-from predicators.cogman import CogMan
-from predicators.envs import BaseEnv
 from predicators.structs import ClassificationDataset, Video
 from predicators.classification_approaches import VLMClassificationApproach,\
                                                     DinoSimilarityApproach
