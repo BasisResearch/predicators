@@ -32,7 +32,7 @@ def main() -> None:
 
     # Set up logging
     if CFG.log_file:
-        CFG.log_file = os.path.join(CFG.log_dir, "vlm_classification",
+        CFG.log_file = os.path.join(CFG.log_dir, CFG.approach,
                                     f"seed{CFG.seed}", "")
     utils.configure_logging()
     os.makedirs(CFG.results_dir, exist_ok=True)
