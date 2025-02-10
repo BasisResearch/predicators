@@ -42,3 +42,4 @@ FLAGS:
   log_file: "yes" # if not empty, logs will be saved
 START_SEED: 2
 NUM_SEEDS: 1
+USE_GPU: True
