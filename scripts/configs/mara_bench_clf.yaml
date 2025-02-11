@@ -3,19 +3,19 @@
 #    python scripts/local/launch_simp.py -c mara_bench_clf.yaml
 ---
 APPROACHES:
-  # vlm_clf:
-  #   NAME: "vlm_classification"
-  dino_sim_dtw:
-    NAME: "dino_similarity"
-    FLAG:
-      dino_model_name: "dinov2_vitg14_reg"
-      # dino_model_name: "dinov2_vits14"
-      distance_function: "dtw"
-  dino_sim_chamfer:
-    NAME: "dino_similarity"
-    FLAG:
-      dino_model_name: "dinov2_vitg14_reg"
-      distance_function: "chamfer"
+  vlm_clf:
+    NAME: "vlm_classification"
+  # dino_sim_dtw:
+  #   NAME: "dino_similarity"
+  #   FLAG:
+  #     dino_model_name: "dinov2_vitg14_reg"
+  #     # dino_model_name: "dinov2_vits14"
+  #     distance_function: "dtw"
+  # dino_sim_chamfer:
+  #   NAME: "dino_similarity"
+  #   FLAG:
+  #     dino_model_name: "dinov2_vitg14_reg"
+  #     distance_function: "chamfer"
 
 ENVS:
   all:
@@ -33,5 +33,5 @@ FLAGS:
   # vlm_model_name: "gpt-4o"
   vlm_temperature: 0.2
 START_SEED: 0
-NUM_SEEDS: 1
+NUM_SEEDS: 3
 USE_GPU: True

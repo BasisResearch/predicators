@@ -176,7 +176,8 @@ def _run_testing(approach: VLMClassificationApproach,
          query_videos, 
          query_labels) = episode
 
-        pred_labels = approach.predict(support_videos, 
+        pred_labels = approach.predict(episode_name,
+                                       support_videos, 
                                        support_labels, 
                                        query_videos,
                                        task_id=i)

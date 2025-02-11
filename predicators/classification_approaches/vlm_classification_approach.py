@@ -32,7 +32,8 @@ class VLMClassificationApproach:
         """Return the name of this classification approach."""
         return "vlm_classification"
 
-    def predict(self, support_videos: List[Video],
+    def predict(self, episode_name: str,
+                support_videos: List[Video],
                 support_labels: List[int],
                 query_videos: List[Video],
                 task_id: int) -> List[int]:
@@ -55,7 +56,8 @@ class VLMClassificationApproach:
                                                              query_videos)
         
         # Generate VLM prompt and prepare images
-        prompt, imgs = self._prepare_prompt(support_videos, support_labels, 
+        prompt, imgs = self._prepare_prompt(episode_name, support_videos, 
+                                            support_labels, 
                                           query_videos)
 
         # Get and parse VLM response
@@ -82,7 +84,8 @@ class VLMClassificationApproach:
         assert len(clf_answer) == len(query_videos), "Answer length mismatch."
         return clf_answer
 
-    def _prepare_prompt(self, support_videos: List[Video],
+    def _prepare_prompt(self, episode_name: str,
+                                support_videos: List[Video],
                                 support_labels: List[int],
                                 query_videos: List[Video],
                             ) -> Tuple[str, List[PIL.Image.Image]]:
@@ -95,7 +98,13 @@ class VLMClassificationApproach:
         # --- Prepare the prompt ---
         prompt_path = os.path.join("prompts", "classification.outline")
         with open(prompt_path, "r") as f:
-            prompt = f.read()
+            prompt_template = f.read()
+
+        # Replace placeholders in the prompt
+        prompt = prompt_template.format(ENV_NAME=episode_name)
+
+        # save prompt
+        self._save_text_to_logdir(prompt, "prompt.txt")
         
         # --- Prepare the images ---
         # Create a directory to save the images.
@@ -130,7 +139,7 @@ class VLMClassificationApproach:
             ValueError: If response cannot be parsed correctly
         """
         # Save response for debugging
-        self._save_response(response_text)
+        self._save_text_to_logdir(response_text, "response.txt")
 
         # Extract matching video and reasoning using regex
         match_video = re.search(r"%% Matching Video:\s*(query_1|query_2)", 
@@ -148,9 +157,9 @@ class VLMClassificationApproach:
                         else "No reasoning provided.")
         }
 
-    def _save_response(self, response_text: str) -> None:
+    def _save_text_to_logdir(self, response_text: str, fname: str) -> None:
         """Save VLM response to file for debugging purposes."""
-        response_path = os.path.join(self.log_dir, "response.txt")
+        response_path = os.path.join(self.log_dir, fname)
         os.makedirs(os.path.dirname(response_path), exist_ok=True)
         with open(response_path, "w") as f:
             f.write(response_text)

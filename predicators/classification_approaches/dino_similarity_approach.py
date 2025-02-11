@@ -131,7 +131,8 @@ class DinoSimilarityApproach:
         """Return the name of this classification approach."""
         return "dino_similarity"
 
-    def predict(self, support_videos: List[Video],
+    def predict(self, episode_name:str,
+                support_videos: List[Video],
                 support_labels: List[int],
                 query_videos: List[Video],
                 task_id: int) -> List[int]:
