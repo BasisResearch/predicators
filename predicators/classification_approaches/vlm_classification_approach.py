@@ -4,6 +4,7 @@ import re
 import PIL
 import logging
 import shutil
+import random
 
 from predicators.structs import Video
 from predicators import utils
@@ -149,10 +150,13 @@ class VLMClassificationApproach:
             response_text, re.DOTALL)
 
         if not match_video:
-            raise ValueError("Could not parse the response correctly.")
+            logging.warning("Could not find matching video in response.")
+            answer = random.choice(["query_1", "query_2"])
+        else:
+            answer = match_video.group(1)
 
         return {
-            "matching_video": match_video.group(1),
+            "matching_video": answer,
             "reasoning": (match_reasoning.group(1).strip() if match_reasoning 
                         else "No reasoning provided.")
         }

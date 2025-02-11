@@ -87,7 +87,7 @@ BAR_GROUPS = [
     ("DINO-dtw", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
                                                       "dino_sim_dtw" in v)),
     ("DINO-chf", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
-                                                      "dino_sim_chf" in v)),
+                                                      "dino_sim_chamfer" in v)),
 ]
 
 #################### Should not need to change below here #####################
