@@ -4,7 +4,7 @@ Example command:
 import os
 import sys
 import time
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from collections import defaultdict
 import logging
 
@@ -180,12 +180,13 @@ def _run_testing(approach: VLMClassificationApproach,
                                        support_labels, 
                                        query_videos,
                                        task_id=i)
-        num_correct += int(pred_labels == query_labels)
+        correct = pred_labels == query_labels
+        num_correct += int(correct)
         logging.debug(f"Ep. {i}: {episode_name}: pred: {pred_labels}, "
                       f"true: {query_labels}. "
-                      f"Correct: {pred_labels == query_labels}")
+                      f"Correct: {correct}")
         # Can either do the average here or during plotting
-        metrics[f"{episode_name}_accuracy"] = float(pred_labels == query_labels)
+        metrics[f"{episode_name}_accuracy"] = float(correct)
     
     metrics["num_correct"] = num_correct
     metrics["num_episodes"] = num_episodes
@@ -195,10 +196,12 @@ def _run_testing(approach: VLMClassificationApproach,
     
     return metrics
 
-def _save_test_results(results: Metrics) -> None:
+def _save_test_results(results: Metrics, 
+                       online_learning_cycle: Optional[int] = None) -> None:
     """Save the test results.
     """
-    outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}.pkl")
+    outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}__"
+               f"{online_learning_cycle}.pkl")
     outdata = {
         "config": CFG,
         "results": results.copy(),

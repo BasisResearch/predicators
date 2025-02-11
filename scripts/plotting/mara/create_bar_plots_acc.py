@@ -26,8 +26,20 @@ X_LIM = (-5, 110)
 # Groups over which to take mean/std.
 GROUPS = [
     "ENV", "APPROACH", "EXCLUDED_PREDICATES", "EXPERIMENT_ID",
-    "ONLINE_LEARNING_CYCLE"
 ]
+
+env_names = ["cover",
+            "blocks",
+            "coffee",
+            "balance",
+            "grow",
+            "circuit",
+            "float",
+            "domino",
+            "laser",
+            "ants",
+            "fan",
+            ]
 
 # All column names and keys to load into the pandas tables.
 COLUMN_NAMES_AND_KEYS = [
@@ -36,27 +48,33 @@ COLUMN_NAMES_AND_KEYS = [
     ("EXCLUDED_PREDICATES", "excluded_predicates"),
     ("EXPERIMENT_ID", "experiment_id"),
     ("SEED", "seed"),
-    ("AVG_TEST_TIME", "avg_suc_time"),
-    ("AVG_NODES_CREATED", "avg_num_nodes_created"),
-    ("LEARNING_TIME", "learning_time"),
-    ("PERC_SOLVED", "perc_solved"),
-    ("ONLINE_LEARNING_CYCLE", "cycle"),  # add to select model at specific cycle
-    ("AVG_NUM_FAILED_PLAN", "avg_num_skeletons_optimized"),
+    ("OVERALL_ACCURACY", "perc_overall_accuracy"),
+] + [
+    (f"{env}_ACCURACY", f"perc_{env}_accuracy") for env in env_names
 ]
 
-DERIVED_KEYS = [("perc_solved",
-                 lambda r: 100 * r["num_solved"] / r["num_test_tasks"])]
+DERIVED_KEYS = [
+    ("perc_overall_accuracy", lambda r: 100 * r["avg_accuracy"]),
+    # In Python, when you create a lambda function inside a loop, it captures 
+    # the variable by reference, not by value.
+    # When the lambda functions are actually called later, they all use the 
+    # final value of env from the loop.
+    # use default arguments in the lambda to capture the current value:
+    *[(f"perc_{env}_accuracy", lambda r, env=env: 100 * r[f"{env}_accuracy"])
+        for env in env_names],
+]
 
 KEYS = [
-        "PERC_SOLVED", 
+        "OVERALL_ACCURACY", 
+        *[(f"{env}_ACCURACY") for env in env_names],
         ]
 
 # The keys of the dict are (df key, df value), and the dict values are
 # labels for the legend. The df key/value are used to select a subset from
 # the overall pandas dataframe.
 PLOT_GROUPS = [
+    ("", pd_create_equal_selector("ENV", "all_tasks")),
     # ("Cover", pd_create_equal_selector("ENV", "pybullet_cover_typed_options")),
-    ("Blocks", pd_create_equal_selector("ENV", "pybullet_blocks")),
     # ("Coffee", pd_create_equal_selector("ENV", "pybullet_coffee")),
     # ("Cover Heavy", pd_create_equal_selector("ENV", "pybullet_cover_weighted")),
     # ("Balance", pd_create_equal_selector("ENV", "pybullet_balance")),
@@ -64,40 +82,12 @@ PLOT_GROUPS = [
 
 # See PLOT_GROUPS comment.
 BAR_GROUPS = [
-    ("Oracle",
-     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle_model" in v)),
-    # ("oracle invent",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle_invention" in v)),
-    # ("oracle explore",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle_explore" in v)),
-    ("Ours", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "nsp-nl" in v)),
-    ("MAPLE", lambda df:
-        (df["EXPERIMENT_ID"].apply(lambda v: "maple_q" in v)) &
-        # (df["ONLINE_LEARNING_CYCLE"].apply(lambda v: "19" == v))
-        (df["ONLINE_LEARNING_CYCLE"].apply(lambda v: "15" == v)) # blocks
-    ),
-    ("ViLa", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "vlm_plan" in v)),
-    ("Sym. pred.", lambda df: 
-        df["EXPERIMENT_ID"].apply(lambda v: "interpret" in v)),
-    # ("ablate select obj.",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_acc_select" in v)),
-    ("Ablate op.",
-     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_new_op_learner" in v)),
-    ("No invent",
-     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_invent" in v)),
-
-    # ("Bisimulation",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "_prederror_200" in v)),
-    # ("Branching",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "_branchfac_200" in v)),
-    # ("Boltzmann",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "_energy_200" in v)),
-    # ("GNN Shooting",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "_gnn_shooting_200" in v)),
-    # ("GNN Model-Free",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "_gnn_modelfree_200" in v)
-    #  ),
-    # ("Random", pd_create_equal_selector("APPROACH", "random_options")),
+    # ("Ours", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "nsp-nl" in v)),
+    ("VLM", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "vlm_clf" in v)),
+    ("DINO-dtw", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
+                                                      "dino_sim_dtw" in v)),
+    ("DINO-chf", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
+                                                      "dino_sim_chf" in v)),
 ]
 
 #################### Should not need to change below here #####################
@@ -135,10 +125,11 @@ def _main() -> None:
             ax.barh(plot_labels, plot_means, xerr=plot_stds, color='green')
             ax.set_xlim(X_LIM)
             ax.tick_params(axis='y', colors='black')
-            ax.set_title(plot_title)
+            key_name = key.lower().replace("_", " ")
+            ax.set_title(key_name+plot_title)
             plt.gca().invert_yaxis()
             plt.tight_layout()
-            filename = f"{plot_title}_{key}.png"
+            filename = f"{plot_title}{key}.png"
             filename = filename.replace(" ", "_").lower()
             outfile = os.path.join(outdir, filename)
             plt.savefig(outfile, dpi=DPI)

@@ -5,17 +5,17 @@
 APPROACHES:
   vlm_clf:
     NAME: "vlm_classification"
-  # dino_sim:
-  #   NAME: "dino_similarity"
-  #   FLAG:
-  #     dino_model_name: "dinov2_vitg14_reg"
-  #     # dino_model_name: "dinov2_vits14"
-  #     distance_function: "dtw"
-  # dino_sim_chamfer:
-  #   NAME: "dino_similarity"
-  #   FLAG:
-  #     dino_model_name: "dinov2_vitg14_reg"
-  #     distance_function: "chamfer"
+  dino_sim_dtw:
+    NAME: "dino_similarity"
+    FLAG:
+      dino_model_name: "dinov2_vitg14_reg"
+      # dino_model_name: "dinov2_vits14"
+      distance_function: "dtw"
+  dino_sim_chamfer:
+    NAME: "dino_similarity"
+    FLAG:
+      dino_model_name: "dinov2_vitg14_reg"
+      distance_function: "chamfer"
 
 ENVS:
   all:
