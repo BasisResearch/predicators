@@ -1558,8 +1558,8 @@ class ClassificationDataset:
 
         # Generate a permutation index for shuffling
         perm = list(range(len(episode_query_videos)))
-        perm.reverse()
-        # self._rng.shuffle(perm)
+        # perm.reverse()
+        self._rng.shuffle(perm)
 
         # Apply shuffle to query videos and labels
         episode_query_videos = [episode_query_videos[i] for i in perm]
