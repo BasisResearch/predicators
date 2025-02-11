@@ -5,14 +5,16 @@ import os
 import sys
 import time
 from typing import List, Tuple
-
+from collections import defaultdict
 import logging
+
+import dill as pkl
 import glob
 from PIL import Image
 
 from predicators import utils
 from predicators.settings import CFG
-from predicators.structs import ClassificationDataset, Video
+from predicators.structs import ClassificationDataset, Video, Metrics
 from predicators.classification_approaches import VLMClassificationApproach,\
                                                     DinoSimilarityApproach
 
@@ -81,6 +83,7 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
     A dataset has many episodes. Each is 1-2 support videos with labels and 2 
     query videos with labels.
     """
+    all_task_names: List[str] = []
     all_support_videos: List[List[Video]] = []
     all_support_labels: List[List[int]] = []
     all_query_videos: List[List[Video]] = []
@@ -89,15 +92,15 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
 
     env_names = ["cover",
                 "blocks",
-                "coffee",
-                "balance",
-                "grow",
-                "circuit",
-                "float",
-                "domino",
-                "laser",
-                "ants",
-                "fan",
+                # "coffee",
+                # "balance",
+                # "grow",
+                # "circuit",
+                # "float",
+                # "domino",
+                # "laser",
+                # "ants",
+                # "fan",
                 ]
     for env in env_names:
         episode_support_videos: List[Video] = []
@@ -147,36 +150,74 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
                                                     )
         assert len(episode_support_videos) == 1, \
                 "Currently assume only 1 support video."
+        all_task_names.append(env)
         all_support_videos.append(episode_support_videos)
         all_support_labels.append(episode_support_labels)
         all_query_videos.append(episode_query_videos)
         all_query_labels.append(episode_query_labels)
 
     logging.debug(f"Max video length: {max_video_len}")
-    return ClassificationDataset(all_support_videos, all_support_labels,
+    return ClassificationDataset(all_task_names, all_support_videos, 
+                                 all_support_labels,
                                     all_query_videos, all_query_labels,
                                     CFG.seed)
 
-def _run_pipeline(approach: VLMClassificationApproach,
+def _run_testing(approach: VLMClassificationApproach,
                   test_dataset: ClassificationDataset
-                    ) -> None:
-    """Run the classification pipeline.
-    """
+                    ) -> Metrics:
     num_correct = 0
     num_episodes = len(test_dataset)
+    metrics: Metrics = defaultdict(float)
 
     for i, episode in enumerate(test_dataset):
-        support_videos, support_labels, query_videos, query_labels = episode
+        (episode_name, 
+         support_videos, 
+         support_labels, 
+         query_videos, 
+         query_labels) = episode
 
         pred_labels = approach.predict(support_videos, 
                                        support_labels, 
                                        query_videos,
                                        task_id=i)
         num_correct += int(pred_labels == query_labels)
-        logging.debug(f"Ep. {i}: pred: {pred_labels}, true: {query_labels}")
+        logging.debug(f"Ep. {i}: {episode_name}: pred: {pred_labels}, "
+                      f"true: {query_labels}. "
+                      f"Correct: {pred_labels == query_labels}")
+        # Can either do the average here or during plotting
+        metrics[f"{episode_name}_accuracy"] = float(pred_labels == query_labels)
     
-    logging.info(f"Accuracy: {num_correct}/{num_episodes} "
-                    f"({num_correct/num_episodes:.2f})")
+    metrics["num_correct"] = num_correct
+    metrics["num_episodes"] = num_episodes
+    accuracy = num_correct / num_episodes
+    metrics["avg_accuracy"] = accuracy
+    logging.info(f"Accuracy: {num_correct}/{num_episodes} ({accuracy:.2f})")
+    
+    return metrics
+
+def _save_test_results(results: Metrics) -> None:
+    """Save the test results.
+    """
+    outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}.pkl")
+    outdata = {
+        "config": CFG,
+        "results": results.copy(),
+        "git_commit_hash": utils.get_git_commit_hash()
+    }
+    with open(outfile, "wb") as f:
+        pkl.dump(outdata, f)
+    
+    logging.info("-------------------")
+    logging.info(f"Test results: {results}")
+    logging.info(f"Wrote out test results to {outfile}")
+
+def _run_pipeline(approach: VLMClassificationApproach, # TODO: use base class
+                  test_dataset: ClassificationDataset
+                    ) -> None:
+    """Run the classification pipeline.
+    """
+    results = _run_testing(approach, test_dataset)
+    _save_test_results(results)
 
 if __name__ == "__main__": # pragma: no cover
     try:

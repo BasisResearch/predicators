@@ -1525,6 +1525,7 @@ class ClassificationDataset:
     of labels, one per trajectory.
     There is List[Video] for each episode
     """
+    task_names: List[str]
     support_videos: List[List[Video]]
     support_labels: List[List[int]]
     query_videos: List[List[Video]]
@@ -1532,8 +1533,9 @@ class ClassificationDataset:
     seed: int
 
     def __post_init__(self) -> None:
-        assert len(self.support_videos) == len(self.support_labels)
-        assert len(self.query_videos) == len(self.query_labels)
+        assert len(self.support_videos) == len(self.support_labels) == \
+                len(self.query_videos) == len(self.query_labels) == \
+                len(self.task_names)
         self._current_idx: int = 0
         self._rng = random.Random(self.seed)  # Create a local random generator
 
@@ -1545,6 +1547,7 @@ class ClassificationDataset:
         if self._current_idx >= len(self.support_videos):
             raise StopIteration
 
+        episode_name = self.task_names[self._current_idx]
         episode_support_videos = self.support_videos[self._current_idx] 
         episode_support_labels = self.support_labels[self._current_idx]
         episode_query_videos = self.query_videos[self._current_idx]
@@ -1563,6 +1566,7 @@ class ClassificationDataset:
         episode_query_labels = [episode_query_labels[i] for i in perm]
 
         episode: ClassificationEpisode = (
+            episode_name,
             episode_support_videos,
             episode_support_labels,
             episode_query_videos,
@@ -2271,4 +2275,5 @@ RGBA = Tuple[float, float, float, float]
 BridgePolicy = Callable[[State, Set[GroundAtom], List[_Option]], _Option]
 BridgeDataset = List[Tuple[Set[_Option], _GroundNSRT, Set[GroundAtom], State]]
 Mask = NDArray[np.bool_]
-ClassificationEpisode = Tuple[List[Video], List[int], List[Video], List[int]]
+ClassificationEpisode = Tuple[str, List[Video], List[int], List[Video], 
+                              List[int]]
