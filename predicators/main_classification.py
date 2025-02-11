@@ -92,15 +92,15 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
 
     env_names = ["cover",
                 "blocks",
-                # "coffee",
-                # "balance",
-                # "grow",
-                # "circuit",
-                # "float",
-                # "domino",
-                # "laser",
-                # "ants",
-                # "fan",
+                "coffee",
+                "balance",
+                "grow",
+                "circuit",
+                "float",
+                "domino",
+                "laser",
+                "ants",
+                "fan",
                 ]
     for env in env_names:
         episode_support_videos: List[Video] = []

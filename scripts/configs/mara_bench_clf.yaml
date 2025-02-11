@@ -3,8 +3,8 @@
 #    python scripts/local/launch_simp.py -c mara_bench_clf.yaml
 ---
 APPROACHES:
-  vlm_clf:
-    NAME: "vlm_classification"
+  # vlm_clf:
+  #   NAME: "vlm_classification"
   dino_sim_dtw:
     NAME: "dino_similarity"
     FLAG:
@@ -33,5 +33,5 @@ FLAGS:
   # vlm_model_name: "gpt-4o"
   vlm_temperature: 0.2
 START_SEED: 0
-NUM_SEEDS: 3
+NUM_SEEDS: 1
 USE_GPU: True
