@@ -1021,8 +1021,8 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         if target_pos == robot_pos and dtilt == 0 and dwrist == 0:
             pybullet_robot.set_joints(current_joint_positions)
             action_arr = np.array(current_joint_positions, dtype=np.float32)
-            # action_arr = np.clip(action_arr, pybullet_robot.action_space.low,
-            #              pybullet_robot.action_space.high)
+            action_arr = np.clip(action_arr, pybullet_robot.action_space.low,
+                         pybullet_robot.action_space.high)
             assert pybullet_robot.action_space.contains(action_arr)
             return Action(action_arr)
 

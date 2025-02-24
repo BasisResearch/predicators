@@ -168,7 +168,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     dispense_radius = 2 * jug_radius
     dispense_height = 0.0001
     # Cup settings.
-    cup_radius: ClassVar[float] = 0.6 * jug_radius
+    cup_radius: ClassVar[float] = jug_radius
     cup_init_x_lb: ClassVar[float] = x_lb + cup_radius + init_padding
     cup_init_x_ub: ClassVar[
         float] = machine_x - machine_x_len / 2 - cup_radius - init_padding

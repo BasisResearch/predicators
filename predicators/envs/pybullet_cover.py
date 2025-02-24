@@ -7,7 +7,7 @@ python predicators/main.py --approach oracle --env pybullet_cover --seed 0 \
 # --sesame_check_expected_atoms False
 """
 import random
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar, Dict, List, Sequence, Tuple
 
 import numpy as np
 import pybullet as p
@@ -53,6 +53,9 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
     _offset: ClassVar[float] = 0.01
     pickplace_z: ClassVar[float] = _table_height + _obj_len_hgt * 0.5 + _offset
     _target_height: ClassVar[float] = 0.0001
+
+    _obj_colors_bw: ClassVar[Sequence[Tuple[float, float, float, float]]] = [
+        (0, 0, 0, 1.), (1, 1, 1, 1.)]
 
     def __init__(self, use_gui: bool = True) -> None:
         super().__init__(use_gui)
