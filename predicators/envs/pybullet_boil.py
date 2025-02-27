@@ -83,7 +83,8 @@ class PyBulletBoilEnv(PyBulletEnv):
     # Types
     # -------------------------------------------------------------------------
     _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
-    _jug_type = Type("jug", ["x", "y", "z", "rot", "is_held", "water_level", "heat"])
+    _jug_type = Type("jug", ["x", "y", "z", "rot", "is_held", "water_level", 
+                             "heat"])
     _burner_type = Type("burner", ["x", "y", "z", "is_on"])
     _switch_type = Type("switch", ["x", "y", "z", "rot", "is_on"])
     _faucet_type = Type("faucet", ["x", "y", "z", "is_on"])
@@ -97,6 +98,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         for i in range(self.num_jugs):
             jug_obj = Object(f"jug{i}", self._jug_type)
             self._jugs.append(jug_obj)
+        self._jug_to_liquid_id: Dict[Object, Optional[int]] = {}
 
         # Create burners + a corresponding switch for each
         self._burners: List[Object] = []
@@ -168,7 +170,6 @@ class PyBulletBoilEnv(PyBulletEnv):
             # Example placeholder URDF for a jug
             jug_id = create_object(
                 asset_path="urdf/jug-pixel.urdf",
-                scale=1.0,
                 use_fixed_base=False,
                 physics_client_id=physics_client_id
             )
@@ -206,7 +207,6 @@ class PyBulletBoilEnv(PyBulletEnv):
         # 5) Create faucet and faucet switch
         faucet_id = create_object(
                 asset_path="urdf/partnet_mobility/faucet/1488/mobility.urdf",
-                scale=1.0,
                 use_fixed_base=True,
                 physics_client_id=physics_client_id
         )
@@ -265,6 +265,24 @@ class PyBulletBoilEnv(PyBulletEnv):
                 idx = int(obj.name.replace("burner", ""))
                 sw_obj = self._burner_switches[idx]
                 return float(self._is_switch_on(sw_obj.id))
+        elif obj.type == self._switch_type:
+            if feature == "is_on":
+                return float(self._is_switch_on(obj.id))
+        elif obj.type == self._jug_type:
+            if feature == "water_level":
+                liquid_id = self._jug_to_liquid_id.get(obj, None)
+                if liquid_id is not None:
+                    shape_data = p.getVisualShapeData(
+                        liquid_id, physicsClientId=self._physics_client_id)
+                    if shape_data:  # handle the case shape_data might be empty
+                        # shape_data[0][3][2] is the Z dimension of the box 
+                        # half-extents*2, etc.
+                        height = shape_data[0][3][2]
+                        return height
+                return 0.0
+            if feature == "heat":
+                # TODO
+                return 0.0
         # Otherwise, rely on defaults (like the base PyBulletEnv) for x,y,z,...
         # or raise an error if unrecognized:
         raise ValueError(f"Unknown feature {feature} for object {obj}.")
@@ -276,6 +294,16 @@ class PyBulletBoilEnv(PyBulletEnv):
         for i, burner_obj in enumerate(self._burners):
             on_val = state.get(burner_obj, "is_on")
             self._set_switch_on(self._burner_switches[i].id, bool(on_val > 0.5))
+        
+        for liquid_id in self._jug_to_liquid_id.values():
+            if liquid_id is not None:
+                p.removeBody(liquid_id, physicsClientId=self._physics_client_id)
+        self._jug_to_liquid_id.clear()
+
+        # Recreate the liquid bodies as needed
+        for jug in self._jugs:
+            liquid_id = self._create_liquid_for_jug(jug, state)
+            self._jug_to_liquid_id[jug] = liquid_id
 
         # Faucet
         f_on = state.get(self._faucet, "is_on")
@@ -320,6 +348,15 @@ class PyBulletBoilEnv(PyBulletEnv):
                 old_level = state.get(jug_obj, "water_level")
                 new_level = old_level + self.water_fill_speed
                 state.set(jug_obj, "water_level", min(1.0, new_level))
+
+                # Handle liquid
+                old_liquid_id = self._jug_to_liquid_id[jug_obj]
+                if old_liquid_id is not None:
+                    p.removeBody(old_liquid_id, 
+                                 physicsClientId=self._physics_client_id)
+                state.set(jug_obj, "water_level", new_level)
+                self._jug_to_liquid_id[jug_obj] = self._create_liquid_for_jug(
+                    jug_obj, state)
             else:
                 # Spillage if jug is "close but not aligned enough"? 
                 # For simplicity, we won't track puddles on the table here.
@@ -519,6 +556,34 @@ class PyBulletBoilEnv(PyBulletEnv):
                 used_xy.add((x, y))
                 return x, y
         raise RuntimeError("Failed to sample a collision-free (x, y).")
+
+    def _create_liquid_for_jug(
+        self,
+        jug: Object,
+        state: State,
+    ) -> Optional[int]:
+        """Given a cup's 'growth' feature, create (or None) a small PyBullet
+        body."""
+        current_liquid = state.get(jug, "water_level")
+        if current_liquid <= 0:
+            return None
+
+        # Make a box that sits inside the cup
+        liquid_height = current_liquid
+        half_extents = [0.03, 0.03, liquid_height / 2]
+        cx = state.get(jug, "x")
+        cy = state.get(jug, "y")
+        cz = self.z_lb + liquid_height / 2  # sits on table
+
+        color = water_color = (0.0, 0.0, 1.0, 0.5)  # blue
+        return create_pybullet_block(
+            color=color,
+            half_extents=half_extents,
+            #  mass=10.0,
+            mass=0.0,
+            friction=0.5,
+            position=(cx, cy, cz),
+            physics_client_id=self._physics_client_id)
 
 
 if __name__ == "__main__":

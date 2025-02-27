@@ -313,7 +313,8 @@ class PyBulletGrowEnv(PyBulletEnv):
 
                                 next_state.set(cup_obj, "growth", new_growth)
                                 self._cup_to_liquid_id[cup_obj] = \
-                                    self._create_pybullet_liquid_for_cup(cup_obj, next_state)
+                                    self._create_pybullet_liquid_for_cup(
+                                        cup_obj, next_state)
 
         final_state = self._get_state()
         self._current_observation = final_state
