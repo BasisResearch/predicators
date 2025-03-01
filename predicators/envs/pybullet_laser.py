@@ -616,8 +616,7 @@ class PyBulletLaserEnv(PyBulletEnv):
                                 rng=self._test_rng,
                                 is_train=False)
 
-    def _make_tasks(self, num_tasks: int,
-                    rng: np.random.Generator,
+    def _make_tasks(self, num_tasks: int, rng: np.random.Generator,
                     is_train: bool) -> List[EnvironmentTask]:
         tasks = []
         for task_idx in range(num_tasks):

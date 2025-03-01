@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import datetime
 import abc
 import contextlib
+import datetime
 import functools
 import gc
 import heapq as hq
@@ -20,6 +20,7 @@ import sys
 import time
 from argparse import ArgumentParser
 from collections import defaultdict, namedtuple
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from pprint import pformat
@@ -28,8 +29,8 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Collection, Dict, \
     Sequence, Set, Tuple
 from typing import Type as TypingType
 from typing import TypeVar, Union, cast
-from concurrent.futures import ThreadPoolExecutor
 
+import colorlog
 import dill as pkl
 import imageio
 import matplotlib
@@ -45,7 +46,6 @@ from pyperplan.heuristics.heuristic_base import \
     Heuristic as _PyperplanBaseHeuristic
 from pyperplan.planner import HEURISTICS as _PYPERPLAN_HEURISTICS
 from scipy.stats import beta as BetaRV
-import colorlog
 
 from predicators.args import create_arg_parser
 from predicators.image_patch_wrapper import ImagePatch
@@ -1505,7 +1505,7 @@ def run_policy(
                 if monitor is not None and not monitor_observed:
                     monitor.observe(state, act)
                     monitor_observed = True
-            
+
             try:
                 # Note: it's important to call monitor.observe() before
                 # env.step(), because the monitor may use the environment's
@@ -3881,6 +3881,7 @@ def save_video(outfile: str, video: Video) -> None:
     imageio.mimwrite(outpath, video_uint8, fps=CFG.video_fps)  # type: ignore
     logging.info(f"Wrote out to {outpath}")
 
+
 def save_images_parallel(outfile_prefix: str, video: Video) -> None:
     """Save the video as individual images in parallel."""
     outdir = CFG.image_dir
@@ -3902,9 +3903,11 @@ def save_images_parallel(outfile_prefix: str, video: Video) -> None:
         for i, frame in enumerate(video):
             executor.submit(_write_frame, i, frame)
 
+
 def save_images(outfile_prefix: str, video: Video) -> None:
     """Save the video as individual images to image_dir."""
     return save_images_parallel(outfile_prefix, video)
+
 
 def get_env_asset_path(asset_name: str, assert_exists: bool = True) -> str:
     """Return the absolute path to env asset."""
@@ -4500,6 +4503,7 @@ def get_parameterized_option_by_name(
     return next((option for option in options if option.name == option_name),
                 None)
 
+
 def configure_logging() -> None:
     # Log to stderr.
     colorlog_handler = colorlog.StreamHandler()
@@ -4545,6 +4549,7 @@ def configure_logging() -> None:
     logging.getLogger('PIL').setLevel(logging.ERROR)
     logging.getLogger('openai').setLevel(logging.INFO)
 
+
 def log_initial_info(str_args: str) -> None:
     """Log initial configuration and setup information."""
     if CFG.log_file:
@@ -4554,37 +4559,41 @@ def log_initial_info(str_args: str) -> None:
     logging.info(CFG)
     logging.info(f"Git commit hash: {get_git_commit_hash()}")
 
-def add_label_to_video(video: Video, prefix: str, imgs_dir: str,
+
+def add_label_to_video(video: Video,
+                       prefix: str,
+                       imgs_dir: str,
                        save: bool = True) -> Video:
     """Add a label to each frame of the video and save the images."""
     os.makedirs(imgs_dir, exist_ok=True)
     new_video: Video = []
     for i, img in enumerate(video):
-        img_name = prefix+f"frame_{i+1}"
+        img_name = prefix + f"frame_{i+1}"
         labeled_img = add_label_to_image(img, img_name, imgs_dir, save=save)
         new_video.append(labeled_img)
     return new_video
 
-def add_label_to_image(img: PIL.Image.Image, 
-                          s_name: str, 
-                          obs_dir: str, 
-                          f_suffix: str = ".png",
-                          save: bool = True) -> PIL.Image.Image:
+
+def add_label_to_image(img: PIL.Image.Image,
+                       s_name: str,
+                       obs_dir: str,
+                       f_suffix: str = ".png",
+                       save: bool = True) -> PIL.Image.Image:
     """Add a label to an image and potentially save."""
     img_copy = img.copy()
     draw = ImageDraw.Draw(img_copy)
     font = ImageFont.load_default().font_variant(size=50)
-    
+
     # Get text dimensions
     bbox = draw.textbbox((0, 0), s_name, font=font)
     text_width = bbox[2] - bbox[0]
     text_height = bbox[3] - bbox[1]
-    
+
     # Calculate position (bottom right with padding)
     padding = 10
     x = img_copy.width - text_width - padding
     y = img_copy.height - text_height - 2 * padding
-    
+
     text_color = (0, 0, 0)  # black
     draw.text((x, y), s_name, fill=text_color, font=font)
 
@@ -4593,6 +4602,7 @@ def add_label_to_image(img: PIL.Image.Image,
         img_copy.save(os.path.join(obs_dir, s_name + f_suffix))
         logging.debug(f"Saved Image {s_name}")
     return img_copy
+
 
 def load_all_images_from_dir(dir_path: str) -> List[PIL.Image.Image]:
     """Load all images from a directory."""

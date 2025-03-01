@@ -1,26 +1,24 @@
-"""
-Example command:
-"""
+"""Example command:"""
+import glob
+import logging
 import os
 import sys
 import time
-from typing import List, Tuple, Optional
 from collections import defaultdict
-import logging
+from typing import List, Optional, Tuple
 
 import dill as pkl
-import glob
 from PIL import Image
 
 from predicators import utils
+from predicators.classification_approaches import DinoSimilarityApproach, \
+    VLMClassificationApproach
 from predicators.settings import CFG
-from predicators.structs import ClassificationDataset, Video, Metrics
-from predicators.classification_approaches import VLMClassificationApproach,\
-                                                    DinoSimilarityApproach
+from predicators.structs import ClassificationDataset, Metrics, Video
+
 
 def main() -> None:
-    """Main entry point for running classification approaches.
-    """
+    """Main entry point for running classification approaches."""
     script_start = time.perf_counter()
 
     # Parse args
@@ -47,7 +45,6 @@ def main() -> None:
     # preds = utils.replace_goals_with_agent_specific_goals(
     #     included_preds, excluded_preds, env
     #     ) if CFG.approach != "oracle" else included_preds
-    
     """
     --- Create dataset
     In a meta learning setting, we have meta-train and meta-test datasets but we
@@ -78,10 +75,12 @@ def main() -> None:
     script_time = time.perf_counter() - script_start
     logging.info(f"\n\nMain script completed in {script_time:.2f} seconds.")
 
+
 def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
     """Create training and test datasets for classification.
-    A dataset has many episodes. Each is 1-2 support videos with labels and 2 
-    query videos with labels.
+
+    A dataset has many episodes. Each is 1-2 support videos with labels
+    and 2 query videos with labels.
     """
     all_task_names: List[str] = []
     all_support_videos: List[List[Video]] = []
@@ -90,18 +89,19 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
     all_query_labels: List[List[int]] = []
     max_video_len = 0
 
-    env_names = ["cover",
-                "blocks",
-                "coffee",
-                "balance",
-                "grow",
-                "circuit",
-                "float",
-                "domino",
-                "laser",
-                "ants",
-                "fan",
-                ]
+    env_names = [
+        "cover",
+        "blocks",
+        "coffee",
+        "balance",
+        "grow",
+        "circuit",
+        "float",
+        "domino",
+        "laser",
+        "ants",
+        "fan",
+    ]
     for env in env_names:
         episode_support_videos: List[Video] = []
         episode_support_labels: List[int] = []
@@ -118,19 +118,17 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
                 split = "support" if support_split else "query"
                 base_env_name = env if not is_counterfactual else f"{env}_cf"
                 # TODO: so far only have seed0
-                dataset_base_dir = os.path.join(CFG.image_dir, 
-                                                base_env_name,
-                                                f"seed0", 
-                                                split)
+                dataset_base_dir = os.path.join(CFG.image_dir, base_env_name,
+                                                f"seed0", split)
 
                 logging.debug(f"Loading the {split} set for "
-                                f"{base_env_name}...")
-                for task_dir in glob.glob(os.path.join(dataset_base_dir,
-                                                       'task*')):
+                              f"{base_env_name}...")
+                for task_dir in glob.glob(
+                        os.path.join(dataset_base_dir, 'task*')):
                     # Get all images
-                    img_paths = sorted(glob.glob(os.path.join(task_dir,
-                                                                '*.png')), 
-                                    key=lambda x: os.path.basename(x))
+                    img_paths = sorted(glob.glob(
+                        os.path.join(task_dir, '*.png')),
+                                       key=lambda x: os.path.basename(x))
 
                     video_len = len(img_paths)
                     if video_len > max_video_len:
@@ -142,12 +140,11 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
                             video.append(img.copy())
                     if support_split:
                         episode_support_videos.append(video)
-                        episode_support_labels.append(int(not is_counterfactual)
-                                                        )
+                        episode_support_labels.append(
+                            int(not is_counterfactual))
                     else:
                         episode_query_videos.append(video)
-                        episode_query_labels.append(int(not is_counterfactual)
-                                                    )
+                        episode_query_labels.append(int(not is_counterfactual))
         assert len(episode_support_videos) == 1, \
                 "Currently assume only 1 support video."
         all_task_names.append(env)
@@ -157,28 +154,24 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
         all_query_labels.append(episode_query_labels)
 
     logging.debug(f"Max video length: {max_video_len}")
-    return ClassificationDataset(all_task_names, all_support_videos, 
-                                 all_support_labels,
-                                    all_query_videos, all_query_labels,
-                                    CFG.seed)
+    return ClassificationDataset(all_task_names, all_support_videos,
+                                 all_support_labels, all_query_videos,
+                                 all_query_labels, CFG.seed)
+
 
 def _run_testing(approach: VLMClassificationApproach,
-                  test_dataset: ClassificationDataset
-                    ) -> Metrics:
+                 test_dataset: ClassificationDataset) -> Metrics:
     num_correct = 0
     num_episodes = len(test_dataset)
     metrics: Metrics = defaultdict(float)
 
     for i, episode in enumerate(test_dataset):
-        (episode_name, 
-         support_videos, 
-         support_labels, 
-         query_videos, 
+        (episode_name, support_videos, support_labels, query_videos,
          query_labels) = episode
 
         pred_labels = approach.predict(episode_name,
-                                       support_videos, 
-                                       support_labels, 
+                                       support_videos,
+                                       support_labels,
                                        query_videos,
                                        task_id=i)
         correct = pred_labels == query_labels
@@ -188,19 +181,19 @@ def _run_testing(approach: VLMClassificationApproach,
                       f"Correct: {correct}")
         # Can either do the average here or during plotting
         metrics[f"{episode_name}_accuracy"] = float(correct)
-    
+
     metrics["num_correct"] = num_correct
     metrics["num_episodes"] = num_episodes
     accuracy = num_correct / num_episodes
     metrics["avg_accuracy"] = accuracy
     logging.info(f"Accuracy: {num_correct}/{num_episodes} ({accuracy:.2f})")
-    
+
     return metrics
 
-def _save_test_results(results: Metrics, 
+
+def _save_test_results(results: Metrics,
                        online_learning_cycle: Optional[int] = None) -> None:
-    """Save the test results.
-    """
+    """Save the test results."""
     outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}__"
                f"{online_learning_cycle}.pkl")
     outdata = {
@@ -210,22 +203,23 @@ def _save_test_results(results: Metrics,
     }
     with open(outfile, "wb") as f:
         pkl.dump(outdata, f)
-    
+
     logging.info("-------------------")
     logging.info(f"Test results: {results}")
     logging.info(f"Wrote out test results to {outfile}")
 
-def _run_pipeline(approach: VLMClassificationApproach, # TODO: use base class
-                  test_dataset: ClassificationDataset
-                    ) -> None:
-    """Run the classification pipeline.
-    """
+
+def _run_pipeline(
+        approach: VLMClassificationApproach,  # TODO: use base class
+        test_dataset: ClassificationDataset) -> None:
+    """Run the classification pipeline."""
     results = _run_testing(approach, test_dataset)
     _save_test_results(results)
 
-if __name__ == "__main__": # pragma: no cover
+
+if __name__ == "__main__":  # pragma: no cover
     try:
         main()
-    except Exception as _err: # pylint: disable=broad-except
+    except Exception as _err:  # pylint: disable=broad-except
         logging.exception("main_classification.py crashed")
         raise _err

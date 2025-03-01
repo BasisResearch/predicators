@@ -548,9 +548,10 @@ class CoffeeEnv(BaseEnv):
                 }
             else:
                 goal = {
-                    GroundAtom(self._CupFilled, [c]) for c in cups
+                    GroundAtom(self._CupFilled, [c])
+                    for c in cups
                     # GroundAtom(self._PluggedIn, [self._plug]),
-                    }
+                }
             # Sample initial positions for cups, making sure to keep them
             # far enough apart from one another.
             radius = self.cup_radius + self.init_padding

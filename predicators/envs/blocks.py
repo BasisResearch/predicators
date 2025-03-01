@@ -111,7 +111,8 @@ class BlocksEnv(BaseEnv):
         next_state.set(block, "pose_y", y)
         next_state.set(block, "pose_z", self.pick_z)
         next_state.set(block, "held", 1.0)
-        next_state.set(self._robot, "fingers", self.closed_fingers)  # close fingers
+        next_state.set(self._robot, "fingers",
+                       self.closed_fingers)  # close fingers
         if "clear" in self._block_type.feature_names:
             # See BlocksEnvClear
             next_state.set(block, "clear", 0)
@@ -143,7 +144,8 @@ class BlocksEnv(BaseEnv):
         next_state.set(block, "pose_y", y)
         next_state.set(block, "pose_z", z)
         next_state.set(block, "held", 0.0)
-        next_state.set(self._robot, "fingers", self.open_fingers)  # open fingers
+        next_state.set(self._robot, "fingers",
+                       self.open_fingers)  # open fingers
         if "clear" in self._block_type.feature_names:
             # See BlocksEnvClear
             next_state.set(block, "clear", 1)
@@ -175,7 +177,8 @@ class BlocksEnv(BaseEnv):
         next_state.set(block, "pose_y", cur_y)
         next_state.set(block, "pose_z", cur_z + self._block_size)
         next_state.set(block, "held", 0.0)
-        next_state.set(self._robot, "fingers", self.open_fingers)  # open fingers
+        next_state.set(self._robot, "fingers",
+                       self.open_fingers)  # open fingers
         if "clear" in self._block_type.feature_names:
             # See BlocksEnvClear
             next_state.set(block, "clear", 1)

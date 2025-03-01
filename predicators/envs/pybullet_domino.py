@@ -744,7 +744,8 @@ class PyBulletDominoEnv(PyBulletEnv):
 
                                 # Parallel movement along orientation rot:
                                 #   (cos(rot), sin(rot)) is the unit vector in direction 'rot'
-                                pivot_x = x + gap * (2 / 3) * np.sin(rot)  # 0.03
+                                pivot_x = x + gap * (2 / 3) * np.sin(
+                                    rot)  # 0.03
                                 pivot_y = y + gap * (2 / 3) * np.cos(rot)
 
                                 # Optional sideways shift:
@@ -764,8 +765,10 @@ class PyBulletDominoEnv(PyBulletEnv):
 
                                 # Flip orientation
                                 # big +y, small -x
-                                back_x = pivot_x - (gap * (2 / 3)) * np.sin(rot)
-                                back_y = pivot_y - (gap * (2 / 3)) * np.cos(rot)
+                                back_x = pivot_x - (gap *
+                                                    (2 / 3)) * np.sin(rot)
+                                back_y = pivot_y - (gap *
+                                                    (2 / 3)) * np.cos(rot)
 
                                 # Optionally keep the same sideways offset so
                                 # it's "same side"

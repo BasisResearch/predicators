@@ -214,8 +214,8 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                             f"{e}")
             # Make a policy from partial refinments
             if CFG.keep_failed_demos:
-                partial_refinements = getattr(e, "info", {}
-                                            ).get("partial_refinements")
+                partial_refinements = getattr(e, "info",
+                                              {}).get("partial_refinements")
                 _, plan = max(partial_refinements, key=lambda x: len(x[1]))
                 policy = utils.option_plan_to_policy(plan)
                 termination_function = lambda s: False
@@ -249,9 +249,10 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                         utils.HumanDemonstrationFailure,
                     },
                     monitor=video_monitor)
-                
+
                 if CFG.keep_failed_demos:
-                    logging.info("Keeping failed demonstration from run_policy.")
+                    logging.info(
+                        "Keeping failed demonstration from run_policy.")
                     if CFG.make_demo_videos:
                         make_demo_videos(video_monitor, idx)
                     if CFG.make_demo_images:
@@ -306,7 +307,8 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         dataset = Dataset(trajectories)
     return dataset
 
-def make_demo_images(video_monitor: utils.VideoMonitor, idx: int, 
+
+def make_demo_images(video_monitor: utils.VideoMonitor, idx: int,
                      num_train_tasks: int) -> None:
     assert video_monitor is not None
     video = video_monitor.get_video()
@@ -318,6 +320,7 @@ def make_demo_images(video_monitor: utils.VideoMonitor, idx: int,
     else:
         outfile_prefix = f"{CFG.env}__{CFG.seed}__demo__task{task_number}"
     utils.save_images(outfile_prefix, video)
+
 
 def make_demo_videos(video_monitor: utils.VideoMonitor, idx: int) -> None:
     assert video_monitor is not None

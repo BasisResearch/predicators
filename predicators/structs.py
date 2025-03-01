@@ -5,11 +5,11 @@ from __future__ import annotations
 import abc
 import copy
 import itertools
+import random
 from dataclasses import dataclass, field
 from functools import cached_property, lru_cache
 from typing import Any, Callable, Collection, DefaultDict, Dict, Iterator, \
     List, Optional, Sequence, Set, Tuple, TypeVar, Union, cast
-import random
 
 import numpy as np
 import PIL.Image
@@ -1520,9 +1520,9 @@ class Dataset:
 
 @dataclass(repr=False, eq=False)
 class ClassificationDataset:
-    """
-    Maybe ultimately a collection of LowLevelTrajectory objects, and a list
+    """Maybe ultimately a collection of LowLevelTrajectory objects, and a list
     of labels, one per trajectory.
+
     There is List[Video] for each episode
     """
     task_names: List[str]
@@ -1548,7 +1548,7 @@ class ClassificationDataset:
             raise StopIteration
 
         episode_name = self.task_names[self._current_idx]
-        episode_support_videos = self.support_videos[self._current_idx] 
+        episode_support_videos = self.support_videos[self._current_idx]
         episode_support_labels = self.support_labels[self._current_idx]
         episode_query_videos = self.query_videos[self._current_idx]
         episode_query_labels = self.query_labels[self._current_idx]
@@ -1565,20 +1565,18 @@ class ClassificationDataset:
         episode_query_videos = [episode_query_videos[i] for i in perm]
         episode_query_labels = [episode_query_labels[i] for i in perm]
 
-        episode: ClassificationEpisode = (
-            episode_name,
-            episode_support_videos,
-            episode_support_labels,
-            episode_query_videos,
-            episode_query_labels
-        )
+        episode: ClassificationEpisode = (episode_name, episode_support_videos,
+                                          episode_support_labels,
+                                          episode_query_videos,
+                                          episode_query_labels)
 
         self._current_idx += 1
         return episode
-    
+
     def __len__(self) -> int:
         """The number of episodes in the dataset."""
         return len(self.support_labels)
+
 
 @dataclass(eq=False)
 class Segment:
@@ -2275,5 +2273,5 @@ RGBA = Tuple[float, float, float, float]
 BridgePolicy = Callable[[State, Set[GroundAtom], List[_Option]], _Option]
 BridgeDataset = List[Tuple[Set[_Option], _GroundNSRT, Set[GroundAtom], State]]
 Mask = NDArray[np.bool_]
-ClassificationEpisode = Tuple[str, List[Video], List[int], List[Video], 
+ClassificationEpisode = Tuple[str, List[Video], List[int], List[Video],
                               List[int]]
