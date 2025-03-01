@@ -41,6 +41,8 @@ class PyBulletBoilEnv(PyBulletEnv):
     y_ub: ClassVar[float] = 1.6
     z_lb: ClassVar[float] = table_height
     z_ub: ClassVar[float] = 0.75 + table_height/2
+    x_mid: ClassVar[float] = (x_lb + x_ub) / 2
+    y_mid: ClassVar[float] = (y_lb + y_ub) / 2
 
     # -------------------------------------------------------------------------
     # Robot config
@@ -49,7 +51,8 @@ class PyBulletBoilEnv(PyBulletEnv):
     robot_init_y: ClassVar[float] = (y_lb + y_ub) * 0.5
     robot_init_z: ClassVar[float] = z_ub - 0.1
     robot_base_pos: ClassVar[Pose3D] = (0.75, 0.65, 0.0)
-    robot_base_orn: ClassVar[Quaternion] = p.getQuaternionFromEuler([0.0, 0.0, np.pi/2])
+    robot_base_orn: ClassVar[Quaternion] = p.getQuaternionFromEuler([0.0, 0.0, 
+                                                                     np.pi/2])
     robot_init_tilt: ClassVar[float] = np.pi / 2
     robot_init_wrist: ClassVar[float] = -np.pi / 2
 
@@ -60,21 +63,35 @@ class PyBulletBoilEnv(PyBulletEnv):
     _camera_yaw: ClassVar[float] = 70
     _camera_pitch: ClassVar[float] = -50
     _camera_target: ClassVar[Tuple[float, float, float]] = (0.75, 1.25, 0.42)
+    
+    # -------------------------------------------------------------------------
+    jug_height: ClassVar[float] = 0.12
+    jug_init_z: ClassVar[float] = table_height + jug_height / 2
+    small_gap: ClassVar[float] = 0.05
+    burner_x_gap: ClassVar[float] = 3 * small_gap
+    burner_y: ClassVar[float] = y_mid + small_gap
+    faucet_x: ClassVar[float] = x_mid + 4 * small_gap
+    faucet_y: ClassVar[float] = y_mid + 3 * small_gap
+    faucet_x_len: ClassVar[float] = 0.15
+    switch_y: ClassVar[float] = y_lb + small_gap
 
     # -------------------------------------------------------------------------
     # Domain-specific config
     # -------------------------------------------------------------------------
-    num_jugs: ClassVar[int] = 2
+    num_jugs: ClassVar[int] = 1
     num_burners: ClassVar[int] = 2  # can be adjusted as needed
 
     # Speeds / rates
-    water_fill_speed: ClassVar[float] = 0.02   # how fast water_level increases per step
+    water_fill_speed: ClassVar[float] = 0.002   # how fast water_level increases per step
     water_spill_factor: ClassVar[float] = 0.5  # fraction of water wasted if misaligned
-    heating_speed: ClassVar[float] = 0.01      # how fast the jug's "heat" goes up per step
+    water_color = (0.0, 0.0, 1.0, 0.9)  # blue
+    heating_speed: ClassVar[float] = 0.002      # how fast the jug's "heat_level" goes up per step
 
     # Dist thresholds
     faucet_align_threshold: ClassVar[float] = 0.1  # if jug is within this distance of faucet
-    burner_align_threshold: ClassVar[float] = 0.08
+    burner_align_threshold: ClassVar[float] = 0.1
+    switch_joint_scale: ClassVar[float] = 0.1
+    switch_on_threshold: ClassVar[float] = 0.5  # fraction of the joint range
 
     # We'll store a separate 'heat' feature for jugs in the environment
     # (0.0 => fully cold/blue, 1.0 => fully hot/red).
@@ -84,10 +101,11 @@ class PyBulletBoilEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
     _jug_type = Type("jug", ["x", "y", "z", "rot", "is_held", "water_level", 
-                             "heat"])
+                             "heat_level"], 
+                            sim_features=["id", "heat_level", "water_id"])
     _burner_type = Type("burner", ["x", "y", "z", "is_on"])
     _switch_type = Type("switch", ["x", "y", "z", "rot", "is_on"])
-    _faucet_type = Type("faucet", ["x", "y", "z", "is_on"])
+    _faucet_type = Type("faucet", ["x", "y", "z", "rot", "is_on"])  # Added "rot" feature
 
     def __init__(self, use_gui: bool = True) -> None:
         # Create the robot as an Object
@@ -151,7 +169,8 @@ class PyBulletBoilEnv(PyBulletEnv):
     def initialize_pybullet(
         cls, using_gui: bool
     ) -> Tuple[int, SingleArmPyBulletRobot, Dict[str, Any]]:
-        physics_client_id, pybullet_robot, bodies = super().initialize_pybullet(using_gui)
+        physics_client_id, pybullet_robot, bodies = super().initialize_pybullet(
+            using_gui)
 
         # 1) Create a table
         table_id = create_object(
@@ -184,9 +203,9 @@ class PyBulletBoilEnv(PyBulletEnv):
             # If you don't have a direct cylinder creation helper, you might
             # adapt create_pybullet_block or use your own URDF.
             # For demonstration, let's just place a small block "pretending" to be a cylinder.
-            burner_id = create_pybullet_block(color=(1,1,1,1),
-                                            half_extents=(0.1, 0.1, 0.01),
-                                            mass=0.1,
+            burner_id = create_pybullet_block(color=(.7,.7,.7,1),
+                                            half_extents=(0.07, 0.07, 0.001),
+                                            mass=0,
                                             friction=0.5,
                                             physics_client_id=physics_client_id)
             burner_ids.append(burner_id)
@@ -280,9 +299,8 @@ class PyBulletBoilEnv(PyBulletEnv):
                         height = shape_data[0][3][2]
                         return height
                 return 0.0
-            if feature == "heat":
-                # TODO
-                return 0.0
+            if feature == "heat_level":
+                return obj.heat_level
         # Otherwise, rely on defaults (like the base PyBulletEnv) for x,y,z,...
         # or raise an error if unrecognized:
         raise ValueError(f"Unknown feature {feature} for object {obj}.")
@@ -302,6 +320,7 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # Recreate the liquid bodies as needed
         for jug in self._jugs:
+            jug.heat_level = state.get(jug, "heat_level")
             liquid_id = self._create_liquid_for_jug(jug, state)
             self._jug_to_liquid_id[jug] = liquid_id
 
@@ -339,10 +358,17 @@ class PyBulletBoilEnv(PyBulletEnv):
         # If on, check each jug's distance from the faucet:
         fx = state.get(self._faucet, "x")
         fy = state.get(self._faucet, "y")
+        f_rot = state.get(self._faucet, "rot")
+        
+        # Calculate faucet output position (offset from center based on rotation)
+        output_distance = self.faucet_x_len  # Distance from faucet center to output point
+        output_x = fx + output_distance * np.cos(f_rot)
+        output_y = fy - output_distance * np.sin(f_rot)
+        
         for jug_obj in self._jugs:
             jug_x = state.get(jug_obj, "x")
             jug_y = state.get(jug_obj, "y")
-            dist = np.hypot(fx - jug_x, fy - jug_y)
+            dist = np.hypot(output_x - jug_x, output_y - jug_y)
             if dist < self.faucet_align_threshold:
                 # Properly aligned => fill
                 old_level = state.get(jug_obj, "water_level")
@@ -378,25 +404,27 @@ class PyBulletBoilEnv(PyBulletEnv):
                 dist = np.hypot(bx - jug_x, by - jug_y)
                 if dist < self.burner_align_threshold:
                     # Jug is on top of an active burner => increase heat
-                    old_heat = state.get(jug_obj, "heat")
+                    old_heat = state.get(jug_obj, "heat_level")
                     if state.get(jug_obj, "water_level") > 0.0:
                         new_heat = min(1.0, old_heat + self.heating_speed)
-                        state.set(jug_obj, "heat", new_heat)
+                        jug_obj.heat_level = new_heat
+                    # state.set(jug_obj, "heat_level", new_heat)
 
     def _update_jug_colors(self, state: State) -> None:
         """Simple linear interpolation from blue (0.0) to red (1.0) based on jug.heat."""
         for jug_obj in self._jugs:
             jug_id = jug_obj.id
-            if jug_id is None:
+            water_id = self._jug_to_liquid_id[jug_obj]
+            if jug_id is None or water_id is None:
                 continue
-            heat = state.get(jug_obj, "heat")  # 0..1
+            heat = jug_obj.heat_level
             # Weighted interpolation from (0,0,1) => (1,0,0)
             r = heat
             g = 0.0
             b = 1.0 - heat
-            alpha = 1.0
+            alpha = 0.9
             update_object(
-                jug_id,
+                water_id,
                 color=(r, g, b, alpha),
                 physics_client_id=self._physics_client_id
             )
@@ -412,11 +440,13 @@ class PyBulletBoilEnv(PyBulletEnv):
         j_id = self._get_joint_id(switch_id, "joint_0")
         if j_id < 0:
             return False
-        j_pos, _, _, _ = p.getJointState(switch_id, j_id, physicsClientId=self._physics_client_id)
-        info = p.getJointInfo(switch_id, j_id, physicsClientId=self._physics_client_id)
+        j_pos, _, _, _ = p.getJointState(switch_id, j_id, 
+                                         physicsClientId=self._physics_client_id)
+        info = p.getJointInfo(switch_id, j_id, 
+                              physicsClientId=self._physics_client_id)
         j_min, j_max = info[8], info[9]
-        frac = (j_pos - j_min) / (j_max - j_min + 1e-9)
-        return bool(frac > 0.5)
+        frac = (j_pos / self.switch_joint_scale - j_min) / (j_max - j_min)
+        return bool(frac > self.switch_on_threshold)
 
     def _set_switch_on(self, switch_id: int, power_on: bool) -> None:
         """Programmatically toggle the switch to on/off by resetting its joint state."""
@@ -451,7 +481,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     @staticmethod
     def _JugHot_holds(state: State, objects: Sequence[Object]) -> bool:
         (jug,) = objects
-        return state.get(jug, "heat") >= 1.0
+        return state.get(jug, "heat_level") >= 1.0
 
     @staticmethod
     def _BurnerOn_holds(state: State, objects: Sequence[Object]) -> bool:
@@ -496,41 +526,50 @@ class PyBulletBoilEnv(PyBulletEnv):
             for j_obj in self._jugs:
                 x, y = self._sample_xy(rng, used_xy)
                 init_dict[j_obj] = {
-                    "x": x, "y": y, "z": self.table_height+0.02,
-                    "rot": 0.0,
+                    "x": self.faucet_x, 
+                    "y": self.faucet_y - self.faucet_x_len, 
+                    "z": self.jug_init_z,
+                    "rot": -np.pi/2,
                     "is_held": 0.0,
                     "water_level": 0.0,
-                    "heat": 0.0
+                    "heat_level": 0.0
                 }
 
             # Burners
             for i, b_obj in enumerate(self._burners):
-                x, y = self._sample_xy(rng, used_xy)
+                # x, y = self._sample_xy(rng, used_xy)
                 # burners are short objects on the table
+                burner_x = self.x_mid - (i+0.5) * self.small_gap * 3
                 init_dict[b_obj] = {
-                    "x": x, "y": y, "z": self.table_height,
+                    "x": burner_x, 
+                    "y": self.burner_y, 
+                    "z": self.table_height,
                     "is_on": 0.0
                 }
                 # Switch for burner
                 # We'll place the switch somewhere else, e.g. off to the side
                 sw_obj = self._burner_switches[i]
-                sw_x, sw_y = self._sample_xy(rng, used_xy)
+                # sw_x, sw_y = self._sample_xy(rng, used_xy)
                 init_dict[sw_obj] = {
-                    "x": sw_x, "y": sw_y, "z": self.table_height,
+                    "x": burner_x, "y": self.switch_y, "z": self.table_height,
                     "rot": 0.0,
                     "is_on": 0.0
                 }
 
             # Faucet
-            fx, fy = self._sample_xy(rng, used_xy)
+            # fx, fy = self._sample_xy(rng, used_xy)
             init_dict[self._faucet] = {
-                "x": fx, "y": fy, "z": self.table_height+0.1,
+                "x": self.faucet_x, 
+                "y": self.faucet_y, 
+                "z": self.table_height+0.15,
+                "rot": np.pi/2,  # Random rotation
                 "is_on": 0.0
             }
             # Faucet switch
-            sw_fx, sw_fy = self._sample_xy(rng, used_xy)
+            # sw_fx, sw_fy = self._sample_xy(rng, used_xy)
             init_dict[self._faucet_switch] = {
-                "x": sw_fx, "y": sw_fy, "z": self.table_height,
+                "x": self.faucet_x, "y": self.switch_y, 
+                "z": self.table_height,
                 "rot": 0.0,
                 "is_on": 0.0
             }
@@ -573,14 +612,14 @@ class PyBulletBoilEnv(PyBulletEnv):
         half_extents = [0.03, 0.03, liquid_height / 2]
         cx = state.get(jug, "x")
         cy = state.get(jug, "y")
-        cz = self.z_lb + liquid_height / 2  # sits on table
+        cz = self.z_lb + liquid_height / 2 + 0.02 # sits on table
 
-        color = water_color = (0.0, 0.0, 1.0, 0.5)  # blue
+        color = self.water_color        
         return create_pybullet_block(
             color=color,
             half_extents=half_extents,
             #  mass=10.0,
-            mass=0.0,
+            mass=0.01,
             friction=0.5,
             position=(cx, cy, cz),
             physics_client_id=self._physics_client_id)
