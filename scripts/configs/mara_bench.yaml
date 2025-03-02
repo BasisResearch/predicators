@@ -167,15 +167,21 @@ ENVS:
   #     sesame_check_expected_atoms: False
   #     terminate_on_goal_reached: False
   #     pybullet_ik_validate: False
+  boil:
+    NAME: "pybullet_boil"
+    FLAGS:
+      pybullet_ik_validate: False
+      max_num_steps_option_rollout: 50
+      bilevel_plan_without_sim: True
 ARGS:
   - "debug"
   - "use_gui"
-  # - "make_demo_videos"
-  # - "make_failure_videos"
-  # - "make_test_videos"
-  - "make_demo_images"  # support images
-  - "make_failure_images"  # query images
-  - "make_test_images"  # query images
+  - "make_demo_videos"
+  - "make_failure_videos"
+  - "make_test_videos"
+  # - "make_demo_images"  # support images
+  # - "make_failure_images"  # query images
+  # - "make_test_images"  # query images
 FLAGS:
   # This is particularly useful in some envs. In blocks with high towers are
   # unstable, this is useful to capture the unstability and to avoid force from

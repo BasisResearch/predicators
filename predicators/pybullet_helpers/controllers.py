@@ -1,6 +1,6 @@
 """Generic controllers for the robots."""
 import logging
-from typing import Callable, Dict, Sequence, Set, Tuple, cast
+from typing import Callable, Dict, Sequence, Set, Tuple, cast, Optional
 
 import numpy as np
 from gym.spaces import Box
@@ -13,7 +13,8 @@ from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot
 from predicators.structs import Action, Array, Object, \
-    ParameterizedInitiable, ParameterizedOption, State, Type
+    ParameterizedInitiable, ParameterizedOption, State, Type, \
+    ParameterizedTerminal
 
 _SUPPORTED_ROBOTS: Set[str] = {"fetch", "panda"}
 
@@ -96,6 +97,7 @@ def create_move_end_effector_to_pose_option(
     max_vel_norm: float,
     finger_action_nudge_magnitude: float,
     initiable: ParameterizedInitiable = lambda _1, _2, _3, _4: True,
+    terminal: Optional[ParameterizedTerminal] = None,
     validate: bool = True,
 ) -> ParameterizedOption:
     """A generic utility that creates a ParameterizedOption for moving the end
@@ -150,7 +152,8 @@ def create_move_end_effector_to_pose_option(
                                params_space=params_space,
                                policy=_policy,
                                initiable=initiable,
-                               terminal=_terminal)
+                               terminal=_terminal if terminal is None else 
+                               terminal)
 
 
 def get_change_fingers_action(robot: SingleArmPyBulletRobot,
@@ -180,6 +183,7 @@ def create_change_fingers_option(
                                          Tuple[float, float]],
     max_vel_norm: float,
     grasp_tol: float,
+    terminal: Optional[ParameterizedTerminal] = None,
 ) -> ParameterizedOption:
     """A generic utility that creates a ParameterizedOption for changing the
     robot fingers, given a function that takes in the current state, objects,
@@ -194,21 +198,11 @@ def create_change_fingers_option(
         del memory  # unused
         current_val, target_val = get_current_and_target_val(
             state, objects, params)
-        f_delta = target_val - current_val
-        f_delta = np.clip(f_delta, -max_vel_norm, max_vel_norm)
-        f_action = current_val + f_delta
-        # Don't change the rest of the joints.
         state = cast(utils.PyBulletState, state)
-        target = np.array(state.joint_positions, dtype=np.float32)
-        target[robot.left_finger_joint_idx] = f_action
-        target[robot.right_finger_joint_idx] = f_action
-        # logging.debug(f"[policy] current_val: {current_val}, target_val: {target_val}, "
-        #               f"f_action: {f_action})")
-        # This clipping is needed sometimes for the joint limits.
-        target = np.clip(target, robot.action_space.low,
-                         robot.action_space.high)
-        assert robot.action_space.contains(target)
-        return Action(target)
+        return get_change_fingers_action(robot, state.joint_positions, 
+                                         current_val,
+                                         target_val, 
+                                         max_vel_norm)
 
     def _terminal(state: State, memory: Dict, objects: Sequence[Object],
                   params: Array) -> bool:
@@ -225,4 +219,5 @@ def create_change_fingers_option(
                                params_space=params_space,
                                policy=_policy,
                                initiable=lambda _1, _2, _3, _4: True,
-                               terminal=_terminal)
+                               terminal=_terminal if terminal is None else
+                               terminal)

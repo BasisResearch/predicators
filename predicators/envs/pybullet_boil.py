@@ -66,6 +66,8 @@ class PyBulletBoilEnv(PyBulletEnv):
 
     # -------------------------------------------------------------------------
     jug_height: ClassVar[float] = 0.12
+    jug_handle_height: ClassVar[float] = jug_height * 3 / 4
+    jug_handle_offset: ClassVar[float] = 0.08
     jug_init_z: ClassVar[float] = table_height + jug_height / 2
     small_gap: ClassVar[float] = 0.05
     burner_x_gap: ClassVar[float] = 3 * small_gap
@@ -96,6 +98,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     burner_align_threshold: ClassVar[float] = 0.1
     switch_joint_scale: ClassVar[float] = 0.1
     switch_on_threshold: ClassVar[float] = 0.5  # fraction of the joint range
+    switch_height: ClassVar[float] = 0.08
 
     # We'll store a separate 'heat' feature for jugs in the environment
     # (0.0 => fully cold/blue, 1.0 => fully hot/red).
@@ -148,6 +151,18 @@ class PyBulletBoilEnv(PyBulletEnv):
                                    self._BurnerOn_holds)
         self._FaucetOn = Predicate("FaucetOn", [self._faucet_type],
                                    self._FaucetOn_holds)
+        self._Holding = Predicate("Holding",
+                                  [self._robot_type, self._jug_type],
+                                  self._Holding_holds)
+        self._JugOnBurner = Predicate("JugOnBurner",
+                                      [self._jug_type, self._burner_type],
+                                      self._JugOnBurner_holds)
+        self._JugUnderFaucet = Predicate("JugUnderFaucet",
+                                    [self._jug_type, self._faucet_type],
+                                    self._JugUnderFaucet_holds)
+        self._HandEmpty = Predicate("HandEmpty", [self._robot_type],
+                                   self._HandEmpty_holds)
+
 
     @classmethod
     def get_name(cls) -> str:
@@ -157,7 +172,9 @@ class PyBulletBoilEnv(PyBulletEnv):
     def predicates(self) -> Set[Predicate]:
         """Return a set of domain-specific predicates that might be used for
         planning."""
-        return {self._JugFilled, self._JugHot, self._BurnerOn, self._FaucetOn}
+        return {self._JugFilled, self._JugHot, self._BurnerOn, self._FaucetOn,
+                self._Holding, self._JugOnBurner, self._JugUnderFaucet, 
+                self._HandEmpty}
 
     @property
     def types(self) -> Set[Type]:
@@ -511,6 +528,37 @@ class PyBulletBoilEnv(PyBulletEnv):
     def _FaucetOn_holds(state: State, objects: Sequence[Object]) -> bool:
         (faucet, ) = objects
         return state.get(faucet, "is_on") > 0.5
+    
+    @staticmethod
+    def _Holding_holds(state: State, objects: Sequence[Object]) -> bool:
+        (robot, jug) = objects
+        return state.get(jug, "is_held") > 0.5
+    
+    def _JugOnBurner_holds(self, state: State, objects: Sequence[Object]) -> bool:
+        (jug, burner) = objects
+        # Check if the jug is on top of the burner
+        jug_x = state.get(jug, "x")
+        jug_y = state.get(jug, "y")
+        burner_x = state.get(burner, "x")
+        burner_y = state.get(burner, "y")
+        dist = np.hypot(jug_x - burner_x, jug_y - burner_y)
+        return dist < self.burner_align_threshold
+    
+    def _JugUnderFaucet_holds(self, state: State, objects: Sequence[Object]) -> bool:
+        (jug, faucet) = objects
+        # Check if the jug is under the faucet
+        jug_x = state.get(jug, "x")
+        jug_y = state.get(jug, "y")
+        faucet_x = state.get(faucet, "x")
+        faucet_y = state.get(faucet, "y")
+        dist = np.hypot(jug_x - faucet_x, jug_y - faucet_y)
+        return dist < self.faucet_align_threshold
+
+    @staticmethod
+    def _HandEmpty_holds(state: State, objects: Sequence[Object]) -> bool:
+        (robot, ) = objects
+        return state.get(robot, "fingers") > 0.02
+
 
     # -------------------------------------------------------------------------
     # Task Generation
@@ -551,8 +599,10 @@ class PyBulletBoilEnv(PyBulletEnv):
             for j_obj in self._jugs:
                 x, y = self._sample_xy(rng, used_xy)
                 init_dict[j_obj] = {
-                    "x": self.faucet_x,
-                    "y": self.faucet_y - self.faucet_x_len,
+                    # "x": self.faucet_x,
+                    # "y": self.faucet_y - self.faucet_x_len,
+                    "x": self.x_mid,
+                    "y": self.y_mid,
                     "z": self.jug_init_z,
                     "rot": -np.pi / 2,
                     "is_held": 0.0,
@@ -607,8 +657,10 @@ class PyBulletBoilEnv(PyBulletEnv):
             # Example goal: all jugs hot & filled
             goal_atoms = set()
             for j_obj in self._jugs:
-                goal_atoms.add(GroundAtom(self._JugFilled, [j_obj]))
-                goal_atoms.add(GroundAtom(self._JugHot, [j_obj]))
+                # goal_atoms.add(GroundAtom(self._JugFilled, [j_obj]))
+                # goal_atoms.add(GroundAtom(self._JugHot, [j_obj]))
+                goal_atoms.add(GroundAtom(self._JugOnBurner, [j_obj, 
+                                                            self._burners[0]]))
 
             tasks.append(EnvironmentTask(init_state, goal_atoms))
 
@@ -659,16 +711,63 @@ if __name__ == "__main__":
     import time
     CFG.seed = 0
     CFG.env = "pybullet_boil"
+    CFG.coffee_use_pixelated_jug = True
     # CFG.pybullet_sim_steps_per_action = 1
     # CFG.fan_fans_blow_opposite_direction = True
     env = PyBulletBoilEnv(use_gui=True)
     rng = np.random.default_rng(CFG.seed)
     tasks = env._make_tasks(1, rng)
+    
+    # manually defined policy
+    from predicators.ground_truth_models import get_gt_options
+    # env_options = list(PyBulletBoilGroundTruthOptionFactory.get_options(
+    #     "pybullet_boil", 
+    #     env.types, 
+    #     env.predicates, 
+    #     env.action_space))
+    env_options = get_gt_options(env.get_name())
+    pick = utils.get_parameterized_option_by_name(env_options, "PickJug")
+    place_on_burner = utils.get_parameterized_option_by_name(env_options,
+                                                            "PlaceOnBurner")
+    place_under_faucet = utils.get_parameterized_option_by_name(env_options,
+                                                            "PlaceUnderFaucet")
+    switch_on = utils.get_parameterized_option_by_name(env_options, "SwitchOn")
+    switch_off = utils.get_parameterized_option_by_name(env_options, 
+                                                        "SwitchOff")
+    no_op = utils.get_parameterized_option_by_name(env_options, "NoOp")
+    # Objects
+    robot = env._robot
+    jug = env._jugs[0]
+    burner_switch = env._burner_switches[0]
+    faucet_switch = env._faucet_switch
+    burner = env._burners[0]
+    faucet = env._faucet
+    
+    policy = utils.option_plan_to_policy([
+                            pick.ground([robot, jug], []),
+                            place_under_faucet.ground([robot, faucet], []),
+                            switch_on.ground([robot, faucet_switch], []), 
+                            # no_op.ground([robot], []),
+                            switch_off.ground([robot, faucet_switch], []),
+                            pick.ground([robot, jug], []),
+                            place_on_burner.ground([robot, burner], []),
+                            switch_on.ground([robot, burner_switch], []), 
+                            switch_off.ground([robot, burner_switch], []),
+                            ])
 
+    constant_noop = False
     for task in tasks:
         env._reset_state(task.init)
         for _ in range(100000):
-            action = Action(
-                np.array(env._pybullet_robot.initial_joint_positions))
+            if constant_noop:
+                action = Action(np.array(
+                                env._pybullet_robot.initial_joint_positions))
+            else:
+                try:
+                    action = policy(env._current_observation)
+                except:
+                    # Get it's current position
+                    action = Action(np.array(
+                        env._current_observation.joint_positions))
             env.step(action)
             time.sleep(0.01)

@@ -1,20 +1,21 @@
 """Ground-truth NSRTs for the coffee environment."""
 
-from typing import Dict, Set
+from typing import Dict, Sequence, Set
+
+import numpy as np
 
 from predicators.ground_truth_models import GroundTruthNSRTFactory
-from predicators.settings import CFG
-from predicators.structs import NSRT, DummyParameterizedOption, LiftedAtom, \
-    ParameterizedOption, Predicate, Type, Variable
+from predicators.structs import NSRT, Array, GroundAtom, LiftedAtom, Object, \
+    ParameterizedOption, Predicate, State, Type, Variable
 from predicators.utils import null_sampler
 
 
-class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
-    """Ground-truth NSRTs for the fan environment."""
+class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
+    """Ground-truth NSRTs for the boil environment."""
 
     @classmethod
     def get_env_names(cls) -> Set[str]:
-        return {"pybullet_fan"}
+        return {"pybullet_boil"}
 
     @staticmethod
     def get_nsrts(env_name: str, types: Dict[str, Type],
@@ -22,132 +23,63 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                   options: Dict[str, ParameterizedOption]) -> Set[NSRT]:
         # Types
         robot_type = types["robot"]
-        wall_type = types["wall"]
-        position_type = types["position"]
-        switch_type = types["switch"]
-        ball_type = types["ball"]
+        jug_type = types["jug"]
+        burner_type = types["burner"]
 
         # Predicates
-        BallAtPos = predicates["BallAtPos"]
-        ClearPos = predicates["ClearPos"]
+        HandEmpty = predicates["HandEmpty"]
+        Holding = predicates["Holding"]
+        JugOnBurner = predicates["JugOnBurner"]
 
-        LeftOf = predicates["LeftOf"]
-        RightOf = predicates["RightOf"]
-        UpOf = predicates["UpOf"]
-        DownOf = predicates["DownOf"]
-
-        LeftFanSwitch = predicates["LeftFanSwitch"]
-        RightFanSwitch = predicates["RightFanSwitch"]
-        FrontFanSwitch = predicates["FrontFanSwitch"]
-        BackFanSwitch = predicates["BackFanSwitch"]
 
         # Options
-        TurnSwitchOnOff = options["SwitchOnOff"]
+        PickJug = options["PickJug"]
+        PlaceOnBurner = options["PlaceOnBurner"]
 
         nsrts = set()
 
-        # MoveRight
+        # PickJug
         robot = Variable("?robot", robot_type)
-        pos1 = Variable("?pos1", position_type)
-        pos2 = Variable("?pos2", position_type)
-        ball = Variable("?ball", ball_type)
-        switch = Variable("?switch", switch_type)
-        parameters = [robot, ball, pos1, pos2, switch]
-        option_vars = [robot, switch]
-        option = TurnSwitchOnOff
+        jug = Variable("?jug", jug_type)
+        parameters = [robot, jug]
+        option_vars = [robot, jug]
+        option = PickJug
         preconditions = {
-            LiftedAtom(BallAtPos, [ball, pos1]),
-            LiftedAtom(ClearPos, [pos2]),
-            LiftedAtom(LeftOf, [pos1, pos2]),
-            LiftedAtom(LeftFanSwitch, [switch]) if \
-                            not CFG.fan_fans_blow_opposite_direction else \
-                                LiftedAtom(RightFanSwitch, [switch]),
+            LiftedAtom(HandEmpty, [robot]),
         }
         add_effects = {
-            LiftedAtom(BallAtPos, [ball, pos2]),
+            LiftedAtom(Holding, [robot, jug]),
         }
-        delete_effects = {}
-        move_right_nsrt = NSRT("MoveRight", parameters, preconditions,
-                               add_effects, delete_effects, set(), option,
-                               option_vars, null_sampler)
-        nsrts.add(move_right_nsrt)
+        delete_effects = {
+            LiftedAtom(HandEmpty, [robot]),
+        }
+        pick_jug_from_table_nsrt = NSRT("PickJugFromTable", parameters,
+                                        preconditions, add_effects,
+                                        delete_effects, set(), option,
+                                        option_vars, null_sampler)
+        nsrts.add(pick_jug_from_table_nsrt)
 
-        # MoveLeft
+        # Place
         robot = Variable("?robot", robot_type)
-        pos1 = Variable("?pos1", position_type)
-        pos2 = Variable("?pos2", position_type)
-        ball = Variable("?ball", ball_type)
-        switch = Variable("?switch", switch_type)
-        parameters = [robot, ball, pos1, pos2, switch]
-        option_vars = [robot, switch]
-        option = TurnSwitchOnOff
+        jug = Variable("?jug", jug_type)
+        burner = Variable("?burner", burner_type)
+        parameters = [robot, jug, burner]
+        option_vars = [robot, burner]
+        option = PlaceOnBurner
         preconditions = {
-            LiftedAtom(BallAtPos, [ball, pos1]),
-            LiftedAtom(ClearPos, [pos2]),
-            LiftedAtom(RightOf, [pos1, pos2]),
-            LiftedAtom(RightFanSwitch, [switch]) if \
-                            not CFG.fan_fans_blow_opposite_direction else \
-                                LiftedAtom(LeftFanSwitch, [switch]),
+            LiftedAtom(Holding, [robot, jug]),
         }
         add_effects = {
-            LiftedAtom(BallAtPos, [ball, pos2]),
+            LiftedAtom(JugOnBurner, [jug, burner]),
+            LiftedAtom(HandEmpty, [robot]),
         }
-        delete_effects = {}
-        move_left_nsrt = NSRT("MoveLeft", parameters, preconditions,
-                              add_effects, delete_effects, set(), option,
-                              option_vars, null_sampler)
-        nsrts.add(move_left_nsrt)
+        delete_effects = {
+            LiftedAtom(Holding, [robot, jug]),
+        }
 
-        # MoveDown
-        robot = Variable("?robot", robot_type)
-        pos1 = Variable("?pos1", position_type)
-        pos2 = Variable("?pos2", position_type)
-        ball = Variable("?ball", ball_type)
-        switch = Variable("?switch", switch_type)
-        parameters = [robot, ball, pos1, pos2, switch]
-        option_vars = [robot, switch]
-        option = TurnSwitchOnOff
-        preconditions = {
-            LiftedAtom(BallAtPos, [ball, pos1]),
-            LiftedAtom(ClearPos, [pos2]),
-            LiftedAtom(UpOf, [pos1, pos2]),
-            LiftedAtom(FrontFanSwitch, [switch]) if \
-                            not CFG.fan_fans_blow_opposite_direction else \
-                                LiftedAtom(BackFanSwitch, [switch]),
-        }
-        add_effects = {
-            LiftedAtom(BallAtPos, [ball, pos2]),
-        }
-        delete_effects = {}
-        move_down_nsrt = NSRT("MoveDown", parameters, preconditions,
-                              add_effects, delete_effects, set(), option,
-                              option_vars, null_sampler)
-        nsrts.add(move_down_nsrt)
-
-        # MoveUp
-        robot = Variable("?robot", robot_type)
-        pos1 = Variable("?pos1", position_type)
-        pos2 = Variable("?pos2", position_type)
-        ball = Variable("?ball", ball_type)
-        switch = Variable("?switch", switch_type)
-        parameters = [robot, ball, pos1, pos2, switch]
-        option_vars = [robot, switch]
-        option = TurnSwitchOnOff
-        preconditions = {
-            LiftedAtom(BallAtPos, [ball, pos1]),
-            LiftedAtom(ClearPos, [pos2]),
-            LiftedAtom(DownOf, [pos1, pos2]),
-            LiftedAtom(BackFanSwitch, [switch]) if \
-                            not CFG.fan_fans_blow_opposite_direction else \
-                                LiftedAtom(FrontFanSwitch, [switch]),
-        }
-        add_effects = {
-            LiftedAtom(BallAtPos, [ball, pos2]),
-        }
-        delete_effects = {}
-        move_up_nsrt = NSRT("MoveUp", parameters, preconditions, add_effects,
-                            delete_effects, set(), option, option_vars,
-                            null_sampler)
-        nsrts.add(move_up_nsrt)
+        place = NSRT("PlaceOnBurner",
+                     parameters, preconditions, add_effects, delete_effects,
+                     set(), option, option_vars, null_sampler)
+        nsrts.add(place)
 
         return nsrts

@@ -4503,6 +4503,19 @@ def get_parameterized_option_by_name(
     return next((option for option in options if option.name == option_name),
                 None)
 
+def get_object_by_name(objects: Collection[Object], name: str
+                       ) -> Optional[Object]:
+    """Get an object by its name from a collection of objects.
+    
+    Args:
+        objects: Collection of objects to search through
+        name: Name of the object to find
+        
+    Returns:
+        The object if found, None otherwise
+    """
+    return next((obj for obj in objects if obj.name == name), None)
+
 
 def configure_logging() -> None:
     # Log to stderr.

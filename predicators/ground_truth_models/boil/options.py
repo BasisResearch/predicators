@@ -61,6 +61,9 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         switch_type = types["switch"]
         jug_type = types["jug"]
         burner_type = types["burner"]
+        faucet_type = types["faucet"]
+        # Predicates
+        Holding = predicates["Holding"]
 
         def get_current_fingers(state: State) -> float:
             robot, = state.get_objects(robot_type)
@@ -79,6 +82,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             del objects, params  # unused
             current = get_current_fingers(state)
             target = pybullet_robot.closed_fingers
+            target = 0
             return current, target
 
         options = set()
@@ -149,6 +153,13 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         # PickJug
         option_types = [robot_type, jug_type]
         params_space = Box(0, 1, (0, ))
+        def _PickJug_terminal(state: State, memory: Dict,
+                              objects: Sequence[Object],
+                              params: Array) -> bool:
+            del memory, params  # unused
+            robot, jug = objects
+            holds = Holding.holds(state, [robot, jug])
+            return holds
         PickJug = utils.LinearChainParameterizedOption(
             "PickJug",
             [
@@ -177,20 +188,69 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                 create_change_fingers_option(
                     pybullet_robot, "CloseFingers", option_types, params_space,
                     close_fingers_func, CFG.pybullet_max_vel_norm,
-                    1e-7),
-                    # PyBulletBoilEnv.grasp_tol_small * 0.01),
-                # Move back up.
-                cls._create_boil_move_to_above_jug_option(
-                    name="MoveEndEffectorBackUp",
-                    z_func=lambda _: cls._transport_z,
-                    finger_status="closed",
-                    pybullet_robot=pybullet_robot,
-                    option_types=option_types,
-                    params_space=params_space),
+                    PyBulletBoilEnv.grasp_tol_small / 5,
+                    terminal=_PickJug_terminal),
+                # # Move down to grasp.
+                # cls._create_boil_move_to_above_jug_option(
+                #     name="MoveEndEffectorToGrasp",
+                #     z_func=lambda jug_z: (jug_z),
+                #     finger_status="closed",
+                #     pybullet_robot=pybullet_robot,
+                #     option_types=option_types,
+                #     params_space=params_space),
+                # # Move back up.
+                # cls._create_boil_move_to_above_jug_option(
+                #     name="MoveEndEffectorBackUp",
+                #     z_func=lambda _: cls._transport_z,
+                #     finger_status="closed",
+                #     pybullet_robot=pybullet_robot,
+                #     option_types=option_types,
+                #     params_space=params_space),
             ])
         options.add(PickJug)
 
         # PlaceJugFaucet
+        option_types = [robot_type, faucet_type]
+        params_space = Box(0, 1, (0, ))
+        PlaceUnderFaucet = utils.LinearChainParameterizedOption(
+            "PlaceUnderFaucet",
+            [
+                # Move to above the burner on which we will stack.
+                cls._create_boil_move_to_above_placing_option(
+                    name="MoveEndEffectorToPreStack",
+                    z_func=lambda _: cls._transport_z,
+                    finger_status="closed",
+                    pybullet_robot=pybullet_robot,
+                    option_types=option_types,
+                    params_space=params_space,
+                    under_faucet=True),
+                # Move down to place.
+                cls._create_boil_move_to_above_placing_option(
+                    name="MoveEndEffectorToStack",
+                    z_func=lambda _: cls.env_cls.table_height + \
+                                        cls.env_cls.jug_handle_height,
+                    finger_status="closed",
+                    pybullet_robot=pybullet_robot,
+                    option_types=option_types,
+                    params_space=params_space,
+                    under_faucet=True),
+                # Open fingers.
+                create_change_fingers_option(
+                    pybullet_robot, "OpenFingers", option_types, params_space,
+                    open_fingers_func, CFG.pybullet_max_vel_norm,
+                    PyBulletBoilEnv.grasp_tol),
+                # Move back up.
+                cls._create_boil_move_to_above_placing_option(
+                    name="MoveEndEffectorBackUp",
+                    z_func=lambda _: cls._hand_empty_move_z,
+                    finger_status="open",
+                    pybullet_robot=pybullet_robot,
+                    option_types=option_types,
+                    params_space=params_space,
+                    under_faucet=True),
+            ])
+        options.add(PlaceUnderFaucet)
+
         # PlaceJugBurner
         option_types = [robot_type, burner_type]
         params_space = Box(0, 1, (0, ))
@@ -209,7 +269,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                 cls._create_boil_move_to_above_placing_option(
                     name="MoveEndEffectorToStack",
                     z_func=lambda _: cls.env_cls.table_height + \
-                                        cls.env_cls.jug_height,
+                                        cls.env_cls.jug_handle_height,
                     finger_status="closed",
                     pybullet_robot=pybullet_robot,
                     option_types=option_types,
@@ -230,6 +290,27 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             ])
         options.add(PlaceOnBurner)
 
+        # Noop
+        option_types = [robot_type]
+        params_space = Box(0, 1, (0, ))
+
+        def _create_no_op_policy() -> ParameterizedPolicy:
+            def _policy(state: State, memory: Dict, objects: Sequence[Object],
+                        params: Array) -> Action:
+                del memory, objects, params
+                return Action(np.array(state.joint_positions))
+            return _policy
+
+        NoOp = ParameterizedOption(
+            "NoOp",
+            types=[robot_type],
+            params_space=params_space,
+            policy=_create_no_op_policy(),
+            initiable=lambda _: True,
+            terminal=lambda _: False,
+            )
+        options.add(NoOp)
+
         return options
 
     @classmethod
@@ -237,14 +318,14 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             cls, name: str, z_func: Callable[[float],
                                              float], finger_status: str,
             pybullet_robot: SingleArmPyBulletRobot, option_types: List[Type],
-            params_space: Box) -> ParameterizedOption:
+            params_space: Box,
+            under_faucet: bool = False) -> ParameterizedOption:
         """Creates a ParameterizedOption for moving to a pose above that of the
         burner argument.
 
         The parameter z_func maps the burner's z position to the target z
         position.
         """
-        home_orn = PyBulletBoilEnv.get_robot_ee_home_orn()
 
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
@@ -259,11 +340,15 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                  state.get(robot, "wrist")])
             current_pose = Pose(current_position, ee_orn)
             # Target
-            target_position = (state.get(burner, "x"), state.get(burner, "y"),
+            target_x = state.get(burner, "x")
+            target_y = state.get(burner, "y") - cls.env_cls.jug_handle_offset
+            if under_faucet:
+                target_y -= cls.env_cls.faucet_x_len
+            target_position = (target_x, target_y,
                                z_func(state.get(burner, "z")))
             target_orn = p.getQuaternionFromEuler(
-                [0, cls.env_cls.robot_init_tilt,
-                 state.get(burner, "rot")])
+                [0, cls.env_cls.robot_init_tilt, 
+                 cls.env_cls.robot_init_wrist])
             target_pose = Pose(target_position, target_orn)
             return current_pose, target_pose, finger_status
 
