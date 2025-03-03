@@ -1643,6 +1643,8 @@ def option_policy_to_policy(
     option_policy: Callable[[State], _Option],
     max_option_steps: Optional[int] = None,
     raise_error_on_repeated_state: bool = False,
+    noop_option_terminate_on_atom_change: bool = False,
+    abstract_function: Optional[Callable[[State], Set[GroundAtom]]] = None
 ) -> Callable[[State], Action]:
     """Create a policy that executes a policy over options."""
     cur_option = DummyOption
@@ -1668,9 +1670,20 @@ def option_policy_to_policy(
             raise OptionTimeoutFailure(
                 "Encountered repeated state.",
                 info={"last_failed_option": last_option})
+
+        # whether the noop option should terminate
+        noop_terminate = False
+        if noop_option_terminate_on_atom_change and cur_option.name == "NoOp":
+            assert abstract_function is not None
+            cur_atoms = abstract_function(state)
+            prev_atoms = abstract_function(last_state)
+            if cur_atoms != prev_atoms:
+                noop_terminate = True
+                # breakpoint()
+
         last_state = state
 
-        if cur_option is DummyOption or cur_option.terminal(state):
+        if noop_terminate or cur_option is DummyOption or cur_option.terminal(state):
             try:
                 cur_option = option_policy(state)
             except OptionExecutionFailure as e:
@@ -1692,7 +1705,9 @@ def option_policy_to_policy(
 def option_plan_to_policy(
         plan: Sequence[_Option],
         max_option_steps: Optional[int] = None,
-        raise_error_on_repeated_state: bool = False
+        raise_error_on_repeated_state: bool = False,
+        noop_option_terminate_on_atom_change: bool = False,
+        abstract_function: Optional[Callable[[State], Set[GroundAtom]]] = None
 ) -> Callable[[State], Action]:
     """Create a policy that executes a sequence of options in order."""
     queue = list(plan)  # don't modify plan, just in case
@@ -1708,7 +1723,10 @@ def option_plan_to_policy(
     return option_policy_to_policy(
         _option_policy,
         max_option_steps=max_option_steps,
-        raise_error_on_repeated_state=raise_error_on_repeated_state)
+        raise_error_on_repeated_state=raise_error_on_repeated_state,
+        noop_option_terminate_on_atom_change=\
+            noop_option_terminate_on_atom_change,
+        abstract_function=abstract_function)
 
 
 def nsrt_plan_to_greedy_option_policy(

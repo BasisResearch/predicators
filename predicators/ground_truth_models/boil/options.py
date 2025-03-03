@@ -215,6 +215,16 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         PlaceUnderFaucet = utils.LinearChainParameterizedOption(
             "PlaceUnderFaucet",
             [
+                # First move to the air to avoid collision.
+                cls._create_boil_move_to_above_placing_option(
+                    name="MoveEndEffectorToAir",
+                    z_func=lambda _: cls._transport_z,
+                    finger_status="closed",
+                    pybullet_robot=pybullet_robot,
+                    option_types=option_types,
+                    params_space=params_space,
+                    under_faucet=True,
+                    move_to_initial_pos=True),
                 # Move to above the burner on which we will stack.
                 cls._create_boil_move_to_above_placing_option(
                     name="MoveEndEffectorToPreStack",
@@ -264,7 +274,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     finger_status="closed",
                     pybullet_robot=pybullet_robot,
                     option_types=option_types,
-                    params_space=params_space),
+                    params_space=params_space,
+                    move_to_initial_pos=True),
                 # Move down to place.
                 cls._create_boil_move_to_above_placing_option(
                     name="MoveEndEffectorToStack",
@@ -319,7 +330,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                                              float], finger_status: str,
             pybullet_robot: SingleArmPyBulletRobot, option_types: List[Type],
             params_space: Box,
-            under_faucet: bool = False) -> ParameterizedOption:
+            under_faucet: bool = False,
+            move_to_initial_pos: bool = False) -> ParameterizedOption:
         """Creates a ParameterizedOption for moving to a pose above that of the
         burner argument.
 
@@ -344,7 +356,12 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             target_y = state.get(burner, "y") - cls.env_cls.jug_handle_offset
             if under_faucet:
                 target_y -= cls.env_cls.faucet_x_len
-            target_position = (target_x, target_y,
+            if move_to_initial_pos:
+                target_position = (cls.env_cls.robot_init_x,
+                                   cls.env_cls.robot_init_y,
+                                   cls.env_cls.robot_init_z - 0.1)
+            else:
+                target_position = (target_x, target_y,
                                z_func(state.get(burner, "z")))
             target_orn = p.getQuaternionFromEuler(
                 [0, cls.env_cls.robot_init_tilt, 

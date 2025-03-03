@@ -557,9 +557,11 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         created = cogman.metrics["total_num_nodes_created"]
         expanded = cogman.metrics["total_num_nodes_expanded"]
         metrics[
-            f"PER_TASK_task{test_task_idx}_nodes_created"] = created - curr_num_nodes_created
+            f"PER_TASK_task{test_task_idx}_nodes_created"] = created - \
+                curr_num_nodes_created
         metrics[
-            f"PER_TASK_task{test_task_idx}_nodes_expanded"] = expanded - curr_num_nodes_expanded
+            f"PER_TASK_task{test_task_idx}_nodes_expanded"] = expanded - \
+                curr_num_nodes_expanded
         curr_num_nodes_created, curr_num_nodes_expanded = created, expanded
 
         num_found_policy += 1
@@ -568,8 +570,8 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         # 2) Execution phase
         # ---------------------
         # Decide if we need to record video
-        need_video = (CFG.make_test_videos or CFG.make_failure_videos
-                      or CFG.make_test_images or CFG.make_failure_images)
+        need_video = (CFG.make_test_videos or CFG.make_failure_videos or 
+                      CFG.make_test_images or CFG.make_failure_images)
         monitor = utils.VideoMonitor(env.render) if need_video else None
 
         logging.info(f"Executing policy...")

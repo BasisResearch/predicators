@@ -59,10 +59,16 @@ class PyBulletBoilEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Camera
     # -------------------------------------------------------------------------
-    _camera_distance: ClassVar[float] = 1.3
-    _camera_yaw: ClassVar[float] = 70
-    _camera_pitch: ClassVar[float] = -50
-    _camera_target: ClassVar[Tuple[float, float, float]] = (0.75, 1.25, 0.42)
+    # Classic
+    # _camera_distance: ClassVar[float] = 1.3
+    # _camera_yaw: ClassVar[float] = 70
+    # _camera_pitch: ClassVar[float] = -50
+    # _camera_target: ClassVar[Tuple[float, float, float]] = (0.75, 1.25, 0.42)
+    # Close-up
+    _camera_distance: ClassVar[float] = .8
+    _camera_yaw: ClassVar[float] = 180
+    _camera_pitch: ClassVar[float] = -45
+    _camera_target: ClassVar[Tuple[float, float, float]] = (0.75, 1.25, 0.52)
 
     # -------------------------------------------------------------------------
     jug_height: ClassVar[float] = 0.12
@@ -72,7 +78,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     small_gap: ClassVar[float] = 0.05
     burner_x_gap: ClassVar[float] = 3 * small_gap
     burner_y: ClassVar[float] = y_mid + small_gap
-    faucet_x: ClassVar[float] = x_mid + 4 * small_gap
+    faucet_x: ClassVar[float] = x_mid + 6 * small_gap
     faucet_y: ClassVar[float] = y_mid + 3 * small_gap
     faucet_x_len: ClassVar[float] = 0.15
     switch_y: ClassVar[float] = y_lb + small_gap
@@ -80,7 +86,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Domain-specific config
     # -------------------------------------------------------------------------
-    num_jugs: ClassVar[int] = 1
+    num_jugs: ClassVar[int] = 2
     num_burners: ClassVar[int] = 2  # can be adjusted as needed
 
     # Speeds / rates
@@ -512,7 +518,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     @staticmethod
     def _JugFilled_holds(state: State, objects: Sequence[Object]) -> bool:
         (jug, ) = objects
-        return state.get(jug, "water_level") >= 1.0
+        return state.get(jug, "water_level") >= 0.08
 
     @staticmethod
     def _JugHot_holds(state: State, objects: Sequence[Object]) -> bool:
@@ -596,12 +602,12 @@ class PyBulletBoilEnv(PyBulletEnv):
             used_xy = set()
 
             # Jugs
-            for j_obj in self._jugs:
+            for i, j_obj in enumerate(self._jugs):
                 x, y = self._sample_xy(rng, used_xy)
                 init_dict[j_obj] = {
                     # "x": self.faucet_x,
                     # "y": self.faucet_y - self.faucet_x_len,
-                    "x": self.x_mid,
+                    "x": self.x_mid + i * self.small_gap * 4,
                     "y": self.y_mid,
                     "z": self.jug_init_z,
                     "rot": -np.pi / 2,
@@ -638,7 +644,8 @@ class PyBulletBoilEnv(PyBulletEnv):
             init_dict[self._faucet] = {
                 "x": self.faucet_x,
                 "y": self.faucet_y,
-                "z": self.table_height + 0.15,
+                # "z": self.table_height + 0.15,
+                "z": self.table_height + 0.2,
                 "rot": np.pi / 2,  # Random rotation
                 "is_on": 0.0
             }
@@ -712,7 +719,7 @@ if __name__ == "__main__":
     CFG.seed = 0
     CFG.env = "pybullet_boil"
     CFG.coffee_use_pixelated_jug = True
-    # CFG.pybullet_sim_steps_per_action = 1
+    CFG.pybullet_sim_steps_per_action = 15
     # CFG.fan_fans_blow_opposite_direction = True
     env = PyBulletBoilEnv(use_gui=True)
     rng = np.random.default_rng(CFG.seed)
@@ -737,23 +744,41 @@ if __name__ == "__main__":
     no_op = utils.get_parameterized_option_by_name(env_options, "NoOp")
     # Objects
     robot = env._robot
-    jug = env._jugs[0]
-    burner_switch = env._burner_switches[0]
+    jug1= env._jugs[0]
+    jug2= env._jugs[1]
+    burner_switch1 = env._burner_switches[0]
+    burner_switch2 = env._burner_switches[1]
     faucet_switch = env._faucet_switch
-    burner = env._burners[0]
+    burner1 = env._burners[0]
+    burner2 = env._burners[1]
     faucet = env._faucet
     
+    env_predicates = env.predicates
     policy = utils.option_plan_to_policy([
-                            pick.ground([robot, jug], []),
+                            pick.ground([robot, jug2], []),
                             place_under_faucet.ground([robot, faucet], []),
                             switch_on.ground([robot, faucet_switch], []), 
-                            # no_op.ground([robot], []),
+                            no_op.ground([robot], []),
                             switch_off.ground([robot, faucet_switch], []),
-                            pick.ground([robot, jug], []),
-                            place_on_burner.ground([robot, burner], []),
-                            switch_on.ground([robot, burner_switch], []), 
-                            switch_off.ground([robot, burner_switch], []),
-                            ])
+                            pick.ground([robot, jug2], []),
+                            place_on_burner.ground([robot, burner2], []),
+                            switch_on.ground([robot, burner_switch2], []), 
+                            pick.ground([robot, jug1], []),
+                            place_under_faucet.ground([robot, faucet], []),
+                            switch_on.ground([robot, faucet_switch], []),
+                            no_op.ground([robot], []),
+                            switch_off.ground([robot, faucet_switch], []),
+                            pick.ground([robot, jug1], []),
+                            place_on_burner.ground([robot, burner1], []),
+                            switch_on.ground([robot, burner_switch1], []),
+                            no_op.ground([robot], []),
+                            switch_off.ground([robot, burner_switch2], []),
+                            no_op.ground([robot], []),
+                            switch_off.ground([robot, burner_switch1], []),
+                            ],
+                            noop_option_terminate_on_atom_change=True,
+                            abstract_function=lambda s: utils.abstract(s, 
+                                                            env_predicates))
 
     constant_noop = False
     for task in tasks:
