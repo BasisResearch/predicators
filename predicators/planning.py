@@ -17,7 +17,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from itertools import islice
 from typing import Any, Collection, Dict, FrozenSet, Iterator, List, \
-    Optional, Sequence, Set, Tuple
+    Optional, Sequence, Set, Tuple, Union
 
 import numpy as np
 
@@ -28,7 +28,7 @@ from predicators.settings import CFG
 from predicators.structs import NSRT, AbstractPolicy, DefaultState, \
     DummyOption, GroundAtom, Metrics, Object, OptionSpec, \
     ParameterizedOption, Predicate, State, STRIPSOperator, Task, Type, \
-    _GroundNSRT, _GroundSTRIPSOperator, _Option
+    _GroundNSRT, _GroundCausalProcess, CausalProcess
 from predicators.utils import EnvironmentFailure, _TaskPlanningHeuristic
 
 _NOT_CAUSES_FAILURE = "NotCausesFailure"
@@ -275,9 +275,10 @@ def filter_nsrts(
 def task_plan_grounding(
     init_atoms: Set[GroundAtom],
     objects: Set[Object],
-    nsrts: Collection[NSRT],
+    nsrts: Collection[Union[NSRT, CausalProcess]],
     allow_noops: bool = False,
-) -> Tuple[List[_GroundNSRT], Set[GroundAtom]]:
+    compute_reachable_atoms: bool = True,
+) -> Tuple[List[Union[_GroundNSRT, _GroundCausalProcess]], Set[GroundAtom]]:
     """Ground all operators for task planning into dummy _GroundNSRTs,
     filtering out ones that are unreachable or have empty effects.
 
@@ -292,11 +293,18 @@ def task_plan_grounding(
             if allow_noops or (ground_nsrt.add_effects
                                | ground_nsrt.delete_effects):
                 ground_nsrts.append(ground_nsrt)
-    reachable_atoms = utils.get_reachable_atoms(ground_nsrts, init_atoms)
-    reachable_nsrts = [
-        nsrt for nsrt in ground_nsrts
-        if nsrt.preconditions.issubset(reachable_atoms)
-    ]
+    if compute_reachable_atoms:
+        reachable_atoms = utils.get_reachable_atoms(ground_nsrts, init_atoms)
+    else:
+        reachable_atoms = set()
+
+    if CFG.planning_filter_unreachable_nsrt:
+        reachable_nsrts = [
+            nsrt for nsrt in ground_nsrts
+            if nsrt.preconditions.issubset(reachable_atoms)
+        ]
+    else:
+        reachable_nsrts = ground_nsrts
     return reachable_nsrts, reachable_atoms
 
 

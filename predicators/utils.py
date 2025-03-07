@@ -62,7 +62,7 @@ from predicators.structs import NSRT, Action, Array, DummyOption, \
     OptionSpec, ParameterizedOption, Predicate, Segment, State, \
     STRIPSOperator, Task, Type, Variable, VarToObjSub, Video, VLMPredicate, \
     _GroundLDLRule, _GroundNSRT, _GroundSTRIPSOperator, _Option, \
-    _TypedEntity
+    _TypedEntity, DelayDistribution, CausalProcess, _GroundEndogenousProcess
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
 
@@ -2956,7 +2956,7 @@ def all_ground_operators_given_partial(
         yield ground_op
 
 
-def all_ground_nsrts(nsrt: NSRT,
+def all_ground_nsrts(nsrt: Union[NSRT, CausalProcess],
                      objects: Collection[Object]) -> Iterator[_GroundNSRT]:
     """Get all possible groundings of the given NSRT with the given objects."""
     types = [p.type for p in nsrt.parameters]
@@ -3412,14 +3412,20 @@ def get_reachable_atoms(ground_ops: Collection[GroundNSRTOrSTRIPSOperator],
 
 
 def get_applicable_operators(
-        ground_ops: Collection[GroundNSRTOrSTRIPSOperator],
-        atoms: Collection[GroundAtom]) -> Iterator[GroundNSRTOrSTRIPSOperator]:
+        ground_ops: Collection[Union[GroundNSRTOrSTRIPSOperator, 
+                                     _GroundEndogenousProcess]],
+        atoms: Collection[GroundAtom]) -> Iterator[Union[
+            GroundNSRTOrSTRIPSOperator, _GroundEndogenousProcess]]:
     """Iterate over ground operators whose preconditions are satisfied.
 
     Note: the order may be nondeterministic. Users should be invariant.
     """
     for op in ground_ops:
-        applicable = op.preconditions.issubset(atoms)
+        if isinstance(op, _GroundNSRT) or isinstance(op, _GroundSTRIPSOperator):
+            applicable = op.preconditions.issubset(atoms)
+        elif isinstance(op, _GroundEndogenousProcess):
+            applicable = op.condition_at_start.issubset(atoms)
+        
         if applicable:
             yield op
 
@@ -4190,6 +4196,26 @@ def null_sampler(state: State, goal: Set[GroundAtom], rng: np.random.Generator,
     del state, goal, rng, objs  # unused
     return np.array([], dtype=np.float32)  # no continuous parameters
 
+class ConstantDelay(DelayDistribution):
+
+    def __init__(self, delay: int):
+        self.delay = delay
+
+    def sample(self):
+        return self.delay
+
+class GaussianDelay(DelayDistribution):
+
+    def __init__(self, mean: float, std: float, rng: np.random.Generator):
+        self.mean = mean
+        self.std = std
+        self.rng = rng
+
+    def sample(self):
+        while True:
+            delay = int(self.rng.normal(self.mean, self.std) + 0.5)
+            if delay > 0:
+                return delay
 
 @functools.lru_cache(maxsize=None)
 def get_git_commit_hash() -> str:

@@ -509,6 +509,8 @@ class GlobalSettings:
     # observed states match (at the abstract level) the expected states, and
     # replan if not. But for now, we just execute each step without checking.
     bilevel_plan_without_sim = False
+    planning_filter_unreachable_nsrt = True
+    planning_check_dr_reachable = True
 
     # evaluation parameters
     log_dir = "logs"

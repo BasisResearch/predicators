@@ -86,7 +86,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Domain-specific config
     # -------------------------------------------------------------------------
-    num_jugs: ClassVar[int] = 2
+    num_jugs: ClassVar[int] = 1
     num_burners: ClassVar[int] = 2  # can be adjusted as needed
 
     # Speeds / rates
@@ -101,7 +101,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     # Dist thresholds
     faucet_align_threshold: ClassVar[
         float] = 0.1  # if jug is within this distance of faucet
-    burner_align_threshold: ClassVar[float] = 0.1
+    burner_align_threshold: ClassVar[float] = 0.05
     switch_joint_scale: ClassVar[float] = 0.1
     switch_on_threshold: ClassVar[float] = 0.5  # fraction of the joint range
     switch_height: ClassVar[float] = 0.08
@@ -151,12 +151,16 @@ class PyBulletBoilEnv(PyBulletEnv):
         # Optionally, define some relevant predicates
         self._JugFilled = Predicate("JugFilled", [self._jug_type],
                                     self._JugFilled_holds)
-        self._JugHot = Predicate("JugHot", [self._jug_type],
-                                 self._JugHot_holds)
+        self._WaterBoiled = Predicate("WaterBoiled", [self._jug_type],
+                                 self._WaterBoiled_holds)
         self._BurnerOn = Predicate("BurnerOn", [self._burner_type],
                                    self._BurnerOn_holds)
         self._FaucetOn = Predicate("FaucetOn", [self._faucet_type],
                                    self._FaucetOn_holds)
+        self._BurnerOff = Predicate("BurnerOff", [self._burner_type],
+                                    lambda s, o: not self._BurnerOn_holds(s, o))
+        self._FaucetOff = Predicate("FaucetOff", [self._faucet_type],
+                                    lambda s, o: not self._FaucetOn_holds(s, o))
         self._Holding = Predicate("Holding",
                                   [self._robot_type, self._jug_type],
                                   self._Holding_holds)
@@ -166,8 +170,27 @@ class PyBulletBoilEnv(PyBulletEnv):
         self._JugUnderFaucet = Predicate("JugUnderFaucet",
                                     [self._jug_type, self._faucet_type],
                                     self._JugUnderFaucet_holds)
+        self._NoJugUnderFaucet = Predicate("NoJugUnderFaucet",
+                                    [self._faucet_type],
+                                    self._NoJugUnderFaucet_holds)
         self._HandEmpty = Predicate("HandEmpty", [self._robot_type],
                                    self._HandEmpty_holds)
+        self._WaterSpilled = Predicate("WaterSpilled", [],
+                                      self._WaterSpilled_holds)
+        self._NoWaterSpilled = Predicate("NoWaterSpilled", [],
+                                        self._NoWaterSpilled_holds)
+        # self._FaucetSwitchedOn = Predicate("FaucetSwitchedOn", 
+        #                                     [self._faucet_type],
+        #                                     self._SwitchedOn_holds)
+        # self._FaucetSwitchedOff = Predicate("FaucetSwitchedOff",
+        #                                     [self._faucet_type],
+        #                                     self._SwitchedOff_holds)
+        # self._BurnerSwitchedOn = Predicate("BurnerSwitchedOn",
+        #                                     [self._burner_type],
+        #                                     self._SwitchedOn_holds)
+        # self._BurnerSwitchedOff = Predicate("BurnerSwitchedOff",
+        #                                     [self._burner_type],
+        #                                     self._SwitchedOff_holds)
 
 
     @classmethod
@@ -178,9 +201,13 @@ class PyBulletBoilEnv(PyBulletEnv):
     def predicates(self) -> Set[Predicate]:
         """Return a set of domain-specific predicates that might be used for
         planning."""
-        return {self._JugFilled, self._JugHot, self._BurnerOn, self._FaucetOn,
+        return {self._JugFilled, self._WaterBoiled, 
+                self._BurnerOn, self._FaucetOn,
+                self._BurnerOff, self._FaucetOff,
                 self._Holding, self._JugOnBurner, self._JugUnderFaucet, 
-                self._HandEmpty}
+                self._HandEmpty, self._WaterSpilled, self._NoJugUnderFaucet,
+                self._NoWaterSpilled
+            }
 
     @property
     def types(self) -> Set[Type]:
@@ -193,7 +220,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     @property
     def goal_predicates(self) -> Set[Predicate]:
         """Which predicates might appear in goals."""
-        return {self._JugHot, self._JugFilled}  # Example
+        return {self._WaterBoiled, self._JugFilled, self._NoWaterSpilled}  # Example
 
     # -------------------------------------------------------------------------
     # PyBullet Initialization
@@ -519,9 +546,19 @@ class PyBulletBoilEnv(PyBulletEnv):
     def _JugFilled_holds(state: State, objects: Sequence[Object]) -> bool:
         (jug, ) = objects
         return state.get(jug, "water_level") >= 0.08
+    
+    def _WaterSpilled_holds(self, state: State, objects: Sequence[Object]) -> bool:
+        for jug in state.get_objects(self._jug_type):
+            if state.get(jug, "water_level") > 0.1:
+                return True
+        return False
+    
+    def _NoWaterSpilled_holds(self, state: State, objects: Sequence[Object]
+                              ) -> bool:
+        return not self._WaterSpilled_holds(state, objects)
 
     @staticmethod
-    def _JugHot_holds(state: State, objects: Sequence[Object]) -> bool:
+    def _WaterBoiled_holds(state: State, objects: Sequence[Object]) -> bool:
         (jug, ) = objects
         return state.get(jug, "heat_level") >= 1.0
 
@@ -557,8 +594,29 @@ class PyBulletBoilEnv(PyBulletEnv):
         jug_y = state.get(jug, "y")
         faucet_x = state.get(faucet, "x")
         faucet_y = state.get(faucet, "y")
-        dist = np.hypot(jug_x - faucet_x, jug_y - faucet_y)
+        faucet_rot = state.get(faucet, "rot")
+        output_distance = self.faucet_x_len
+        output_x = faucet_x + output_distance * np.cos(faucet_rot)
+        output_y = faucet_y - output_distance * np.sin(faucet_rot)
+        dist = np.hypot(jug_x - output_x, jug_y - output_y)
         return dist < self.faucet_align_threshold
+    
+    def _NoJugUnderFaucet_holds(self, state: State, objects: Sequence[Object]
+                                ) -> bool:
+        (faucet, ) = objects
+        jugs = state.get_objects(self._jug_type)
+        for jug in jugs:
+            if self._JugUnderFaucet_holds(state, [jug, faucet]):
+                return False
+        return True
+    
+    def _SwitchedOn_holds(self, state: State, objects: Sequence[Object]) -> bool:
+        (obj, ) = objects
+        return state.get(obj, "is_on") > 0.5
+
+    def _SwitchedOff_holds(self, state: State, objects: Sequence[Object]) -> bool:
+        (obj, ) = objects
+        return state.get(obj, "is_on") <= 0.5
 
     @staticmethod
     def _HandEmpty_holds(state: State, objects: Sequence[Object]) -> bool:
@@ -605,10 +663,10 @@ class PyBulletBoilEnv(PyBulletEnv):
             for i, j_obj in enumerate(self._jugs):
                 x, y = self._sample_xy(rng, used_xy)
                 init_dict[j_obj] = {
-                    # "x": self.faucet_x,
-                    # "y": self.faucet_y - self.faucet_x_len,
-                    "x": self.x_mid + i * self.small_gap * 4,
-                    "y": self.y_mid,
+                    "x": self.faucet_x,
+                    "y": self.faucet_y - self.faucet_x_len,
+                    # "x": self.x_mid + i * self.small_gap * 4,
+                    # "y": self.y_mid,
                     "z": self.jug_init_z,
                     "rot": -np.pi / 2,
                     "is_held": 0.0,
@@ -664,10 +722,15 @@ class PyBulletBoilEnv(PyBulletEnv):
             # Example goal: all jugs hot & filled
             goal_atoms = set()
             for j_obj in self._jugs:
-                # goal_atoms.add(GroundAtom(self._JugFilled, [j_obj]))
-                # goal_atoms.add(GroundAtom(self._JugHot, [j_obj]))
-                goal_atoms.add(GroundAtom(self._JugOnBurner, [j_obj, 
-                                                            self._burners[0]]))
+                # goal_atoms.add(GroundAtom(self._JugUnderFaucet, [j_obj,
+                #                                             self._faucet]))
+                # goal_atoms.add(GroundAtom(self._FaucetOn, [self._faucet]))
+                goal_atoms.add(GroundAtom(self._JugFilled, [j_obj]))
+                # goal_atoms.add(GroundAtom(self._WaterBoiled, [j_obj]))
+                goal_atoms.add(GroundAtom(self._NoWaterSpilled, []))
+                # goal_atoms.add(GroundAtom(self._JugOnBurner, [j_obj, 
+                #                                             self._burners[0]]))
+                # goal_atoms.add(GroundAtom(self._Holding, [self._robot, j_obj]))
 
             tasks.append(EnvironmentTask(init_state, goal_atoms))
 
@@ -742,47 +805,48 @@ if __name__ == "__main__":
     switch_off = utils.get_parameterized_option_by_name(env_options, 
                                                         "SwitchOff")
     no_op = utils.get_parameterized_option_by_name(env_options, "NoOp")
-    # Objects
-    robot = env._robot
-    jug1= env._jugs[0]
-    jug2= env._jugs[1]
-    burner_switch1 = env._burner_switches[0]
-    burner_switch2 = env._burner_switches[1]
-    faucet_switch = env._faucet_switch
-    burner1 = env._burners[0]
-    burner2 = env._burners[1]
-    faucet = env._faucet
+    # # Objects
+    # robot = env._robot
+    # jug1= env._jugs[0]
+    # jug2= env._jugs[1]
+    # burner_switch1 = env._burner_switches[0]
+    # burner_switch2 = env._burner_switches[1]
+    # faucet_switch = env._faucet_switch
+    # burner1 = env._burners[0]
+    # burner2 = env._burners[1]
+    # faucet = env._faucet
     
-    env_predicates = env.predicates
-    policy = utils.option_plan_to_policy([
-                            pick.ground([robot, jug2], []),
-                            place_under_faucet.ground([robot, faucet], []),
-                            switch_on.ground([robot, faucet_switch], []), 
-                            no_op.ground([robot], []),
-                            switch_off.ground([robot, faucet_switch], []),
-                            pick.ground([robot, jug2], []),
-                            place_on_burner.ground([robot, burner2], []),
-                            switch_on.ground([robot, burner_switch2], []), 
-                            pick.ground([robot, jug1], []),
-                            place_under_faucet.ground([robot, faucet], []),
-                            switch_on.ground([robot, faucet_switch], []),
-                            no_op.ground([robot], []),
-                            switch_off.ground([robot, faucet_switch], []),
-                            pick.ground([robot, jug1], []),
-                            place_on_burner.ground([robot, burner1], []),
-                            switch_on.ground([robot, burner_switch1], []),
-                            no_op.ground([robot], []),
-                            switch_off.ground([robot, burner_switch2], []),
-                            no_op.ground([robot], []),
-                            switch_off.ground([robot, burner_switch1], []),
-                            ],
-                            noop_option_terminate_on_atom_change=True,
-                            abstract_function=lambda s: utils.abstract(s, 
-                                                            env_predicates))
+    # env_predicates = env.predicates
+    # policy = utils.option_plan_to_policy([
+    #                         pick.ground([robot, jug2], []),
+    #                         place_under_faucet.ground([robot, faucet], []),
+    #                         switch_on.ground([robot, faucet_switch], []), 
+    #                         no_op.ground([robot], []),
+    #                         switch_off.ground([robot, faucet_switch], []),
+    #                         pick.ground([robot, jug2], []),
+    #                         place_on_burner.ground([robot, burner2], []),
+    #                         switch_on.ground([robot, burner_switch2], []), 
+    #                         pick.ground([robot, jug1], []),
+    #                         place_under_faucet.ground([robot, faucet], []),
+    #                         switch_on.ground([robot, faucet_switch], []),
+    #                         no_op.ground([robot], []),
+    #                         switch_off.ground([robot, faucet_switch], []),
+    #                         pick.ground([robot, jug1], []),
+    #                         place_on_burner.ground([robot, burner1], []),
+    #                         switch_on.ground([robot, burner_switch1], []),
+    #                         no_op.ground([robot], []),
+    #                         switch_off.ground([robot, burner_switch2], []),
+    #                         no_op.ground([robot], []),
+    #                         switch_off.ground([robot, burner_switch1], []),
+    #                         ],
+    #                         noop_option_terminate_on_atom_change=True,
+    #                         abstract_function=lambda s: utils.abstract(s, 
+    #                                                         env_predicates))
 
-    constant_noop = False
+    constant_noop = True
     for task in tasks:
         env._reset_state(task.init)
+        breakpoint()
         for _ in range(100000):
             if constant_noop:
                 action = Action(np.array(

@@ -9,7 +9,7 @@ from predicators import utils
 from predicators.envs import BaseEnv, get_or_create_env
 from predicators.settings import CFG
 from predicators.structs import NSRT, LiftedDecisionList, \
-    ParameterizedOption, Predicate, Type
+    ParameterizedOption, Predicate, Type, CausalProcess, EndogenousProcess
 
 
 class GroundTruthOptionFactory(abc.ABC):
@@ -45,6 +45,24 @@ class GroundTruthNSRTFactory(abc.ABC):
                   predicates: Dict[str, Predicate],
                   options: Dict[str, ParameterizedOption]) -> Set[NSRT]:
         """Create NSRTs for the given env name."""
+        raise NotImplementedError("Override me!")
+
+class GroundTruthProcessFactory(abc.ABC):
+    """Parent class for ground-truth process definitions."""
+
+    @classmethod
+    @abc.abstractmethod
+    def get_env_names(cls) -> Set[str]:
+        """Get the env names that this factory builds processes for."""
+        raise NotImplementedError("Override me!")
+    
+    @classmethod
+    @abc.abstractmethod
+    def get_processes(cls, env_name: str, types: Dict[str, Type],
+                      predicates: Dict[str, Predicate],
+                      options: Dict[str, ParameterizedOption]
+                      ) -> Set[CausalProcess]:
+        """Create processes for the given env name."""
         raise NotImplementedError("Override me!")
 
 
@@ -127,6 +145,40 @@ def get_gt_nsrts(env_name: str, predicates_to_keep: Set[Predicate],
         final_nsrts.add(nsrt)
     return final_nsrts
 
+
+def get_gt_processes(env_name: str, predicates_to_keep: Set[Predicate],
+                     options_to_keep: Set[ParameterizedOption]
+                     ) -> Set[CausalProcess]:
+    """Create ground truth processes for an env."""
+    env = get_or_create_env(env_name)
+    env_options = get_gt_options(env_name)
+    assert predicates_to_keep.issubset(env.predicates)
+    assert options_to_keep.issubset(env_options)
+    for cls in utils.get_all_subclasses(GroundTruthProcessFactory):
+        if not cls.__abstractmethods__ and env_name in cls.get_env_names():
+            factory = cls()
+            # Give all predicates and options, then filter based on kept ones
+            # at the end of this function. This is easier than filtering within
+            # the factory itself.
+            types = {t.name: t for t in env.types}
+            predicates = {p.name: p for p in env.predicates}
+            options = {o.name: o for o in env_options}
+            processes = factory.get_processes(env_name, types, predicates, 
+                                              options)
+            break
+    else:  # pragma: no cover
+        raise NotImplementedError("Ground-truth processes not implemented for "
+                                  f"env: {env_name}")
+    # Filter out excluded predicates from processes, and filter out processes
+    # options are excluded.
+    final_processes = set()
+    for process in processes:
+        if (isinstance(process, EndogenousProcess) and 
+            process.option not in options_to_keep):
+            continue
+        process = process.filter_predicates(predicates_to_keep)
+        final_processes.add(process)
+    return final_processes
 
 def get_gt_ldl_bridge_policy(env_name: str, types: Set[Type],
                              predicates: Set[Predicate],

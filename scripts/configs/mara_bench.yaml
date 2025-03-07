@@ -4,7 +4,7 @@
 ---
 APPROACHES:
   oracle:
-    NAME: "oracle"
+    NAME: "oracle_process_model"
 
 ENVS:
   # cover:
@@ -187,7 +187,7 @@ FLAGS:
   # unstable, this is useful to capture the unstability and to avoid force from
   # the prev. episode to affect the current episode.
   terminate_on_goal_reached: False
-  num_train_tasks: 1
+  num_train_tasks: 0
   num_test_tasks: 1
   video_fps: 20
   pybullet_camera_height: 900
@@ -195,5 +195,8 @@ FLAGS:
   use_counterfactual_dataset_path_name: True
   # use_classification_problem_setting: False # This decides the entry point
   keep_failed_demos: True
+  planning_filter_unreachable_nsrt: False
+  planning_check_dr_reachable: False
+  sesame_task_planning_heuristic: "goal_count"
 START_SEED: 0
 NUM_SEEDS: 1

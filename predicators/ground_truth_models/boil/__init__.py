@@ -2,8 +2,10 @@
 
 from .nsrts import PyBulletBoilGroundTruthNSRTFactory
 from .options import PyBulletBoilGroundTruthOptionFactory
+from .processes import PyBulletBoilGroundTruthProcessFactory
 
 __all__ = [
     "PyBulletBoilGroundTruthNSRTFactory", 
-    "PyBulletBoilGroundTruthOptionFactory"
+    "PyBulletBoilGroundTruthOptionFactory",
+    "PyBulletBoilGroundTruthProcessFactory"
 ]

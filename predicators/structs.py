@@ -2222,6 +2222,233 @@ class GroundMacro:
     def __len__(self) -> int:
         return len(self.ground_nsrts)
 
+@dataclass(frozen=True, repr=False, eq=False)
+class DelayDistribution:
+    def sample(self) -> int:
+        raise NotImplementedError
+
+@dataclass(frozen=True, repr=False, eq=False)
+class CausalProcess(abc.ABC):
+    name: str
+    parameters: Sequence[Variable]
+    condition_at_start: Set[LiftedAtom]
+    condition_overall: Set[LiftedAtom]
+    condition_at_end: Set[LiftedAtom]
+    add_effects: Set[LiftedAtom]
+    delete_effects: Set[LiftedAtom]
+    delay_distribution: DelayDistribution
+
+    @abc.abstractmethod
+    def ground(self, objects: Sequence[Object]) -> _GroundCausalProcess:
+        pass
+
+    @abc.abstractmethod
+    def filter_predicates(self, kept: Collection[Predicate]) -> CausalProcess:
+        """Keep only the given predicates in the preconditions, add effects,
+        delete effects, and ignore effects.
+
+        Note that the parameters must stay the same for the sake of the
+        sampler inputs.
+        """
+        pass
+
+    @cached_property
+    def _hash(self) -> int:
+        return hash(str(self))
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    @cached_property
+    def _str(self) -> str:
+        return f"""Process-{self.name}:
+    Parameters: {self.parameters}
+    Conditions at start: {sorted(self.condition_at_start, key=str)}
+    Conditions overall: {sorted(self.condition_overall, key=str)}
+    Conditions at end: {sorted(self.condition_at_end, key=str)}
+    Add Effects: {sorted(self.add_effects, key=str)}
+    Delete Effects: {sorted(self.delete_effects, key=str)}"""
+
+    def __str__(self) -> str:
+        return self._str
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    def __eq__(self, other: object) -> bool:
+        assert isinstance(other, CausalProcess)
+        return str(self) == str(other)
+
+    def __lt__(self, other: object) -> bool:
+        assert isinstance(other, CausalProcess)
+        return str(self) < str(other)
+
+    def __gt__(self, other: object) -> bool:
+        assert isinstance(other, CausalProcess)
+        return str(self) > str(other)
+
+@dataclass(frozen=True, repr=False, eq=False)
+class ExogenousProcess(CausalProcess):
+
+    def filter_predicates(self, kept: Collection[Predicate]
+                          ) -> ExogenousProcess:
+        condition_at_start = {a for a in self.condition_at_start if a.predicate\
+                                in kept}
+        condition_overall = {a for a in self.condition_overall if a.predicate\
+                                in kept}
+        condition_at_end = {a for a in self.condition_at_end if a.predicate\
+                                in kept}
+        add_effects = {a for a in self.add_effects if a.predicate in kept}
+        delete_effects = {a for a in self.delete_effects if a.predicate in kept}
+
+        return ExogenousProcess(self.name, self.parameters, condition_at_start,
+                             condition_overall, condition_at_end, add_effects,
+                             delete_effects, self.delay_distribution)
+        
+    def ground(self, objects: Sequence[Object]) -> _GroundExogenousProcess:
+        assert len(objects) == len(self.parameters)
+        assert all(o.is_instance(p.type) for o, p in 
+                   zip(objects, self.parameters))
+        sub = dict(zip(self.parameters, objects))
+        condition_at_start = {a.ground(sub) for a in self.condition_at_start}
+        condition_overall = {a.ground(sub) for a in self.condition_overall}
+        condition_at_end = {a.ground(sub) for a in self.condition_at_end}
+        add_effects = {a.ground(sub) for a in self.add_effects}
+        delete_effects = {a.ground(sub) for a in self.delete_effects}
+        return _GroundExogenousProcess(self, objects, condition_at_start,
+                                    condition_overall, condition_at_end,
+                                    add_effects, delete_effects,
+                                    self.delay_distribution)
+    
+@dataclass(frozen=True, repr=False, eq=False)
+class EndogenousProcess(CausalProcess):
+    option: ParameterizedOption
+    option_vars: Sequence[Variable]
+    _sampler: NSRTSampler = field(repr=False)
+
+    def filter_predicates(self, kept: Collection[Predicate]
+                          ) -> EndogenousProcess:
+        """Keep only the given predicates in the preconditions, add effects,
+        delete effects, and ignore effects.
+
+        Note that the parameters must stay the same for the sake of the
+        sampler inputs.
+        """
+        condition_at_start = {a for a in self.condition_at_start if a.predicate\
+                                in kept}
+        condition_overall = {a for a in self.condition_overall if a.predicate\
+                                in kept}
+        condition_at_env = {a for a in self.condition_at_end if a.predicate\
+                                in kept}
+        add_effects = {a for a in self.add_effects if a.predicate in kept}
+        delete_effects = {a for a in self.delete_effects if a.predicate in kept}
+
+        return EndogenousProcess(self.name, self.parameters, condition_at_start,
+                        condition_overall, condition_at_env, add_effects,
+                        delete_effects, self.delay_distribution, self.option,
+                        self.option_vars, self._sampler)
+
+    def ground(self, objects: Sequence[Object]) -> _GroundEndogenousProcess:
+        assert len(objects) == len(self.parameters)
+        assert all(
+            o.is_instance(p.type) for o, p in zip(objects, self.parameters))
+        sub = dict(zip(self.parameters, objects))
+        condition_at_start = {a.ground(sub) for a in self.condition_at_start}
+        condition_overall = {a.ground(sub) for a in self.condition_overall}
+        condition_at_end = {a.ground(sub) for a in self.condition_at_end}
+        add_effects = {a.ground(sub) for a in self.add_effects}
+        delete_effects = {a.ground(sub) for a in self.delete_effects}
+        option_objs = [sub[v] for v in self.option_vars]
+        return _GroundEndogenousProcess(self, objects, condition_at_start,
+                                        condition_overall, condition_at_end,
+                                        add_effects, delete_effects, 
+                                        self.delay_distribution,
+                                        self.option, option_objs, 
+                                        self._sampler)
+
+    @cached_property
+    def _str(self) -> str:
+        option_var_str = ", ".join([str(v) for v in self.option_vars])
+        return f"""Process-{self.name}:
+    Parameters: {self.parameters}
+    Conditions at start: {sorted(self.condition_at_start, key=str)}
+    Conditions overall: {sorted(self.condition_overall, key=str)}
+    Conditions at end: {sorted(self.condition_at_end, key=str)}
+    Add Effects: {sorted(self.add_effects, key=str)}
+    Delete Effects: {sorted(self.delete_effects, key=str)}
+    Option Spec: {self.option.name}({option_var_str})"""
+        
+
+
+
+@dataclass(frozen=True, repr=False, eq=False)
+class _GroundCausalProcess:
+    parent: CausalProcess
+    objects: Sequence[Object]
+    condition_at_start: Set[GroundAtom]
+    condition_overall: Set[GroundAtom]
+    condition_at_end: Set[GroundAtom]
+    add_effects: Set[GroundAtom]
+    delete_effects: Set[GroundAtom]
+    delay_distribution: DelayDistribution
+
+    @property
+    def name(self) -> str:
+        """Name of this ground causal process."""
+        return self.parent.name
+
+    @cached_property
+    def _str(self) -> str:
+        return f"""GroundProcess-{self.name}:
+    Parameters: {self.objects}
+    Conditions at start: {sorted(self.condition_at_start, key=str)}
+    Conditions overall: {sorted(self.condition_overall, key=str)}
+    Conditions at end: {sorted(self.condition_at_end, key=str)}
+    Add Effects: {sorted(self.add_effects, key=str)}
+    Delete Effects: {sorted(self.delete_effects, key=str)}"""
+
+    @cached_property
+    def _hash(self) -> int:
+        return hash(str(self))
+
+    def __str__(self) -> str:
+        return self._str
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def __eq__(self, other: object) -> bool:
+        assert isinstance(other, _GroundCausalProcess)
+        return str(self) == str(other)
+    
+    def name_and_objects_str(self) -> str:
+        return f"{self.name}({', '.join([str(o) for o in self.objects])})"
+
+@dataclass(frozen=True, repr=False, eq=False)
+class _GroundEndogenousProcess(_GroundCausalProcess):
+    option: ParameterizedOption
+    option_objs: Sequence[Variable]
+    _sampler: NSRTSampler = field(repr=False)
+
+    @cached_property
+    def _str(self) -> str:
+        option_var_str = ", ".join([str(v) for v in self.option_objs])
+        return f"""Process-{self.name}:
+    Parameters: {self.objects}
+    Conditions at start: {sorted(self.condition_at_start, key=str)}
+    Conditions overall: {sorted(self.condition_overall, key=str)}
+    Conditions at end: {sorted(self.condition_at_end, key=str)}
+    Add Effects: {sorted(self.add_effects, key=str)}
+    Delete Effects: {sorted(self.delete_effects, key=str)}
+    Option: {self.option}
+    Option Objects: {self.option_objs}"""
+
+@dataclass(frozen=True, repr=False, eq=False)
+class _GroundExogenousProcess(_GroundCausalProcess):
+    pass
 
 # Convenience higher-order types useful throughout the code
 Observation = Any

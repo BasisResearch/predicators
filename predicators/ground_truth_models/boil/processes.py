@@ -1,0 +1,377 @@
+"""Ground-truth processes for the boil environments."""
+from typing import Set, Dict
+
+import numpy as np
+
+from predicators.ground_truth_models import GroundTruthProcessFactory
+from predicators.structs import (CausalProcess, Predicate, Type, 
+    ParameterizedOption, Variable, EndogenousProcess, ExogenousProcess, 
+    LiftedAtom)
+from predicators.utils import null_sampler, GaussianDelay, ConstantDelay
+from predicators.settings import CFG
+
+
+class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
+    """Ground-truth processes for the boil environment."""
+
+    @classmethod
+    def get_env_names(cls) -> Set[str]:
+        return {"pybullet_boil"}
+    
+    @staticmethod
+    def get_processes(env_name: str, types: Dict[str, Type],
+                      predicates: Dict[str, Predicate],
+                      options: Dict[str, ParameterizedOption]
+                      ) -> Set[CausalProcess]:
+        # Types
+        robot_type = types["robot"]
+        jug_type = types["jug"]
+        burner_type = types["burner"]
+        faucet_type = types["faucet"]
+        switch_type = types["switch"]
+
+        # Predicates
+        HandEmpty = predicates["HandEmpty"]
+        Holding = predicates["Holding"]
+        JugOnBurner = predicates["JugOnBurner"]
+        JugUnderFaucet = predicates["JugUnderFaucet"]
+        JugFilled = predicates["JugFilled"]
+        WaterSpilled = predicates["WaterSpilled"]
+        NoWaterSpilled = predicates["NoWaterSpilled"]
+        NoJugUnderFaucet = predicates["NoJugUnderFaucet"]
+        FaucetOn = predicates["FaucetOn"]
+        FaucetOff = predicates["FaucetOff"]
+        BurnerOn = predicates["BurnerOn"]
+        BurnerOff = predicates["BurnerOff"]
+
+        WaterBoiled = predicates["WaterBoiled"]
+
+        # Options
+        PickJug = options["PickJug"]
+        PlaceOnBurner = options["PlaceOnBurner"]
+        PlaceUnderFaucet = options["PlaceUnderFaucet"]
+        SwitchOn = options["SwitchOn"]
+        SwitchOff = options["SwitchOff"]
+        NoOp = options["NoOp"]
+
+        # Create a random number generator
+        rng = np.random.default_rng(CFG.seed)
+
+        processes = set()
+
+        # --- Endogenous Processes / Durative Actions ---
+        # PickJugFromFaucet
+        robot = Variable("?robot", robot_type)
+        jug = Variable("?jug", jug_type)
+        faucet = Variable("?faucet", faucet_type)
+        parameters = [robot, jug, faucet]
+        option_vars = [robot, jug]
+        option = PickJug
+        condition_at_start = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(JugUnderFaucet, [jug, faucet]),
+        }
+        add_effects = {
+            LiftedAtom(Holding, [robot, jug]),
+        }
+        delete_effects = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(JugUnderFaucet, [jug, faucet]),
+        }
+        # delay_distribution = GaussianDelay(5, 2, rng)
+        delay_distribution = ConstantDelay(2)
+        pick_jug_from_faucet_process = EndogenousProcess("PickJugFromFaucet", 
+                                            parameters, condition_at_start, 
+                                            set(), set(), 
+                                            add_effects, delete_effects,
+                                            delay_distribution, option, 
+                                            option_vars, null_sampler)
+        processes.add(pick_jug_from_faucet_process)
+
+        # # PickJugFrom...
+        # robot = Variable("?robot", robot_type)
+        # jug = Variable("?jug", jug_type)
+        # parameters = [robot, jug, faucet]
+        # option_vars = [robot, jug]
+        # option = PickJug
+        # condition_at_start = {
+        #     LiftedAtom(HandEmpty, [robot]),
+        #     LiftedAtom(JugUnderFaucet, [jug, faucet]),
+        # }
+        # add_effects = {
+        #     LiftedAtom(Holding, [robot, jug]),
+        # }
+        # delete_effects = {
+        #     LiftedAtom(HandEmpty, [robot]),
+        #     LiftedAtom(JugUnderFaucet, [jug, faucet]),
+        # }
+        # delay_distribution = GaussianDelay(5, 2, rng)
+        # pick_jug_from_faucet_process = EndogenousProcess("PickJugFromFaucet", 
+        #                                     parameters, condition_at_start, 
+        #                                     set(), set(), 
+        #                                     add_effects, delete_effects,
+        #                                     delay_distribution, option, 
+        #                                     option_vars, null_sampler)
+        # processes.add(pick_jug_from_faucet_process)
+
+        # PlaceOnBurner
+        robot = Variable("?robot", robot_type)
+        jug = Variable("?jug", jug_type)
+        burner = Variable("?burner", burner_type)
+        parameters = [robot, jug, burner]
+        option_vars = [robot, burner]
+        option = PlaceOnBurner
+        condition_at_start = {
+            LiftedAtom(Holding, [robot, jug]),
+        }
+        add_effects = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(JugOnBurner, [jug, burner]),
+        }
+        delete_effects = {
+            LiftedAtom(Holding, [robot, jug]),
+        }
+        delay_distribution = GaussianDelay(5, 2, rng)
+        place_on_burner_process = EndogenousProcess("PlaceOnBurner", parameters,
+                                            condition_at_start, set(), set(), 
+                                            add_effects, delete_effects,
+                                            delay_distribution, option, 
+                                            option_vars, null_sampler)
+        processes.add(place_on_burner_process)
+
+        # PlaceUnderFaucet
+        robot = Variable("?robot", robot_type)
+        jug = Variable("?jug", jug_type)
+        faucet = Variable("?faucet", faucet_type)
+        parameters = [robot, jug, faucet]
+        option_vars = [robot, faucet]
+        option = PlaceUnderFaucet
+        condition_at_start = {
+            LiftedAtom(Holding, [robot, jug]),
+        }
+        add_effects = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(JugUnderFaucet, [jug, faucet]),
+        }
+        delete_effects = {
+            LiftedAtom(Holding, [robot, jug]),
+        }
+        delay_distribution = GaussianDelay(5, 2, rng)
+        place_under_faucet_process = EndogenousProcess("PlaceUnderFaucet", 
+                                parameters, condition_at_start, set(), set(), 
+                                add_effects, delete_effects, delay_distribution, 
+                                option, option_vars, null_sampler)
+        processes.add(place_under_faucet_process)
+
+        # SwitchFaucetOn
+        robot = Variable("?robot", robot_type)
+        switch = Variable("?switch", switch_type)
+        faucet = Variable("?faucet", faucet_type)
+        parameters = [robot, switch, faucet]
+        option_vars = [robot, switch]
+        option = SwitchOn
+        condition_at_start = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(FaucetOff, [faucet]),
+        }
+        add_effects = {
+            LiftedAtom(FaucetOn, [faucet]),
+        }
+        delete_effects = {
+            LiftedAtom(FaucetOff, [faucet]),
+        }
+        # delay_distribution = GaussianDelay(2, 2, rng)
+        delay_distribution = ConstantDelay(1)
+        switch_faucet_on_process = EndogenousProcess("SwitchFaucetOn", 
+                                        parameters,
+                                        condition_at_start, set(), set(), 
+                                        add_effects, delete_effects, 
+                                        delay_distribution, option, option_vars,
+                                        null_sampler)
+        processes.add(switch_faucet_on_process)
+
+        # SwitchFaucetOff
+        robot = Variable("?robot", robot_type)
+        switch = Variable("?switch", switch_type)
+        faucet = Variable("?faucet", faucet_type)
+        parameters = [robot, switch, faucet]
+        option_vars = [robot, switch]
+        option = SwitchOff
+        condition_at_start = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(FaucetOn, [faucet]),
+        }
+        add_effects = {
+            LiftedAtom(FaucetOff, [faucet]),
+        }
+        delete_effects = {
+            LiftedAtom(FaucetOn, [faucet]),
+        }
+        # delay_distribution = GaussianDelay(2, 2, rng)
+        delay_distribution = ConstantDelay(1)
+        switch_faucet_off_process = EndogenousProcess("SwitchFaucetOff", 
+                                    parameters, condition_at_start, set(), 
+                                    set(), add_effects, set(), 
+                                    delay_distribution, option, option_vars, 
+                                    null_sampler)
+        processes.add(switch_faucet_off_process)
+
+        # # SwitchBurnerOn
+        # robot = Variable("?robot", robot_type)
+        # switch = Variable("?switch", switch_type)
+        # burner = Variable("?burner", burner_type)
+        # parameters = [robot, switch, burner]
+        # option_vars = [robot, switch]
+        # option = SwitchOn
+        # condition_at_start = {
+        #     LiftedAtom(HandEmpty, [robot]),
+        #     LiftedAtom(BurnerOff, [burner]),
+        # }
+        # add_effects = {
+        #     LiftedAtom(BurnerOn, [burner]),
+        # }
+        # delete_effects = {
+        #     LiftedAtom(BurnerOff, [burner]),
+        # }
+        # delay_distribution = GaussianDelay(5, 2, rng)
+        # switch_burner_on_process = EndogenousProcess("SwitchBurnerOn", 
+        #                                              parameters,
+        #                                 condition_at_start, set(), set(), 
+        #                                 add_effects, set(), delay_distribution, 
+        #                                 option, option_vars, null_sampler)
+        # processes.add(switch_burner_on_process)
+
+        # # SwitchBurnerOff
+        # robot = Variable("?robot", robot_type)
+        # switch = Variable("?switch", switch_type)
+        # burner = Variable("?burner", burner_type)
+        # parameters = [robot, switch, burner]
+        # option_vars = [robot, switch]
+        # option = SwitchOff
+        # condition_at_start = {
+        #     LiftedAtom(HandEmpty, [robot]),
+        #     LiftedAtom(BurnerOn, [burner]),
+        # }
+        # add_effects = {
+        #     LiftedAtom(BurnerOff, [burner]),
+        # }
+        # delete_effects = {
+        #     LiftedAtom(BurnerOn, [burner]),
+        # }
+        # delay_distribution = GaussianDelay(5, 2, rng)
+        # switch_burner_off_process = EndogenousProcess("SwitchBurnerOff", 
+        #                                               parameters,
+        #                                 condition_at_start, set(), set(), 
+        #                                 add_effects, set(), delay_distribution, 
+        #                                 option, option_vars, null_sampler)
+        # processes.add(switch_burner_off_process)
+
+        # Noop
+        robot = Variable("?robot", robot_type)
+        parameters = [robot]
+        option_vars = [robot]
+        option = NoOp
+        # TODO: This is more like a "max number of steps" for this option.
+        # delay_distribution = GaussianDelay(3, 2, rng)
+        delay_distribution = ConstantDelay(1)
+        noop_process = EndogenousProcess("NoOp", parameters, set(), set(), 
+                                    set(), set(), set(), delay_distribution, 
+                                    option, option_vars, null_sampler)
+        processes.add(noop_process)
+
+        # --- Exogenous Processes ---
+        # FillJug
+        jug = Variable("?jug", jug_type)
+        faucet = Variable("?faucet", faucet_type)
+        parameters = [jug, faucet]
+        option_vars = [jug]
+        condition_at_start = {
+            LiftedAtom(JugUnderFaucet, [jug, faucet]),
+            LiftedAtom(FaucetOn, [faucet]),
+        }
+        condition_overall = {
+            LiftedAtom(JugUnderFaucet, [jug, faucet]),
+            LiftedAtom(FaucetOn, [faucet]),
+        }
+        add_effects = {
+            LiftedAtom(JugFilled, [jug]),
+        }
+        # delay_distribution = GaussianDelay(5, 2, rng)
+        delay_distribution = ConstantDelay(2)
+        fill_jug_process = ExogenousProcess("FillJug", parameters, 
+                                        condition_at_start, condition_overall, 
+                                        set(), add_effects, {}, 
+                                        delay_distribution)
+        processes.add(fill_jug_process)
+
+        # OverfillJug
+        jug = Variable("?jug", jug_type)
+        faucet = Variable("?faucet", faucet_type)
+        parameters = [jug, faucet]
+        condition_at_start = {
+            LiftedAtom(JugUnderFaucet, [jug, faucet]),
+            LiftedAtom(FaucetOn, [faucet]),
+            LiftedAtom(JugFilled, [jug]),
+        }
+        condition_overall = {
+            LiftedAtom(JugUnderFaucet, [jug, faucet]),
+            LiftedAtom(FaucetOn, [faucet]),
+            LiftedAtom(JugFilled, [jug]),
+        }
+        add_effects = {
+            LiftedAtom(WaterSpilled, []),
+        }
+        delete_effects = {
+            LiftedAtom(NoWaterSpilled, []),
+        }
+        delay_distribution = ConstantDelay(1)
+        overfill_jug_process = ExogenousProcess("OverfillJug", parameters, 
+                                    condition_at_start, condition_overall, 
+                                    set(), add_effects, delete_effects, 
+                                    delay_distribution)
+        processes.add(overfill_jug_process)
+
+        # Spill
+        faucet = Variable("?faucet", faucet_type)
+        parameters = [faucet]
+        condition_at_start = {
+            LiftedAtom(NoJugUnderFaucet, [faucet]),
+            LiftedAtom(FaucetOn, [faucet]),
+        }
+        add_effects = {
+            LiftedAtom(WaterSpilled, []),
+        }
+        delete_effects = {
+            LiftedAtom(NoWaterSpilled, []),
+        }
+        delay_distribution = ConstantDelay(1)
+        spill_process = ExogenousProcess("Spill", parameters, 
+                                    condition_at_start, set(), set(), 
+                                    add_effects, delete_effects, 
+                                    delay_distribution)
+        processes.add(spill_process)
+
+        # # Boil
+        # burner = Variable("?burner", burner_type)
+        # jug = Variable("?jug", jug_type)
+        # parameters = [burner, jug]
+        # condition_at_start = {
+        #     LiftedAtom(JugOnBurner, [jug, burner]),
+        #     LiftedAtom(JugFilled, [jug]),
+        #     LiftedAtom(BurnerOn, [burner]),
+        # }
+        # condition_overall = {
+        #     LiftedAtom(JugOnBurner, [jug, burner]),
+        #     LiftedAtom(JugFilled, [jug]),
+        #     LiftedAtom(BurnerOn, [burner]),
+        # }
+        # add_effects = {
+        #     LiftedAtom(WaterBoiled, [jug]),
+        # }
+        # delay_distribution = GaussianDelay(10, 2, rng)
+        # boil_process = ExogenousProcess("Boil", parameters, condition_at_start,
+        #                                 condition_overall, set(), add_effects, 
+        #                                 {}, delay_distribution)
+        # processes.add(boil_process)
+
+        return processes
