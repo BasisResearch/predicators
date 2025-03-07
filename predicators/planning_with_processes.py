@@ -138,8 +138,9 @@ class ProcessWorldModel:
             # logging.debug(...)
 
             for t in list(self.scheduled_events.keys()):
-                if self.scheduled_events[t][0][0].name == 'NoOp':
-                    del self.scheduled_events[t]
+                for process, start_time in self.scheduled_events[t]:
+                    if process.name == 'NoOp':
+                        self.scheduled_events[t].remove((process, start_time))
         
         # This is moved from before step 3 to after, because other wise at t=0,
         # there will be two states in the state_history buffer.
@@ -163,7 +164,23 @@ class ProcessWorldModel:
                 action_process = None
                 action_effect_have_not_occurred = True
             else:
-                action_effect_have_not_occurred = initial_state == self.state
+                action_effect_have_not_occurred = (initial_state == self.state 
+                                            or self.current_action is not None)
+            
+            # if NoOp is scheduled to end, then break
+            wait_end = False
+            if self.t in self.scheduled_events:
+                for g_process, start_time in self.scheduled_events[self.t]:
+                    if g_process.name == 'NoOp':
+                        wait_end = True
+                        for t in list(self.scheduled_events.keys()):
+                            for process, start_time in self.scheduled_events[t]:
+                                if process.name == 'NoOp':
+                                    self.scheduled_events[t].remove((process, 
+                                                                    start_time))
+                        break
+            if wait_end:
+                break
         return self.state
 
 
@@ -225,8 +242,13 @@ def _skeleton_generator_with_processes(
         if task.goal.issubset(node.atoms):
             # If this skeleton satisfies the goal, yield it.
             metrics["num_skeletons_optimized"] += 1
+            logging.debug(f"\nGot Plan:")
             for process in node.skeleton:
-                logging.debug(process.name)
+                logging.debug(process.name_and_objects_str())
+            for i, (state, action) in enumerate(zip(node.state_history, 
+                                                    node.action_history)):
+                logging.debug(f"State {i}: {state}")
+                logging.debug(f"Action {i}: {action.name_and_objects_str() if action is not None else None}")
             breakpoint()
             yield node.skeleton, node.atoms_sequence
         else:
@@ -246,15 +268,23 @@ def _skeleton_generator_with_processes(
                     t=len(node.state_history) - 1)
 
                 assert isinstance(action_process, _GroundEndogenousProcess)
-                logging.debug(f"Expand:")
+                plan_so_far = [p.name_and_objects_str() for p in node.skeleton]
+                logging.info(f"Expand after plan {plan_so_far}:")
                 # if len(node.skeleton) > 2 and \
                 #     node.skeleton[0].name == 'PickJug' and \
                 #     node.skeleton[1].name == 'PlaceUnderFaucet' and \
                 #     node.skeleton[2].name == 'SwitchFaucetOn' and \
                 #     action_process.name == 'NoOp':
-                # if len(node.skeleton) > 0 and \
+                
+                # if len(node.skeleton) == 2 and \
                 #     node.skeleton[0].name == 'SwitchFaucetOn' and \
-                #     action_process.name == 'PickJug':
+                #     node.skeleton[1].name == 'NoOp' and \
+                #     action_process.name == 'PickJugFromFaucet':
+                #     breakpoint()
+                # if len(node.skeleton) >= 2 and \
+                #     node.skeleton[0].name == 'SwitchFaucetOn' and \
+                #     node.skeleton[1].name == 'NoOp':# and \
+                #     # action_process.name == 'NoOp':
                 #     breakpoint()
 
                 world_model.big_step(action_process)
@@ -388,7 +418,6 @@ def run_task_plan_with_processes_once(
                       seed,
                       timeout,
                       max_skeletons_optimized=1,
-                      use_visited_state_set=True,
                       ))
         if len(plan) > max_horizon:
             raise PlanningFailure(

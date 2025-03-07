@@ -87,14 +87,14 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         options = set()
 
-        # SwitchOn
-        option_type = [robot_type, switch_type]
+        # SwitchFaucetOn
+        option_type = [robot_type, faucet_type]
         params_space = Box(0, 1, (0, ))
         behind_factor = 1.8
         push_factor = 0
         push_above_factor = 1.3
-        SwitchOn = utils.LinearChainParameterizedOption(
-            "SwitchOn", [
+        SwitchFaucetOn = utils.LinearChainParameterizedOption(
+            "SwitchFaucetOn", [
                 create_change_fingers_option(
                     pybullet_robot, "CloseFingers", option_type, params_space,
                     close_fingers_func, CFG.pybullet_max_vel_norm,
@@ -118,13 +118,13 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     lambda _: cls._hand_empty_move_z, "closed", option_type,
                     params_space),
             ])
-        options.add(SwitchOn)
+        options.add(SwitchFaucetOn)
 
-        # SwitchOff
-        option_type = [robot_type, switch_type]
+        # SwitchFaucetOff
+        option_type = [robot_type, faucet_type]
         params_space = Box(0, 1, (0, ))
-        SwitchOn = utils.LinearChainParameterizedOption(
-            "SwitchOff", [
+        SwitchFaucetOff = utils.LinearChainParameterizedOption(
+            "SwitchFaucetOff", [
                 create_change_fingers_option(
                     pybullet_robot, "CloseFingers", option_type, params_space,
                     close_fingers_func, CFG.pybullet_max_vel_norm,
@@ -148,7 +148,70 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     lambda _: cls._hand_empty_move_z, "closed", option_type,
                     params_space),
             ])
-        options.add(SwitchOn)
+        options.add(SwitchFaucetOff)
+
+        # SwitchBurnerOn
+        option_type = [robot_type, burner_type]
+        params_space = Box(0, 1, (0, ))
+        behind_factor = 1.8
+        push_factor = 0
+        push_above_factor = 1.3
+        SwitchBurnerOn = utils.LinearChainParameterizedOption(
+            "SwitchBurnerOn", [
+                create_change_fingers_option(
+                    pybullet_robot, "CloseFingers", option_type, params_space,
+                    close_fingers_func, CFG.pybullet_max_vel_norm,
+                    PyBulletBoilEnv.grasp_tol_small),
+                cls._create_boil_move_to_push_switch_option(
+                    "MoveToAboveAndBehindSwitch",
+                    lambda y: y - cls._y_offset * behind_factor,
+                    lambda _: cls._hand_empty_move_z, "closed", option_type,
+                    params_space),
+                cls._create_boil_move_to_push_switch_option(
+                    "MoveToBehindSwitch",
+                    lambda y: y - cls._y_offset * behind_factor, lambda z: z +
+                    cls.env_cls.switch_height * push_above_factor, "closed",
+                    option_type, params_space),
+                cls._create_boil_move_to_push_switch_option(
+                    "PushSwitchOn", lambda y: y - cls._y_offset * push_factor,
+                    lambda z: z + cls.env_cls.switch_height *
+                    push_above_factor, "closed", option_type, params_space),
+                cls._create_boil_move_to_push_switch_option(
+                    "MoveBack", lambda y: y + cls._y_offset * behind_factor,
+                    lambda _: cls._hand_empty_move_z, "closed", option_type,
+                    params_space),
+            ])
+        options.add(SwitchBurnerOn)
+
+        # SwitchBurnerOff
+        option_type = [robot_type, burner_type]
+        params_space = Box(0, 1, (0, ))
+        SwitchBurnerOff = utils.LinearChainParameterizedOption(
+            "SwitchBurnerOff", [
+                create_change_fingers_option(
+                    pybullet_robot, "CloseFingers", option_type, params_space,
+                    close_fingers_func, CFG.pybullet_max_vel_norm,
+                    PyBulletBoilEnv.grasp_tol_small),
+                cls._create_boil_move_to_push_switch_option(
+                    "MoveToAboveAndInFrontOfSwitch",
+                    lambda y: y - cls._y_offset * push_factor,
+                    lambda _: cls._hand_empty_move_z, "closed", option_type,
+                    params_space),
+                cls._create_boil_move_to_push_switch_option(
+                    "MoveToInFrontOfSwitch",
+                    lambda y: y + cls._y_offset * behind_factor, lambda z: z +
+                    cls.env_cls.switch_height * push_above_factor, "closed",
+                    option_type, params_space),
+                cls._create_boil_move_to_push_switch_option(
+                    "PushSwitchOff", lambda y: y + cls._y_offset * push_factor,
+                    lambda z: z + cls.env_cls.switch_height *
+                    push_above_factor, "closed", option_type, params_space),
+                cls._create_boil_move_to_push_switch_option(
+                    "MoveBack", lambda y: y + cls._y_offset * behind_factor,
+                    lambda _: cls._hand_empty_move_z, "closed", option_type,
+                    params_space),
+            ])
+        options.add(SwitchBurnerOff)
 
         # PickJug
         option_types = [robot_type, jug_type]
@@ -447,7 +510,9 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
             assert not params
-            robot, switch = objects
+            robot, obj = objects
+            switch = next((s for s in state.get_objects(cls.env_cls.switch_type
+                                            ) if s.id == obj.switch_id), None)
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
             ee_orn = p.getQuaternionFromEuler(

@@ -116,10 +116,12 @@ class PyBulletBoilEnv(PyBulletEnv):
     _jug_type = Type(
         "jug", ["x", "y", "z", "rot", "is_held", "water_level", "heat_level"],
         sim_features=["id", "heat_level", "water_id"])
-    _burner_type = Type("burner", ["x", "y", "z", "is_on"])
+    _burner_type = Type("burner", ["x", "y", "z", "is_on"], sim_features=["id",
+                                                                "switch_id"])
     _switch_type = Type("switch", ["x", "y", "z", "rot", "is_on"])
     _faucet_type = Type("faucet",
-                        ["x", "y", "z", "rot", "is_on"])  # Added "rot" feature
+                        ["x", "y", "z", "rot", "is_on"], 
+                        sim_features=["id", "switch_id"])  # Added "rot" feature
 
     def __init__(self, use_gui: bool = True) -> None:
         # Create the robot as an Object
@@ -369,6 +371,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         # to match the provided `state`.
         for i, burner_obj in enumerate(self._burners):
             on_val = state.get(burner_obj, "is_on")
+            burner_obj.switch_id = self._burner_switches[i].id
             self._set_switch_on(self._burner_switches[i].id,
                                 bool(on_val > 0.5))
 
@@ -385,6 +388,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             self._jug_to_liquid_id[jug] = liquid_id
 
         # Faucet
+        self._faucet.switch_id = self._faucet_switch.id
         f_on = state.get(self._faucet, "is_on")
         self._set_switch_on(self._faucet_switch.id, bool(f_on > 0.5))
 
@@ -726,11 +730,13 @@ class PyBulletBoilEnv(PyBulletEnv):
                 #                                             self._faucet]))
                 # goal_atoms.add(GroundAtom(self._FaucetOn, [self._faucet]))
                 goal_atoms.add(GroundAtom(self._JugFilled, [j_obj]))
+                # goal_atoms.add(GroundAtom(self._FaucetOff, [self._faucet]))
+                # goal_atoms.add(GroundAtom(self._WaterBoiled, [j_obj]))
                 # goal_atoms.add(GroundAtom(self._WaterBoiled, [j_obj]))
                 goal_atoms.add(GroundAtom(self._NoWaterSpilled, []))
                 # goal_atoms.add(GroundAtom(self._JugOnBurner, [j_obj, 
                 #                                             self._burners[0]]))
-                # goal_atoms.add(GroundAtom(self._Holding, [self._robot, j_obj]))
+                goal_atoms.add(GroundAtom(self._Holding, [self._robot, j_obj]))
 
             tasks.append(EnvironmentTask(init_state, goal_atoms))
 

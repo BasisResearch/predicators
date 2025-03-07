@@ -2446,9 +2446,34 @@ class _GroundEndogenousProcess(_GroundCausalProcess):
     Option: {self.option}
     Option Objects: {self.option_objs}"""
 
+    def copy(self) -> _GroundEndogenousProcess:
+        """Make a copy of this _GroundEndogenousProcess object."""
+        new_condition_at_start = set(self.condition_at_start)
+        new_condition_overall = set(self.condition_overall)
+        new_condition_at_end = set(self.condition_at_end)
+        new_add_effects = set(self.add_effects)
+        new_delete_effects = set(self.delete_effects)
+        return _GroundEndogenousProcess(self.parent, self.objects,
+                                        new_condition_at_start,
+                                        new_condition_overall,
+                                        new_condition_at_end, new_add_effects,
+                                        new_delete_effects, self.delay_distribution,
+                                        self.option, self.option_objs, self._sampler)
+
 @dataclass(frozen=True, repr=False, eq=False)
 class _GroundExogenousProcess(_GroundCausalProcess):
-    pass
+    def copy(self) -> _GroundExogenousProcess:
+        """Make a copy of this _GroundExogenousProcess object."""
+        new_condition_at_start = set(self.condition_at_start)
+        new_condition_overall = set(self.condition_overall)
+        new_condition_at_end = set(self.condition_at_end)
+        new_add_effects = set(self.add_effects)
+        new_delete_effects = set(self.delete_effects)
+        return _GroundExogenousProcess(self.parent, self.objects,
+                                        new_condition_at_start,
+                                        new_condition_overall,
+                                        new_condition_at_end, new_add_effects,
+                                        new_delete_effects, self.delay_distribution)
 
 # Convenience higher-order types useful throughout the code
 Observation = Any
