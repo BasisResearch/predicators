@@ -87,7 +87,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     # Domain-specific config
     # -------------------------------------------------------------------------
     num_jugs: ClassVar[int] = 1
-    num_burners: ClassVar[int] = 2  # can be adjusted as needed
+    num_burners: ClassVar[int] = 1  # can be adjusted as needed
 
     # Speeds / rates
     water_fill_speed: ClassVar[
@@ -729,14 +729,16 @@ class PyBulletBoilEnv(PyBulletEnv):
                 # goal_atoms.add(GroundAtom(self._JugUnderFaucet, [j_obj,
                 #                                             self._faucet]))
                 # goal_atoms.add(GroundAtom(self._FaucetOn, [self._faucet]))
-                goal_atoms.add(GroundAtom(self._JugFilled, [j_obj]))
+                # goal_atoms.add(GroundAtom(self._JugFilled, [j_obj]))
                 # goal_atoms.add(GroundAtom(self._FaucetOff, [self._faucet]))
                 # goal_atoms.add(GroundAtom(self._WaterBoiled, [j_obj]))
-                # goal_atoms.add(GroundAtom(self._WaterBoiled, [j_obj]))
+                goal_atoms.add(GroundAtom(self._WaterBoiled, [j_obj]))
                 goal_atoms.add(GroundAtom(self._NoWaterSpilled, []))
+                # goal_atoms.add(GroundAtom(self._FaucetOff, [self._faucet]))
+                goal_atoms.add(GroundAtom(self._BurnerOff, [self._burners[0]]))
                 # goal_atoms.add(GroundAtom(self._JugOnBurner, [j_obj, 
                 #                                             self._burners[0]]))
-                goal_atoms.add(GroundAtom(self._Holding, [self._robot, j_obj]))
+                # goal_atoms.add(GroundAtom(self._Holding, [self._robot, j_obj]))
 
             tasks.append(EnvironmentTask(init_state, goal_atoms))
 

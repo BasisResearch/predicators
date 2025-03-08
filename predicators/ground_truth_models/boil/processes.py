@@ -76,13 +76,14 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         add_effects = {
             LiftedAtom(Holding, [robot, jug]),
+            LiftedAtom(NoJugUnderFaucet, [faucet]),
         }
         delete_effects = {
             LiftedAtom(HandEmpty, [robot]),
             LiftedAtom(JugUnderFaucet, [jug, faucet]),
         }
         # delay_distribution = GaussianDelay(5, 2, rng)
-        delay_distribution = ConstantDelay(5)
+        delay_distribution = ConstantDelay(4)
         pick_jug_from_faucet_process = EndogenousProcess("PickJugFromFaucet", 
                                             parameters, condition_at_start, 
                                             set(), set(), 
@@ -218,55 +219,56 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
                                     null_sampler)
         processes.add(switch_faucet_off_process)
 
-        # # SwitchBurnerOn
-        # robot = Variable("?robot", robot_type)
-        # switch = Variable("?switch", switch_type)
-        # burner = Variable("?burner", burner_type)
-        # parameters = [robot, switch, burner]
-        # option_vars = [robot, switch]
-        # option = SwitchOn
-        # condition_at_start = {
-        #     LiftedAtom(HandEmpty, [robot]),
-        #     LiftedAtom(BurnerOff, [burner]),
-        # }
-        # add_effects = {
-        #     LiftedAtom(BurnerOn, [burner]),
-        # }
-        # delete_effects = {
-        #     LiftedAtom(BurnerOff, [burner]),
-        # }
+        # SwitchBurnerOn
+        robot = Variable("?robot", robot_type)
+        burner = Variable("?burner", burner_type)
+        parameters = [robot, burner]
+        option_vars = [robot, burner]
+        option = SwitchBurnerOn
+        condition_at_start = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(BurnerOff, [burner]),
+        }
+        add_effects = {
+            LiftedAtom(BurnerOn, [burner]),
+        }
+        delete_effects = {
+            LiftedAtom(BurnerOff, [burner]),
+        }
         # delay_distribution = GaussianDelay(5, 2, rng)
-        # switch_burner_on_process = EndogenousProcess("SwitchBurnerOn", 
-        #                                              parameters,
-        #                                 condition_at_start, set(), set(), 
-        #                                 add_effects, delete_effects, delay_distribution, 
-        #                                 option, option_vars, null_sampler)
-        # processes.add(switch_burner_on_process)
+        delay_distribution = ConstantDelay(3)
+        switch_burner_on_process = EndogenousProcess("SwitchBurnerOn", 
+                                        parameters,
+                                        condition_at_start, set(), set(), 
+                                        add_effects, delete_effects, 
+                                        delay_distribution, option, option_vars, 
+                                        null_sampler)
+        processes.add(switch_burner_on_process)
 
-        # # SwitchBurnerOff
-        # robot = Variable("?robot", robot_type)
-        # switch = Variable("?switch", switch_type)
-        # burner = Variable("?burner", burner_type)
-        # parameters = [robot, switch, burner]
-        # option_vars = [robot, switch]
-        # option = SwitchOff
-        # condition_at_start = {
-        #     LiftedAtom(HandEmpty, [robot]),
-        #     LiftedAtom(BurnerOn, [burner]),
-        # }
-        # add_effects = {
-        #     LiftedAtom(BurnerOff, [burner]),
-        # }
-        # delete_effects = {
-        #     LiftedAtom(BurnerOn, [burner]),
-        # }
+        # SwitchBurnerOff
+        robot = Variable("?robot", robot_type)
+        burner = Variable("?burner", burner_type)
+        parameters = [robot, burner]
+        option_vars = [robot, burner]
+        option = SwitchBurnerOff
+        condition_at_start = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(BurnerOn, [burner]),
+        }
+        add_effects = {
+            LiftedAtom(BurnerOff, [burner]),
+        }
+        delete_effects = {
+            LiftedAtom(BurnerOn, [burner]),
+        }
         # delay_distribution = GaussianDelay(5, 2, rng)
-        # switch_burner_off_process = EndogenousProcess("SwitchBurnerOff", 
-        #                                               parameters,
-        #                                 condition_at_start, set(), set(), 
-        #                                 add_effects, delete_effects, delay_distribution, 
-        #                                 option, option_vars, null_sampler)
-        # processes.add(switch_burner_off_process)
+        delay_distribution = ConstantDelay(1)
+        switch_burner_off_process = EndogenousProcess("SwitchBurnerOff", 
+                                        parameters,
+                                        condition_at_start, set(), set(), 
+                                        add_effects, delete_effects, delay_distribution, 
+                                        option, option_vars, null_sampler)
+        processes.add(switch_burner_off_process)
 
         # Noop
         robot = Variable("?robot", robot_type)
@@ -299,7 +301,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(JugFilled, [jug]),
         }
         # delay_distribution = GaussianDelay(5, 2, rng)
-        delay_distribution = ConstantDelay(8)
+        delay_distribution = ConstantDelay(4)
         fill_jug_process = ExogenousProcess("FillJug", parameters, 
                                         condition_at_start, condition_overall, 
                                         set(), add_effects, {}, 
@@ -353,27 +355,28 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
                                     delay_distribution)
         processes.add(spill_process)
 
-        # # Boil
-        # burner = Variable("?burner", burner_type)
-        # jug = Variable("?jug", jug_type)
-        # parameters = [burner, jug]
-        # condition_at_start = {
-        #     LiftedAtom(JugOnBurner, [jug, burner]),
-        #     LiftedAtom(JugFilled, [jug]),
-        #     LiftedAtom(BurnerOn, [burner]),
-        # }
-        # condition_overall = {
-        #     LiftedAtom(JugOnBurner, [jug, burner]),
-        #     LiftedAtom(JugFilled, [jug]),
-        #     LiftedAtom(BurnerOn, [burner]),
-        # }
-        # add_effects = {
-        #     LiftedAtom(WaterBoiled, [jug]),
-        # }
+        # Boil
+        burner = Variable("?burner", burner_type)
+        jug = Variable("?jug", jug_type)
+        parameters = [burner, jug]
+        condition_at_start = {
+            LiftedAtom(JugOnBurner, [jug, burner]),
+            LiftedAtom(JugFilled, [jug]),
+            LiftedAtom(BurnerOn, [burner]),
+        }
+        condition_overall = {
+            LiftedAtom(JugOnBurner, [jug, burner]),
+            LiftedAtom(JugFilled, [jug]),
+            LiftedAtom(BurnerOn, [burner]),
+        }
+        add_effects = {
+            LiftedAtom(WaterBoiled, [jug]),
+        }
         # delay_distribution = GaussianDelay(10, 2, rng)
-        # boil_process = ExogenousProcess("Boil", parameters, condition_at_start,
-        #                                 condition_overall, set(), add_effects, 
-        #                                 {}, delay_distribution)
-        # processes.add(boil_process)
+        delay_distribution = ConstantDelay(1)
+        boil_process = ExogenousProcess("Boil", parameters, condition_at_start,
+                                        condition_overall, set(), add_effects, 
+                                        {}, delay_distribution)
+        processes.add(boil_process)
 
         return processes

@@ -175,7 +175,7 @@ ENVS:
       bilevel_plan_without_sim: True
 ARGS:
   - "debug"
-  - "use_gui"
+  # - "use_gui"
   - "make_demo_videos"
   - "make_failure_videos"
   - "make_test_videos"
@@ -197,6 +197,8 @@ FLAGS:
   keep_failed_demos: True
   planning_filter_unreachable_nsrt: False
   planning_check_dr_reachable: False
-  sesame_task_planning_heuristic: "goal_count"
+  sesame_task_planning_heuristic: 'goal_count'
+  timeout: 60
+  log: 'logs/'
 START_SEED: 0
 NUM_SEEDS: 1
