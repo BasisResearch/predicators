@@ -92,7 +92,7 @@ class ProcessWorldModel:
             logging.debug(f"At time {self.t}, start performing "
                           f"{self.current_action.name}")
 
-        # 2. Process events scheduled for this timestep.
+        # 2. Process effects scheduled for this timestep.
         if self.t in self.scheduled_events:
             for g_process, start_time in self.scheduled_events[self.t]:
                 # If it's the end of an endogenous process (an action), then
@@ -116,7 +116,7 @@ class ProcessWorldModel:
                         self.current_action = None
             del self.scheduled_events[self.t]
 
-        # 3. Schedule new events whose processes are met
+        # 3. Schedule new events whose condition are met
         for g_process in self.ground_processes:
             satisfy_condition_at_start = g_process.condition_at_start.issubset(
                 self.state)
@@ -151,22 +151,13 @@ class ProcessWorldModel:
                 self.scheduled_events[schedued_time].append(
                     (g_process, self.t))
 
-        # 4. Check if state changes -- for printing and deactivating the wait
-        # action
-        # if self.state != initial_state:
-        #     # Can log the change here
-        #     # logging.debug(...)
+        self.state_history.append(self.state.copy())
 
-        #     for t in list(self.scheduled_events.keys()):
-        #         for process, start_time in self.scheduled_events[t]:
-        #             if process.name == 'NoOp':
-        #                 self.scheduled_events[t].remove((process, start_time))
-
-        # This is moved from before step 3 to after, because other wise at t=0,
-        # there will be two states in the state_history buffer.
+        # if the action has finished and set to None.
+        if self.current_action is None:
+            return
         self.action_history.append(self.current_action.copy() if self.
                                    current_action is not None else None)
-        self.state_history.append(self.state.copy())
         self.t += 1
 
     def big_step(self,
@@ -186,35 +177,10 @@ class ProcessWorldModel:
             num_steps += 1
 
             if action_process is not None:
-                # initial_state = self.state.copy()
                 action_process = None
-                # effect_have_not_occurred = True
-            # else:
+
             action_not_finished = self.current_action is not None
 
-            # if NoOp is scheduled to end
-            # TODO: Should this be made more general to handle other actions?
-            # So there is no None action after each non-NoOp action is executed.
-            wait_end = False
-            if self.t in self.scheduled_events:
-                for g_process, start_time in self.scheduled_events[self.t]:
-                    # Commenting out because we've stopped scheduling NoOp
-                    """
-                    if g_process.name == 'NoOp':
-                        wait_end = True
-                        # remove the subsequent NoOp scheduled events
-                        for t in list(self.scheduled_events.keys()):
-                            for process, start_time in self.scheduled_events[
-                                    t]:
-                                if process.name == 'NoOp':
-                                    self.scheduled_events[t].remove(
-                                        (process, start_time))
-                        break
-                    """
-                    pass
-            if wait_end:
-                break
-                
             # if currently executing NoOp and state has changed, then break
             if self.current_action is not None and \
                 self.current_action.name == 'NoOp' and \
