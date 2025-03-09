@@ -82,8 +82,8 @@ class ProcessWorldModel:
         to a part of the state variable as in the demo code."""
         initial_state = self.state.copy()
 
-        # 1. self.current_action is set to an action when this small_step is 
-        # first called. And is set back to None when `duration` timesteps 
+        # 1. self.current_action is set to an action when this small_step is
+        # first called. And is set back to None when `duration` timesteps
         # sampled from its distribution passes.
         # `small_step_action` is not None in the first call but becomes None in
         # subsequent calls.
@@ -123,8 +123,8 @@ class ProcessWorldModel:
             # Only schedule when it's previously unsatisfied to avoid repeated
             # scheduling.
             first_state_or_prev_state_doesnt_satisfy = (
-                len(self.state_history) == 0 or 
-                not g_process.condition_at_start.issubset(
+                len(self.state_history) == 0
+                or not g_process.condition_at_start.issubset(
                     self.state_history[-1]))
             is_exogenous = isinstance(g_process, _GroundExogenousProcess)
             # Action. Here we shouldn't require it was previous unsatisfied.
@@ -139,8 +139,7 @@ class ProcessWorldModel:
             #               f"First step running action: {first_step_running_action}")
             if (satisfy_condition_at_start and
                 ((is_exogenous and first_state_or_prev_state_doesnt_satisfy) or
-                 (is_endogenous and first_step_running_action and not_noop))
-                ):
+                 (is_endogenous and first_step_running_action and not_noop))):
                 delay = g_process.delay_distribution.sample()
                 schedued_time = self.t + delay
                 # logging.debug(f"At time {self.t}, scheduling "
