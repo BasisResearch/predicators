@@ -216,6 +216,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         # PickJug
         option_types = [robot_type, jug_type]
         params_space = Box(0, 1, (0, ))
+
         def _PickJug_terminal(state: State, memory: Dict,
                               objects: Sequence[Object],
                               params: Array) -> bool:
@@ -223,6 +224,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             robot, jug = objects
             holds = Holding.holds(state, [robot, jug])
             return holds
+
         PickJug = utils.LinearChainParameterizedOption(
             "PickJug",
             [
@@ -249,8 +251,12 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     params_space=params_space),
                 # Close fingers.
                 create_change_fingers_option(
-                    pybullet_robot, "CloseFingers", option_types, params_space,
-                    close_fingers_func, CFG.pybullet_max_vel_norm,
+                    pybullet_robot,
+                    "CloseFingers",
+                    option_types,
+                    params_space,
+                    close_fingers_func,
+                    CFG.pybullet_max_vel_norm,
                     PyBulletBoilEnv.grasp_tol_small / 5,
                     terminal=_PickJug_terminal),
                 # # Move down to grasp.
@@ -369,10 +375,12 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         params_space = Box(0, 1, (0, ))
 
         def _create_no_op_policy() -> ParameterizedPolicy:
+
             def _policy(state: State, memory: Dict, objects: Sequence[Object],
                         params: Array) -> Action:
                 del memory, objects, params
                 return Action(np.array(state.joint_positions))
+
             return _policy
 
         NoOp = ParameterizedOption(
@@ -382,16 +390,19 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             policy=_create_no_op_policy(),
             initiable=lambda _: True,
             terminal=lambda _: False,
-            )
+        )
         options.add(NoOp)
 
         return options
 
     @classmethod
     def _create_boil_move_to_above_placing_option(
-            cls, name: str, z_func: Callable[[float],
-                                             float], finger_status: str,
-            pybullet_robot: SingleArmPyBulletRobot, option_types: List[Type],
+            cls,
+            name: str,
+            z_func: Callable[[float], float],
+            finger_status: str,
+            pybullet_robot: SingleArmPyBulletRobot,
+            option_types: List[Type],
             params_space: Box,
             under_faucet: bool = False,
             move_to_initial_pos: bool = False) -> ParameterizedOption:
@@ -425,10 +436,9 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                                    cls.env_cls.robot_init_z - 0.1)
             else:
                 target_position = (target_x, target_y,
-                               z_func(state.get(burner, "z")))
+                                   z_func(state.get(burner, "z")))
             target_orn = p.getQuaternionFromEuler(
-                [0, cls.env_cls.robot_init_tilt, 
-                 cls.env_cls.robot_init_wrist])
+                [0, cls.env_cls.robot_init_tilt, cls.env_cls.robot_init_wrist])
             target_pose = Pose(target_position, target_orn)
             return current_pose, target_pose, finger_status
 
@@ -465,8 +475,9 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Current
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
-            ee_orn = p.getQuaternionFromEuler([0, state.get(robot, "tilt"),
-                                                state.get(robot, "wrist")])
+            ee_orn = p.getQuaternionFromEuler(
+                [0, state.get(robot, "tilt"),
+                 state.get(robot, "wrist")])
             current_pose = Pose(current_position, ee_orn)
 
             # Target
@@ -475,11 +486,9 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                             cls.env_cls.jug_handle_offset
             target_y = state.get(jug, "y") + np.sin(rot) * \
                             cls.env_cls.jug_handle_offset
-            target_z = z_func(cls.env_cls.jug_handle_height + 
+            target_z = z_func(cls.env_cls.jug_handle_height +
                               cls.env_cls.table_height)
-            target_position = (target_x, 
-                               target_y, 
-                               target_z)
+            target_position = (target_x, target_y, target_z)
             target_orn = p.getQuaternionFromEuler(
                 [0, cls.env_cls.robot_init_tilt,
                  state.get(jug, "rot")])
@@ -511,16 +520,17 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                 Tuple[Pose, Pose, str]:
             assert not params
             robot, obj = objects
-            switch = next((s for s in state.get_objects(cls.env_cls.switch_type
-                                            ) if s.id == obj.switch_id), None)
+            switch = next((s
+                           for s in state.get_objects(cls.env_cls.switch_type)
+                           if s.id == obj.switch_id), None)
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
             ee_orn = p.getQuaternionFromEuler(
                 [0, state.get(robot, "tilt"),
                  state.get(robot, "wrist")])
             current_pose = Pose(current_position, ee_orn)
-            target_position = (y_func(state.get(switch, "x")), 
-                               state.get(switch, "y"),
+            target_position = (y_func(state.get(switch,
+                                                "x")), state.get(switch, "y"),
                                z_func(state.get(switch, "z")))
             target_orn = p.getQuaternionFromEuler(
                 [0, cls.env_cls.robot_init_tilt, 0])

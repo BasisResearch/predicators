@@ -1683,7 +1683,8 @@ def option_policy_to_policy(
 
         last_state = state
 
-        if noop_terminate or cur_option is DummyOption or cur_option.terminal(state):
+        if noop_terminate or cur_option is DummyOption or cur_option.terminal(
+                state):
             try:
                 cur_option = option_policy(state)
             except OptionExecutionFailure as e:
@@ -1703,11 +1704,11 @@ def option_policy_to_policy(
 
 
 def option_plan_to_policy(
-        plan: Sequence[_Option],
-        max_option_steps: Optional[int] = None,
-        raise_error_on_repeated_state: bool = False,
-        noop_option_terminate_on_atom_change: bool = False,
-        abstract_function: Optional[Callable[[State], Set[GroundAtom]]] = None
+    plan: Sequence[_Option],
+    max_option_steps: Optional[int] = None,
+    raise_error_on_repeated_state: bool = False,
+    noop_option_terminate_on_atom_change: bool = False,
+    abstract_function: Optional[Callable[[State], Set[GroundAtom]]] = None
 ) -> Callable[[State], Action]:
     """Create a policy that executes a sequence of options in order."""
     queue = list(plan)  # don't modify plan, just in case
@@ -3412,20 +3413,21 @@ def get_reachable_atoms(ground_ops: Collection[GroundNSRTOrSTRIPSOperator],
 
 
 def get_applicable_operators(
-        ground_ops: Collection[Union[GroundNSRTOrSTRIPSOperator, 
-                                     _GroundEndogenousProcess]],
-        atoms: Collection[GroundAtom]) -> Iterator[Union[
-            GroundNSRTOrSTRIPSOperator, _GroundEndogenousProcess]]:
+    ground_ops: Collection[Union[GroundNSRTOrSTRIPSOperator,
+                                 _GroundEndogenousProcess]],
+    atoms: Collection[GroundAtom]
+) -> Iterator[Union[GroundNSRTOrSTRIPSOperator, _GroundEndogenousProcess]]:
     """Iterate over ground operators whose preconditions are satisfied.
 
     Note: the order may be nondeterministic. Users should be invariant.
     """
     for op in ground_ops:
-        if isinstance(op, _GroundNSRT) or isinstance(op, _GroundSTRIPSOperator):
+        if isinstance(op, _GroundNSRT) or isinstance(op,
+                                                     _GroundSTRIPSOperator):
             applicable = op.preconditions.issubset(atoms)
         elif isinstance(op, _GroundEndogenousProcess):
             applicable = op.condition_at_start.issubset(atoms)
-        
+
         if applicable:
             yield op
 
@@ -4196,6 +4198,7 @@ def null_sampler(state: State, goal: Set[GroundAtom], rng: np.random.Generator,
     del state, goal, rng, objs  # unused
     return np.array([], dtype=np.float32)  # no continuous parameters
 
+
 class ConstantDelay(DelayDistribution):
 
     def __init__(self, delay: int):
@@ -4203,6 +4206,7 @@ class ConstantDelay(DelayDistribution):
 
     def sample(self):
         return self.delay
+
 
 class GaussianDelay(DelayDistribution):
 
@@ -4216,6 +4220,7 @@ class GaussianDelay(DelayDistribution):
             delay = int(self.rng.normal(self.mean, self.std) + 0.5)
             if delay > 0:
                 return delay
+
 
 @functools.lru_cache(maxsize=None)
 def get_git_commit_hash() -> str:
@@ -4547,8 +4552,9 @@ def get_parameterized_option_by_name(
     return next((option for option in options if option.name == option_name),
                 None)
 
-def get_object_by_name(objects: Collection[Object], name: str
-                       ) -> Optional[Object]:
+
+def get_object_by_name(objects: Collection[Object],
+                       name: str) -> Optional[Object]:
     """Get an object by its name from a collection of objects.
     
     Args:

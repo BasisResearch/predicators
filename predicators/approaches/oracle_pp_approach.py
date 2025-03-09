@@ -10,6 +10,7 @@ from predicators.ground_truth_models import get_gt_processes
 from predicators.approaches.dynamic_bilevel_planning_approach import (
     DynamicBilevelPlanningApproach)
 
+
 class OracleDynamicBilevelPlanningApproach(DynamicBilevelPlanningApproach):
     """A bilevel planning approach that uses hand-specified processes."""
 
@@ -35,7 +36,7 @@ class OracleDynamicBilevelPlanningApproach(DynamicBilevelPlanningApproach):
                          option_model=option_model)
         if processes is None:
             processes = get_gt_processes(CFG.env, self._initial_predicates,
-                                 self._initial_options)
+                                         self._initial_options)
         self._processes = processes
 
     @classmethod

@@ -31,7 +31,6 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         Holding = predicates["Holding"]
         JugOnBurner = predicates["JugOnBurner"]
 
-
         # Options
         PickJug = options["PickJug"]
         PlaceOnBurner = options["PlaceOnBurner"]
@@ -77,9 +76,8 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(Holding, [robot, jug]),
         }
 
-        place = NSRT("PlaceOnBurner",
-                     parameters, preconditions, add_effects, delete_effects,
-                     set(), option, option_vars, null_sampler)
+        place = NSRT("PlaceOnBurner", parameters, preconditions, add_effects,
+                     delete_effects, set(), option, option_vars, null_sampler)
         nsrts.add(place)
 
         return nsrts

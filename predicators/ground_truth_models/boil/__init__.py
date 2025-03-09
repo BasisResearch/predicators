@@ -5,7 +5,7 @@ from .options import PyBulletBoilGroundTruthOptionFactory
 from .processes import PyBulletBoilGroundTruthProcessFactory
 
 __all__ = [
-    "PyBulletBoilGroundTruthNSRTFactory", 
+    "PyBulletBoilGroundTruthNSRTFactory",
     "PyBulletBoilGroundTruthOptionFactory",
     "PyBulletBoilGroundTruthProcessFactory"
 ]

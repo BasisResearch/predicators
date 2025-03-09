@@ -10,13 +10,15 @@ from predicators.approaches import ApproachFailure, ApproachTimeout, \
 from predicators.option_model import _OptionModelBase, create_option_model
 from predicators.planning import PlanningFailure, PlanningTimeout
 from predicators.planning_with_processes import (
-                                    run_task_plan_with_processes_once)
+    run_task_plan_with_processes_once)
 from predicators.settings import CFG
-from predicators.structs import (NSRT, Action, GroundAtom, Metrics, 
-    ParameterizedOption, Predicate, State, Task, Type, _Option,
-    CausalProcess, _GroundEndogenousProcess)
+from predicators.structs import (NSRT, Action, GroundAtom, Metrics,
+                                 ParameterizedOption, Predicate, State, Task,
+                                 Type, _Option, CausalProcess,
+                                 _GroundEndogenousProcess)
 from predicators.approaches.bilevel_planning_approach import \
     BilevelPlanningApproach
+
 
 class DynamicBilevelPlanningApproach(BilevelPlanningApproach):
     """A bilevel planning approach that doesn't use the nsrt world model but 
@@ -48,7 +50,7 @@ class DynamicBilevelPlanningApproach(BilevelPlanningApproach):
     def _get_current_processes(self) -> Set[CausalProcess]:
         """Get the current set of Processes."""
         raise NotImplementedError("Override me!")
-    
+
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
         self._num_calls += 1
         # ensure random over successive
@@ -63,10 +65,10 @@ class DynamicBilevelPlanningApproach(BilevelPlanningApproach):
                 task, processes, preds, timeout, seed)
             self._last_hla_plan = process_plan
             self._last_atoms_seq = atoms_seq
-            policy = utils.option_plan_to_policy(process_plan,
-                            noop_option_terminate_on_atom_change=True,
-                            abstract_function=lambda s: utils.abstract(s,
-                                                                       preds))
+            policy = utils.option_plan_to_policy(
+                process_plan,
+                noop_option_terminate_on_atom_change=True,
+                abstract_function=lambda s: utils.abstract(s, preds))
             logging.debug("Current Task Plan:")
             for process in process_plan:
                 logging.debug(process.name)
@@ -83,23 +85,27 @@ class DynamicBilevelPlanningApproach(BilevelPlanningApproach):
                 raise ApproachFailure(e.args[0], e.info)
 
         return _policy
-    
+
     def _run_task_plan(
         self, task: Task, processes: Set[CausalProcess], preds: Set[Predicate],
         timeout: int, seed: int, **kwargs: Any
     ) -> Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]], Metrics]:
         try:
             plan, atoms_seq, metrics = run_task_plan_with_processes_once(
-                task, processes, preds, self._types, timeout, seed,
+                task,
+                processes,
+                preds,
+                self._types,
+                timeout,
+                seed,
                 task_planning_heuristic=self._task_planning_heuristic,
                 max_horizon=float(CFG.horizon),
-                **kwargs
-            )
+                **kwargs)
         except PlanningFailure as e:
             raise ApproachFailure(e.args[0], e.info)
         except PlanningTimeout as e:
             raise ApproachTimeout(e.args[0], e.info)
-        
+
         return plan, atoms_seq, metrics
 
     def _save_metrics(self, metrics, processes, predicates):

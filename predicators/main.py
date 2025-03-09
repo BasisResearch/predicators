@@ -570,8 +570,8 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         # 2) Execution phase
         # ---------------------
         # Decide if we need to record video
-        need_video = (CFG.make_test_videos or CFG.make_failure_videos or 
-                      CFG.make_test_images or CFG.make_failure_images)
+        need_video = (CFG.make_test_videos or CFG.make_failure_videos
+                      or CFG.make_test_images or CFG.make_failure_images)
         monitor = utils.VideoMonitor(env.render) if need_video else None
 
         logging.info(f"Executing policy...")

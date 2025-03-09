@@ -147,13 +147,13 @@ def create_move_end_effector_to_pose_option(
         squared_dist = np.sum(np.square(np.subtract(current, target)))
         return squared_dist < move_to_pose_tol
 
-    return ParameterizedOption(name,
-                               types=types,
-                               params_space=params_space,
-                               policy=_policy,
-                               initiable=initiable,
-                               terminal=_terminal if terminal is None else 
-                               terminal)
+    return ParameterizedOption(
+        name,
+        types=types,
+        params_space=params_space,
+        policy=_policy,
+        initiable=initiable,
+        terminal=_terminal if terminal is None else terminal)
 
 
 def get_change_fingers_action(robot: SingleArmPyBulletRobot,
@@ -199,10 +199,8 @@ def create_change_fingers_option(
         current_val, target_val = get_current_and_target_val(
             state, objects, params)
         state = cast(utils.PyBulletState, state)
-        return get_change_fingers_action(robot, state.joint_positions, 
-                                         current_val,
-                                         target_val, 
-                                         max_vel_norm)
+        return get_change_fingers_action(robot, state.joint_positions,
+                                         current_val, target_val, max_vel_norm)
 
     def _terminal(state: State, memory: Dict, objects: Sequence[Object],
                   params: Array) -> bool:
@@ -214,10 +212,10 @@ def create_change_fingers_option(
         #               f"squared_dist: {squared_dist}, grasp_tol: {grasp_tol}")
         return squared_dist < grasp_tol
 
-    return ParameterizedOption(name,
-                               types=types,
-                               params_space=params_space,
-                               policy=_policy,
-                               initiable=lambda _1, _2, _3, _4: True,
-                               terminal=_terminal if terminal is None else
-                               terminal)
+    return ParameterizedOption(
+        name,
+        types=types,
+        params_space=params_space,
+        policy=_policy,
+        initiable=lambda _1, _2, _3, _4: True,
+        terminal=_terminal if terminal is None else terminal)

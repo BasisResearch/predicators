@@ -4,9 +4,10 @@ from typing import Set, Dict
 import numpy as np
 
 from predicators.ground_truth_models import GroundTruthProcessFactory
-from predicators.structs import (CausalProcess, Predicate, Type, 
-    ParameterizedOption, Variable, EndogenousProcess, ExogenousProcess, 
-    LiftedAtom)
+from predicators.structs import (CausalProcess, Predicate, Type,
+                                 ParameterizedOption, Variable,
+                                 EndogenousProcess, ExogenousProcess,
+                                 LiftedAtom)
 from predicators.utils import null_sampler, GaussianDelay, ConstantDelay
 from predicators.settings import CFG
 
@@ -17,12 +18,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
     @classmethod
     def get_env_names(cls) -> Set[str]:
         return {"pybullet_boil"}
-    
+
     @staticmethod
-    def get_processes(env_name: str, types: Dict[str, Type],
-                      predicates: Dict[str, Predicate],
-                      options: Dict[str, ParameterizedOption]
-                      ) -> Set[CausalProcess]:
+    def get_processes(
+            env_name: str, types: Dict[str, Type], predicates: Dict[str,
+                                                                    Predicate],
+            options: Dict[str, ParameterizedOption]) -> Set[CausalProcess]:
         # Types
         robot_type = types["robot"]
         jug_type = types["jug"]
@@ -84,12 +85,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         # delay_distribution = GaussianDelay(5, 2, rng)
         delay_distribution = ConstantDelay(4)
-        pick_jug_from_faucet_process = EndogenousProcess("PickJugFromFaucet", 
-                                            parameters, condition_at_start, 
-                                            set(), set(), 
-                                            add_effects, delete_effects,
-                                            delay_distribution, option, 
-                                            option_vars, null_sampler)
+        pick_jug_from_faucet_process = EndogenousProcess(
+            "PickJugFromFaucet", parameters, condition_at_start, set(), set(),
+            add_effects, delete_effects, delay_distribution, option,
+            option_vars, null_sampler)
         processes.add(pick_jug_from_faucet_process)
 
         # # PickJugFrom...
@@ -110,11 +109,11 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         #     LiftedAtom(JugUnderFaucet, [jug, faucet]),
         # }
         # delay_distribution = GaussianDelay(5, 2, rng)
-        # pick_jug_from_faucet_process = EndogenousProcess("PickJugFromFaucet", 
-        #                                     parameters, condition_at_start, 
-        #                                     set(), set(), 
+        # pick_jug_from_faucet_process = EndogenousProcess("PickJugFromFaucet",
+        #                                     parameters, condition_at_start,
+        #                                     set(), set(),
         #                                     add_effects, delete_effects,
-        #                                     delay_distribution, option, 
+        #                                     delay_distribution, option,
         #                                     option_vars, null_sampler)
         # processes.add(pick_jug_from_faucet_process)
 
@@ -137,11 +136,13 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         # delay_distribution = GaussianDelay(5, 2, rng)
         delay_distribution = ConstantDelay(5)
-        place_on_burner_process = EndogenousProcess("PlaceOnBurner", parameters,
-                                            condition_at_start, set(), set(), 
-                                            add_effects, delete_effects,
-                                            delay_distribution, option, 
-                                            option_vars, null_sampler)
+        place_on_burner_process = EndogenousProcess("PlaceOnBurner",
+                                                    parameters,
+                                                    condition_at_start, set(),
+                                                    set(), add_effects,
+                                                    delete_effects,
+                                                    delay_distribution, option,
+                                                    option_vars, null_sampler)
         processes.add(place_on_burner_process)
 
         # # PlaceUnderFaucet
@@ -162,9 +163,9 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         #     LiftedAtom(Holding, [robot, jug]),
         # }
         # delay_distribution = GaussianDelay(5, 2, rng)
-        # place_under_faucet_process = EndogenousProcess("PlaceUnderFaucet", 
-        #                         parameters, condition_at_start, set(), set(), 
-        #                         add_effects, delete_effects, delay_distribution, 
+        # place_under_faucet_process = EndogenousProcess("PlaceUnderFaucet",
+        #                         parameters, condition_at_start, set(), set(),
+        #                         add_effects, delete_effects, delay_distribution,
         #                         option, option_vars, null_sampler)
         # processes.add(place_under_faucet_process)
 
@@ -186,12 +187,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         # delay_distribution = GaussianDelay(2, 2, rng)
         delay_distribution = ConstantDelay(1)
-        switch_faucet_on_process = EndogenousProcess("SwitchFaucetOn", 
-                                        parameters,
-                                        condition_at_start, set(), set(), 
-                                        add_effects, delete_effects, 
-                                        delay_distribution, option, option_vars,
-                                        null_sampler)
+        switch_faucet_on_process = EndogenousProcess(
+            "SwitchFaucetOn", parameters, condition_at_start, set(), set(),
+            add_effects, delete_effects, delay_distribution, option,
+            option_vars, null_sampler)
         processes.add(switch_faucet_on_process)
 
         # SwitchFaucetOff
@@ -212,11 +211,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         # delay_distribution = GaussianDelay(2, 2, rng)
         delay_distribution = ConstantDelay(1)
-        switch_faucet_off_process = EndogenousProcess("SwitchFaucetOff", 
-                                    parameters, condition_at_start, set(), 
-                                    set(), add_effects, delete_effects, 
-                                    delay_distribution, option, option_vars, 
-                                    null_sampler)
+        switch_faucet_off_process = EndogenousProcess(
+            "SwitchFaucetOff", parameters, condition_at_start, set(), set(),
+            add_effects, delete_effects, delay_distribution, option,
+            option_vars, null_sampler)
         processes.add(switch_faucet_off_process)
 
         # SwitchBurnerOn
@@ -237,12 +235,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         # delay_distribution = GaussianDelay(5, 2, rng)
         delay_distribution = ConstantDelay(3)
-        switch_burner_on_process = EndogenousProcess("SwitchBurnerOn", 
-                                        parameters,
-                                        condition_at_start, set(), set(), 
-                                        add_effects, delete_effects, 
-                                        delay_distribution, option, option_vars, 
-                                        null_sampler)
+        switch_burner_on_process = EndogenousProcess(
+            "SwitchBurnerOn", parameters, condition_at_start, set(), set(),
+            add_effects, delete_effects, delay_distribution, option,
+            option_vars, null_sampler)
         processes.add(switch_burner_on_process)
 
         # SwitchBurnerOff
@@ -263,11 +259,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         # delay_distribution = GaussianDelay(5, 2, rng)
         delay_distribution = ConstantDelay(1)
-        switch_burner_off_process = EndogenousProcess("SwitchBurnerOff", 
-                                        parameters,
-                                        condition_at_start, set(), set(), 
-                                        add_effects, delete_effects, delay_distribution, 
-                                        option, option_vars, null_sampler)
+        switch_burner_off_process = EndogenousProcess(
+            "SwitchBurnerOff", parameters, condition_at_start, set(), set(),
+            add_effects, delete_effects, delay_distribution, option,
+            option_vars, null_sampler)
         processes.add(switch_burner_off_process)
 
         # Noop
@@ -278,9 +273,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         # TODO: This is more like a "max number of steps" for this option.
         # delay_distribution = GaussianDelay(3, 2, rng)
         delay_distribution = ConstantDelay(1)
-        noop_process = EndogenousProcess("NoOp", parameters, set(), set(), 
-                                    set(), set(), set(), delay_distribution, 
-                                    option, option_vars, null_sampler)
+        noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
+                                         set(), set(), set(),
+                                         delay_distribution, option,
+                                         option_vars, null_sampler)
         processes.add(noop_process)
 
         # --- Exogenous Processes ---
@@ -302,10 +298,11 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         # delay_distribution = GaussianDelay(5, 2, rng)
         delay_distribution = ConstantDelay(4)
-        fill_jug_process = ExogenousProcess("FillJug", parameters, 
-                                        condition_at_start, condition_overall, 
-                                        set(), add_effects, {}, 
-                                        delay_distribution)
+        fill_jug_process = ExogenousProcess("FillJug", parameters,
+                                            condition_at_start,
+                                            condition_overall, set(),
+                                            add_effects, {},
+                                            delay_distribution)
         processes.add(fill_jug_process)
 
         # OverfillJug
@@ -329,10 +326,11 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(NoWaterSpilled, []),
         }
         delay_distribution = ConstantDelay(1)
-        overfill_jug_process = ExogenousProcess("OverfillJug", parameters, 
-                                    condition_at_start, condition_overall, 
-                                    set(), add_effects, delete_effects, 
-                                    delay_distribution)
+        overfill_jug_process = ExogenousProcess("OverfillJug", parameters,
+                                                condition_at_start,
+                                                condition_overall, set(),
+                                                add_effects, delete_effects,
+                                                delay_distribution)
         processes.add(overfill_jug_process)
 
         # Spill
@@ -349,10 +347,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(NoWaterSpilled, []),
         }
         delay_distribution = ConstantDelay(1)
-        spill_process = ExogenousProcess("Spill", parameters, 
-                                    condition_at_start, set(), set(), 
-                                    add_effects, delete_effects, 
-                                    delay_distribution)
+        spill_process = ExogenousProcess("Spill",
+                                         parameters, condition_at_start, set(),
+                                         set(), add_effects, delete_effects,
+                                         delay_distribution)
         processes.add(spill_process)
 
         # Boil
@@ -374,9 +372,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         # delay_distribution = GaussianDelay(10, 2, rng)
         delay_distribution = ConstantDelay(1)
-        boil_process = ExogenousProcess("Boil", parameters, condition_at_start,
-                                        condition_overall, set(), add_effects, 
-                                        {}, delay_distribution)
+        boil_process = ExogenousProcess("Boil", parameters,
+                                        condition_at_start, condition_overall,
+                                        set(), add_effects, {},
+                                        delay_distribution)
         processes.add(boil_process)
 
         return processes
