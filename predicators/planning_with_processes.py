@@ -82,13 +82,12 @@ class ProcessWorldModel:
         to a part of the state variable as in the demo code."""
         initial_state = self.state.copy()
 
-        # 1. current_action is set to an action when this small_step is first
-        # called. `small_step_action` will be None in all subsequent calls until
-        # some aspects of the state changes, where the big_step loop will break.
-        # This is set to None
+        # 1. self.current_action is set to an action when this small_step is 
+        # first called. And is set back to None when `duration` timesteps 
+        # sampled from its distribution passes.
+        # `small_step_action` is not None in the first call but becomes None in
+        # subsequent calls.
         if small_step_action is not None:
-            # In the original implementation, this corresponds to adding an atom
-            # to the initial_state.
             self.current_action = small_step_action.copy()
             logging.debug(f"At time {self.t}, start performing "
                           f"{self.current_action.name}")
@@ -96,11 +95,8 @@ class ProcessWorldModel:
         # 2. Process events scheduled for this timestep.
         if self.t in self.scheduled_events:
             for g_process, start_time in self.scheduled_events[self.t]:
-                # If it's the end of an endogenous process, i.e. an action,
-                # should change the current action back to None.
-                # if process.condition_overall(self.history[start_time+1:]) and\
-                #         process.condition_at_end(self.state):
-
+                # If it's the end of an endogenous process (an action), then
+                # change self.current_action back to None.
                 if (all(
                         g_process.condition_overall.issubset(s)
                         for s in self.state_history[start_time + 1:])
@@ -108,29 +104,28 @@ class ProcessWorldModel:
                     logging.debug(f"At time {self.t}:")
                     for atom in g_process.delete_effects:
                         self.state.discard(atom)
-                        logging.debug(f"Discarding {atom}")
+                        logging.debug(f"Deleting {atom}")
                     for atom in g_process.add_effects:
                         self.state.add(atom)
-                        logging.debug(f"Adding {atom}")
+                        logging.debug(f"Adding   {atom}")
                     if isinstance(g_process, _GroundEndogenousProcess) and\
                         small_step_action is None:
                         self.current_action = None
             del self.scheduled_events[self.t]
 
         # 3. Schedule new events whose processes are met
-        # TODO: should the scheduling be before processing the effects in step 2
-        # or after? Because in the current order, if, at state 0, the agent
-        # takes an action that takes 1 step to take effect,
         for g_process in self.ground_processes:
-            # logging.debug(f"At time {self.t}, trying to schedule {g_process.name}")
             satisfy_condition_at_start = g_process.condition_at_start.issubset(
                 self.state)
-            no_prev_state_or_prev_doesnt_satisfy = (
-                len(self.state_history) == 0
-                or not g_process.condition_at_start.issubset(
+            # Only schedule when it's previously unsatisfied to avoid repeated
+            # scheduling.
+            first_state_or_prev_state_doesnt_satisfy = (
+                len(self.state_history) == 0 or 
+                not g_process.condition_at_start.issubset(
                     self.state_history[-1]))
-            is_endogenous = isinstance(g_process, _GroundEndogenousProcess)
             is_exogenous = isinstance(g_process, _GroundExogenousProcess)
+            # Action. Here we shouldn't require it was previous unsatisfied.
+            is_endogenous = isinstance(g_process, _GroundEndogenousProcess)
             first_step_running_action = small_step_action is not None and \
                                         g_process == small_step_action
             # logging.debug(f"Condition at start: {satisfy_condition_at_start} "
@@ -139,8 +134,9 @@ class ProcessWorldModel:
             #               f"Is exogenous: {is_exogenous} "
             #               f"First step running action: {first_step_running_action}")
             if (satisfy_condition_at_start and
-                ((is_exogenous and no_prev_state_or_prev_doesnt_satisfy) or
-                 (is_endogenous and first_step_running_action))):
+                ((is_exogenous and first_state_or_prev_state_doesnt_satisfy) or
+                 (is_endogenous and first_step_running_action))
+                ):
                 delay = g_process.delay_distribution.sample()
                 schedued_time = self.t + delay
                 logging.debug(f"At time {self.t}, scheduling "
