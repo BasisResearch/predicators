@@ -90,31 +90,33 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             option_vars, null_sampler)
         processes.add(pick_jug_from_faucet_process)
 
-        # # PickJugFrom...
-        # robot = Variable("?robot", robot_type)
-        # jug = Variable("?jug", jug_type)
-        # parameters = [robot, jug, faucet]
-        # option_vars = [robot, jug]
-        # option = PickJug
-        # condition_at_start = {
-        #     LiftedAtom(HandEmpty, [robot]),
-        #     LiftedAtom(JugUnderFaucet, [jug, faucet]),
-        # }
-        # add_effects = {
-        #     LiftedAtom(Holding, [robot, jug]),
-        # }
-        # delete_effects = {
-        #     LiftedAtom(HandEmpty, [robot]),
-        #     LiftedAtom(JugUnderFaucet, [jug, faucet]),
-        # }
+        # PickJugFromOutsideFaucet
+        robot = Variable("?robot", robot_type)
+        jug = Variable("?jug", jug_type)
+        faucet = Variable("?faucet", faucet_type)
+        parameters = [robot, jug, faucet]
+        option_vars = [robot, jug]
+        option = PickJug
+        condition_at_start = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(NoJugUnderFaucet, [faucet]),
+        }
+        add_effects = {
+            LiftedAtom(Holding, [robot, jug]),
+        }
+        delete_effects = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(NoJugUnderFaucet, [faucet]),
+        }
         # delay_distribution = GaussianDelay(5, 2, rng)
-        # pick_jug_from_faucet_process = EndogenousProcess("PickJugFromFaucet",
-        #                                     parameters, condition_at_start,
-        #                                     set(), set(),
-        #                                     add_effects, delete_effects,
-        #                                     delay_distribution, option,
-        #                                     option_vars, null_sampler)
-        # processes.add(pick_jug_from_faucet_process)
+        delay_distribution = ConstantDelay(3)
+        pick_jug_outside_faucet_process = EndogenousProcess("PickJugFromOutsideFaucet",
+                                            parameters, condition_at_start,
+                                            set(), set(),
+                                            add_effects, delete_effects,
+                                            delay_distribution, option,
+                                            option_vars, null_sampler)
+        processes.add(pick_jug_outside_faucet_process)
 
         # PlaceOnBurner
         robot = Variable("?robot", robot_type)
@@ -144,29 +146,31 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
                                                     option_vars, null_sampler)
         processes.add(place_on_burner_process)
 
-        # # PlaceUnderFaucet
-        # robot = Variable("?robot", robot_type)
-        # jug = Variable("?jug", jug_type)
-        # faucet = Variable("?faucet", faucet_type)
-        # parameters = [robot, jug, faucet]
-        # option_vars = [robot, faucet]
-        # option = PlaceUnderFaucet
-        # condition_at_start = {
-        #     LiftedAtom(Holding, [robot, jug]),
-        # }
-        # add_effects = {
-        #     LiftedAtom(HandEmpty, [robot]),
-        #     LiftedAtom(JugUnderFaucet, [jug, faucet]),
-        # }
-        # delete_effects = {
-        #     LiftedAtom(Holding, [robot, jug]),
-        # }
+        # PlaceUnderFaucet
+        robot = Variable("?robot", robot_type)
+        jug = Variable("?jug", jug_type)
+        faucet = Variable("?faucet", faucet_type)
+        parameters = [robot, jug, faucet]
+        option_vars = [robot, faucet]
+        option = PlaceUnderFaucet
+        condition_at_start = {
+            LiftedAtom(Holding, [robot, jug]),
+        }
+        add_effects = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(JugUnderFaucet, [jug, faucet]),
+        }
+        delete_effects = {
+            LiftedAtom(Holding, [robot, jug]),
+            LiftedAtom(NoJugUnderFaucet, [faucet]),
+        }
         # delay_distribution = GaussianDelay(5, 2, rng)
-        # place_under_faucet_process = EndogenousProcess("PlaceUnderFaucet",
-        #                         parameters, condition_at_start, set(), set(),
-        #                         add_effects, delete_effects, delay_distribution,
-        #                         option, option_vars, null_sampler)
-        # processes.add(place_under_faucet_process)
+        delay_distribution = ConstantDelay(3)
+        place_under_faucet_process = EndogenousProcess("PlaceUnderFaucet",
+                                parameters, condition_at_start, set(), set(),
+                                add_effects, delete_effects, delay_distribution,
+                                option, option_vars, null_sampler)
+        processes.add(place_under_faucet_process)
 
         # SwitchFaucetOn
         robot = Variable("?robot", robot_type)
