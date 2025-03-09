@@ -324,7 +324,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects = {
             LiftedAtom(NoWaterSpilled, []),
         }
-        delay_distribution = ConstantDelay(1)
+        delay_distribution = ConstantDelay(3)
         overfill_jug_process = ExogenousProcess("OverfillJug", parameters,
                                                 condition_at_start,
                                                 condition_overall, set(),

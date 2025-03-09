@@ -128,6 +128,7 @@ class ProcessWorldModel:
             is_endogenous = isinstance(g_process, _GroundEndogenousProcess)
             first_step_running_action = small_step_action is not None and \
                                         g_process == small_step_action
+            not_noop = g_process.name != 'NoOp'
             # logging.debug(f"Condition at start: {satisfy_condition_at_start} "
             #               f"no prev state or prev doesnt satisfy: {no_prev_state_or_prev_doesnt_satisfy} "
             #               f"Is endogenous: {is_endogenous} "
@@ -135,7 +136,7 @@ class ProcessWorldModel:
             #               f"First step running action: {first_step_running_action}")
             if (satisfy_condition_at_start and
                 ((is_exogenous and first_state_or_prev_state_doesnt_satisfy) or
-                 (is_endogenous and first_step_running_action))
+                 (is_endogenous and first_step_running_action and not_noop))
                 ):
                 delay = g_process.delay_distribution.sample()
                 schedued_time = self.t + delay
@@ -204,6 +205,11 @@ class ProcessWorldModel:
                                         (process, start_time))
                         break
             if wait_end:
+                break
+                
+            # if currently executing NoOp and state has changed, then break
+            if self.current_action.name == 'NoOp' and \
+                self.state != initial_state:
                 break
         return self.state
 
