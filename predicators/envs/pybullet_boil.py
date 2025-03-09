@@ -672,10 +672,10 @@ class PyBulletBoilEnv(PyBulletEnv):
             for i, j_obj in enumerate(self._jugs):
                 x, y = self._sample_xy(rng, used_xy)
                 init_dict[j_obj] = {
-                    "x": self.faucet_x,
-                    "y": self.faucet_y - self.faucet_x_len,
-                    # "x": self.x_mid + i * self.small_gap * 4,
-                    # "y": self.y_mid,
+                    # "x": self.faucet_x,
+                    # "y": self.faucet_y - self.faucet_x_len,
+                    "x": self.x_mid + i * self.small_gap * 4,
+                    "y": self.y_mid,
                     "z": self.jug_init_z,
                     "rot": -np.pi / 2,
                     "is_held": 0.0,
