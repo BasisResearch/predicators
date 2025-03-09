@@ -188,7 +188,9 @@ class ProcessWorldModel:
             # else:
             action_not_finished = self.current_action is not None
 
-            # if NoOp is scheduled to end,
+            # if NoOp is scheduled to end
+            # TODO: Should this be made more general to handle other actions?
+            # So there is no None action after each non-NoOp action is executed.
             wait_end = False
             if self.t in self.scheduled_events:
                 for g_process, start_time in self.scheduled_events[self.t]:
