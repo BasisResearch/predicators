@@ -89,8 +89,8 @@ class ProcessWorldModel:
         # subsequent calls.
         if small_step_action is not None:
             self.current_action = small_step_action.copy()
-            logging.debug(f"At time {self.t}, start performing "
-                          f"{self.current_action.name}")
+            # logging.debug(f"At time {self.t}, start performing "
+            #               f"{self.current_action.name}")
 
         # 2. Process effects scheduled for this timestep.
         if self.t in self.scheduled_events:
@@ -101,13 +101,13 @@ class ProcessWorldModel:
                         g_process.condition_overall.issubset(s)
                         for s in self.state_history[start_time + 1:])
                         and g_process.condition_at_end.issubset(self.state)):
-                    logging.debug(f"At time {self.t}:")
+                    # logging.debug(f"At time {self.t}:")
                     for atom in g_process.delete_effects:
                         self.state.discard(atom)
-                        logging.debug(f"Deleting {atom}")
+                        # logging.debug(f"Deleting {atom}")
                     for atom in g_process.add_effects:
                         self.state.add(atom)
-                        logging.debug(f"Adding   {atom}")
+                        # logging.debug(f"Adding   {atom}")
                     # The second clause seems redundant because small_step_action
                     # is always None in the subsequent steps of small_step, i.e.,
                     # which is at least 1 timestep after the process is scheduled.
@@ -143,9 +143,9 @@ class ProcessWorldModel:
                 ):
                 delay = g_process.delay_distribution.sample()
                 schedued_time = self.t + delay
-                logging.debug(f"At time {self.t}, scheduling "
-                              f"{g_process.name_and_objects_str()} "
-                              f"for time {schedued_time}")
+                # logging.debug(f"At time {self.t}, scheduling "
+                #               f"{g_process.name_and_objects_str()} "
+                #               f"for time {schedued_time}")
                 if schedued_time not in self.scheduled_events:
                     self.scheduled_events[schedued_time] = []
                 self.scheduled_events[schedued_time].append(
@@ -281,35 +281,13 @@ def _skeleton_generator_with_processes(
                     t=len(node.state_history))
 
                 assert isinstance(action_process, _GroundEndogenousProcess)
-                plan_so_far = [p.name_and_objects_str() for p in node.skeleton]
-                # logging.info(f"Expand after plan {plan_so_far}:")
+                # plan_so_far = [p.name for p in node.skeleton]
+                # logging.debug(f"Expand after plan {plan_so_far}:")
                 # if len(node.skeleton) > 2 and \
                 #     node.skeleton[0].name == 'PickJug' and \
                 #     node.skeleton[1].name == 'PlaceUnderFaucet' and \
                 #     node.skeleton[2].name == 'SwitchFaucetOn' and \
                 #     action_process.name == 'NoOp':
-
-                # if len(node.skeleton) == 5 and \
-                #     node.skeleton[0].name == 'NoOp' and \
-                #     node.skeleton[1].name == 'SwitchFaucetOn' and \
-                #     node.skeleton[2].name == 'NoOp' and \
-                #     node.skeleton[3].name == 'NoOp' and \
-                #     node.skeleton[4].name == 'NoOp' and \
-                #     action_process.name == 'PickJugFromFaucet':
-                #     breakpoint()
-                # if len(node.skeleton) == 0 and \
-                #     action_process.name == 'SwitchFaucetOn':
-                #     breakpoint()
-                # if len(node.skeleton) == 1 and \
-                #     node.skeleton[0].name == 'SwitchFaucetOn' and \
-                #     action_process.name == 'NoOp':
-                #     breakpoint()
-                # if len(node.skeleton) == 2 and \
-                #     node.skeleton[0].name == 'SwitchFaucetOn' and \
-                #     node.skeleton[1].name == 'NoOp' and \
-                #     action_process.name == 'SwitchBurnerOn':
-                #     breakpoint()
-
                 world_model.big_step(action_process)
                 child_atoms = world_model.state.copy()
                 # --- End
@@ -357,7 +335,7 @@ def task_plan(
     seed: int,
     timeout: float,
     max_skeletons_optimized: int,
-    use_visited_state_set: bool = False,
+    use_visited_state_set: bool = True,
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]],
                     Metrics]]:
     """Run only the task planning portion of SeSamE. A* search is run, and
