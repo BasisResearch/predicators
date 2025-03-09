@@ -2,8 +2,8 @@ from typing import List, Optional, Set
 
 from gym.spaces import Box
 
-from predicators.approaches.dynamic_bilevel_planning_approach import \
-    DynamicBilevelPlanningApproach
+from predicators.approaches.process_planning_approach import \
+    BilevelProcessPlanningApproach
 from predicators.ground_truth_models import get_gt_processes
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
@@ -11,7 +11,7 @@ from predicators.structs import NSRT, CausalProcess, ParameterizedOption, \
     Predicate, Task, Type
 
 
-class OracleDynamicBilevelPlanningApproach(DynamicBilevelPlanningApproach):
+class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):
     """A bilevel planning approach that uses hand-specified processes."""
 
     def __init__(self,

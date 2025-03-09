@@ -19,7 +19,7 @@ from predicators.structs import NSRT, Action, CausalProcess, GroundAtom, \
     _GroundEndogenousProcess, _Option
 
 
-class DynamicBilevelPlanningApproach(BilevelPlanningApproach):
+class BilevelProcessPlanningApproach(BilevelPlanningApproach):
     """A bilevel planning approach that doesn't use the nsrt world model but
     uses the process world model."""
 
