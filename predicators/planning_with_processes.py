@@ -108,6 +108,9 @@ class ProcessWorldModel:
                     for atom in g_process.add_effects:
                         self.state.add(atom)
                         logging.debug(f"Adding   {atom}")
+                    # The second clause seems redundant because small_step_action
+                    # is always None in the subsequent steps of small_step, i.e.,
+                    # which is at least 1 timestep after the process is scheduled.
                     if isinstance(g_process, _GroundEndogenousProcess) and\
                         small_step_action is None:
                         self.current_action = None
@@ -195,8 +198,11 @@ class ProcessWorldModel:
             wait_end = False
             if self.t in self.scheduled_events:
                 for g_process, start_time in self.scheduled_events[self.t]:
+                    # Commenting out because we've stopped scheduling NoOp
+                    """
                     if g_process.name == 'NoOp':
                         wait_end = True
+                        # remove the subsequent NoOp scheduled events
                         for t in list(self.scheduled_events.keys()):
                             for process, start_time in self.scheduled_events[
                                     t]:
@@ -204,11 +210,14 @@ class ProcessWorldModel:
                                     self.scheduled_events[t].remove(
                                         (process, start_time))
                         break
+                    """
+                    pass
             if wait_end:
                 break
                 
             # if currently executing NoOp and state has changed, then break
-            if self.current_action.name == 'NoOp' and \
+            if self.current_action is not None and \
+                self.current_action.name == 'NoOp' and \
                 self.state != initial_state:
                 break
         return self.state
