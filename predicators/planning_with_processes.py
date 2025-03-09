@@ -9,28 +9,27 @@ import sys
 import tempfile
 import time
 from collections import defaultdict
+from copy import deepcopy
 from dataclasses import dataclass
 from itertools import islice
 from typing import Any, Collection, Dict, FrozenSet, Iterator, List, \
     Optional, Sequence, Set, Tuple
-from copy import deepcopy
 
 import numpy as np
 
 from predicators import utils
 from predicators.option_model import _OptionModelBase
+from predicators.planning import PlanningFailure, PlanningTimeout, \
+    _MaxSkeletonsFailure, _SkeletonSearchTimeout, task_plan_grounding
 from predicators.refinement_estimators import BaseRefinementEstimator
 from predicators.settings import CFG
-from predicators.structs import NSRT, AbstractPolicy, DefaultState, \
-    DummyOption, GroundAtom, Metrics, Object, OptionSpec, \
-    ParameterizedOption, Predicate, State, STRIPSOperator, Task, Type, \
-    _GroundNSRT, _GroundSTRIPSOperator, _Option, CausalProcess, \
-    _GroundCausalProcess, _GroundEndogenousProcess, _GroundExogenousProcess, \
-    EndogenousProcess, ExogenousProcess
+from predicators.structs import NSRT, AbstractPolicy, CausalProcess, \
+    DefaultState, DummyOption, EndogenousProcess, ExogenousProcess, \
+    GroundAtom, Metrics, Object, OptionSpec, ParameterizedOption, Predicate, \
+    State, STRIPSOperator, Task, Type, _GroundCausalProcess, \
+    _GroundEndogenousProcess, _GroundExogenousProcess, _GroundNSRT, \
+    _GroundSTRIPSOperator, _Option
 from predicators.utils import EnvironmentFailure, _TaskPlanningHeuristic
-from predicators.planning import (PlanningFailure, PlanningTimeout,
-                                  _SkeletonSearchTimeout, _MaxSkeletonsFailure,
-                                  task_plan_grounding)
 
 
 @dataclass(repr=False, eq=False)
@@ -173,14 +172,11 @@ class ProcessWorldModel:
     def big_step(self,
                  action_process: _GroundEndogenousProcess,
                  max_num_steps: int = 50) -> Set[GroundAtom]:
-        """
-        current_action is set to an action in the first call to small_step and
-        is set to None when 
-        1) the action reaches the end of its duration
-        2) some aspects of the state changes; removing this because this can 
-            cause action to stop before the end of its duration
-        3) reaches max_num_steps
-        """
+        """current_action is set to an action in the first call to small_step
+        and is set to None when 1) the action reaches the end of its duration
+        2) some aspects of the state changes; removing this because this can
+        cause action to stop before the end of its duration 3) reaches
+        max_num_steps."""
         initial_state = self.state.copy()
         num_steps = 0
         action_not_finished = True
@@ -488,8 +484,9 @@ def run_task_plan_with_processes_once(
 
 
 if __name__ == "__main__":
-    from predicators.ground_truth_models import get_gt_options, get_gt_processes
     from predicators.envs.pybullet_boil import PyBulletBoilEnv
+    from predicators.ground_truth_models import get_gt_options, \
+        get_gt_processes
     args = utils.parse_args()
     utils.update_config(args)
     str_args = " ".join(sys.argv)

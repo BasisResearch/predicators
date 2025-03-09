@@ -10,8 +10,8 @@ import pybullet as p
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.envs.pybullet_boil import PyBulletBoilEnv
+from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.coffee.options import \
     PyBulletCoffeeGroundTruthOptionFactory
@@ -409,8 +409,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         """Creates a ParameterizedOption for moving to a pose above that of the
         burner argument.
 
-        The parameter z_func maps the burner's z position to the target z
-        position.
+        The parameter z_func maps the burner's z position to the target
+        z position.
         """
 
         def _get_current_and_target_pose_and_finger_status(

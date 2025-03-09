@@ -1,6 +1,6 @@
 """Generic controllers for the robots."""
 import logging
-from typing import Callable, Dict, Sequence, Set, Tuple, cast, Optional
+from typing import Callable, Dict, Optional, Sequence, Set, Tuple, cast
 
 import numpy as np
 from gym.spaces import Box
@@ -13,8 +13,8 @@ from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot
 from predicators.structs import Action, Array, Object, \
-    ParameterizedInitiable, ParameterizedOption, State, Type, \
-    ParameterizedTerminal
+    ParameterizedInitiable, ParameterizedOption, ParameterizedTerminal, \
+    State, Type
 
 _SUPPORTED_ROBOTS: Set[str] = {"fetch", "panda"}
 

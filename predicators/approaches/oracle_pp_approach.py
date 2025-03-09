@@ -1,14 +1,14 @@
-from typing import Set, List, Optional
+from typing import List, Optional, Set
 
 from gym.spaces import Box
 
-from predicators.settings import CFG
-from predicators.structs import Predicate, ParameterizedOption, Type, Task, \
-    CausalProcess, NSRT
-from predicators.option_model import _OptionModelBase
+from predicators.approaches.dynamic_bilevel_planning_approach import \
+    DynamicBilevelPlanningApproach
 from predicators.ground_truth_models import get_gt_processes
-from predicators.approaches.dynamic_bilevel_planning_approach import (
-    DynamicBilevelPlanningApproach)
+from predicators.option_model import _OptionModelBase
+from predicators.settings import CFG
+from predicators.structs import NSRT, CausalProcess, ParameterizedOption, \
+    Predicate, Task, Type
 
 
 class OracleDynamicBilevelPlanningApproach(DynamicBilevelPlanningApproach):

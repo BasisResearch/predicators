@@ -7,23 +7,21 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout, \
     BaseApproach
-from predicators.option_model import _OptionModelBase, create_option_model
-from predicators.planning import PlanningFailure, PlanningTimeout
-from predicators.planning_with_processes import (
-    run_task_plan_with_processes_once)
-from predicators.settings import CFG
-from predicators.structs import (NSRT, Action, GroundAtom, Metrics,
-                                 ParameterizedOption, Predicate, State, Task,
-                                 Type, _Option, CausalProcess,
-                                 _GroundEndogenousProcess)
 from predicators.approaches.bilevel_planning_approach import \
     BilevelPlanningApproach
+from predicators.option_model import _OptionModelBase, create_option_model
+from predicators.planning import PlanningFailure, PlanningTimeout
+from predicators.planning_with_processes import \
+    run_task_plan_with_processes_once
+from predicators.settings import CFG
+from predicators.structs import NSRT, Action, CausalProcess, GroundAtom, \
+    Metrics, ParameterizedOption, Predicate, State, Task, Type, \
+    _GroundEndogenousProcess, _Option
 
 
 class DynamicBilevelPlanningApproach(BilevelPlanningApproach):
-    """A bilevel planning approach that doesn't use the nsrt world model but 
-    uses the process world model.
-    """
+    """A bilevel planning approach that doesn't use the nsrt world model but
+    uses the process world model."""
 
     def __init__(self,
                  initial_predicates: Set[Predicate],

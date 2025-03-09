@@ -8,8 +8,8 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.envs import BaseEnv, get_or_create_env
 from predicators.settings import CFG
-from predicators.structs import NSRT, LiftedDecisionList, \
-    ParameterizedOption, Predicate, Type, CausalProcess, EndogenousProcess
+from predicators.structs import NSRT, CausalProcess, EndogenousProcess, \
+    LiftedDecisionList, ParameterizedOption, Predicate, Type
 
 
 class GroundTruthOptionFactory(abc.ABC):

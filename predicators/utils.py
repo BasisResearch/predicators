@@ -54,15 +54,15 @@ from predicators.pretrained_model_interface import GoogleGeminiLLM, \
     VisionLanguageModel
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.settings import CFG, GlobalSettings
-from predicators.structs import NSRT, Action, Array, DummyOption, \
-    EntToEntSub, GroundAtom, GroundAtomTrajectory, \
-    GroundNSRTOrSTRIPSOperator, Image, LDLRule, LiftedAtom, \
-    LiftedDecisionList, LiftedOrGroundAtom, LowLevelTrajectory, Mask, \
-    Metrics, NSRTOrSTRIPSOperator, Object, ObjectOrVariable, Observation, \
-    OptionSpec, ParameterizedOption, Predicate, Segment, State, \
+from predicators.structs import NSRT, Action, Array, CausalProcess, \
+    DelayDistribution, DummyOption, EntToEntSub, GroundAtom, \
+    GroundAtomTrajectory, GroundNSRTOrSTRIPSOperator, Image, LDLRule, \
+    LiftedAtom, LiftedDecisionList, LiftedOrGroundAtom, LowLevelTrajectory, \
+    Mask, Metrics, NSRTOrSTRIPSOperator, Object, ObjectOrVariable, \
+    Observation, OptionSpec, ParameterizedOption, Predicate, Segment, State, \
     STRIPSOperator, Task, Type, Variable, VarToObjSub, Video, VLMPredicate, \
-    _GroundLDLRule, _GroundNSRT, _GroundSTRIPSOperator, _Option, \
-    _TypedEntity, DelayDistribution, CausalProcess, _GroundEndogenousProcess
+    _GroundEndogenousProcess, _GroundLDLRule, _GroundNSRT, \
+    _GroundSTRIPSOperator, _Option, _TypedEntity
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
 
@@ -4556,11 +4556,11 @@ def get_parameterized_option_by_name(
 def get_object_by_name(objects: Collection[Object],
                        name: str) -> Optional[Object]:
     """Get an object by its name from a collection of objects.
-    
+
     Args:
         objects: Collection of objects to search through
         name: Name of the object to find
-        
+
     Returns:
         The object if found, None otherwise
     """

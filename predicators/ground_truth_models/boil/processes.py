@@ -1,15 +1,14 @@
 """Ground-truth processes for the boil environments."""
-from typing import Set, Dict
+from typing import Dict, Set
 
 import numpy as np
 
 from predicators.ground_truth_models import GroundTruthProcessFactory
-from predicators.structs import (CausalProcess, Predicate, Type,
-                                 ParameterizedOption, Variable,
-                                 EndogenousProcess, ExogenousProcess,
-                                 LiftedAtom)
-from predicators.utils import null_sampler, GaussianDelay, ConstantDelay
 from predicators.settings import CFG
+from predicators.structs import CausalProcess, EndogenousProcess, \
+    ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
+    Variable
+from predicators.utils import ConstantDelay, GaussianDelay, null_sampler
 
 
 class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
