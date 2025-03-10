@@ -96,7 +96,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         float] = 0.5  # fraction of water wasted if misaligned
     water_color = (0.0, 0.0, 1.0, 0.9)  # blue
     heating_speed: ClassVar[
-        float] = 0.002  # how fast the jug's "heat_level" goes up per step
+        float] = 0.02  # how fast the jug's "heat_level" goes up per step
 
     # Dist thresholds
     faucet_align_threshold: ClassVar[

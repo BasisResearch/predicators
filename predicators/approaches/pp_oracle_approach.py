@@ -41,7 +41,7 @@ class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):
 
     @classmethod
     def get_name(cls) -> str:
-        return "oracle_process_model"
+        return "oracle_process_planning"
 
     @property
     def is_learning_based(self) -> bool:

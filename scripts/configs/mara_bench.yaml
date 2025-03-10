@@ -3,8 +3,15 @@
 #    python scripts/local/launch_simp.py -c mara_bench.yaml
 ---
 APPROACHES:
-  oracle:
-    NAME: "oracle_process_model"
+  # oracle:
+  #   NAME: "oracle_process_planning"
+  param_learning:
+    NAME: "param_learning_process_planning"
+    FLAGS:
+      demonstrator: "oracle_process_planning"
+      # This following is needed to generate a successful demo trajectory, or 
+      # else the demo collection will fail with an option plan exhausted error.
+      terminate_on_goal_reached: True
 
 ENVS:
   # cover:
@@ -173,9 +180,10 @@ ENVS:
       pybullet_ik_validate: False
       max_num_steps_option_rollout: 50
       bilevel_plan_without_sim: True
+      horizon: 500
 ARGS:
   - "debug"
-  # - "use_gui"
+  - "use_gui"
   - "make_demo_videos"
   - "make_failure_videos"
   - "make_test_videos"
@@ -186,8 +194,13 @@ FLAGS:
   # This is particularly useful in some envs. In blocks with high towers are
   # unstable, this is useful to capture the unstability and to avoid force from
   # the prev. episode to affect the current episode.
+
+  # A successful demo needs this to be True, or else it will get an option plan
+  # exhausted error from the option_policy. 
+  # When do we need this to be False? Was it in cases when we wanted to generate
+  # a more complete video?
   terminate_on_goal_reached: False
-  num_train_tasks: 0
+  num_train_tasks: 1
   num_test_tasks: 1
   video_fps: 20
   pybullet_camera_height: 900

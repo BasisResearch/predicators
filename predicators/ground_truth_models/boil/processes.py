@@ -372,7 +372,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(WaterBoiled, [jug]),
         }
         # delay_distribution = GaussianDelay(10, 2, rng)
-        delay_distribution = ConstantDelay(1)
+        delay_distribution = ConstantDelay(5)
         boil_process = ExogenousProcess("Boil", parameters,
                                         condition_at_start, condition_overall,
                                         set(), add_effects, {},

@@ -2470,6 +2470,23 @@ class _GroundEndogenousProcess(_GroundCausalProcess):
             new_delete_effects, self.delay_distribution, self.option,
             self.option_objs, self._sampler)
 
+    def sample_option(self, state: State, goal: Set[GroundAtom],
+                      rng: np.random.Generator) -> _Option:
+        """Sample an _Option for this ground NSRT, by invoking the contained
+        sampler.
+
+        On the Option that is returned, one can call, e.g.,
+        policy(state).
+        """
+        # Note that the sampler takes in ALL self.objects, not just the subset
+        # self.option_objs of objects that are passed into the option.
+        params = self._sampler(state, goal, rng, self.objects)
+        # Clip the params into the params_space of self.option, for safety.
+        low = self.option.params_space.low
+        high = self.option.params_space.high
+        params = np.clip(params, low, high)
+        return self.option.ground(self.option_objs, params)
+
 
 @dataclass(frozen=True, repr=False, eq=False)
 class _GroundExogenousProcess(_GroundCausalProcess):

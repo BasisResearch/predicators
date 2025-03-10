@@ -261,7 +261,6 @@ def _skeleton_generator_with_processes(
                 )
             logging.debug(
                 f"State {len(node.state_history)}: {node.state_history[-1]}")
-            breakpoint()
             yield node.skeleton, node.atoms_sequence
         else:
             # Generate successors.

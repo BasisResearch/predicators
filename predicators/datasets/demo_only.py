@@ -13,6 +13,9 @@ import matplotlib.pyplot as plt
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout
 from predicators.approaches.oracle_approach import OracleApproach
+from predicators.approaches.pp_oracle_approach import (
+    OracleBilevelProcessPlanningApproach
+)
 from predicators.cogman import CogMan, run_episode_and_get_states
 from predicators.envs import BaseEnv
 from predicators.execution_monitoring import create_execution_monitor
@@ -27,7 +30,7 @@ def create_demo_data(env: BaseEnv, train_tasks: List[Task],
                      known_options: Set[ParameterizedOption],
                      annotate_with_gt_ops: bool) -> Dataset:
     """Create offline datasets by collecting demos."""
-    assert CFG.demonstrator in ("oracle", "human")
+    assert CFG.demonstrator in ("oracle", "human", "oracle_process_planning")
     dataset_fname, dataset_fname_template = utils.create_dataset_filename_str(
         saving_ground_atoms=False)
     os.makedirs(CFG.data_dir, exist_ok=True)
@@ -47,6 +50,7 @@ def create_demo_data(env: BaseEnv, train_tasks: List[Task],
 
         with open(dataset_fname, "wb") as f:
             pkl.dump(dataset, f)
+        breakpoint()
     return dataset
 
 
@@ -150,6 +154,20 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         perceiver = create_perceiver(CFG.perceiver)
         execution_monitor = create_execution_monitor(CFG.execution_monitor)
         cogman = CogMan(oracle_approach, perceiver, execution_monitor)
+    elif CFG.demonstrator == "oracle_process_planning": 
+        options = get_gt_options(env.get_name())
+        oracle_approach = OracleBilevelProcessPlanningApproach(
+            env.predicates,
+            options,
+            env.types,
+            env.action_space,
+            train_tasks,
+            task_planning_heuristic=CFG.offline_data_task_planning_heuristic,
+            max_skeletons_optimized=CFG.offline_data_max_skeletons_optimized,
+            bilevel_plan_without_sim=CFG.offline_data_bilevel_plan_without_sim)
+        perceiver = create_perceiver(CFG.perceiver)
+        execution_monitor = create_execution_monitor(CFG.execution_monitor)
+        cogman = CogMan(oracle_approach, perceiver, execution_monitor)
     else:  # pragma: no cover
         # Disable all built-in keyboard shortcuts.
         keymaps = {k for k in plt.rcParams if k.startswith("keymap.")}
@@ -193,7 +211,7 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         # --- Try to solve the task
         succeed_in_solving = True
         try:
-            if CFG.demonstrator == "oracle":
+            if CFG.demonstrator in ("oracle", "oracle_process_planning"):
                 # In this case, we use the instantiated cogman to generate
                 # demonstrations. Importantly, we want to access state-action
                 # trajectories, not observation-action ones.
@@ -223,7 +241,8 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         # --- Execute the policy to generate a demonstration.
         try:
             logging.info(f"Executing policy...")
-            if CFG.demonstrator == "oracle" and succeed_in_solving:
+            if CFG.demonstrator in ("oracle", "oracle_process_planning") and \
+                    succeed_in_solving:
                 traj, _, _ = run_episode_and_get_states(
                     cogman,
                     env,
@@ -285,7 +304,7 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         # To prevent cheating by option learning approaches, remove all oracle
         # options from the trajectory actions, unless the options are known
         # (via CFG.included_options or CFG.option_learner = 'no_learning').
-        if CFG.demonstrator == "oracle":
+        if CFG.demonstrator in ("oracle", "oracle_process_planning"):
             for act in traj.actions:
                 if act.get_option().parent not in known_options:
                     assert CFG.option_learner != "no_learning"

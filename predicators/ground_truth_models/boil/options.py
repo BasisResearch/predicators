@@ -51,7 +51,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     predicates: Dict[str, Predicate],
                     action_space: Box) -> Set[ParameterizedOption]:
         """Get the ground-truth options for the grow environment."""
-        del env_name, action_space  # unused
+        del env_name  # unused
 
         _, pybullet_robot, _ = \
             PyBulletBoilEnv.initialize_pybullet(using_gui=False)
@@ -91,7 +91,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         option_type = [robot_type, faucet_type]
         params_space = Box(0, 1, (0, ))
         behind_factor = 1.8
-        push_factor = 0
+        push_factor = 0.3
         push_above_factor = 1.3
         SwitchFaucetOn = utils.LinearChainParameterizedOption(
             "SwitchFaucetOn", [
@@ -106,13 +106,15 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     params_space),
                 cls._create_boil_move_to_push_switch_option(
                     "MoveToBehindSwitch",
-                    lambda y: y - cls._y_offset * behind_factor, lambda z: z +
-                    cls.env_cls.switch_height * push_above_factor, "closed",
+                    lambda y: y - cls._y_offset * behind_factor, 
+                    lambda z: z + cls.env_cls.switch_height * push_above_factor, 
+                    "closed",
                     option_type, params_space),
                 cls._create_boil_move_to_push_switch_option(
-                    "PushSwitchOn", lambda y: y - cls._y_offset * push_factor,
-                    lambda z: z + cls.env_cls.switch_height *
-                    push_above_factor, "closed", option_type, params_space),
+                    "PushSwitchOn", 
+                    lambda y: y - cls._y_offset * push_factor,
+                    lambda z: z + cls.env_cls.switch_height * push_above_factor, 
+                    "closed", option_type, params_space),
                 cls._create_boil_move_to_push_switch_option(
                     "MoveBack", lambda y: y + cls._y_offset * behind_factor,
                     lambda _: cls._hand_empty_move_z, "closed", option_type,
@@ -153,9 +155,6 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         # SwitchBurnerOn
         option_type = [robot_type, burner_type]
         params_space = Box(0, 1, (0, ))
-        behind_factor = 1.8
-        push_factor = 0
-        push_above_factor = 1.3
         SwitchBurnerOn = utils.LinearChainParameterizedOption(
             "SwitchBurnerOn", [
                 create_change_fingers_option(
@@ -375,11 +374,14 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         params_space = Box(0, 1, (0, ))
 
         def _create_no_op_policy() -> ParameterizedPolicy:
+            nonlocal action_space
 
             def _policy(state: State, memory: Dict, objects: Sequence[Object],
                         params: Array) -> Action:
                 del memory, objects, params
-                return Action(np.array(state.joint_positions))
+                nonlocal action_space
+                action = np.array(state.joint_positions, dtype=np.float32)
+                return Action(action)
 
             return _policy
 
@@ -388,8 +390,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             types=[robot_type],
             params_space=params_space,
             policy=_create_no_op_policy(),
-            initiable=lambda _: True,
-            terminal=lambda _: False,
+            initiable=lambda _1, _2, _3, _4: True,
+            terminal=lambda _1, _2, _3, _4: False,
         )
         options.add(NoOp)
 
@@ -521,7 +523,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             assert not params
             robot, obj = objects
             switch = next((s
-                           for s in state.get_objects(cls.env_cls.switch_type)
+                           for s in state.get_objects(cls.env_cls._switch_type)
                            if s.id == obj.switch_id), None)
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
