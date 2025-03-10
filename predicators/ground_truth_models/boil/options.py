@@ -106,15 +106,13 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     params_space),
                 cls._create_boil_move_to_push_switch_option(
                     "MoveToBehindSwitch",
-                    lambda y: y - cls._y_offset * behind_factor, 
-                    lambda z: z + cls.env_cls.switch_height * push_above_factor, 
-                    "closed",
+                    lambda y: y - cls._y_offset * behind_factor, lambda z: z +
+                    cls.env_cls.switch_height * push_above_factor, "closed",
                     option_type, params_space),
                 cls._create_boil_move_to_push_switch_option(
-                    "PushSwitchOn", 
-                    lambda y: y - cls._y_offset * push_factor,
-                    lambda z: z + cls.env_cls.switch_height * push_above_factor, 
-                    "closed", option_type, params_space),
+                    "PushSwitchOn", lambda y: y - cls._y_offset * push_factor,
+                    lambda z: z + cls.env_cls.switch_height *
+                    push_above_factor, "closed", option_type, params_space),
                 cls._create_boil_move_to_push_switch_option(
                     "MoveBack", lambda y: y + cls._y_offset * behind_factor,
                     lambda _: cls._hand_empty_move_z, "closed", option_type,

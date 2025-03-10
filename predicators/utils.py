@@ -1783,6 +1783,7 @@ def nsrt_plan_to_greedy_policy(
         nsrt_plan, goal, rng, necessary_atoms_seq=necessary_atoms_seq)
     return option_policy_to_policy(option_policy)
 
+
 def process_plan_to_greedy_option_policy(
     process_plan: Sequence[_GroundEndogenousProcess],
     goal: Set[GroundAtom],
@@ -1791,6 +1792,7 @@ def process_plan_to_greedy_option_policy(
 ) -> Callable[[State], _Option]:
     """Greedily execute a process plan, assuming downward refinability and that
     any sample will work.
+
     If an option is not initiable or if the plan runs out, an
     OptionExecutionFailure is raised.
     """
@@ -1798,7 +1800,9 @@ def process_plan_to_greedy_option_policy(
     process_queue = list(process_plan)
     if necessary_atoms_seq is None:
         empty_atoms: Set[GroundAtom] = set()
-        necessary_atoms_seq = [empty_atoms for _ in range(len(process_plan) + 1)]
+        necessary_atoms_seq = [
+            empty_atoms for _ in range(len(process_plan) + 1)
+        ]
     assert len(necessary_atoms_seq) == len(process_plan) + 1
     necessary_atoms_queue = list(necessary_atoms_seq)
 
@@ -1815,16 +1819,17 @@ def process_plan_to_greedy_option_policy(
         logging.debug(f"Using option {cur_option.name}{cur_option.objects}"
                       f"{cur_option.params} from process plan.")
         return cur_option
-    
+
     return _option_policy
 
+
 def process_plan_to_greedy_policy(
-        process_plan: Sequence[_GroundEndogenousProcess],
-        goal: Set[GroundAtom],
-        rng: np.random.Generator,
-        necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None,
-        noop_option_terminate_on_atom_change: bool = False,
-        abstract_function: Optional[Callable[[State], Set[GroundAtom]]] = None
+    process_plan: Sequence[_GroundEndogenousProcess],
+    goal: Set[GroundAtom],
+    rng: np.random.Generator,
+    necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None,
+    noop_option_terminate_on_atom_change: bool = False,
+    abstract_function: Optional[Callable[[State], Set[GroundAtom]]] = None
 ) -> Callable[[State], Action]:
     option_policy = process_plan_to_greedy_option_policy(
         process_plan, goal, rng, necessary_atoms_seq=necessary_atoms_seq)
@@ -1832,6 +1837,7 @@ def process_plan_to_greedy_policy(
                                     noop_option_terminate_on_atom_change=\
                                         noop_option_terminate_on_atom_change,
                                     abstract_function=abstract_function)
+
 
 def sample_applicable_option(param_options: List[ParameterizedOption],
                              state: State,

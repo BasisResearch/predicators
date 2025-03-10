@@ -13,9 +13,8 @@ import matplotlib.pyplot as plt
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout
 from predicators.approaches.oracle_approach import OracleApproach
-from predicators.approaches.pp_oracle_approach import (
+from predicators.approaches.pp_oracle_approach import \
     OracleBilevelProcessPlanningApproach
-)
 from predicators.cogman import CogMan, run_episode_and_get_states
 from predicators.envs import BaseEnv
 from predicators.execution_monitoring import create_execution_monitor
@@ -154,7 +153,7 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         perceiver = create_perceiver(CFG.perceiver)
         execution_monitor = create_execution_monitor(CFG.execution_monitor)
         cogman = CogMan(oracle_approach, perceiver, execution_monitor)
-    elif CFG.demonstrator == "oracle_process_planning": 
+    elif CFG.demonstrator == "oracle_process_planning":
         options = get_gt_options(env.get_name())
         oracle_approach = OracleBilevelProcessPlanningApproach(
             env.predicates,

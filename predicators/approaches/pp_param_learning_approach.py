@@ -1,14 +1,14 @@
 from typing import Set
 
-from predicators.approaches.process_planning_approach import (
+from predicators.approaches.process_planning_approach import \
     BilevelProcessPlanningApproach
-)
 from predicators.ground_truth_models import get_gt_processes
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, NSRT, Dataset
+from predicators.structs import NSRT, CausalProcess, Dataset
+
 
 class ParamLearningBilevelProcessPlanningApproach(
-                                                BilevelProcessPlanningApproach):
+        BilevelProcessPlanningApproach):
     """A bilevel planning approach that uses hand-specified processes."""
 
     def __init__(self,
@@ -39,7 +39,7 @@ class ParamLearningBilevelProcessPlanningApproach(
     @classmethod
     def get_name(cls):
         return "param_learning_process_planning"
-    
+
     @property
     def is_learning_based(self):
         return True

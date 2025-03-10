@@ -63,11 +63,12 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
                 task, processes, preds, timeout, seed)
             self._last_process_plan = process_plan
             self._last_atoms_seq = atoms_seq
-            policy = utils.process_plan_to_greedy_policy(process_plan, 
-                        task.goal,
-                        self._rng,
-                        noop_option_terminate_on_atom_change=True,
-                        abstract_function=lambda s: utils.abstract(s, preds))
+            policy = utils.process_plan_to_greedy_policy(
+                process_plan,
+                task.goal,
+                self._rng,
+                noop_option_terminate_on_atom_change=True,
+                abstract_function=lambda s: utils.abstract(s, preds))
             logging.debug("Current Task Plan:")
             for process in process_plan:
                 logging.debug(process.name)
