@@ -375,7 +375,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         delay_distribution = ConstantDelay(5)
         boil_process = ExogenousProcess("Boil", parameters,
                                         condition_at_start, condition_overall,
-                                        set(), add_effects, {},
+                                        set(), add_effects, set(),
                                         delay_distribution)
         processes.add(boil_process)
 
