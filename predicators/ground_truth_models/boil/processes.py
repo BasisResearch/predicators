@@ -373,10 +373,9 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         # delay_distribution = GaussianDelay(10, 2, rng)
         delay_distribution = ConstantDelay(5)
-        boil_process = ExogenousProcess("Boil", parameters,
-                                        condition_at_start, condition_overall,
-                                        set(), add_effects, set(),
-                                        delay_distribution)
+        boil_process = ExogenousProcess("Boil", parameters, condition_at_start,
+                                        condition_overall, set(), add_effects,
+                                        set(), delay_distribution)
         processes.add(boil_process)
 
         return processes
