@@ -1414,6 +1414,44 @@ class LowLevelTrajectory:
             "This trajectory doesn't contain a train task idx!"
         return self._train_task_idx
 
+@dataclass(frozen=True, repr=False, eq=False)
+class AtomOptionTrajectory:
+    """A structure similar to a LowLevelTrajectory but save atoms at
+    every state, as well as the option that was executed
+    """
+    _low_level_states: List[State]
+    _states: List[Set[GroundAtom]]
+    _actions: List[_Option]
+    _is_demo: bool = field(default=False)
+    _train_task_idx: Optional[int] = field(default=None)
+
+    def __post_init__(self) -> None:
+        assert len(self._states) == len(self._actions) + 1
+        if self._is_demo:
+            assert self._train_task_idx is not None
+    
+    @property
+    def states(self) -> List[Set[GroundAtom]]:
+        """States in the trajectory."""
+        return self._states
+    
+    @property
+    def actions(self) -> List[_Option]:
+        """Actions in the trajectory."""
+        return self._actions
+    
+    @property
+    def is_demo(self) -> bool:
+        """Whether this trajectory is a demonstration."""
+        return self._is_demo
+    
+    @property
+    def train_task_idx(self) -> int:
+        """The index of the train task."""
+        assert self._train_task_idx is not None, \
+            "This trajectory doesn't contain a train task idx!"
+        return self._train_task_idx
+
 
 @dataclass(frozen=True, repr=False, eq=False)
 class ImageOptionTrajectory:
@@ -2226,11 +2264,14 @@ class GroundMacro:
 @dataclass(frozen=True, repr=False, eq=False)
 class DelayDistribution:
 
+    def set_parameters(self, parameters: Sequence[float]) -> None:
+        raise NotImplementedError
+
     def sample(self) -> int:
         raise NotImplementedError
 
 
-@dataclass(frozen=True, repr=False, eq=False)
+@dataclass(frozen=False, repr=False, eq=False)
 class CausalProcess(abc.ABC):
     name: str
     parameters: Sequence[Variable]
@@ -2240,6 +2281,7 @@ class CausalProcess(abc.ABC):
     add_effects: Set[LiftedAtom]
     delete_effects: Set[LiftedAtom]
     delay_distribution: DelayDistribution
+    strength: float
 
     @abc.abstractmethod
     def ground(self, objects: Sequence[Object]) -> _GroundCausalProcess:
@@ -2254,6 +2296,13 @@ class CausalProcess(abc.ABC):
         sampler inputs.
         """
         pass
+
+    def _set_parameters(self, parameters: Sequence[float]) -> None:
+        self.strength = parameters[0]
+        self.delay_distribution.set_parameters(parameters[1:])
+
+    def delay_probability(self, delay: int) -> float:
+        return self.delay_distribution.probability(delay)
 
     @cached_property
     def _hash(self) -> int:
@@ -2291,7 +2340,7 @@ class CausalProcess(abc.ABC):
         return str(self) > str(other)
 
 
-@dataclass(frozen=True, repr=False, eq=False)
+@dataclass(frozen=False, repr=False, eq=False)
 class ExogenousProcess(CausalProcess):
 
     def filter_predicates(self,
@@ -2311,7 +2360,7 @@ class ExogenousProcess(CausalProcess):
         return ExogenousProcess(self.name, self.parameters, condition_at_start,
                                 condition_overall, condition_at_end,
                                 add_effects, delete_effects,
-                                self.delay_distribution)
+                                self.delay_distribution, self.strength)
 
     def ground(self, objects: Sequence[Object]) -> _GroundExogenousProcess:
         assert len(objects) == len(self.parameters)
@@ -2326,10 +2375,11 @@ class ExogenousProcess(CausalProcess):
         return _GroundExogenousProcess(self, objects, condition_at_start,
                                        condition_overall, condition_at_end,
                                        add_effects, delete_effects,
-                                       self.delay_distribution)
+                                       self.delay_distribution,
+                                       self.strength)
 
 
-@dataclass(frozen=True, repr=False, eq=False)
+@dataclass(frozen=False, repr=False, eq=False)
 class EndogenousProcess(CausalProcess):
     option: ParameterizedOption
     option_vars: Sequence[Variable]
@@ -2358,7 +2408,8 @@ class EndogenousProcess(CausalProcess):
         return EndogenousProcess(self.name, self.parameters,
                                  condition_at_start, condition_overall,
                                  condition_at_env, add_effects, delete_effects,
-                                 self.delay_distribution, self.option,
+                                 self.delay_distribution, self.strength, 
+                                 self.option,
                                  self.option_vars, self._sampler)
 
     def ground(self, objects: Sequence[Object]) -> _GroundEndogenousProcess:
@@ -2375,7 +2426,8 @@ class EndogenousProcess(CausalProcess):
         return _GroundEndogenousProcess(self, objects, condition_at_start,
                                         condition_overall, condition_at_end,
                                         add_effects, delete_effects,
-                                        self.delay_distribution, self.option,
+                                        self.delay_distribution, self.strength,
+                                        self.option,
                                         option_objs, self._sampler)
 
     @cached_property
@@ -2401,6 +2453,19 @@ class _GroundCausalProcess:
     add_effects: Set[GroundAtom]
     delete_effects: Set[GroundAtom]
     delay_distribution: DelayDistribution
+    strength: float
+
+    @abc.abstractmethod
+    def cause_triggered(self, state_history: List[Set[GroundAtom]],
+                        action_history: List[_Option]) -> bool:
+        raise NotImplementedError
+    
+    def effect_factor(self, state: Set[GroundAtom]) -> float:
+        """Compute the effect factor of this ground causal process on the state.
+        """
+        return int(self.add_effects.issubset(state) 
+                   and not self.delete_effects.issubset(state)
+                ) * self.strength
 
     @property
     def name(self) -> str:
@@ -2441,12 +2506,11 @@ class _GroundCausalProcess:
 @dataclass(frozen=True, repr=False, eq=False)
 class _GroundEndogenousProcess(_GroundCausalProcess):
     option: ParameterizedOption
-    option_objs: Sequence[Variable]
+    option_objs: Sequence[Object]
     _sampler: NSRTSampler = field(repr=False)
 
     @cached_property
     def _str(self) -> str:
-        option_var_str = ", ".join([str(v) for v in self.option_objs])
         return f"""Process-{self.name}:
     Parameters: {self.objects}
     Conditions at start: {sorted(self.condition_at_start, key=str)}
@@ -2456,6 +2520,24 @@ class _GroundEndogenousProcess(_GroundCausalProcess):
     Delete Effects: {sorted(self.delete_effects, key=str)}
     Option: {self.option}
     Option Objects: {self.option_objs}"""
+
+    def cause_triggered(self, state_history: List[Set[GroundAtom]],
+                        action_history: List[_Option]) -> bool:
+        """Check if this endogenous process was triggered by the last action."""
+        def check_wo_s(state: Set[GroundAtom], action: _Option) -> bool:
+            return (action.parent == self.option 
+                    and action.objects == self.option_objs)
+        def check_w_s(state: Set[GroundAtom], action: _Option) -> bool:
+            return (action.parent == self.option 
+                    and action.objects == self.option_objs
+                    and self.condition_at_start.issubset(state))
+        # if self.name == "SwitchFaucetOff" and check_wo_s(state_history[-1], 
+        #                                                  action_history[-1]):
+        #     breakpoint()
+        return check_w_s(state_history[-1], action_history[-1]
+                     ) and (
+                        len(state_history) == 1 or
+                        not check_wo_s(state_history[-2], action_history[-2]))
 
     def copy(self) -> _GroundEndogenousProcess:
         """Make a copy of this _GroundEndogenousProcess object."""
@@ -2467,7 +2549,8 @@ class _GroundEndogenousProcess(_GroundCausalProcess):
         return _GroundEndogenousProcess(
             self.parent, self.objects, new_condition_at_start,
             new_condition_overall, new_condition_at_end, new_add_effects,
-            new_delete_effects, self.delay_distribution, self.option,
+            new_delete_effects, self.delay_distribution, self.strength, 
+            self.option,
             self.option_objs, self._sampler)
 
     def sample_option(self, state: State, goal: Set[GroundAtom],
@@ -2491,6 +2574,15 @@ class _GroundEndogenousProcess(_GroundCausalProcess):
 @dataclass(frozen=True, repr=False, eq=False)
 class _GroundExogenousProcess(_GroundCausalProcess):
 
+    def cause_triggered(self, state_history: List[Set[GroundAtom]],
+                        action_history: List[_Option]) -> bool:
+        """Check if this exogenous process was triggered by the last action.
+        """
+        def check(state: Set[GroundAtom]) -> bool:
+            return self.condition_at_start.issubset(state)
+        return check(state_history[-1]) and (len(state_history) == 1 or
+                                       not check(state_history[-2]))
+
     def copy(self) -> _GroundExogenousProcess:
         """Make a copy of this _GroundExogenousProcess object."""
         new_condition_at_start = set(self.condition_at_start)
@@ -2503,7 +2595,8 @@ class _GroundExogenousProcess(_GroundCausalProcess):
                                        new_condition_overall,
                                        new_condition_at_end, new_add_effects,
                                        new_delete_effects,
-                                       self.delay_distribution)
+                                       self.delay_distribution,
+                                       self.strength)
 
 
 # Convenience higher-order types useful throughout the code

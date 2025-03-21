@@ -49,7 +49,6 @@ def create_demo_data(env: BaseEnv, train_tasks: List[Task],
 
         with open(dataset_fname, "wb") as f:
             pkl.dump(dataset, f)
-        breakpoint()
     return dataset
 
 

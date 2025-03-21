@@ -7,6 +7,8 @@ APPROACHES:
   #   NAME: "oracle_process_planning"
   param_learning:
     NAME: "param_learning_process_planning"
+    ARGS:
+      - "load_data"
     FLAGS:
       demonstrator: "oracle_process_planning"
       # This following is needed to generate a successful demo trajectory, or 
@@ -183,7 +185,7 @@ ENVS:
       horizon: 500
 ARGS:
   - "debug"
-  - "use_gui"
+  # - "use_gui"
   - "make_demo_videos"
   - "make_failure_videos"
   - "make_test_videos"

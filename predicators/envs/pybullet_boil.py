@@ -628,10 +628,16 @@ class PyBulletBoilEnv(PyBulletEnv):
         (obj, ) = objects
         return state.get(obj, "is_on") <= 0.5
 
-    @staticmethod
-    def _HandEmpty_holds(state: State, objects: Sequence[Object]) -> bool:
+    def _HandEmpty_holds(self, state: State, objects: Sequence[Object]) -> bool:
         (robot, ) = objects
-        return state.get(robot, "fingers") > 0.02
+        jugs = state.get_objects(self._jug_type)
+        for jug in jugs:
+            if self._Holding_holds(state, [robot, jug]):
+                return False
+        return True
+        # This is wrong because if it's gripper is closed while not holding a 
+        # jug, e.g., when toggling a switch, this will return False.
+        # return state.get(robot, "fingers") > 0.02
 
     # -------------------------------------------------------------------------
     # Task Generation

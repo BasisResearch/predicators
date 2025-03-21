@@ -14,7 +14,7 @@ from predicators.planning import PlanningFailure, PlanningTimeout
 from predicators.planning_with_processes import \
     run_task_plan_with_processes_once
 from predicators.settings import CFG
-from predicators.structs import NSRT, Action, CausalProcess, GroundAtom, \
+from predicators.structs import Action, CausalProcess, GroundAtom, \
     Metrics, ParameterizedOption, Predicate, State, Task, Type, \
     _GroundEndogenousProcess, _Option
 

@@ -45,7 +45,9 @@ from PIL import ImageDraw, ImageFont
 from pyperplan.heuristics.heuristic_base import \
     Heuristic as _PyperplanBaseHeuristic
 from pyperplan.planner import HEURISTICS as _PYPERPLAN_HEURISTICS
+from scipy.special import gammaln
 from scipy.stats import beta as BetaRV
+from scipy.stats import norm
 
 from predicators.args import create_arg_parser
 from predicators.image_patch_wrapper import ImagePatch
@@ -62,7 +64,7 @@ from predicators.structs import NSRT, Action, Array, CausalProcess, \
     Observation, OptionSpec, ParameterizedOption, Predicate, Segment, State, \
     STRIPSOperator, Task, Type, Variable, VarToObjSub, Video, VLMPredicate, \
     _GroundEndogenousProcess, _GroundLDLRule, _GroundNSRT, \
-    _GroundSTRIPSOperator, _Option, _TypedEntity
+    _GroundSTRIPSOperator, _Option, _TypedEntity, AtomOptionTrajectory
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
 
@@ -3315,6 +3317,24 @@ def create_ground_atom_dataset(
         ground_atom_dataset.append((traj, atoms))
     return ground_atom_dataset
 
+def create_ground_atom_option_dataset(
+        trajectories: List[LowLevelTrajectory],
+        predicates: Set[Predicate]) -> List[AtomOptionTrajectory]:
+    """Apply all predicates to all trajectories in the dataset."""
+    ground_atom_option_dataset = []
+    for traj in trajectories:
+        # TODO: this is current just based on the current states. We would
+        # probably want to extend this to state history.
+        atoms = [abstract(s, predicates) for s in traj.states]
+        options = [a.get_option() for a in traj.actions]
+        ground_atom_option_dataset.append(
+            AtomOptionTrajectory(traj.states, 
+                                atoms, 
+                                options, 
+                                traj.is_demo, 
+                                traj.train_task_idx))
+    return ground_atom_option_dataset
+
 
 def prune_ground_atom_dataset(
         ground_atom_dataset: List[GroundAtomTrajectory],
@@ -4262,6 +4282,12 @@ class ConstantDelay(DelayDistribution):
     def sample(self):
         return self.delay
 
+    def set_parameters(self, parameters):
+        self.delay = parameters[0]
+
+    def probability(self, k: int) -> float:
+        return 1.0 if k == self.delay else 0.0
+
 
 class GaussianDelay(DelayDistribution):
 
@@ -4275,6 +4301,41 @@ class GaussianDelay(DelayDistribution):
             delay = int(self.rng.normal(self.mean, self.std) + 0.5)
             if delay > 0:
                 return delay
+
+    def set_parameters(self, parameters):
+        self.mean = parameters[0]
+        self.std = parameters[1]
+
+    def probability(self, k: int) -> float:
+        return norm.pdf(k, self.mean, self.std)
+
+
+class CMPDelay(DelayDistribution):
+    """Conway-Maxwell-Poisson (CMP) distribution for delays."""
+
+    def __init__(self, lam: float, nu: float, rng: np.random.Generator):
+        self.lam = lam
+        self.nu = nu
+        self.rng = rng
+
+    def set_parameters(self, parameters):
+        self.lam = parameters[0]
+        self.nu = parameters[1]
+
+    def probability(self, k: int) -> float:
+        """Return the probability of delay k."""
+        if k == 0:
+            return np.exp(-self.lam)
+
+        def log_factorial(N):
+            return gammaln(N + 1)
+
+        def log_mass(N):
+            return N * np.log(self.lam) - self.nu * log_factorial(N)
+
+        Z = np.sum([np.exp(log_mass(_t)) for _t in range(500)])
+
+        return np.exp(log_mass(k)) / Z
 
 
 @functools.lru_cache(maxsize=None)
