@@ -56,15 +56,15 @@ from predicators.pretrained_model_interface import GoogleGeminiLLM, \
     VisionLanguageModel
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.settings import CFG, GlobalSettings
-from predicators.structs import NSRT, Action, Array, CausalProcess, \
-    DelayDistribution, DummyOption, EntToEntSub, GroundAtom, \
+from predicators.structs import NSRT, Action, Array, AtomOptionTrajectory, \
+    CausalProcess, DelayDistribution, DummyOption, EntToEntSub, GroundAtom, \
     GroundAtomTrajectory, GroundNSRTOrSTRIPSOperator, Image, LDLRule, \
     LiftedAtom, LiftedDecisionList, LiftedOrGroundAtom, LowLevelTrajectory, \
     Mask, Metrics, NSRTOrSTRIPSOperator, Object, ObjectOrVariable, \
     Observation, OptionSpec, ParameterizedOption, Predicate, Segment, State, \
     STRIPSOperator, Task, Type, Variable, VarToObjSub, Video, VLMPredicate, \
     _GroundEndogenousProcess, _GroundLDLRule, _GroundNSRT, \
-    _GroundSTRIPSOperator, _Option, _TypedEntity, AtomOptionTrajectory
+    _GroundSTRIPSOperator, _Option, _TypedEntity
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
 
@@ -3317,6 +3317,7 @@ def create_ground_atom_dataset(
         ground_atom_dataset.append((traj, atoms))
     return ground_atom_dataset
 
+
 def create_ground_atom_option_dataset(
         trajectories: List[LowLevelTrajectory],
         predicates: Set[Predicate]) -> List[AtomOptionTrajectory]:
@@ -3328,11 +3329,8 @@ def create_ground_atom_option_dataset(
         atoms = [abstract(s, predicates) for s in traj.states]
         options = [a.get_option() for a in traj.actions]
         ground_atom_option_dataset.append(
-            AtomOptionTrajectory(traj.states, 
-                                atoms, 
-                                options, 
-                                traj.is_demo, 
-                                traj.train_task_idx))
+            AtomOptionTrajectory(traj.states, atoms, options, traj.is_demo,
+                                 traj.train_task_idx))
     return ground_atom_option_dataset
 
 
