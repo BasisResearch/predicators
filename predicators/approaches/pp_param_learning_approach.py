@@ -257,13 +257,14 @@ class ParamLearningBilevelProcessPlanningApproach(
                         gp.effect_factor(possible_x)
 
                 # The first term is -inf
-                t1 = (np.log(guide[gp.parent][t] *
-                             np.exp(gp.effect_factor(possible_x)) +
-                             (1 - guide[gp.parent][t]))
-                      for gp in ground_processes)
                 Z += np.exp(
-                    sum(t1) + frame_strength * (tuple_sorted(
-                        possible_x) == tuple_sorted(trajectory.states[t - 1])))
+                    sum(
+                        np.log(guide[gp.parent][t] *
+                               np.exp(gp.effect_factor(possible_x)) +
+                               (1 - guide[gp.parent][t]))
+                        for gp in ground_processes) + frame_strength *
+                    (tuple_sorted(possible_x) == tuple_sorted(
+                        trajectory.states[t - 1])))
 
                 # if tuple_sorted(possible_x) == tuple_sorted(x_t):
                 #     logging.debug(f"Factor={factor[tuple_sorted(possible_x)]}")
