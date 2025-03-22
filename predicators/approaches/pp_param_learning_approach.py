@@ -1,6 +1,7 @@
 import logging
 from itertools import chain, combinations
 from typing import Dict, List, Optional, Sequence, Set
+from collections import defaultdict
 
 import numpy as np
 from gym.spaces import Box
@@ -238,25 +239,20 @@ class ParamLearningBilevelProcessPlanningApproach(
         for t in range(1, num_time_steps):
             x_t = trajectory.states[t]
 
-            factor = {
-                tuple_sorted(possible_x): 0
-                for possible_x in powerset(all_possible_atoms)
-            }
+            factor = defaultdict(float)  # Default value of 0.0
             Z = 0
 
+            # Factor from frame axiom
+            if tuple_sorted(x_t) == tuple_sorted(trajectory.states[t - 1]):
+                factor[tuple_sorted(x_t)] += frame_strength
+
+            # Factor from other processes
+            for gp in ground_processes:
+                factor[tuple_sorted(x_t)] += guide[gp.parent][t] *\
+                    gp.effect_factor(x_t)
+
+            # We need to loop through this to calculate the normalization Z
             for possible_x in powerset(all_possible_atoms):
-
-                # Factor from frame axiom
-                if tuple_sorted(possible_x) == tuple_sorted(
-                        trajectory.states[t - 1]):
-                    factor[tuple_sorted(possible_x)] += frame_strength
-
-                # Factor from other processes
-                for gp in ground_processes:
-                    factor[tuple_sorted(possible_x)] += guide[gp.parent][t] *\
-                        gp.effect_factor(possible_x)
-
-                # The first term is -inf
                 Z += np.exp(
                     sum(
                         np.log(guide[gp.parent][t] *
@@ -265,9 +261,6 @@ class ParamLearningBilevelProcessPlanningApproach(
                         for gp in ground_processes) + frame_strength *
                     (tuple_sorted(possible_x) == tuple_sorted(
                         trajectory.states[t - 1])))
-
-                # if tuple_sorted(possible_x) == tuple_sorted(x_t):
-                #     logging.debug(f"Factor={factor[tuple_sorted(possible_x)]}")
 
             logZ = np.log(Z)
             ll += factor[tuple_sorted(x_t)] - logZ
