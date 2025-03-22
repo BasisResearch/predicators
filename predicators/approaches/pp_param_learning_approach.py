@@ -1,7 +1,7 @@
 import logging
+from collections import defaultdict
 from itertools import chain, combinations
 from typing import Dict, List, Optional, Sequence, Set
-from collections import defaultdict
 
 import numpy as np
 from gym.spaces import Box
@@ -232,39 +232,41 @@ class ParamLearningBilevelProcessPlanningApproach(
         all_possible_atoms = utils.all_possible_ground_atoms(
             trajectory._low_level_states[0], predicates)
 
-        def tuple_sorted(set_obj):
-            return tuple(sorted(set_obj))
-
         # possible_states = powerset(all_possible_atoms)
         for t in range(1, num_time_steps):
             x_t = trajectory.states[t]
+            for j in range(len(all_possible_atoms)):
+                factor = defaultdict(float)  # Default value of 0.0
+                factor_atom = all_possible_atoms[j]
+                x_tj: Optional[GroundAtom] = factor_atom in x_t
 
-            factor = defaultdict(float)  # Default value of 0.0
-            Z = 0
+                # Factor from frame axiom: if atom didnt change 
+                if (factor_atom in x_t) == (factor_atom in \
+                                                    trajectory.states[t - 1]):
+                    factor[x_tj] += frame_strength
 
-            # Factor from frame axiom
-            if tuple_sorted(x_t) == tuple_sorted(trajectory.states[t - 1]):
-                factor[tuple_sorted(x_t)] += frame_strength
+                # Factor from other processes
+                for gp in ground_processes:
+                    factor[x_tj] += guide[gp.parent][t] *\
+                        gp.factored_effect_factor(x_tj, factor_atom)
 
-            # Factor from other processes
-            for gp in ground_processes:
-                factor[tuple_sorted(x_t)] += guide[gp.parent][t] *\
-                    gp.effect_factor(x_t)
+                Z = 0
+                for atom_value in [True, False]:
+                    # We need to loop through this to calculate the normalization Z
+                    atom_didnt_change = atom_value == (factor_atom in \
+                                                    trajectory.states[t - 1])
+                    Z += np.exp(
+                        sum(
+                            np.log(guide[gp.parent][t] * np.exp(
+                                gp.factored_effect_factor(
+                                    atom_value, factor_atom)) +
+                                   (1 - guide[gp.parent][t]))
+                            for gp in ground_processes) +
+                        frame_strength * atom_didnt_change)
 
-            # We need to loop through this to calculate the normalization Z
-            for possible_x in powerset(all_possible_atoms):
-                Z += np.exp(
-                    sum(
-                        np.log(guide[gp.parent][t] *
-                               np.exp(gp.effect_factor(possible_x)) +
-                               (1 - guide[gp.parent][t]))
-                        for gp in ground_processes) + frame_strength *
-                    (tuple_sorted(possible_x) == tuple_sorted(
-                        trajectory.states[t - 1])))
-
-            logZ = np.log(Z)
-            ll += factor[tuple_sorted(x_t)] - logZ
-            # logging.debug(f"\tp(x_{t})={np.exp(factor[tuple_sorted(x_t)] - logZ)}, ")
+                logZ = np.log(Z)
+                ll += factor[x_tj] - logZ
+                # logging.debug(f"\tp(x_{t})={np.exp(factor[tuple_sorted(x_t)] - logZ)}, ")
 
         # 3. Sum of delay probabilities
         # TODO: update for potentially multiple occurrences
