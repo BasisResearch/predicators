@@ -114,8 +114,10 @@ class ParamLearningBilevelProcessPlanningApproach(
             num_q_params = num_ground_processes * traj_len
         num_parameters = num_proc_params + num_q_params
 
-        init_guess = [1] * num_parameters
-        bounds = [(0.01, 100)] * num_parameters
+        init_guess = np.random.rand(num_parameters) # kevin
+        bounds = [(-100, 100)] * num_parameters # tom
+        # init_guess = [-1] * num_parameters
+        # bounds = [(0.01, 100)] * num_parameters # 53.36
 
         # Keep track of iterations for progress display
         iteration_count = 0
@@ -155,12 +157,11 @@ class ParamLearningBilevelProcessPlanningApproach(
         result = minimize(objective,
                           init_guess,
                           bounds=bounds,
-                          options={
-                              "disp": True,
-                              "maxiter": 1000,
-                              "pgtol": 1e-9
-                          },
-                          method="L-BFGS-B")
+                        #   options={
+                        #       "disp": True,
+                        #       "maxiter": 10000,
+                        #       "pgtol": 1e-9},
+                          method="L-BFGS-B")  # terminate in 19464iter
         progress_bar.close()
         breakpoint()
         logging.info(f"Best likelihood bound: {-result.fun}")
@@ -212,16 +213,14 @@ class ParamLearningBilevelProcessPlanningApproach(
         # never occur.
         guide = {proc: np.exp(q_i) for proc, q_i in guide.items()}
         for gp, start_time in zip(ground_processes, start_times):
-            if guide_per_process:
-                proc_guide = guide[gp.parent]
-            else:
-                proc_guide = guide[gp]
+            proc_guide = guide[gp]
 
             if len(start_time) > 0:
                 proc_guide[:start_time[0] + 1] = 0
                 # TODO: check what to do for processes that never occur
-                # logging.debug(f"guide before: {proc_guide}")
+            # logging.debug(f"guide before: {proc_guide}")
             proc_guide /= np.sum(proc_guide)
+            # logging.debug(f"guide after : {proc_guide}")
 
         # 1. Sum of effect factors for processes
         # 2. Normalization constant per time step
@@ -280,7 +279,7 @@ class ParamLearningBilevelProcessPlanningApproach(
 
                 logZ = np.log(Z)
                 ll += factor[x_tj] - logZ
-                # logging.debug(f"\tp(x_{t})={np.exp(factor[tuple_sorted(x_t)] - logZ)}, ")
+                # logging.debug(f"\tp(x_{t})={np.exp(factor[x_tj] - logZ)}, ")
 
         # 3. Sum of delay probabilities
         # TODO: update for potentially multiple occurrences
