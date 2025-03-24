@@ -8,7 +8,8 @@ from predicators.settings import CFG
 from predicators.structs import CausalProcess, EndogenousProcess, \
     ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
     Variable
-from predicators.utils import ConstantDelay, GaussianDelay, null_sampler
+from predicators.utils import ConstantDelay, GaussianDelay, CMPDelay, \
+    null_sampler
 
 
 class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
@@ -82,8 +83,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(HandEmpty, [robot]),
             LiftedAtom(JugUnderFaucet, [jug, faucet]),
         }
-        # delay_distribution = GaussianDelay(5, 2, rng)
-        delay_distribution = ConstantDelay(4)
+        delay_distribution = CMPDelay(1, 1, rng)
+        # delay_distribution = ConstantDelay(4)
         pick_jug_from_faucet_process = EndogenousProcess(
             "PickJugFromFaucet", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -108,8 +109,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(HandEmpty, [robot]),
             LiftedAtom(NoJugUnderFaucet, [faucet]),
         }
-        # delay_distribution = GaussianDelay(5, 2, rng)
-        delay_distribution = ConstantDelay(3)
+        delay_distribution = CMPDelay(1, 1, rng)
+        # delay_distribution = ConstantDelay(3)
         pick_jug_outside_faucet_process = EndogenousProcess(
             "PickJugFromOutsideFaucet", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution, 1.0,
@@ -133,8 +134,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects = {
             LiftedAtom(Holding, [robot, jug]),
         }
-        # delay_distribution = GaussianDelay(5, 2, rng)
-        delay_distribution = ConstantDelay(5)
+        delay_distribution = CMPDelay(1, 1, rng)
+        # delay_distribution = ConstantDelay(5)
         place_on_burner_process = EndogenousProcess(
             "PlaceOnBurner", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -159,8 +160,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(Holding, [robot, jug]),
             LiftedAtom(NoJugUnderFaucet, [faucet]),
         }
-        # delay_distribution = GaussianDelay(5, 2, rng)
-        delay_distribution = ConstantDelay(3)
+        delay_distribution = CMPDelay(1, 1, rng)
+        # delay_distribution = ConstantDelay(3)
         place_under_faucet_process = EndogenousProcess(
             "PlaceUnderFaucet", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -183,8 +184,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects = {
             LiftedAtom(FaucetOff, [faucet]),
         }
-        # delay_distribution = GaussianDelay(2, 2, rng)
-        delay_distribution = ConstantDelay(1)
+        delay_distribution = CMPDelay(1, 1, rng)
+        # delay_distribution = ConstantDelay(1)
         switch_faucet_on_process = EndogenousProcess(
             "SwitchFaucetOn", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -207,8 +208,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects = {
             LiftedAtom(FaucetOn, [faucet]),
         }
-        # delay_distribution = GaussianDelay(2, 2, rng)
-        delay_distribution = ConstantDelay(1)
+        delay_distribution = CMPDelay(1, 1, rng)
+        # delay_distribution = ConstantDelay(1)
         switch_faucet_off_process = EndogenousProcess(
             "SwitchFaucetOff", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -231,8 +232,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects = {
             LiftedAtom(BurnerOff, [burner]),
         }
-        # delay_distribution = GaussianDelay(5, 2, rng)
-        delay_distribution = ConstantDelay(3)
+        delay_distribution = CMPDelay(1, 1, rng)
+        # delay_distribution = ConstantDelay(3)
         switch_burner_on_process = EndogenousProcess(
             "SwitchBurnerOn", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -255,8 +256,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects = {
             LiftedAtom(BurnerOn, [burner]),
         }
-        # delay_distribution = GaussianDelay(5, 2, rng)
-        delay_distribution = ConstantDelay(1)
+        delay_distribution = CMPDelay(1, 1, rng)
+        # delay_distribution = ConstantDelay(1)
         switch_burner_off_process = EndogenousProcess(
             "SwitchBurnerOff", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -268,7 +269,6 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         parameters = [robot]
         option_vars = [robot]
         option = NoOp
-        # TODO: This is more like a "max number of steps" for this option.
         # delay_distribution = GaussianDelay(3, 2, rng)
         delay_distribution = ConstantDelay(1)
         noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
@@ -294,8 +294,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         add_effects = {
             LiftedAtom(JugFilled, [jug]),
         }
-        # delay_distribution = GaussianDelay(5, 2, rng)
-        delay_distribution = ConstantDelay(4)
+        delay_distribution = CMPDelay(1, 1, rng)
+        # delay_distribution = ConstantDelay(4)
         fill_jug_process = ExogenousProcess("FillJug", parameters,
                                             condition_at_start,
                                             condition_overall, set(),
@@ -323,7 +323,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects = {
             LiftedAtom(NoWaterSpilled, []),
         }
-        delay_distribution = ConstantDelay(3)
+        delay_distribution = CMPDelay(1, 1, rng)
+        # delay_distribution = ConstantDelay(3)
         overfill_jug_process = ExogenousProcess("OverfillJug", parameters,
                                                 condition_at_start,
                                                 condition_overall, set(),
@@ -344,7 +345,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects = {
             LiftedAtom(NoWaterSpilled, []),
         }
-        delay_distribution = ConstantDelay(1)
+        delay_distribution = CMPDelay(1, 1, rng)
         spill_process = ExogenousProcess("Spill",
                                          parameters, condition_at_start, set(),
                                          set(), add_effects, delete_effects,
@@ -368,8 +369,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         add_effects = {
             LiftedAtom(WaterBoiled, [jug]),
         }
-        # delay_distribution = GaussianDelay(10, 2, rng)
-        delay_distribution = ConstantDelay(5)
+        delay_distribution = CMPDelay(1, 1, rng)
+        # delay_distribution = ConstantDelay(5)
         boil_process = ExogenousProcess("Boil", parameters, condition_at_start,
                                         condition_overall, set(), add_effects,
                                         set(), delay_distribution, 1.0)

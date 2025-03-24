@@ -2441,7 +2441,7 @@ class EndogenousProcess(CausalProcess):
     Option Spec: {self.option.name}({option_var_str})"""
 
 
-@dataclass(frozen=True, repr=False, eq=False)
+@dataclass(frozen=False, repr=False, eq=False)
 class _GroundCausalProcess:
     parent: CausalProcess
     objects: Sequence[Object]
@@ -2526,7 +2526,7 @@ class _GroundCausalProcess:
         return f"{self.name}({', '.join([str(o) for o in self.objects])})"
 
 
-@dataclass(frozen=True, repr=False, eq=False)
+@dataclass(frozen=False, repr=False, eq=False)
 class _GroundEndogenousProcess(_GroundCausalProcess):
     option: ParameterizedOption
     option_objs: Sequence[Object]
@@ -2596,7 +2596,7 @@ class _GroundEndogenousProcess(_GroundCausalProcess):
         return self.option.ground(self.option_objs, params)
 
 
-@dataclass(frozen=True, repr=False, eq=False)
+@dataclass(frozen=False, repr=False, eq=False)
 class _GroundExogenousProcess(_GroundCausalProcess):
 
     def cause_triggered(self, state_history: List[Set[GroundAtom]],
