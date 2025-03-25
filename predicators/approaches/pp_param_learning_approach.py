@@ -96,14 +96,23 @@ class ParamLearningBilevelProcessPlanningApproach(
         # - num_processes * trajectory_length for the variational distribution
         atom_option_dataset = utils.create_ground_atom_option_dataset(
             dataset.trajectories, self._get_current_predicates())
-        traj_len = len(atom_option_dataset[0].states)
-        objects = set(atom_option_dataset[0]._low_level_states[0])
+        trajectory = atom_option_dataset[0]
+        traj_len = len(trajectory.states)
+        objects = set(trajectory._low_level_states[0])
         self.ground_processes = planning.task_plan_grounding(
             init_atoms=set(),
             objects=objects,
             nsrts=self._processes,
             allow_noops=True,
             compute_reachable_atoms=False)[0]
+        num_time_steps = len(trajectory.states)
+        start_times = [[
+            t for t in range(num_time_steps)
+            if gp.cause_triggered(trajectory.states[:t + 1], 
+                                  trajectory.actions[:t + 1])
+        ] for gp in self.ground_processes]
+        all_possible_atoms = utils.all_possible_ground_atoms(
+            trajectory._low_level_states[0], self._get_current_predicates())
         num_processes = len(self._processes)
         num_ground_processes = len(self.ground_processes)
         num_proc_params = 1 + 3 * num_processes
@@ -131,6 +140,9 @@ class ParamLearningBilevelProcessPlanningApproach(
             """
             nonlocal iteration_count
             nonlocal guide_per_process
+            nonlocal start_times
+            nonlocal all_possible_atoms
+
             iteration_count += 1
             progress_bar.update(1)
 
@@ -151,7 +163,9 @@ class ParamLearningBilevelProcessPlanningApproach(
                                  guide,
                                  frame_strength=params[0],
                                  predicates=self._get_current_predicates(),
-                                 guide_per_process=guide_per_process)
+                                 guide_per_process=guide_per_process,
+                                 start_times=start_times,
+                                 all_possible_atoms=all_possible_atoms)
             return -elbo_val
 
         result = minimize(objective,
@@ -175,7 +189,10 @@ class ParamLearningBilevelProcessPlanningApproach(
              ground_processes: List[_GroundCausalProcess],
              guide: Dict[CausalProcess, List[float]],
              frame_strength: float, predicates: Set[Predicate],
-             guide_per_process: bool) -> float:
+             guide_per_process: bool,
+             start_times: List[List[int]],
+             all_possible_atoms: List[GroundAtom],
+             ) -> float:
         """Compute the ELBO of the dataset under the model.
 
         Args:
@@ -197,13 +214,6 @@ class ParamLearningBilevelProcessPlanningApproach(
         # start time per ground process
         # for endogenous processes cause_triggered should be true when the
         # action is taken
-        start_times = [[
-            t for t in range(num_time_steps)
-            if gp.cause_triggered(trajectory.states[:t + 1], 
-                                  trajectory.actions[:t + 1])
-        ] for gp in ground_processes]
-        # PickJugFromFaucet and FromOutside are counted twice each because we
-        # only check options not processes equivalence
 
         # TODO: extend to multiple occurrences
         for start_time_list in start_times:
@@ -218,18 +228,11 @@ class ParamLearningBilevelProcessPlanningApproach(
             if len(start_time) > 0:
                 proc_guide[:start_time[0] + 1] = 0
                 # TODO: check what to do for processes that never occur
-            # logging.debug(f"guide before: {proc_guide}")
             proc_guide /= np.sum(proc_guide)
-            # logging.debug(f"guide after : {proc_guide}")
 
         # 1. Sum of effect factors for processes
         # 2. Normalization constant per time step
         ll = 0  # Log likelihood
-
-        # all true/false possible predicates-object com
-        # TODO: leverage the factored state to reduce complexity
-        all_possible_atoms = utils.all_possible_ground_atoms(
-            trajectory._low_level_states[0], predicates)
 
         # possible_states = powerset(all_possible_atoms)
         for t in range(1, num_time_steps):
@@ -255,7 +258,6 @@ class ParamLearningBilevelProcessPlanningApproach(
 
                 Z = 0
                 for atom_value in [True, False]:
-                    # We need to loop through this to calculate the normalization Z
                     atom_didnt_change = atom_value == (factor_atom in \
                                                     trajectory.states[t - 1])
                     if guide_per_process:
@@ -279,7 +281,6 @@ class ParamLearningBilevelProcessPlanningApproach(
 
                 logZ = np.log(Z)
                 ll += factor[x_tj] - logZ
-                # logging.debug(f"\tp(x_{t})={np.exp(factor[x_tj] - logZ)}, ")
 
         # 3. Sum of delay probabilities
         # TODO: update for potentially multiple occurrences
@@ -298,15 +299,11 @@ class ParamLearningBilevelProcessPlanningApproach(
         H = 0
         for q_i in guide.values():
             # skipping the guide whose process never occurs
-            # TODO: is this a valid thing to do?
             if q_i[0] == 0: 
                 for p in q_i:
                     if p > 1e-6:
                         H -= p * np.log(p)
 
-        # debug optimization:
-        # logging.debug(f"H={H:.4f}")
-        # return -H
         logging.debug(f"H={H:.4f}, ELBO={ll + H:.4f}")
         return ll + H
 
