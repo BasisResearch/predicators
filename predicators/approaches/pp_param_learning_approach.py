@@ -116,10 +116,10 @@ class ParamLearningBilevelProcessPlanningApproach(
             num_q_params = num_ground_processes * traj_len
         num_parameters = num_proc_params + num_q_params
 
-        # init_guess = np.random.rand(num_parameters) # rand init -- kevin
-        # bounds = [(-100, 100)] * num_parameters # allow negative -- tom
-        init_guess, bounds = self._initialize_parameters(
-            num_q_params, num_processes)
+        init_guess = np.random.rand(num_parameters) # rand init -- kevin
+        bounds = [(-100, 100)] * num_parameters # allow negative -- tom
+        # init_guess, bounds = self._initialize_parameters(
+        #     num_q_params, num_processes)
 
         # Keep track of iterations for progress display
         iteration_count = 0
