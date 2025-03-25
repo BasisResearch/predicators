@@ -123,10 +123,10 @@ class ParamLearningBilevelProcessPlanningApproach(
             num_q_params = num_ground_processes * traj_len
         num_parameters = num_proc_params + num_q_params
 
-        init_guess = np.random.rand(num_parameters) # kevin
-        bounds = [(-100, 100)] * num_parameters # tom
-        # init_guess = [-1] * num_parameters
-        # bounds = [(0.01, 100)] * num_parameters # 53.36
+        # init_guess = np.random.rand(num_parameters) # rand init: suggested by kevin
+        # bounds = [(-100, 100)] * num_parameters # allow negative: suggested by tom
+        init_guess, bounds = self._initialize_parameters(num_q_params, 
+                                                         num_processes)
 
         # Keep track of iterations for progress display
         iteration_count = 0
@@ -313,3 +313,52 @@ class ParamLearningBilevelProcessPlanningApproach(
         # Loop through the parameters 3 at a time
         for i in range(0, len(parameters), 3):
             self._processes[i // 3]._set_parameters(parameters[i:i + 3])
+
+    def _initialize_parameters(self, num_q_params: int, num_processes: int):
+        """
+        Build an initial guess vector and corresponding bounds for:
+        1) frame axiom strength (1 scalar)
+        2) per-process parameters:
+            - strength_i >= 0
+            - lambda_i in (0, 1)
+            - nu_i >= 0
+        3) variational logits (unbounded real)
+        """
+        init_guess = []
+        bounds = []
+
+        # 1) Frame axiom strength
+        #    For example, random in [0, 5], but adjust as needed.
+        fa_strength = np.random.uniform(0.0, 10.0)
+        init_guess.append(fa_strength)
+        # If you want no upper bound, use (0, None).
+        # If you prefer a big but finite upper bound, do (0, 1e2) or similar.
+        bounds.append((0, 100))
+
+        # 2) For each process, we have three parameters: strength, lambda, nu.
+        for _ in range(num_processes):
+            # strength_i, e.g. random in [0,5]
+            strength_i = np.random.uniform(0.0, 10.0)
+            init_guess.append(strength_i)
+            bounds.append((0, 100))
+
+            # lambda_i, e.g. random in (0,1)
+            lambda_i = np.random.uniform(0.01, 0.99)
+            init_guess.append(lambda_i)
+            bounds.append((1e-6, 1 - 1e-6))
+
+            # nu_i, e.g. random in [0.01, 5.0]
+            # If your use case requires strictly positive or equals 0, adjust accordingly.
+            nu_i = np.random.uniform(0.01, 5.0)
+            init_guess.append(nu_i)
+            bounds.append((1e-6, 100))
+
+        # 3) Variational distribution logits
+        #    These can be any real number, so we often have no bounds.
+        #    Initialize them near 0 or within [-1, 1].
+        for _ in range(num_q_params):
+            logit = np.random.uniform(-1.0, 1.0)
+            init_guess.append(logit)
+            # No bounds on logits => (None, None).
+            bounds.append((-100, 100))
+        return init_guess, bounds
