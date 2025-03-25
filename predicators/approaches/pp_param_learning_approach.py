@@ -179,7 +179,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             #   options={
             #       "disp": True,
             #       "maxiter": 10000,
-            #       "pgtol": 1e-9},
+            #       "pgtol": 1e-9}, # defaul params work ok
             method="L-BFGS-B")  # terminate in 19464iter
         progress_bar.close()
         breakpoint()
