@@ -2467,8 +2467,8 @@ class _GroundCausalProcess:
 
     def factored_effect_factor(self, x_tj: bool,
                                factor_atom: GroundAtom) -> float:
-        """If x_tj is True, we say that x_tj would get the effect factor of a 
-        process if at this time step, factor_atom is in the add effects and not 
+        """If x_tj is True, we say that x_tj would get the effect factor of a
+        process if at this time step, factor_atom is in the add effects and not
         in the delete effects of the process.
 
         If x_tj is False in the current step t, then we say that x_tj
@@ -2476,11 +2476,11 @@ class _GroundCausalProcess:
         time step, x_tj is in the delete effects and not in the add
         effects of the process.
         """
-        # match1 requires in the x_tj = False case because match1 requires that 
-        # (atom in not add_effects or in delete_effects) simply be true, 
-        # whereas match2 requires specifically that 
+        # match1 requires in the x_tj = False case because match1 requires that
+        # (atom in not add_effects or in delete_effects) simply be true,
+        # whereas match2 requires specifically that
         # (atom in delete_effects and not in add_effects) be true.
-        # match1 = (factor_atom in self.add_effects and 
+        # match1 = (factor_atom in self.add_effects and
         #          factor_atom not in self.delete_effects) == x_tj
         if x_tj:
             match = int(factor_atom in self.add_effects

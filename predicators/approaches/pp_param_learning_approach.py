@@ -16,7 +16,7 @@ from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     Dataset, GroundAtom, ParameterizedOption, Predicate, Task, Type, \
-        _GroundCausalProcess
+    _GroundCausalProcess
 
 
 def powerset(iterable):
@@ -26,11 +26,13 @@ def powerset(iterable):
         combinations(s, r) for r in range(len(s) + 1))
     return (set(x) for x in powerset)
 
+
 def stable_softmax(x: np.ndarray) -> np.ndarray:
     # shift by max for numerical stability
     x_shifted = x - np.max(x)
     exps = np.exp(x_shifted)
     return exps / np.sum(exps)
+
 
 class ParamLearningBilevelProcessPlanningApproach(
         BilevelProcessPlanningApproach):
@@ -76,8 +78,9 @@ class ParamLearningBilevelProcessPlanningApproach(
         """Get the current set of NSRTs."""
         return set()
 
-    def learn_from_offline_dataset(self, dataset: Dataset,
-                                   guide_per_process: bool=False) -> None:
+    def learn_from_offline_dataset(self,
+                                   dataset: Dataset,
+                                   guide_per_process: bool = False) -> None:
         """Learn parameters of processes from the offline datasets.
 
         This is currently achieved by optimizing the marginal data
@@ -108,8 +111,9 @@ class ParamLearningBilevelProcessPlanningApproach(
         num_time_steps = len(trajectory.states)
         start_times = [[
             t for t in range(num_time_steps)
-            if gp.cause_triggered(trajectory.states[:t + 1], 
-                                  trajectory.actions[:t + 1])
+            if gp.cause_triggered(trajectory.states[:t +
+                                                    1], trajectory.actions[:t +
+                                                                           1])
         ] for gp in self.ground_processes]
         all_possible_atoms = utils.all_possible_ground_atoms(
             trajectory._low_level_states[0], self._get_current_predicates())
@@ -125,8 +129,8 @@ class ParamLearningBilevelProcessPlanningApproach(
 
         # init_guess = np.random.rand(num_parameters) # rand init: suggested by kevin
         # bounds = [(-100, 100)] * num_parameters # allow negative: suggested by tom
-        init_guess, bounds = self._initialize_parameters(num_q_params, 
-                                                         num_processes)
+        init_guess, bounds = self._initialize_parameters(
+            num_q_params, num_processes)
 
         # Keep track of iterations for progress display
         iteration_count = 0
@@ -153,9 +157,9 @@ class ParamLearningBilevelProcessPlanningApproach(
             else:
                 keys = self.ground_processes
             guide: Dict[_GroundCausalProcess, List[float]] = {
-                    proc: guide_params[i * traj_len:(i + 1) * traj_len]
-                    for i, proc in enumerate(keys)
-                }
+                proc: guide_params[i * traj_len:(i + 1) * traj_len]
+                for i, proc in enumerate(keys)
+            }
 
             elbo_val = self.elbo(atom_option_dataset,
                                  self._processes,
@@ -168,14 +172,15 @@ class ParamLearningBilevelProcessPlanningApproach(
                                  all_possible_atoms=all_possible_atoms)
             return -elbo_val
 
-        result = minimize(objective,
-                          init_guess,
-                          bounds=bounds,
-                        #   options={
-                        #       "disp": True,
-                        #       "maxiter": 10000,
-                        #       "pgtol": 1e-9},
-                          method="L-BFGS-B")  # terminate in 19464iter
+        result = minimize(
+            objective,
+            init_guess,
+            bounds=bounds,
+            #   options={
+            #       "disp": True,
+            #       "maxiter": 10000,
+            #       "pgtol": 1e-9},
+            method="L-BFGS-B")  # terminate in 19464iter
         progress_bar.close()
         breakpoint()
         logging.info(f"Best likelihood bound: {-result.fun}")
@@ -184,15 +189,17 @@ class ParamLearningBilevelProcessPlanningApproach(
         self._set_process_parameters(result.x[1:num_proc_params])
 
     @staticmethod
-    def elbo(atom_option_dataset: List[AtomOptionTrajectory],
-             processes: List[CausalProcess], 
-             ground_processes: List[_GroundCausalProcess],
-             guide: Dict[CausalProcess, List[float]],
-             frame_strength: float, predicates: Set[Predicate],
-             guide_per_process: bool,
-             start_times: List[List[int]],
-             all_possible_atoms: List[GroundAtom],
-             ) -> float:
+    def elbo(
+        atom_option_dataset: List[AtomOptionTrajectory],
+        processes: List[CausalProcess],
+        ground_processes: List[_GroundCausalProcess],
+        guide: Dict[CausalProcess, List[float]],
+        frame_strength: float,
+        predicates: Set[Predicate],
+        guide_per_process: bool,
+        start_times: List[List[int]],
+        all_possible_atoms: List[GroundAtom],
+    ) -> float:
         """Compute the ELBO of the dataset under the model.
 
         Args:
@@ -242,7 +249,7 @@ class ParamLearningBilevelProcessPlanningApproach(
                 factor_atom = all_possible_atoms[j]
                 x_tj: Optional[GroundAtom] = factor_atom in x_t
 
-                # Factor from frame axiom: if atom didnt change 
+                # Factor from frame axiom: if atom didnt change
                 if (factor_atom in x_t) == (factor_atom in \
                                                     trajectory.states[t - 1]):
                     factor[x_tj] += frame_strength
@@ -266,7 +273,7 @@ class ParamLearningBilevelProcessPlanningApproach(
                                 np.log(guide[gp.parent][t] * np.exp(
                                     gp.factored_effect_factor(
                                         atom_value, factor_atom)) +
-                                    (1 - guide[gp.parent][t]))
+                                       (1 - guide[gp.parent][t]))
                                 for gp in ground_processes) +
                             frame_strength * atom_didnt_change)
                     else:
@@ -275,7 +282,7 @@ class ParamLearningBilevelProcessPlanningApproach(
                                 np.log(guide[gp][t] * np.exp(
                                     gp.factored_effect_factor(
                                         atom_value, factor_atom)) +
-                                    (1 - guide[gp][t]))
+                                       (1 - guide[gp][t]))
                                 for gp in ground_processes) +
                             frame_strength * atom_didnt_change)
 
@@ -299,7 +306,7 @@ class ParamLearningBilevelProcessPlanningApproach(
         H = 0
         for q_i in guide.values():
             # skipping the guide whose process never occurs
-            if q_i[0] == 0: 
+            if q_i[0] == 0:
                 for p in q_i:
                     if p > 1e-6:
                         H -= p * np.log(p)
@@ -315,10 +322,9 @@ class ParamLearningBilevelProcessPlanningApproach(
             self._processes[i // 3]._set_parameters(parameters[i:i + 3])
 
     def _initialize_parameters(self, num_q_params: int, num_processes: int):
-        """
-        Build an initial guess vector and corresponding bounds for:
-        1) frame axiom strength (1 scalar)
-        2) per-process parameters:
+        """Build an initial guess vector and corresponding bounds for: 1) frame
+        axiom strength (1 scalar) 2) per-process parameters:
+
             - strength_i >= 0
             - lambda_i in (0, 1)
             - nu_i >= 0

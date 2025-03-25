@@ -8,7 +8,7 @@ from predicators.settings import CFG
 from predicators.structs import CausalProcess, EndogenousProcess, \
     ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
     Variable
-from predicators.utils import ConstantDelay, GaussianDelay, CMPDelay, \
+from predicators.utils import CMPDelay, ConstantDelay, GaussianDelay, \
     null_sampler
 
 
