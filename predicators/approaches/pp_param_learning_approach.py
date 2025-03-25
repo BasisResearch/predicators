@@ -1,6 +1,5 @@
 import logging
 from collections import defaultdict
-from itertools import chain, combinations
 from typing import Dict, List, Optional, Sequence, Set
 
 import numpy as np
@@ -17,22 +16,6 @@ from predicators.settings import CFG
 from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     Dataset, GroundAtom, ParameterizedOption, Predicate, Task, Type, \
     _GroundCausalProcess
-
-
-def powerset(iterable):
-    """Return an iterator of all possible subsets of the iterable."""
-    s = list(iterable)
-    powerset = chain.from_iterable(
-        combinations(s, r) for r in range(len(s) + 1))
-    return (set(x) for x in powerset)
-
-
-def stable_softmax(x: np.ndarray) -> np.ndarray:
-    # shift by max for numerical stability
-    x_shifted = x - np.max(x)
-    exps = np.exp(x_shifted)
-    return exps / np.sum(exps)
-
 
 class ParamLearningBilevelProcessPlanningApproach(
         BilevelProcessPlanningApproach):
@@ -77,7 +60,7 @@ class ParamLearningBilevelProcessPlanningApproach(
     def _get_current_nsrts(self) -> Set[NSRT]:
         """Get the current set of NSRTs."""
         return set()
-
+    
     def learn_from_offline_dataset(self,
                                    dataset: Dataset,
                                    guide_per_process: bool = False) -> None:
@@ -86,6 +69,12 @@ class ParamLearningBilevelProcessPlanningApproach(
         This is currently achieved by optimizing the marginal data
         likelihood.
         """
+        self._learn_process_parameters(dataset, guide_per_process)
+
+    def _learn_process_parameters(self,
+                                  dataset: Dataset,
+                                  guide_per_process: bool = False) -> None:
+        """Learn parameters of processes from the online dataset."""
         # TODO: relax the assumption of one datapoint
         # Q: should there only be a guide for the exogenous processes?
         # A: No, we are also interested in the delay for actions.
@@ -127,8 +116,8 @@ class ParamLearningBilevelProcessPlanningApproach(
             num_q_params = num_ground_processes * traj_len
         num_parameters = num_proc_params + num_q_params
 
-        # init_guess = np.random.rand(num_parameters) # rand init: suggested by kevin
-        # bounds = [(-100, 100)] * num_parameters # allow negative: suggested by tom
+        # init_guess = np.random.rand(num_parameters) # rand init -- kevin
+        # bounds = [(-100, 100)] * num_parameters # allow negative -- tom
         init_guess, bounds = self._initialize_parameters(
             num_q_params, num_processes)
 
@@ -176,13 +165,14 @@ class ParamLearningBilevelProcessPlanningApproach(
             objective,
             init_guess,
             bounds=bounds,
-            #   options={
-            #       "disp": True,
-            #       "maxiter": 10000,
-            #       "pgtol": 1e-9}, # defaul params work ok
+            # defaul params work ok
+            options={
+                "disp": True,
+            #     "maxiter": 10000,
+            #     "pgtol": 1e-9
+            }, 
             method="L-BFGS-B")  # terminate in 19464iter
         progress_bar.close()
-        breakpoint()
         logging.info(f"Best likelihood bound: {-result.fun}")
 
         # 3. Set the optimized parameters
