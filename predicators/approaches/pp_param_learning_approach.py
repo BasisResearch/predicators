@@ -17,6 +17,7 @@ from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     Dataset, GroundAtom, ParameterizedOption, Predicate, Task, Type, \
     _GroundCausalProcess
 
+
 class ParamLearningBilevelProcessPlanningApproach(
         BilevelProcessPlanningApproach):
     """A bilevel planning approach that uses hand-specified processes."""
@@ -60,7 +61,7 @@ class ParamLearningBilevelProcessPlanningApproach(
     def _get_current_nsrts(self) -> Set[NSRT]:
         """Get the current set of NSRTs."""
         return set()
-    
+
     def learn_from_offline_dataset(self,
                                    dataset: Dataset,
                                    guide_per_process: bool = False) -> None:
@@ -116,8 +117,8 @@ class ParamLearningBilevelProcessPlanningApproach(
             num_q_params = num_ground_processes * traj_len
         num_parameters = num_proc_params + num_q_params
 
-        init_guess = np.random.rand(num_parameters) # rand init -- kevin
-        bounds = [(-100, 100)] * num_parameters # allow negative -- tom
+        init_guess = np.random.rand(num_parameters)  # rand init -- kevin
+        bounds = [(-100, 100)] * num_parameters  # allow negative -- tom
         # init_guess, bounds = self._initialize_parameters(
         #     num_q_params, num_processes)
 
@@ -168,9 +169,9 @@ class ParamLearningBilevelProcessPlanningApproach(
             # defaul params work ok
             options={
                 "disp": True,
-            #     "maxiter": 10000,
-            #     "pgtol": 1e-9
-            }, 
+                #     "maxiter": 10000,
+                #     "pgtol": 1e-9
+            },
             method="L-BFGS-B")  # terminate in 19464iter
         progress_bar.close()
         logging.info(f"Best likelihood bound: {-result.fun}")
