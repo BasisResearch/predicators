@@ -17,6 +17,7 @@ from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     Dataset, GroundAtom, ParameterizedOption, Predicate, Task, Type, \
     _GroundCausalProcess
 
+
 class ModelLearningBilevelProcessPlanningApproach(
         ParamLearningBilevelProcessPlanningApproach):
     """A bilevel planning approach that uses hand-specified processes."""
