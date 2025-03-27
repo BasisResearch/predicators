@@ -5,8 +5,17 @@
 APPROACHES:
   # oracle:
   #   NAME: "oracle_process_planning"
-  param_learning:
-    NAME: "param_learning_process_planning"
+  # param_learning:
+  #   NAME: "param_learning_process_planning"
+  #   ARGS:
+  #     - "load_data"
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     # This following is needed to generate a successful demo trajectory, or 
+  #     # else the demo collection will fail with an option plan exhausted error.
+  #     terminate_on_goal_reached: True
+  model_learning:
+    NAME: "process_learning_process_planning"
     ARGS:
       - "load_data"
     FLAGS:

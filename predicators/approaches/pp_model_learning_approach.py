@@ -17,7 +17,7 @@ from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     Dataset, GroundAtom, ParameterizedOption, Predicate, Task, Type, \
     _GroundCausalProcess
 
-class ModelLearningBilevelProcessPlanningApproach(
+class ProcessLearningBilevelProcessPlanningApproach(
         ParamLearningBilevelProcessPlanningApproach):
     """A bilevel planning approach that uses hand-specified processes."""
 
@@ -48,7 +48,7 @@ class ModelLearningBilevelProcessPlanningApproach(
 
     @classmethod
     def get_name(cls):
-        return "model_learning_process_planning"
+        return "process_learning_process_planning"
 
     @property
     def is_learning_based(self):
@@ -64,9 +64,9 @@ class ModelLearningBilevelProcessPlanningApproach(
     def learn_from_offline_dataset(self,
                                    dataset: Dataset,
                                    guide_per_process: bool = False) -> None:
-        """Learn models from the offline datasets.
-
-        This is currently achieved by optimizing the marginal data
-        likelihood.
-        """
+        """Learn models from the offline datasets."""
+        ...
+    
+    def learn_from_interaction_results(self, interaction_results) -> None:
+        """Learn models from the interaction results."""
         ...
