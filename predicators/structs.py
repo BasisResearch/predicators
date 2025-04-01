@@ -900,6 +900,44 @@ class STRIPSOperator:
                     self.add_effects, self.delete_effects, self.ignore_effects,
                     option, option_vars, sampler)
 
+    def make_endogenous_process(
+            self,
+            option: Optional[ParameterizedOption],
+            option_vars: Optional[Sequence[Variable]],
+            sampler: Optional[NSRTSampler],
+            process_strenght: Optional[float] = None,
+            process_delay_params: Optional[Sequence[float]] = None,
+            process_rng: Optional[np.random.Generator] = None,
+    ) -> CausalProcess:
+        """Make a CausalProcess out of this STRIPSOperator object.
+        """
+        assert option is not None and option_vars is not None and \
+            sampler is not None
+        if process_delay_params is None:
+            process_delay_params = [1, 1]
+        if process_strenght is None:
+            process_strenght = 1.0
+        if process_rng is None:
+            process_rng = np.random.default_rng(CFG.seed)
+
+        proc = EndogenousProcess(self.name, self.parameters,
+                condition_at_start=self.preconditions if option.name != "NoOp" 
+                    else set(),
+                condition_overall=set(),
+                condition_at_end=set(),
+                add_effects=self.add_effects if option.name != "NoOp" 
+                    else set(),
+                delete_effects=self.delete_effects if option.name != "NoOp" 
+                    else set(),
+                delay_distribution=utils.CMPDelay(
+                        *process_delay_params, 
+                        rng=process_rng),
+                strength=process_strenght,
+                option=option,
+                option_vars=option_vars,
+                _sampler=sampler)
+        return proc
+
     @lru_cache(maxsize=None)
     def ground(self, objects: Tuple[Object]) -> _GroundSTRIPSOperator:
         """Ground into a _GroundSTRIPSOperator, given objects.
@@ -1754,6 +1792,13 @@ class PNAD:
         assert self.sampler is not None
         param_option, option_vars = self.option_spec
         return self.op.make_nsrt(param_option, option_vars, self.sampler)
+    
+    def make_endogenous_process(self) -> EndogenousProcess:
+        """Make an EndogenousProcess from this PNAD."""
+        assert self.sampler is not None
+        param_option, option_vars = self.option_spec
+        return self.op.make_endogenous_process(param_option, option_vars,
+                                               self.sampler)
 
     def copy(self) -> PNAD:
         """Make a copy of this PNAD object, taking care to ensure that
@@ -1783,6 +1828,12 @@ class PNAD:
     def __lt__(self, other: PNAD) -> bool:
         return repr(self) < repr(other)
 
+@dataclass(eq=False, repr=False)
+class PAPAD:
+    """Partial Process and Datastore.
+    """
+    # The non option and sampler part of the CausalProcess
+    pprocess: PartialProcess
 
 @dataclass(frozen=True, eq=False, repr=False)
 class InteractionRequest:
@@ -2261,7 +2312,7 @@ class GroundMacro:
         return len(self.ground_nsrts)
 
 
-@dataclass(frozen=True, repr=False, eq=False)
+@dataclass(frozen=False, repr=False, eq=False)
 class DelayDistribution:
 
     def set_parameters(self, parameters: Sequence[float]) -> None:
@@ -2270,6 +2321,17 @@ class DelayDistribution:
     def sample(self) -> int:
         raise NotImplementedError
 
+    def __str__(self) -> str:
+        return self._str
+    
+    @cached_property
+    def _str(self) -> str:
+        raise NotImplementedError
+
+
+@dataclass(frozen=False, repr=False, eq=False)
+class PartialProcess:
+    pass
 
 @dataclass(frozen=False, repr=False, eq=False)
 class CausalProcess(abc.ABC):
@@ -2319,7 +2381,9 @@ class CausalProcess(abc.ABC):
     Conditions overall: {sorted(self.condition_overall, key=str)}
     Conditions at end: {sorted(self.condition_at_end, key=str)}
     Add Effects: {sorted(self.add_effects, key=str)}
-    Delete Effects: {sorted(self.delete_effects, key=str)}"""
+    Delete Effects: {sorted(self.delete_effects, key=str)}
+    Strength: {self.strength}
+    Delay Distribution: {self.delay_distribution}"""
 
     def __str__(self) -> str:
         return self._str
@@ -2431,14 +2495,16 @@ class EndogenousProcess(CausalProcess):
     @cached_property
     def _str(self) -> str:
         option_var_str = ", ".join([str(v) for v in self.option_vars])
-        return f"""Process-{self.name}:
+        return f"""EndogenousProcess-{self.name}:
     Parameters: {self.parameters}
     Conditions at start: {sorted(self.condition_at_start, key=str)}
-    Conditions overall: {sorted(self.condition_overall, key=str)}
-    Conditions at end: {sorted(self.condition_at_end, key=str)}
+    Conditions overall : {sorted(self.condition_overall, key=str)}
+    Conditions at end  : {sorted(self.condition_at_end, key=str)}
     Add Effects: {sorted(self.add_effects, key=str)}
     Delete Effects: {sorted(self.delete_effects, key=str)}
-    Option Spec: {self.option.name}({option_var_str})"""
+    Strength: {self.strength}
+    Delay Distribution: {self.delay_distribution}
+    Option Spec: {self.option.name}({option_var_str})"""    
 
 
 @dataclass(frozen=False, repr=False, eq=False)

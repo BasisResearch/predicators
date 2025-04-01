@@ -1,7 +1,8 @@
 import logging
 from collections import defaultdict
-from typing import Dict, List, Optional, Sequence, Set
+from typing import Dict, List, Optional, Sequence, Set, Any
 
+import dill as pkl
 import numpy as np
 from gym.spaces import Box
 from scipy.optimize import minimize
@@ -15,7 +16,9 @@ from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     Dataset, GroundAtom, ParameterizedOption, Predicate, Task, Type, \
-    _GroundCausalProcess
+    _GroundCausalProcess, LowLevelTrajectory, GroundAtomTrajectory
+from predicators.nsrt_learning.process_learning_main import \
+    learn_processes_from_data
 
 class ProcessLearningBilevelProcessPlanningApproach(
         ParamLearningBilevelProcessPlanningApproach):
@@ -48,7 +51,7 @@ class ProcessLearningBilevelProcessPlanningApproach(
 
     @classmethod
     def get_name(cls):
-        return "process_learning_process_planning"
+        return "process_learning_and_planning"
 
     @property
     def is_learning_based(self):
@@ -61,12 +64,39 @@ class ProcessLearningBilevelProcessPlanningApproach(
         """Get the current set of NSRTs."""
         return set()
 
-    def learn_from_offline_dataset(self,
-                                   dataset: Dataset,
-                                   guide_per_process: bool = False) -> None:
+    def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         """Learn models from the offline datasets."""
-        ...
+        self._learn_processes(dataset.trajectories,
+                              online_learning_cycle=None,
+                              annotations=(dataset.annotations
+                                          if dataset.has_annotations else None))
+        # # Optional: learn parameters
+        # super().learn_from_offline_dataset(dataset)
     
-    def learn_from_interaction_results(self, interaction_results) -> None:
-        """Learn models from the interaction results."""
-        ...
+    def _learn_processes(self, trajectories: List[LowLevelTrajectory],
+                         online_learning_cycle: Optional[int],
+                         annotations: Optional[List[Any]]) -> None:
+        """Learn processes from the offline datasets."""
+        dataset_fname, _ = utils.create_dataset_filename_str(
+            saving_ground_atoms=True,
+            online_learning_cycle=online_learning_cycle)
+        ground_atom_dataset: Optional[List[GroundAtomTrajectory]] = None
+        if CFG.load_atoms:
+            ground_atom_dataset = utils.load_ground_atom_dataset(dataset_fname,
+                                                                 trajectories)
+        elif CFG.save_atoms:
+            ground_atom_dataset = utils.create_ground_atom_dataset(
+                trajectories, self._get_current_predicates())
+        self._processes = \
+            learn_processes_from_data(trajectories,
+                                        self._train_tasks,
+                                        self._get_current_predicates(),
+                                        self._initial_options,
+                                        self._action_space,
+                                        ground_atom_dataset,
+                                        sampler_learner=CFG.sampler_learner,
+                                        annotations=annotations)
+
+        save_path = utils.get_approach_save_path_str()
+        with open(f"{save_path}_{online_learning_cycle}.PROCes", "wb") as f:
+            pkl.dump(self._processes, f)
