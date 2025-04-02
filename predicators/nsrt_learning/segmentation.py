@@ -1,8 +1,7 @@
 """Methods for segmenting low-level trajectories into segments."""
 
-from typing import Callable, List, Optional, Set
-
 import logging
+from typing import Callable, List, Optional, Set
 
 from predicators import utils
 from predicators.envs import get_or_create_env
@@ -198,7 +197,9 @@ def _segment_with_switch_function(
         current_segment_states.append(ll_traj.states[t])
         current_segment_actions.append(ll_traj.actions[t])
         if switch_fn(t):
-            logging.debug(f"Segmenting at {t}, executing {ll_traj.actions[t].get_option().name}")
+            logging.debug(
+                f"Segmenting at {t}, executing {ll_traj.actions[t].get_option().name}"
+            )
             # Include the final state as the end of this segment.
             current_segment_states.append(ll_traj.states[t + 1])
             current_segment_traj = LowLevelTrajectory(current_segment_states,
@@ -210,11 +211,14 @@ def _segment_with_switch_function(
                 current_segment_final_atoms = utils.abstract(st1, predicates)
             if ll_traj.actions[t].has_option():
 
-                if len(ll_traj.states) > t+1:
+                if len(ll_traj.states) > t + 1:
                     st = ll_traj.states[t]
-                delete_atoms = utils.abstract(st, predicates) - current_segment_final_atoms
-                add_atoms = current_segment_final_atoms - utils.abstract(st, predicates)
-                logging.debug(f"State change: add {add_atoms}, delete {delete_atoms}")
+                delete_atoms = utils.abstract(
+                    st, predicates) - current_segment_final_atoms
+                add_atoms = current_segment_final_atoms - utils.abstract(
+                    st, predicates)
+                logging.debug(
+                    f"State change: add {add_atoms}, delete {delete_atoms}")
 
                 segment = Segment(current_segment_traj,
                                   current_segment_init_atoms,

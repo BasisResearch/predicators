@@ -78,9 +78,7 @@
 #     else:
 #         raise
 
-
 # PlanningResult = namedtuple("PlanningResult", ['succeeded', 'info'])
-
 
 # def are_equal_by_obj(list1: List[_Option], list2: List[_Option]) -> bool:
 #     if len(list1) != len(list2):
@@ -88,7 +86,6 @@
 
 #     return all(
 #         option1.eq_by_obj(option2) for option1, option2 in zip(list1, list2))
-
 
 # def print_confusion_matrix(tp: float, tn: float, fp: float, fn: float) -> None:
 #     """Compate and print the confusion matrix."""
@@ -114,16 +111,13 @@
 #              ["", "", "", precision, recall, specificity, accuracy, f1_score]]
 #     logging.info(tabulate(table, headers="firstrow", tablefmt="fancy_grid"))
 
-
 # # Function to encode the image
 # def encode_image(image_path: str) -> str:
 #     with open(image_path, "rb") as image_file:
 #         return base64.b64encode(image_file.read()).decode('utf-8')
 
-
 # def add_python_quote(text: str) -> str:
 #     return f"```python\n{text}\n```"
-
 
 # def d2s(dict_with_arrays: Dict) -> str:
 #     # Convert State data with numpy arrays to lists, and to string
@@ -131,7 +125,6 @@
 #         k: [round(i, 2) for i in v.tolist()]
 #         for k, v in dict_with_arrays.items()
 #     })
-
 
 # class VlmInventionApproach(NSRTLearningApproach):
 #     """Predicate Invention with VLMs."""
@@ -394,7 +387,7 @@
 #                                             all_trajs,
 #                                             best_solve_rate,
 #                                             ite,
-#                                             prim_pred_proposals, 
+#                                             prim_pred_proposals,
 #                                             cnpt_pred_proposals,
 #                                             )
 
@@ -418,16 +411,16 @@
 #                               fail_optn_dict=self.fail_optn_dict,
 #                               score_dict=score_dict)
 
-#             # Use the old NSRTs for an option if it had accuracy 1.0 in 
+#             # Use the old NSRTs for an option if it had accuracy 1.0 in
 #             # score_dict
-#             # TODO: maybe change to only use the old ones if the new ones are 
+#             # TODO: maybe change to only use the old ones if the new ones are
 #             # worse by some metrics (e.g., accuracy).
 #             if CFG.use_old_nsrt_if_new_is_worse:
 #                 new_nsrts = set()
 #                 for nsrt_candidate in self._nsrts:
 #                     # prev_nsrts_w_same_optn = {nsrt for nsrt in self._previous_nsrts
 #                     #                         if nsrt.option == nsrt_candidate.option}
-#                     # prev_empty_precon = all(n.preconditions == set() for n in 
+#                     # prev_empty_precon = all(n.preconditions == set() for n in
 #                     #                         prev_nsrts_w_same_optn)
 #                     if score_dict[str(nsrt_candidate.option)]['acc'] == 1.0:
 #                         # Use the old one if it helps with planning
@@ -567,7 +560,7 @@
 #                 # predicates
 #                 # Want to remove the predicates of the same name
 #                 # Currently assume this is correct
-#                 primitive_preds = env.ns_predicates - self._initial_predicates 
+#                 primitive_preds = env.ns_predicates - self._initial_predicates
 #             else:
 #                 primitive_preds = env.oracle_proposed_predicates -\
 #                                     self._initial_predicates
@@ -575,7 +568,7 @@
 #                     self._initial_concept_predicates
 #         else:
 #             # Get proposals from VLM
-#             primitive_preds, concept_preds = self._get_proposals_from_vlm(env, 
+#             primitive_preds, concept_preds = self._get_proposals_from_vlm(env,
 #                                                                 ite, tasks)
 
 #         return primitive_preds, concept_preds
@@ -1038,11 +1031,11 @@
 #                 logging.info(f"Saved dataset to {ds_fname}\n")
 #         return results
 
-#     def _select_proposed_predicates(self, 
+#     def _select_proposed_predicates(self,
 #                             all_trajs: List[LowLevelTrajectory],
 #                             num_solved: int,
 #                             ite: int,
-#                             prim_pred_proposals: Set[Predicate], 
+#                             prim_pred_proposals: Set[Predicate],
 #                             cnpt_pred_proposals: Optional[Set[
 #                                 ConceptPredicate]]=None,
 #                                 ) -> Set[Predicate]:
@@ -1104,10 +1097,10 @@
 #                     for state in optn_dict[g_optn].states:
 #                         # TODO: remove the candidates if we get an error
 #                         #   this can replace the error check in get proposals
-#                         atoms, valid_preds = utils.abstract(state, 
-#                                                     set(all_candidates), 
+#                         atoms, valid_preds = utils.abstract(state,
+#                                                     set(all_candidates),
 #                                                     return_valid_preds=True)
-#                         all_candidates = {k: v for k, v in 
+#                         all_candidates = {k: v for k, v in
 #                                     all_candidates.items() if k in valid_preds}
 #                         atom_states.append(atoms)
 #                     optn_dict[g_optn].abstract_states = atom_states
@@ -1160,7 +1153,7 @@
 #                 logging.info(
 #                     "Total search time "
 #                     f"{time.perf_counter() - start_time:.2f} seconds")
-        
+
 #         return selected_preds
 
 #     def _get_proposals_from_vlm(
@@ -1176,13 +1169,13 @@
 #         # Phase 1: invent concept predicates from the existing predicates.
 #         #   only do it in ite 1 for convenience
 #         if CFG.vlm_invention_initial_concept_invention and ite == 1:
-#             helper_cnpt_preds = self._invent_initial_concept_predicates(ite, 
-#                                                                         env, 
+#             helper_cnpt_preds = self._invent_initial_concept_predicates(ite,
+#                                                                         env,
 #                                                                         tasks)
 #         else:
 #             helper_cnpt_preds = set()
 
-#         # The intially proposed concept predicates are immediately added to the 
+#         # The intially proposed concept predicates are immediately added to the
 #         #   base candidates
 #         self.cnpt_pred_candidates |= helper_cnpt_preds
 
@@ -1190,18 +1183,18 @@
 #         num_proposal_batches = CFG.vlm_invention_proposal_batches
 #         primitive_preds, concept_preds = set(), set()
 #         for i in range(num_proposal_batches):
-#             p_preds, c_preds = self._invent_predicates_from_data(ite, env, 
+#             p_preds, c_preds = self._invent_predicates_from_data(ite, env,
 #                                                 tasks, proposal_batch_id=i)
 #             primitive_preds |= p_preds
 #             concept_preds |= c_preds
 
 #         # all_concept_preds = self.cnpt_pred_candidates | concept_preds
-#         self.cnpt_pred_candidates |= concept_preds 
+#         self.cnpt_pred_candidates |= concept_preds
 #         return primitive_preds, self.cnpt_pred_candidates
 
-#     def _invent_predicates_from_data(self, 
-#                                 ite: int, 
-#                                 env: BaseEnv, 
+#     def _invent_predicates_from_data(self,
+#                                 ite: int,
+#                                 env: BaseEnv,
 #                                 tasks: List[Task],
 #                                 proposal_batch_id: int = 0
 #                             ) -> Tuple[Set[Predicate], Set[ConceptPredicate]]:
@@ -1236,7 +1229,6 @@
 #                 if attempt == max_attempts - 1:
 #                     raise e
 
-
 #             logging.debug(f"Created {len(images)} images")
 #             if (min_imgs <= len(images) <= max_imgs) or\
 #                (attempt == max_attempts - 1): break
@@ -1254,13 +1246,12 @@
 #                     max_num_groundings += 1
 #                 else:
 #                     max_num_examples += 1
-                
-#                 if attempt > 5 or (CFG.vlm_invention_propose_nl_properties and 
+
+#                 if attempt > 5 or (CFG.vlm_invention_propose_nl_properties and
 #                     len(images) == 0):
 #                     logging.debug("Including options with acc 1.")
 #                     show_when_acc_is_one = True
-        
-        
+
 #         # Stage 0 (optional): get predicate proposals in natural language
 #         # from gpt4o
 #         if CFG.vlm_invention_propose_nl_properties:
@@ -1315,12 +1306,12 @@
 #         else:
 #             save_file = CFG.log_file + f"ite{ite}.response"
 
-#         # Stage 1: 
+#         # Stage 1:
 #         #   Either convert the NL proposals to formal predicate specs;
 #         #   Or     prompt the VLM to implement predicates directly.
 #         response = self._get_vlm_response(
-#             save_file, 
-#             # self._vlm, 
+#             save_file,
+#             # self._vlm,
 #             self._gemini_exp if CFG.env in [
 #                 "pybullet_balance",
 #                 "pybullet_cover_weighted"
@@ -1336,10 +1327,10 @@
 #         # Stage 2: Implement the predicates
 #         # Either implement all the predicates at once,
 #         save_file = CFG.log_file + f"ite{ite}_{phase_n}_s2.response"
-        
+
 #         if CFG.implement_predicates_at_once:
 #             s2_prompt = self._create_implementation_prompt(
-#                 env, ite, state_str, predicate_specs, 
+#                 env, ite, state_str, predicate_specs,
 #                 save_fn=f"{phase_n}_s2")
 #             response = self._get_vlm_response(
 #                 save_file,
@@ -1358,7 +1349,6 @@
 #             specs = response.split("\n")[2:-1]
 #             # 2. Implement N at a time
 #             # 3. Write the implementation in the save file
-
 
 #         # Stage 3: Parse and load the predicates
 #         primitive_preds, concept_preds = self._parse_predicate_predictions(
@@ -1386,29 +1376,29 @@
 #         #     type_instan_str = f.read()
 #         # type_instan_str = add_python_quote(type_instan_str)
 #         type_names = str(set(t.name for t in env.types))
-        
+
 #         prompt = template.format(PREDICATES_IN_ENV=pred_str,
 #                                  TYPES_IN_ENV=type_names)
-        
+
 #         # Log the prompt
 #         prompt_f = CFG.log_file + f"ite{ite}_init_cnpt_s1.prompt"
 #         with open(prompt_f, "w") as f:
 #             f.write(prompt)
-        
+
 #         # Get the response -- Predicate specification
 #         save_f = CFG.log_file + f"ite{ite}_init_cnpt_s1.response"
-#         response = self._get_vlm_response(save_f, 
+#         response = self._get_vlm_response(save_f,
 #                                               self._gpt4o if CFG.env in [
 #                                                 "pybullet_balance",
 #                                                 # "pybullet_cover_weighted"
 #                                               ] else self._vlm,
-#                                             #   self._vlm, 
+#                                             #   self._vlm,
 #                                           prompt, [])
 
 #         # Stage 2: Implement the predicates
 #         # Get the implementation
-#         imp_prompt = self._create_implementation_prompt(env, ite, "", 
-#                                             response, 
+#         imp_prompt = self._create_implementation_prompt(env, ite, "",
+#                                             response,
 #                                             save_fn="init_cnpt_s2")
 #         save_file = CFG.log_file + f"ite{ite}_init_cnpt_s2.response"
 
@@ -1698,7 +1688,7 @@
 #         # pred_str_lst = []
 #         # pred_str_lst.append()
 #         # pred_str = '\n'.join(pred_str_lst)
-#         template = template.replace("[PREDICATES_IN_ENV]", 
+#         template = template.replace("[PREDICATES_IN_ENV]",
 #                                     self._create_pred_str(
 #                                         env,
 #                                         self.env_source_code,
@@ -1928,9 +1918,8 @@
 #         for p in self.cnpt_pred_candidates:
 #             context[f"_{p.name}_CP_holds"] = p._classifier
 
-
 #         type_init_str = self._env_type_str(self.env_source_code)
-        
+
 #         # Load the imports and types
 #         exec(import_str, context)
 #         exec(type_init_str, context)
@@ -1999,7 +1988,7 @@
 #                         continue
 #                     else:
 #                         primitive_preds.add(context[pred_name])
-        
+
 #         concept_preds = set()
 #         # Translate the potential concept predicates to concept predicates
 #         if untranslated_concept_pred_str:
@@ -2037,7 +2026,7 @@
 #                             raise Exception(f"Type {t} not in the environment")
 
 #                     # Check2: Make sure it's executable
-#                     utils.abstract(tasks[0].init, 
+#                     utils.abstract(tasks[0].init,
 #                                     self._get_current_predicates() |\
 #                                         set([context[pred_name]]))
 #                 except Exception as e:
@@ -2051,9 +2040,9 @@
 #                     # Get all the auxiliary concepts
 #                     # Make sure the if only matches if it doesn't match with
 #                     # leading or trailing letter.
-#                     aux_concepts = {p for p in 
+#                     aux_concepts = {p for p in
 #                                 concept_preds | self.cnpt_pred_candidates if
-#                     re.search(rf'(?<![a-zA-Z]){re.escape(p.name)}(?![a-zA-Z])', 
+#                     re.search(rf'(?<![a-zA-Z]){re.escape(p.name)}(?![a-zA-Z])',
 #                     code_str)}
 #                     # either " {p.name} " or ' "{p.name}" ' or " '{p.name}' "
 #                     # or " {p.name}}"
@@ -2082,7 +2071,7 @@
 #         template_f = f"prompts/classifier_transform.outline"
 #         with open(template_f, "r") as f:
 #             template = f.read()
-        
+
 #         # Existing primitive predicates
 #         primitive_pred_str = self._create_pred_str(
 #                                 include_definition=False,

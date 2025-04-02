@@ -901,16 +901,15 @@ class STRIPSOperator:
                     option, option_vars, sampler)
 
     def make_endogenous_process(
-            self,
-            option: Optional[ParameterizedOption],
-            option_vars: Optional[Sequence[Variable]],
-            sampler: Optional[NSRTSampler],
-            process_strength: Optional[float] = None,
-            process_delay_params: Optional[Sequence[float]] = None,
-            process_rng: Optional[np.random.Generator] = None,
+        self,
+        option: Optional[ParameterizedOption],
+        option_vars: Optional[Sequence[Variable]],
+        sampler: Optional[NSRTSampler],
+        process_strength: Optional[float] = None,
+        process_delay_params: Optional[Sequence[float]] = None,
+        process_rng: Optional[np.random.Generator] = None,
     ) -> EndogenousProcess:
-        """Make a CausalProcess out of this STRIPSOperator object.
-        """
+        """Make a CausalProcess out of this STRIPSOperator object."""
         assert option is not None and option_vars is not None and \
             sampler is not None
         if process_delay_params is None:
@@ -920,29 +919,30 @@ class STRIPSOperator:
         if process_rng is None:
             process_rng = np.random.default_rng(CFG.seed)
 
-        proc = EndogenousProcess(self.name, self.parameters,
-                condition_at_start=self.preconditions if option.name != "NoOp" 
-                    else set(),
-                condition_overall=set(),
-                condition_at_end=set(),
-                add_effects=self.add_effects if option.name != "NoOp" 
-                    else set(),
-                delete_effects=self.delete_effects if option.name != "NoOp" 
-                    else set(),
-                delay_distribution=utils.CMPDelay(
-                        *process_delay_params, 
-                        rng=process_rng),
-                strength=process_strength,
-                option=option,
-                option_vars=option_vars,
-                _sampler=sampler)
+        proc = EndogenousProcess(
+            self.name,
+            self.parameters,
+            condition_at_start=self.preconditions
+            if option.name != "NoOp" else set(),
+            condition_overall=set(),
+            condition_at_end=set(),
+            add_effects=self.add_effects if option.name != "NoOp" else set(),
+            delete_effects=self.delete_effects
+            if option.name != "NoOp" else set(),
+            delay_distribution=utils.CMPDelay(*process_delay_params,
+                                              rng=process_rng),
+            strength=process_strength,
+            option=option,
+            option_vars=option_vars,
+            _sampler=sampler)
         return proc
-    
-    def make_exogenous_process(self,
-                    process_strength: Optional[float] = None,
-                    process_delay_params: Optional[Sequence[float]] = None,
-                    process_rng: Optional[np.random.Generator] = None
-                ) -> ExogenousProcess:
+
+    def make_exogenous_process(
+            self,
+            process_strength: Optional[float] = None,
+            process_delay_params: Optional[Sequence[float]] = None,
+            process_rng: Optional[np.random.Generator] = None
+    ) -> ExogenousProcess:
         """Make an ExogenousProcess out of this STRIPSOperator object."""
         if process_delay_params is None:
             process_delay_params = [1, 1]
@@ -950,8 +950,9 @@ class STRIPSOperator:
             process_strength = 1.0
         if process_rng is None:
             process_rng = np.random.default_rng(CFG.seed)
-        
-        proc = ExogenousProcess(self.name, self.parameters,
+
+        proc = ExogenousProcess(self.name,
+                                self.parameters,
                                 condition_at_start=self.preconditions,
                                 condition_overall=self.preconditions,
                                 condition_at_end=set(),
@@ -1816,14 +1817,14 @@ class PNAD:
         assert self.sampler is not None
         param_option, option_vars = self.option_spec
         return self.op.make_nsrt(param_option, option_vars, self.sampler)
-    
+
     def make_endogenous_process(self) -> EndogenousProcess:
         """Make an EndogenousProcess from this PNAD."""
         assert self.sampler is not None
         param_option, option_vars = self.option_spec
         return self.op.make_endogenous_process(param_option, option_vars,
                                                self.sampler)
-    
+
     def make_exogenous_process(self) -> ExogenousProcess:
         """Make an ExogenousProcess from this PNAD."""
         return self.op.make_exogenous_process()
@@ -1856,12 +1857,13 @@ class PNAD:
     def __lt__(self, other: PNAD) -> bool:
         return repr(self) < repr(other)
 
+
 @dataclass(eq=False, repr=False)
 class PAPAD:
-    """Partial Process and Datastore.
-    """
+    """Partial Process and Datastore."""
     # The non option and sampler part of the CausalProcess
     pprocess: PartialProcess
+
 
 @dataclass(frozen=True, eq=False, repr=False)
 class InteractionRequest:
@@ -2351,7 +2353,7 @@ class DelayDistribution:
 
     def __str__(self) -> str:
         return self._str
-    
+
     @cached_property
     def _str(self) -> str:
         raise NotImplementedError
@@ -2360,6 +2362,7 @@ class DelayDistribution:
 @dataclass(frozen=False, repr=False, eq=False)
 class PartialProcess:
     pass
+
 
 @dataclass(frozen=False, repr=False, eq=False)
 class CausalProcess(abc.ABC):
@@ -2452,7 +2455,7 @@ class ExogenousProcess(CausalProcess):
                                 condition_overall, condition_at_end,
                                 add_effects, delete_effects,
                                 self.delay_distribution, self.strength)
-    
+
     @cached_property
     def _str(self) -> str:
         process_str = super()._str
@@ -2531,7 +2534,7 @@ class EndogenousProcess(CausalProcess):
         process_str = super()._str
         return f"""EndogenousProcess-{self.name}:
 {process_str}
-    Option Spec: {self.option.name}({option_var_str})"""    
+    Option Spec: {self.option.name}({option_var_str})"""
 
 
 @dataclass(frozen=False, repr=False, eq=False)

@@ -1,9 +1,9 @@
 """Approaches that use an LLM to learn STRIPS operators instead of performing
 symbolic learning of any kind."""
 
+import logging
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
-import logging
 
 from predicators import utils
 from predicators.nsrt_learning.strips_learning import BaseSTRIPSLearner
@@ -85,7 +85,7 @@ class LLMStripsLearner(BaseSTRIPSLearner):
         closing_paren_loc = name_and_args.find(")")
         name_str = name_and_args[:opening_paren_loc]
         arg_str = name_and_args[opening_paren_loc + 1:closing_paren_loc]
-        args = arg_str.replace(",", "").split() # remove commas
+        args = arg_str.replace(",", "").split()  # remove commas
         arg_dict = {}
         for i in range(0, len(args), 3):
             arg_name = args[i]

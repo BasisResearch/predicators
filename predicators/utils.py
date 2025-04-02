@@ -22,6 +22,7 @@ from argparse import ArgumentParser
 from collections import defaultdict, namedtuple
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 from pprint import pformat
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Collection, Dict, \
@@ -29,7 +30,6 @@ from typing import TYPE_CHECKING, Any, Callable, ClassVar, Collection, Dict, \
     Sequence, Set, Tuple
 from typing import Type as TypingType
 from typing import TypeVar, Union, cast
-from functools import cached_property
 
 import colorlog
 import dill as pkl
@@ -4286,10 +4286,11 @@ class ConstantDelay(DelayDistribution):
 
     def probability(self, k: int) -> float:
         return 1.0 if k == self.delay else 0.0
-    
+
     @cached_property
     def _str(self) -> str:
         return f"ConstantDelay({self.delay})"
+
 
 class GaussianDelay(DelayDistribution):
 
@@ -4314,6 +4315,7 @@ class GaussianDelay(DelayDistribution):
     @cached_property
     def _str(self) -> str:
         return f"GaussianDelay({self.mean}, {self.std})"
+
 
 class CMPDelay(DelayDistribution):
     """Conway-Maxwell-Poisson (CMP) distribution for delays."""
@@ -4341,28 +4343,28 @@ class CMPDelay(DelayDistribution):
         Z = np.sum([np.exp(log_mass(_t)) for _t in range(500)])
 
         return np.exp(log_mass(k)) / Z
-    
+
     @cached_property
     def _str(self) -> str:
         return f"CMPDelay({self.lam}, {self.nu})"
-    
+
     def sample(self):
         """Sample from the CMP distribution."""
         # Calculate the PMF for a reasonable range of outcomes
         max_k = 500  # Same as used in the probability method
         pmf = [self.probability(k) for k in range(max_k)]
-        
+
         # Calculate the CDF
         cdf = np.cumsum(pmf)
-        
+
         # Generate a random value
         u = self.rng.random()
-        
+
         # Find the smallest k such that CDF(k) >= u
         for k, cum_prob in enumerate(cdf):
             if cum_prob >= u:
                 return k
-        
+
         # If we get here, return the maximum value (should be rare)
         return max_k - 1
 

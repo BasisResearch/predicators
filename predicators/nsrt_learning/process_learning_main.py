@@ -1,30 +1,29 @@
 import logging
-from typing import List, Optional, Set, Any
+from typing import Any, List, Optional, Set
 
 from gym.spaces import Box
 
-from predicators.settings import CFG
-from predicators.nsrt_learning.segmentation import segment_trajectory
-from predicators.structs import LowLevelTrajectory, Task, Predicate, PNAD,\
-    ParameterizedOption, GroundAtomTrajectory, CausalProcess, Segment
-from predicators.nsrt_learning.strips_learning import learn_strips_operators
-from predicators.nsrt_learning.process_learning import learn_exogenous_processes
+from predicators import utils
 from predicators.nsrt_learning.nsrt_learning_main import _learn_pnad_options, \
     _learn_pnad_samplers
-from predicators import utils
-
+from predicators.nsrt_learning.process_learning import \
+    learn_exogenous_processes
+from predicators.nsrt_learning.segmentation import segment_trajectory
+from predicators.nsrt_learning.strips_learning import learn_strips_operators
+from predicators.settings import CFG
+from predicators.structs import PNAD, CausalProcess, GroundAtomTrajectory, \
+    LowLevelTrajectory, ParameterizedOption, Predicate, Segment, Task
 
 
 def learn_processes_from_data(
         trajectories: List[LowLevelTrajectory], train_tasks: List[Task],
         predicates: Set[Predicate], known_options: Set[ParameterizedOption],
-        action_space: Box, 
+        action_space: Box,
         ground_atom_dataset: Optional[List[GroundAtomTrajectory]],
-        sampler_learner: str, annotations: Optional[List[Any]]
-        ) -> Set[CausalProcess]:
+        sampler_learner: str,
+        annotations: Optional[List[Any]]) -> Set[CausalProcess]:
     """Learn CausalProcesses from the given dataset of low-level transitions,
-    using the given set of predicates.
-    """
+    using the given set of predicates."""
     logging.info(f"\nLearning CausalProcesses on {len(trajectories)} "
                  "trajectories...")
 
@@ -36,7 +35,7 @@ def learn_processes_from_data(
     #         either predicates or options. If we are doing option learning,
     #         then the data will not contain options, so this segmenting
     #         procedure only uses the predicates.
-    #         If we know the option segmentations this is pretty similar to 
+    #         If we know the option segmentations this is pretty similar to
     #         learning NSRTs.
     if ground_atom_dataset is None:
         segmented_trajs = [
@@ -50,13 +49,13 @@ def learn_processes_from_data(
 
     # STEP 2: Learn STRIPS operators on the given data segments as for NSRTs.
     pnads = learn_strips_operators(
-            trajectories,
-            train_tasks,
-            predicates,
-            segmented_trajs,
-            verify_harmlessness=True,
-            verbose=(CFG.option_learner != "no_learning"),
-            annotations=annotations)
+        trajectories,
+        train_tasks,
+        predicates,
+        segmented_trajs,
+        verify_harmlessness=True,
+        verbose=(CFG.option_learner != "no_learning"),
+        annotations=annotations)
 
     # STEP 3: Learn options and update PNADs
     if CFG.strips_learner != "oracle" or CFG.sampler_learner != "oracle" or \
@@ -82,25 +81,26 @@ def learn_processes_from_data(
     ]
     # filtering out explained segments
     filtered_segmented_trajs = filter_explained_segment(segmented_trajs, pnads)
-    
+
     # STEP 2: Learn the exogenous processes based on unexplained processes.
-    #         This is different from STRIPS/endogenous processes, where these 
+    #         This is different from STRIPS/endogenous processes, where these
     #         don't have options and samplers.
     # Let's start with just the STRIPS learner for now.
     # exogenous_processes = learn_exogenous_processes()
 
-    # TODO: remove any atoms with robot in them? Because in most cases the 
+    # TODO: remove any atoms with robot in them? Because in most cases the
     #       robot's state shouldn't matter (there are certainly cases where it).
     exogenous_processes_pnad = learn_strips_operators(
-                                trajectories,
-                                train_tasks,
-                                predicates,
-                                filtered_segmented_trajs,
-                                verify_harmlessness=False,
-                                verbose=(CFG.option_learner != "no_learning"),
-                                annotations=annotations)
-    exogenous_processes = [pnad.make_exogenous_process() for pnad in 
-                           exogenous_processes_pnad]
+        trajectories,
+        train_tasks,
+        predicates,
+        filtered_segmented_trajs,
+        verify_harmlessness=False,
+        verbose=(CFG.option_learner != "no_learning"),
+        annotations=annotations)
+    exogenous_processes = [
+        pnad.make_exogenous_process() for pnad in exogenous_processes_pnad
+    ]
 
     # STEP 6: Make, log, and return the endogenous and exogenous processes.
     processes = endogenous_processes + exogenous_processes
@@ -112,9 +112,9 @@ def learn_processes_from_data(
 
     return set(processes)
 
+
 def filter_explained_segment(segmented_trajs: List[List[Segment]],
-                             pnads: List[PNAD]
-                             ) -> List[List[Segment]]:
+                             pnads: List[PNAD]) -> List[List[Segment]]:
     """Filter out segments that are explained by the given PNADs."""
     logging.debug(f"Num of unfiltered segments: {len(segmented_trajs[0])}\n")
     filtered_trajs = []
@@ -123,15 +123,19 @@ def filter_explained_segment(segmented_trajs: List[List[Segment]],
         filtered_segments = []
         for segment in traj:
             # TODO: is this kind of like "cover"?
-            relevant_ops = [pnad.op for pnad in pnads if 
-                            segment.get_option().parent == pnad.option_spec[0]]
+            relevant_ops = [
+                pnad.op for pnad in pnads
+                if segment.get_option().parent == pnad.option_spec[0]
+            ]
             add_atoms = segment.add_effects
             delete_atoms = segment.delete_effects
             # if not explained by any
-            if not any([add_atoms.issubset(g_op.add_effects) and 
-                        delete_atoms.issubset(g_op.delete_effects) for op 
-                    in relevant_ops for g_op 
-                    in utils.all_ground_operators(op, objects)]):
+            if not any([
+                    add_atoms.issubset(g_op.add_effects)
+                    and delete_atoms.issubset(g_op.delete_effects)
+                    for op in relevant_ops
+                    for g_op in utils.all_ground_operators(op, objects)
+            ]):
                 filtered_segments.append(segment)
         filtered_trajs.append(filtered_segments)
 

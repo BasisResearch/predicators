@@ -1,6 +1,6 @@
 import logging
 from collections import defaultdict
-from typing import Dict, List, Optional, Sequence, Set, Any
+from typing import Any, Dict, List, Optional, Sequence, Set
 
 import dill as pkl
 import numpy as np
@@ -12,13 +12,14 @@ from predicators import planning, utils
 from predicators.approaches.pp_param_learning_approach import \
     ParamLearningBilevelProcessPlanningApproach
 from predicators.ground_truth_models import get_gt_processes
+from predicators.nsrt_learning.process_learning_main import \
+    learn_processes_from_data
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
-    Dataset, GroundAtom, ParameterizedOption, Predicate, Task, Type, \
-    _GroundCausalProcess, LowLevelTrajectory, GroundAtomTrajectory
-from predicators.nsrt_learning.process_learning_main import \
-    learn_processes_from_data
+    Dataset, GroundAtom, GroundAtomTrajectory, LowLevelTrajectory, \
+    ParameterizedOption, Predicate, Task, Type, _GroundCausalProcess
+
 
 class ProcessLearningBilevelProcessPlanningApproach(
         ParamLearningBilevelProcessPlanningApproach):
@@ -68,11 +69,11 @@ class ProcessLearningBilevelProcessPlanningApproach(
         """Learn models from the offline datasets."""
         self._learn_processes(dataset.trajectories,
                               online_learning_cycle=None,
-                              annotations=(dataset.annotations
-                                          if dataset.has_annotations else None))
+                              annotations=(dataset.annotations if
+                                           dataset.has_annotations else None))
         # # Optional: learn parameters
         # super().learn_from_offline_dataset(dataset)
-    
+
     def _learn_processes(self, trajectories: List[LowLevelTrajectory],
                          online_learning_cycle: Optional[int],
                          annotations: Optional[List[Any]]) -> None:
@@ -82,8 +83,8 @@ class ProcessLearningBilevelProcessPlanningApproach(
             online_learning_cycle=online_learning_cycle)
         ground_atom_dataset: Optional[List[GroundAtomTrajectory]] = None
         if CFG.load_atoms:
-            ground_atom_dataset = utils.load_ground_atom_dataset(dataset_fname,
-                                                                 trajectories)
+            ground_atom_dataset = utils.load_ground_atom_dataset(
+                dataset_fname, trajectories)
         elif CFG.save_atoms:
             ground_atom_dataset = utils.create_ground_atom_dataset(
                 trajectories, self._get_current_predicates())
