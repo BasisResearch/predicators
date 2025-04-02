@@ -905,18 +905,18 @@ class STRIPSOperator:
             option: Optional[ParameterizedOption],
             option_vars: Optional[Sequence[Variable]],
             sampler: Optional[NSRTSampler],
-            process_strenght: Optional[float] = None,
+            process_strength: Optional[float] = None,
             process_delay_params: Optional[Sequence[float]] = None,
             process_rng: Optional[np.random.Generator] = None,
-    ) -> CausalProcess:
+    ) -> EndogenousProcess:
         """Make a CausalProcess out of this STRIPSOperator object.
         """
         assert option is not None and option_vars is not None and \
             sampler is not None
         if process_delay_params is None:
             process_delay_params = [1, 1]
-        if process_strenght is None:
-            process_strenght = 1.0
+        if process_strength is None:
+            process_strength = 1.0
         if process_rng is None:
             process_rng = np.random.default_rng(CFG.seed)
 
@@ -932,10 +932,34 @@ class STRIPSOperator:
                 delay_distribution=utils.CMPDelay(
                         *process_delay_params, 
                         rng=process_rng),
-                strength=process_strenght,
+                strength=process_strength,
                 option=option,
                 option_vars=option_vars,
                 _sampler=sampler)
+        return proc
+    
+    def make_exogenous_process(self,
+                    process_strength: Optional[float] = None,
+                    process_delay_params: Optional[Sequence[float]] = None,
+                    process_rng: Optional[np.random.Generator] = None
+                ) -> ExogenousProcess:
+        """Make an ExogenousProcess out of this STRIPSOperator object."""
+        if process_delay_params is None:
+            process_delay_params = [1, 1]
+        if process_strength is None:
+            process_strength = 1.0
+        if process_rng is None:
+            process_rng = np.random.default_rng(CFG.seed)
+        
+        proc = ExogenousProcess(self.name, self.parameters,
+                                condition_at_start=self.preconditions,
+                                condition_overall=self.preconditions,
+                                condition_at_end=set(),
+                                add_effects=self.add_effects,
+                                delete_effects=self.delete_effects,
+                                delay_distribution=utils.CMPDelay(
+                                    *process_delay_params, rng=process_rng),
+                                strength=process_strength)
         return proc
 
     @lru_cache(maxsize=None)
@@ -1799,6 +1823,10 @@ class PNAD:
         param_option, option_vars = self.option_spec
         return self.op.make_endogenous_process(param_option, option_vars,
                                                self.sampler)
+    
+    def make_exogenous_process(self) -> ExogenousProcess:
+        """Make an ExogenousProcess from this PNAD."""
+        return self.op.make_exogenous_process()
 
     def copy(self) -> PNAD:
         """Make a copy of this PNAD object, taking care to ensure that
@@ -2375,8 +2403,7 @@ class CausalProcess(abc.ABC):
 
     @cached_property
     def _str(self) -> str:
-        return f"""Process-{self.name}:
-    Parameters: {self.parameters}
+        return f"""    Parameters: {self.parameters}
     Conditions at start: {sorted(self.condition_at_start, key=str)}
     Conditions overall: {sorted(self.condition_overall, key=str)}
     Conditions at end: {sorted(self.condition_at_end, key=str)}
@@ -2425,6 +2452,12 @@ class ExogenousProcess(CausalProcess):
                                 condition_overall, condition_at_end,
                                 add_effects, delete_effects,
                                 self.delay_distribution, self.strength)
+    
+    @cached_property
+    def _str(self) -> str:
+        process_str = super()._str
+        return f"""ExogenousProcess-{self.name}:
+{process_str}"""
 
     def ground(self, objects: Sequence[Object]) -> _GroundExogenousProcess:
         assert len(objects) == len(self.parameters)
@@ -2495,15 +2528,9 @@ class EndogenousProcess(CausalProcess):
     @cached_property
     def _str(self) -> str:
         option_var_str = ", ".join([str(v) for v in self.option_vars])
+        process_str = super()._str
         return f"""EndogenousProcess-{self.name}:
-    Parameters: {self.parameters}
-    Conditions at start: {sorted(self.condition_at_start, key=str)}
-    Conditions overall : {sorted(self.condition_overall, key=str)}
-    Conditions at end  : {sorted(self.condition_at_end, key=str)}
-    Add Effects: {sorted(self.add_effects, key=str)}
-    Delete Effects: {sorted(self.delete_effects, key=str)}
-    Strength: {self.strength}
-    Delay Distribution: {self.delay_distribution}
+{process_str}
     Option Spec: {self.option.name}({option_var_str})"""    
 
 

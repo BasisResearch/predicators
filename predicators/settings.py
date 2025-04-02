@@ -572,6 +572,7 @@ class GlobalSettings:
     cluster_and_intersect_min_datastore_fraction = 0.0
     cluster_and_intersect_soft_intersection_for_preconditions = False
     find_best_matching_pnad_skip_if_effect_not_subset = True
+    exogenous_process_learner = "cluster_and_intersect"
 
     # torch GPU usage setting
     use_torch_gpu = False
