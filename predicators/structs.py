@@ -913,7 +913,7 @@ class STRIPSOperator:
         assert option is not None and option_vars is not None and \
             sampler is not None
         if process_delay_params is None:
-            process_delay_params = [1, 1]
+            process_delay_params = [5, 1]
         if process_strength is None:
             process_strength = 1.0
         if process_rng is None:
@@ -945,7 +945,7 @@ class STRIPSOperator:
     ) -> ExogenousProcess:
         """Make an ExogenousProcess out of this STRIPSOperator object."""
         if process_delay_params is None:
-            process_delay_params = [1, 1]
+            process_delay_params = [5, 1]
         if process_strength is None:
             process_strength = 1.0
         if process_rng is None:
