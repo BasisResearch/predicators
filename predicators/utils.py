@@ -4323,49 +4323,50 @@ class CMPDelay(DelayDistribution):
         self.lam = lam
         self.nu = nu
         self.rng = rng
+        self._max_k = 100
+        self._update_cache()
+
+    def _update_cache(self):
+        """Precompute and cache PMF and CDF."""
+        # Calculate log factorial values once
+        log_factorials = np.array([gammaln(n + 1) for n in range(self._max_k)])
+        
+        # Vectorized log mass calculation
+        ks = np.arange(self._max_k)
+        log_masses = ks * np.log(self.lam) - self.nu * log_factorials
+        
+        # Special case for k=0
+        if self._max_k > 0:
+            log_masses[0] = -self.lam
+            
+        # Find max to prevent overflow
+        max_log_mass = np.max(log_masses)
+        masses = np.exp(log_masses - max_log_mass)
+        
+        # Normalize
+        self._pmf = masses / np.sum(masses)
+        self._cdf = np.cumsum(self._pmf)
 
     def set_parameters(self, parameters):
         self.lam = parameters[0]
         self.nu = parameters[1]
+        self._update_cache()
 
     def probability(self, k: int) -> float:
         """Return the probability of delay k."""
-        if k == 0:
-            return np.exp(-self.lam)
-
-        def log_factorial(N):
-            return gammaln(N + 1)
-
-        def log_mass(N):
-            return N * np.log(self.lam) - self.nu * log_factorial(N)
-
-        Z = np.sum([np.exp(log_mass(_t)) for _t in range(500)])
-
-        return np.exp(log_mass(k)) / Z
+        if 0 <= k < self._max_k:
+            return self._pmf[k]
+        return 0.0
 
     @cached_property
     def _str(self) -> str:
         return f"CMPDelay({self.lam}, {self.nu})"
 
     def sample(self):
-        """Sample from the CMP distribution."""
-        # Calculate the PMF for a reasonable range of outcomes
-        max_k = 500  # Same as used in the probability method
-        pmf = [self.probability(k) for k in range(max_k)]
-
-        # Calculate the CDF
-        cdf = np.cumsum(pmf)
-
-        # Generate a random value
+        """Sample from the CMP distribution using cached CDF."""
         u = self.rng.random()
-
-        # Find the smallest k such that CDF(k) >= u
-        for k, cum_prob in enumerate(cdf):
-            if cum_prob >= u:
-                return k
-
-        # If we get here, return the maximum value (should be rare)
-        return max_k - 1
+        idx = np.searchsorted(self._cdf, u)
+        return idx
 
 
 @functools.lru_cache(maxsize=None)
