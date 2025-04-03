@@ -415,6 +415,9 @@ class GlobalSettings:
     # fan env
     fan_fans_blow_opposite_direction = False
 
+    # boil env
+    boil_use_constant_delay = False
+
     # parameters for random options approach
     random_options_max_tries = 100
 
@@ -524,6 +527,7 @@ class GlobalSettings:
     failure_video_mode = "longest_only"
     terminate_on_goal_reached = True
     keep_failed_demos = False  # For saving videos
+    terminate_on_goal_reached_and_option_terminated = False
 
     # dataset parameters
     # For learning-based approaches, the data collection timeout for planning.

@@ -1682,7 +1682,6 @@ def option_policy_to_policy(
             prev_atoms = abstract_function(last_state)
             if cur_atoms != prev_atoms:
                 noop_terminate = True
-                # breakpoint()
 
         last_state = state
 

@@ -259,6 +259,9 @@ def run_episode_and_get_observations(
                     if monitor_observed:
                         exception_raised_in_step = True
                     break
+                if CFG.terminate_on_goal_reached_and_option_terminated and \
+                    env.goal_reached():
+                    break
                 if monitor is not None and not monitor_observed:
                     monitor.observe(obs, None)
                 raise e
