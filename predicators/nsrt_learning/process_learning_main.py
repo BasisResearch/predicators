@@ -53,7 +53,9 @@ def learn_processes_from_data(
         train_tasks,
         predicates,
         segmented_trajs,
-        verify_harmlessness=True,
+        verify_harmlessness=False, # these processes are in principal 'harmful'
+        # because they should leave some atoms to be explained by exogenous
+        # processes.
         verbose=(CFG.option_learner != "no_learning"),
         annotations=annotations)
 
@@ -69,6 +71,9 @@ def learn_processes_from_data(
     # STEP 5: Convert PNADs to endogenous processes. (Maybe also make rough
     #         parameter estimates.)
     endogenous_processes = [pnad.make_endogenous_process() for pnad in pnads]
+    # for proc in endogenous_processes:
+    #     logging.debug(f"{proc}")
+    # logging.debug("")
 
     # --- Learn the exogenous processes. ---
     # STEP 1: Segment the trajectory by atom_changes, and filter out the ones
