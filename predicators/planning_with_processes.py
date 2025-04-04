@@ -131,7 +131,8 @@ class ProcessWorldModel:
             is_endogenous = isinstance(g_process, _GroundEndogenousProcess)
             first_step_running_action = small_step_action is not None and \
                                         g_process == small_step_action
-            not_noop = g_process.name != 'NoOp'
+            if is_endogenous:
+                not_noop = g_process.parent.option.name != 'NoOp'
             # logging.debug(f"Condition at start: {satisfy_condition_at_start} "
             #               f"no prev state or prev doesnt satisfy: {no_prev_state_or_prev_doesnt_satisfy} "
             #               f"Is endogenous: {is_endogenous} "
@@ -182,7 +183,7 @@ class ProcessWorldModel:
 
             # if currently executing NoOp and state has changed, then break
             if self.current_action is not None and \
-                self.current_action.name == 'NoOp' and \
+                self.current_action.parent.option.name == 'NoOp' and \
                 self.state != initial_state:
                 break
         return self.state
