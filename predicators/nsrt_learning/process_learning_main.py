@@ -1,5 +1,6 @@
 import logging
 from typing import Any, List, Optional, Set
+from pprint import pformat
 
 from gym.spaces import Box
 
@@ -13,7 +14,7 @@ from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.settings import CFG
 from predicators.structs import PNAD, CausalProcess, GroundAtomTrajectory, \
     LowLevelTrajectory, ParameterizedOption, Predicate, Segment, Task,\
-    EndogenousProcess
+    EndogenousProcess, DummyOption
 
 
 def learn_processes_from_data(
@@ -31,8 +32,8 @@ def learn_processes_from_data(
 
     # We will probably learn endogenous and exogenous processes separately.
     if CFG.only_learn_exogenous_processes:
-        endogenous_processes = {p for p in current_processes if
-                                isinstance(p, EndogenousProcess)}
+        endogenous_processes = [p for p in current_processes if
+                                isinstance(p, EndogenousProcess)]
     else:
         # -- Learn the endogenous processes ---
         # STEP 1: Segment the trajectory by options. (don't currently consider
@@ -92,8 +93,8 @@ def learn_processes_from_data(
     ]
     # filtering out explained segments
     filtered_segmented_trajs = filter_explained_segment(segmented_trajs, 
-                                                        endogenous_processes)
-    breakpoint()
+                                                        endogenous_processes,
+                                                        remove_options=True)
 
     # STEP 2: Learn the exogenous processes based on unexplained processes.
     #         This is different from STRIPS/endogenous processes, where these
@@ -102,7 +103,8 @@ def learn_processes_from_data(
     # exogenous_processes = learn_exogenous_processes()
 
     # TODO: remove any atoms with robot in them? Because in most cases the
-    #       robot's state shouldn't matter (there are certainly cases where it).
+    #       robot's state shouldn't matter (there are certainly cases where it,
+    #       e.g., a sensor is activated if it detects the agent is here?).
     exogenous_processes_pnad = learn_strips_operators(
         trajectories,
         train_tasks,
@@ -114,19 +116,21 @@ def learn_processes_from_data(
     exogenous_processes = [
         pnad.make_exogenous_process() for pnad in exogenous_processes_pnad
     ]
+    logging.info(f"Segmented trajectories:\n{pformat(filtered_segmented_trajs)}")
+    logging.info(f"Learned {len(exogenous_processes)} exogenous processes:\n"
+                 f"{pformat(exogenous_processes)}")
+    breakpoint()
 
     # STEP 6: Make, log, and return the endogenous and exogenous processes.
     processes = endogenous_processes + exogenous_processes
-    logging.info(f"\nLearned CausalProcesses:")
-    for proc in processes:
-        logging.info(proc)
-    logging.info("")
+    logging.info(f"\nLearned CausalProcesses:\n{pformat(processes)}")
 
     return set(processes)
 
 
 def filter_explained_segment(segmented_trajs: List[List[Segment]],
-                             endogenous_processes: List[EndogenousProcess]
+                             endogenous_processes: List[EndogenousProcess],
+                             remove_options: bool = False,
                              ) -> List[List[Segment]]:
     """Filter out segments that are explained by the given PNADs."""
     logging.debug(f"Num of unfiltered segments: {len(segmented_trajs[0])}\n")
@@ -149,6 +153,8 @@ def filter_explained_segment(segmented_trajs: List[List[Segment]],
                     for proc in relevant_procs
                     for g_proc in utils.all_ground_operators(proc, objects)
             ]):
+                if remove_options:
+                    segment.set_option(DummyOption)
                 filtered_segments.append(segment)
         filtered_trajs.append(filtered_segments)
 
