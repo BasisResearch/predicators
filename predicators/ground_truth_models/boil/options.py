@@ -13,8 +13,6 @@ from predicators import utils
 from predicators.envs.pybullet_boil import PyBulletBoilEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
-from predicators.ground_truth_models.coffee.options import \
-    PyBulletCoffeeGroundTruthOptionFactory
 from predicators.pybullet_helpers.controllers import \
     create_change_fingers_option, create_move_end_effector_to_pose_option
 from predicators.pybullet_helpers.geometry import Pose

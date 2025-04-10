@@ -578,6 +578,7 @@ class GlobalSettings:
     cluster_and_intersect_soft_intersection_for_preconditions = False
     find_best_matching_pnad_skip_if_effect_not_subset = True
     exogenous_process_learner = "cluster_and_intersect"
+    only_learn_exogenous_processes = False
 
     # torch GPU usage setting
     use_torch_gpu = False

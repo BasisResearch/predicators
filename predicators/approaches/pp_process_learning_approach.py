@@ -34,7 +34,6 @@ class ProcessLearningBilevelProcessPlanningApproach(
                  task_planning_heuristic: str = "default",
                  max_skeletons_optimized: int = -1,
                  bilevel_plan_without_sim: Optional[bool] = None,
-                 processes: Optional[Set[CausalProcess]] = None,
                  option_model: Optional[_OptionModelBase] = None):
         super().__init__(initial_predicates,
                          initial_options,
@@ -45,10 +44,13 @@ class ProcessLearningBilevelProcessPlanningApproach(
                          max_skeletons_optimized,
                          bilevel_plan_without_sim,
                          option_model=option_model)
-        if processes is None:
-            processes = get_gt_processes(CFG.env, self._initial_predicates,
-                                         self._initial_options)
-        self._processes: List[CausalProcess] = sorted(processes)
+        if CFG.only_learn_exogenous_processes:
+            self._processes = get_gt_processes(CFG.env, self._initial_predicates,
+                                               self._initial_options,
+                                               only_endogenous=True)
+        else:
+            # Learn all
+            self._processes: Set[CausalProcess] = set()
 
     @classmethod
     def get_name(cls):
@@ -90,13 +92,14 @@ class ProcessLearningBilevelProcessPlanningApproach(
                 trajectories, self._get_current_predicates())
         self._processes = \
             learn_processes_from_data(trajectories,
-                                        self._train_tasks,
-                                        self._get_current_predicates(),
-                                        self._initial_options,
-                                        self._action_space,
-                                        ground_atom_dataset,
-                                        sampler_learner=CFG.sampler_learner,
-                                        annotations=annotations)
+                                self._train_tasks,
+                                self._get_current_predicates(),
+                                self._initial_options,
+                                self._action_space,
+                                ground_atom_dataset,
+                                sampler_learner=CFG.sampler_learner,
+                                annotations=annotations,
+                                current_processes=self._get_current_processes())
 
         save_path = utils.get_approach_save_path_str()
         with open(f"{save_path}_{online_learning_cycle}.PROCes", "wb") as f:

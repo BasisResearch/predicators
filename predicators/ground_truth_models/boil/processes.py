@@ -77,11 +77,9 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         add_effects = {
             LiftedAtom(Holding, [robot, jug]),
-            LiftedAtom(NoJugUnderFaucet, [faucet]),
         }
         delete_effects = {
             LiftedAtom(HandEmpty, [robot]),
-            LiftedAtom(JugUnderFaucet, [jug, faucet]),
         }
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(4)
@@ -125,11 +123,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             option, option_vars, null_sampler)
         processes.add(pick_jug_outside_faucet_process)
 
-        # PlaceOnBurner
+        # PlaceOnBurner (From Faucet)
         robot = Variable("?robot", robot_type)
         jug = Variable("?jug", jug_type)
         burner = Variable("?burner", burner_type)
-        parameters = [robot, jug, burner]
+        faucet = Variable("?faucet", faucet_type)
+        parameters = [robot, jug, burner, faucet]
         option_vars = [robot, burner]
         option = PlaceOnBurner
         condition_at_start = {
@@ -138,9 +137,11 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         add_effects = {
             LiftedAtom(HandEmpty, [robot]),
             LiftedAtom(JugOnBurner, [jug, burner]),
+            LiftedAtom(NoJugUnderFaucet, [faucet]),
         }
         delete_effects = {
             LiftedAtom(Holding, [robot, jug]),
+            LiftedAtom(JugUnderFaucet, [jug, faucet]),
         }
         if CFG.boil_use_constant_delay:            
             delay_distribution = ConstantDelay(5)
