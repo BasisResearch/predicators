@@ -270,8 +270,11 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
             }
             new_conditions = set(atom for atom in conditions_to_choose_from
                                  if atom_in_llm_selection(atom, conditions))
+            new_parameters = set(var for atom in new_conditions
+                                 for var in atom.variables)
             final_pnads.append(
-                PNAD(pnad.op.copy_with(preconditions=new_conditions),
+                PNAD(pnad.op.copy_with(parameters=new_parameters,
+                                       preconditions=new_conditions),
                      pnad.datastore, pnad.option_spec))
         return final_pnads
 

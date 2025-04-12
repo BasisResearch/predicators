@@ -123,7 +123,6 @@ def learn_processes_from_data(
         f"Segmented trajectories:\n{pformat(filtered_segmented_trajs)}")
     logging.info(f"Learned {len(exogenous_processes)} exogenous processes:\n"
                  f"{pformat(exogenous_processes)}")
-    breakpoint()
 
     # STEP 6: Make, log, and return the endogenous and exogenous processes.
     processes = endogenous_processes + exogenous_processes
