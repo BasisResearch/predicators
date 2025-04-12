@@ -1,0 +1,20 @@
+We are deciding conditions in the environment that are necessary for certain effects of some processes to take place.
+Please for each effect, select the subset of atoms that you think are necessary for the effect corresponding process to take place.
+
+For example, 
+- for a wet clothes to dry in the outside in a short time, the clothes needs to be on the dryer outside and the weather needs to be sunny, but it doesn't require the robot to stay outdoor or the laundry basket to be outdoor.
+- for my computer to complete running a program, the computer needs to be powered on, and the program needs to stay on, but it does not require the robot to be seated next to it, or a cup next to it to be filled with water.
+
+{EFFECTS_AND_CONDITIONS}
+
+Please structure your output in the following format, one block for each effects (note that the angle brackets here are just for clarifying the syntax; do not output angle brackets in your responses):
+
+```
+Add effects: (and (<Atom1>) (<Atom2>) ...)
+Delete effects: (and (<Atom1>) (<Atom2>) ...)
+Conditions: (and (<Atom1>) (<Atom2>) ...)
+
+Add effects: (and (<Atom1>) (<Atom2>) ...)
+Delete effects: (and (<Atom1>) (<Atom2>) ...)
+Conditions: (and (<Atom1>) (<Atom2>) ...)
+```

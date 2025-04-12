@@ -1,10 +1,12 @@
 """Algorithms for STRIPS learning that rely on clustering to obtain effects."""
 
+import re
 import abc
 import functools
 import logging
 from collections import defaultdict
 from typing import Dict, FrozenSet, Iterator, List, Set, Tuple, cast
+from pprint import pformat
 
 from predicators import utils
 from predicators.nsrt_learning.strips_learning import BaseSTRIPSLearner
@@ -156,6 +158,154 @@ class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
                 ret_pnads.append(pnad)
         return ret_pnads
 
+class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
+    """Learn preconditions via LLM selection.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._llm = utils.create_llm_by_name(CFG.llm_model_name)
+        prompt_file = utils.get_path_to_predicators_root() + \
+            "/predicators/nsrt_learning/strips_learning/" + \
+            "llm_op_learning_prompts/condition_selection.prompt"
+        with open(prompt_file, "r") as f:
+            self.base_prompt = f.read()
+
+    def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
+        """Assume there is one segment per PNAD
+        We can either do lifting first and selection second, or the other way
+        around.
+        If we have multiple segments per PNAD, lifting requires us to find a 
+        subset of atoms that unifies the segments. We'd have to do this if we 
+        want to learn a single condition. But we could also learn more than one.
+        """
+        pred_name_to_pred = {p.name: p for p in self._predicates}
+        # Add var_to_obj for objects in the init state of the segment
+        new_pnads = []
+        for pnad in pnads:
+            assert len(pnad.datastore) == 1
+            seg, var_to_obj = pnad.datastore[0]
+            existing_objs = set(var_to_obj.values())
+            # Get the init atoms of the segment
+            init_atoms = seg.init_atoms
+            # Get the objects in the init atoms
+            additional_objects = {o for atom in init_atoms for o in 
+                                  atom.objects if o not in existing_objs}
+            # Create a new var_to_obj mapping for the objects
+            objects_lst = sorted(additional_objects)
+            params = utils.create_new_variables([o.type for o in objects_lst],
+                                                existing_vars=list(var_to_obj))
+            var_to_obj.update(dict(zip(params, objects_lst)))
+            new_pnads.append(PNAD(pnad.op, 
+                                  [(seg, var_to_obj)],
+                                  pnad.option_spec))  # dummy option
+
+        effect_and_conditions = ""
+        for pnad in new_pnads:
+            add_effects = pnad.op.add_effects
+            delete_effects = pnad.op.delete_effects
+            effect_and_conditions += "Add effects: ("
+            if add_effects:
+                effect_and_conditions += "and " + " ".join(f"({str(atom)})" for\
+                                                           atom in add_effects)
+            effect_and_conditions += ")\n"
+            effect_and_conditions += "Delete effects: ("
+            if delete_effects:
+                effect_and_conditions += "and " +  " ".join(f"({str(atom)})" \
+                                                        for atom in add_effects)
+            effect_and_conditions += ")\n"
+            segment_init_atoms = pnad.datastore[0][0].init_atoms
+            segment_var_to_obj = pnad.datastore[0][1]
+            obj_to_var = {v: k for k, v in segment_var_to_obj.items()}
+            try:
+                conditions_to_choose_from = pformat({a.lift(obj_to_var) for
+                                                 a in segment_init_atoms})
+            except:
+                breakpoint()
+            effect_and_conditions += "conditions to choose from:\n" +\
+                conditions_to_choose_from + "\n\n"
+        
+        prompt = self.base_prompt.format(
+            EFFECTS_AND_CONDITIONS=effect_and_conditions)
+        proposals = self._llm.sample_completions(prompt, None, 0.0, 
+                                                    CFG.seed)[0]
+        pattern = r'```\n(.*?)\n```'
+        matches = re.findall(pattern, proposals, re.DOTALL)
+        proposed_conditions = matches[0].split("\n\n")
+
+        def atom_in_llm_selection(atom: LiftedAtom, 
+                        conditions: List[Tuple[str, List[Tuple[str, str]]]]) -> bool:
+            for condition in conditions:
+                atom_name = condition[0]
+                atom_variables = condition[1]
+                if atom.predicate.name == atom_name and \
+                        all([var_type[0] == var.name for (var_type, var) in 
+                            zip(atom_variables, atom.variables)]):
+                    return True
+            return False
+
+        # Assumes the same numberr of PNADs and response chunks
+        assert len(new_pnads) == len(proposed_conditions)
+        final_pnads = []
+        for proposed_condition, pnad in zip(proposed_conditions, new_pnads):
+            # Get the effect atoms
+            # Get the condition atoms
+            lines = proposed_condition.split("\n")
+            add_effects = self.parse_effects_or_conditions(lines[0])
+            delete_effects = self.parse_effects_or_conditions(lines[1])
+            conditions = self.parse_effects_or_conditions(lines[2])
+
+            segment_init_atoms = pnad.datastore[0][0].init_atoms
+            segment_var_to_obj = pnad.datastore[0][1]
+            obj_to_var = {v: k for k, v in segment_var_to_obj.items()}
+            conditions_to_choose_from = {a.lift(obj_to_var) for
+                                                 a in segment_init_atoms}
+            new_conditions = set(atom for atom in conditions_to_choose_from
+                                 if atom_in_llm_selection(atom, conditions))
+            final_pnads.append(
+                PNAD(pnad.op.copy_with(preconditions=new_conditions),
+                     pnad.datastore, pnad.option_spec))
+        return final_pnads
+
+    def parse_effects_or_conditions(self, line: str) -> List[Tuple[str, List[Tuple[str, str]]]]:
+        """
+        Parse a line containing effects or conditions into a list of tuples.
+        For example, when given: 'Conditions: (and (FaucetOn(?x1:faucet)) (JugUnderFaucet(?x2:jug, ?x1:faucet)))'
+
+        Each returned tuple has:
+        - An atom name (e.g., "JugFilled")
+        - A list of (variable_name, type_name) pairs
+        (e.g., [("?x0", "jug"), ("?x1", "faucet")]).
+
+        Example Return:
+        [
+            ("FaucetOn", [("?x1", "faucet")]),
+            ("JugUnderFaucet", [("?x2", "jug"), ("?x1", "faucet")])
+        ]
+        """
+        import re
+        from typing import List, Tuple
+
+        # Remove the top-level (and ...) if present.
+        # This way, we won't accidentally capture "and" as an atom.
+        line = re.sub(r"\(\s*and\s+", "(", line)
+
+        # Match an atom name and the entire content inside its parentheses.
+        pattern = r"\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\((.*?)\)\)"
+        atom_matches = re.findall(pattern, line)
+
+        var_type_pattern = r"(\?[a-zA-Z0-9]+):([a-zA-Z0-9_]+)"
+        parsed_atoms: List[Tuple[str, List[Tuple[str, str]]]] = []
+
+        for atom_name, vars_str in atom_matches:
+            # Find all variable:type pairs in the string
+            var_type_pairs = re.findall(var_type_pattern, vars_str)
+            parsed_atoms.append((atom_name, var_type_pairs))
+
+        return parsed_atoms
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "cluster_and_llm_select"
 
 class ClusterAndSearchSTRIPSLearner(ClusteringSTRIPSLearner):
     """A clustering STRIPS learner that learns preconditions via search,

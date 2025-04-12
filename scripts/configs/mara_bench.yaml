@@ -28,7 +28,7 @@ APPROACHES:
       # else the demo collection will fail with an option plan exhausted error.
       strips_learner: "llm"
       find_best_matching_pnad_skip_if_effect_not_subset: False
-      exogenous_process_learner: "cluster_and_intersect"
+      exogenous_process_learner: "cluster_and_llm_select"
       # exogenous_process_learner: "cluster_and_search"
       # To have demos to stop when option terminates.
       terminate_on_goal_reached: False
