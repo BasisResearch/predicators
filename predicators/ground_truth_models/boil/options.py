@@ -377,6 +377,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                 del memory, objects, params
                 nonlocal action_space
                 action = np.array(state.joint_positions, dtype=np.float32)
+                action = action.clip(
+                    action_space.low, action_space.high).astype(np.float32)
                 return Action(action)
 
             return _policy
