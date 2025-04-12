@@ -1,6 +1,6 @@
 import logging
-from typing import Any, List, Optional, Set
 from pprint import pformat
+from typing import Any, List, Optional, Set
 
 from gym.spaces import Box
 
@@ -12,9 +12,9 @@ from predicators.nsrt_learning.process_learning import \
 from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.settings import CFG
-from predicators.structs import PNAD, CausalProcess, GroundAtomTrajectory, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, Segment, Task,\
-    EndogenousProcess, DummyOption
+from predicators.structs import PNAD, CausalProcess, DummyOption, \
+    EndogenousProcess, GroundAtomTrajectory, LowLevelTrajectory, \
+    ParameterizedOption, Predicate, Segment, Task
 
 
 def learn_processes_from_data(
@@ -22,8 +22,7 @@ def learn_processes_from_data(
         predicates: Set[Predicate], known_options: Set[ParameterizedOption],
         action_space: Box,
         ground_atom_dataset: Optional[List[GroundAtomTrajectory]],
-        sampler_learner: str,
-        annotations: Optional[List[Any]],
+        sampler_learner: str, annotations: Optional[List[Any]],
         current_processes: Set[CausalProcess]) -> Set[CausalProcess]:
     """Learn CausalProcesses from the given dataset of low-level transitions,
     using the given set of predicates."""
@@ -32,8 +31,9 @@ def learn_processes_from_data(
 
     # We will probably learn endogenous and exogenous processes separately.
     if CFG.only_learn_exogenous_processes:
-        endogenous_processes = [p for p in current_processes if
-                                isinstance(p, EndogenousProcess)]
+        endogenous_processes = [
+            p for p in current_processes if isinstance(p, EndogenousProcess)
+        ]
     else:
         # -- Learn the endogenous processes ---
         # STEP 1: Segment the trajectory by options. (don't currently consider
@@ -60,7 +60,8 @@ def learn_processes_from_data(
             train_tasks,
             predicates,
             segmented_trajs,
-            verify_harmlessness=False, # these processes are in principal 'harmful'
+            verify_harmlessness=
+            False,  # these processes are in principal 'harmful'
             # because they should leave some atoms to be explained by exogenous
             # processes.
             verbose=(CFG.option_learner != "no_learning"),
@@ -77,7 +78,9 @@ def learn_processes_from_data(
 
         # STEP 5: Convert PNADs to endogenous processes. (Maybe also make rough
         #         parameter estimates.)
-        endogenous_processes = [pnad.make_endogenous_process() for pnad in pnads]
+        endogenous_processes = [
+            pnad.make_endogenous_process() for pnad in pnads
+        ]
         # for proc in endogenous_processes:
         #     logging.debug(f"{proc}")
         # logging.debug("")
@@ -92,7 +95,7 @@ def learn_processes_from_data(
         segment_trajectory(traj, predicates) for traj in trajectories
     ]
     # filtering out explained segments
-    filtered_segmented_trajs = filter_explained_segment(segmented_trajs, 
+    filtered_segmented_trajs = filter_explained_segment(segmented_trajs,
                                                         endogenous_processes,
                                                         remove_options=True)
 
@@ -116,7 +119,8 @@ def learn_processes_from_data(
     exogenous_processes = [
         pnad.make_exogenous_process() for pnad in exogenous_processes_pnad
     ]
-    logging.info(f"Segmented trajectories:\n{pformat(filtered_segmented_trajs)}")
+    logging.info(
+        f"Segmented trajectories:\n{pformat(filtered_segmented_trajs)}")
     logging.info(f"Learned {len(exogenous_processes)} exogenous processes:\n"
                  f"{pformat(exogenous_processes)}")
     breakpoint()
@@ -128,10 +132,11 @@ def learn_processes_from_data(
     return set(processes)
 
 
-def filter_explained_segment(segmented_trajs: List[List[Segment]],
-                             endogenous_processes: List[EndogenousProcess],
-                             remove_options: bool = False,
-                             ) -> List[List[Segment]]:
+def filter_explained_segment(
+    segmented_trajs: List[List[Segment]],
+    endogenous_processes: List[EndogenousProcess],
+    remove_options: bool = False,
+) -> List[List[Segment]]:
     """Filter out segments that are explained by the given PNADs."""
     logging.debug(f"Num of unfiltered segments: {len(segmented_trajs[0])}\n")
     filtered_trajs = []

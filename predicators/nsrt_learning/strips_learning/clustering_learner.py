@@ -1,12 +1,12 @@
 """Algorithms for STRIPS learning that rely on clustering to obtain effects."""
 
-import re
 import abc
 import functools
 import logging
+import re
 from collections import defaultdict
-from typing import Dict, FrozenSet, Iterator, List, Set, Tuple, cast
 from pprint import pformat
+from typing import Dict, FrozenSet, Iterator, List, Set, Tuple, cast
 
 from predicators import utils
 from predicators.nsrt_learning.strips_learning import BaseSTRIPSLearner
@@ -158,9 +158,10 @@ class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
                 ret_pnads.append(pnad)
         return ret_pnads
 
+
 class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
-    """Learn preconditions via LLM selection.
-    """
+    """Learn preconditions via LLM selection."""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._llm = utils.create_llm_by_name(CFG.llm_model_name)
@@ -171,12 +172,13 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
             self.base_prompt = f.read()
 
     def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
-        """Assume there is one segment per PNAD
-        We can either do lifting first and selection second, or the other way
-        around.
-        If we have multiple segments per PNAD, lifting requires us to find a 
-        subset of atoms that unifies the segments. We'd have to do this if we 
-        want to learn a single condition. But we could also learn more than one.
+        """Assume there is one segment per PNAD We can either do lifting first
+        and selection second, or the other way around.
+
+        If we have multiple segments per PNAD, lifting requires us to
+        find a subset of atoms that unifies the segments. We'd have to
+        do this if we want to learn a single condition. But we could
+        also learn more than one.
         """
         pred_name_to_pred = {p.name: p for p in self._predicates}
         # Add var_to_obj for objects in the init state of the segment
@@ -188,16 +190,19 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
             # Get the init atoms of the segment
             init_atoms = seg.init_atoms
             # Get the objects in the init atoms
-            additional_objects = {o for atom in init_atoms for o in 
-                                  atom.objects if o not in existing_objs}
+            additional_objects = {
+                o
+                for atom in init_atoms for o in atom.objects
+                if o not in existing_objs
+            }
             # Create a new var_to_obj mapping for the objects
             objects_lst = sorted(additional_objects)
             params = utils.create_new_variables([o.type for o in objects_lst],
                                                 existing_vars=list(var_to_obj))
             var_to_obj.update(dict(zip(params, objects_lst)))
-            new_pnads.append(PNAD(pnad.op, 
-                                  [(seg, var_to_obj)],
-                                  pnad.option_spec))  # dummy option
+            new_pnads.append(
+                PNAD(pnad.op, [(seg, var_to_obj)],
+                     pnad.option_spec))  # dummy option
 
         effect_and_conditions = ""
         for pnad in new_pnads:
@@ -217,28 +222,30 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
             segment_var_to_obj = pnad.datastore[0][1]
             obj_to_var = {v: k for k, v in segment_var_to_obj.items()}
             try:
-                conditions_to_choose_from = pformat({a.lift(obj_to_var) for
-                                                 a in segment_init_atoms})
+                conditions_to_choose_from = pformat(
+                    {a.lift(obj_to_var)
+                     for a in segment_init_atoms})
             except:
                 breakpoint()
             effect_and_conditions += "conditions to choose from:\n" +\
                 conditions_to_choose_from + "\n\n"
-        
+
         prompt = self.base_prompt.format(
             EFFECTS_AND_CONDITIONS=effect_and_conditions)
-        proposals = self._llm.sample_completions(prompt, None, 0.0, 
-                                                    CFG.seed)[0]
+        proposals = self._llm.sample_completions(prompt, None, 0.0,
+                                                 CFG.seed)[0]
         pattern = r'```\n(.*?)\n```'
         matches = re.findall(pattern, proposals, re.DOTALL)
         proposed_conditions = matches[0].split("\n\n")
 
-        def atom_in_llm_selection(atom: LiftedAtom, 
-                        conditions: List[Tuple[str, List[Tuple[str, str]]]]) -> bool:
+        def atom_in_llm_selection(
+                atom: LiftedAtom,
+                conditions: List[Tuple[str, List[Tuple[str, str]]]]) -> bool:
             for condition in conditions:
                 atom_name = condition[0]
                 atom_variables = condition[1]
                 if atom.predicate.name == atom_name and \
-                        all([var_type[0] == var.name for (var_type, var) in 
+                        all([var_type[0] == var.name for (var_type, var) in
                             zip(atom_variables, atom.variables)]):
                     return True
             return False
@@ -257,8 +264,10 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
             segment_init_atoms = pnad.datastore[0][0].init_atoms
             segment_var_to_obj = pnad.datastore[0][1]
             obj_to_var = {v: k for k, v in segment_var_to_obj.items()}
-            conditions_to_choose_from = {a.lift(obj_to_var) for
-                                                 a in segment_init_atoms}
+            conditions_to_choose_from = {
+                a.lift(obj_to_var)
+                for a in segment_init_atoms
+            }
             new_conditions = set(atom for atom in conditions_to_choose_from
                                  if atom_in_llm_selection(atom, conditions))
             final_pnads.append(
@@ -266,10 +275,11 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
                      pnad.datastore, pnad.option_spec))
         return final_pnads
 
-    def parse_effects_or_conditions(self, line: str) -> List[Tuple[str, List[Tuple[str, str]]]]:
-        """
-        Parse a line containing effects or conditions into a list of tuples.
-        For example, when given: 'Conditions: (and (FaucetOn(?x1:faucet)) (JugUnderFaucet(?x2:jug, ?x1:faucet)))'
+    def parse_effects_or_conditions(
+            self, line: str) -> List[Tuple[str, List[Tuple[str, str]]]]:
+        """Parse a line containing effects or conditions into a list of tuples.
+        For example, when given: 'Conditions: (and (FaucetOn(?x1:faucet))
+        (JugUnderFaucet(?x2:jug, ?x1:faucet)))'.
 
         Each returned tuple has:
         - An atom name (e.g., "JugFilled")
@@ -282,8 +292,6 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
             ("JugUnderFaucet", [("?x2", "jug"), ("?x1", "faucet")])
         ]
         """
-        import re
-        from typing import List, Tuple
 
         # Remove the top-level (and ...) if present.
         # This way, we won't accidentally capture "and" as an atom.
@@ -306,6 +314,7 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
     @classmethod
     def get_name(cls) -> str:
         return "cluster_and_llm_select"
+
 
 class ClusterAndSearchSTRIPSLearner(ClusteringSTRIPSLearner):
     """A clustering STRIPS learner that learns preconditions via search,

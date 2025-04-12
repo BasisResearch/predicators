@@ -11,16 +11,16 @@ from tqdm.auto import tqdm
 from predicators import planning, utils
 from predicators.approaches.pp_process_learning_approach import \
     ProcessLearningBilevelProcessPlanningApproach
+from predicators.explorers import BaseExplorer, create_explorer
 from predicators.ground_truth_models import get_gt_processes
 from predicators.nsrt_learning.process_learning_main import \
     learn_processes_from_data
 from predicators.option_model import _OptionModelBase
-from predicators.explorers import BaseExplorer, create_explorer
 from predicators.settings import CFG
 from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
-    Dataset, GroundAtom, GroundAtomTrajectory, LowLevelTrajectory, \
-    ParameterizedOption, Predicate, Task, Type, _GroundCausalProcess, \
-        InteractionRequest, InteractionResult
+    Dataset, GroundAtom, GroundAtomTrajectory, InteractionRequest, \
+    InteractionResult, LowLevelTrajectory, ParameterizedOption, Predicate, \
+    Task, Type, _GroundCausalProcess
 
 
 class OnlineProcessLearningBilevelProcessPlanningApproach(
@@ -57,13 +57,14 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         """Learn models from the offline datasets."""
         if len(dataset.trajectories) > 0:
-            super()._learn_processes(dataset.trajectories,
-                              online_learning_cycle=None,
-                              annotations=(dataset.annotations if
-                                           dataset.has_annotations else None))
+            super()._learn_processes(
+                dataset.trajectories,
+                online_learning_cycle=None,
+                annotations=(dataset.annotations
+                             if dataset.has_annotations else None))
         else:
             logging.info("Offline dataset is empty, skipping learning.")
-    
+
     def get_interaction_requests(self) -> List[InteractionRequest]:
         """Designing experiments to collect data. 
         TODO: This is currently the same as the one for OnlineNSRTLearning
@@ -103,16 +104,17 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
         breakpoint()
         return requests
 
-    def learn_from_interaction_results(self, 
-                                results: Sequence[InteractionResult]) -> None:
+    def learn_from_interaction_results(
+            self, results: Sequence[InteractionResult]) -> None:
         """Learn from interaction results.
+
         We will organize the interaction results as follows:
         1. interaction trajectories
         2. failed initial states for options? (might not work well with weak
         option termination classifiers.)
         Old:
         For endogenous process, initial states where it succeeded and failed.
-        For exogenous process, suffixes of the trajectories where that atom 
+        For exogenous process, suffixes of the trajectories where that atom
         changed.
         """
         # TODO: update _dataset based on the results
@@ -126,13 +128,14 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
         """Create a new explorer at the beginning of each interaction cycle."""
         # Note that greedy lookahead is not yet supported.
         preds = self._get_current_predicates()
-        explorer = create_explorer(CFG.explorer,
-                                   preds,
-                                   self._initial_options,
-                                   self._types,
-                                   self._action_space,
-                                   self._train_tasks,
-                                   self._get_current_processes(),
-                                   self._option_model,
-                                   )
+        explorer = create_explorer(
+            CFG.explorer,
+            preds,
+            self._initial_options,
+            self._types,
+            self._action_space,
+            self._train_tasks,
+            self._get_current_processes(),
+            self._option_model,
+        )
         return explorer

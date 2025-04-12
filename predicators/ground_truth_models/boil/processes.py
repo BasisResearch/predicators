@@ -143,7 +143,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(Holding, [robot, jug]),
             LiftedAtom(JugUnderFaucet, [jug, faucet]),
         }
-        if CFG.boil_use_constant_delay:            
+        if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(5)
         elif CFG.boil_use_normal_delay:
             delay_distribution = GaussianDelay(mean=5, std=0.2, rng=rng)

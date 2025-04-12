@@ -45,7 +45,8 @@ class ProcessLearningBilevelProcessPlanningApproach(
                          bilevel_plan_without_sim,
                          option_model=option_model)
         if CFG.only_learn_exogenous_processes:
-            self._processes = get_gt_processes(CFG.env, self._initial_predicates,
+            self._processes = get_gt_processes(CFG.env,
+                                               self._initial_predicates,
                                                self._initial_options,
                                                only_endogenous=True)
         else:

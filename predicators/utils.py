@@ -4330,19 +4330,19 @@ class CMPDelay(DelayDistribution):
         """Precompute and cache PMF and CDF."""
         # Calculate log factorial values once
         log_factorials = np.array([gammaln(n + 1) for n in range(self._max_k)])
-        
+
         # Vectorized log mass calculation
         ks = np.arange(self._max_k)
         log_masses = ks * np.log(self.lam) - self.nu * log_factorials
-        
+
         # Special case for k=0
         if self._max_k > 0:
             log_masses[0] = -self.lam
-            
+
         # Find max to prevent overflow
         max_log_mass = np.max(log_masses)
         masses = np.exp(log_masses - max_log_mass)
-        
+
         # Normalize
         self._pmf = masses / np.sum(masses)
         self._cdf = np.cumsum(self._pmf)
