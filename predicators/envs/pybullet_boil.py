@@ -1,3 +1,7 @@
+"""Example command:
+
+python predicators/envs/pybullet_boil.py
+"""
 import logging
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -83,8 +87,9 @@ class PyBulletBoilEnv(PyBulletEnv):
     # Speeds / rates
     water_fill_speed: ClassVar[
         float] = 0.002  # how fast water_level increases per step
-    water_spill_factor: ClassVar[
-        float] = 0.5  # fraction of water wasted if misaligned
+    water_filled_height: ClassVar[float] = 0.08
+    max_jug_water_capacity: ClassVar[float] = 0.10
+    max_water_spill_width: ClassVar[float] = 0.3
     water_color = (0.0, 0.0, 1.0, 0.9)  # blue
     heating_speed: ClassVar[
         float] = 0.02  # how fast the jug's "heat_level" goes up per step
@@ -104,7 +109,6 @@ class PyBulletBoilEnv(PyBulletEnv):
     # Types
     # -------------------------------------------------------------------------
     _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
-
 
     _jug_type = Type(
         "jug", ["x", "y", "z", "rot", "is_held", "water_level", "heat_level"],
@@ -325,8 +329,8 @@ class PyBulletBoilEnv(PyBulletEnv):
                 if self._spilled_water_id is None:
                     return 0.0
                 shape_data = p.getVisualShapeData(
-                    self._spilled_water_id, physicsClientId=self._physics_client_id
-                )
+                    self._spilled_water_id,
+                    physicsClientId=self._physics_client_id)
                 if not shape_data:
                     return 0.0
                 # shape_data[0][3] is a tuple of the half-extents (x, y, z).
@@ -356,7 +360,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                         liquid_id, physicsClientId=self._physics_client_id)
                     if shape_data:  # handle the case shape_data might be empty
                         # shape_data[0][3] => half-extents, e.g. shape_data[0][3][2] is half in z
-                        height = shape_data[0][3][2] * 2
+                        height = shape_data[0][3][2]
                         return height
                 return 0.0
             if feature == "heat_level":
@@ -399,11 +403,12 @@ class PyBulletBoilEnv(PyBulletEnv):
             self._spilled_water_id = None
 
         # The faucet has a spilled_level feature as well
-        self._faucet.spilled_level = state.get(self._faucet, "spilled_level")
+        spilled_level = state.get(self._faucet, "spilled_level")
+        # self._faucet.spilled_level = state.get(self._faucet, "spilled_level")
         # If there's already some spillage in the state, recreate a block
-        if self._faucet.spilled_level > 0.0:
+        if spilled_level > 0.0:
             self._spilled_water_id = self._create_spilled_water_block(
-                self._faucet.spilled_level, state)
+                spilled_level, state)
 
     # -------------------------------------------------------------------------
     # Step Logic
@@ -430,8 +435,11 @@ class PyBulletBoilEnv(PyBulletEnv):
 
     def _handle_faucet_logic(self, state: State) -> None:
         """If faucet is on, fill any jug that is properly aligned; otherwise,
-        grow the spill block on the table. Additionally, if a jug is already
-        full (water_level >= 1.0) but stays under the faucet, water spills."""
+        grow the spill block on the table.
+
+        Additionally, if a jug is already full (water_level >= 1.0) but
+        stays under the faucet, water spills.
+        """
         faucet_on = self._is_switch_on(self._faucet_switch.id)
         if not faucet_on:
             return
@@ -447,15 +455,17 @@ class PyBulletBoilEnv(PyBulletEnv):
         # --------------------------------------------------------------------------
         if len(jugs_under) == 0:
             old_spill = state.get(self._faucet, "spilled_level")
-            new_spill = min(1.0, old_spill + self.water_fill_speed)
+            new_spill = min(self.max_water_spill_width,
+                            old_spill + self.water_fill_speed)
             state.set(self._faucet, "spilled_level", new_spill)
 
             # Remove any existing spillage block
             if self._spilled_water_id is not None:
                 p.removeBody(self._spilled_water_id,
-                            physicsClientId=self._physics_client_id)
+                             physicsClientId=self._physics_client_id)
             # Recreate spill with updated size
-            self._spilled_water_id = self._create_spilled_water_block(new_spill, state)
+            self._spilled_water_id = self._create_spilled_water_block(
+                new_spill, state)
 
         # --------------------------------------------------------------------------
         # THERE IS AT LEAST ONE JUG UNDER THE FAUCET
@@ -467,33 +477,38 @@ class PyBulletBoilEnv(PyBulletEnv):
                 # ------------------------------------------------------------------
                 # If jug is NOT yet full
                 # ------------------------------------------------------------------
-                if old_level < 1.0:
+                print(f"water_level: {old_level}")
+                if old_level < self.max_jug_water_capacity:
                     # Fill up to capacity
                     new_level = old_level + self.water_fill_speed
-                    if new_level > 1.0:
-                        new_level = 1.0  # cap it at 1.0
+                    if new_level > self.max_jug_water_capacity:
+                        new_level = self.max_jug_water_capacity
                     state.set(jug_obj, "water_level", new_level)
 
                     # Recreate jug's liquid block at new water level
                     old_liquid_id = self._jug_to_liquid_id[jug_obj]
                     if old_liquid_id is not None:
-                        p.removeBody(old_liquid_id, physicsClientId=self._physics_client_id)
-                    self._jug_to_liquid_id[jug_obj] = self._create_liquid_for_jug(jug_obj, state)
+                        p.removeBody(old_liquid_id,
+                                     physicsClientId=self._physics_client_id)
+                    self._jug_to_liquid_id[
+                        jug_obj] = self._create_liquid_for_jug(jug_obj, state)
 
                 # ------------------------------------------------------------------
                 # If jug is ALREADY FULL => overflow spills
                 # ------------------------------------------------------------------
                 else:
                     old_spill = state.get(self._faucet, "spilled_level")
-                    new_spill = min(1.0, old_spill + self.water_fill_speed)
+                    new_spill = min(self.max_water_spill_width,
+                                    old_spill + self.water_fill_speed)
                     state.set(self._faucet, "spilled_level", new_spill)
 
                     # Remove any existing spill block
                     if self._spilled_water_id is not None:
                         p.removeBody(self._spilled_water_id,
-                                    physicsClientId=self._physics_client_id)
+                                     physicsClientId=self._physics_client_id)
                     # Recreate spill block with updated size
-                    self._spilled_water_id = self._create_spilled_water_block(new_spill, state)
+                    self._spilled_water_id = self._create_spilled_water_block(
+                        new_spill, state)
 
     def _handle_heating_logic(self, state: State) -> None:
         """If a jug with water is on a turned-on burner, increment jug 'heat'
@@ -608,10 +623,10 @@ class PyBulletBoilEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Example Predicates
     # -------------------------------------------------------------------------
-    @staticmethod
-    def _JugFilled_holds(state: State, objects: Sequence[Object]) -> bool:
+    @classmethod
+    def _JugFilled_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         (jug, ) = objects
-        return state.get(jug, "water_level") >= 0.08
+        return state.get(jug, "water_level") >= cls.water_filled_height
 
     def _WaterSpilled_holds(self, state: State,
                             objects: Sequence[Object]) -> bool:
@@ -836,7 +851,7 @@ if __name__ == "__main__":
     CFG.seed = 0
     CFG.env = "pybullet_boil"
     CFG.coffee_use_pixelated_jug = True
-    CFG.pybullet_sim_steps_per_action = 15
+    # CFG.pybullet_sim_steps_per_action = 15
     # CFG.fan_fans_blow_opposite_direction = True
     env = PyBulletBoilEnv(use_gui=True)
     rng = np.random.default_rng(CFG.seed)
@@ -901,7 +916,7 @@ if __name__ == "__main__":
     constant_noop = True
     for task in tasks:
         env._reset_state(task.init)
-        breakpoint()
+        # breakpoint()
         for _ in range(100000):
             if constant_noop:
                 action = Action(
