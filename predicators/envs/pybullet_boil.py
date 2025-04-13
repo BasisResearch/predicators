@@ -424,22 +424,9 @@ class PyBulletBoilEnv(PyBulletEnv):
         faucet_on = self._is_switch_on(self._faucet_switch.id)
         if not faucet_on:
             return
-        # If on, check each jug's distance from the faucet:
-        fx = state.get(self._faucet, "x")
-        fy = state.get(self._faucet, "y")
-        f_rot = state.get(self._faucet, "rot")
-
-        # Calculate faucet output position (offset from center based on rotation)
-        output_distance = self.faucet_x_len  # Distance from faucet center to output point
-        output_x = fx + output_distance * np.cos(f_rot)
-        output_y = fy - output_distance * np.sin(f_rot)
 
         for jug_obj in self._jugs:
-            jug_x = state.get(jug_obj, "x")
-            jug_y = state.get(jug_obj, "y")
-            dist = np.hypot(output_x - jug_x, output_y - jug_y)
-            if dist < self.faucet_align_threshold:
-                # Properly aligned => fill
+            if self._JugUnderFaucet_holds(state, [jug_obj, self._faucet]):
                 old_level = state.get(jug_obj, "water_level")
                 new_level = old_level + self.water_fill_speed
                 state.set(jug_obj, "water_level", min(1.0, new_level))
