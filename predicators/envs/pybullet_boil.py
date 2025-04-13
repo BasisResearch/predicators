@@ -553,10 +553,17 @@ class PyBulletBoilEnv(PyBulletEnv):
         return state.get(jug, "water_level") >= 0.08
 
     def _WaterSpilled_holds(self, state: State,
-                            objects: Sequence[Object]) -> bool:
+                            objects: Sequence[Object]) -> bool: 
+        """If any water is currently being spilled."""
+        for faucet in state.get_objects(self._faucet_type):
+            if self._FaucetOn_holds(state, [faucet]) and \
+                    self._NoJugUnderFaucet_holds(state, [faucet]):
+                return True
+
         for jug in state.get_objects(self._jug_type):
             if state.get(jug, "water_level") > 0.1:
                 return True
+
         return False
 
     def _NoWaterSpilled_holds(self, state: State,
