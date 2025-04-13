@@ -430,7 +430,8 @@ class PyBulletBoilEnv(PyBulletEnv):
 
     def _handle_faucet_logic(self, state: State) -> None:
         """If faucet is on, fill any jug that is properly aligned; otherwise,
-        grow the spill block on the table."""
+        grow the spill block on the table. Additionally, if a jug is already
+        full (water_level >= 1.0) but stays under the faucet, water spills."""
         faucet_on = self._is_switch_on(self._faucet_switch.id)
         if not faucet_on:
             return
@@ -441,32 +442,58 @@ class PyBulletBoilEnv(PyBulletEnv):
             if self._JugUnderFaucet_holds(state, [jug, self._faucet])
         ]
 
+        # --------------------------------------------------------------------------
+        # NO JUG UNDER FAUCET => SPILL
+        # --------------------------------------------------------------------------
         if len(jugs_under) == 0:
-            # No jug under faucet => spillage grows
             old_spill = state.get(self._faucet, "spilled_level")
             new_spill = min(1.0, old_spill + self.water_fill_speed)
             state.set(self._faucet, "spilled_level", new_spill)
 
-            # Remove any existing block and recreate it at new size
+            # Remove any existing spillage block
             if self._spilled_water_id is not None:
                 p.removeBody(self._spilled_water_id,
-                             physicsClientId=self._physics_client_id)
-            self._spilled_water_id = self._create_spilled_water_block(
-                new_spill, state)
+                            physicsClientId=self._physics_client_id)
+            # Recreate spill with updated size
+            self._spilled_water_id = self._create_spilled_water_block(new_spill, state)
+
+        # --------------------------------------------------------------------------
+        # THERE IS AT LEAST ONE JUG UNDER THE FAUCET
+        # --------------------------------------------------------------------------
         else:
-            # There is at least one jug under the faucet: fill that jug
             for jug_obj in jugs_under:
                 old_level = state.get(jug_obj, "water_level")
-                new_level = old_level + self.water_fill_speed
-                state.set(jug_obj, "water_level", new_level)
 
-                # Recreate jug's liquid block at new water level
-                old_liquid_id = self._jug_to_liquid_id[jug_obj]
-                if old_liquid_id is not None:
-                    p.removeBody(old_liquid_id,
-                                 physicsClientId=self._physics_client_id)
-                self._jug_to_liquid_id[jug_obj] = self._create_liquid_for_jug(
-                    jug_obj, state)
+                # ------------------------------------------------------------------
+                # If jug is NOT yet full
+                # ------------------------------------------------------------------
+                if old_level < 1.0:
+                    # Fill up to capacity
+                    new_level = old_level + self.water_fill_speed
+                    if new_level > 1.0:
+                        new_level = 1.0  # cap it at 1.0
+                    state.set(jug_obj, "water_level", new_level)
+
+                    # Recreate jug's liquid block at new water level
+                    old_liquid_id = self._jug_to_liquid_id[jug_obj]
+                    if old_liquid_id is not None:
+                        p.removeBody(old_liquid_id, physicsClientId=self._physics_client_id)
+                    self._jug_to_liquid_id[jug_obj] = self._create_liquid_for_jug(jug_obj, state)
+
+                # ------------------------------------------------------------------
+                # If jug is ALREADY FULL => overflow spills
+                # ------------------------------------------------------------------
+                else:
+                    old_spill = state.get(self._faucet, "spilled_level")
+                    new_spill = min(1.0, old_spill + self.water_fill_speed)
+                    state.set(self._faucet, "spilled_level", new_spill)
+
+                    # Remove any existing spill block
+                    if self._spilled_water_id is not None:
+                        p.removeBody(self._spilled_water_id,
+                                    physicsClientId=self._physics_client_id)
+                    # Recreate spill block with updated size
+                    self._spilled_water_id = self._create_spilled_water_block(new_spill, state)
 
     def _handle_heating_logic(self, state: State) -> None:
         """If a jug with water is on a turned-on burner, increment jug 'heat'
