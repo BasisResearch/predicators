@@ -254,6 +254,8 @@ def run_episode_and_get_observations(
                 actions.append(act)
                 observations.append(obs)
             except Exception as e:
+                logging.debug(f"[CogMan] State at the exception: "
+                              f"{utils.abstract(obs, env.predicates)}")
                 if exceptions_to_break_on is not None and \
                    any(issubclass(type(e), c) for c in exceptions_to_break_on):
                     if monitor_observed:

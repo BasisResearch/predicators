@@ -273,9 +273,10 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
             new_parameters = set(var for atom in new_conditions
                                  for var in atom.variables)
             final_pnads.append(
-                PNAD(pnad.op.copy_with(parameters=new_parameters,
-                                       preconditions=new_conditions),
-                     pnad.datastore, pnad.option_spec))
+                PNAD(
+                    pnad.op.copy_with(parameters=new_parameters,
+                                      preconditions=new_conditions),
+                    pnad.datastore, pnad.option_spec))
         return final_pnads
 
     def parse_effects_or_conditions(

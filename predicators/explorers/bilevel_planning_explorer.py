@@ -41,9 +41,18 @@ class BilevelPlanningExplorer(BaseExplorer):
         seed = self._seed + self._num_calls
         # Note: subclasses are responsible for catching PlanningFailure and
         # PlanningTimeout and handling them accordingly.
-        if CFG.plan_without_sim:
+        if CFG.bilevel_plan_without_sim:
             if isinstance(next(iter(self._nsrts)), CausalProcess):
-                process_plan, _, _ = run_task_plan_with_processes_once(...)
+                process_plan, _, _ = run_task_plan_with_processes_once(
+                    task,
+                    self._nsrts,
+                    self._predicates,
+                    self._types,
+                    timeout,
+                    seed,
+                    CFG.sesame_task_planning_heuristic,
+                    max_horizon=CFG.horizon,
+                )
                 policy = utils.process_plan_to_greedy_policy(
                     process_plan,
                     task.goal,

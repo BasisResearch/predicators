@@ -36,7 +36,6 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
                  task_planning_heuristic: str = "default",
                  max_skeletons_optimized: int = -1,
                  bilevel_plan_without_sim: Optional[bool] = None,
-                 processes: Optional[Set[CausalProcess]] = None,
                  option_model: Optional[_OptionModelBase] = None):
         super().__init__(initial_predicates,
                          initial_options,
@@ -46,7 +45,6 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
                          task_planning_heuristic,
                          max_skeletons_optimized,
                          bilevel_plan_without_sim,
-                         processes,
                          option_model=option_model)
         self._dataset = ...
 
@@ -101,7 +99,6 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
                                      query_policy=lambda s: None,
                                      termination_function=termination_function)
             requests.append(req)
-        breakpoint()
         return requests
 
     def learn_from_interaction_results(
