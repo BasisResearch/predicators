@@ -14,7 +14,7 @@ from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.settings import CFG
 from predicators.structs import PNAD, CausalProcess, DummyOption, \
     EndogenousProcess, GroundAtomTrajectory, LowLevelTrajectory, \
-    ParameterizedOption, Predicate, Segment, Task
+    ParameterizedOption, Predicate, Segment, Task, ExogenousProcess
 
 
 def learn_processes_from_data(
@@ -94,10 +94,20 @@ def learn_processes_from_data(
     segmented_trajs = [
         segment_trajectory(traj, predicates) for traj in trajectories
     ]
-    # filtering out explained segments
+    # Filter out segments explained by endogenous processes.
     filtered_segmented_trajs = filter_explained_segment(segmented_trajs,
                                                         endogenous_processes,
                                                         remove_options=True)
+
+    # [optional] Filter out segments explained by exogenous processes. The other
+    # option is to relearn from all the data.
+    existing_exogenous_processes = [
+        p for p in current_processes if isinstance(p, ExogenousProcess)
+    ]
+    filtered_segmented_trajs = filter_explained_segment(
+                                                filtered_segmented_trajs,
+                                                existing_exogenous_processes,
+                                                remove_options=True)
 
     # STEP 2: Learn the exogenous processes based on unexplained processes.
     #         This is different from STRIPS/endogenous processes, where these
@@ -116,38 +126,58 @@ def learn_processes_from_data(
         verify_harmlessness=False,
         verbose=(CFG.option_learner != "no_learning"),
         annotations=annotations)
-    exogenous_processes = [
+    new_exogenous_processes = [
         pnad.make_exogenous_process() for pnad in exogenous_processes_pnad
     ]
     logging.info(
         f"Segmented trajectories:\n{pformat(filtered_segmented_trajs)}")
-    logging.info(f"Learned {len(exogenous_processes)} exogenous processes:\n"
-                 f"{pformat(exogenous_processes)}")
+    logging.info(f"Learned {len(new_exogenous_processes)} exogenous processes:\n"
+                 f"{pformat(new_exogenous_processes)}")
 
     # STEP 6: Make, log, and return the endogenous and exogenous processes.
-    processes = endogenous_processes + exogenous_processes
+    processes = endogenous_processes + new_exogenous_processes + \
+        existing_exogenous_processes
     logging.info(f"\nLearned CausalProcesses:\n{pformat(processes)}")
 
     return set(processes)
 
+def is_endogenous_process_list(processes: List) -> bool:
+    """Check if all elements in the list are EndogenousProcess."""
+    return all(isinstance(p, EndogenousProcess) for p in processes)
+
+def is_exogenous_process_list(processes: List) -> bool:
+    """Check if all elements in the list are ExogenousProcess."""
+    return all(isinstance(p, ExogenousProcess) for p in processes)
+
 
 def filter_explained_segment(
     segmented_trajs: List[List[Segment]],
-    endogenous_processes: List[EndogenousProcess],
+    processes: List[CausalProcess],
     remove_options: bool = False,
 ) -> List[List[Segment]]:
     """Filter out segments that are explained by the given PNADs."""
     logging.debug(f"Num of unfiltered segments: {len(segmented_trajs[0])}\n")
+    if is_endogenous_process_list(processes):
+        processes_type_str = "endogenous"
+    elif is_exogenous_process_list(processes):
+        processes_type_str = "exogenous"
+    else:
+        raise NotImplementedError("Currently don't support "
+                                      "mixed process types.")
     filtered_trajs = []
     for traj in segmented_trajs:
         objects = set(traj[0].trajectory.states[0])
         filtered_segments = []
         for segment in traj:
             # TODO: is this kind of like "cover"?
-            relevant_procs = [
-                p for p in endogenous_processes
-                if segment.get_option().parent == p.option
-            ]
+            if processes_type_str == "endogenous":
+                relevant_procs = [
+                    p for p in processes
+                    if segment.get_option().parent == p.option
+                ]
+            else:
+                # all exogenous; mixed cases all handle at the top.
+                relevant_procs = processes
             add_atoms = segment.add_effects
             delete_atoms = segment.delete_effects
             # if not explained by any

@@ -216,17 +216,14 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
             effect_and_conditions += "Delete effects: ("
             if delete_effects:
                 effect_and_conditions += "and " +  " ".join(f"({str(atom)})" \
-                                                        for atom in add_effects)
+                                                        for atom in delete_effects)
             effect_and_conditions += ")\n"
             segment_init_atoms = pnad.datastore[0][0].init_atoms
             segment_var_to_obj = pnad.datastore[0][1]
             obj_to_var = {v: k for k, v in segment_var_to_obj.items()}
-            try:
-                conditions_to_choose_from = pformat(
+            conditions_to_choose_from = pformat(
                     {a.lift(obj_to_var)
                      for a in segment_init_atoms})
-            except:
-                breakpoint()
             effect_and_conditions += "conditions to choose from:\n" +\
                 conditions_to_choose_from + "\n\n"
 

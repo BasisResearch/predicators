@@ -1,5 +1,5 @@
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from scipy.special import factorial, gammaln
 
 
@@ -26,7 +26,8 @@ def plot_cmp_distribution(lambda_, nu, k_max=20):
 
     plt.figure(figsize=(10, 6))
     plt.bar(ks, ps, color='skyblue', edgecolor='black')
-    plt.title(f"Conway-Maxwell-Poisson Distribution (lambda={lambda_}, nu={nu})")
+    plt.title(
+        f"Conway-Maxwell-Poisson Distribution (lambda={lambda_}, nu={nu})")
     plt.xlabel("k")
     plt.ylabel("P(X = k)")
     plt.grid(axis='y', linestyle='--', alpha=0.7)

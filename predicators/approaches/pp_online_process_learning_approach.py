@@ -46,7 +46,8 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
                          max_skeletons_optimized,
                          bilevel_plan_without_sim,
                          option_model=option_model)
-        self._dataset = ...
+        self._dataset = Dataset([])
+        self._online_learning_cycle = 0
 
     @classmethod
     def get_name(cls):
@@ -115,9 +116,19 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
         changed.
         """
         # TODO: update _dataset based on the results
+        # Can potentially have a positive and negative dataset
+        for result in results:
+            traj = LowLevelTrajectory(result.states, result.actions)
+            self._dataset.append(traj)
 
-        # TODO: learn from the dataset
-        self._learn_processes(self._dataset)
+        # Learn from the dataset
+        annotations = None
+        if self._dataset.has_annotations:
+            annotations = self._dataset.annotations  # pragma: no cover
+        self._learn_processes(
+            self._dataset.trajectories,
+            online_learning_cycle=self._online_learning_cycle,
+            annotations=annotations)
         self._online_learning_cycle += 1
         breakpoint()
 
