@@ -637,7 +637,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         #     return True
 
         # A hack to achieve spill is 1 step after the faucet is on.
-        if state.get(self._faucet, "spilled_level") > self.water_fill_speed * 20:
+        if state.get(self._faucet,
+                     "spilled_level") > self.water_fill_speed * 20:
             return True
         return False
 

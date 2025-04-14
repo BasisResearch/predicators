@@ -13,8 +13,8 @@ from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.settings import CFG
 from predicators.structs import PNAD, CausalProcess, DummyOption, \
-    EndogenousProcess, GroundAtomTrajectory, LowLevelTrajectory, \
-    ParameterizedOption, Predicate, Segment, Task, ExogenousProcess
+    EndogenousProcess, ExogenousProcess, GroundAtomTrajectory, \
+    LowLevelTrajectory, ParameterizedOption, Predicate, Segment, Task
 
 
 def learn_processes_from_data(
@@ -105,9 +105,9 @@ def learn_processes_from_data(
         p for p in current_processes if isinstance(p, ExogenousProcess)
     ]
     filtered_segmented_trajs = filter_explained_segment(
-                                                filtered_segmented_trajs,
-                                                existing_exogenous_processes,
-                                                remove_options=True)
+        filtered_segmented_trajs,
+        existing_exogenous_processes,
+        remove_options=True)
 
     # STEP 2: Learn the exogenous processes based on unexplained processes.
     #         This is different from STRIPS/endogenous processes, where these
@@ -131,8 +131,9 @@ def learn_processes_from_data(
     ]
     logging.info(
         f"Segmented trajectories:\n{pformat(filtered_segmented_trajs)}")
-    logging.info(f"Learned {len(new_exogenous_processes)} exogenous processes:\n"
-                 f"{pformat(new_exogenous_processes)}")
+    logging.info(
+        f"Learned {len(new_exogenous_processes)} exogenous processes:\n"
+        f"{pformat(new_exogenous_processes)}")
 
     # STEP 6: Make, log, and return the endogenous and exogenous processes.
     processes = endogenous_processes + new_exogenous_processes + \
@@ -141,9 +142,11 @@ def learn_processes_from_data(
 
     return set(processes)
 
+
 def is_endogenous_process_list(processes: List) -> bool:
     """Check if all elements in the list are EndogenousProcess."""
     return all(isinstance(p, EndogenousProcess) for p in processes)
+
 
 def is_exogenous_process_list(processes: List) -> bool:
     """Check if all elements in the list are ExogenousProcess."""
@@ -163,7 +166,7 @@ def filter_explained_segment(
         processes_type_str = "exogenous"
     else:
         raise NotImplementedError("Currently don't support "
-                                      "mixed process types.")
+                                  "mixed process types.")
     filtered_trajs = []
     for traj in segmented_trajs:
         objects = set(traj[0].trajectory.states[0])
