@@ -365,6 +365,46 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             ])
         options.add(PlaceOnBurner)
 
+        # PlaceOutsideBurnerAndFaucet
+        option_types = [robot_type]
+        params_space = Box(0, 1, (0, ))
+        PlaceOutsideBurnerAndFaucet = utils.LinearChainParameterizedOption(
+            "PlaceOutsideBurnerAndFaucet",
+            [
+                # Move to above the burner on which we will stack.
+                cls._create_boil_move_to_above_placing_option(
+                    name="MoveEndEffectorToPreStack",
+                    z_func=lambda _: cls._transport_z,
+                    finger_status="closed",
+                    pybullet_robot=pybullet_robot,
+                    option_types=option_types,
+                    params_space=params_space,
+                    move_to_initial_pos=True),
+                # Move down to place.
+                cls._create_boil_move_to_above_placing_option(
+                    name="MoveEndEffectorToStack",
+                    z_func=lambda _: cls.env_cls.table_height + \
+                                        cls.env_cls.jug_handle_height,
+                    finger_status="closed",
+                    pybullet_robot=pybullet_robot,
+                    option_types=option_types,
+                    params_space=params_space),
+                # Open fingers.
+                create_change_fingers_option(
+                    pybullet_robot, "OpenFingers", option_types, params_space,
+                    open_fingers_func, CFG.pybullet_max_vel_norm,
+                    PyBulletBoilEnv.grasp_tol),
+                # Move back up.
+                cls._create_boil_move_to_above_placing_option(
+                    name="MoveEndEffectorBackUp",
+                    z_func=lambda _: cls._hand_empty_move_z,
+                    finger_status="open",
+                    pybullet_robot=pybullet_robot,
+                    option_types=option_types,
+                    params_space=params_space),
+            ])
+        options.add(PlaceOnBurner)
+
         # Noop
         option_types = [robot_type]
         params_space = Box(0, 1, (0, ))
@@ -417,26 +457,37 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
             assert not params
-            robot, burner = objects
-            # Current
-            current_position = (state.get(robot, "x"), state.get(robot, "y"),
-                                state.get(robot, "z"))
-            ee_orn = p.getQuaternionFromEuler(
-                [0, state.get(robot, "tilt"),
-                 state.get(robot, "wrist")])
-            current_pose = Pose(current_position, ee_orn)
-            # Target
-            target_x = state.get(burner, "x")
-            target_y = state.get(burner, "y") - cls.env_cls.jug_handle_offset
-            if under_faucet:
-                target_y -= cls.env_cls.faucet_x_len
+            if len(objects) == 2:
+                robot, burner = objects
+                # Current
+                current_position = (state.get(robot, "x"), state.get(robot, "y"),
+                                    state.get(robot, "z"))
+                ee_orn = p.getQuaternionFromEuler(
+                    [0, state.get(robot, "tilt"),
+                    state.get(robot, "wrist")])
+                current_pose = Pose(current_position, ee_orn)
+                # Target
+                target_x = state.get(burner, "x")
+                target_y = state.get(burner, "y") - cls.env_cls.jug_handle_offset
+                if under_faucet:
+                    target_y -= cls.env_cls.faucet_x_len
+            else:
+                robot, = objects
+                target_x = cls.env_cls.x_mid
+                target_y = cls.env_cls.y_mid
+
             if move_to_initial_pos:
                 target_position = (cls.env_cls.robot_init_x,
-                                   cls.env_cls.robot_init_y,
-                                   cls.env_cls.robot_init_z - 0.1)
+                                    cls.env_cls.robot_init_y,
+                                    cls.env_cls.robot_init_z - 0.1)
             else:
-                target_position = (target_x, target_y,
-                                   z_func(state.get(burner, "z")))
+                if len(objects) == 2:
+                    target_position = (target_x, target_y,
+                                z_func(state.get(burner, "z")))
+                else:
+                    target_position = (target_x, target_y,
+                                z_func(cls.env_cls.table_height))
+
             target_orn = p.getQuaternionFromEuler(
                 [0, cls.env_cls.robot_init_tilt, cls.env_cls.robot_init_wrist])
             target_pose = Pose(target_position, target_orn)

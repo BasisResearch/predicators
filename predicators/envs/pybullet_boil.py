@@ -168,13 +168,16 @@ class PyBulletBoilEnv(PyBulletEnv):
         self._Holding = Predicate("Holding",
                                   [self._robot_type, self._jug_type],
                                   self._Holding_holds)
-        self._JugOnBurner = Predicate("JugOnBurner",
+        self._JugAtBurner = Predicate("JugAtBurner",
                                       [self._jug_type, self._burner_type],
                                       self._JugOnBurner_holds)
-        self._JugUnderFaucet = Predicate("JugUnderFaucet",
+        self._JugAtFaucet = Predicate("JugAtFaucet",
                                          [self._jug_type, self._faucet_type],
                                          self._JugUnderFaucet_holds)
-        self._NoJugUnderFaucet = Predicate("NoJugUnderFaucet",
+        self._JugNotAtBurnerOrFaucet = Predicate("JugNotAtBurnerOrFaucet",
+                                                 [self._jug_type],
+                                        self._JugNotAtBurnerOrFaucet_holds)
+        self._NoJugAtFaucet = Predicate("NoJugAtFaucet",
                                            [self._faucet_type],
                                            self._NoJugUnderFaucet_holds)
         self._HandEmpty = Predicate("HandEmpty", [self._robot_type],
@@ -194,9 +197,10 @@ class PyBulletBoilEnv(PyBulletEnv):
         planning."""
         return {
             self._JugFilled, self._WaterBoiled, self._BurnerOn, self._FaucetOn,
-            self._BurnerOff, self._FaucetOff, self._Holding, self._JugOnBurner,
-            self._JugUnderFaucet, self._HandEmpty, self._WaterSpilled,
-            self._NoJugUnderFaucet, self._NoWaterSpilled
+            self._BurnerOff, self._FaucetOff, self._Holding, self._JugAtBurner,
+            self._JugAtFaucet, self._JugNotAtBurnerOrFaucet,
+            self._HandEmpty, self._WaterSpilled,
+            self._NoJugAtFaucet, self._NoWaterSpilled
         }
 
     @property
@@ -689,6 +693,19 @@ class PyBulletBoilEnv(PyBulletEnv):
         output_y = faucet_y - output_distance * np.sin(faucet_rot)
         dist = np.hypot(jug_x - output_x, jug_y - output_y)
         return dist < self.faucet_align_threshold
+    
+    def _JugNotAtBurnerOrFaucet_holds(self, state: State,
+                                     objects: Sequence[Object]) -> bool:
+        (jug, ) = objects
+        faucets = state.get_objects(self._faucet_type)
+        burners = state.get_objects(self._burner_type)
+        for faucet in faucets:
+            if self._JugUnderFaucet_holds(state, [jug, faucet]):
+                return False
+        for burner in burners:
+            if self._JugOnBurner_holds(state, [jug, burner]):
+                return False
+        return True
 
     def _NoJugUnderFaucet_holds(self, state: State,
                                 objects: Sequence[Object]) -> bool:
