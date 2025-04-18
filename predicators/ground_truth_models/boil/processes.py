@@ -29,7 +29,6 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         jug_type = types["jug"]
         burner_type = types["burner"]
         faucet_type = types["faucet"]
-        switch_type = types["switch"]
 
         # Predicates
         HandEmpty = predicates["HandEmpty"]
@@ -52,6 +51,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         PickJug = options["PickJug"]
         PlaceOnBurner = options["PlaceOnBurner"]
         PlaceUnderFaucet = options["PlaceUnderFaucet"]
+        PlaceOutsideBurnerAndFaucet = options["PlaceOutsideBurnerAndFaucet"]
         # Having swtich for each because of the type
         SwitchFaucetOn = options["SwitchFaucetOn"]
         SwitchFaucetOff = options["SwitchFaucetOff"]
@@ -150,7 +150,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         else:
             delay_distribution = CMPDelay(55, 3, rng)
         pick_jug_outside_faucet_burner_process = EndogenousProcess(
-            "PickJugFromOutsideFaucet", parameters, condition_at_start, set(),
+            "PickJugFromOutsideFaucetAndBurner", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution, 1.0,
             option, option_vars, null_sampler)
         processes.add(pick_jug_outside_faucet_burner_process)
@@ -220,7 +220,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         jug = Variable("?jug", jug_type)
         parameters = [robot, jug]
         option_vars = [robot]
-        option = PlaceAtOutsideFaucetAndBurner
+        option = PlaceOutsideBurnerAndFaucet
         condition_at_start = {
             LiftedAtom(Holding, [robot, jug]),
         }

@@ -139,6 +139,7 @@ def learn_processes_from_data(
     processes = endogenous_processes + new_exogenous_processes + \
         existing_exogenous_processes
     logging.info(f"\nLearned CausalProcesses:\n{pformat(processes)}")
+    breakpoint()
 
     return set(processes)
 
@@ -159,7 +160,7 @@ def filter_explained_segment(
     remove_options: bool = False,
 ) -> List[List[Segment]]:
     """Filter out segments that are explained by the given PNADs."""
-    logging.debug(f"Num of unfiltered segments: {len(segmented_trajs[0])}\n")
+    logging.debug(f"\nNum of unfiltered segments: {len(segmented_trajs[0])}")
     if is_endogenous_process_list(processes):
         processes_type_str = "endogenous"
     elif is_exogenous_process_list(processes):

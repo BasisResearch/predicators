@@ -403,7 +403,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     option_types=option_types,
                     params_space=params_space),
             ])
-        options.add(PlaceOnBurner)
+        options.add(PlaceOutsideBurnerAndFaucet)
 
         # Noop
         option_types = [robot_type]

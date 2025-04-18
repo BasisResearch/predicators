@@ -673,6 +673,8 @@ class PyBulletBoilEnv(PyBulletEnv):
     def _JugOnBurner_holds(self, state: State,
                            objects: Sequence[Object]) -> bool:
         (jug, burner) = objects
+        if self._Holding_holds(state, [self._robot, jug]):
+            return False
         jug_x = state.get(jug, "x")
         jug_y = state.get(jug, "y")
         burner_x = state.get(burner, "x")
@@ -683,6 +685,8 @@ class PyBulletBoilEnv(PyBulletEnv):
     def _JugUnderFaucet_holds(self, state: State,
                               objects: Sequence[Object]) -> bool:
         (jug, faucet) = objects
+        if self._Holding_holds(state, [self._robot, jug]):
+            return False
         jug_x = state.get(jug, "x")
         jug_y = state.get(jug, "y")
         faucet_x = state.get(faucet, "x")
@@ -696,7 +700,11 @@ class PyBulletBoilEnv(PyBulletEnv):
     
     def _JugNotAtBurnerOrFaucet_holds(self, state: State,
                                      objects: Sequence[Object]) -> bool:
+        """Jug on table but in area outside of burner or faucet.
+        """
         (jug, ) = objects
+        if self._Holding_holds(state, [self._robot, jug]):
+            return False
         faucets = state.get_objects(self._faucet_type)
         burners = state.get_objects(self._burner_type)
         for faucet in faucets:
