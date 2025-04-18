@@ -79,6 +79,7 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
         process would allow the process to succeed.
         """
         # TODO: Implement something like the one in VisualPredicator?
+        breakpoint()
         explorer = self._create_explorer()
 
         # As in OnlineNSRTLearningApproach, do some resets.
@@ -130,7 +131,6 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
             online_learning_cycle=self._online_learning_cycle,
             annotations=annotations)
         self._online_learning_cycle += 1
-        breakpoint()
 
     def _create_explorer(self):
         """Create a new explorer at the beginning of each interaction cycle."""

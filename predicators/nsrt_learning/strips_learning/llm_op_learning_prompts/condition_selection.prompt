@@ -1,13 +1,14 @@
-We are deciding conditions in the environment that are necessary for certain effects of some processes to take place.
-Please for each effect, select the subset of atoms that you think are necessary for the effect corresponding process to take place.
+We are identifying environmental conditions that are necessary for certain effects of some processes to occur.
+
+For each effect, please select the subset of atoms that you believe are necessary for the corresponding process to take place. As a rule of thumb, atoms involving a robot as an argument are never necessary conditions for exogenous processes.
 
 For example, 
-- for a wet clothes to dry in the outside in a short time, the clothes needs to be on the dryer outside and the weather needs to be sunny, but it doesn't require the robot to stay outdoor or the laundry basket to be outdoor.
-- for my computer to complete running a program, the computer needs to be powered on, and the program needs to stay on, but it does not require the robot to be seated next to it, or a cup next to it to be filled with water.
+- For wet clothes to dry quickly outdoors, the clothes must be on the outdoor dryer and the weather must be sunny. However, it is not necessary for the robot to be outside or for the laundry basket to be outdoors.
+- For a computer to complete running a program, the computer must be powered on and the program must remain active. However, it is not necessary for the robot to be seated nearby, or for a cup next to it to be filled with water.
 
 {EFFECTS_AND_CONDITIONS}
 
-Please structure your output in the following format, one block for each effects (note that the angle brackets here are just for clarifying the syntax; do not output angle brackets in your responses):
+Please structure your output in the following format, with one block for each effect (note that the angle brackets here are just for clarifying the syntax; do not output angle brackets in your responses):
 
 ```
 Add effects: (and (<Atom1>) (<Atom2>) ...)

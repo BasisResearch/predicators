@@ -160,7 +160,8 @@ class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
 
 
 class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
-    """Learn preconditions via LLM selection."""
+    """Learn preconditions via LLM selection.
+    Note: The current prompt are tailored for exogenous processes."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -205,7 +206,8 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
                      pnad.option_spec))  # dummy option
 
         effect_and_conditions = ""
-        for pnad in new_pnads:
+        for i, pnad in enumerate(new_pnads):
+            effect_and_conditions += f"Process {i}:\n"
             add_effects = pnad.op.add_effects
             delete_effects = pnad.op.delete_effects
             effect_and_conditions += "Add effects: ("
@@ -224,7 +226,7 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
             conditions_to_choose_from = pformat(
                 {a.lift(obj_to_var)
                  for a in segment_init_atoms})
-            effect_and_conditions += "conditions to choose from:\n" +\
+            effect_and_conditions += "Conditions to choose from:\n" +\
                 conditions_to_choose_from + "\n\n"
 
         prompt = self.base_prompt.format(
