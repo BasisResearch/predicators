@@ -118,28 +118,32 @@ def learn_processes_from_data(
     # TODO: remove any atoms with robot in them? Because in most cases the
     #       robot's state shouldn't matter (there are certainly cases where it,
     #       e.g., a sensor is activated if it detects the agent is here?).
-    exogenous_processes_pnad = learn_strips_operators(
-        trajectories,
-        train_tasks,
-        predicates,
-        filtered_segmented_trajs,
-        verify_harmlessness=False,
-        verbose=(CFG.option_learner != "no_learning"),
-        annotations=annotations)
-    new_exogenous_processes = [
-        pnad.make_exogenous_process() for pnad in exogenous_processes_pnad
-    ]
-    logging.info(
-        f"Segmented trajectories:\n{pformat(filtered_segmented_trajs)}")
-    logging.info(
-        f"Learned {len(new_exogenous_processes)} exogenous processes:\n"
-        f"{pformat(new_exogenous_processes)}")
+    num_unexplaned_segments = sum(len(sugments) for sugments in
+                                  filtered_segmented_trajs)
+    if num_unexplaned_segments == 0:
+        new_exogenous_processes = []
+    else:
+        exogenous_processes_pnad = learn_strips_operators(
+            trajectories,
+            train_tasks,
+            predicates,
+            filtered_segmented_trajs,
+            verify_harmlessness=False,
+            verbose=(CFG.option_learner != "no_learning"),
+            annotations=annotations)
+        new_exogenous_processes = [
+            pnad.make_exogenous_process() for pnad in exogenous_processes_pnad
+        ]
+        logging.info(
+            f"Segmented trajectories:\n{pformat(filtered_segmented_trajs)}")
+        logging.info(
+            f"Learned {len(new_exogenous_processes)} exogenous processes:\n"
+            f"{pformat(new_exogenous_processes)}")
 
     # STEP 6: Make, log, and return the endogenous and exogenous processes.
     processes = endogenous_processes + new_exogenous_processes + \
         existing_exogenous_processes
     logging.info(f"\nLearned CausalProcesses:\n{pformat(processes)}")
-    breakpoint()
 
     return set(processes)
 

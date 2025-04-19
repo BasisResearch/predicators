@@ -79,7 +79,6 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
         process would allow the process to succeed.
         """
         # TODO: Implement something like the one in VisualPredicator?
-        breakpoint()
         explorer = self._create_explorer()
 
         # As in OnlineNSRTLearningApproach, do some resets.

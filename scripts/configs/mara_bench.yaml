@@ -52,6 +52,7 @@ APPROACHES:
       terminate_on_goal_reached: False
       terminate_on_goal_reached_and_option_terminated: True
       only_learn_exogenous_processes: True
+      online_learning_early_stopping: True
 
 ENVS:
   # cover:
