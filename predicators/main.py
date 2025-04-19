@@ -307,6 +307,12 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
         })
         _save_test_results(results, online_learning_cycle=i)
 
+        # if early stopping and the tasks are all solved, break
+        if CFG.online_learning_early_stopping and \
+            results["num_solved"] == len(train_tasks):
+            logging.info("All tasks solved, terminating early.")
+            break
+
 
 def _generate_interaction_results(
         cogman: CogMan,

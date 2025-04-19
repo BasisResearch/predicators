@@ -20,6 +20,7 @@ class GlobalSettings:
     # transitions have been collected, whichever happens first.
     num_online_learning_cycles = 10
     online_learning_max_transitions = float("inf")
+    online_learning_early_stopping = False
     # Maximum number of training tasks to give a demonstration for, if the
     # offline_data_method is demo-based.
     max_initial_demos = float("inf")
@@ -415,6 +416,10 @@ class GlobalSettings:
     # fan env
     fan_fans_blow_opposite_direction = False
 
+    # boil env
+    boil_use_constant_delay = False
+    boil_use_normal_delay = False
+
     # parameters for random options approach
     random_options_max_tries = 100
 
@@ -524,6 +529,7 @@ class GlobalSettings:
     failure_video_mode = "longest_only"
     terminate_on_goal_reached = True
     keep_failed_demos = False  # For saving videos
+    terminate_on_goal_reached_and_option_terminated = False
 
     # dataset parameters
     # For learning-based approaches, the data collection timeout for planning.
@@ -571,6 +577,9 @@ class GlobalSettings:
     # learning.
     cluster_and_intersect_min_datastore_fraction = 0.0
     cluster_and_intersect_soft_intersection_for_preconditions = False
+    find_best_matching_pnad_skip_if_effect_not_subset = True
+    exogenous_process_learner = "cluster_and_intersect"
+    only_learn_exogenous_processes = False
 
     # torch GPU usage setting
     use_torch_gpu = False

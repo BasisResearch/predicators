@@ -22,6 +22,7 @@ from argparse import ArgumentParser
 from collections import defaultdict, namedtuple
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
 from pprint import pformat
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Collection, Dict, \
@@ -1681,7 +1682,6 @@ def option_policy_to_policy(
             prev_atoms = abstract_function(last_state)
             if cur_atoms != prev_atoms:
                 noop_terminate = True
-                # breakpoint()
 
         last_state = state
 
@@ -4286,6 +4286,10 @@ class ConstantDelay(DelayDistribution):
     def probability(self, k: int) -> float:
         return 1.0 if k == self.delay else 0.0
 
+    @cached_property
+    def _str(self) -> str:
+        return f"ConstantDelay({self.delay})"
+
 
 class GaussianDelay(DelayDistribution):
 
@@ -4307,6 +4311,10 @@ class GaussianDelay(DelayDistribution):
     def probability(self, k: int) -> float:
         return norm.pdf(k, self.mean, self.std)
 
+    @cached_property
+    def _str(self) -> str:
+        return f"GaussianDelay({self.mean}, {self.std})"
+
 
 class CMPDelay(DelayDistribution):
     """Conway-Maxwell-Poisson (CMP) distribution for delays."""
@@ -4315,25 +4323,50 @@ class CMPDelay(DelayDistribution):
         self.lam = lam
         self.nu = nu
         self.rng = rng
+        self._max_k = 100
+        self._update_cache()
+
+    def _update_cache(self):
+        """Precompute and cache PMF and CDF."""
+        # Calculate log factorial values once
+        log_factorials = np.array([gammaln(n + 1) for n in range(self._max_k)])
+
+        # Vectorized log mass calculation
+        ks = np.arange(self._max_k)
+        log_masses = ks * np.log(self.lam) - self.nu * log_factorials
+
+        # Special case for k=0
+        if self._max_k > 0:
+            log_masses[0] = -self.lam
+
+        # Find max to prevent overflow
+        max_log_mass = np.max(log_masses)
+        masses = np.exp(log_masses - max_log_mass)
+
+        # Normalize
+        self._pmf = masses / np.sum(masses)
+        self._cdf = np.cumsum(self._pmf)
 
     def set_parameters(self, parameters):
         self.lam = parameters[0]
         self.nu = parameters[1]
+        self._update_cache()
 
     def probability(self, k: int) -> float:
         """Return the probability of delay k."""
-        if k == 0:
-            return np.exp(-self.lam)
+        if 0 <= k < self._max_k:
+            return self._pmf[k]
+        return 0.0
 
-        def log_factorial(N):
-            return gammaln(N + 1)
+    @cached_property
+    def _str(self) -> str:
+        return f"CMPDelay({self.lam}, {self.nu})"
 
-        def log_mass(N):
-            return N * np.log(self.lam) - self.nu * log_factorial(N)
-
-        Z = np.sum([np.exp(log_mass(_t)) for _t in range(500)])
-
-        return np.exp(log_mass(k)) / Z
+    def sample(self):
+        """Sample from the CMP distribution using cached CDF."""
+        u = self.rng.random()
+        idx = np.searchsorted(self._cdf, u)
+        return idx
 
 
 @functools.lru_cache(maxsize=None)
@@ -4725,6 +4758,9 @@ def configure_logging() -> None:
     logging.getLogger('libpng').setLevel(logging.ERROR)
     logging.getLogger('PIL').setLevel(logging.ERROR)
     logging.getLogger('openai').setLevel(logging.INFO)
+    # Used by openai package
+    logging.getLogger("httpx").setLevel(logging.INFO)
+    logging.getLogger("httpcore").setLevel(logging.INFO)
 
 
 def log_initial_info(str_args: str) -> None:

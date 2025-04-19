@@ -8,8 +8,10 @@ from predicators import utils
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.option_model import _OptionModelBase
 from predicators.planning import sesame_plan
+from predicators.planning_with_processes import \
+    run_task_plan_with_processes_once
 from predicators.settings import CFG
-from predicators.structs import NSRT, ExplorationStrategy, \
+from predicators.structs import NSRT, CausalProcess, ExplorationStrategy, \
     ParameterizedOption, Predicate, Task, Type
 
 
@@ -39,21 +41,44 @@ class BilevelPlanningExplorer(BaseExplorer):
         seed = self._seed + self._num_calls
         # Note: subclasses are responsible for catching PlanningFailure and
         # PlanningTimeout and handling them accordingly.
-        assert not CFG.bilevel_plan_without_sim
-        plan, _, _ = sesame_plan(
-            task,
-            self._option_model,
-            self._nsrts,
-            self._predicates,
-            self._types,
-            timeout,
-            seed,
-            CFG.sesame_task_planning_heuristic,
-            CFG.sesame_max_skeletons_optimized,
-            max_horizon=CFG.horizon,
-            allow_noops=CFG.sesame_allow_noops,
-            use_visited_state_set=CFG.sesame_use_visited_state_set)
-        policy = utils.option_plan_to_policy(plan)
+        if CFG.bilevel_plan_without_sim:
+            if isinstance(next(iter(self._nsrts)), CausalProcess):
+                process_plan, _, _ = run_task_plan_with_processes_once(
+                    task,
+                    self._nsrts,
+                    self._predicates,
+                    self._types,
+                    timeout,
+                    seed,
+                    CFG.sesame_task_planning_heuristic,
+                    max_horizon=CFG.horizon,
+                )
+                policy = utils.process_plan_to_greedy_policy(
+                    process_plan,
+                    task.goal,
+                    self._rng,
+                    noop_option_terminate_on_atom_change=True,
+                    abstract_function=lambda s: utils.abstract(
+                        s, self._predicates))
+
+            else:
+                raise NotImplementedError
+        else:
+            assert not CFG.bilevel_plan_without_sim
+            plan, _, _ = sesame_plan(
+                task,
+                self._option_model,
+                self._nsrts,
+                self._predicates,
+                self._types,
+                timeout,
+                seed,
+                CFG.sesame_task_planning_heuristic,
+                CFG.sesame_max_skeletons_optimized,
+                max_horizon=CFG.horizon,
+                allow_noops=CFG.sesame_allow_noops,
+                use_visited_state_set=CFG.sesame_use_visited_state_set)
+            policy = utils.option_plan_to_policy(plan)
         termination_function = task.goal_holds
 
         return policy, termination_function

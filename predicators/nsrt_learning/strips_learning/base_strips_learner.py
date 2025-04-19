@@ -250,7 +250,10 @@ class BaseSTRIPSLearner(abc.ABC):
                 if not check_only_preconditions:
                     # If the atoms resulting from apply_operator() don't
                     # all hold in the segment's final atoms, skip.
-                    if not next_atoms.issubset(segment.final_atoms):
+                    # Note: One might want to turn this off, e.g., with LLM
+                    # learner, because it might not account for all the changes.
+                    if not next_atoms.issubset(segment.final_atoms) and \
+                        CFG.find_best_matching_pnad_skip_if_effect_not_subset:
                         continue
                     # If the segment has a non-None necessary_add_effects,
                     # and the ground operator's add effects don't fit this,

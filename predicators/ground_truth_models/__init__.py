@@ -148,9 +148,10 @@ def get_gt_nsrts(env_name: str, predicates_to_keep: Set[Predicate],
     return final_nsrts
 
 
-def get_gt_processes(
-        env_name: str, predicates_to_keep: Set[Predicate],
-        options_to_keep: Set[ParameterizedOption]) -> Set[CausalProcess]:
+def get_gt_processes(env_name: str,
+                     predicates_to_keep: Set[Predicate],
+                     options_to_keep: Set[ParameterizedOption],
+                     only_endogenous: bool = False) -> Set[CausalProcess]:
     """Create ground truth processes for an env."""
     env = get_or_create_env(env_name)
     env_options = get_gt_options(env_name)
@@ -180,6 +181,13 @@ def get_gt_processes(
             continue
         process = process.filter_predicates(predicates_to_keep)
         final_processes.add(process)
+
+    # Filter out exogenous processes if only_endogenous is True.
+    if only_endogenous:
+        final_processes = {
+            p
+            for p in final_processes if isinstance(p, EndogenousProcess)
+        }
     return final_processes
 
 
