@@ -150,9 +150,9 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         else:
             delay_distribution = CMPDelay(55, 3, rng)
         pick_jug_outside_faucet_burner_process = EndogenousProcess(
-            "PickJugFromOutsideFaucetAndBurner", parameters, condition_at_start, set(),
-            set(), add_effects, delete_effects, delay_distribution, 1.0,
-            option, option_vars, null_sampler)
+            "PickJugFromOutsideFaucetAndBurner", parameters,
+            condition_at_start, set(), set(), add_effects, delete_effects,
+            delay_distribution, 1.0, option, option_vars, null_sampler)
         processes.add(pick_jug_outside_faucet_burner_process)
 
         # PlaceOnBurner
@@ -238,9 +238,9 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         else:
             delay_distribution = CMPDelay(55, 3, rng)
         place_at_outside_faucet_burner_process = EndogenousProcess(
-            "PlaceOutsideFaucetAndBurner", parameters, condition_at_start, set(), set(),
-            add_effects, delete_effects, delay_distribution, 1.0, option,
-            option_vars, null_sampler)
+            "PlaceOutsideFaucetAndBurner", parameters, condition_at_start,
+            set(), set(), add_effects, delete_effects, delay_distribution, 1.0,
+            option, option_vars, null_sampler)
         processes.add(place_at_outside_faucet_burner_process)
 
         # SwitchFaucetOn

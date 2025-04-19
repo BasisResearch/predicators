@@ -118,8 +118,8 @@ def learn_processes_from_data(
     # TODO: remove any atoms with robot in them? Because in most cases the
     #       robot's state shouldn't matter (there are certainly cases where it,
     #       e.g., a sensor is activated if it detects the agent is here?).
-    num_unexplaned_segments = sum(len(sugments) for sugments in
-                                  filtered_segmented_trajs)
+    num_unexplaned_segments = sum(
+        len(sugments) for sugments in filtered_segmented_trajs)
     if num_unexplaned_segments == 0:
         new_exogenous_processes = []
     else:

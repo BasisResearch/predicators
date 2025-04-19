@@ -172,14 +172,13 @@ class PyBulletBoilEnv(PyBulletEnv):
                                       [self._jug_type, self._burner_type],
                                       self._JugOnBurner_holds)
         self._JugAtFaucet = Predicate("JugAtFaucet",
-                                         [self._jug_type, self._faucet_type],
-                                         self._JugUnderFaucet_holds)
-        self._JugNotAtBurnerOrFaucet = Predicate("JugNotAtBurnerOrFaucet",
-                                                 [self._jug_type],
-                                        self._JugNotAtBurnerOrFaucet_holds)
-        self._NoJugAtFaucet = Predicate("NoJugAtFaucet",
-                                           [self._faucet_type],
-                                           self._NoJugUnderFaucet_holds)
+                                      [self._jug_type, self._faucet_type],
+                                      self._JugUnderFaucet_holds)
+        self._JugNotAtBurnerOrFaucet = Predicate(
+            "JugNotAtBurnerOrFaucet", [self._jug_type],
+            self._JugNotAtBurnerOrFaucet_holds)
+        self._NoJugAtFaucet = Predicate("NoJugAtFaucet", [self._faucet_type],
+                                        self._NoJugUnderFaucet_holds)
         self._HandEmpty = Predicate("HandEmpty", [self._robot_type],
                                     self._HandEmpty_holds)
         self._WaterSpilled = Predicate("WaterSpilled", [],
@@ -198,9 +197,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         return {
             self._JugFilled, self._WaterBoiled, self._BurnerOn, self._FaucetOn,
             self._BurnerOff, self._FaucetOff, self._Holding, self._JugAtBurner,
-            self._JugAtFaucet, self._JugNotAtBurnerOrFaucet,
-            self._HandEmpty, self._WaterSpilled,
-            self._NoJugAtFaucet, self._NoWaterSpilled
+            self._JugAtFaucet, self._JugNotAtBurnerOrFaucet, self._HandEmpty,
+            self._WaterSpilled, self._NoJugAtFaucet, self._NoWaterSpilled
         }
 
     @property
@@ -697,11 +695,10 @@ class PyBulletBoilEnv(PyBulletEnv):
         output_y = faucet_y - output_distance * np.sin(faucet_rot)
         dist = np.hypot(jug_x - output_x, jug_y - output_y)
         return dist < self.faucet_align_threshold
-    
+
     def _JugNotAtBurnerOrFaucet_holds(self, state: State,
-                                     objects: Sequence[Object]) -> bool:
-        """Jug on table but in area outside of burner or faucet.
-        """
+                                      objects: Sequence[Object]) -> bool:
+        """Jug on table but in area outside of burner or faucet."""
         (jug, ) = objects
         if self._Holding_holds(state, [self._robot, jug]):
             return False

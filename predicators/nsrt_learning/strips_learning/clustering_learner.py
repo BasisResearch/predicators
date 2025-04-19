@@ -161,7 +161,9 @@ class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
 
 class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
     """Learn preconditions via LLM selection.
-    Note: The current prompt are tailored for exogenous processes."""
+
+    Note: The current prompt are tailored for exogenous processes.
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -460,15 +460,17 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             if len(objects) == 2:
                 robot, burner = objects
                 # Current
-                current_position = (state.get(robot, "x"), state.get(robot, "y"),
+                current_position = (state.get(robot,
+                                              "x"), state.get(robot, "y"),
                                     state.get(robot, "z"))
                 ee_orn = p.getQuaternionFromEuler(
                     [0, state.get(robot, "tilt"),
-                    state.get(robot, "wrist")])
+                     state.get(robot, "wrist")])
                 current_pose = Pose(current_position, ee_orn)
                 # Target
                 target_x = state.get(burner, "x")
-                target_y = state.get(burner, "y") - cls.env_cls.jug_handle_offset
+                target_y = state.get(burner,
+                                     "y") - cls.env_cls.jug_handle_offset
                 if under_faucet:
                     target_y -= cls.env_cls.faucet_x_len
             else:
@@ -478,15 +480,15 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
 
             if move_to_initial_pos:
                 target_position = (cls.env_cls.robot_init_x,
-                                    cls.env_cls.robot_init_y,
-                                    cls.env_cls.robot_init_z - 0.1)
+                                   cls.env_cls.robot_init_y,
+                                   cls.env_cls.robot_init_z - 0.1)
             else:
                 if len(objects) == 2:
                     target_position = (target_x, target_y,
-                                z_func(state.get(burner, "z")))
+                                       z_func(state.get(burner, "z")))
                 else:
                     target_position = (target_x, target_y,
-                                z_func(cls.env_cls.table_height))
+                                       z_func(cls.env_cls.table_height))
 
             target_orn = p.getQuaternionFromEuler(
                 [0, cls.env_cls.robot_init_tilt, cls.env_cls.robot_init_wrist])
