@@ -1,26 +1,17 @@
 import logging
-from collections import defaultdict
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import List, Optional, Sequence, Set
 
-import dill as pkl
-import numpy as np
 from gym.spaces import Box
 from scipy.optimize import minimize
-from tqdm.auto import tqdm
 
-from predicators import planning, utils
 from predicators.approaches.pp_process_learning_approach import \
     ProcessLearningBilevelProcessPlanningApproach
-from predicators.explorers import BaseExplorer, create_explorer
-from predicators.ground_truth_models import get_gt_processes
-from predicators.nsrt_learning.process_learning_main import \
-    learn_processes_from_data
+from predicators.explorers import create_explorer
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
-from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
-    Dataset, GroundAtom, GroundAtomTrajectory, InteractionRequest, \
+from predicators.structs import Dataset, InteractionRequest, \
     InteractionResult, LowLevelTrajectory, ParameterizedOption, Predicate, \
-    Task, Type, _GroundCausalProcess
+    Task, Type
 
 
 class OnlineProcessLearningBilevelProcessPlanningApproach(
