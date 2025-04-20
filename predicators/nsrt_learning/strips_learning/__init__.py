@@ -1,6 +1,5 @@
 """This directory contains algorithms for STRIPS operator learning."""
 
-import logging
 from typing import Any, List, Optional, Set
 
 from predicators import utils

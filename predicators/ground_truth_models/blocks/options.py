@@ -48,30 +48,14 @@ class BlocksGroundTruthOptionFactory(GroundTruthOptionFactory):
             # params: []
             "Pick",
             cls._create_pick_policy(action_space),
-            types=[robot_type, block_type],
-            # terminal=_Pick_terminal,
-        )
-
-        # Probably will need to change the option parameters for this to work
-        # def _Stack_terminal(s: State, m: Dict, o: Sequence[Object],
-        #                     p: Array) -> bool:
-        #     block, otherblock, _ = o
-        #     return On.holds(s, [block, otherblock])
+            types=[robot_type, block_type])
 
         Stack = utils.SingletonParameterizedOption(
             # variables: [robot, object on which to stack currently-held-object]
             # params: []
             "Stack",
             cls._create_stack_policy(action_space, block_size),
-            types=[robot_type, block_type],
-            # types = [block_type, block_type, robot_type],
-            # terminal=_Stack_terminal,
-        )
-
-        # def _PutOnTable_terminal(s: State, m: Dict, o: Sequence[Object],
-        #                          p: Array) -> bool:
-        #     block, _ = o
-        #     return OnTable.holds(s, [block])
+            types=[robot_type, block_type])
 
         PutOnTable = utils.SingletonParameterizedOption(
             # variables: [robot]
@@ -79,10 +63,7 @@ class BlocksGroundTruthOptionFactory(GroundTruthOptionFactory):
             "PutOnTable",
             cls._create_putontable_policy(action_space, block_size),
             types=[robot_type],
-            # types=[block_type, robot_type],
-            params_space=Box(0, 1, (2, )),
-            # terminal=_PutOnTable_terminal,
-        )
+            params_space=Box(0, 1, (2, )))
 
         return {Pick, Stack, PutOnTable}
 
@@ -112,8 +93,6 @@ class BlocksGroundTruthOptionFactory(GroundTruthOptionFactory):
                    params: Array) -> Action:
             del memory, params  # unused
             _, block = objects
-            # _, block, _ = objects
-
             block_pose = np.array([
                 state.get(block, "pose_x"),
                 state.get(block, "pose_y"),
@@ -231,8 +210,7 @@ class PyBulletBlocksGroundTruthOptionFactory(GroundTruthOptionFactory):
                     pybullet_robot=pybullet_robot,
                     option_types=option_types,
                     params_space=params_space),
-            ],
-            "Pick up block ?block")
+            ])
 
         # Stack
         option_types = [robot_type, block_type]
@@ -270,8 +248,7 @@ class PyBulletBlocksGroundTruthOptionFactory(GroundTruthOptionFactory):
                     pybullet_robot=pybullet_robot,
                     option_types=option_types,
                     params_space=params_space),
-            ],
-            annotation="Stack the block in hand onto block ?otherblock")
+            ])
 
         # PutOnTable
         option_types = [robot_type]
@@ -310,8 +287,7 @@ class PyBulletBlocksGroundTruthOptionFactory(GroundTruthOptionFactory):
                     pybullet_robot=pybullet_robot,
                     option_types=option_types,
                     params_space=params_space),
-            ],
-            annotation="Put block on table")
+            ])
 
         return {Pick, Stack, PutOnTable}
 

@@ -5,11 +5,10 @@ from __future__ import annotations
 import abc
 import copy
 import itertools
-import textwrap
-from dataclasses import dataclass, field, replace
+
+from dataclasses import dataclass, field
 from functools import cached_property, lru_cache
-from inspect import getsource
-from pprint import PrettyPrinter, pformat
+
 from typing import Any, Callable, Collection, DefaultDict, Dict, Iterator, \
     List, Optional, Sequence, Set, Tuple, TypeVar, Union, cast
 
@@ -18,6 +17,9 @@ import PIL.Image
 from gym.spaces import Box
 from numpy.typing import NDArray
 from tabulate import tabulate
+
+import predicators.pretrained_model_interface
+import predicators.utils as utils  # pylint: disable=consider-using-from-import
 
 from predicators.settings import CFG
 
@@ -303,15 +305,6 @@ class State:
 
 DefaultState = State({})
 
-# @dataclass
-# class ImageWithBox:
-#     """An PIL image of either a scene or object with it's bounding box
-#     coordicates"""
-#     image: PIL.Image.Image
-#     left: int
-#     lower: int
-#     right: int
-#     upper: int
 
 @dataclass(frozen=True, order=False, repr=False)
 class Predicate:
@@ -687,9 +680,21 @@ class Task:
         for atom in self.goal:
             assert isinstance(atom, GroundAtom)
 
-    def goal_holds(self, state: State) -> bool:
+    def goal_holds(
+        self,
+        state: State,
+        vlm: Optional[
+            predicators.pretrained_model_interface.VisionLanguageModel] = None
+    ) -> bool:
         """Return whether the goal of this task holds in the given state."""
-        return all(goal_atom.holds(state) for goal_atom in self.goal)
+        vlm_atoms = set(atom for atom in self.goal
+                        if isinstance(atom.predicate, VLMPredicate))
+        for atom in self.goal:
+            if atom not in vlm_atoms:
+                if not atom.holds(state):
+                    return False
+        true_vlm_atoms = utils.query_vlm_for_atom_vals(vlm_atoms, state, vlm)
+        return len(true_vlm_atoms) == len(vlm_atoms)
 
     def replace_goal_with_alt_goal(self) -> Task:
         """Return a Task with the goal replaced with the alternative goal if it
@@ -932,9 +937,12 @@ class STRIPSOperator:
     delete_effects: Set[LiftedAtom]
     ignore_effects: Set[Predicate]
 
-    def make_nsrt(self, option: ParameterizedOption,
-                  option_vars: Sequence[Variable],
-                  sampler: NSRTSampler) -> NSRT:
+    def make_nsrt(
+        self,
+        option: ParameterizedOption,
+        option_vars: Sequence[Variable],
+        sampler: NSRTSampler = field(repr=False)
+    ) -> NSRT:
         """Make an NSRT out of this STRIPSOperator object, given the necessary
         additional fields."""
         return NSRT(self.name, self.parameters, self.preconditions,
@@ -1451,11 +1459,7 @@ class LowLevelTrajectory:
     _train_task_idx: Optional[int] = field(default=None)
 
     def __post_init__(self) -> None:
-        try:
-            assert len(self._states) == len(self._actions) + 1,\
-                f"{len(actions)} actions but {len(states)} states"
-        except:
-            breakpoint()
+        assert len(self._states) == len(self._actions) + 1
         if self._is_demo:
             assert self._train_task_idx is not None
 
@@ -1497,6 +1501,7 @@ class ImageOptionTrajectory:
     """
     _objects: Collection[Object]
     _state_imgs: List[List[PIL.Image.Image]]
+    _cropped_state_imgs: List[List[PIL.Image.Image]]
     _actions: List[_Option]
     _states: Optional[List[State]] = field(default=None)
     _is_demo: bool = field(default=False)
@@ -1513,6 +1518,11 @@ class ImageOptionTrajectory:
     def imgs(self) -> List[List[PIL.Image.Image]]:
         """State images in the trajectory."""
         return self._state_imgs
+
+    @property
+    def cropped_imgs(self) -> List[List[PIL.Image.Image]]:
+        """Cropped versions of state images in the trajectory."""
+        return self._cropped_state_imgs
 
     @property
     def objects(self) -> Collection[Object]:

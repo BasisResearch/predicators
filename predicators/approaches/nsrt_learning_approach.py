@@ -7,7 +7,9 @@ or options.
 import logging
 import time
 from typing import Any, Dict, List, Optional, Set
+
 from itertools import chain
+
 
 import dill as pkl
 from gym.spaces import Box
@@ -18,7 +20,7 @@ from predicators.approaches.bilevel_planning_approach import \
 from predicators.nsrt_learning.nsrt_learning_main import learn_nsrts_from_data
 from predicators.planning import task_plan, task_plan_grounding
 from predicators.settings import CFG
-from predicators.structs import NSRT, Dataset, GroundAtomTrajectory, \
+from predicators.structs import HEAD, NSRT, Dataset, GroundAtomTrajectory, \
     LowLevelTrajectory, ParameterizedOption, Predicate, Segment, Task, Type,\
     ConceptPredicate
 
@@ -132,7 +134,7 @@ class NSRTLearningApproach(BilevelPlanningApproach):
         save_path = utils.get_approach_load_path_str()
         with open(f"{save_path}_{online_learning_cycle}.NSRTs", "rb") as f:
             self._nsrts = pkl.load(f)
-        if CFG.pretty_print_when_loading:
+        if CFG.pretty_print_when_loading:  # pragma: no cover
             preds, _ = utils.extract_preds_and_types(self._nsrts)
             name_map = {}
             logging.info("Invented predicates:")

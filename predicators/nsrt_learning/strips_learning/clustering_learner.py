@@ -4,16 +4,18 @@ import abc
 import functools
 import logging
 from collections import defaultdict
-from copy import deepcopy
+
 from typing import Dict, FrozenSet, Iterator, List, Set, Tuple, cast
-from pympler import asizeof
+
 
 from predicators import utils
 from predicators.nsrt_learning.strips_learning import BaseSTRIPSLearner
 from predicators.settings import CFG
-from predicators.structs import PNAD, Datastore, DummyOption, GroundAtom, \
-    GroundOptionRecord, LiftedAtom, Object, ParameterizedOption, Predicate, \
-    State, STRIPSOperator, VarToObjSub, ConceptPredicate
+
+from predicators.structs import PNAD, ConceptPredicate, Datastore, \
+    DummyOption, GroundAtom, GroundOptionRecord, LiftedAtom, Object, \
+    ParameterizedOption, Predicate, State, STRIPSOperator, VarToObjSub
+
 
 
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
@@ -36,22 +38,17 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 # Note that both add and delete effects must unify,
                 # and also the objects that are arguments to the options.
                 (pnad_param_option, pnad_option_vars) = pnad.option_spec
-                # ent_to_ent_sub:: {object: variable}
                 suc, ent_to_ent_sub = utils.unify_preconds_effects_options(
                     frozenset(),  # no preconditions
                     frozenset(),  # no preconditions
                     frozenset(segment.add_effects),
                     frozenset(pnad.op.add_effects),
-                    # frozenset(),  # test
-                    # frozenset(),  # test
                     frozenset(segment.delete_effects),
                     frozenset(pnad.op.delete_effects),
                     segment_param_option,
                     pnad_param_option,
                     segment_option_objs,
-                    tuple(pnad_option_vars),
-                )
-                # breakpoint()
+                    tuple(pnad_option_vars))
                 sub = cast(VarToObjSub,
                            {v: o
                             for o, v in ent_to_ent_sub.items()})
@@ -180,7 +177,12 @@ class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
     def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
         new_pnads = []
         for pnad in pnads:
-            preconditions = self._induce_preconditions_via_intersection(pnad)
+            if CFG.cluster_and_intersect_soft_intersection_for_preconditions:
+                preconditions = \
+                    self._induce_preconditions_via_soft_intersection(pnad)
+            else:
+                preconditions = self._induce_preconditions_via_intersection(
+                    pnad)
             # Since we are taking an intersection, we're guaranteed that the
             # datastore can't change, so we can safely use pnad.datastore here.
             new_pnads.append(

@@ -13,7 +13,7 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.pretrained_model_interface import OpenAILLM
 from predicators.settings import CFG
-from predicators.structs import Action, DefaultEnvironmentTask, \
+from predicators.structs import HEAD, Action, DefaultEnvironmentTask, \
     EnvironmentTask, GroundAtom, Object, Observation, Predicate, State, Task, \
     Type, Video, ConceptPredicate
 
@@ -49,9 +49,8 @@ class BaseEnv(abc.ABC):
         representation is a member of self.action_space), NOT an option.
 
         This function is primarily used in the default option model, and
-        for implementing the default self.step(action). It is not meant
-        to be part of the "final system", where the environment is the
-        real world.
+        for implementing the default self.step(action). It is not meant to
+        be part of the "final system", where the environment is the real world.
         """
         raise NotImplementedError("Override me!")
 
@@ -70,18 +69,6 @@ class BaseEnv(abc.ABC):
     def predicates(self) -> Set[Predicate]:
         """Get the set of predicates that are given with this environment."""
         raise NotImplementedError("Override me!")
-    
-    @property
-    def concept_predicates(self) -> Set[ConceptPredicate]:
-        """Get the set of concept predicates"""
-        return set()
-
-    def oracle_proposed_predicates(self) -> Set[Predicate]:
-        """Get the set of predicates that the oracle should roughly propose.
-
-        By default the same as the predicates, but can be overridden.
-        """
-        return self.predicates
 
     @property
     @abc.abstractmethod
@@ -149,8 +136,8 @@ class BaseEnv(abc.ABC):
         just for convenience, e.g., in test coverage.
 
         By default, calls render_state_plt, but subclasses may override,
-        e.g. if they do not use Matplotlib for rendering, and thus do
-        not define a render_state_plt() function.
+        e.g. if they do not use Matplotlib for rendering, and thus do not
+        define a render_state_plt() function.
         """
         fig = self.render_state_plt(state, task, action, caption)
         img = utils.fig2data(fig, dpi=CFG.render_state_dpi)
@@ -230,15 +217,25 @@ class BaseEnv(abc.ABC):
 
         By default, we assume JSON files are in the following format:
 
-        {     "objects": {         <object name>: <type name>     }
-        "init": {         <object name>: {             <feature name>:
-        <value>         }     }     "goal": {         <predicate name> :
-        [             [<object name>]         ]     } }
+        {
+            "objects": {
+                <object name>: <type name>
+            }
+            "init": {
+                <object name>: {
+                    <feature name>: <value>
+                }
+            }
+            "goal": {
+                <predicate name> : [
+                    [<object name>]
+                ]
+            }
+        }
 
         Instead of "goal", "language_goal" can also be used.
 
-        Environments can override this method to handle different
-        formats.
+        Environments can override this method to handle different formats.
         """
         with open(json_file, "r", encoding="utf-8") as f:
             json_dict = json.load(f)
@@ -355,12 +352,12 @@ class BaseEnv(abc.ABC):
     def step(self, action: Action) -> Observation:
         """Apply the action, update the state, and return an observation.
 
-        Note that this action is a low-level action (i.e., action.arr is
-        a member of self.action_space), NOT an option.
+        Note that this action is a low-level action (i.e., action.arr
+        is a member of self.action_space), NOT an option.
 
         By default, this function just calls self.simulate. However,
-        environments that maintain a more complicated internal state, or
-        that don't implement simulate(), may override this method.
+        environments that maintain a more complicated internal state,
+        or that don't implement simulate(), may override this method.
         """
         assert isinstance(self._current_observation, State)
         self._current_observation = self.simulate(self._current_observation,
@@ -384,15 +381,9 @@ class BaseEnv(abc.ABC):
         """Get the current observation of this environment."""
         assert isinstance(self._current_observation, State)
         return self._current_observation.copy()
-        # if CFG.rgb_observation:
-        #     rendered_state = utils.PyBulletRenderedState(
-        #         state_copy.data, state_copy.simulator_state,
-        #         self.render_segmented_obj())
-        #     return rendered_state
-        # else:
-        #     return state_copy
 
-    def get_vlm_debug_atom_strs(self, train_tasks: List[Task]) -> Set[str]:
+    def get_vlm_debug_atom_strs(self,
+                                train_tasks: List[Task]) -> List[List[str]]:
         """A 'debug grammar' set of predicates that should be sufficient for
         completing the task; useful for comparing different methods of VLM
         truth-value labelling given the same set of atom proposals to label.
@@ -412,4 +403,7 @@ class BaseEnv(abc.ABC):
             ", ".join([o.name for o in atom.objects]) + ")"
             for atom in sorted(all_ground_atoms_set)
         }
-        return atom_strs
+        # We return the atom strings in this format to match the format they are
+        # outputted in when querying the VLM. That way, we can use the same
+        # function to sanitize atoms regardless of their origin.
+        return [[a] for a in atom_strs]

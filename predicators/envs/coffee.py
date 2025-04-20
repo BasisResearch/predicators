@@ -1,6 +1,7 @@
 """An environment where a robot must brew and pour coffee."""
 
 import logging
+
 from typing import ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import matplotlib

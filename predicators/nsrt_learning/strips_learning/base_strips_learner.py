@@ -2,6 +2,9 @@
 
 import abc
 import logging
+
+from collections import defaultdict
+
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from predicators import utils
@@ -74,15 +77,10 @@ class BaseSTRIPSLearner(abc.ABC):
             for pnad in learned_pnads:
                 percentage = 0 if self._num_segments == 0 else\
                     len(pnad.datastore) / float(self._num_segments)
-                # logging.debug(f"PNAD: {pnad.op.name} \n"
-                #               f"Total segments: {self._num_segments} "
-                #               f"Percentage: {percentage}")
             learned_pnads = [
                 pnad for pnad in learned_pnads
                 if len(pnad.datastore) >= min_data
             ]
-            # logging.debug(f"Pruned to {len(learned_pnads)} operators: " +
-            #               f"{learned_pnads}")
             if not CFG.enable_harmless_op_pruning:
                 # If we are not doing harmless operator pruning, return
                 # PNADs at current min_perc_data_for_nsrts.
@@ -327,6 +325,46 @@ class BaseSTRIPSLearner(abc.ABC):
                 preconditions = lifted_atoms
             else:
                 preconditions &= lifted_atoms
+
+        return preconditions
+
+    @staticmethod
+    def _induce_preconditions_via_soft_intersection(
+            pnad: PNAD) -> Set[LiftedAtom]:
+        """Given a PNAD with a nonempty datastore, compute the preconditions
+        for the PNAD's operator from a soft intersection of all lifted
+        preimages.
+
+        Keep the preconditions that appear in a more than a certain percentage
+        of segments in the PNAD's datastore, as determined by
+        CFG.precondition_soft_intersection_threshold_percent.
+        """
+        assert len(pnad.datastore) > 0
+        threshold_count = int(
+            len(pnad.datastore) *
+            CFG.precondition_soft_intersection_threshold_percent)
+        lifted_atom_counts: dict[LiftedAtom, int] = defaultdict(int)
+
+        for segment, var_to_obj in pnad.datastore:
+            objects = set(var_to_obj.values())
+            obj_to_var = {o: v for v, o in var_to_obj.items()}
+            atoms = {
+                atom
+                for atom in segment.init_atoms
+                if all(o in objects for o in atom.objects)
+            }
+            lifted_atoms = {atom.lift(obj_to_var) for atom in atoms}
+
+            for la in lifted_atoms:
+                lifted_atom_counts[la] += 1
+
+        # Keep the lifted atoms that appear as preconditions in more than
+        # threshold_count of the segments.
+        preconditions = {
+            la
+            for la, count in lifted_atom_counts.items()
+            if count > threshold_count
+        }
         return preconditions
 
     @staticmethod

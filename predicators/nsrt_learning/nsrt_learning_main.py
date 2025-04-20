@@ -19,11 +19,11 @@ from predicators.structs import NSRT, PNAD, GroundAtomTrajectory, \
 
 
 def learn_nsrts_from_data(
-        trajectories: List[LowLevelTrajectory], train_tasks: List[Task],
-        predicates: Set[Predicate], known_options: Set[ParameterizedOption],
-        action_space: Box,
-        ground_atom_dataset: Optional[List[GroundAtomTrajectory]],
-        sampler_learner: str, annotations: Optional[List[Any]], **kwargs
+    trajectories: List[LowLevelTrajectory], train_tasks: List[Task],
+    predicates: Set[Predicate], known_options: Set[ParameterizedOption],
+    action_space: Box,
+    ground_atom_dataset: Optional[List[GroundAtomTrajectory]],
+    sampler_learner: str, annotations: Optional[List[Any]]
 ) -> Tuple[Set[NSRT], List[List[Segment]], Dict[Segment, NSRT]]:
     """Learn NSRTs from the given dataset of low-level transitions, using the
     given set of predicates.
@@ -92,8 +92,7 @@ def learn_nsrts_from_data(
             segmented_trajs,
             verify_harmlessness=True,
             verbose=(CFG.option_learner != "no_learning"),
-            annotations=annotations,
-            **kwargs)
+            annotations=annotations)
 
         # Save least complex learned PNAD set across data orderings.
         pnads_complexity = sum(pnad.op.get_complexity() for pnad in pnads)
@@ -157,10 +156,7 @@ def _learn_pnad_options(pnads: List[PNAD],
         pnad_options_known = example_action.has_option()
         # Sanity check the assumption described above.
         if pnad_options_known:
-            try:
-                assert example_action.get_option().parent in known_options
-            except:
-                breakpoint()
+            assert example_action.get_option().parent in known_options
         for (segment, _) in pnad.datastore:
             for action in segment.actions:
                 if pnad_options_known:

@@ -34,7 +34,6 @@ To run grammar search predicate invention (example):
         --seed 0 --excluded_predicates all
 """
 
-import datetime
 import logging
 import os
 import sys
@@ -43,9 +42,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-import colorlog
 import dill as pkl
-from PIL import Image
+
 
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout, \
@@ -56,6 +54,7 @@ from predicators.envs import BaseEnv, create_new_env
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options, \
     parse_config_included_options
+
 from predicators.image_patch_wrapper import ImagePatch
 from predicators.perception import create_perceiver
 from predicators.settings import CFG, get_allowed_query_type_names
@@ -66,7 +65,6 @@ from predicators.teacher import Teacher, TeacherInteractionMonitorWithVideo
 assert os.environ.get("PYTHONHASHSEED") == "0", \
         "Please add `export PYTHONHASHSEED=0` to your bash profile!"
 
-# sys.setrecursionlimit(1000000)
 
 def main() -> None:
     """Main entry point for running approaches in environments."""
@@ -151,18 +149,6 @@ def main() -> None:
         env) if CFG.approach != "oracle" else included_preds
     # Create the train tasks.
     env_train_tasks = env.get_train_tasks()
-
-    # Save the init images
-    for i, task in enumerate(env_train_tasks):
-        img_dir = os.path.join(CFG.log_file, "images")
-        os.makedirs(img_dir, exist_ok=True)
-        # task.init.state_image.save(
-        #     os.path.join(img_dir, f"init_unlab{i}.png"))
-        if hasattr(task.init, "labeled_image"):
-            task.init.labeled_image.save(os.path.join(img_dir, 
-                                                    f"trn_init_labeled{i}.png"))
-        if i == 10:
-            break
     # We assume that a train Task can be constructed from a EnvironmentTask.
     # In other words, the initial obs is assumed to contain enough information
     # to determine all of the objects and their initial states. We only make
@@ -198,8 +184,7 @@ def main() -> None:
     approach_name = CFG.approach
     if CFG.approach_wrapper:
         approach_name = f"{CFG.approach_wrapper}[{approach_name}]"
-    approach = create_approach(approach_name, preds, options, 
-                               env.types,
+    approach = create_approach(approach_name, preds, options, env.types,
                                env.action_space, approach_train_tasks)
     if approach.is_learning_based:
         # Create the offline dataset. Note that this needs to be done using
@@ -221,9 +206,6 @@ def _run_pipeline(env: BaseEnv,
                   cogman: CogMan,
                   train_tasks: List[Task],
                   offline_dataset: Optional[Dataset] = None) -> None:
-    # utils.test_derived_predicates(env, [t.init for t in train_tasks],
-    #                               env.ns_predicates)
-
     # If agent is learning-based, allow the agent to learn from the generated
     # offline dataset, and then proceed with the online learning loop. Test
     # after each learning call. If agent is not learning-based, just test once.
@@ -233,7 +215,6 @@ def _run_pipeline(env: BaseEnv,
             len(traj.actions) for traj in offline_dataset.trajectories)
         num_online_transitions = 0
         total_query_cost = 0.0
-
         if CFG.load_approach:
             cogman.load(online_learning_cycle=None)
             learning_time = 0.0  # ignore loading time
@@ -252,7 +233,6 @@ def _run_pipeline(env: BaseEnv,
             f"offline_learning_{k}": v
             for k, v in cogman.metrics.items()
         }
-
         # Run evaluation once before online learning starts.
         if CFG.skip_until_cycle < 0:
             results = _run_testing(env, cogman)
@@ -397,44 +377,6 @@ def _generate_interaction_results(
 
 
 def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
-    test_tasks = env.get_test_tasks()
-    if CFG.approach != "oracle":
-        test_tasks = [task.replace_goal_with_alt_goal() for task in test_tasks]
-    
-    # Save the init images
-    for i, task in enumerate(test_tasks):
-        img_dir = os.path.join(CFG.log_file, "images")
-        os.makedirs(img_dir, exist_ok=True)
-        # task.init.state_image.save(
-        #     os.path.join(img_dir, f"init_unlab{i}.png"))
-        if hasattr(task.init, "labeled_image"):
-            task.init.labeled_image.save(os.path.join(img_dir, 
-                                        f"tst_init_labeled{i}.png"))
-        if i == 10:
-            break
-    # # Check rendering by saving the image of the init state of tasks
-    # Save all the masks
-    # for obj, mask in task.init.obj_mask_dict.items():
-    #     Image.fromarray(mask).save(
-    #         f"images/test_task{i}_mask{obj.id}.png")
-
-    # Check the processed image before performing simple query
-    # ground_atoms = utils.abstract(test_tasks[0].init, env.ns_predicates)
-
-    # Label all the objects in the state and save the image
-    # state_ip = ImagePatch(task.init.state_image)
-    # for obj in list(task.init):
-
-    # Compare accuracy
-    # test_tasks[0].init.state_image.save("images/test_task0_init.png")
-    # utils.compare_abstract_accuracy(env,
-    #                                 [t.init for t in test_tasks],
-    #                                 env.ns_predicates_to_predicates)
-    # utils.test_derived_predicates(env, [t.init for t in test_tasks],
-    #                               env.ns_predicates)
-    # breakpoint()
-
-    # /Check
     # If the goals of the tasks that the approaches solve need to be described
     # using predicates that differ from those in the goals of the tasks that the
     # demonstrator solves, then replace those predicates accordingly. This is
@@ -442,6 +384,9 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
     # predicates that the demonstrator needed to solve the task. No replacing is
     # done if the approach is oracle because the ground truth operators are
     # defined in terms of the original goal predicates.
+    test_tasks = env.get_test_tasks()
+    if CFG.approach != "oracle":
+        test_tasks = [task.replace_goal_with_alt_goal() for task in test_tasks]
     num_found_policy = 0
     num_solved = 0
     cogman.reset_metrics()
@@ -463,9 +408,6 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             # so that we can log planning failures, timeouts, etc. This is
             # mostly for legacy reasons (before cogman existed separately
             # from approaches).
-            # Temporary:
-            #   1. modify the task to inlcude object labels
-            #   2. reset the vlm chat history
             cogman.reset(env_task)
         except (ApproachTimeout, ApproachFailure) as e:
             logging.info(f"Task {test_task_idx+1} / {len(test_tasks)}: "
@@ -529,17 +471,19 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
                 total_low_level_action_cost += (
                     len(traj[1]) *
                     CFG.refinement_data_low_level_execution_cost)
-            # Save the successful trajectory, e.g., for playback on a robot.
-            traj_file = f"{save_prefix}__task{test_task_idx+1}.traj"
-            traj_file_path = Path(CFG.eval_trajectories_dir) / traj_file
-            # Include the original task too so we know the goal.
-            traj_data = {
-                "task": env_task,
-                "trajectory": traj,
-                "pybullet_robot": CFG.pybullet_robot
-            }
-            # with open(traj_file_path, "wb") as f:
-            #     pkl.dump(traj_data, f)
+            if CFG.save_eval_trajs:
+                # Save the successful trajectory, e.g., for playback on a
+                # robot.
+                traj_file = f"{save_prefix}__task{test_task_idx+1}.traj"
+                traj_file_path = Path(CFG.eval_trajectories_dir) / traj_file
+                # Include the original task too so we know the goal.
+                traj_data = {
+                    "task": env_task,
+                    "trajectory": traj,
+                    "pybullet_robot": CFG.pybullet_robot
+                }
+                with open(traj_file_path, "wb") as f:
+                    pkl.dump(traj_data, f)
         except utils.EnvironmentFailure as e:
             log_message = f"Environment failed with error: {e}"
             caught_exception = True
@@ -551,17 +495,13 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             elif isinstance(e, ApproachFailure):
                 total_num_execution_failures += 1
             caught_exception = True
-        except utils.OptionExecutionFailure as e:
-            log_message = ("Approach failed at policy execution time with "
-                           f"error: {e}")
-            total_num_execution_failures += 1
-            caught_exception = True
         if solved:
             log_message = "SOLVED"
             num_solved += 1
             total_suc_time += (solve_time + exec_time)
             make_video = CFG.make_test_videos
             video_file = f"{save_prefix}__task{test_task_idx+1}.mp4"
+            metrics[f"PER_TASK_task{test_task_idx}_num_steps"] = len(traj[1])
         else:
             if not caught_exception:
                 log_message = "Policy failed to reach goal"
@@ -570,7 +510,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             make_video = CFG.make_failure_videos
             video_file = f"{save_prefix}__task{test_task_idx+1}_failure.mp4"
         logging.info(f"Task {test_task_idx+1} / {len(test_tasks)}: "
-                     f"{log_message}\n")
+                     f"{log_message}")
         if make_video:
             assert monitor is not None
             video = monitor.get_video()

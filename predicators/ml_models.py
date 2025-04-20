@@ -28,8 +28,9 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from predicators import utils
 from predicators.settings import CFG
-from predicators.structs import Array, GroundAtom, MaxTrainIters, Object, \
-    ParameterizedOption, State, _GroundNSRT, _Option
+from predicators.structs import HEAD, Array, GroundAtom, MaxTrainIters, \
+    Object, ParameterizedOption, State, _GroundNSRT, _Option, \
+    State, _GroundNSRT, _Option
 
 torch.use_deterministic_algorithms(mode=True)  # type: ignore
 torch.set_num_threads(1)  # fixes libglomp error on supercloud
@@ -303,8 +304,7 @@ class _NormalizingBinaryClassifier(BinaryClassifier):
 
     Also infers the dimensionality of the inputs and outputs from fit().
 
-    Also implements data balancing (optionally) and single-class
-    prediction.
+    Also implements data balancing (optionally) and single-class prediction.
     """
 
     def __init__(self, seed: int, balance_data: bool) -> None:

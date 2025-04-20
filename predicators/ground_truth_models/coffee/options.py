@@ -1,9 +1,7 @@
 """Ground-truth options for the coffee environment."""
 
-import logging
-from functools import lru_cache
-from typing import ClassVar, Dict, List, Sequence, Set, Tuple
-from typing import Type as TypingType
+from typing import ClassVar, Dict, Sequence, Set, Tuple
+
 
 import numpy as np
 from gym.spaces import Box
@@ -19,6 +17,7 @@ from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, Array, Object, ParameterizedOption, \
     ParameterizedPolicy, Predicate, State, Type, _TypedEntity
+
 
 
 class CoffeeGroundTruthOptionFactory(GroundTruthOptionFactory):

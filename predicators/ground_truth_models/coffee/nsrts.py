@@ -5,7 +5,9 @@ from typing import Dict, Sequence, Set
 import numpy as np
 
 from predicators.ground_truth_models import GroundTruthNSRTFactory
+
 from predicators.settings import CFG
+
 from predicators.structs import NSRT, Array, GroundAtom, LiftedAtom, Object, \
     ParameterizedOption, Predicate, State, Type, Variable
 from predicators.utils import null_sampler
@@ -16,7 +18,7 @@ class CoffeeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
 
     @classmethod
     def get_env_names(cls) -> Set[str]:
-        return {"coffee", "pybullet_coffee"}
+        return {"coffee"}
 
     @staticmethod
     def get_nsrts(env_name: str, types: Dict[str, Type],
@@ -26,7 +28,7 @@ class CoffeeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         robot_type = types["robot"]
         jug_type = types["jug"]
         cup_type = types["cup"]
-        machine_type = types["coffee_machine"]
+        machine_type = types["machine"]
 
         # Predicates
         CupFilled = predicates["CupFilled"]
@@ -275,7 +277,7 @@ class CoffeeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         option = Pour
         preconditions = {
             LiftedAtom(Holding, [robot, jug]),
-            # LiftedAtom(JugFilled, [jug]),
+            LiftedAtom(JugFilled, [jug]),
             LiftedAtom(JugAboveCup, [jug, other_cup]),
             LiftedAtom(RobotAboveCup, [robot, other_cup]),
             LiftedAtom(NotSameCup, [cup, other_cup]),

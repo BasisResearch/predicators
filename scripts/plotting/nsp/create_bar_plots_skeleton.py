@@ -3,8 +3,8 @@
 For example, https://arxiv.org/abs/2203.09634 Figure 3
 """
 
-import os
 import math
+import os
 
 import matplotlib
 import matplotlib.pyplot as plt

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import abc
-import random
+
 import contextlib
 import copy
+import random
+
 import functools
 import gc
 import heapq as hq
@@ -16,6 +18,7 @@ import logging
 import os
 import pkgutil
 import re
+
 import shutil
 import subprocess
 import sys
@@ -29,6 +32,7 @@ from functools import cached_property
 from inspect import getsource
 from pathlib import Path
 from pprint import pformat, pprint
+
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Collection, Dict, \
     FrozenSet, Generator, Generic, Hashable, Iterator, List, Optional, \
     Sequence, Set, Tuple
@@ -50,26 +54,30 @@ from pyperplan.heuristics.heuristic_base import \
     Heuristic as _PyperplanBaseHeuristic
 from pyperplan.planner import HEURISTICS as _PYPERPLAN_HEURISTICS
 from scipy.stats import beta as BetaRV
+
+from pympler import asizeof
 from tabulate import tabulate
 from tqdm import tqdm
-from pympler import asizeof
 
 from predicators.args import create_arg_parser
 from predicators.image_patch_wrapper import ImagePatch
+
 from predicators.pretrained_model_interface import GoogleGeminiLLM, \
     GoogleGeminiVLM, LargeLanguageModel, OpenAILLM, OpenAIVLM, \
     VisionLanguageModel
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.settings import CFG, GlobalSettings
-from predicators.structs import NSRT, Action, Array, Dataset, \
-    DerivedPredicate, DummyOption, EntToEntSub, GroundAtom, \
+
+from predicators.structs import NSRT, Action, Array, ConceptPredicate, \
+    Dataset, DerivedPredicate, DummyOption, EntToEntSub, GroundAtom, \
     GroundAtomTrajectory, GroundNSRTOrSTRIPSOperator, Image, LDLRule, \
     LiftedAtom, LiftedDecisionList, LiftedOrGroundAtom, LowLevelTrajectory, \
     Mask, Metrics, NSRTOrSTRIPSOperator, Object, ObjectOrVariable, \
     Observation, OptionSpec, ParameterizedOption, Predicate, Segment, State, \
     STRIPSOperator, Task, Type, Variable, VarToObjSub, Video, VLMPredicate, \
     _GroundLDLRule, _GroundNSRT, _GroundSTRIPSOperator, _Option, \
-    _TypedEntity, ConceptPredicate
+    _TypedEntity
+
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
 
@@ -1375,9 +1383,7 @@ def unify(atoms1: FrozenSet[LiftedOrGroundAtom],
         return False, {}
 
     # Try to get lucky with a one-to-one mapping
-    # obj -> var
     subs12: EntToEntSub = {}
-    # var -> obj
     subs21 = {}
     success = True
     for atom1, atom2 in zip(atoms_lst1, atoms_lst2):
@@ -1391,7 +1397,6 @@ def unify(atoms1: FrozenSet[LiftedOrGroundAtom],
             if v2 in subs21:
                 success = False
                 break
-
             subs12[v1] = v2
             subs21[v2] = v1
     if success:
@@ -1558,7 +1563,6 @@ class LinearChainParameterizedOption(ParameterizedOption):
             child_memory = memory["child_memory"][current_index]
             assert current_child.initiable(state, child_memory, objects,
                                            params)
-        # logging.debug(f"current option: {current_child.name}")
         return current_child.policy(state, child_memory, objects, params)
 
     def _terminal(self, state: State, memory: Dict, objects: Sequence[Object],
@@ -1630,39 +1634,6 @@ class SingletonParameterizedOption(ParameterizedOption):
                          policy=policy,
                          initiable=_initiable,
                          terminal=_terminal)
-
-
-class BurgerState(State):
-
-    def __init__(self, state: State):
-        self.data = state.data
-        self.simulator_state = state.simulator_state
-
-    def allclose(self, other: State) -> bool:
-        if self.simulator_state is not None and \
-           other.simulator_state is not None:
-            if not sorted(self.simulator_state['state']) == \
-                sorted(other.simulator_state['state']):
-                return False
-        if not sorted(self.data) == sorted(other.data):
-            return False
-        for obj in self.data:
-            if not np.allclose(self.data[obj], other.data[obj], atol=1e-3):
-                return False
-        return True
-
-    def __hash__(self):
-        # Convert the dictionary to a tuple of key-value pairs and hash it
-        # data_hash = hash(tuple(sorted(self.data.items())))
-        data_tuple = tuple((k, tuple(v)) for k, v in sorted(self.data.items()))
-        if self.simulator_state is not None:
-            data_tuple += tuple(self.simulator_state)
-        data_hash = hash(data_tuple)
-        # # Hash the simulator_state
-        # simulator_state_hash = hash(self.simulator_state)
-        # Combine the two hashes
-        # return hash((data_hash, simulator_state_hash))
-        return data_hash
 
 
 class PyBulletState(State):
@@ -2243,22 +2214,18 @@ def run_policy_with_simulator(
     actions: List[Action] = []
     exception_raised_in_step = False
     if not termination_function(state):
-        for i in range(max_num_steps):
+        for _ in range(max_num_steps):
             monitor_observed = False
             exception_raised_in_step = False
             try:
-                # logging.debug(f"State {i}:\n"+ pformat(state.pretty_str()))
                 act = policy(state)
-                # logging.debug(f"Action {i}: {act}")
                 if monitor is not None:
                     monitor.observe(state, act)
                     monitor_observed = True
                 state = simulator(state, act)
-                # logging.debug(f"State {i+1}:\n"+ pformat(state.pretty_str()))
                 actions.append(act)
                 states.append(state)
             except Exception as e:
-                # breakpoint()
                 if exceptions_to_break_on is not None and \
                     type(e) in exceptions_to_break_on:
                     if monitor_observed:
@@ -2785,10 +2752,6 @@ def _run_heuristic_search(
 
     while len(queue) > 0 and time.perf_counter() - start_time < timeout and \
             num_expansions < max_expansions and num_evals < max_evals:
-        # Checking the memory usuage of the queue
-        memory_usage = asizeof.asizeof(queue)
-        memory_usage_mb = memory_usage / (1024 * 1024)
-        logging.info(f"Memory usage of the candidate op: {memory_usage_mb:.2f} MB")
         _, _, node = hq.heappop(queue)
         # If we already found a better path here, don't bother.
         if state_to_best_path_cost[node.state] < node.cumulative_cost:
@@ -2813,8 +2776,6 @@ def _run_heuristic_search(
                                               action=action)
             priority = get_priority(child_node)
             num_evals += 1
-            if progress_bar:
-                pbar.update(1)
             hq.heappush(queue, (priority, next(tiebreak), child_node))
             state_to_best_path_cost[child_state] = child_path_cost
             if priority < best_node_priority:
@@ -2830,8 +2791,6 @@ def _run_heuristic_search(
                 break
 
     # Did not find path to goal; return best path seen.
-    if progress_bar:
-        pbar.close()
     return _finish_plan(best_node)
 
 
@@ -2896,12 +2855,12 @@ def run_hill_climbing(
 ) -> Tuple[List[_S], List[_A], List[float]]:
     """Enforced hill climbing local search.
 
-    For each node, the best child node is always selected, if that child
-    is an improvement over the node. If no children improve on the node,
-    look at the children's children, etc., up to enforced_depth, where
-    enforced_depth 0 corresponds to simple hill climbing. Terminate when
-    no improvement can be found. early_termination_heuristic_thresh
-    allows for searching until heuristic reaches a specified value.
+    For each node, the best child node is always selected, if that child is
+    an improvement over the node. If no children improve on the node, look
+    at the children's children, etc., up to enforced_depth, where enforced_depth
+    0 corresponds to simple hill climbing. Terminate when no improvement can
+    be found. early_termination_heuristic_thresh allows for searching until
+    heuristic reaches a specified value.
 
     Lower heuristic is better.
     """
@@ -3016,15 +2975,13 @@ def run_policy_guided_astar(
 
     Stop the rollout prematurely if the policy returns None.
 
-    Note that unlike the other search functions, which take
-    get_successors as input, this function takes get_valid_actions and
-    get_next_state as two separate inputs. This is necessary because we
-    need to anticipate the next state conditioned on the action output
-    by the policy.
+    Note that unlike the other search functions, which take get_successors as
+    input, this function takes get_valid_actions and get_next_state as two
+    separate inputs. This is necessary because we need to anticipate the next
+    state conditioned on the action output by the policy.
 
-    The get_valid_actions generates (action, cost) tuples. For policy-
-    generated transitions, the costs are ignored, and rollout_step_cost
-    is used instead.
+    The get_valid_actions generates (action, cost) tuples. For policy-generated
+    transitions, the costs are ignored, and rollout_step_cost is used instead.
     """
 
     # Create a new successor function that rolls out the policy first.
@@ -3592,28 +3549,106 @@ def parse_model_output_into_option_plan(
     return option_plan
 
 
+def get_prompt_for_vlm_state_labelling(
+        prompt_type: str, atoms_list: List[str], label_history: List[str],
+        imgs_history: List[List[PIL.Image.Image]],
+        cropped_imgs_history: List[List[PIL.Image.Image]],
+        skill_history: List[_Option]) -> Tuple[str, List[PIL.Image.Image]]:
+    """Prompt for labelling atom values in a trajectory.
+
+    Note that all our prompts are saved as separate txt files under the
+    'vlm_input_data_prompts/atom_labelling' folder.
+    """
+    # Load the pre-specified prompt.
+    filepath_prefix = get_path_to_predicators_root() + \
+        "/predicators/datasets/vlm_input_data_prompts/atom_labelling/"
+    try:
+        with open(filepath_prefix + prompt_type + ".txt",
+                  "r",
+                  encoding="utf-8") as f:
+            prompt = f.read()
+    except FileNotFoundError:
+        raise ValueError("Unknown VLM prompting option " + f"{prompt_type}")
+    # The prompt ends with a section for 'Predicates', so list these.
+    for atom_str in atoms_list:
+        prompt += f"\n{atom_str}"
+
+    if "img_option_diffs" in prompt_type:
+        # In this case, we need to load the 'per_scene_naive' prompt as well
+        # for the first timestep.
+        with open(filepath_prefix + "per_scene_naive.txt",
+                  "r",
+                  encoding="utf-8") as f:
+            init_prompt = f.read()
+        for atom_str in atoms_list:
+            init_prompt += f"\n{atom_str}"
+        if len(label_history) == 0:
+            return (init_prompt, imgs_history[0])
+        # Now, we use actual difference-based prompting for the second timestep
+        # and beyond.
+        curr_prompt = prompt[:]
+        curr_prompt_imgs = [imgs_history[-2][0], imgs_history[-1][0]]
+        if CFG.vlm_include_cropped_images:
+            if CFG.env in ["burger", "burger_no_move"]:  # pragma: no cover
+                curr_prompt_imgs.extend(
+                    [cropped_imgs_history[-1][1], cropped_imgs_history[-1][0]])
+            else:
+                raise NotImplementedError(
+                    f"Cropped images not implemented for {CFG.env}.")
+        curr_prompt += "\n\nSkill executed between states: "
+        skill_name = skill_history[-1].name + str(skill_history[-1].objects)
+        curr_prompt += skill_name
+        if "label_history" in prompt_type:
+            curr_prompt += "\n\nPredicate values in the first scene, " \
+            "before the skill was executed: \n"
+            curr_prompt += label_history[-1]
+        return (curr_prompt, curr_prompt_imgs)
+    # NOTE: we rip out only the first image from each trajectory
+    # which is fine for most domains, but will be problematic for
+    # situations in which there is more than one image per state.
+    return (prompt, imgs_history[-1])
+
+
 def query_vlm_for_atom_vals(
         vlm_atoms: Collection[GroundAtom],
         state: State,
         vlm: Optional[VisionLanguageModel] = None) -> Set[GroundAtom]:
     """Given a set of ground atoms, queries a VLM and gets the subset of these
     atoms that are true."""
+    # Short-circuit this function in the case where there are no atoms that
+    # need be labelled.
+    if len(vlm_atoms) == 0:
+        return set()
     true_atoms: Set[GroundAtom] = set()
-    # This only works if state.simulator_state is some list of images that the
-    # vlm can be called on.
+    # Get quantities necessary to construct prompt to query VLM.
     assert state.simulator_state is not None
     assert isinstance(state.simulator_state["images"], List)
-    imgs = state.simulator_state["images"]
+    curr_state_imgs = state.simulator_state["images"]
     vlm_atoms = sorted(vlm_atoms)
-    atom_queries_str = "\n* "
-    atom_queries_str += "\n* ".join(atom.get_vlm_query_str()
-                                    for atom in vlm_atoms)
-    filepath_to_vlm_prompt = get_path_to_predicators_root() + \
-        "/predicators/datasets/vlm_input_data_prompts/atom_labelling/" + \
-        "per_scene_naive.txt"
-    with open(filepath_to_vlm_prompt, "r", encoding="utf-8") as f:
-        vlm_query_str = f.read()
-    vlm_query_str += atom_queries_str
+    atom_queries_list = [atom.get_vlm_query_str() for atom in vlm_atoms]
+    prev_states_imgs_history = []
+    prev_state_cropped_imgs_history: List[List[PIL.Image.Image]] = []
+    if "state_history" in state.simulator_state:  # pragma: no cover
+        prev_states = state.simulator_state["state_history"]
+        prev_states_imgs_history = [
+            s.simulator_state["images"] for s in prev_states
+        ]
+        if "cropped_images" in prev_states[0].simulator_state:
+            prev_states_imgs_history = [
+                s.simulator_state["cropped_images"] for s in prev_states
+            ]
+    images_history = prev_states_imgs_history + [curr_state_imgs]
+    skill_history = []
+    if "skill_history" in state.simulator_state:  # pragma: no cover
+        skill_history = state.simulator_state["skill_history"]
+    label_history = []
+    if "vlm_label_history" in state.simulator_state:  # pragma: no cover
+        label_history = state.simulator_state["vlm_label_history"]
+    vlm_query_str, imgs = get_prompt_for_vlm_state_labelling(
+        CFG.vlm_test_time_atom_label_prompt_type, atom_queries_list,
+        label_history, images_history, prev_state_cropped_imgs_history,
+        skill_history)
+    # Query VLM.
     if vlm is None:
         vlm = create_vlm_by_name(CFG.vlm_model_name)  # pragma: no cover.
     vlm_input_imgs = \
@@ -4141,10 +4176,7 @@ def all_ground_operators_given_partial(
         sub: VarToObjSub) -> Iterator[_GroundSTRIPSOperator]:
     """Get all possible groundings of the given operator with the given objects
     such that the parameters are consistent with the given substitution."""
-    try:
-        assert set(sub).issubset(set(operator.parameters))
-    except:
-        breakpoint()
+    assert set(sub).issubset(set(operator.parameters))
     types = [p.type for p in operator.parameters if p not in sub]
     for choice in get_object_combinations(objects, types):
         # Complete the choice with the args that are determined from the sub.
@@ -4473,12 +4505,9 @@ def create_dataset_filename_str(
 
 
 def create_ground_atom_dataset(
-            trajectories: Sequence[LowLevelTrajectory],
-            predicates: Set[Predicate],
-        ) -> List[GroundAtomTrajectory]:
-    """Apply all predicates to all trajectories in the dataset.
-    Predicates here are primitive predicates.
-    """
+        trajectories: Sequence[LowLevelTrajectory],
+        predicates: Set[Predicate]) -> List[GroundAtomTrajectory]:
+    """Apply all predicates to all trajectories in the dataset."""
     ground_atom_dataset = []
     for traj in trajectories:
         atoms = [abstract(s, predicates) for s in traj.states]
@@ -5479,11 +5508,11 @@ def query_ldl(
 ) -> Optional[_GroundNSRT]:
     """Queries a lifted decision list representing a goal-conditioned policy.
 
-    Given an abstract state and goal, the rules are grounded in order.
-    The first applicable ground rule is used to return a ground NSRT.
+    Given an abstract state and goal, the rules are grounded in order. The
+    first applicable ground rule is used to return a ground NSRT.
 
-    If static_predicates is provided, it is used to avoid grounding
-    rules with nonsense preconditions like IsBall(robot).
+    If static_predicates is provided, it is used to avoid grounding rules with
+    nonsense preconditions like IsBall(robot).
 
     If no rule is applicable, returns None.
     """

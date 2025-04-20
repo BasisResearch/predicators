@@ -1,9 +1,9 @@
 """Ground-truth options for the (non-pybullet) blocks environment."""
 
+from functools import lru_cache
 from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
 
 import numpy as np
-from functools import lru_cache
 from gym.spaces import Box
 
 from predicators import utils
@@ -11,7 +11,7 @@ from predicators.envs.balance import BalanceEnv
 from predicators.envs.pybullet_balance import PyBulletBalanceEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.pybullet_helpers.controllers import \
-    create_change_fingers_option, create_move_end_effector_to_pose_option,\
+    create_change_fingers_option, create_move_end_effector_to_pose_option, \
     get_move_end_effector_to_pose_action
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot

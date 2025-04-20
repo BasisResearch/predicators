@@ -41,10 +41,10 @@ from matplotlib import patches
 
 from predicators import utils
 from predicators.envs import BaseEnv
-from predicators.settings import CFG
-from predicators.structs import Action, Array, EnvironmentTask, GroundAtom, \
-    Object, Predicate, State, Type, ConceptPredicate
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
+from predicators.settings import CFG
+from predicators.structs import Action, Array, ConceptPredicate, \
+    EnvironmentTask, GroundAtom, Object, Predicate, State, Type
 
 
 class BalanceEnv(BaseEnv):
@@ -210,8 +210,7 @@ class BalanceEnv(BaseEnv):
         return bool(sq_dist_to_button < self.button_press_threshold)
     
     def _Balanced_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        """Check if the blocks are balanced on the table.
-        """
+        """Check if the blocks are balanced on the table."""
         plate1, table2 = objects
         if plate1 == table2:
             return False
@@ -287,8 +286,7 @@ class BalanceEnv(BaseEnv):
  
     def _Balanced_CP_holds(self, atoms: Set[GroundAtom], 
                             objects: Sequence[Object]) -> bool:
-        """Check if the blocks are balanced on the table.
-        """
+        """Check if the blocks are balanced on the table."""
         plate1, table2 = objects
         if plate1 == table2:
             return False

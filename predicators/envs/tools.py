@@ -41,7 +41,6 @@ class ToolsEnv(BaseEnv):
     num_screwdrivers: ClassVar[int] = 3
     num_hammers: ClassVar[int] = 2
     num_wrenches: ClassVar[int] = 1
-
     # Types
     _robot_type = Type("robot", ["fingers"])
     _screw_type = Type("screw",

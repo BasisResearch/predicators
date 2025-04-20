@@ -660,34 +660,29 @@ def test_loading_saved_vlm_img_demos_folder_non_dummy_goal():
 @pytest.mark.parametrize(
     "atom_proposal_prompt_type, atom_labelling_prompt_type",
     [("naive_each_step", "per_scene_naive"),
-     ("options_labels_whole_traj", "per_scene_naive"),
+     ("options_labels_whole_traj_diverse", "per_scene_naive"),
      ("naive_whole_traj", "per_scene_cot"),
      ("not_a_real_prompt_type", "per_scene_cot"),
      ("naive_whole_traj", "not_a_real_prompt_type"),
-     ("options_labels_whole_traj", "img_option_diffs"),
-     ("options_labels_whole_traj", "img_option_diffs_label_history")])
+     ("options_labels_whole_traj_diverse", "img_option_diffs"),
+     ("options_labels_whole_traj_diverse", "img_option_diffs_label_history")])
 def test_loading_saved_vlm_img_demos_folder_dummy_goal(
         atom_proposal_prompt_type, atom_labelling_prompt_type):
     """Test loading a dataset from img demo files."""
     utils.reset_config({
-        "env":
-        "ice_tea_making",
-        "num_train_tasks":
-        1,
-        "offline_data_method":
-        "saved_vlm_img_demos_folder",
-        "data_dir":
-        "tests/datasets/mock_vlm_datasets",
-        "seed":
-        456,
-        "vlm_trajs_folder_name":
-        "ice_tea_making__vlm_demos__456__1",
+        "env": "ice_tea_making",
+        "num_train_tasks": 1,
+        "offline_data_method": "saved_vlm_img_demos_folder",
+        "data_dir": "tests/datasets/mock_vlm_datasets",
+        "seed": 456,
+        "vlm_trajs_folder_name": "ice_tea_making__vlm_demos__456__1",
         "grammar_search_vlm_atom_proposal_prompt_type":
         atom_proposal_prompt_type,
         "grammar_search_vlm_atom_label_prompt_type":
         atom_labelling_prompt_type,
         "pretrained_model_prompt_cache_dir":
-        "tests/datasets/mock_vlm_datasets/cache"
+        "tests/datasets/mock_vlm_datasets/cache",
+        "vlm_double_check_output": True
     })
     env = IceTeaMakingEnv()
     train_tasks = env.get_train_tasks()
@@ -726,7 +721,7 @@ def test_env_debug_grammar():
         "seed": 456,
         "vlm_trajs_folder_name": "ice_tea_making__vlm_demos__456__1",
         "grammar_search_vlm_atom_proposal_prompt_type":
-        "options_labels_whole_traj",
+        "options_labels_whole_traj_diverse",
         "grammar_search_vlm_atom_label_prompt_type": "per_scene_naive",
         "grammar_search_vlm_atom_proposal_use_debug": True
     })
@@ -823,3 +818,60 @@ def test_create_ground_atom_data_from_generated_demos(config):
     vlm_dataset = create_ground_atom_data_from_generated_demos(
         dataset, env, predicates, train_tasks, vlm)
     assert len(vlm_dataset.annotations) == 1
+
+
+def test_vlm_include_cropped_images():
+    """Tests creating a ground atom data with cropped images."""
+    utils.reset_config({
+        "env": "cover",
+        "approach": "oracle",
+        "offline_data_method": "demo",
+        "offline_data_planning_timeout": 500,
+        "option_learner": "no_learning",
+        "num_train_tasks": 1,
+        "included_options": "PickPlace",
+        "excluded_predicates": "all",
+        "vlm_include_cropped_images": True
+    })
+    env = CoverEnv()
+    train_tasks = [t.task for t in env.get_train_tasks()]
+    predicates, _ = utils.parse_config_excluded_predicates(env)
+    options = parse_config_included_options(env)
+    dataset = create_dataset(env, train_tasks, options, predicates)
+    for state in dataset.trajectories[0].states:
+        state.simulator_state = {}
+        state.simulator_state["images"] = [np.zeros((32, 32), dtype=np.uint8)]
+    vlm = _DummyVLM()
+    with pytest.raises(NotImplementedError) as e:
+        _ = create_ground_atom_data_from_generated_demos(
+            dataset, env, predicates, train_tasks, vlm)
+    assert "Cropped images not implemented for cover." in str(e)
+
+    utils.reset_config({
+        "env": "ice_tea_making",
+        "num_train_tasks": 1,
+        "offline_data_method": "saved_vlm_img_demos_folder",
+        "data_dir": "tests/datasets/mock_vlm_datasets",
+        "seed": 456,
+        "vlm_trajs_folder_name": "ice_tea_making__vlm_demos__456__1",
+        "grammar_search_vlm_atom_proposal_prompt_type":
+        "options_labels_whole_traj_diverse",
+        "grammar_search_vlm_atom_label_prompt_type":
+        "img_option_diffs_label_history",
+        "pretrained_model_prompt_cache_dir":
+        "tests/datasets/mock_vlm_datasets/cache",
+        "vlm_include_cropped_images": True
+    })
+    env = IceTeaMakingEnv()
+    train_tasks = env.get_train_tasks()
+    predicates, _ = utils.parse_config_excluded_predicates(env)
+    vlm = _DummyVLM()
+    with pytest.raises(NotImplementedError) as e:
+        _ = create_ground_atom_data_from_saved_img_trajs(
+            env, train_tasks, predicates, get_gt_options(env.get_name()), vlm)
+    assert "Cropped images not implemented for ice_tea_making." in str(e)
+    for dirpath, _, filenames in os.walk(
+            CFG.pretrained_model_prompt_cache_dir):
+        # Remove regular files, ignore directories
+        for filename in filenames:
+            os.unlink(os.path.join(dirpath, filename))

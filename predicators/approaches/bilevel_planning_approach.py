@@ -5,7 +5,9 @@ then Execution.
 """
 import abc
 import logging
+
 from pprint import pformat
+
 from typing import Any, Callable, List, Optional, Set, Tuple
 
 from gym.spaces import Box
@@ -17,7 +19,7 @@ from predicators.option_model import _OptionModelBase, create_option_model
 from predicators.planning import PlanningFailure, PlanningTimeout, \
     run_task_plan_once, sesame_plan
 from predicators.settings import CFG
-from predicators.structs import NSRT, Action, GroundAtom, Metrics, \
+from predicators.structs import HEAD, NSRT, Action, GroundAtom, Metrics, \
     ParameterizedOption, Predicate, State, Task, Type, _GroundNSRT, _Option,\
     ConceptPredicate
 

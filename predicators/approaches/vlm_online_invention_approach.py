@@ -4,7 +4,6 @@ Example run:     python scripts/run_interactive_yaml.py -c
 vlm_predicate_cover.yaml
 """
 import ast
-import sys
 import base64
 import errno
 import importlib.util
@@ -17,6 +16,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import textwrap
 import time
 import traceback
@@ -51,10 +51,10 @@ from predicators.predicate_search_score_functions import \
     create_score_function
 from predicators.pretrained_model_interface import VisionLanguageModel
 from predicators.settings import CFG
-from predicators.structs import NSRT, Action, AnnotatedPredicate, Dataset, \
-    GroundAtomTrajectory, GroundOptionRecord, LowLevelTrajectory, Object, \
-    Optional, ParameterizedOption, Predicate, State, Task, Type, _Option, \
-    _TypedEntity, ConceptPredicate
+from predicators.structs import NSRT, Action, AnnotatedPredicate, \
+    ConceptPredicate, Dataset, GroundAtomTrajectory, GroundOptionRecord, \
+    LowLevelTrajectory, Object, Optional, ParameterizedOption, Predicate, \
+    State, Task, Type, _Option, _TypedEntity
 from predicators.utils import EnvironmentFailure, OptionExecutionFailure, \
     get_value_from_tuple_key, has_key_in_tuple_key, option_plan_to_policy
 
@@ -170,13 +170,11 @@ class VlmInventionApproach(NSRTLearningApproach):
             pass
 
     def _get_current_predicates(self) -> Set[Predicate]:
-        """Get the current set of primitive predicates.
-        """
+        """Get the current set of primitive predicates."""
         return self._initial_predicates | self._learned_predicates
 
     def _get_current_primitive_predicates(self) -> Set[Predicate]:
-        """Get the current set of primitive predicates.
-        """
+        """Get the current set of primitive predicates."""
         return self._get_current_predicates() -\
             self._get_current_concept_predicates()
 
@@ -556,8 +554,7 @@ class VlmInventionApproach(NSRTLearningApproach):
         ite: int,
         # all_trajs: List[LowLevelTrajectory],
     ) -> Tuple[Set[Predicate], Set[ConceptPredicate]]:
-        """Get predicate proposals either by using oracle or VLM.
-        """
+        """Get predicate proposals either by using oracle or VLM."""
 
         if CFG.vlm_predicator_oracle_base_grammar:
             # Get proposals from oracle
@@ -1046,8 +1043,7 @@ class VlmInventionApproach(NSRTLearningApproach):
                             cnpt_pred_proposals: Optional[Set[
                                 ConceptPredicate]]=None,
                                 ) -> Set[Predicate]:
-        """Select the predicates to keep from the proposed predicates.
-        """
+        """Select the predicates to keep from the proposed predicates."""
         if CFG.vlm_predicator_oracle_learned:
             selected_preds = prim_pred_proposals | cnpt_pred_proposals
         else:
@@ -2067,9 +2063,8 @@ class VlmInventionApproach(NSRTLearningApproach):
 
     @staticmethod
     def check_is_concept_predicate(code_str: str) -> bool:
-        """Check if the predicate is a concept predicate by looking for
-        `get` or `evaluate_simple` in the code block.
-        """
+        """Check if the predicate is a concept predicate by looking for `get`
+        or `evaluate_simple` in the code block."""
         if "state.get(" in code_str or\
            "state.evaluate_simple_assertion" in code_str:
             return False
@@ -2077,8 +2072,7 @@ class VlmInventionApproach(NSRTLearningApproach):
 
     def translate_concept_predicate(self, ite: int, code_str: List[str],
                                     translate_fn: str) -> str:
-        """Call GPT to transform the predicate str
-        """
+        """Call GPT to transform the predicate str."""
         template_f = f"prompts/classifier_transform.outline"
         with open(template_f, "r") as f:
             template = f.read()

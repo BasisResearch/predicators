@@ -1,5 +1,7 @@
-import cv2
 import os
+
+import cv2
+
 
 def save_frames_from_video(video_file, output_dir, interval):
     # Open the video file

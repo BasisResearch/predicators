@@ -38,15 +38,12 @@ setup(
         "ImageHash",
         "google-generativeai",
         "tenacity",
-        "colorlog==6.8.2"
+        "httpx==0.27.0"
     ],
     include_package_data=True,
     extras_require={
         "develop": [
-            "pytest-cov==2.12.1",
-            "pytest-pylint==0.18.0",
-            "yapf==0.32.0",
-            "docformatter==1.4",
-            "isort==5.10.1",
+            "pytest-cov==2.12.1", "pytest-pylint==0.18.0", "yapf==0.32.0",
+            "docformatter==1.4", "isort==5.10.1", "mypy-extensions==1.0.0"
         ]
     })

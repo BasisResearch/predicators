@@ -10,7 +10,9 @@ import matplotlib
 import numpy as np
 import pybullet as p
 from gym.spaces import Box
+
 from PIL import Image
+
 
 from predicators import utils
 from predicators.envs import BaseEnv
@@ -19,9 +21,11 @@ from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.link import get_link_state
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
+
 from predicators.structs import Action, Array, EnvironmentTask, Mask, Object, \
     Observation, State, Video
 from predicators.utils import RawState
+
 
 
 class PyBulletEnv(BaseEnv):
@@ -164,9 +168,6 @@ class PyBulletEnv(BaseEnv):
 
     def simulate(self, state: State, action: Action) -> State:
         # Optimization: check if we're already in the right state.
-        # self._current_observation is None at the beginning
-        # state is not allclose to self._current_state when the state has been
-        # updated, so it first calls _reset_state to update the pybullet state
         if self._current_observation is None or \
             not state.allclose(self._current_state):
             self._current_observation = state

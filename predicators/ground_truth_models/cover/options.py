@@ -1,7 +1,7 @@
 """Ground-truth options for the cover environment."""
 
-import logging
-from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
+from typing import ClassVar, Dict, List, Sequence, Set, Tuple
+
 
 import numpy as np
 from gym.spaces import Box

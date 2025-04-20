@@ -7,8 +7,7 @@ option in the environment.
 from __future__ import annotations
 
 import abc
-import logging
-from pprint import pformat, pprint
+
 from typing import Callable, Set, Tuple
 
 import numpy as np
@@ -126,24 +125,13 @@ class _OracleOptionModel(_OptionModelBase):
             _terminal = lambda s: option_copy.terminal(s)  # pylint: disable=unnecessary-lambda
 
         try:
-            # if option_copy.name == "Place" and \
-            #     option_copy.objects[1].name=='target1' and \
-            #         option_copy.objects[0].name=='block0':
-            #     try:
-            #         if np.isclose(list(state.data.items())[1][1][3], 0.5, atol=0.1) and\
-            #             np.isclose(list(state.data.items())[4][1][3], 0.5, atol=0.1):
-            #             print(state.dict_str())
-            #             breakpoint()
-            #     except:
-            #         pass
             traj = utils.run_policy_with_simulator(
                 option_copy.policy,
                 self._simulator,
                 state,
                 _terminal,
                 max_num_steps=CFG.max_num_steps_option_rollout)
-        except utils.OptionExecutionFailure as e:
-            logging.debug(f"Option model faillure: {str(e)}")
+        except utils.OptionExecutionFailure:
             # If there is a failure during the execution of the option, treat
             # this as a noop.
             return state, 0

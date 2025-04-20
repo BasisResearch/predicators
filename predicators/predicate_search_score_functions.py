@@ -1,5 +1,4 @@
-"""Score functions used for searching over predicate and operator sets.
-"""
+"""Score functions used for searching over predicate and operator sets."""
 
 from __future__ import annotations
 
@@ -8,6 +7,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+
 from itertools import chain
 from typing import Callable, Collection, Dict, FrozenSet, List, Optional, \
     Sequence, Set, Tuple
@@ -15,15 +15,17 @@ from typing import Callable, Collection, Dict, FrozenSet, List, Optional, \
 import numpy as np
 from tabulate import tabulate
 
+
 from predicators import utils
 from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.planning import PlanningFailure, PlanningTimeout, task_plan, \
     task_plan_grounding
 from predicators.settings import CFG
-from predicators.structs import NSRT, GroundAtom, GroundAtomTrajectory, \
-    LowLevelTrajectory, Object, OptionSpec, Predicate, Segment, \
-    STRIPSOperator, Task, _GroundSTRIPSOperator, ConceptPredicate
+
+from predicators.structs import NSRT, ConceptPredicate, GroundAtom, \
+    GroundAtomTrajectory, LowLevelTrajectory, Object, OptionSpec, Predicate, \
+    Segment, STRIPSOperator, Task, _GroundSTRIPSOperator
 
 
 def create_score_function(
@@ -491,7 +493,6 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                 # Note if we failed to find any skeleton, the next lines add
                 # the upper bound with refinable_skeleton_not_found_prob = 1.0,
                 # so no special action is required.
-                # logging.debug("Planning timeout or failure.")
                 pass
             # After exhausting the skeleton budget or timeout, we use this
             # probability to estimate a "worst-case" planning time, making the

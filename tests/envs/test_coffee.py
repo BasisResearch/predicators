@@ -34,7 +34,7 @@ def test_coffee():
     type_name_to_type = {t.name: t for t in env.types}
     cup_type = type_name_to_type["cup"]
     jug_type = type_name_to_type["jug"]
-    machine_type = type_name_to_type["coffee_machine"]
+    machine_type = type_name_to_type["machine"]
     robot_type = type_name_to_type["robot"]
     assert env.action_space.shape == (6, )
     # Create a custom initial state, with cups positions at the extremes of
@@ -106,8 +106,7 @@ def test_coffee():
                                            lambda _: False,
                                            max_num_steps=len(action_arrs))
     twist_amt = num_twists * env.max_angular_vel
-    assert abs(traj.states[-1].get(jug, "rot") - twist_amt) < 1e-6, \
-        "final rot - twist_amt too large"
+    assert abs(traj.states[-1].get(jug, "rot") - twist_amt) < 1e-6
     s = traj.states[-1]
 
     # The jug is too twisted now, so picking it up should fail.
@@ -298,8 +297,7 @@ def test_coffee():
         max_num_steps=1000,
         exceptions_to_break_on={utils.OptionExecutionFailure})
     expected_rot = env.jug_init_rot_ub
-    assert abs(traj.states[-1].get(jug, "rot") - expected_rot) < 1e-6,\
-        f"final rot {traj.states[-1].get(jug, 'rot')} - expected_rot too large"
+    assert abs(traj.states[-1].get(jug, "rot") - expected_rot) < 1e-6
 
     # Test PickJug.
     PickJug = option_name_to_option["PickJug"]

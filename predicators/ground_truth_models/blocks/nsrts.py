@@ -5,6 +5,7 @@ from typing import Dict, Sequence, Set
 import numpy as np
 
 from predicators.settings import CFG
+
 from predicators.ground_truth_models import GroundTruthNSRTFactory
 from predicators.structs import NSRT, Array, GroundAtom, LiftedAtom, Object, \
     ParameterizedOption, Predicate, State, Type, Variable
@@ -106,7 +107,6 @@ class BlocksGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         otherblock = Variable("?otherblock", block_type)
         robot = Variable("?robot", robot_type)
         parameters = [block, otherblock, robot]
-        # option_vars = [block, otherblock, robot]
         option_vars = [robot, otherblock]
         option = Stack
         preconditions = {
@@ -136,7 +136,6 @@ class BlocksGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         block = Variable("?block", block_type)
         robot = Variable("?robot", robot_type)
         parameters = [block, robot]
-        # option_vars = [block, robot]
         option_vars = [robot]
         option = PutOnTable
         preconditions = {LiftedAtom(Holding, [block])}

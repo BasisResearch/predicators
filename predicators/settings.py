@@ -29,7 +29,7 @@ class GlobalSettings:
     # Maximum number of steps to run an InteractionRequest policy.
     max_num_steps_interaction_request = 100
     # Whether to pretty print predicates and NSRTs when NSRTs are loaded.
-    pretty_print_when_loading = True
+    pretty_print_when_loading = False
     # Used for random seeding in test environment.
     test_env_seed_offset = 10000
     # Optionally define test tasks in JSON format
@@ -112,7 +112,7 @@ class GlobalSettings:
     # painting env parameters
     painting_initial_holding_prob = 0.5
     painting_lid_open_prob = 0.3
-    painting_num_objs_train = [1]
+    painting_num_objs_train = [2, 3]
     painting_num_objs_test = [3, 4]
     painting_max_objs_in_goal = float("inf")
     painting_goal_receptacles = "box_and_shelf"  # box_and_shelf, box, shelf
@@ -124,7 +124,7 @@ class GlobalSettings:
     rnt_painting_max_objs_in_goal = 2
 
     # tools env parameters
-    tools_num_items_train = [1, 2]
+    tools_num_items_train = [2]
     tools_num_items_test = [2, 3]
     tools_num_contraptions_train = [2]
     tools_num_contraptions_test = [3]
@@ -286,19 +286,17 @@ class GlobalSettings:
     pddl_miconic_procedural_test_max_passengers = 2
 
     # stick button env parameters
-    stick_button_num_buttons_train = [2]
+    stick_button_num_buttons_train = [1, 2]
     stick_button_num_buttons_test = [3, 4]
     stick_button_disable_angles = True
     stick_button_holder_scale = 0.1
-    stick_button_button_position = "uniform"  # "only_top" "only_bottom"
 
     # screws env parameters
     screws_num_screws_train = [15, 20]
     screws_num_screws_test = [25, 30]
 
     # doors env parameters
-    doors_map_size_train = [2]
-    doors_map_size_test = [5]
+    doors_room_map_size = 5
     doors_min_obstacles_per_room = 0
     doors_max_obstacles_per_room = 3
     doors_min_room_exists_frac = 0.25
@@ -384,9 +382,14 @@ class GlobalSettings:
 
     # burger env parameters
     burger_render_set_of_marks = True
-    gridworld_num_rows = 5
-    gridworld_num_cols = 5
-    burger_explicit_goal = False
+    # Which type of train/test tasks to generate. Options are "more_stacks",
+    # "fatter_burger", "combo_burger".
+    burger_no_move_task_type = "more_stacks"
+    # Replace actual rendering with dummy rendering (black 16x16 image) to speed
+    # up rendering -- used in testing or when debugging.
+    burger_dummy_render = False
+    # Number of test tasks where you start out holding a patty.
+    burger_num_test_start_holding = 5
 
     # parameters for random options approach
     random_options_max_tries = 100
@@ -439,6 +442,7 @@ class GlobalSettings:
     # parameters for large language models
     pretrained_model_prompt_cache_dir = "pretrained_model_cache"
     vlm_openai_max_response_tokens = 700
+    llm_openai_max_response_tokens = 700
     llm_use_cache_only = False
     llm_model_name = "text-curie-001"  # "text-davinci-002"
     llm_temperature = 0.5
@@ -476,6 +480,9 @@ You are an AI researcher who will answer whether each assertion holds in the ima
     vlm_invention_proposal_batches = 1
     vlm_temperature = 0.0
     vlm_num_completions = 1
+    vlm_include_cropped_images = False
+    use_hardcoded_vlm_atom_proposals = False
+    vlm_double_check_output = False
 
     # parameters for the vlm_open_loop planning approach
     vlm_open_loop_use_training_demos = False
@@ -550,6 +557,7 @@ You are an AI researcher who will answer whether each assertion holds in the ima
     predicate_search_strips_learner = "cluster_and_intersect"
     disable_harmlessness_check = False  # some methods may want this to be True
     enable_harmless_op_pruning = False  # some methods may want this to be True
+    precondition_soft_intersection_threshold_percent = 0.8  # between 0 and 1
     backchaining_check_intermediate_harmlessness = False
     pnad_search_without_del = False
     pnad_search_timeout = 10.0
@@ -570,6 +578,7 @@ You are an AI researcher who will answer whether each assertion holds in the ima
     cluster_and_intersect_min_datastore_fraction = 0.0
     use_option_not_args_types_in_unification = False
     use_least_generalization_types_in_clustering = False
+    cluster_and_intersect_soft_intersection_for_preconditions = False
 
     # torch GPU usage setting
     use_torch_gpu = False
@@ -722,6 +731,7 @@ You are an AI researcher who will answer whether each assertion holds in the ima
     grammar_search_grammar_use_euclidean_dist = False
     grammar_search_grammar_use_skip_grammar = True
     grammar_search_use_handcoded_debug_grammar = False
+    grammar_search_forall_penalty = 1
     grammar_search_pred_selection_approach = "score_optimization"
     grammar_search_pred_clusterer = "oracle"
     grammar_search_true_pos_weight = 10
@@ -750,10 +760,14 @@ You are an AI researcher who will answer whether each assertion holds in the ima
     grammar_search_expected_nodes_backtracking_cost = 1e3
     grammar_search_expected_nodes_allow_noops = True
     grammar_search_classifier_pretty_str_names = ["?x", "?y", "?z", "?w", "?v"]
-    grammar_search_vlm_atom_proposal_prompt_type = "options_labels_whole_traj"
+    grammar_search_vlm_atom_proposal_prompt_type = \
+        "options_labels_whole_traj_diverse"
     grammar_search_vlm_atom_label_prompt_type = "per_scene_naive"
     grammar_search_vlm_atom_proposal_use_debug = False
     grammar_search_parallelize_vlm_labeling = True
+    grammar_search_select_all_debug = False
+    grammar_search_invent_geo_predicates_only = False
+    grammar_search_early_termination_heuristic_thresh = 0.0
 
     # grammar search clustering algorithm parameters
     grammar_search_clustering_gmm_num_components = 10
@@ -794,6 +808,11 @@ You are an AI researcher who will answer whether each assertion holds in the ima
     vlm_predicator_use_grammar = True
     llm_predicator_oracle_base = True
     vlm_predicator_oracle_learned = False
+    # At test-time, we will use the below number of states
+    # as part of labelling the current state's VLM atoms.
+    vlm_test_time_atom_label_prompt_type = "per_scene_naive"
+    # Whether or not to save eval trajectories
+    save_eval_trajs = True
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -828,13 +847,6 @@ You are an AI researcher who will answer whether each assertion holds in the ima
                     "touch_point": 15,
                     # Ditto for the simple grid row environment.
                     "grid_row": cls.grid_row_num_cells + 2,
-                })[args.get("env", "")],
-            online_learn_horizon=defaultdict(
-                lambda: 100,
-                {
-                    # For certain environments, actions are lower level, so
-                    # tasks take more actions to complete.
-                    "pybullet_blocks": 100,
                 })[args.get("env", "")],
 
             # Maximum number of steps to roll out an option policy.

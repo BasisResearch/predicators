@@ -22,8 +22,8 @@ from matplotlib import patches
 from predicators import utils
 from predicators.envs import BaseEnv
 from predicators.settings import CFG
-from predicators.structs import Action, Array, EnvironmentTask, GroundAtom, \
-    Object, Predicate, State, Type, ConceptPredicate
+from predicators.structs import HEAD, Action, Array, EnvironmentTask, \
+    GroundAtom, Object, Predicate, State, Type, ConceptPredicate
 
 
 class BlocksEnv(BaseEnv):
@@ -311,7 +311,6 @@ class BlocksEnv(BaseEnv):
                 goal = self._sample_goal_from_piles(num_blocks, piles, rng)
                 if not all(goal_atom.holds(init_state) for goal_atom in goal):
                     break
-            # if idx == 0:
             tasks.append(EnvironmentTask(init_state, goal))
         return tasks
 
@@ -345,7 +344,6 @@ class BlocksEnv(BaseEnv):
         for block, pile_idx in block_to_pile_idx.items():
             pile_i, pile_j = pile_idx
             x, y = pile_to_xy[pile_i]
-            # Example: 0.2 + 0.045 * 0.5
             z = self.table_height + self._block_size * (0.5 + pile_j)
             r, g, b = rng.uniform(size=3)
             if "clear" in self._block_type.feature_names:

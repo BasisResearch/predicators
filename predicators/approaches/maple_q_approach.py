@@ -76,6 +76,7 @@ from __future__ import annotations
 
 import logging
 from pprint import pformat
+
 from typing import Any, Callable, List, Optional, Set
 
 import dill as pkl
@@ -85,7 +86,9 @@ from predicators import utils
 from predicators.approaches.online_nsrt_learning_approach import \
     OnlineNSRTLearningApproach
 from predicators.explorers import BaseExplorer, create_explorer
+
 from predicators.ground_truth_models import get_gt_nsrts
+
 from predicators.ml_models import MapleQFunction
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, InteractionRequest, \

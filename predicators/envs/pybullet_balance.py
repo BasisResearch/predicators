@@ -15,9 +15,10 @@ from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot, \
     create_single_arm_pybullet_robot
 from predicators.settings import CFG
-from predicators.structs import Array, EnvironmentTask, Object, Predicate, \
-    State, Type, Action
+from predicators.structs import Action, Array, EnvironmentTask, Object, \
+    Predicate, State, Type
 from predicators.utils import NSPredicate, RawState, VLMQuery
+
 
 class PyBulletBalanceEnv(PyBulletEnv, BalanceEnv):
     """PyBullet Balance domain."""
@@ -86,8 +87,7 @@ class PyBulletBalanceEnv(PyBulletEnv, BalanceEnv):
 
     def _Clear_NSP_holds(self, state: RawState, objects: Sequence[Object]) -> \
             Union[bool, VLMQuery]:
-        """Is there no block on top of the block.
-        """
+        """Is there no block on top of the block."""
         block, = objects
         for other_block in state:
             if other_block.type != self._block_type:

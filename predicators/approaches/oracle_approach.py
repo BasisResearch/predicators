@@ -15,8 +15,8 @@ from predicators.approaches.bilevel_planning_approach import \
 from predicators.ground_truth_models import get_gt_nsrts
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
-from predicators.structs import NSRT, ParameterizedOption, Predicate, Task, \
-    Type, ConceptPredicate
+from predicators.structs import HEAD, NSRT, ParameterizedOption, Predicate, \
+    Task, Type, ConceptPredicate
 
 
 class OracleApproach(BilevelPlanningApproach):

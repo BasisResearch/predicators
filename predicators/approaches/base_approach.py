@@ -8,7 +8,7 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators.settings import CFG
-from predicators.structs import Action, Dataset, InteractionRequest, \
+from predicators.structs import HEAD, Action, Dataset, InteractionRequest, \
     InteractionResult, Metrics, ParameterizedOption, Predicate, State, Task, \
     Type, ConceptPredicate
 from predicators.utils import ExceptionWithInfo
@@ -75,10 +75,7 @@ class BaseApproach(abc.ABC):
         def _policy(state: State) -> Action:
             assert isinstance(state, State)
             act = pi(state)
-            try:
-                assert self._action_space.contains(act.arr)
-            except:
-                breakpoint()
+            assert self._action_space.contains(act.arr)
             return act
 
         return _policy

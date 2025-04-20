@@ -2,11 +2,17 @@
 
 import ast
 import glob
+
+import itertools
+
 import logging
 import os
 import re
 import textwrap
 import traceback
+
+from collections import defaultdict
+
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from inspect import getsource
@@ -20,6 +26,9 @@ import PIL.Image
 
 from predicators import utils
 from predicators.envs import BaseEnv
+
+from predicators.envs.burger import BurgerEnv, BurgerNoMoveEnv
+
 from predicators.envs.vlm_envs import DUMMY_GOAL_OBJ_NAME
 from predicators.nsrt_learning.segmentation import _segment_with_option_changes
 from predicators.pretrained_model_interface import VisionLanguageModel
@@ -68,8 +77,8 @@ def _generate_prompt_for_atom_proposals(
         # camera view, but probably will need to be amended in the future!
         ret_list.append(
             (prompt, [traj.imgs[i][0] for i in range(len(traj.imgs))]))
-    elif CFG.grammar_search_vlm_atom_proposal_prompt_type == \
-        "options_labels_whole_traj":
+    elif "options_labels_whole_traj" in \
+        CFG.grammar_search_vlm_atom_proposal_prompt_type:
         prompt += "\nSkills executed in trajectory:\n"
         prompt += "\n".join(act.name + str(act.objects)
                             for act in traj.actions)
@@ -77,7 +86,9 @@ def _generate_prompt_for_atom_proposals(
         # naive_whole_traj.
         ret_list.append(
             (prompt, [traj.imgs[i][0] for i in range(len(traj.imgs))]))
-
+    else:  # pragma: no cover.
+        raise ValueError("Unknown VLM prompting option " +
+                         f"{CFG.grammar_search_vlm_atom_proposal_prompt_type}")
     return ret_list
 
 
@@ -185,11 +196,26 @@ def _label_single_trajectory_with_vlm_atom_values(indexed_traj: Tuple[
     """Given a list of atoms, label every state in an ImageOptionTrajectory
     with the truth values of those atoms."""
     idx, traj = indexed_traj
+    # Some of the atoms may be over objects that aren't in this trajectory,
+    # so filter those atoms out.
+    obj_names = [o.name for o in traj.objects]
+    filtered_atoms_list = []
+    for a in atoms_list:
+        # Get the names of the objects in this atom.
+        atom_args = a[a.find('(') + 1:a.find(')')]
+        atom_objs = atom_args.split(',')
+        keep = True
+        for ao in atom_objs:
+            if ao not in obj_names:
+                keep = False
+                continue
+        if keep:
+            filtered_atoms_list.append(a)
     curr_scenes_labelled = 0
     total_scenes_to_label = len(traj.imgs)
     curr_traj_txt_outputs: List[str] = []
     prompts_for_traj = _generate_prompt_for_scene_labelling(
-        traj, atoms_list, label_history=curr_traj_txt_outputs)
+        traj, filtered_atoms_list, label_history=curr_traj_txt_outputs)
     for text_prompt, img_prompt in prompts_for_traj:
         # Sample VLM outputs with temperature 0 in an attempt to be
         # accurate.
@@ -198,6 +224,63 @@ def _label_single_trajectory_with_vlm_atom_values(indexed_traj: Tuple[
                                                          0.0,
                                                          CFG.seed,
                                                          num_completions=1)
+        if CFG.vlm_double_check_output and len(curr_traj_txt_outputs) > 0 and \
+            "label_history" in CFG.grammar_search_vlm_atom_label_prompt_type:
+            # Double check the VLM's reasoning.
+            # The current implementation checks that the VLM made correct use
+            # of the previous timestep's labels.
+            double_check_prompt = "[START OF PROMPT]\n" + text_prompt[:] + \
+                "\n[END OF PROMPT]\n\n"
+            double_check_prompt += "To this prompt, you responded with:\n"
+            double_check_prompt += "[Start of your previous answer]\n" + \
+                curr_vlm_atom_labelling[0] + \
+                "\n[End of your previous answer]\n\n"
+            # pylint: disable=line-too-long
+            previous_timestep_check_prompt = utils.get_path_to_predicators_root() + \
+                "/predicators/datasets/vlm_input_data_prompts/atom_labelling/" + \
+                "double_check_prompt_prev_labels.txt"
+            # pylint: enable=line-too-long
+            with open(previous_timestep_check_prompt, "r",
+                      encoding="utf-8") as f:
+                previous_timestep_check_prompt_str = f.read()
+            double_check_prompt += previous_timestep_check_prompt_str
+            double_check_prompt += "\n\nTruth values of predicates at " + \
+                "the previous timestep:\n\n"
+
+            def extract_labels(text: str) -> List[str]:
+                substrings = []
+                i = 0
+                # Loop through the text character by character.
+                while i < len(text):
+                    # Look for the '*' character.
+                    if text[i] == '*':
+                        start = i
+                        # Search for the occurrence of 'True' or 'False'.
+                        while i < len(text) and 'True' not in text[
+                                start:i + 4] and 'False' not in text[start:i +
+                                                                     5]:
+                            i += 1
+                        if 'True' in text[start:i + 4]:
+                            substrings.append(text[start:i + 4].strip())
+                            i += 4  # Move the pointer past 'True'.
+                        elif 'False' in text[start:i + 5]:
+                            substrings.append(text[start:i + 5].strip())
+                            i += 5  # Move the pointer past 'False'.
+                    else:
+                        i += 1
+                return substrings
+
+            prev_labels = extract_labels(curr_traj_txt_outputs[-1])
+            prev_labels_str = "\n".join(prev_labels)
+            double_check_prompt += prev_labels_str
+            double_checked_labelling = vlm.sample_completions(
+                prompt=double_check_prompt,
+                imgs=img_prompt,
+                temperature=0.0,
+                seed=CFG.seed,
+                num_completions=1)
+            curr_vlm_atom_labelling = double_checked_labelling
+
         assert len(curr_vlm_atom_labelling) == 1
         sanitized_output = curr_vlm_atom_labelling[0].replace('\\', '')
         curr_traj_txt_outputs.append(sanitized_output)
@@ -257,7 +340,20 @@ def _parse_unique_atom_proposals_from_list(
     objects that aren't known, (3) removing any duplicate atoms.
     """
     atoms_strs_set = set()
+    all_atom_groundings = set()
+    unique_predicates = set()
     obj_names_set = set(obj.name for obj in relevant_objects_across_demos)
+
+    # We'll use these mappings to generate VLM atoms for every possible
+    # grounding of each proposed predicate.
+    obj_name_to_type = {
+        obj.name: obj.type
+        for obj in relevant_objects_across_demos
+    }
+    type_to_obj_names = defaultdict(list)
+    for obj_name, _type in obj_name_to_type.items():
+        type_to_obj_names[_type].append(obj_name)
+
     num_atoms_considered = 0
     for atoms_proposal_for_traj in atom_strs_proposals_list:
         assert len(atoms_proposal_for_traj) == 1
@@ -283,10 +379,33 @@ def _parse_unique_atom_proposals_from_list(
                         break
             if atom_is_valid:
                 atoms_strs_set.add(atom)
+                # Create VLM atoms for all other possible groundings of this
+                # atom's predicate.
+                types_in_atom = [obj_name_to_type[n] for n in obj_names_list]
+                names_matching_each_type = [
+                    type_to_obj_names[t] for t in types_in_atom
+                ]
+                combos = list(itertools.product(*names_matching_each_type))
+                predicate = atom.split('(')[0]
+                unique_predicates.add(predicate)
+                # Note that this includes the original grounding.
+                other_groundings = [
+                    f"{predicate}({', '.join(c)})" for c in combos
+                ]
+                for og in other_groundings:
+                    all_atom_groundings.add(og)
             logging.debug(f"Proposed atom: {atom} is valid: {atom_is_valid}")
+    logging.info("VISUAL PREDICATES PROPOSED")
+    for unique_pred in unique_predicates:
+        logging.info(unique_pred)
     logging.info(f"VLM proposed a total of {num_atoms_considered} atoms.")
     logging.info(f"Of these, {len(atoms_strs_set)} were valid and unique.")
-    return atoms_strs_set
+    logging.info(
+        f"For the {len(unique_predicates)} predicates, there were " \
+        f"{len(all_atom_groundings)} unique groundings."
+    )
+    logging.info("END VISUAL PREDICATES PROPOSALS")
+    return all_atom_groundings
 
 
 def _save_labelled_trajs_as_txt(
@@ -689,11 +808,11 @@ def _generate_ground_atoms_with_vlm_pure_visual_preds(
         atom_strs_proposals_list = _sample_vlm_atom_proposals_from_trajectories(
             image_option_trajs, vlm, 1)
         logging.info("Done querying VLM for candidate atoms!")
-        # We now parse and sanitize this set of atoms.
-        atom_proposals_set = _parse_unique_atom_proposals_from_list(
-            atom_strs_proposals_list, all_task_objs)
-    else:  # pragma: no cover.
-        atom_proposals_set = env.get_vlm_debug_atom_strs(train_tasks)
+    else:  # pragma: no cover
+        atom_strs_proposals_list = env.get_vlm_debug_atom_strs(train_tasks)
+    # We now parse and sanitize this set of atoms.
+    atom_proposals_set = _parse_unique_atom_proposals_from_list(
+        atom_strs_proposals_list, all_task_objs)
     assert len(atom_proposals_set) > 0, "Atom proposals set is empty!"
     # Given this set of unique atom proposals, we now ask the VLM
     # to label these in every scene from the demonstrations.
@@ -891,7 +1010,8 @@ def _parse_predicate_proposals(
             exec(code_str, context)
             # pylint: enable=exec-used
             utils.abstract(tasks[0].init, [context[pred_name]])
-        except (TypeError, AttributeError, ValueError) as e:
+        except (TypeError, AttributeError, ValueError, IndentationError,
+                NameError) as e:
             # Was using Exception but pylint was complaining, so I'm
             # adding specific exceptions to this tuple as we encounter them.
             error_trace = traceback.format_exc()
@@ -947,7 +1067,7 @@ def create_ground_atom_data_from_generated_demos(
                 first_iteration = False
             else:
                 total_num_segment_states -= 1  # avoid double-counting states!
-        if total_num_segment_states != len(traj.states):  # pragma: no cover.
+        if total_num_segment_states != len(traj.states):  # pragma: no cover
             logging.info(
                 ("WARNING: there are fewer total states after option-based "
                  "segmentation than there are in the original trajectory. "
@@ -958,16 +1078,77 @@ def create_ground_atom_data_from_generated_demos(
         # We assume that the state's simulator_state attribute is a dictionary,
         # and that the images for each state are accessed by the key "images".
         state_imgs: List[List[PIL.Image.Image]] = []
-        for state in curr_traj_states_for_vlm:
+        cropped_state_imgs: List[List[PIL.Image.Image]] = []
+        for i, state in enumerate(curr_traj_states_for_vlm):
             assert state.simulator_state is not None
             assert "images" in state.simulator_state
+            if CFG.vlm_include_cropped_images:
+                if CFG.env in ["burger", "burger_no_move"]:  # pragma: no cover
+                    assert isinstance(env, (BurgerEnv, BurgerNoMoveEnv))
+                    # For the non-initial states, get a cropped image that is a
+                    # close-up of the relevant objects in the action that was
+                    # taken. Assume the relevant objects are in the action's
+                    # arguments.
+                    prev_state = curr_traj_states_for_vlm[i - 1]
+                    assert prev_state.simulator_state is not None
+                    assert "images" in prev_state.simulator_state
+                    relevant_states_for_crop = [state, prev_state]
+                    if i == 0:
+                        cropped_state_imgs.append([])
+                    else:
+                        # Figure out which cells to include in the crop.
+                        action = curr_traj_actions_for_vlm[i - 1].get_option()
+                        min_col = env.num_cols
+                        max_col = 0
+                        min_row = env.num_rows
+                        max_row = 0
+                        # Get the (x, y) position of each relevant object.
+                        for o in action.objects:
+                            for s in relevant_states_for_crop:
+                                row = s.get(o, "row")
+                                col = s.get(o, "col")
+                                min_col = int(min(min_col, col))
+                                max_col = int(max(max_col, col))
+                                min_row = int(min(min_row, row))
+                                max_row = int(max(max_row, row))
+                        # Count rows from the bottom rather than the top,
+                        # because we actually want to index by traditional
+                        # (x, y) in the numpy array.
+                        temp = min_row
+                        min_row = env.num_rows - 1 - max_row
+                        max_row = env.num_rows - 1 - temp
+                        # Assume that we can generate the intended crop from the
+                        # first image in state.simulator_state["images"]
+                        full_curr_img = state.simulator_state["images"][0]
+                        full_prev_img = prev_state.simulator_state["images"][0]
+                        approx_cell_size = full_curr_img.shape[
+                            0] // env.num_rows
+                        cropped_curr_img = full_curr_img[
+                            min_row * approx_cell_size:(max_row + 1) *
+                            approx_cell_size,
+                            min_col * approx_cell_size:(max_col + 1) *
+                            approx_cell_size, :]
+                        cropped_prev_img = full_prev_img[
+                            min_row * approx_cell_size:(max_row + 1) *
+                            approx_cell_size,
+                            min_col * approx_cell_size:(max_col + 1) *
+                            approx_cell_size, :]
+                        cropped_imgs = [
+                            PIL.Image.fromarray(img_arr)  # type: ignore
+                            for img_arr in
+                            [cropped_curr_img, cropped_prev_img]
+                        ]
+                        cropped_state_imgs.append(cropped_imgs)
+                else:
+                    raise NotImplementedError(
+                        f"Cropped images not implemented for {CFG.env}.")
             state_imgs.append([
                 PIL.Image.fromarray(img_arr)  # type: ignore
                 for img_arr in state.simulator_state["images"]
             ])
         img_option_trajs.append(
             ImageOptionTrajectory(
-                set(traj.states[0]), state_imgs,
+                set(traj.states[0]), state_imgs, cropped_state_imgs,
                 [act.get_option() for act in curr_traj_actions_for_vlm],
                 curr_traj_states_for_vlm, True, traj.train_task_idx))
         option_segmented_trajs.append(
@@ -1052,7 +1233,10 @@ def create_ground_atom_data_from_saved_img_trajs(
         vlm: Optional[VisionLanguageModel] = None) -> Dataset:
     """Given a folder containing trajectories that have images of scenes for
     each state, as well as options that transition between these states, output
-    a dataset."""
+    a dataset.
+
+    This method does not currently support including cropped images.
+    """
     trajectories_folder_path = os.path.join(
         utils.get_path_to_predicators_root(), CFG.data_dir,
         CFG.vlm_trajs_folder_name)
@@ -1152,7 +1336,7 @@ def create_ground_atom_data_from_saved_img_trajs(
         # Given ground options, we can finally make ImageOptionTrajectories.
         image_option_trajs.append(
             ImageOptionTrajectory(list(curr_task_objs),
-                                  img_traj,
+                                  img_traj, [],
                                   ground_option_traj,
                                   state_traj,
                                   _is_demo=True,

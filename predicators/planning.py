@@ -9,25 +9,31 @@ import heapq as hq
 import logging
 import os
 import re
+
 import shutil
+
 import subprocess
 import sys
 import tempfile
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from itertools import islice, chain
+
+from itertools import chain, islice
+
 from typing import Any, Collection, Dict, FrozenSet, Iterator, List, \
     Optional, Sequence, Set, Tuple
 
 import numpy as np
+
 from tqdm import tqdm
+
 
 from predicators import utils
 from predicators.option_model import _OptionModelBase
 from predicators.refinement_estimators import BaseRefinementEstimator
 from predicators.settings import CFG
-from predicators.structs import NSRT, AbstractPolicy, DefaultState, \
+from predicators.structs import HEAD, NSRT, AbstractPolicy, DefaultState, \
     DummyOption, GroundAtom, Metrics, Object, OptionSpec, \
     ParameterizedOption, Predicate, State, STRIPSOperator, Task, Type, \
     _GroundNSRT, _GroundSTRIPSOperator, _Option, ConceptPredicate
@@ -458,7 +464,6 @@ def _skeleton_generator(
         # This set will maintain (frozen) atom sets that have been fully
         # expanded already, and ensure that we never expand redundantly.
         visited_atom_sets = set()
-
     # Start search.
     while queue and (time.perf_counter() - start_time < timeout):
         if int(metrics["num_skeletons_optimized"]) == max_skeletons_optimized:
@@ -1022,11 +1027,11 @@ def task_plan_with_option_plan_constraint(
     """Turn an option plan into a plan of ground NSRTs that achieves the goal
     from the initial atoms.
 
-    If atoms_seq is not None, the ground NSRT plan must also match up
-    with the given sequence of atoms. Otherwise, atoms are not checked.
+    If atoms_seq is not None, the ground NSRT plan must also match up with
+    the given sequence of atoms. Otherwise, atoms are not checked.
 
-    If no goal-achieving sequence of ground NSRTs corresponds to the
-    option plan, return None.
+    If no goal-achieving sequence of ground NSRTs corresponds to
+    the option plan, return None.
     """
     dummy_nsrts = utils.ops_and_specs_to_dummy_nsrts(strips_ops, option_specs)
     ground_nsrts, _ = task_plan_grounding(init_atoms,
@@ -1231,6 +1236,7 @@ def fd_plan_from_sas_file(
         raise PlanningFailure("Skeleton produced by FD exceeds horizon!")
     metrics["num_skeletons_optimized"] = 1
     metrics["num_failures_discovered"] = 0
+    metrics["plan_length"] = len(skeleton_str)
     return (skeleton, atoms_sequence, metrics)
 
 
