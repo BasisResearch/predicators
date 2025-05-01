@@ -580,6 +580,7 @@ class GlobalSettings:
     find_best_matching_pnad_skip_if_effect_not_subset = True
     exogenous_process_learner = "cluster_and_intersect"
     only_learn_exogenous_processes = False
+    learn_process_parameters = False
 
     # torch GPU usage setting
     use_torch_gpu = False

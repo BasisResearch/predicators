@@ -1,14 +1,10 @@
 import logging
-from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, Set
 
 import dill as pkl
-import numpy as np
 from gym.spaces import Box
-from scipy.optimize import minimize
-from tqdm.auto import tqdm
 
-from predicators import planning, utils
+from predicators import utils
 from predicators.approaches.pp_param_learning_approach import \
     ParamLearningBilevelProcessPlanningApproach
 from predicators.ground_truth_models import get_gt_processes
@@ -16,14 +12,14 @@ from predicators.nsrt_learning.process_learning_main import \
     learn_processes_from_data
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
-from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
-    Dataset, GroundAtom, GroundAtomTrajectory, LowLevelTrajectory, \
-    ParameterizedOption, Predicate, Task, Type, _GroundCausalProcess
+from predicators.structs import NSRT, CausalProcess, \
+    Dataset, GroundAtomTrajectory, LowLevelTrajectory, \
+    ParameterizedOption, Predicate, Task, Type
 
 
 class ProcessLearningBilevelProcessPlanningApproach(
         ParamLearningBilevelProcessPlanningApproach):
-    """A bilevel planning approach that uses hand-specified processes."""
+    """A bilevel planning approach that learns processes."""
 
     def __init__(self,
                  initial_predicates: Set[Predicate],
@@ -57,25 +53,15 @@ class ProcessLearningBilevelProcessPlanningApproach(
     def get_name(cls):
         return "process_learning_and_planning"
 
-    @property
-    def is_learning_based(self):
-        return True
-
-    def _get_current_processes(self) -> Set[CausalProcess]:
-        return set(self._processes)
-
-    def _get_current_nsrts(self) -> Set[NSRT]:
-        """Get the current set of NSRTs."""
-        return set()
-
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         """Learn models from the offline datasets."""
         self._learn_processes(dataset.trajectories,
                               online_learning_cycle=None,
                               annotations=(dataset.annotations if
                                            dataset.has_annotations else None))
-        # # Optional: learn parameters
-        # super().learn_from_offline_dataset(dataset)
+        # Optional: learn process parameters
+        if CFG.learn_process_parameters:
+            self._learn_process_parameters(dataset)
 
     def _learn_processes(self, trajectories: List[LowLevelTrajectory],
                          online_learning_cycle: Optional[int],

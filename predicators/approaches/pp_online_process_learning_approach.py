@@ -120,6 +120,10 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
             self._dataset.trajectories,
             online_learning_cycle=self._online_learning_cycle,
             annotations=annotations)
+
+        if CFG.learn_process_parameters:
+            self._learn_process_parameters(self._dataset)
+
         self._online_learning_cycle += 1
 
     def _create_explorer(self):
