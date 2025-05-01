@@ -185,6 +185,11 @@ class PyBulletBoilEnv(PyBulletEnv):
                                        self._WaterSpilled_holds)
         self._NoWaterSpilled = Predicate("NoWaterSpilled", [],
                                          self._NoWaterSpilled_holds)
+        self._HumanHappy = Predicate("HumanHappy", [],
+                                     self._HumanHappy_holds)
+        self._CompleteDeclared = Predicate("CompleteDeclared", 
+                                           [self._robot_type],
+                                           self._CompleteDeclared_holds)
 
     @classmethod
     def get_name(cls) -> str:
@@ -198,7 +203,8 @@ class PyBulletBoilEnv(PyBulletEnv):
             self._JugFilled, self._WaterBoiled, self._BurnerOn, self._FaucetOn,
             self._BurnerOff, self._FaucetOff, self._Holding, self._JugAtBurner,
             self._JugAtFaucet, self._JugNotAtBurnerOrFaucet, self._HandEmpty,
-            self._WaterSpilled, self._NoJugAtFaucet, self._NoWaterSpilled
+            self._WaterSpilled, self._NoJugAtFaucet, self._NoWaterSpilled,
+            self._HumanHappy, self._CompleteDeclared
         }
 
     @property
@@ -213,7 +219,12 @@ class PyBulletBoilEnv(PyBulletEnv):
     def goal_predicates(self) -> Set[Predicate]:
         """Which predicates might appear in goals."""
         return {self._WaterBoiled, self._JugFilled,
-                self._NoWaterSpilled}  # Example
+                self._NoWaterSpilled, self._BurnerOff,
+                self._CompleteDeclared}  # Example
+
+    @property
+    def agent_goal_predicates(self) -> Set[Predicate]:
+        return {self._BurnerOff, self._HumanHappy}
 
     # -------------------------------------------------------------------------
     # PyBullet Initialization
@@ -729,6 +740,37 @@ class PyBulletBoilEnv(PyBulletEnv):
             if self._Holding_holds(state, [robot, jug]):
                 return False
         return True
+    
+    def _HumanHappy_holds(self, state: State,
+                          objects: Sequence[Object]) -> bool:
+        """A predicate design mainly for experimenting with inventing predicate
+        to describe the preimage of effects.
+        """
+        # Check if all jugs are filled
+        all_filled = all(self._JugFilled_holds(state, [jug])
+                            for jug in self._jugs)
+        no_spill = self._NoWaterSpilled_holds(state, [])
+        all_boiled = all(self._WaterBoiled_holds(state, [jug])
+                            for jug in self._jugs)
+        burner_off = all(not self._BurnerOn_holds(state, [burner])
+                            for burner in self._burners)
+        return all_filled and no_spill and all_boiled and burner_off
+
+    def _CompleteDeclared_holds(self, state: State,
+                                objects: Sequence[Object]) -> bool:
+        """Comption is declared when it's at the init pose.
+        """
+        robot, = objects
+        robot_x = state.get(robot, "x")
+        robot_y = state.get(robot, "y")
+        robot_z = state.get(robot, "z")
+        robot_tilt = state.get(robot, "tilt")
+        robot_wrist = state.get(robot, "wrist")
+        return (robot_x == self.robot_init_x and
+                robot_y == self.robot_init_y and
+                robot_z == self.robot_init_z and
+                robot_tilt == self.robot_init_tilt and
+                robot_wrist == self.robot_init_wrist)
 
     # -------------------------------------------------------------------------
     # Task Generation
@@ -819,12 +861,20 @@ class PyBulletBoilEnv(PyBulletEnv):
 
             # Example goal: Water boiled, no water spilled, etc.
             goal_atoms = set()
+            goal_atoms.add(GroundAtom(self._NoWaterSpilled, []))
             for j_obj in self._jugs:
                 goal_atoms.add(GroundAtom(self._WaterBoiled, [j_obj]))
-                goal_atoms.add(GroundAtom(self._NoWaterSpilled, []))
-                goal_atoms.add(GroundAtom(self._BurnerOff, [self._burners[0]]))
+                goal_atoms.add(GroundAtom(self._JugFilled, [j_obj]))
+            for b_obj in self._burners:
+                goal_atoms.add(GroundAtom(self._BurnerOn, [b_obj]))
+            goal_atoms.add(GroundAtom(self._CompleteDeclared, [self._robot]))
+            
+            alt_goal_atoms = {GroundAtom(self._HumanHappy, [])}
+            # alt_goal_atoms.add(GroundAtom(self._NoWaterSpilled, [self._robot]))
 
-            tasks.append(EnvironmentTask(init_state, goal_atoms))
+            tasks.append(EnvironmentTask(init_state, goal_atoms,
+                                        #  alt_goal_desc=alt_goal_atoms
+                                         ))
 
         return self._add_pybullet_state_to_tasks(tasks)
 

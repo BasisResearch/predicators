@@ -46,6 +46,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         BurnerOff = predicates["BurnerOff"]
 
         WaterBoiled = predicates["WaterBoiled"]
+        # CompleteDeclared = predicates["CompleteDeclared"]
 
         # Options
         PickJug = options["PickJug"]
@@ -58,6 +59,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         SwitchBurnerOn = options["SwitchBurnerOn"]
         SwitchBurnerOff = options["SwitchBurnerOff"]
         NoOp = options["NoOp"]
+        # DeclareComplete = options["DeclareComplete"]
 
         # Create a random number generator
         rng = np.random.default_rng(CFG.seed)
@@ -367,6 +369,23 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
                                          delay_distribution, 1.0, option,
                                          option_vars, null_sampler)
         processes.add(noop_process)
+
+        # DeclareComplete
+        robot = Variable("?robot", robot_type)
+        parameters = [robot, jug, burner]
+        option_vars = [robot]
+        option = DeclareComplete
+        condition_at_start = {LiftedAtom(NoWaterSpilled, []),
+                              LiftedAtom(WaterBoiled, [jug]),
+                              LiftedAtom(JugFilled, [jug]),
+                              LiftedAtom(BurnerOff, [burner]),}
+        add_effects = {LiftedAtom(CompleteDeclared, [robot])}
+        delay_distribution = ConstantDelay(1)
+        declare_complete_process = EndogenousProcess(
+            "DeclareComplete", parameters, condition_at_start, set(), set(),
+            add_effects, set(), delay_distribution, 1.0, option, option_vars,
+            null_sampler)
+        # processes.add(declare_complete_process)
 
         # --- Exogenous Processes ---
         # FillJug

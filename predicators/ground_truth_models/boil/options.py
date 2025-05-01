@@ -433,6 +433,27 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         )
         options.add(NoOp)
 
+        # Declare Complete
+        option_types = [robot_type]
+        params_space = Box(0, 1, (0, ))
+        DeclareComplete = utils.LinearChainParameterizedOption(
+            "DeclareComplete", [
+                # Open fingers.
+                create_change_fingers_option(
+                    pybullet_robot, "OpenFingers", option_types, params_space,
+                    open_fingers_func, CFG.pybullet_max_vel_norm,
+                    PyBulletBoilEnv.grasp_tol),
+                # Move to initial position.
+                cls._create_boil_move_to_init_option(
+                    name="MoveEndEffectorToInit",
+                    finger_status="open",
+                    pybullet_robot=pybullet_robot,
+                    option_types=option_types,
+                    params_space=params_space),
+            ])
+        options.add(DeclareComplete)
+            
+
         return options
 
     @classmethod
@@ -592,6 +613,45 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         return create_move_end_effector_to_pose_option(
             _get_pybullet_robot(),
+            name,
+            option_types,
+            params_space,
+            _get_current_and_target_pose_and_finger_status,
+            cls._move_to_pose_tol,
+            CFG.pybullet_max_vel_norm,
+            cls._finger_action_nudge_magnitude,
+            validate=CFG.pybullet_ik_validate)
+    
+    @classmethod
+    def _create_boil_move_to_init_option(
+            cls, name: str, finger_status: str, 
+            pybullet_robot: SingleArmPyBulletRobot,
+            option_types: List[Type],
+            params_space: Box) -> ParameterizedOption:
+        """Creates a ParameterizedOption for moving to the initial position."""
+
+        def _get_current_and_target_pose_and_finger_status(
+                state: State, objects: Sequence[Object], params: Array) -> \
+                Tuple[Pose, Pose, str]:
+            assert not params
+            robot, = objects
+            current_position = (state.get(robot, "x"), state.get(robot, "y"),
+                                state.get(robot, "z"))
+            ee_orn = p.getQuaternionFromEuler(
+                [0, state.get(robot, "tilt"),
+                 state.get(robot, "wrist")])
+            current_pose = Pose(current_position, ee_orn)
+            target_position = (cls.env_cls.robot_init_x,
+                               cls.env_cls.robot_init_y,
+                               cls.env_cls.robot_init_z)
+            target_orn = p.getQuaternionFromEuler(
+                [0, cls.env_cls.robot_init_tilt,
+                 cls.env_cls.robot_init_wrist])
+            target_pose = Pose(target_position, target_orn)
+            return current_pose, target_pose, finger_status
+        
+        return create_move_end_effector_to_pose_option(
+            pybullet_robot,
             name,
             option_types,
             params_space,
