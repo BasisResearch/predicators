@@ -1,0 +1,59 @@
+import logging
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Sequence, Set
+
+import dill as pkl
+import numpy as np
+from gym.spaces import Box
+from scipy.optimize import minimize
+
+from predicators.option_model import _OptionModelBase
+from predicators.settings import CFG
+from predicators.structs import ParameterizedOption, Predicate, Task, Type, \
+    Dataset
+from predicators.approaches.pp_process_learning_approach import \
+    ProcessLearningBilevelProcessPlanningApproach
+
+class PredicateInventionBilevelProcessPlanningApproach(
+    ProcessLearningBilevelProcessPlanningApproach):
+    """A bilevel planning approach that invent predicates."""
+
+    def __init__(self,
+                 initial_predicates: Set[Predicate],
+                 initial_options: Set[ParameterizedOption],
+                 types: Set[Type],
+                 action_space: Box,
+                 train_tasks: List[Task],
+                 task_planning_heuristic: str = "default",
+                 max_skeletons_optimized: int = -1,
+                 bilevel_plan_without_sim: Optional[bool] = None,
+                 option_model: Optional[_OptionModelBase] = None):
+        super().__init__(initial_predicates,
+                         initial_options,
+                         types,
+                         action_space,
+                         train_tasks,
+                         task_planning_heuristic,
+                         max_skeletons_optimized,
+                         bilevel_plan_without_sim,
+                         option_model=option_model)
+    
+    @classmethod
+    def get_name(cls):
+        return "predicate_invention_and_process_planning"
+
+    def learn_from_offline_dataset(self, dataset: Dataset) -> None:
+        # --- Invent Predicates ---
+        # Check the atomic trajectory
+
+        # ----- Predicate Proposal -----
+
+        # ----- Predicate Selection -----
+
+        # --- Learn Processes ---
+        self._learn_processes(dataset.trajectories,
+                              online_learning_cycle=None,
+                              annotations=(dataset.annotations if
+                                           dataset.has_annotations else None))
+        if CFG.learn_process_parameters:
+            self._learn_process_parameters(dataset)
