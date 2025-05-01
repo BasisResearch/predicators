@@ -330,9 +330,6 @@ class PyBulletEnv(BaseEnv):
               render: bool = False) -> Observation:
         state = super().reset(train_or_test, task_idx)
         self._reset_state(state)
-        # Converts the State into a PyBulletState.
-        self._current_observation = self._get_state()
-        # logging.debug(f"Reset state:\n{pformat(state.pretty_str())}")
         observation = self.get_observation(render=render)
         return observation
 
