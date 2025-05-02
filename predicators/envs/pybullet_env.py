@@ -357,10 +357,7 @@ class PyBulletEnv(BaseEnv):
 
         # 3) Reset all known objects (position, orientation, etc.)
         for obj in self._objects:
-            if obj.type.name == "robot":
-                continue
-            if obj.type.name == "position":
-                # abstract entity
+            if obj.type.name in ["robot", "position", "human"]:
                 continue
             self._reset_single_object(obj, state)
 
@@ -454,7 +451,7 @@ class PyBulletEnv(BaseEnv):
             obj_features = obj.type.feature_names
             obj_dict = {}
 
-            if obj.type.name == "position":
+            if obj.type.name in ["position", "human"]:
                 for feature in obj_features:
                     obj_dict[feature] = self._extract_feature(obj, feature)
                 state_dict[obj] = obj_dict

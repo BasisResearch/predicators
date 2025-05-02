@@ -44,6 +44,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         FaucetOff = predicates["FaucetOff"]
         BurnerOn = predicates["BurnerOn"]
         BurnerOff = predicates["BurnerOff"]
+        HumanHappy = predicates["HumanHappy"]
 
         WaterBoiled = predicates["WaterBoiled"]
         # CompleteDeclared = predicates["CompleteDeclared"]
@@ -371,20 +372,20 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         processes.add(noop_process)
 
         # DeclareComplete
-        robot = Variable("?robot", robot_type)
-        parameters = [robot, jug, burner]
-        option_vars = [robot]
-        option = DeclareComplete
-        condition_at_start = {LiftedAtom(NoWaterSpilled, []),
-                              LiftedAtom(WaterBoiled, [jug]),
-                              LiftedAtom(JugFilled, [jug]),
-                              LiftedAtom(BurnerOff, [burner]),}
-        add_effects = {LiftedAtom(CompleteDeclared, [robot])}
-        delay_distribution = ConstantDelay(1)
-        declare_complete_process = EndogenousProcess(
-            "DeclareComplete", parameters, condition_at_start, set(), set(),
-            add_effects, set(), delay_distribution, 1.0, option, option_vars,
-            null_sampler)
+        # robot = Variable("?robot", robot_type)
+        # parameters = [robot, jug, burner]
+        # option_vars = [robot]
+        # option = DeclareComplete
+        # condition_at_start = {LiftedAtom(NoWaterSpilled, []),
+        #                       LiftedAtom(WaterBoiled, [jug]),
+        #                       LiftedAtom(JugFilled, [jug]),
+        #                       LiftedAtom(BurnerOff, [burner]),}
+        # add_effects = {LiftedAtom(CompleteDeclared, [robot])}
+        # delay_distribution = ConstantDelay(1)
+        # declare_complete_process = EndogenousProcess(
+        #     "DeclareComplete", parameters, condition_at_start, set(), set(),
+        #     add_effects, set(), delay_distribution, 1.0, option, option_vars,
+        #     null_sampler)
         # processes.add(declare_complete_process)
 
         # --- Exogenous Processes ---
@@ -502,5 +503,19 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
                                         condition_overall, set(), add_effects,
                                         set(), delay_distribution, 1.0)
         processes.add(boil_process)
+
+        # HumanHappyProcess
+        jug = Variable("?jug", jug_type)
+        burner = Variable("?burner", burner_type)
+        condition_at_start = {LiftedAtom(NoWaterSpilled, []),
+                              LiftedAtom(WaterBoiled, [jug]),
+                              LiftedAtom(JugFilled, [jug]),
+                              LiftedAtom(BurnerOff, [burner]),}
+        add_effects = {LiftedAtom(HumanHappy, [])}
+        delay_distribution = ConstantDelay(3)
+        human_happy_process = ExogenousProcess(
+            "HumanHappy", parameters, condition_at_start, set(), set(),
+            add_effects, set(), delay_distribution, 1.0)
+        processes.add(human_happy_process)
 
         return processes

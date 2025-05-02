@@ -139,6 +139,8 @@ def learn_processes_from_data(
         logging.info(
             f"Learned {len(new_exogenous_processes)} exogenous processes:\n"
             f"{pformat(new_exogenous_processes)}")
+    if CFG.pause_after_process_learning_for_inspection:
+        input("Press Enter to continue...")  # pause for user inspection
 
     # STEP 6: Make, log, and return the endogenous and exogenous processes.
     processes = endogenous_processes + new_exogenous_processes + \

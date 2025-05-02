@@ -85,14 +85,14 @@ class PyBulletBoilEnv(PyBulletEnv):
     num_burners: ClassVar[int] = 1  # can be adjusted as needed
 
     # Speeds / rates
-    water_fill_speed: ClassVar[
-        float] = 0.0001  # how fast water_level increases per step
+    water_fill_speed: ClassVar[float] = 0.002  # how fast water_level increases per step
     water_filled_height: ClassVar[float] = 0.08
-    max_jug_water_capacity: ClassVar[float] = 0.10
+    max_jug_water_capacity: ClassVar[float] = 0.1
     max_water_spill_width: ClassVar[float] = 0.3
     water_color = (0.0, 0.0, 1.0, 0.9)  # blue
     heating_speed: ClassVar[
         float] = 0.02  # how fast the jug's "heat_level" goes up per step
+    happy_speed: ClassVar[float] = 0.05
 
     # Dist thresholds
     faucet_align_threshold: ClassVar[
@@ -119,6 +119,8 @@ class PyBulletBoilEnv(PyBulletEnv):
     _faucet_type = Type("faucet",
                         ["x", "y", "z", "rot", "is_on", "spilled_level"],
                         sim_features=["id", "switch_id"])
+    _human_type = Type("human", ["happiness_level"], 
+                       sim_features=["id", "happiness_level"])
 
     def __init__(self, use_gui: bool = True) -> None:
         # Create the robot as an Object
@@ -144,6 +146,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         # Create one faucet + a corresponding switch
         self._faucet = Object("faucet", self._faucet_type)
         self._faucet_switch = Object("faucet_switch", self._switch_type)
+
+        self._human = Object("human", self._human_type)
 
         # Keep track of the spilled water block (None if no spill yet)
         self._spilled_water_id: Optional[int] = None
@@ -218,6 +222,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     @property
     def goal_predicates(self) -> Set[Predicate]:
         """Which predicates might appear in goals."""
+        return {self._HumanHappy}
         return {self._WaterBoiled, self._JugFilled,
                 self._NoWaterSpilled, self._BurnerOff,
                 self._CompleteDeclared}  # Example
@@ -315,6 +320,17 @@ class PyBulletBoilEnv(PyBulletEnv):
         # Faucet switch
         self._faucet_switch.id = pybullet_bodies["faucet_switch_id"]
 
+        # Get a fresh id for human
+        max_id = float('-inf')
+        for key, value in pybullet_bodies.items():
+            if isinstance(value, list):
+                for v in value:
+                    if isinstance(v, int):
+                        max_id = max(max_id, v)
+            elif isinstance(value, int):
+                max_id = max(max_id, value)
+        self._human.id = max_id + 1
+
     # -------------------------------------------------------------------------
     # State Creation / Feature Extraction
     # -------------------------------------------------------------------------
@@ -378,6 +394,10 @@ class PyBulletBoilEnv(PyBulletEnv):
                 return 0.0
             if feature == "heat_level":
                 return getattr(obj, "heat_level", 0.0)
+        
+        elif obj.type == self._human_type:
+            if feature == "happiness_level":
+                return getattr(obj, "happiness_level", 0.0)
 
         # Otherwise, rely on defaults (like the base PyBulletEnv) for x,y,z,...
         raise ValueError(f"Unknown feature {feature} for object {obj}.")
@@ -422,6 +442,9 @@ class PyBulletBoilEnv(PyBulletEnv):
         if spilled_level > 0.0:
             self._spilled_water_id = self._create_spilled_water_block(
                 spilled_level, state)
+        
+        # Human
+        self._human.happiness_level = state.get(self._human, "happiness_level")
 
     # -------------------------------------------------------------------------
     # Step Logic
@@ -440,6 +463,9 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # 3) Update jug colors based on their 'heat'
         self._update_jug_colors(next_state)
+
+        # 4) Update the human's happiness level
+        self._update_human_happiness(next_state)
 
         # Re-read final state
         final_state = self._get_state()
@@ -558,6 +584,25 @@ class PyBulletBoilEnv(PyBulletEnv):
             update_object(water_id,
                           color=(r, g, b, alpha),
                           physics_client_id=self._physics_client_id)
+    
+    def _update_human_happiness(self, state: State) -> None:
+        """Update the human's happiness
+        """
+        # No water spilled => happy
+        all_filled = all(self._JugFilled_holds(state, [jug])
+                            for jug in self._jugs)
+        no_spill = self._NoWaterSpilled_holds(state, [])
+        all_boiled = all(self._WaterBoiled_holds(state, [jug])
+                            for jug in self._jugs)
+        burner_off = all(not self._BurnerOn_holds(state, [burner])
+                            for burner in self._burners)
+        happy_condition = all([all_filled, no_spill, all_boiled, burner_off])
+
+        if happy_condition:
+            old_happiness_level = state.get(self._human, "happiness_level")
+            new_happiness_level = min(1.0,
+                                      old_happiness_level + self.happy_speed)
+            self._human.happiness_level = new_happiness_level
 
     def _create_spilled_water_block(self, spilled_size: float,
                                     state: State) -> int:
@@ -747,14 +792,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         to describe the preimage of effects.
         """
         # Check if all jugs are filled
-        all_filled = all(self._JugFilled_holds(state, [jug])
-                            for jug in self._jugs)
-        no_spill = self._NoWaterSpilled_holds(state, [])
-        all_boiled = all(self._WaterBoiled_holds(state, [jug])
-                            for jug in self._jugs)
-        burner_off = all(not self._BurnerOn_holds(state, [burner])
-                            for burner in self._burners)
-        return all_filled and no_spill and all_boiled and burner_off
+        return state.get(self._human, "happiness_level") >= 1.0
 
     def _CompleteDeclared_holds(self, state: State,
                                 objects: Sequence[Object]) -> bool:
@@ -856,25 +894,27 @@ class PyBulletBoilEnv(PyBulletEnv):
                 "rot": 0.0,
                 "is_on": 0.0
             }
+            # Human, for keep track of the human's happiness
+            init_dict[self._human] = {
+                "happiness_level": 0.0
+            }
 
             init_state = utils.create_state_from_dict(init_dict)
 
             # Example goal: Water boiled, no water spilled, etc.
             goal_atoms = set()
-            goal_atoms.add(GroundAtom(self._NoWaterSpilled, []))
-            for j_obj in self._jugs:
-                goal_atoms.add(GroundAtom(self._WaterBoiled, [j_obj]))
-                goal_atoms.add(GroundAtom(self._JugFilled, [j_obj]))
-            for b_obj in self._burners:
-                goal_atoms.add(GroundAtom(self._BurnerOn, [b_obj]))
-            goal_atoms.add(GroundAtom(self._CompleteDeclared, [self._robot]))
             
-            alt_goal_atoms = {GroundAtom(self._HumanHappy, [])}
-            # alt_goal_atoms.add(GroundAtom(self._NoWaterSpilled, [self._robot]))
+            if CFG.boil_use_human_happy_as_goal:
+                goal_atoms.add(GroundAtom(self._HumanHappy, []))
+            else:
+                goal_atoms.add(GroundAtom(self._NoWaterSpilled, []))
+                for j_obj in self._jugs:
+                    goal_atoms.add(GroundAtom(self._WaterBoiled, [j_obj]))
+                    goal_atoms.add(GroundAtom(self._JugFilled, [j_obj]))
+                for b_obj in self._burners:
+                    goal_atoms.add(GroundAtom(self._BurnerOff, [b_obj]))
 
-            tasks.append(EnvironmentTask(init_state, goal_atoms,
-                                        #  alt_goal_desc=alt_goal_atoms
-                                         ))
+            tasks.append(EnvironmentTask(init_state, goal_atoms))
 
         return self._add_pybullet_state_to_tasks(tasks)
 

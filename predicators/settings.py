@@ -419,6 +419,7 @@ class GlobalSettings:
     # boil env
     boil_use_constant_delay = False
     boil_use_normal_delay = False
+    boil_use_human_happy_as_goal = False
 
     # parameters for random options approach
     random_options_max_tries = 100
@@ -581,6 +582,7 @@ class GlobalSettings:
     exogenous_process_learner = "cluster_and_intersect"
     only_learn_exogenous_processes = False
     learn_process_parameters = False
+    pause_after_process_learning_for_inspection = False
 
     # torch GPU usage setting
     use_torch_gpu = False
