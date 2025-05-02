@@ -85,7 +85,8 @@ class PyBulletBoilEnv(PyBulletEnv):
     num_burners: ClassVar[int] = 1  # can be adjusted as needed
 
     # Speeds / rates
-    water_fill_speed: ClassVar[float] = 0.002  # how fast water_level increases per step
+    water_fill_speed: ClassVar[
+        float] = 0.002  # how fast water_level increases per step
     water_filled_height: ClassVar[float] = 0.08
     max_jug_water_capacity: ClassVar[float] = 0.1
     max_water_spill_width: ClassVar[float] = 0.3
@@ -119,7 +120,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     _faucet_type = Type("faucet",
                         ["x", "y", "z", "rot", "is_on", "spilled_level"],
                         sim_features=["id", "switch_id"])
-    _human_type = Type("human", ["happiness_level"], 
+    _human_type = Type("human", ["happiness_level"],
                        sim_features=["id", "happiness_level"])
 
     def __init__(self, use_gui: bool = True) -> None:
@@ -189,9 +190,8 @@ class PyBulletBoilEnv(PyBulletEnv):
                                        self._WaterSpilled_holds)
         self._NoWaterSpilled = Predicate("NoWaterSpilled", [],
                                          self._NoWaterSpilled_holds)
-        self._HumanHappy = Predicate("HumanHappy", [],
-                                     self._HumanHappy_holds)
-        self._CompleteDeclared = Predicate("CompleteDeclared", 
+        self._HumanHappy = Predicate("HumanHappy", [], self._HumanHappy_holds)
+        self._CompleteDeclared = Predicate("CompleteDeclared",
                                            [self._robot_type],
                                            self._CompleteDeclared_holds)
 
@@ -223,9 +223,10 @@ class PyBulletBoilEnv(PyBulletEnv):
     def goal_predicates(self) -> Set[Predicate]:
         """Which predicates might appear in goals."""
         return {self._HumanHappy}
-        return {self._WaterBoiled, self._JugFilled,
-                self._NoWaterSpilled, self._BurnerOff,
-                self._CompleteDeclared}  # Example
+        return {
+            self._WaterBoiled, self._JugFilled, self._NoWaterSpilled,
+            self._BurnerOff, self._CompleteDeclared
+        }  # Example
 
     @property
     def agent_goal_predicates(self) -> Set[Predicate]:
@@ -394,7 +395,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                 return 0.0
             if feature == "heat_level":
                 return getattr(obj, "heat_level", 0.0)
-        
+
         elif obj.type == self._human_type:
             if feature == "happiness_level":
                 return getattr(obj, "happiness_level", 0.0)
@@ -442,7 +443,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         if spilled_level > 0.0:
             self._spilled_water_id = self._create_spilled_water_block(
                 spilled_level, state)
-        
+
         # Human
         self._human.happiness_level = state.get(self._human, "happiness_level")
 
@@ -584,18 +585,17 @@ class PyBulletBoilEnv(PyBulletEnv):
             update_object(water_id,
                           color=(r, g, b, alpha),
                           physics_client_id=self._physics_client_id)
-    
+
     def _update_human_happiness(self, state: State) -> None:
-        """Update the human's happiness
-        """
+        """Update the human's happiness."""
         # No water spilled => happy
-        all_filled = all(self._JugFilled_holds(state, [jug])
-                            for jug in self._jugs)
+        all_filled = all(
+            self._JugFilled_holds(state, [jug]) for jug in self._jugs)
         no_spill = self._NoWaterSpilled_holds(state, [])
-        all_boiled = all(self._WaterBoiled_holds(state, [jug])
-                            for jug in self._jugs)
+        all_boiled = all(
+            self._WaterBoiled_holds(state, [jug]) for jug in self._jugs)
         burner_off = all(not self._BurnerOn_holds(state, [burner])
-                            for burner in self._burners)
+                         for burner in self._burners)
         happy_condition = all([all_filled, no_spill, all_boiled, burner_off])
 
         if happy_condition:
@@ -785,30 +785,27 @@ class PyBulletBoilEnv(PyBulletEnv):
             if self._Holding_holds(state, [robot, jug]):
                 return False
         return True
-    
+
     def _HumanHappy_holds(self, state: State,
                           objects: Sequence[Object]) -> bool:
         """A predicate design mainly for experimenting with inventing predicate
-        to describe the preimage of effects.
-        """
+        to describe the preimage of effects."""
         # Check if all jugs are filled
         return state.get(self._human, "happiness_level") >= 1.0
 
     def _CompleteDeclared_holds(self, state: State,
                                 objects: Sequence[Object]) -> bool:
-        """Comption is declared when it's at the init pose.
-        """
+        """Comption is declared when it's at the init pose."""
         robot, = objects
         robot_x = state.get(robot, "x")
         robot_y = state.get(robot, "y")
         robot_z = state.get(robot, "z")
         robot_tilt = state.get(robot, "tilt")
         robot_wrist = state.get(robot, "wrist")
-        return (robot_x == self.robot_init_x and
-                robot_y == self.robot_init_y and
-                robot_z == self.robot_init_z and
-                robot_tilt == self.robot_init_tilt and
-                robot_wrist == self.robot_init_wrist)
+        return (robot_x == self.robot_init_x and robot_y == self.robot_init_y
+                and robot_z == self.robot_init_z
+                and robot_tilt == self.robot_init_tilt
+                and robot_wrist == self.robot_init_wrist)
 
     # -------------------------------------------------------------------------
     # Task Generation
@@ -895,15 +892,13 @@ class PyBulletBoilEnv(PyBulletEnv):
                 "is_on": 0.0
             }
             # Human, for keep track of the human's happiness
-            init_dict[self._human] = {
-                "happiness_level": 0.0
-            }
+            init_dict[self._human] = {"happiness_level": 0.0}
 
             init_state = utils.create_state_from_dict(init_dict)
 
             # Example goal: Water boiled, no water spilled, etc.
             goal_atoms = set()
-            
+
             if CFG.boil_use_human_happy_as_goal:
                 goal_atoms.add(GroundAtom(self._HumanHappy, []))
             else:

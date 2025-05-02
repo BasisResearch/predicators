@@ -437,7 +437,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         option_types = [robot_type]
         params_space = Box(0, 1, (0, ))
         DeclareComplete = utils.LinearChainParameterizedOption(
-            "DeclareComplete", [
+            "DeclareComplete",
+            [
                 # Open fingers.
                 create_change_fingers_option(
                     pybullet_robot, "OpenFingers", option_types, params_space,
@@ -452,7 +453,6 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     params_space=params_space),
             ])
         options.add(DeclareComplete)
-            
 
         return options
 
@@ -621,12 +621,11 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             CFG.pybullet_max_vel_norm,
             cls._finger_action_nudge_magnitude,
             validate=CFG.pybullet_ik_validate)
-    
+
     @classmethod
     def _create_boil_move_to_init_option(
-            cls, name: str, finger_status: str, 
-            pybullet_robot: SingleArmPyBulletRobot,
-            option_types: List[Type],
+            cls, name: str, finger_status: str,
+            pybullet_robot: SingleArmPyBulletRobot, option_types: List[Type],
             params_space: Box) -> ParameterizedOption:
         """Creates a ParameterizedOption for moving to the initial position."""
 
@@ -645,11 +644,10 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                                cls.env_cls.robot_init_y,
                                cls.env_cls.robot_init_z)
             target_orn = p.getQuaternionFromEuler(
-                [0, cls.env_cls.robot_init_tilt,
-                 cls.env_cls.robot_init_wrist])
+                [0, cls.env_cls.robot_init_tilt, cls.env_cls.robot_init_wrist])
             target_pose = Pose(target_position, target_orn)
             return current_pose, target_pose, finger_status
-        
+
         return create_move_end_effector_to_pose_option(
             pybullet_robot,
             name,

@@ -507,15 +507,18 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         # HumanHappyProcess
         jug = Variable("?jug", jug_type)
         burner = Variable("?burner", burner_type)
-        condition_at_start = {LiftedAtom(NoWaterSpilled, []),
-                              LiftedAtom(WaterBoiled, [jug]),
-                              LiftedAtom(JugFilled, [jug]),
-                              LiftedAtom(BurnerOff, [burner]),}
+        condition_at_start = {
+            LiftedAtom(NoWaterSpilled, []),
+            LiftedAtom(WaterBoiled, [jug]),
+            LiftedAtom(JugFilled, [jug]),
+            LiftedAtom(BurnerOff, [burner]),
+        }
         add_effects = {LiftedAtom(HumanHappy, [])}
         delay_distribution = ConstantDelay(3)
-        human_happy_process = ExogenousProcess(
-            "HumanHappy", parameters, condition_at_start, set(), set(),
-            add_effects, set(), delay_distribution, 1.0)
+        human_happy_process = ExogenousProcess("HumanHappy",
+                                               parameters, condition_at_start,
+                                               set(), set(), add_effects,
+                                               set(), delay_distribution, 1.0)
         processes.add(human_happy_process)
 
         return processes

@@ -7,15 +7,16 @@ import numpy as np
 from gym.spaces import Box
 from scipy.optimize import minimize
 
-from predicators.option_model import _OptionModelBase
-from predicators.settings import CFG
-from predicators.structs import ParameterizedOption, Predicate, Task, Type, \
-    Dataset
 from predicators.approaches.pp_process_learning_approach import \
     ProcessLearningBilevelProcessPlanningApproach
+from predicators.option_model import _OptionModelBase
+from predicators.settings import CFG
+from predicators.structs import Dataset, ParameterizedOption, Predicate, \
+    Task, Type
+
 
 class PredicateInventionBilevelProcessPlanningApproach(
-    ProcessLearningBilevelProcessPlanningApproach):
+        ProcessLearningBilevelProcessPlanningApproach):
     """A bilevel planning approach that invent predicates."""
 
     def __init__(self,
@@ -37,7 +38,7 @@ class PredicateInventionBilevelProcessPlanningApproach(
                          max_skeletons_optimized,
                          bilevel_plan_without_sim,
                          option_model=option_model)
-    
+
     @classmethod
     def get_name(cls):
         return "predicate_invention_and_process_planning"

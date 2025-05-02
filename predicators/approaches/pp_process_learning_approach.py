@@ -12,9 +12,8 @@ from predicators.nsrt_learning.process_learning_main import \
     learn_processes_from_data
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, \
-    Dataset, GroundAtomTrajectory, LowLevelTrajectory, \
-    ParameterizedOption, Predicate, Task, Type
+from predicators.structs import CausalProcess, Dataset, GroundAtomTrajectory, \
+    LowLevelTrajectory, ParameterizedOption, Predicate, Task, Type
 
 
 class ProcessLearningBilevelProcessPlanningApproach(

@@ -336,8 +336,8 @@ class PyBulletEnv(BaseEnv):
     def _reset_state(self, state: State) -> None:
         """Reset the PyBullet state to match the given state.
 
-        Used in initialization (reset(), _add_pybullet_state_to_tasks()) and 
-        bilevel planning (when creating the option model)).
+        Used in initialization (reset(), _add_pybullet_state_to_tasks())
+        and bilevel planning (when creating the option model)).
         """
         self._objects = list(state.data)
         # 1) Clear old constraint if we had a held object
@@ -846,7 +846,8 @@ class PyBulletEnv(BaseEnv):
                 init.data.copy(), simulator_state=joint_positions)
             # Attempt 1: Let's try to get a rendering directly first
             pybullet_init = self.get_observation(render=CFG.render_init_state)
-            pybullet_init.option_history = [] # useful for vlm predicate grounding
+            pybullet_init.option_history = [
+            ]  # useful for vlm predicate grounding
             # # <Original code
             # self._pybullet_robot.reset_state(self._extract_robot_state(init))
             # joint_positions = self._pybullet_robot.get_joints()
