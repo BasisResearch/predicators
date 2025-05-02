@@ -203,10 +203,20 @@ class PyBulletBoilEnv(PyBulletEnv):
         """Return a set of domain-specific predicates that might be used for
         planning."""
         predicates = {
-            self._JugFilled, self._WaterBoiled, self._BurnerOn, self._FaucetOn,
-            self._BurnerOff, self._FaucetOff, self._Holding, self._JugAtBurner,
-            self._JugAtFaucet, self._JugNotAtBurnerOrFaucet, self._HandEmpty,
-            self._WaterSpilled, self._NoJugAtFaucet, self._NoWaterSpilled,
+            self._JugFilled,
+            self._WaterBoiled,
+            self._BurnerOn,
+            self._FaucetOn,
+            self._BurnerOff,
+            self._FaucetOff,
+            self._Holding,
+            self._JugAtBurner,
+            self._JugAtFaucet,
+            self._JugNotAtBurnerOrFaucet,
+            self._HandEmpty,
+            self._WaterSpilled,
+            self._NoJugAtFaucet,
+            self._NoWaterSpilled,
         }
         if CFG.boil_goal == "human_happy":
             predicates.add(self._HumanHappy)
@@ -795,9 +805,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         return state.get(self._human, "happiness_level") >= 1.0
 
     def _simple_task_objective_holds(self, state: State) -> bool:
-        """A simple task objective: all jugs are filled, no water spilled,
-        all jugs are boiled, and all burners are off.
-        """
+        """A simple task objective: all jugs are filled, no water spilled, all
+        jugs are boiled, and all burners are off."""
         all_filled = all(
             self._JugFilled_holds(state, [jug]) for jug in self._jugs)
         no_spill = self._NoWaterSpilled_holds(state, [])
@@ -808,21 +817,21 @@ class PyBulletBoilEnv(PyBulletEnv):
         return all([all_filled, no_spill, all_boiled, burner_off])
 
     def _robot_at_init_pose(self, state: State) -> bool:
-        """Completion is declared when it's at a particular pose (e.g. the init)
-        """
+        """Completion is declared when it's at a particular pose (e.g. the
+        init)"""
         robot_x = state.get(self._robot, "x")
         robot_y = state.get(self._robot, "y")
         robot_z = state.get(self._robot, "z")
         robot_tilt = state.get(self._robot, "tilt")
         robot_wrist = state.get(self._robot, "wrist")
-        return (np.isclose(robot_x, self.robot_init_x, atol=1e-1) and
-                np.isclose(robot_y, self.robot_init_y, atol=1e-1) and
-                np.isclose(robot_z, self.robot_init_z, atol=1e-1) and
-                np.isclose(robot_tilt, self.robot_init_tilt, atol=1e-1) and
-                np.isclose(robot_wrist, self.robot_init_wrist, atol=1e-1))
-    
-    def _TaskCompleted_holds(self, state: State, objects: Sequence[Object]
-                             ) -> bool:
+        return (np.isclose(robot_x, self.robot_init_x, atol=1e-1)
+                and np.isclose(robot_y, self.robot_init_y, atol=1e-1)
+                and np.isclose(robot_z, self.robot_init_z, atol=1e-1)
+                and np.isclose(robot_tilt, self.robot_init_tilt, atol=1e-1)
+                and np.isclose(robot_wrist, self.robot_init_wrist, atol=1e-1))
+
+    def _TaskCompleted_holds(self, state: State,
+                             objects: Sequence[Object]) -> bool:
         """A task is completed when the robot is at the initial pose and the
         simple task objective holds."""
         del objects

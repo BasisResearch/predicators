@@ -442,9 +442,9 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                 [
                     # Open fingers.
                     create_change_fingers_option(
-                        pybullet_robot, "OpenFingers", option_types, params_space,
-                        open_fingers_func, CFG.pybullet_max_vel_norm,
-                        PyBulletBoilEnv.grasp_tol),
+                        pybullet_robot, "OpenFingers", option_types,
+                        params_space, open_fingers_func,
+                        CFG.pybullet_max_vel_norm, PyBulletBoilEnv.grasp_tol),
                     # Move to initial position.
                     cls._create_boil_move_to_init_option(
                         name="MoveEndEffectorToInit",

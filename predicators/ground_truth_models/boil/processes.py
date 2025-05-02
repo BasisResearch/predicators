@@ -379,15 +379,17 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             parameters = [robot, jug, burner]
             option_vars = [robot]
             option = DeclareComplete
-            condition_at_start = {LiftedAtom(NoWaterSpilled, []),
-                                LiftedAtom(WaterBoiled, [jug]),
-                                LiftedAtom(JugFilled, [jug]),
-                                LiftedAtom(BurnerOff, [burner]),}
+            condition_at_start = {
+                LiftedAtom(NoWaterSpilled, []),
+                LiftedAtom(WaterBoiled, [jug]),
+                LiftedAtom(JugFilled, [jug]),
+                LiftedAtom(BurnerOff, [burner]),
+            }
             add_effects = {LiftedAtom(TaskCompleted, [])}
             delay_distribution = ConstantDelay(1)
             declare_complete_process = EndogenousProcess(
-                "DeclareComplete", parameters, condition_at_start, set(), set(),
-                add_effects, set(), delay_distribution, 1.0, option, 
+                "DeclareComplete", parameters, condition_at_start, set(),
+                set(), add_effects, set(), delay_distribution, 1.0, option,
                 option_vars, null_sampler)
             processes.add(declare_complete_process)
 
@@ -519,10 +521,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             }
             add_effects = {LiftedAtom(HumanHappy, [])}
             delay_distribution = ConstantDelay(3)
-            human_happy_process = ExogenousProcess("HumanHappy",
-                                               parameters, condition_at_start,
-                                               set(), set(), add_effects,
-                                               set(), delay_distribution, 1.0)
+            human_happy_process = ExogenousProcess("HumanHappy", parameters,
+                                                   condition_at_start, set(),
+                                                   set(), add_effects, set(),
+                                                   delay_distribution, 1.0)
             processes.add(human_happy_process)
 
         return processes
