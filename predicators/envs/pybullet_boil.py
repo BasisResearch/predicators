@@ -191,9 +191,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         self._NoWaterSpilled = Predicate("NoWaterSpilled", [],
                                          self._NoWaterSpilled_holds)
         self._HumanHappy = Predicate("HumanHappy", [], self._HumanHappy_holds)
-        self._CompleteDeclared = Predicate("CompleteDeclared",
-                                           [self._robot_type],
-                                           self._CompleteDeclared_holds)
+        self._TaskCompleted = Predicate("TaskCompleted", [],
+                                        self._TaskCompleted_holds)
 
     @classmethod
     def get_name(cls) -> str:
@@ -203,13 +202,17 @@ class PyBulletBoilEnv(PyBulletEnv):
     def predicates(self) -> Set[Predicate]:
         """Return a set of domain-specific predicates that might be used for
         planning."""
-        return {
+        predicates = {
             self._JugFilled, self._WaterBoiled, self._BurnerOn, self._FaucetOn,
             self._BurnerOff, self._FaucetOff, self._Holding, self._JugAtBurner,
             self._JugAtFaucet, self._JugNotAtBurnerOrFaucet, self._HandEmpty,
             self._WaterSpilled, self._NoJugAtFaucet, self._NoWaterSpilled,
-            self._HumanHappy, self._CompleteDeclared
         }
+        if CFG.boil_goal == "human_happy":
+            predicates.add(self._HumanHappy)
+        elif CFG.boil_goal == "task_completed":
+            predicates.add(self._TaskCompleted)
+        return predicates
 
     @property
     def types(self) -> Set[Type]:
@@ -222,15 +225,21 @@ class PyBulletBoilEnv(PyBulletEnv):
     @property
     def goal_predicates(self) -> Set[Predicate]:
         """Which predicates might appear in goals."""
-        return {self._HumanHappy}
-        return {
-            self._WaterBoiled, self._JugFilled, self._NoWaterSpilled,
-            self._BurnerOff, self._CompleteDeclared
-        }  # Example
+        if CFG.boil_goal == "human_happy":
+            return {self._HumanHappy}
+        elif CFG.boil_goal == "task_completed":
+            return {self._TaskCompleted}
+        elif CFG.boil_goal == "simple":
+            return {
+                self._WaterBoiled, self._JugFilled, self._NoWaterSpilled,
+                self._BurnerOff
+            }  # Example
+        else:
+            raise ValueError(f"Unknown goal type {CFG.boil_goal}.")
 
-    @property
-    def agent_goal_predicates(self) -> Set[Predicate]:
-        return {self._BurnerOff, self._HumanHappy}
+    # @property
+    # def agent_goal_predicates(self) -> Set[Predicate]:
+    #     return {self._BurnerOff, self._HumanHappy}
 
     # -------------------------------------------------------------------------
     # PyBullet Initialization
@@ -588,17 +597,9 @@ class PyBulletBoilEnv(PyBulletEnv):
 
     def _update_human_happiness(self, state: State) -> None:
         """Update the human's happiness."""
-        # No water spilled => happy
-        all_filled = all(
-            self._JugFilled_holds(state, [jug]) for jug in self._jugs)
-        no_spill = self._NoWaterSpilled_holds(state, [])
-        all_boiled = all(
-            self._WaterBoiled_holds(state, [jug]) for jug in self._jugs)
-        burner_off = all(not self._BurnerOn_holds(state, [burner])
-                         for burner in self._burners)
-        happy_condition = all([all_filled, no_spill, all_boiled, burner_off])
+        happy_condition_holds = self._simple_task_objective_holds(state)
 
-        if happy_condition:
+        if happy_condition_holds:
             old_happiness_level = state.get(self._human, "happiness_level")
             new_happiness_level = min(1.0,
                                       old_happiness_level + self.happy_speed)
@@ -793,19 +794,40 @@ class PyBulletBoilEnv(PyBulletEnv):
         # Check if all jugs are filled
         return state.get(self._human, "happiness_level") >= 1.0
 
-    def _CompleteDeclared_holds(self, state: State,
-                                objects: Sequence[Object]) -> bool:
-        """Comption is declared when it's at the init pose."""
-        robot, = objects
-        robot_x = state.get(robot, "x")
-        robot_y = state.get(robot, "y")
-        robot_z = state.get(robot, "z")
-        robot_tilt = state.get(robot, "tilt")
-        robot_wrist = state.get(robot, "wrist")
-        return (robot_x == self.robot_init_x and robot_y == self.robot_init_y
-                and robot_z == self.robot_init_z
-                and robot_tilt == self.robot_init_tilt
-                and robot_wrist == self.robot_init_wrist)
+    def _simple_task_objective_holds(self, state: State) -> bool:
+        """A simple task objective: all jugs are filled, no water spilled,
+        all jugs are boiled, and all burners are off.
+        """
+        all_filled = all(
+            self._JugFilled_holds(state, [jug]) for jug in self._jugs)
+        no_spill = self._NoWaterSpilled_holds(state, [])
+        all_boiled = all(
+            self._WaterBoiled_holds(state, [jug]) for jug in self._jugs)
+        burner_off = all(not self._BurnerOn_holds(state, [burner])
+                         for burner in self._burners)
+        return all([all_filled, no_spill, all_boiled, burner_off])
+
+    def _robot_at_init_pose(self, state: State) -> bool:
+        """Completion is declared when it's at a particular pose (e.g. the init)
+        """
+        robot_x = state.get(self._robot, "x")
+        robot_y = state.get(self._robot, "y")
+        robot_z = state.get(self._robot, "z")
+        robot_tilt = state.get(self._robot, "tilt")
+        robot_wrist = state.get(self._robot, "wrist")
+        return (np.isclose(robot_x, self.robot_init_x, atol=1e-1) and
+                np.isclose(robot_y, self.robot_init_y, atol=1e-1) and
+                np.isclose(robot_z, self.robot_init_z, atol=1e-1) and
+                np.isclose(robot_tilt, self.robot_init_tilt, atol=1e-1) and
+                np.isclose(robot_wrist, self.robot_init_wrist, atol=1e-1))
+    
+    def _TaskCompleted_holds(self, state: State, objects: Sequence[Object]
+                             ) -> bool:
+        """A task is completed when the robot is at the initial pose and the
+        simple task objective holds."""
+        del objects
+        return self._robot_at_init_pose(state) and \
+            self._simple_task_objective_holds(state)
 
     # -------------------------------------------------------------------------
     # Task Generation
@@ -899,15 +921,19 @@ class PyBulletBoilEnv(PyBulletEnv):
             # Example goal: Water boiled, no water spilled, etc.
             goal_atoms = set()
 
-            if CFG.boil_use_human_happy_as_goal:
+            if CFG.boil_goal == "human_happy":
                 goal_atoms.add(GroundAtom(self._HumanHappy, []))
-            else:
+            elif CFG.boil_goal == "task_completed":
+                goal_atoms.add(GroundAtom(self._TaskCompleted, []))
+            elif CFG.boil_goal == "simple":
                 goal_atoms.add(GroundAtom(self._NoWaterSpilled, []))
                 for j_obj in self._jugs:
                     goal_atoms.add(GroundAtom(self._WaterBoiled, [j_obj]))
                     goal_atoms.add(GroundAtom(self._JugFilled, [j_obj]))
                 for b_obj in self._burners:
                     goal_atoms.add(GroundAtom(self._BurnerOff, [b_obj]))
+            else:
+                raise ValueError(f"Unknown goal type {CFG.boil_goal}.")
 
             tasks.append(EnvironmentTask(init_state, goal_atoms))
 

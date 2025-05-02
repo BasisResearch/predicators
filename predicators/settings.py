@@ -419,7 +419,7 @@ class GlobalSettings:
     # boil env
     boil_use_constant_delay = False
     boil_use_normal_delay = False
-    boil_use_human_happy_as_goal = False
+    boil_goal = "simple" # Can also be "task_completed", "human_happy"
 
     # parameters for random options approach
     random_options_max_tries = 100

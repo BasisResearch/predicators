@@ -60,7 +60,7 @@ APPROACHES:
     ARGS:
       - "load_data"
     FLAGS:
-      boil_use_human_happy_as_goal: True
+      boil_goal: "task_completed" # Can also be "task_completed", "simple"
       excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled"
       # boil_use_constant_delay: True
       demonstrator: "oracle_process_planning"

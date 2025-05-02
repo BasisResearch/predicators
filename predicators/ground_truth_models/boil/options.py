@@ -433,26 +433,27 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         )
         options.add(NoOp)
 
-        # Declare Complete
-        option_types = [robot_type]
-        params_space = Box(0, 1, (0, ))
-        DeclareComplete = utils.LinearChainParameterizedOption(
-            "DeclareComplete",
-            [
-                # Open fingers.
-                create_change_fingers_option(
-                    pybullet_robot, "OpenFingers", option_types, params_space,
-                    open_fingers_func, CFG.pybullet_max_vel_norm,
-                    PyBulletBoilEnv.grasp_tol),
-                # Move to initial position.
-                cls._create_boil_move_to_init_option(
-                    name="MoveEndEffectorToInit",
-                    finger_status="open",
-                    pybullet_robot=pybullet_robot,
-                    option_types=option_types,
-                    params_space=params_space),
-            ])
-        options.add(DeclareComplete)
+        if CFG.boil_goal == "task_completed":
+            # Declare Complete
+            option_types = [robot_type]
+            params_space = Box(0, 1, (0, ))
+            DeclareComplete = utils.LinearChainParameterizedOption(
+                "DeclareComplete",
+                [
+                    # Open fingers.
+                    create_change_fingers_option(
+                        pybullet_robot, "OpenFingers", option_types, params_space,
+                        open_fingers_func, CFG.pybullet_max_vel_norm,
+                        PyBulletBoilEnv.grasp_tol),
+                    # Move to initial position.
+                    cls._create_boil_move_to_init_option(
+                        name="MoveEndEffectorToInit",
+                        finger_status="open",
+                        pybullet_robot=pybullet_robot,
+                        option_types=option_types,
+                        params_space=params_space),
+                ])
+            options.add(DeclareComplete)
 
         return options
 
