@@ -36,6 +36,7 @@ def learn_processes_from_data(
         ]
     else:
         # -- Learn the endogenous processes ---
+        CFG.segmenter = "option_changes"
         # STEP 1: Segment the trajectory by options. (don't currently consider
         #         segmenting by predicates).
         #         Segment each trajectory in the dataset based on changes in

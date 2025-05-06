@@ -5,7 +5,7 @@ from gym.spaces import Box
 from scipy.optimize import minimize
 
 from predicators.approaches.pp_process_learning_approach import \
-    ProcessLearningBilevelProcessPlanningApproach
+    ProcessLearningAndPlanningApproach
 from predicators.explorers import create_explorer
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
@@ -14,8 +14,8 @@ from predicators.structs import Dataset, InteractionRequest, \
     Task, Type
 
 
-class OnlineProcessLearningBilevelProcessPlanningApproach(
-        ProcessLearningBilevelProcessPlanningApproach):
+class OnlineProcessLearningAndPlanningApproach(
+        ProcessLearningAndPlanningApproach):
     """A bilevel planning approach that uses hand-specified processes."""
 
     def __init__(self,
@@ -37,7 +37,7 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
                          max_skeletons_optimized,
                          bilevel_plan_without_sim,
                          option_model=option_model)
-        self._dataset = Dataset([])
+        self._online_dataset = Dataset([])
         self._online_learning_cycle = 0
 
     @classmethod
@@ -110,19 +110,19 @@ class OnlineProcessLearningBilevelProcessPlanningApproach(
         # Can potentially have a positive and negative dataset
         for result in results:
             traj = LowLevelTrajectory(result.states, result.actions)
-            self._dataset.append(traj)
+            self._online_dataset.append(traj)
 
         # Learn from the dataset
         annotations = None
-        if self._dataset.has_annotations:
-            annotations = self._dataset.annotations  # pragma: no cover
+        if self._online_dataset.has_annotations:
+            annotations = self._online_dataset.annotations  # pragma: no cover
         self._learn_processes(
-            self._dataset.trajectories,
+            self._online_dataset.trajectories,
             online_learning_cycle=self._online_learning_cycle,
             annotations=annotations)
 
         if CFG.learn_process_parameters:
-            self._learn_process_parameters(self._dataset)
+            self._learn_process_parameters(self._online_dataset)
 
         self._online_learning_cycle += 1
 

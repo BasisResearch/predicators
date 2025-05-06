@@ -8,15 +8,15 @@ from gym.spaces import Box
 from scipy.optimize import minimize
 
 from predicators.approaches.pp_process_learning_approach import \
-    ProcessLearningBilevelProcessPlanningApproach
+    ProcessLearningAndPlanningApproach
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import Dataset, ParameterizedOption, Predicate, \
     Task, Type
 
 
-class PredicateInventionBilevelProcessPlanningApproach(
-        ProcessLearningBilevelProcessPlanningApproach):
+class PredicateInventionProcessPlanningApproach(
+        ProcessLearningAndPlanningApproach):
     """A bilevel planning approach that invent predicates."""
 
     def __init__(self,
@@ -29,6 +29,8 @@ class PredicateInventionBilevelProcessPlanningApproach(
                  max_skeletons_optimized: int = -1,
                  bilevel_plan_without_sim: Optional[bool] = None,
                  option_model: Optional[_OptionModelBase] = None):
+        self._offline_dataset = Dataset([])
+        self._learned_predicates: Set[Predicate] = set()
         super().__init__(initial_predicates,
                          initial_options,
                          types,
@@ -42,8 +44,13 @@ class PredicateInventionBilevelProcessPlanningApproach(
     @classmethod
     def get_name(cls):
         return "predicate_invention_and_process_planning"
+    
+    def _get_current_predicates(self) -> Set[Predicate]:
+        """Get the current predicates."""
+        return self._initial_predicates | self._learned_predicates
 
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
+        self._offline_dataset = dataset
         # --- Invent Predicates ---
         # Check the atomic trajectory
 

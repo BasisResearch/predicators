@@ -16,7 +16,7 @@ from predicators.structs import CausalProcess, Dataset, GroundAtomTrajectory, \
     LowLevelTrajectory, ParameterizedOption, Predicate, Task, Type
 
 
-class ProcessLearningBilevelProcessPlanningApproach(
+class ProcessLearningAndPlanningApproach(
         ParamLearningBilevelProcessPlanningApproach):
     """A bilevel planning approach that learns processes."""
 

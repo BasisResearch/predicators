@@ -15,7 +15,7 @@ from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     Dataset, GroundAtom, ParameterizedOption, Predicate, Task, Type, \
-    _GroundCausalProcess
+    _GroundCausalProcess, EndogenousProcess, ExogenousProcess
 
 
 class ParamLearningBilevelProcessPlanningApproach(
@@ -57,6 +57,14 @@ class ParamLearningBilevelProcessPlanningApproach(
 
     def _get_current_processes(self) -> Set[CausalProcess]:
         return set(self._processes)
+    
+    def _get_current_exogenous_processes(self) -> Set[ExogenousProcess]:
+        """Get the current set of exogenous processes."""
+        return {p for p in self._processes if isinstance(p, ExogenousProcess)}
+    
+    def _get_current_endogenous_processes(self) -> Set[EndogenousProcess]:
+        """Get the current set of endogenous processes."""
+        return {p for p in self._processes if isinstance(p, EndogenousProcess)}
 
     def _get_current_nsrts(self) -> Set[NSRT]:
         """Get the current set of NSRTs."""
