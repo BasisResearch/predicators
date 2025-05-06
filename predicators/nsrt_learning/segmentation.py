@@ -116,7 +116,8 @@ def _segment_with_option_changes(
             option_duration = t - backward_t + 1
             if option_duration >= CFG.max_num_steps_option_rollout:
                 return True
-            return option_t.terminal(ll_traj.states[t + 1])
+            return option_t.terminal(ll_traj.states[t + 1]) or \
+                option_t.name.lower() == "noop"
         return option_t is not ll_traj.actions[t + 1].get_option()
 
     return _segment_with_switch_function(ll_traj, predicates, atom_seq,
