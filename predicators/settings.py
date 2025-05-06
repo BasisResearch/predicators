@@ -583,6 +583,7 @@ class GlobalSettings:
     only_learn_exogenous_processes = False
     learn_process_parameters = False
     pause_after_process_learning_for_inspection = False
+    learnable_delay_distribution = "cmp" # "constant", "cmp", "normal"
 
     # torch GPU usage setting
     use_torch_gpu = False

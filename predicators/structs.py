@@ -950,6 +950,12 @@ class STRIPSOperator:
             process_strength = 1.0
         if process_rng is None:
             process_rng = np.random.default_rng(CFG.seed)
+        if CFG.learnable_delay_distribution == "cmp":
+            dist = utils.CMPDelay(*process_delay_params, rng=process_rng)
+        elif CFG.learnable_delay_distribution == "constant":
+            dist = utils.ConstantDelay(process_delay_params[0])
+        else:
+            raise NotImplementedError
 
         proc = ExogenousProcess(self.name,
                                 self.parameters,
@@ -958,8 +964,7 @@ class STRIPSOperator:
                                 condition_at_end=set(),
                                 add_effects=self.add_effects,
                                 delete_effects=self.delete_effects,
-                                delay_distribution=utils.CMPDelay(
-                                    *process_delay_params, rng=process_rng),
+                                delay_distribution=dist,
                                 strength=process_strength)
         return proc
 
