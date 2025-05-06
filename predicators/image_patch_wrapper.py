@@ -9,6 +9,7 @@ import torch as th
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PIL import Image
 from torchvision.transforms import ToPILImage  # type: ignore
+from torchvision import transforms  # type: ignore
 
 from predicators import utils
 from predicators.structs import Mask, Object
@@ -120,9 +121,9 @@ class ImagePatch:
 
         image_tensor: th.Tensor
 
-        # if isinstance(img, Image.Image):
-        #     image_tensor = transforms.ToTensor()(img)
-        if isinstance(img, np.ndarray):
+        if isinstance(img, Image.Image):
+            image_tensor = transforms.ToTensor()(img)
+        elif isinstance(img, np.ndarray):
             # If img is shape (H, W, C) or (C, H, W), adjust as needed
             if img.ndim == 3 and img.shape[-1] in (1, 3, 4):
                 # (H, W, C)
