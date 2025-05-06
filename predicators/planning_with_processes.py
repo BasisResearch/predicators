@@ -302,7 +302,11 @@ def _skeleton_generator_with_processes(
                     continue
                 visited_skeletons.add(child_skeleton_tup)
                 # Action costs are unitary.
-                child_cost = node.cumulative_cost + 1.0
+                if action_process.option.name == 'NoOp':
+                    action_cost = 0.5
+                else:
+                    action_cost = 1.0
+                child_cost = node.cumulative_cost + action_cost
                 child_node = _ProcessPlanningNode(
                     atoms=child_atoms,
                     skeleton=child_skeleton.copy(),
@@ -495,7 +499,6 @@ if __name__ == "__main__":
                                               allow_noops=True,
                                               compute_reachable_atoms=False)
 
-    breakpoint()
     world_model = ProcessWorldModel(ground_processes=ground_processes,
                                     state=utils.abstract(
                                         task.init, env.predicates),
