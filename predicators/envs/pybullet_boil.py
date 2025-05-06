@@ -473,7 +473,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         """Execute a low-level action (robot controls), then handle water
         filling/spillage and heating."""
         # First let the base environment perform the usual PyBullet step
-        next_state = super().step(action, render_obs=render_obs)
+        next_state = super().step(action, render_obs=False)
 
         # 1) Handle faucet filling/spillage
         self._handle_faucet_logic(next_state)
@@ -488,7 +488,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         self._update_human_happiness(next_state)
 
         # Re-read final state
-        final_state = self._get_state()
+        final_state = self.get_observation(render=render_obs)
         self._current_observation = final_state
         return final_state
 
@@ -814,6 +814,8 @@ class PyBulletBoilEnv(PyBulletEnv):
             self._WaterBoiled_holds(state, [jug]) for jug in self._jugs)
         burner_off = all(not self._BurnerOn_holds(state, [burner])
                          for burner in self._burners)
+        # logging.debug(f"all_filled: {all_filled}, no_spill: {no_spill}, "
+        #               f"all_boiled: {all_boiled}, burner_off: {burner_off}")
         return all([all_filled, no_spill, all_boiled, burner_off])
 
     def _robot_at_init_pose(self, state: State) -> bool:
