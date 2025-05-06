@@ -212,8 +212,9 @@ def run_episode_and_get_observations(
         env.reset(train_or_test, task_idx)
         if monitor is not None:
             monitor.reset(train_or_test, task_idx)
-    render_obs = cogman.get_approach_name == "oracle" and\
-                 CFG.offline_data_method == "geo_and_demo_with_vlm_imgs"
+    render_obs = (cogman.get_approach_name == "oracle" and\
+                 CFG.offline_data_method == "geo_and_demo_with_vlm_imgs") or\
+                 CFG.rgb_observation
     if isinstance(env, PyBulletEnv):
         obs = env.get_observation(render=render_obs)
     else:
@@ -226,7 +227,8 @@ def run_episode_and_get_observations(
     metrics["num_options_executed"] = 0.0
     exception_raised_in_step = False
     if not (terminate_on_goal_reached and env.goal_reached()):
-        for _ in range(max_num_steps):
+        for step_i in range(max_num_steps):
+            # logging.debug(f"[CogMan] Step {step_i}/{max_num_steps} of episode.")
             monitor_observed = False
             exception_raised_in_step = False
             try:
