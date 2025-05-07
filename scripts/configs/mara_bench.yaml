@@ -273,6 +273,7 @@ FLAGS:
   # exhausted error from the option_policy. 
   # When do we need this to be False? Was it in cases when we wanted to generate
   # a more complete video?
+  pretrained_model_service_provider: "openai" # "openrouter" or "openai"
   llm_model_name: "gpt-4o"
   llm_openai_max_response_tokens: 2000
   terminate_on_goal_reached: False

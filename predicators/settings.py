@@ -476,6 +476,8 @@ class GlobalSettings:
     llm_model_name = "text-curie-001"  # "text-davinci-002"
     llm_temperature = 0.5
     llm_num_completions = 1
+    # supported provider: "google", "openai", or "openrouter"
+    pretrained_model_service_provider = "openai"  
 
     # parameters for vision language models
     # gemini-1.5-pro-latest, gpt-4-turbo, gpt-4o
