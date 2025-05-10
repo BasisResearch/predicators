@@ -38,8 +38,10 @@ def _create_grammar(dataset: Dataset,
                     given_predicates: Set[Predicate]) -> _PredicateGrammar:
     # We start with considering various ways to split either single or
     # two feature values across our dataset.
-    grammar: _PredicateGrammar = _SingleFeatureInequalitiesPredicateGrammar(
-        dataset)
+    grammar = None
+    if CFG.grammar_search_grammar_use_single_feature:
+        grammar: _PredicateGrammar = _SingleFeatureInequalitiesPredicateGrammar(
+            dataset)
     if CFG.grammar_search_grammar_use_diff_features:
         diff_grammar = _FeatureDiffInequalitiesPredicateGrammar(dataset)
         grammar = _ChainPredicateGrammar([grammar, diff_grammar],
@@ -58,11 +60,15 @@ def _create_grammar(dataset: Dataset,
     # given predicates, then the single feature inequality ones.
     if CFG.grammar_search_grammar_includes_givens:
         given_grammar = _GivenPredicateGrammar(given_predicates)
-        grammar = _ChainPredicateGrammar([given_grammar, grammar])
+        if grammar:
+            grammar = _ChainPredicateGrammar([given_grammar, grammar])
+        else:
+            grammar = given_grammar
     # Now, the grammar will undergo a series of transformations.
     # For each predicate enumerated by the grammar, we also
     # enumerate the negation of that predicate.
-    grammar = _NegationPredicateGrammarWrapper(grammar)
+    if CFG.grammar_search_grammar_includes_negation:
+        grammar = _NegationPredicateGrammarWrapper(grammar)
     # For each predicate enumerated, we also optionally enumerate foralls
     # for that predicate, along with appropriate negations.
     if CFG.grammar_search_grammar_includes_foralls:
@@ -83,7 +89,8 @@ def _create_grammar(dataset: Dataset,
     # so we just filter them out from actually being enumerated.
     # But remember that we do want to enumerate their negations
     # and foralls, which is why they're included originally.
-    grammar = _SkipGrammar(grammar, given_predicates)
+    if CFG.grammar_search_grammar_use_skip_grammar:
+        grammar = _SkipGrammar(grammar, given_predicates)
     # If we're using the DebugGrammar, filter out all other predicates.
     if CFG.grammar_search_use_handcoded_debug_grammar:
         grammar = _DebugGrammar(grammar)

@@ -727,10 +727,13 @@ class GlobalSettings:
     active_sampler_learning_init_cycles_to_pursue_goal = 1
 
     # grammar search invention parameters
+    grammar_search_grammar_use_single_feature = True
     grammar_search_grammar_includes_givens = True
+    grammar_search_grammar_includes_negation = True
     grammar_search_grammar_includes_foralls = True
     grammar_search_grammar_use_diff_features = False
     grammar_search_grammar_use_euclidean_dist = False
+    grammar_search_grammar_use_skip_grammar = True
     grammar_search_use_handcoded_debug_grammar = False
     grammar_search_forall_penalty = 1
     grammar_search_pred_selection_approach = "score_optimization"
@@ -794,6 +797,11 @@ class GlobalSettings:
     # dino similarity approach
     dino_model_name = "dinov2_vits14"
     distance_function = "dtw"
+
+    # vlm predicate invention parameters
+    vlm_predicator_oracle_base_predicates = False
+    vlm_predicator_oracle_learned_predicates = False
+    vlm_predicator_use_grammar = True
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:
