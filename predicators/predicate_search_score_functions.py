@@ -373,13 +373,14 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                     # This contribution to the expected number of nodes is for
                     # the event that the current skeleton is refinable, but no
                     # previous skeleton has been refinable.
-                    p = refinable_skeleton_not_found_prob * refinement_prob
-                    expected_planning_time += p * num_nodes
+                    terminate_prob = refinable_skeleton_not_found_prob *\
+                                        refinement_prob
+                    expected_planning_time += terminate_prob * num_nodes
                     # Apply a penalty to account for the time that we'd spend
                     # in backtracking if the last skeleton was not refinable.
                     if idx > 0:
                         w = CFG.grammar_search_expected_nodes_backtracking_cost
-                        expected_planning_time += p * w
+                        expected_planning_time += terminate_prob * w
                     # Update the probability that no skeleton yet is refinable.
                     refinable_skeleton_not_found_prob *= (1 - refinement_prob)
             except (PlanningTimeout, PlanningFailure):
