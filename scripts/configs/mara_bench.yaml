@@ -85,6 +85,15 @@ APPROACHES:
       num_online_learning_cycles: 1
       rgb_observation: True
       boil_use_constant_delay: True
+      # Testing predicate invention:
+      vlm_predicator_oracle_base_predicates: True
+      vlm_predicator_oracle_learned_predicates: False
+      vlm_predicator_use_grammar: False
+      grammar_search_grammar_use_single_feature: False
+      grammar_search_grammar_use_skip_grammar: False
+      grammar_search_grammar_includes_negation: True
+      grammar_search_grammar_includes_foralls: False
+      grammar_search_prune_redundant_preds: False
 
 ENVS:
   # cover:
