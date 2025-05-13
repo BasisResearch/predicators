@@ -29,7 +29,6 @@ class PredicateInventionProcessPlanningApproach(
                  max_skeletons_optimized: int = -1,
                  bilevel_plan_without_sim: Optional[bool] = None,
                  option_model: Optional[_OptionModelBase] = None):
-        self._offline_dataset = Dataset([])
         self._learned_predicates: Set[Predicate] = set()
         super().__init__(initial_predicates,
                          initial_options,

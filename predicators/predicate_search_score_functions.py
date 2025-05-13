@@ -351,6 +351,9 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
         for ll_traj, seg_traj in zip(low_level_trajs, segmented_trajs):
             if seen_demos >= CFG.grammar_search_max_demos:
                 break
+            # TODO: can just add here that we only look at successful trajs for
+            # computing the score; for now this is making a stronger assumption
+            # of demos
             if not ll_traj.is_demo:
                 continue
             demo_atoms_sequence = utils.segment_trajectory_to_atoms_sequence(

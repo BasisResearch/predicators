@@ -46,6 +46,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             processes = get_gt_processes(CFG.env, self._initial_predicates,
                                          self._initial_options)
         self._processes: List[CausalProcess] = sorted(processes)
+        self._offline_dataset = Dataset([])
 
     @classmethod
     def get_name(cls):

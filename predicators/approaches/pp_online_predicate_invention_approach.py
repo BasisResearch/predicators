@@ -63,134 +63,29 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
     def learn_from_interaction_results(self, 
                                 results: Sequence[InteractionResult]) -> None:
+        # --- Process the interaction results ---
         for result in results:
             traj = LowLevelTrajectory(result.states, result.actions)
             self._online_dataset.append(traj)
 
-        # Learn from the dataset
-        annotations = None
-        if self._online_dataset.has_annotations:
-            annotations = self._online_dataset.annotations  # pragma: no cover
-        
-        # --- Invent predicates based on the dataset
-
-        # Method 1: Find each state, if it satisfies the condition of an 
-        #   exogenous process, check later that its effect did take place, save
-        #   it if not.
-        #   Then for each exogenous process, compare the above negative state
-        #   with positive states where the effect took place (e.g. in the demo).
-        # Maybe this will mirror the planner.
-        # remember to reset at the end
-        initial_segmenter_method = CFG.segmenter
-        CFG.segmenter = "option_changes"
-        segmented_trajs = [
-            segment_trajectory(traj, self._get_current_predicates())
-            for traj in self._online_dataset.trajectories
-        ]
-        exogenous_processes = self._get_current_exogenous_processes()
-        
-        # Step 1: Find the negative examples
-        # map from ground_exogenous_process to a list of tuples of 
-        # init state, unrealized add/del effects.
-        # TODO: currently assume each exogenous_process only happen once
-        unexpected_process_dict: Dict[ExogenousProcess, 
-                List[Tuple[State, List[GroundAtom], List[GroundAtom]]]
-            ] = defaultdict(list)
-        for segmented_traj in segmented_trajs:
-            # Checking each segmented trajectory
-            objects = list(segmented_traj[0].trajectory.states[0])
-            ground_exogenous_processes, _ = task_plan_grounding(
-                    set(), objects, exogenous_processes, 
-                    allow_noops=True, compute_reachable_atoms=False)
-            for g_exo_process in ground_exogenous_processes:
-                g_exo_process_activate_state = []
-                g_exo_process_exp_add_effects = []
-                g_exo_process_exp_del_effects = []
-
-                for i, segment in enumerate(segmented_traj):
-                    satisfy_condition =\
-                        g_exo_process.condition_at_start.issubset(
-                            segment.init_atoms)
-                    first_state_or_prev_state_doesnt_satisfy = i == 0 or\
-                        not g_exo_process.condition_at_start.issubset(
-                            segmented_traj[i - 1].init_atoms)
-                    if satisfy_condition and \
-                        first_state_or_prev_state_doesnt_satisfy:
-                        g_exo_process_activate_state.append(
-                            segment.trajectory.states[0])
-                        g_exo_process_exp_add_effects.extend(
-                            g_exo_process.add_effects)
-                        g_exo_process_exp_del_effects.extend(
-                            g_exo_process.delete_effects)
-                    # Remove from the expected effects the ones that actually
-                    # took place
-                    for atom in segment.add_effects:
-                        if atom in g_exo_process_exp_add_effects:
-                            g_exo_process_exp_add_effects.remove(atom)
-                    for atom in segment.delete_effects:
-                        if atom in g_exo_process_exp_del_effects:
-                            g_exo_process_exp_del_effects.remove(atom)
-                if len(g_exo_process_exp_add_effects) > 0 or \
-                    len(g_exo_process_exp_del_effects) > 0:
-                    unexpected_process_dict[g_exo_process].append(
-                        (g_exo_process_activate_state,
-                            g_exo_process_exp_add_effects,
-                            g_exo_process_exp_del_effects))
-        
-        # Step 2: Find the positive examples
-        # For each expected effect that did not take place, find in the demo
-        #  the initial state where it did take place, and save it as a positive
-        #  example.
-        CFG.segmenter = "atom_changes"
-        segmented_trajs = [
-            segment_trajectory(traj, self._get_current_predicates())
-            for traj in self._offline_dataset.trajectories
-        ]
-        # Filter out segments explained by endogenous processes.
-        filtered_segmented_trajs = filter_explained_segment(segmented_trajs,
-                                    self._get_current_endogenous_processes(),
-                                    remove_options=True)
-        positive_examples: Dict[ExogenousProcess, 
-                                List[State]] = defaultdict(list)
-        for g_exo_process in unexpected_process_dict.keys():
-            for segmented_traj in filtered_segmented_trajs:
-                # Checking each segmented trajectory
-                for segment in segmented_traj:
-                    # Check if the segment is a positive example for any
-                    # exogenous process
-                    if g_exo_process.condition_at_start.issubset(
-                            segment.init_atoms) and \
-                        g_exo_process.add_effects.issubset(
-                            segment.add_effects) and \
-                        g_exo_process.delete_effects.issubset(
-                            segment.delete_effects):
-                        positive_examples[g_exo_process].append(
-                            segment.trajectory.states[0])
-        CFG.segmenter = initial_segmenter_method
-                        
-        # Step 3: Prompt VLM to invent predicates
-        # TODO: prepare the prompt
-        # TODO: implement the prompt and parse logic
         proposed_predicates = self._get_predicate_proposals()
         logging.info(f"Done: created {len(proposed_predicates)} predicates")
 
-        # Step 4: Select the predicates to keep
+        # --- Select the predicates to keep ---
         self._learned_predicates = self._select_proposed_predicates(
             ite=self._online_learning_cycle,
-            all_trajs=self._offline_dataset.trajectories,
+            all_trajs=self._online_dataset.trajectories + \
+                        self._offline_dataset.trajectories,
             proposed_predicates=proposed_predicates,
             train_tasks=self._train_tasks)
         logging.debug(f"Learned predicates: {self._get_current_predicates()}")
         breakpoint()
 
-        # Step 5: Learn processes & parameters
-        annotations = None
-        if self._online_dataset.has_annotations:
-            annotations = self._online_dataset.annotations  # pragma: no cover
+        # --- Learn processes & parameters ---
         self._learn_processes(
-            self._online_dataset.trajectories,
-            online_learning_cycle=self._online_learning_cycle,
-            annotations=annotations)
+            self._online_dataset.trajectories + \
+                self._offline_dataset.trajectories,
+            online_learning_cycle=self._online_learning_cycle)
 
         if CFG.learn_process_parameters:
             self._learn_process_parameters(self._online_dataset)
@@ -201,7 +96,105 @@ class OnlinePredicateInventionProcessPlanningApproach(
         if CFG.vlm_predicator_oracle_base_predicates:
             prim_predicates = self._oracle_predicates - self._initial_predicates
         else:
-            # TODO: remove env dependency
+            # --- Invent predicates based on the dataset
+
+            # Method 1: Find each state, if it satisfies the condition of an 
+            #   exogenous process, check later that its effect did take place, save
+            #   it if not.
+            #   Then for each exogenous process, compare the above negative state
+            #   with positive states where the effect took place (e.g. in the demo).
+            # Maybe this will mirror the planner.
+            # remember to reset at the end
+            initial_segmenter_method = CFG.segmenter
+            CFG.segmenter = "option_changes"
+            segmented_trajs = [
+                segment_trajectory(traj, self._get_current_predicates())
+                for traj in self._online_dataset.trajectories
+            ]
+            exogenous_processes = self._get_current_exogenous_processes()
+            
+            # Step 1: Find the negative examples
+            # map from ground_exogenous_process to a list of tuples of 
+            # init state, unrealized add/del effects.
+            # TODO: currently assume each exogenous_process only happen once
+            unexpected_process_dict: Dict[ExogenousProcess, 
+                    List[Tuple[State, List[GroundAtom], List[GroundAtom]]]
+                ] = defaultdict(list)
+            for segmented_traj in segmented_trajs:
+                # Checking each segmented trajectory
+                objects = list(segmented_traj[0].trajectory.states[0])
+                ground_exogenous_processes, _ = task_plan_grounding(
+                        set(), objects, exogenous_processes, 
+                        allow_noops=True, compute_reachable_atoms=False)
+                for g_exo_process in ground_exogenous_processes:
+                    g_exo_process_activate_state = []
+                    g_exo_process_exp_add_effects = []
+                    g_exo_process_exp_del_effects = []
+
+                    for i, segment in enumerate(segmented_traj):
+                        satisfy_condition =\
+                            g_exo_process.condition_at_start.issubset(
+                                segment.init_atoms)
+                        first_state_or_prev_state_doesnt_satisfy = i == 0 or\
+                            not g_exo_process.condition_at_start.issubset(
+                                segmented_traj[i - 1].init_atoms)
+                        if satisfy_condition and \
+                            first_state_or_prev_state_doesnt_satisfy:
+                            g_exo_process_activate_state.append(
+                                segment.trajectory.states[0])
+                            g_exo_process_exp_add_effects.extend(
+                                g_exo_process.add_effects)
+                            g_exo_process_exp_del_effects.extend(
+                                g_exo_process.delete_effects)
+                        # Remove from the expected effects the ones that actually
+                        # took place
+                        for atom in segment.add_effects:
+                            if atom in g_exo_process_exp_add_effects:
+                                g_exo_process_exp_add_effects.remove(atom)
+                        for atom in segment.delete_effects:
+                            if atom in g_exo_process_exp_del_effects:
+                                g_exo_process_exp_del_effects.remove(atom)
+                    if len(g_exo_process_exp_add_effects) > 0 or \
+                        len(g_exo_process_exp_del_effects) > 0:
+                        unexpected_process_dict[g_exo_process].append(
+                            (g_exo_process_activate_state,
+                                g_exo_process_exp_add_effects,
+                                g_exo_process_exp_del_effects))
+            
+            # Step 2: Find the positive examples
+            # For each expected effect that did not take place, find in the demo
+            #  the initial state where it did take place, and save it as a positive
+            #  example.
+            CFG.segmenter = "atom_changes"
+            segmented_trajs = [
+                segment_trajectory(traj, self._get_current_predicates())
+                for traj in self._offline_dataset.trajectories
+            ]
+            # Filter out segments explained by endogenous processes.
+            filtered_segmented_trajs = filter_explained_segment(segmented_trajs,
+                                        self._get_current_endogenous_processes(),
+                                        remove_options=True)
+            positive_examples: Dict[ExogenousProcess, 
+                                    List[State]] = defaultdict(list)
+            for g_exo_process in unexpected_process_dict.keys():
+                for segmented_traj in filtered_segmented_trajs:
+                    # Checking each segmented trajectory
+                    for segment in segmented_traj:
+                        # Check if the segment is a positive example for any
+                        # exogenous process
+                        if g_exo_process.condition_at_start.issubset(
+                                segment.init_atoms) and \
+                            g_exo_process.add_effects.issubset(
+                                segment.add_effects) and \
+                            g_exo_process.delete_effects.issubset(
+                                segment.delete_effects):
+                            positive_examples[g_exo_process].append(
+                                segment.trajectory.states[0])
+            CFG.segmenter = initial_segmenter_method
+                            
+            # Step 3: Prompt VLM to invent predicates
+            # TODO: prepare the prompt
+            # TODO: implement the prompt and parse logic
             prim_predicates = self._get_proposals_from_vlm(...)
         return prim_predicates
     
