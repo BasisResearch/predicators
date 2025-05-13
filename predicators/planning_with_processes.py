@@ -200,7 +200,8 @@ def _skeleton_generator_with_processes(
     max_skeletons_optimized: int,
     abstract_policy: Optional[AbstractPolicy] = None,
     sesame_max_policy_guided_rollout: int = 0,
-    use_visited_state_set: bool = False
+    use_visited_state_set: bool = False,
+    log_sucessful_small_steps: bool = False,
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]]]]:
 
     # Filter out all the action from processes
@@ -250,18 +251,20 @@ def _skeleton_generator_with_processes(
         if task.goal.issubset(node.atoms):
             # If this skeleton satisfies the goal, yield it.
             metrics["num_skeletons_optimized"] += 1
-            logging.debug(f"\nGot Plan:")
+            logging.debug(f"\n[Task Planner] Found Plan:")
             for process in node.skeleton:
                 logging.debug(process.name_and_objects_str())
             logging.debug("")
-            for i, (state, action) in enumerate(
-                    zip(node.state_history, node.action_history)):
-                logging.debug(f"State {i}: {state}")
-                logging.debug(
-                    f"Action {i}: {action.name_and_objects_str() if action is not None else None}"
-                )
-            logging.debug(
-                f"State {len(node.state_history)}: {node.state_history[-1]}")
+
+            if log_sucessful_small_steps:
+                for i, (state, action) in enumerate(
+                        zip(node.state_history, node.action_history)):
+                    logging.debug(f"State {i}: {state}")
+                    action_str = action.name_and_objects_str() \
+                                    if action is not None else None
+                    logging.debug(f"Action {i}: {action_str}")
+                logging.debug(f"State {len(node.state_history)}: "
+                              f"{node.state_history[-1]}")
             yield node.skeleton, node.atoms_sequence
         else:
             # Generate successors.
