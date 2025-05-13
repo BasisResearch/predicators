@@ -945,7 +945,7 @@ class STRIPSOperator:
     ) -> ExogenousProcess:
         """Make an ExogenousProcess out of this STRIPSOperator object."""
         if process_delay_params is None:
-            process_delay_params = [5, 1]
+            process_delay_params = [10, 1]
         if process_strength is None:
             process_strength = 1.0
         if process_rng is None:
@@ -2437,6 +2437,15 @@ class CausalProcess(abc.ABC):
     def __gt__(self, other: object) -> bool:
         assert isinstance(other, CausalProcess)
         return str(self) > str(other)
+
+    def get_complexity(self) -> float:
+        """Get the complexity of this operator.
+
+        We only care about the arity of the operator, since that is what
+        affects grounding. We'll use 2^arity as a measure of grounding
+        effort.
+        """
+        return float(2**len(self.parameters))
 
 
 @dataclass(frozen=False, repr=False, eq=False)
