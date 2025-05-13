@@ -4729,39 +4729,39 @@ def get_object_by_name(objects: Collection[Object],
 
 
 def configure_logging() -> None:
+    # Create a single formatter instance to be reused
+    colored_formatter = colorlog.ColoredFormatter(
+        '%(log_color)s%(levelname)s: %(message)s',
+        log_colors={
+            'DEBUG': 'cyan',
+            'INFO': 'green',
+            'WARNING': 'yellow',
+            'ERROR': 'red',
+            'CRITICAL': 'red,bg_white',
+        },
+        reset=True,
+        style='%')
     # Log to stderr.
     colorlog_handler = colorlog.StreamHandler()
-    colorlog_handler.setFormatter(
-        colorlog.ColoredFormatter('%(log_color)s%(levelname)s: %(message)s',
-                                  log_colors={
-                                      'DEBUG': 'cyan',
-                                      'INFO': 'green',
-                                      'WARNING': 'yellow',
-                                      'ERROR': 'red',
-                                      'CRITICAL': 'red,bg_white',
-                                  },
-                                  reset=True,
-                                  style='%'))
+    colorlog_handler.setFormatter(colored_formatter)
     handlers: List[logging.Handler] = [colorlog_handler]
     if CFG.log_file:
-        # CFG.log_file += f"{CFG.env}/seed{CFG.seed}/"
+        CFG.log_file += f"{CFG.approach}/{CFG.env}/seed{CFG.seed}/"
         os.makedirs(CFG.log_file, exist_ok=True)
 
         timestamp = datetime.datetime.now().strftime("%m%d%H%M%S")
-        # handlers.append(logging.FileHandler(CFG.log_file + timestamp,
-        #                                     mode='w'))
         # Handler for DEBUG level messages
-        debug_handler = logging.FileHandler(CFG.log_file + "r" + timestamp +
-                                            "_debug",
+        debug_handler = logging.FileHandler(f"{CFG.log_file}{timestamp}_debug",
                                             mode='w')
         debug_handler.setLevel(logging.DEBUG)
+        debug_handler.setFormatter(colored_formatter)  # Apply formatter
         handlers.append(debug_handler)
 
         # Handler for INFO level messages
-        info_handler = logging.FileHandler(CFG.log_file + "r" + timestamp +
-                                           "_info",
+        info_handler = logging.FileHandler(f"{CFG.log_file}{timestamp}_info",
                                            mode='w')
         info_handler.setLevel(logging.INFO)
+        info_handler.setFormatter(colored_formatter)  # Apply formatter
         handlers.append(info_handler)
 
     logging.basicConfig(level=CFG.loglevel,
