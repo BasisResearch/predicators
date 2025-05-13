@@ -38,7 +38,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         NoJugAtFaucet = predicates["NoJugAtFaucet"]
         JugNotAtBurnerOrFaucet = predicates["JugNotAtBurnerOrFaucet"]
         JugFilled = predicates["JugFilled"]
-        WaterSpilled = predicates["WaterSpilled"]
+        # WaterSpilled = predicates["WaterSpilled"]
         NoWaterSpilled = predicates["NoWaterSpilled"]
         FaucetOn = predicates["FaucetOn"]
         FaucetOff = predicates["FaucetOff"]
@@ -437,9 +437,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(FaucetOn, [faucet]),
             LiftedAtom(JugFilled, [jug]),
         }
-        add_effects = {
-            LiftedAtom(WaterSpilled, []),
-        }
+        # add_effects = {
+        #     LiftedAtom(WaterSpilled, []),
+        # }
+        add_effects = set()
         delete_effects = {
             LiftedAtom(NoWaterSpilled, []),
         }
@@ -463,9 +464,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(NoJugAtFaucet, [faucet]),
             LiftedAtom(FaucetOn, [faucet]),
         }
-        add_effects = {
-            LiftedAtom(WaterSpilled, []),
-        }
+        # add_effects = {
+        #     LiftedAtom(WaterSpilled, []),
+        # }
+        add_effects = set()
         delete_effects = {
             LiftedAtom(NoWaterSpilled, []),
         }
