@@ -19,15 +19,22 @@ from predicators.structs import PNAD, CausalProcess, DummyOption, \
 
 def learn_processes_from_data(
         trajectories: List[LowLevelTrajectory], train_tasks: List[Task],
-        predicates: Set[Predicate], known_options: Set[ParameterizedOption],
-        action_space: Box,
-        ground_atom_dataset: Optional[List[GroundAtomTrajectory]],
-        sampler_learner: str, annotations: Optional[List[Any]],
-        current_processes: Set[CausalProcess]) -> Set[CausalProcess]:
+        predicates: Set[Predicate], 
+        known_options: Optional[Set[ParameterizedOption]] = None,
+        action_space: Optional[Box] = None,
+        ground_atom_dataset: Optional[List[GroundAtomTrajectory]] = None,
+        sampler_learner: Optional[str] = None, 
+        annotations: Optional[List[Any]] = None,
+        current_processes: Optional[Set[CausalProcess]] = None,
+        relearn_all_exogenous_processes: bool = False,
+        log_all_processes: bool = True,
+        ) -> Set[CausalProcess]:
     """Learn CausalProcesses from the given dataset of low-level transitions,
     using the given set of predicates."""
     logging.info(f"\nLearning CausalProcesses on {len(trajectories)} "
                  "trajectories...")
+    # remember to reset at the end
+    initial_segmentation_method = CFG.segmenter
 
     # We will probably learn endogenous and exogenous processes separately.
     if CFG.only_learn_exogenous_processes:
@@ -35,6 +42,8 @@ def learn_processes_from_data(
             p for p in current_processes if isinstance(p, EndogenousProcess)
         ]
     else:
+        assert sampler_learner is not None, \
+            "Sampler learner must be specified for action model learning."
         # -- Learn the endogenous processes ---
         CFG.segmenter = "option_changes"
         # STEP 1: Segment the trajectory by options. (don't currently consider
@@ -71,6 +80,8 @@ def learn_processes_from_data(
         # STEP 3: Learn options and update PNADs
         if CFG.strips_learner != "oracle" or CFG.sampler_learner != "oracle" or \
         CFG.option_learner != "no_learning":
+            assert action_space is not None, \
+                "Action space must be provided for option learning."
             # Updates the endo_papads in-place.
             _learn_pnad_options(pnads, known_options, action_space)
 
@@ -100,25 +111,23 @@ def learn_processes_from_data(
                                                         endogenous_processes,
                                                         remove_options=True)
 
-    # [optional] Filter out segments explained by exogenous processes. The other
-    # option is to relearn from all the data.
-    existing_exogenous_processes = [
-        p for p in current_processes if isinstance(p, ExogenousProcess)
-    ]
-    filtered_segmented_trajs = filter_explained_segment(
-        filtered_segmented_trajs,
-        existing_exogenous_processes,
-        remove_options=True)
+    existing_exogenous_processes: List[ExogenousProcess] = []
+    if not relearn_all_exogenous_processes:
+        # [optional] Filter out segments explained by existing exogenous
+        #   processes. 
+        # And learn exogenous processes from the remaining segments.
+        # The other option is to relearn exogenous ps. from all the data.
+        # The second option should be used when there are new predicates.
+        existing_exogenous_processes = [p for p in current_processes if 
+                                        isinstance(p, ExogenousProcess)]
+        filtered_segmented_trajs = filter_explained_segment(
+            filtered_segmented_trajs,
+            existing_exogenous_processes,
+            remove_options=True)
 
     # STEP 2: Learn the exogenous processes based on unexplained processes.
     #         This is different from STRIPS/endogenous processes, where these
     #         don't have options and samplers.
-    # Let's start with just the STRIPS learner for now.
-    # exogenous_processes = learn_exogenous_processes()
-
-    # TODO: remove any atoms with robot in them? Because in most cases the
-    #       robot's state shouldn't matter (there are certainly cases where it,
-    #       e.g., a sensor is activated if it detects the agent is here?).
     num_unexplaned_segments = sum(
         len(sugments) for sugments in filtered_segmented_trajs)
     if num_unexplaned_segments == 0:
@@ -143,11 +152,13 @@ def learn_processes_from_data(
     if CFG.pause_after_process_learning_for_inspection:
         input("Press Enter to continue...")  # pause for user inspection
 
-    # STEP 6: Make, log, and return the endogenous and exogenous processes.
+    # STEP 3: Make, log, and return the endogenous and exogenous processes.
     processes = endogenous_processes + new_exogenous_processes + \
         existing_exogenous_processes
-    logging.info(f"\nLearned CausalProcesses:\n{pformat(processes)}")
+    if log_all_processes:
+        logging.info(f"\nLearned CausalProcesses:\n{pformat(processes)}")
 
+    CFG.segmenter = initial_segmentation_method
     return set(processes)
 
 
