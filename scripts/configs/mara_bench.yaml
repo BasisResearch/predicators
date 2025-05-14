@@ -70,7 +70,7 @@ APPROACHES:
       demonstrator: "oracle_process_planning"
       explorer: "exploit_planning"
       online_nsrt_learning_requests_per_cycle: 1  # just 1 for now
-      max_num_steps_interaction_request: 50 # 300 should be enough
+      max_num_steps_interaction_request: 300 # 300 should be enough
       # This following is needed to generate a successful demo trajectory, or 
       # else the demo collection will fail with an option plan exhausted error.
       strips_learner: "llm"

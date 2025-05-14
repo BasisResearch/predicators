@@ -26,7 +26,7 @@ def learn_processes_from_data(
         sampler_learner: Optional[str] = None, 
         annotations: Optional[List[Any]] = None,
         current_processes: Optional[Set[CausalProcess]] = None,
-        relearn_all_exogenous_processes: bool = False,
+        relearn_all_exogenous_processes: bool = True,
         log_all_processes: bool = True,
         ) -> Set[CausalProcess]:
     """Learn CausalProcesses from the given dataset of low-level transitions,
