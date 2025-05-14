@@ -39,6 +39,7 @@ def _segment_with_atom_changes(
         ll_traj: LowLevelTrajectory, predicates: Set[Predicate],
         atom_seq: List[Set[GroundAtom]]) -> List[Segment]:
     """Segment a trajectory whenever the abstract state changes."""
+    logging.debug("Segmenting by atom changes.")
 
     def _switch_fn(t: int) -> bool:
         return atom_seq[t] != atom_seq[t + 1]
@@ -98,6 +99,7 @@ def _segment_with_option_changes(
         ll_traj: LowLevelTrajectory, predicates: Set[Predicate],
         atom_seq: Optional[List[Set[GroundAtom]]]) -> List[Segment]:
     """Segment a trajectory whenever the (assumed known) option changes."""
+    logging.debug("Segmenting by option changes.")
 
     def _switch_fn(t: int) -> bool:
         # Segment by checking whether the option changes on the next step.
