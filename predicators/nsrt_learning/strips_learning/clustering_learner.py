@@ -40,7 +40,9 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                     preconds2 = frozenset() # no preconditions
                 else:
                     preconds1 = frozenset(segment.init_atoms)
-                    preconds2 = frozenset(pnad.datastore[0][0].init_atoms)
+                    obj_to_var = {v: k for k, v in pnad.datastore[0][1].items()}
+                    preconds2 = frozenset({atom.lift(obj_to_var) for atom in 
+                                           pnad.datastore[0][0].init_atoms})
                 suc, ent_to_ent_sub = utils.unify_preconds_effects_options(
                     preconds1,
                     preconds2,
@@ -65,6 +67,13 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 objects = {o for atom in segment.add_effects |
                            segment.delete_effects for o in atom.objects} | \
                           set(segment_option_objs)
+
+                if self.get_name() == "cluster_and_llm_select":
+                    # With cluster_and_llm_select, the param may include
+                    # anything in the init atoms of the segment.
+                    objects |= {o for atom in segment.init_atoms for o in 
+                                atom.objects}
+
                 objects_lst = sorted(objects)
                 params = utils.create_new_variables(
                     [o.type for o in objects_lst])
@@ -171,7 +180,7 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
     Note: The current prompt are tailored for exogenous processes.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._llm = utils.create_llm_by_name(CFG.llm_model_name)
         prompt_file = utils.get_path_to_predicators_root() + \
@@ -192,7 +201,9 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
         # Add var_to_obj for objects in the init state of the segment
         new_pnads = []
         for pnad in pnads:
-            assert len(pnad.datastore) == 1
+            # Removing this assumption because we're now making sure that
+            # all the init_atoms in the PNAD are the same up to unification.
+            # assert len(pnad.datastore) == 1
             seg, var_to_obj = pnad.datastore[0]
             existing_objs = set(var_to_obj.values())
             # Get the init atoms of the segment
@@ -212,9 +223,14 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
                 PNAD(pnad.op, [(seg, var_to_obj)],
                      pnad.option_spec))  # dummy option
 
+        seperate_llm_query_per_pnad = True
         effect_and_conditions = ""
+        proposed_conditions: List[str] = []
         for i, pnad in enumerate(new_pnads):
-            effect_and_conditions += f"Process {i}:\n"
+            if seperate_llm_query_per_pnad:
+                effect_and_conditions += f"Process 0:\n"
+            else:
+                effect_and_conditions += f"Process {i}:\n"
             add_effects = pnad.op.add_effects
             delete_effects = pnad.op.delete_effects
             effect_and_conditions += "Add effects: ("
@@ -235,14 +251,25 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
                  for a in segment_init_atoms})
             effect_and_conditions += "Conditions to choose from:\n" +\
                 conditions_to_choose_from + "\n\n"
+            
+            if seperate_llm_query_per_pnad:
+                prompt = self.base_prompt.format(
+                    EFFECTS_AND_CONDITIONS=effect_and_conditions)
+                proposals = self._llm.sample_completions(prompt, None, 0.0,
+                                                        CFG.seed)[0]
+                pattern = r'```\n(.*?)\n```'
+                matches = re.findall(pattern, proposals, re.DOTALL)
+                proposed_conditions.append(matches[0])
+                effect_and_conditions = ""
 
-        prompt = self.base_prompt.format(
-            EFFECTS_AND_CONDITIONS=effect_and_conditions)
-        proposals = self._llm.sample_completions(prompt, None, 0.0,
-                                                 CFG.seed)[0]
-        pattern = r'```\n(.*?)\n```'
-        matches = re.findall(pattern, proposals, re.DOTALL)
-        proposed_conditions = matches[0].split("\n\n")
+        if not seperate_llm_query_per_pnad:
+            prompt = self.base_prompt.format(
+                EFFECTS_AND_CONDITIONS=effect_and_conditions)
+            proposals = self._llm.sample_completions(prompt, None, 0.0,
+                                                    CFG.seed)[0]
+            pattern = r'```\n(.*?)\n```'
+            matches = re.findall(pattern, proposals, re.DOTALL)
+            proposed_conditions = matches[0].split("\n\n")
 
         def atom_in_llm_selection(
                 atom: LiftedAtom,
@@ -258,7 +285,7 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
 
         # Assumes the same numberr of PNADs and response chunks
         assert len(new_pnads) == len(proposed_conditions)
-        final_pnads = []
+        final_pnads: List[PNAD] = []
         for proposed_condition, corresponding_pnad in zip(proposed_conditions,
                                                           new_pnads):
             # Get the effect atoms
