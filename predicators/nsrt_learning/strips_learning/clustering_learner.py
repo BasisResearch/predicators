@@ -189,7 +189,6 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
         do this if we want to learn a single condition. But we could
         also learn more than one.
         """
-        pred_name_to_pred = {p.name: p for p in self._predicates}
         # Add var_to_obj for objects in the init state of the segment
         new_pnads = []
         for pnad in pnads:
@@ -260,7 +259,8 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
         # Assumes the same numberr of PNADs and response chunks
         assert len(new_pnads) == len(proposed_conditions)
         final_pnads = []
-        for proposed_condition, pnad in zip(proposed_conditions, new_pnads):
+        for proposed_condition, corresponding_pnad in zip(proposed_conditions,
+                                                          new_pnads):
             # Get the effect atoms
             # Get the condition atoms
             lines = proposed_condition.split("\n")
@@ -268,8 +268,8 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
             delete_effects = self.parse_effects_or_conditions(lines[1])
             conditions = self.parse_effects_or_conditions(lines[2])
 
-            segment_init_atoms = pnad.datastore[0][0].init_atoms
-            segment_var_to_obj = pnad.datastore[0][1]
+            segment_init_atoms = corresponding_pnad.datastore[0][0].init_atoms
+            segment_var_to_obj = corresponding_pnad.datastore[0][1]
             obj_to_var = {v: k for k, v in segment_var_to_obj.items()}
             conditions_to_choose_from = {
                 a.lift(obj_to_var)
@@ -279,11 +279,30 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
                                  if atom_in_llm_selection(atom, conditions))
             new_parameters = set(var for atom in new_conditions
                                  for var in atom.variables)
-            final_pnads.append(
-                PNAD(
-                    pnad.op.copy_with(parameters=new_parameters,
-                                      preconditions=new_conditions),
-                    pnad.datastore, pnad.option_spec))
+            # Only append if it's unique
+            for final_pnad in final_pnads:
+                suc, _ = utils.unify_preconds_effects_options(
+                    frozenset(new_conditions),
+                    frozenset(final_pnad.op.preconditions),
+                    frozenset(corresponding_pnad.op.add_effects),
+                    frozenset(final_pnad.op.add_effects),
+                    frozenset(corresponding_pnad.op.delete_effects),
+                    frozenset(final_pnad.op.delete_effects),
+                    corresponding_pnad.option_spec[0],
+                    final_pnad.option_spec[0],
+                    tuple(corresponding_pnad.option_spec[1]),
+                    tuple(final_pnad.option_spec[1]),
+                )
+                if suc:
+                    break
+            else:
+                # Create a new PNAD with the new parameters and conditions
+                # and add it to the final list
+                final_pnads.append(
+                    PNAD(
+                        corresponding_pnad.op.copy_with(parameters=new_parameters,
+                                        preconditions=new_conditions),
+                        corresponding_pnad.datastore, corresponding_pnad.option_spec))
         return final_pnads
 
     def parse_effects_or_conditions(
