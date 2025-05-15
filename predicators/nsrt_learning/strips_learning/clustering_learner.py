@@ -35,9 +35,15 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 # Note that both add and delete effects must unify,
                 # and also the objects that are arguments to the options.
                 (pnad_param_option, pnad_option_vars) = pnad.option_spec
+                if self.get_name() != "cluster_and_llm_select":
+                    preconds1 = frozenset() # no preconditions
+                    preconds2 = frozenset() # no preconditions
+                else:
+                    preconds1 = frozenset(segment.init_atoms)
+                    preconds2 = frozenset(pnad.datastore[0][0].init_atoms)
                 suc, ent_to_ent_sub = utils.unify_preconds_effects_options(
-                    frozenset(),  # no preconditions
-                    frozenset(),  # no preconditions
+                    preconds1,
+                    preconds2,
                     frozenset(segment.add_effects),
                     frozenset(pnad.op.add_effects),
                     frozenset(segment.delete_effects),
