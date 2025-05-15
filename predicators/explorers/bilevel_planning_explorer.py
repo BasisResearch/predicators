@@ -1,15 +1,17 @@
 """An explorer that uses bilevel planning with NSRTs."""
 
-from typing import List, Set
+from typing import List, Set, Dict
+import logging
 
 from gym.spaces import Box
 
 from predicators import utils
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.option_model import _OptionModelBase
-from predicators.planning import sesame_plan
+from predicators.planning import sesame_plan, task_plan_grounding, \
+    PlanningFailure, _MaxSkeletonsFailure
 from predicators.planning_with_processes import \
-    run_task_plan_with_processes_once
+    run_task_plan_with_processes_once, task_plan as task_plan_with_processes
 from predicators.settings import CFG
 from predicators.structs import NSRT, CausalProcess, ExplorationStrategy, \
     ParameterizedOption, Predicate, Task, Type
@@ -33,6 +35,8 @@ class BilevelPlanningExplorer(BaseExplorer):
         self._nsrts = nsrts
         self._option_model = option_model
         self._num_calls = 0
+        # Add a dictionary to store process_plan iterators for each task
+        self._process_plan_iterators: Dict = {}
 
     def _solve(self, task: Task, timeout: int) -> ExplorationStrategy:
 
@@ -43,16 +47,51 @@ class BilevelPlanningExplorer(BaseExplorer):
         # PlanningTimeout and handling them accordingly.
         if CFG.bilevel_plan_without_sim:
             if isinstance(next(iter(self._nsrts)), CausalProcess):
-                process_plan, _, _ = run_task_plan_with_processes_once(
-                    task,
-                    self._nsrts,
-                    self._predicates,
-                    self._types,
-                    timeout,
-                    seed,
-                    CFG.sesame_task_planning_heuristic,
-                    max_horizon=CFG.horizon,
-                )
+                init_atoms = utils.abstract(task.init, self._predicates)
+                goal = task.goal
+                processes = self._nsrts
+                objects = set(task.init)
+                ground_processes, reachable_atoms = task_plan_grounding(
+                    init_atoms,
+                    objects,
+                    processes,
+                    allow_noops=True,
+                    compute_reachable_atoms=False)
+                heuristic = utils.create_task_planning_heuristic(
+                    CFG.sesame_task_planning_heuristic, init_atoms, 
+                    goal, ground_processes, self._predicates, objects)
+                plan_iterator = task_plan_with_processes(
+                                        init_atoms,
+                                        goal,
+                                        ground_processes,
+                                        reachable_atoms,
+                                        heuristic,
+                                        seed,
+                                        timeout,
+                                        max_skeletons_optimized=\
+                                            CFG.sesame_max_skeletons_optimized,
+                                        use_visited_state_set=True
+                                        )
+
+                if CFG.bilevel_planning_explorer_enumerate_plans:
+                    # Check if an iterator already exists for this task
+                    if task not in self._process_plan_iterators:
+                        # Create a new iterator for the task
+                        self._process_plan_iterators[task] = plan_iterator
+                    # Get the next process_plan from the iterator
+                    try:
+                        process_plan, _, _ = next(
+                            self._process_plan_iterators[task])
+                    except _MaxSkeletonsFailure:
+                        # If the iterator is exhausted, raise an error or handle
+                        # it
+                        logging.debug(f"No more process plans available for "
+                                       f"task")
+                        raise PlanningFailure("No more process plans "
+                                                "available for task")
+                else:
+                    process_plan = next(plan_iterator)
+
                 policy = utils.process_plan_to_greedy_policy(
                     process_plan,
                     task.goal,

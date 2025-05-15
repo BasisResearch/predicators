@@ -79,18 +79,21 @@ class OnlineProcessLearningAndPlanningApproach(
 
         # Create the interaction requests.
         requests = []
-        for _ in range(CFG.online_nsrt_learning_requests_per_cycle):
+        # Can also just use CFG.online_nsrt_learning_requests_per_cycle
+        for _ in range(CFG.online_nsrt_learning_number_of_tasks_to_try):
             # Select a random task (with replacement).
             task_idx = self._rng.choice(len(self._train_tasks))
-            # Set up the explorer policy and termination function.
-            policy, termination_function = explorer.get_exploration_strategy(
-                task_idx, CFG.timeout)
-            # Create the interaction request.
-            req = InteractionRequest(train_task_idx=task_idx,
+            for i in range(CFG.online_nsrt_learning_requests_per_task):
+                logging.info(f"Getting strategy {i} for task {task_idx}")
+                # Set up the explorer policy and termination function.
+                policy, termination_function = explorer.get_exploration_strategy(
+                    task_idx, CFG.timeout)
+                # Create the interaction request.
+                req = InteractionRequest(train_task_idx=task_idx,
                                      act_policy=policy,
                                      query_policy=lambda s: None,
                                      termination_function=termination_function)
-            requests.append(req)
+                requests.append(req)
         return requests
 
     def learn_from_interaction_results(

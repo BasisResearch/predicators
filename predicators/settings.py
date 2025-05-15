@@ -650,6 +650,8 @@ class GlobalSettings:
     # online NSRT learning parameters
     online_nsrt_learning_requests_per_cycle = 10
     online_learning_max_novelty_count = 0
+    online_nsrt_learning_number_of_tasks_to_try = 1
+    online_nsrt_learning_requests_per_task = 3
 
     # active sampler learning parameters
     active_sampler_learning_model = "myopic_classifier_mlp"
@@ -725,6 +727,8 @@ class GlobalSettings:
     active_sampler_explorer_planning_progress_max_replan_tasks = 5
     active_sampler_explorer_skip_perfect = True
     active_sampler_learning_init_cycles_to_pursue_goal = 1
+
+    bilevel_planning_explorer_enumerate_plans = False
 
     # grammar search invention parameters
     grammar_search_grammar_use_single_feature = True
