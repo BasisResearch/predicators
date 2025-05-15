@@ -49,7 +49,7 @@ class ProcessLearningAndPlanningApproach(
             self._processes: Set[CausalProcess] = set()
 
     @classmethod
-    def get_name(cls):
+    def get_name(cls) -> str:
         return "process_learning_and_planning"
 
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:

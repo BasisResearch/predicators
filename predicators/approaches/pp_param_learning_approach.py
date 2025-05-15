@@ -49,7 +49,7 @@ class ParamLearningBilevelProcessPlanningApproach(
         self._offline_dataset = Dataset([])
 
     @classmethod
-    def get_name(cls):
+    def get_name(cls) -> str:
         return "param_learning_process_planning"
 
     @property

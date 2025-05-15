@@ -41,7 +41,7 @@ class OnlineProcessLearningAndPlanningApproach(
         self._online_learning_cycle = 0
 
     @classmethod
-    def get_name(cls):
+    def get_name(cls) -> str:
         return "online_process_learning_and_planning"
 
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:

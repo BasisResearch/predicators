@@ -41,7 +41,7 @@ class PredicateInventionProcessPlanningApproach(
                          option_model=option_model)
 
     @classmethod
-    def get_name(cls):
+    def get_name(cls) -> str:
         return "predicate_invention_and_process_planning"
     
     def _get_current_predicates(self) -> Set[Predicate]:

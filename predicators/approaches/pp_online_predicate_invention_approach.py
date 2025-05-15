@@ -58,7 +58,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                          option_model=option_model)
 
     @classmethod
-    def get_name(cls):
+    def get_name(cls) -> str:
         return "online_predicate_invention_and_process_planning"
 
     def learn_from_interaction_results(self, 
