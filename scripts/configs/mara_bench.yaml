@@ -96,6 +96,7 @@ APPROACHES:
       grammar_search_prune_redundant_preds: False
       grammar_search_search_algorithm: "gbfs"
       learnable_delay_distribution: "constant" # "constant", "cmp", "normal"
+      bilevel_planning_explorer_enumerate_plans: True
 
 ENVS:
   # cover:
@@ -264,7 +265,7 @@ ENVS:
       pybullet_ik_validate: False
       max_num_steps_option_rollout: 50
       bilevel_plan_without_sim: True
-      horizon: 50 # 300 should be enough, 50 is good during dev
+      horizon: 300 # 300 should be enough, 50 is good during dev
 ARGS:
   - "debug"
   # - "use_gui"
@@ -285,7 +286,7 @@ FLAGS:
   # When do we need this to be False? Was it in cases when we wanted to generate
   # a more complete video?
   pretrained_model_service_provider: "openai" # "openrouter" or "openai"
-  llm_model_name: "gpt-4o"
+  llm_model_name: "gpt-4.1" # "gpt-4o"
   llm_openai_max_response_tokens: 2000
   terminate_on_goal_reached: False
   num_train_tasks: 1
