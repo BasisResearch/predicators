@@ -87,7 +87,7 @@ APPROACHES:
       boil_use_constant_delay: True
       # Testing predicate invention:
       vlm_predicator_oracle_base_predicates: True
-      vlm_predicator_oracle_learned_predicates: False
+      vlm_predicator_oracle_learned_predicates: True
       vlm_predicator_use_grammar: False
       grammar_search_grammar_use_single_feature: False
       grammar_search_grammar_use_skip_grammar: False
@@ -97,6 +97,7 @@ APPROACHES:
       grammar_search_search_algorithm: "gbfs"
       learnable_delay_distribution: "constant" # "constant", "cmp", "normal"
       bilevel_planning_explorer_enumerate_plans: True
+      online_nsrt_learning_requests_per_task: 2
 
 ENVS:
   # cover:
@@ -286,7 +287,7 @@ FLAGS:
   # When do we need this to be False? Was it in cases when we wanted to generate
   # a more complete video?
   pretrained_model_service_provider: "openai" # "openrouter" or "openai"
-  llm_model_name: "gpt-4.1" # "gpt-4o"
+  llm_model_name: "gpt-4.1" # "gpt-4.1", "gpt-4o"
   llm_openai_max_response_tokens: 2000
   terminate_on_goal_reached: False
   num_train_tasks: 1

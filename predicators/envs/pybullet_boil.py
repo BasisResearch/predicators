@@ -186,8 +186,8 @@ class PyBulletBoilEnv(PyBulletEnv):
                                         self._NoJugUnderFaucet_holds)
         self._HandEmpty = Predicate("HandEmpty", [self._robot_type],
                                     self._HandEmpty_holds)
-        # self._WaterSpilled = Predicate("WaterSpilled", [],
-        #                                self._WaterSpilled_holds)
+        self._WaterSpilled = Predicate("WaterSpilled", [],
+                                       self._WaterSpilled_holds)
         self._NoWaterSpilled = Predicate("NoWaterSpilled", [],
                                          self._NoWaterSpilled_holds)
         self._HumanHappy = Predicate("HumanHappy", [], self._HumanHappy_holds)
