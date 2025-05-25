@@ -14,7 +14,6 @@ from predicators.settings import CFG
 from predicators.structs import PNAD, Datastore, DummyOption, LiftedAtom, \
     ParameterizedOption, Predicate, STRIPSOperator, VarToObjSub
 
-
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
     """Base class for a clustering-based STRIPS learner."""
 
@@ -35,7 +34,8 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 # Note that both add and delete effects must unify,
                 # and also the objects that are arguments to the options.
                 (pnad_param_option, pnad_option_vars) = pnad.option_spec
-                if self.get_name() != "cluster_and_llm_select":
+                if self.get_name() not in ["cluster_and_llm_select",
+                                        "cluster_and_search_process_learner"]:
                     preconds1 = frozenset() # no preconditions
                     preconds2 = frozenset() # no preconditions
                 else:
@@ -188,6 +188,13 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
             "llm_op_learning_prompts/condition_selection.prompt"
         with open(prompt_file, "r") as f:
             self.base_prompt = f.read()
+        from predicators.approaches.pp_online_predicate_invention_approach import \
+                get_false_positive_process_states
+        self._get_false_positive_process_states = get_false_positive_process_states
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "cluster_and_llm_select"
 
     def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
         """Assume there is one segment per PNAD We can either do lifting first
@@ -283,7 +290,7 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
                     return True
             return False
 
-        # Assumes the same numberr of PNADs and response chunks
+        # Assumes the same number of PNADs and response chunks
         assert len(new_pnads) == len(proposed_conditions)
         final_pnads: List[PNAD] = []
         for proposed_condition, corresponding_pnad in zip(proposed_conditions,
@@ -323,13 +330,32 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
                 if suc:
                     break
             else:
+                # We have a new process!
                 # Create a new PNAD with the new parameters and conditions
                 # and add it to the final list
-                final_pnads.append(
-                    PNAD(
-                        corresponding_pnad.op.copy_with(parameters=new_parameters,
-                                        preconditions=new_conditions),
-                        corresponding_pnad.datastore, corresponding_pnad.option_spec))
+                pnad = PNAD(corresponding_pnad.op.copy_with(
+                            parameters=new_parameters,
+                            preconditions=new_conditions),
+                            corresponding_pnad.datastore,
+                            corresponding_pnad.option_spec)
+                final_pnads.append(pnad)
+                
+                if CFG.process_learner_check_false_positives:
+                    # Go through the trajectories and check if this process
+                    # leads to false positive effect predications.
+                    false_positive_process_state = \
+                        self._get_false_positive_process_states(
+                            self._trajectories,
+                            self._predicates,
+                            [pnad.make_exogenous_process()])
+                            
+                    for _, states in false_positive_process_state.items():
+                        if len(states) > 0:
+                            # initial_segmenter_method = CFG.segmenter
+                            # CFG.segmenter = "atom_changes"
+                            # segments = [segment_trajectory(traj, self._predicates) for traj in self._trajectories]
+                            # CFG.segmenter = initial_segmenter_method
+                            breakpoint()
         return final_pnads
 
     def parse_effects_or_conditions(
@@ -368,10 +394,88 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
 
         return parsed_atoms
 
+
+class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        from predicators.approaches.pp_online_predicate_invention_approach import \
+            get_false_positive_process_states
+        self._get_false_positive_process_states = get_false_positive_process_states 
+
     @classmethod
     def get_name(cls) -> str:
-        return "cluster_and_llm_select"
+        return "cluster_and_search_process_learner"
+    
+    def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
+        final_pnads: List[PNAD] = []
 
+        for pnad in pnads:
+            preconditions = self._run_search(pnad)
+
+            # Only append if it's unique
+            for final_pnad in final_pnads:
+                suc, _ = utils.unify_preconds_effects_options(
+                    frozenset(preconditions),
+                    frozenset(final_pnad.op.preconditions),
+                    frozenset(pnad.op.add_effects),
+                    frozenset(final_pnad.op.add_effects),
+                    frozenset(pnad.op.delete_effects),
+                    frozenset(final_pnad.op.delete_effects),
+                    pnad.option_spec[0],
+                    final_pnad.option_spec[0],
+                    tuple(pnad.option_spec[1]),
+                    tuple(final_pnad.option_spec[1]),
+                )
+                if suc:
+                    break
+            else:
+                # We have a new process!
+                # Create a new PNAD with the new parameters and conditions
+                pnad = PNAD(pnad.op.copy_with(preconditions=preconditions),
+                            pnad.datastore, pnad.option_spec)
+                final_pnads.append(pnad)
+    
+    def _run_search(self, pnad: PNAD) -> FrozenSet[LiftedAtom]:
+
+        init_ground_atoms = pnad.datastore[0][0].init_atoms
+        var_to_obj = pnad.datastore[0][1]
+        obj_to_var = {v: k for k, v in var_to_obj.items()}  
+        initial_state: FrozenSet[LiftedAtom] = frozenset(
+            atom.lift(obj_to_var) for atom in init_ground_atoms)
+        score_func = functools.partial(self._score_preconditions, pnad)
+
+        path, _ = utils.run_gbfs(initial_state, check_goal=lambda s: False,
+                                 self._get_preconditions_successors,
+                                 score_func)
+
+        return_precon = path[-1]
+        logging.debug(f"Search finished. Selected:")
+        score_func(return_precon)
+        return return_precon
+    
+    def _score_preconditions(self, pnad: PNAD,
+                             preconditions: FrozenSet[LiftedAtom]) -> float:
+        exogenous_process = pnad.op.copy_with(preconditions=preconditions
+                                              ).make_exogenous_process()
+        false_positive_process_state = self._get_false_positive_process_states(
+            self._trajectories, self._predicates, [exogenous_process])
+        num_false_positives = 0
+        for _, states in false_positive_process_state.items():
+            num_false_positives += len(states)
+        
+        complexity_penalty = CFG.grammar_search_pred_complexity_weight *\
+                                    len(preconditions)
+        cost = num_false_positives + complexity_penalty
+        return cost
+    
+    def _get_preconditions_successors(preconditions: FrozenSet[LiftedAtom]
+        ) -> Iterator[Tuple[int, FrozenSet[LiftedAtom], float]]:
+        """The successors remove each atom in the preconditions."""
+        preconditions_sorted = sorted(preconditions)
+        for i in range(len(preconditions_sorted)):
+            successor = preconditions_sorted[:i] + preconditions_sorted[i + 1:]
+            yield i, frozenset(successor), 1.0
 
 class ClusterAndSearchSTRIPSLearner(ClusteringSTRIPSLearner):
     """A clustering STRIPS learner that learns preconditions via search,

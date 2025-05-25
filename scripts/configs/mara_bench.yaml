@@ -76,6 +76,7 @@ APPROACHES:
       strips_learner: "llm"
       find_best_matching_pnad_skip_if_effect_not_subset: False
       exogenous_process_learner: "cluster_and_llm_select"
+      process_learner_check_false_positives: False
       # To have demos to stop when option terminates.
       terminate_on_goal_reached: False
       terminate_on_goal_reached_and_option_terminated: True
@@ -87,7 +88,7 @@ APPROACHES:
       boil_use_constant_delay: True
       # Testing predicate invention:
       vlm_predicator_oracle_base_predicates: True
-      vlm_predicator_oracle_learned_predicates: True
+      vlm_predicator_oracle_learned_predicates: False
       vlm_predicator_use_grammar: False
       grammar_search_grammar_use_single_feature: False
       grammar_search_grammar_use_skip_grammar: False
