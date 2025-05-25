@@ -68,10 +68,6 @@ from predicators.structs import NSRT, Action, Array, AtomOptionTrajectory, \
     _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity, ExogenousProcess
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
-from predicators.ground_truth_models import task_plan_grounding
-from predicators.nsrt_learning.segmentation import segment_trajectory
-from predicators.nsrt_learning.process_learning_main import \
-    filter_explained_segment
 
 if TYPE_CHECKING:
     from predicators.envs import BaseEnv
@@ -4843,90 +4839,3 @@ def load_all_images_from_dir(dir_path: str) -> List[PIL.Image.Image]:
         if file.endswith(('.png', '.jpg')):
             images.append(PIL.Image.open(os.path.join(dir_path, file)))
     return images
-
-def get_false_positive_states(trajectories: List[LowLevelTrajectory],
-                              predicates: Set[Predicate],
-                              exogenous_processes: List[ExogenousProcess],
-                              ) -> Dict[_GroundExogenousProcess, List[State]]:
-    """Get the false positive states for each exogenous process.
-    Return:
-        ground_exogenous_process -> 
-            Tuple[List[State], List[GroundAtom], List[GroundAtom]] per 
-            trajectory where List[State] is the list of states where the 
-            process is activated in the trajectory.
-    """
-    initial_segmenter_method = CFG.segmenter
-    CFG.segmenter = "atom_changes"
-    segmented_trajs = [
-        segment_trajectory(traj, predicates) for traj in trajectories
-    ]
-    CFG.segmenter = initial_segmenter_method
-
-    # Map from ground_exogenous_process to a list of init states where the 
-    # condition is satisfied.
-    false_positive_process_state: Dict[_GroundExogenousProcess, List[State]] = \
-        defaultdict(list)
-    for segmented_traj in segmented_trajs:
-        # Checking each segmented trajectory
-        objects = list(segmented_traj[0].trajectory.states[0])
-        ground_exogenous_processes, _ = task_plan_grounding(
-                set(), objects, exogenous_processes, 
-                allow_noops=True, compute_reachable_atoms=False)
-        for g_exo_process in ground_exogenous_processes:
-            for i, segment in enumerate(segmented_traj):
-                satisfy_condition = g_exo_process.condition_at_start.issubset(
-                        segment.init_atoms)
-                first_state_or_prev_state_doesnt_satisfy = i == 0 or\
-                    not g_exo_process.condition_at_start.issubset(
-                        segmented_traj[i - 1].init_atoms)
-                if satisfy_condition and \
-                    first_state_or_prev_state_doesnt_satisfy:
-                    false_positive_process_state[g_exo_process].append(
-                        segment.trajectory.states[0])
-
-                # Can remove if the expected effect is a subset of the 
-                # actual effect, b/c there might be multiple processes' effect
-                # take place at the same time.
-                if g_exo_process.add_effects.issubset(segment.add_effects) and\
-                g_exo_process.delete_effects.issubset(segment.delete_effects):
-                    if false_positive_process_state[g_exo_process]:
-                        # TODO: we don't really know which one to remove, pop
-                        # the first one is a bias.
-                        false_positive_process_state[g_exo_process].pop(0)
-    return false_positive_process_state
-
-def get_true_positive_states(predicates: Set[Predicate],
-                    exogenous_processes: List[ExogenousProcess],
-                    ground_exogenous_processes: List[_GroundExogenousProcess],
-                    trajectories: List[LowLevelTrajectory],
-                    ) -> Dict[_GroundExogenousProcess, List[State]]:
-    """Get the true positive states for each exogenous process."""
-    initial_segmenter_method = CFG.segmenter
-    CFG.segmenter = "atom_changes"
-    segmented_trajs = [
-        segment_trajectory(traj, predicates)
-        for traj in trajectories
-    ]
-    CFG.segmenter = initial_segmenter_method
-
-    # Filter out segments explained by endogenous processes.
-    filtered_segmented_trajs = filter_explained_segment(segmented_trajs,
-                            exogenous_processes,
-                            remove_options=True)
-    true_positive_process_state: Dict[_GroundExogenousProcess, 
-                            List[State]] = defaultdict(list)
-    for g_exo_process in ground_exogenous_processes:
-        for segmented_traj in filtered_segmented_trajs:
-            # Checking each segmented trajectory
-            for segment in segmented_traj:
-                # Check if the segment is a positive example for any
-                # exogenous process
-                if g_exo_process.condition_at_start.issubset(
-                        segment.init_atoms) and \
-                    g_exo_process.add_effects.issubset(
-                        segment.add_effects) and \
-                    g_exo_process.delete_effects.issubset(
-                        segment.delete_effects):
-                    true_positive_process_state[g_exo_process].append(
-                        segment.trajectory.states[0])
-    return true_positive_process_state
