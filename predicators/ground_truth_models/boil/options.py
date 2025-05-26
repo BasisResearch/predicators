@@ -503,8 +503,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             if len(objects) == 2:
                 robot, burner = objects
                 # Current
-                current_position = (state.get(robot,
-                                              "x"), state.get(robot, "y"),
+                current_position = (state.get(robot, "x"), 
+                                    state.get(robot, "y"),
                                     state.get(robot, "z"))
                 ee_orn = p.getQuaternionFromEuler(
                     [0, state.get(robot, "tilt"),
@@ -518,6 +518,14 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     target_y -= cls.env_cls.faucet_x_len
             else:
                 robot, = objects
+                # Current
+                current_position = (state.get(robot, "x"), 
+                                    state.get(robot, "y"),
+                                    state.get(robot, "z"))
+                ee_orn = p.getQuaternionFromEuler(
+                    [0, state.get(robot, "tilt"),
+                     state.get(robot, "wrist")])
+                current_pose = Pose(current_position, ee_orn)
                 target_x = cls.env_cls.x_mid
                 target_y = cls.env_cls.y_mid
 
