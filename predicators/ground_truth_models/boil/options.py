@@ -414,9 +414,30 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
 
             def _policy(state: State, memory: Dict, objects: Sequence[Object],
                         params: Array) -> Action:
-                del memory, objects, params
+                del memory, params
+                robot = objects[0]
                 nonlocal action_space
-                action = np.array(state.joint_positions, dtype=np.float32)
+                # check finger open or closed
+                finger = state.get(robot, "fingers")
+                mid_point = (pybullet_robot.open_fingers +
+                             pybullet_robot.closed_fingers) / 2
+                if finger > mid_point:
+                    # currently open
+                    finger_delta = cls._finger_action_nudge_magnitude
+                else:
+                    finger_delta = -cls._finger_action_nudge_magnitude
+
+                # nudge finger to the direction of the current state to counter
+                joint_positions = state.joint_positions.copy()
+                finger_position = joint_positions[
+                    pybullet_robot.left_finger_joint_idx]
+                # The finger action is an absolute joint position for the fingers.
+                f_action = finger_position + finger_delta
+                # Override the meaningless finger values in joint_action.
+                joint_positions[pybullet_robot.left_finger_joint_idx] = f_action
+                joint_positions[pybullet_robot.right_finger_joint_idx] = f_action
+                # slide
+                action = np.array(joint_positions, dtype=np.float32)
                 action = action.clip(action_space.low,
                                      action_space.high).astype(np.float32)
                 return Action(action)
