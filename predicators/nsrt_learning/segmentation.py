@@ -14,12 +14,14 @@ from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
 def segment_trajectory(
         ll_traj: LowLevelTrajectory,
         predicates: Set[Predicate],
-        atom_seq: Optional[List[Set[GroundAtom]]] = None) -> List[Segment]:
+        atom_seq: Optional[List[Set[GroundAtom]]] = None,
+        verbose: bool = False) -> List[Segment]:
     """Segment a ground atom trajectory."""
     # Start with the segmenters that don't need atom_seq. Still pass it in
     # because if it was provided, it can be used to avoid calling abstract.
     if CFG.segmenter == "option_changes":
-        return _segment_with_option_changes(ll_traj, predicates, atom_seq)
+        return _segment_with_option_changes(ll_traj, predicates, atom_seq,
+                                            verbose=verbose)
     if CFG.segmenter == "every_step":
         return _segment_with_switch_function(ll_traj, predicates, atom_seq,
                                              lambda _: True)
@@ -27,7 +29,8 @@ def segment_trajectory(
     if atom_seq is None:
         atom_seq = [utils.abstract(s, predicates) for s in ll_traj.states]
     if CFG.segmenter == "atom_changes":
-        return _segment_with_atom_changes(ll_traj, predicates, atom_seq)
+        return _segment_with_atom_changes(ll_traj, predicates, atom_seq,
+                                          verbose=verbose)
     if CFG.segmenter == "oracle":
         return _segment_with_oracle(ll_traj, predicates, atom_seq)
     if CFG.segmenter == "contacts":
@@ -37,15 +40,20 @@ def segment_trajectory(
 
 def _segment_with_atom_changes(
         ll_traj: LowLevelTrajectory, predicates: Set[Predicate],
-        atom_seq: List[Set[GroundAtom]]) -> List[Segment]:
+        atom_seq: List[Set[GroundAtom]],
+        count_last_unchanged_steps_as_segment: bool = True,
+        verbose: bool = False) -> List[Segment]:
     """Segment a trajectory whenever the abstract state changes."""
-    logging.debug("Segmenting by atom changes.")
+    if verbose:
+        logging.debug("Segmenting by atom changes.")
 
     def _switch_fn(t: int) -> bool:
-        return atom_seq[t] != atom_seq[t + 1]
+        return atom_seq[t] != atom_seq[t + 1] or (
+            count_last_unchanged_steps_as_segment and
+            t == len(ll_traj.actions) - 1)
 
     return _segment_with_switch_function(ll_traj, predicates, atom_seq,
-                                         _switch_fn)
+                                         _switch_fn, verbose=verbose)
 
 
 def _segment_with_contact_changes(
@@ -97,9 +105,11 @@ def _segment_with_contact_changes(
 
 def _segment_with_option_changes(
         ll_traj: LowLevelTrajectory, predicates: Set[Predicate],
-        atom_seq: Optional[List[Set[GroundAtom]]]) -> List[Segment]:
+        atom_seq: Optional[List[Set[GroundAtom]]],
+        verbose: bool = False) -> List[Segment]:
     """Segment a trajectory whenever the (assumed known) option changes."""
-    logging.debug("Segmenting by option changes.")
+    if verbose:
+        logging.debug("Segmenting by option changes.")
 
     def _switch_fn(t: int) -> bool:
         # Segment by checking whether the option changes on the next step.
@@ -123,7 +133,7 @@ def _segment_with_option_changes(
         return option_t is not ll_traj.actions[t + 1].get_option()
 
     return _segment_with_switch_function(ll_traj, predicates, atom_seq,
-                                         _switch_fn)
+                                         _switch_fn, verbose=verbose)
 
 
 def _segment_with_oracle(ll_traj: LowLevelTrajectory,
@@ -180,7 +190,8 @@ def _segment_with_oracle(ll_traj: LowLevelTrajectory,
 def _segment_with_switch_function(
         ll_traj: LowLevelTrajectory, predicates: Set[Predicate],
         atom_seq: Optional[List[Set[GroundAtom]]],
-        switch_fn: Callable[[int], bool]) -> List[Segment]:
+        switch_fn: Callable[[int], bool],
+        verbose: bool = False) -> List[Segment]:
     """Helper for other segmentation methods.
 
     The switch_fn takes in a timestep and returns True if the trajectory
@@ -200,9 +211,10 @@ def _segment_with_switch_function(
         current_segment_states.append(ll_traj.states[t])
         current_segment_actions.append(ll_traj.actions[t])
         if switch_fn(t):
-            logging.debug(
+            if verbose:
+                logging.debug(
                 f"Segmenting at {t}, executing {ll_traj.actions[t].get_option().name}"
-            )
+                )
             # Include the final state as the end of this segment.
             current_segment_states.append(ll_traj.states[t + 1])
             current_segment_traj = LowLevelTrajectory(current_segment_states,
@@ -220,7 +232,8 @@ def _segment_with_switch_function(
                     st, predicates) - current_segment_final_atoms
                 add_atoms = current_segment_final_atoms - utils.abstract(
                     st, predicates)
-                logging.debug(
+                if verbose:
+                    logging.debug(
                     f"State change: add {add_atoms}, delete {delete_atoms}")
 
                 segment = Segment(current_segment_traj,
