@@ -587,6 +587,8 @@ class GlobalSettings:
     pause_after_process_learning_for_inspection = False
     learnable_delay_distribution = "cmp" # "constant", "cmp", "normal"
     process_learner_check_false_positives = False
+    cluster_and_search_process_learner_use_parallel = False
+    cluster_search_max_workers = -1
 
     # torch GPU usage setting
     use_torch_gpu = False
