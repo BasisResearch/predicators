@@ -14,7 +14,7 @@ from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import Dataset, ParameterizedOption, Predicate, \
     Task, Type, InteractionResult, LowLevelTrajectory, ExogenousProcess, \
-    State, GroundAtom, GroundAtomTrajectory, _GroundExogenousProcess
+    State, GroundAtom, GroundAtomTrajectory, _GroundExogenousProcess, Segment
 from predicators.nsrt_learning.process_learning_main import \
     filter_explained_segment
 from predicators.planning import task_plan_grounding
@@ -78,13 +78,13 @@ class OnlinePredicateInventionProcessPlanningApproach(
             train_tasks=self._train_tasks)
         logging.debug(f"Learned predicates: "
                       f"{self._learned_predicates-self._initial_predicates}")
-        breakpoint()
 
         # --- Learn processes & parameters ---
         self._learn_processes(
             self._online_dataset.trajectories + \
                 self._offline_dataset.trajectories,
             online_learning_cycle=self._online_learning_cycle)
+        # breakpoint()
 
         if CFG.learn_process_parameters:
             self._learn_process_parameters(self._online_dataset)
@@ -283,6 +283,57 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
         return set(kept_predicates)
 
+def get_false_positive_process_states_from_segmented_trajs(
+            segmented_trajs: List[List[Segment]],
+            exogenous_processes: List[ExogenousProcess],
+        ) -> Dict[_GroundExogenousProcess, List[State]]:
+
+    # Map from ground_exogenous_process to a list of init states where the 
+    # condition is satisfied.
+    false_positive_process_state: Dict[_GroundExogenousProcess, List[State]] = \
+        defaultdict(list)
+
+    # Cache for ground_exogenous_processes to avoid recomputation
+    objects_to_ground_processes = {}
+
+    for segmented_traj in segmented_trajs:
+        # Checking each segmented trajectory
+        objects = frozenset(segmented_traj[0].trajectory.states[0])
+        # Only recompute if objects are different
+        if objects not in objects_to_ground_processes:
+            ground_exogenous_processes, _ = task_plan_grounding(
+                    set(), objects, exogenous_processes, 
+                    allow_noops=True, compute_reachable_atoms=False)
+            objects_to_ground_processes[objects] = ground_exogenous_processes
+        else:
+            ground_exogenous_processes = objects_to_ground_processes[objects]
+
+        # Pre-compute segment init_atoms for efficiency
+        segment_init_atoms = [segment.init_atoms for segment in segmented_traj]
+        
+        for g_exo_process in ground_exogenous_processes:
+            condition = g_exo_process.condition_at_start  # Cache reference
+            add_effects = g_exo_process.add_effects
+            delete_effects = g_exo_process.delete_effects
+            
+            for i, segment in enumerate(segmented_traj):
+                satisfy_condition = condition.issubset(segment_init_atoms[i])
+                first_state_or_prev_state_doesnt_satisfy = i == 0 or \
+                    not condition.issubset(segment_init_atoms[i - 1])
+                
+                if satisfy_condition and first_state_or_prev_state_doesnt_satisfy:
+                    false_positive_process_state[g_exo_process].append(
+                        segment.trajectory.states[0])
+
+                # Check for removal condition
+                if (add_effects.issubset(segment.add_effects) and 
+                    delete_effects.issubset(segment.delete_effects)):
+                    if false_positive_process_state[g_exo_process]:
+                        # TODO: we don't really know which one to remove, pop
+                        # the first one is a bias.
+                        false_positive_process_state[g_exo_process].pop(0)
+    return false_positive_process_state
+
 def get_false_positive_process_states(trajectories: List[LowLevelTrajectory],
                               predicates: Set[Predicate],
                               exogenous_processes: List[ExogenousProcess],
@@ -302,45 +353,15 @@ def get_false_positive_process_states(trajectories: List[LowLevelTrajectory],
     #
     # The fix for the atom_changes segmenter would be to create a segment in
     # the end if there is still sttes after the last atom change.
-    CFG.segmenter = "option_changes"
-    # CFG.segmenter = "atom_changes"
+    CFG.segmenter = "atom_changes"
     segmented_trajs = [
-        segment_trajectory(traj, predicates) for traj in trajectories
-    ]
+        segment_trajectory(traj, predicates, verbose=False) for traj in 
+        trajectories]
     CFG.segmenter = initial_segmenter_method
 
-    # Map from ground_exogenous_process to a list of init states where the 
-    # condition is satisfied.
-    false_positive_process_state: Dict[_GroundExogenousProcess, List[State]] = \
-        defaultdict(list)
-    for segmented_traj in segmented_trajs:
-        # Checking each segmented trajectory
-        objects = list(segmented_traj[0].trajectory.states[0])
-        ground_exogenous_processes, _ = task_plan_grounding(
-                set(), objects, exogenous_processes, 
-                allow_noops=True, compute_reachable_atoms=False)
-        for g_exo_process in ground_exogenous_processes:
-            for i, segment in enumerate(segmented_traj):
-                satisfy_condition = g_exo_process.condition_at_start.issubset(
-                        segment.init_atoms)
-                first_state_or_prev_state_doesnt_satisfy = i == 0 or\
-                    not g_exo_process.condition_at_start.issubset(
-                        segmented_traj[i - 1].init_atoms)
-                if satisfy_condition and \
-                    first_state_or_prev_state_doesnt_satisfy:
-                    false_positive_process_state[g_exo_process].append(
-                        segment.trajectory.states[0])
+    return get_false_positive_process_states_from_segmented_trajs(
+        segmented_trajs, exogenous_processes)
 
-                # Can remove if the expected effect is a subset of the 
-                # actual effect, b/c there might be multiple processes' effect
-                # take place at the same time.
-                if g_exo_process.add_effects.issubset(segment.add_effects) and\
-                g_exo_process.delete_effects.issubset(segment.delete_effects):
-                    if false_positive_process_state[g_exo_process]:
-                        # TODO: we don't really know which one to remove, pop
-                        # the first one is a bias.
-                        false_positive_process_state[g_exo_process].pop(0)
-    return false_positive_process_state
 
 def get_true_positive_process_states(predicates: Set[Predicate],
                     exogenous_processes: List[ExogenousProcess],
