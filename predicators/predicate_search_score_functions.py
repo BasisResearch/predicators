@@ -205,7 +205,8 @@ class _OperatorLearningBasedScoreFunction(_PredicateSearchScoreFunction):
         pred_penalty = self._get_predicate_penalty(candidate_predicates)
         op_penalty = self._get_operator_penalty(strips_ops)
         total_score = op_score + pred_penalty + op_penalty
-        logging.info(f"\tTotal score: {total_score}, model score: {op_score} "
+        logging.info(f"\tTotal score: {total_score:.3f}, "
+                     f"model score: {op_score:.3f} "
                 f"pred penalty: {pred_penalty}, model penalty: {op_penalty} "
                 f"computed in {time.perf_counter()-start_time:.3f} seconds")
         return total_score
