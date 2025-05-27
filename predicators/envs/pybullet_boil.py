@@ -158,6 +158,9 @@ class PyBulletBoilEnv(PyBulletEnv):
         # Optionally, define some relevant predicates
         self._JugFilled = Predicate("JugFilled", [self._jug_type],
                                     self._JugFilled_holds)
+        self._JugNotFilled = Predicate(
+            "JugNotFilled", [self._jug_type],
+            lambda s, o: not self._JugFilled_holds(s, o))
         self._WaterBoiled = Predicate("WaterBoiled", [self._jug_type],
                                       self._WaterBoiled_holds)
         self._BurnerOn = Predicate("BurnerOn", [self._burner_type],
@@ -204,6 +207,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         planning."""
         predicates = {
             self._JugFilled,
+            self._JugNotFilled,
             self._WaterBoiled,
             self._BurnerOn,
             self._FaucetOn,
