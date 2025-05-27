@@ -104,7 +104,7 @@ def learn_processes_from_data(
     CFG.strips_learner = CFG.exogenous_process_learner
 
     segmented_trajs = [
-        segment_trajectory(traj, predicates, verbose=True) for traj in trajectories
+        segment_trajectory(traj, predicates, verbose=False) for traj in trajectories
     ]
     # Filter out segments explained by endogenous processes.
     filtered_segmented_trajs = filter_explained_segment(segmented_trajs,
@@ -179,8 +179,6 @@ def filter_explained_segment(
 ) -> List[List[Segment]]:
     """Filter out segments that are explained by the given PNADs."""
     num_segments = sum(len(traj) for traj in segmented_trajs)
-    logging.debug(f"\nNum of segments before filtering: {num_segments}, from "
-                  f"{len(segmented_trajs)} trajs.")
     if is_endogenous_process_list(processes):
         processes_type_str = "endogenous"
     elif is_exogenous_process_list(processes):
@@ -188,6 +186,9 @@ def filter_explained_segment(
     else:
         raise NotImplementedError("Currently don't support "
                                   "mixed process types.")
+    logging.debug(f"\nNum of segments before filtering the ones explained by "
+                  f"{processes_type_str} procs: {num_segments}, from "
+                  f"{len(segmented_trajs)} trajs.")
     filtered_trajs = []
     for traj in segmented_trajs:
         objects = set(traj[0].trajectory.states[0])
@@ -218,7 +219,9 @@ def filter_explained_segment(
                 filtered_segments.append(segment)
         filtered_trajs.append(filtered_segments)
 
-    logging.debug(f"Num of filtered segments: {len(filtered_trajs[0])}")
+    num_filtered_segments = sum(
+        len(traj) for traj in filtered_trajs)
+    logging.debug(f"Num of leftover segments: {num_filtered_segments}")
     for seg_traj in filtered_trajs:
         for i, seg in enumerate(seg_traj):
             logging.debug(f"Segment {i}: Add atoms: {seg.add_effects}; "
