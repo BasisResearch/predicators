@@ -323,7 +323,8 @@ def get_false_positive_process_states_from_segmented_trajs(
                 
                 if satisfy_condition and first_state_or_prev_state_doesnt_satisfy:
                     false_positive_process_state[g_exo_process].append(
-                        segment.trajectory.states[0])
+                        # segment.trajectory.states[0])
+                        segment.init_atoms)
 
                 # Check for removal condition
                 if (add_effects.issubset(segment.add_effects) and 
