@@ -38,6 +38,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         NoJugAtFaucet = predicates["NoJugAtFaucet"]
         JugNotAtBurnerOrFaucet = predicates["JugNotAtBurnerOrFaucet"]
         JugFilled = predicates["JugFilled"]
+        JugNotFilled = predicates["JugNotFilled"]
         # WaterSpilled = predicates["WaterSpilled"]
         NoWaterSpilled = predicates["NoWaterSpilled"]
         FaucetOn = predicates["FaucetOn"]
@@ -402,6 +403,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         condition_at_start = {
             LiftedAtom(JugAtFaucet, [jug, faucet]),
             LiftedAtom(FaucetOn, [faucet]),
+            LiftedAtom(JugNotFilled, [jug]),
         }
         condition_overall = {
             LiftedAtom(JugAtFaucet, [jug, faucet]),
@@ -409,6 +411,9 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         add_effects = {
             LiftedAtom(JugFilled, [jug]),
+        }
+        delete_effects = {
+            LiftedAtom(JugNotFilled, [jug]),
         }
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(3)
@@ -419,7 +424,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         fill_jug_process = ExogenousProcess("FillJug", parameters,
                                             condition_at_start,
                                             condition_overall, set(),
-                                            add_effects, {},
+                                            add_effects, delete_effects,
                                             delay_distribution, 1.0)
         processes.add(fill_jug_process)
 
