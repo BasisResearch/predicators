@@ -599,8 +599,8 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
                                  score_func)
 
         return_precon = path[-1]
-        logging.debug(f"Search finished. Selected:")
-        score_func(return_precon)
+        # logging.debug(f"Search finished. Selected:")
+        # score_func(return_precon)
         return return_precon
     
     def _score_preconditions(self, 
@@ -614,12 +614,12 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
         num_false_positives = 0
         for _, states in false_positive_process_state.items():
             num_false_positives += len(states)
-            logging.debug(states)
+            # logging.debug(states)
         
         complexity_penalty = CFG.grammar_search_pred_complexity_weight *\
                                     len(preconditions)
         cost = num_false_positives + complexity_penalty
-        logging.debug(f"Score for precon {set(preconditions)}: {cost:.4f}")
+        # logging.debug(f"Score for precon {set(preconditions)}: {cost:.4f}")
         return cost
     
     def _get_preconditions_successors(self, preconditions: FrozenSet[LiftedAtom]
