@@ -477,7 +477,7 @@ class GlobalSettings:
     llm_temperature = 0.5
     llm_num_completions = 1
     # supported provider: "google", "openai", or "openrouter"
-    pretrained_model_service_provider = "openai"  
+    pretrained_model_service_provider = "openai"
 
     # parameters for vision language models
     # gemini-1.5-pro-latest, gpt-4-turbo, gpt-4o
@@ -585,7 +585,7 @@ class GlobalSettings:
     only_learn_exogenous_processes = False
     learn_process_parameters = False
     pause_after_process_learning_for_inspection = False
-    learnable_delay_distribution = "cmp" # "constant", "cmp", "normal"
+    learnable_delay_distribution = "cmp"  # "constant", "cmp", "normal"
     process_learner_check_false_positives = False
     cluster_and_search_process_learner_use_parallel = False
     cluster_search_max_workers = -1

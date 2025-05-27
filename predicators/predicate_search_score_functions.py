@@ -7,34 +7,34 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Collection, Dict, FrozenSet, List, Sequence, \
-    Set, Tuple, Optional
+from typing import Callable, Collection, Dict, FrozenSet, List, Optional, \
+    Sequence, Set, Tuple
 
 import numpy as np
 
 from predicators import utils
+from predicators.nsrt_learning.process_learning_main import \
+    learn_processes_from_data
 from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.planning import PlanningFailure, PlanningTimeout, task_plan, \
     task_plan_grounding
+from predicators.planning_with_processes import \
+    task_plan as task_plan_with_processes
 from predicators.settings import CFG
-from predicators.structs import GroundAtom, GroundAtomTrajectory, \
-    LowLevelTrajectory, Object, OptionSpec, Predicate, Segment, \
-    STRIPSOperator, Task, _GroundSTRIPSOperator, CausalProcess
-from predicators.nsrt_learning.process_learning_main import \
-    learn_processes_from_data
-from predicators.planning_with_processes import task_plan as \
-    task_plan_with_processes
+from predicators.structs import CausalProcess, GroundAtom, \
+    GroundAtomTrajectory, LowLevelTrajectory, Object, OptionSpec, Predicate, \
+    Segment, STRIPSOperator, Task, _GroundSTRIPSOperator
 
 
 def create_score_function(
-        score_function_name: str, initial_predicates: Set[Predicate],
-        atom_dataset: List[GroundAtomTrajectory], candidates: Dict[Predicate,
-                                                                   float],
+        score_function_name: str,
+        initial_predicates: Set[Predicate],
+        atom_dataset: List[GroundAtomTrajectory],
+        candidates: Dict[Predicate, float],
         train_tasks: List[Task],
         current_processes: Optional[Set[CausalProcess]],
-        use_processes: bool = False
-        ) -> _PredicateSearchScoreFunction:
+        use_processes: bool = False) -> _PredicateSearchScoreFunction:
     """Public method for creating a score function object."""
     if score_function_name == "prediction_error":
         return _PredictionErrorScoreFunction(initial_predicates, atom_dataset,
@@ -96,11 +96,14 @@ def create_score_function(
         created_or_expanded = match.groups()[0]
         assert created_or_expanded in ("created", "expanded")
         metric_name = f"num_nodes_{created_or_expanded}"
-        return _ExpectedNodesScoreFunction(initial_predicates, atom_dataset,
-                                           candidates, train_tasks,
-                                           _current_processes=current_processes,
-                                           _use_processes=use_processes,
-                                           metric_name=metric_name)
+        return _ExpectedNodesScoreFunction(
+            initial_predicates,
+            atom_dataset,
+            candidates,
+            train_tasks,
+            _current_processes=current_processes,
+            _use_processes=use_processes,
+            metric_name=metric_name)
     raise NotImplementedError(
         f"Unknown score function: {score_function_name}.")
 
@@ -171,13 +174,13 @@ class _OperatorLearningBasedScoreFunction(_PredicateSearchScoreFunction):
                 )
             else:
                 pnads = learn_strips_operators(low_level_trajs,
-                                           self._train_tasks,
-                                           set(candidate_predicates
-                                               | self._initial_predicates),
-                                           segmented_trajs,
-                                           verify_harmlessness=False,
-                                           verbose=False,
-                                           annotations=None)
+                                               self._train_tasks,
+                                               set(candidate_predicates
+                                                   | self._initial_predicates),
+                                               segmented_trajs,
+                                               verify_harmlessness=False,
+                                               verbose=False,
+                                               annotations=None)
         except TimeoutError:
             logging.info(
                 "Warning: Operator Learning timed out! Skipping evaluation.")
@@ -186,29 +189,30 @@ class _OperatorLearningBasedScoreFunction(_PredicateSearchScoreFunction):
         if self._use_processes:
             op_score = self.evaluate_with_operators(candidate_predicates,
                                                     low_level_trajs,
-                                                    segmented_trajs,
-                                                    processes, [])
+                                                    segmented_trajs, processes,
+                                                    [])
             strips_ops = processes
         else:
             logging.debug(
                 f"Learned {len(pnads)} operators for this predicate set.")
             for pnad in pnads:
                 logging.debug(
-                f"Operator {pnad.op.name} has {len(pnad.datastore)} datapoints."
+                    f"Operator {pnad.op.name} has {len(pnad.datastore)} datapoints."
                 )
             strips_ops = [pnad.op for pnad in pnads]
             option_specs = [pnad.option_spec for pnad in pnads]
             op_score = self.evaluate_with_operators(candidate_predicates,
                                                     low_level_trajs,
-                                                    segmented_trajs, strips_ops,
-                                                    option_specs)
+                                                    segmented_trajs,
+                                                    strips_ops, option_specs)
         pred_penalty = self._get_predicate_penalty(candidate_predicates)
         op_penalty = self._get_operator_penalty(strips_ops)
         total_score = op_score + pred_penalty + op_penalty
-        logging.info(f"\tTotal score: {total_score:.3f}, "
-                     f"model score: {op_score:.3f} "
-                f"pred penalty: {pred_penalty}, model penalty: {op_penalty} "
-                f"computed in {time.perf_counter()-start_time:.3f} seconds")
+        logging.info(
+            f"\tTotal score: {total_score:.3f}, "
+            f"model score: {op_score:.3f} "
+            f"pred penalty: {pred_penalty}, model penalty: {op_penalty} "
+            f"computed in {time.perf_counter()-start_time:.3f} seconds")
         return total_score
 
     def evaluate_with_operators(self,
@@ -337,7 +341,8 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
     difference gets larger.
     """
 
-    metric_name: str = field(kw_only=True) # num_nodes_created or num_nodes_expanded
+    metric_name: str = field(
+        kw_only=True)  # num_nodes_created or num_nodes_expanded
 
     def evaluate_with_operators(self,
                                 candidate_predicates: FrozenSet[Predicate],
@@ -366,14 +371,17 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
             objects = set(ll_traj.states[0])
             if self._use_processes:
                 ground_processes, reachable_atoms = task_plan_grounding(
-                    init_atoms, objects, strips_ops, allow_noops=True,
+                    init_atoms,
+                    objects,
+                    strips_ops,
+                    allow_noops=True,
                     compute_reachable_atoms=False)
                 heuristics = utils.create_task_planning_heuristic(
                     CFG.sesame_task_planning_heuristic, init_atoms, goal,
-                    ground_processes, 
-                    candidate_predicates | self._initial_predicates,
-                    objects)
-                generator = task_plan_with_processes(init_atoms,
+                    ground_processes,
+                    candidate_predicates | self._initial_predicates, objects)
+                generator = task_plan_with_processes(
+                    init_atoms,
                     goal,
                     ground_processes,
                     reachable_atoms,
@@ -381,7 +389,7 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                     CFG.seed,
                     CFG.grammar_search_task_planning_timeout,
                     max_skeletons_optimized=CFG.sesame_max_skeletons_optimized,
-                    use_visited_state_set=True) 
+                    use_visited_state_set=True)
             else:
                 dummy_nsrts = utils.ops_and_specs_to_dummy_nsrts(
                     strips_ops, option_specs)
@@ -392,17 +400,17 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                     allow_noops=CFG.grammar_search_expected_nodes_allow_noops)
                 heuristic = utils.create_task_planning_heuristic(
                     CFG.sesame_task_planning_heuristic, init_atoms, goal,
-                    ground_nsrts, candidate_predicates | self._initial_predicates,
-                    objects)
+                    ground_nsrts,
+                    candidate_predicates | self._initial_predicates, objects)
                 generator = task_plan(init_atoms,
-                                    goal,
-                                    ground_nsrts,
-                                    reachable_atoms,
-                                    heuristic,
-                                    CFG.seed,
-                                    CFG.grammar_search_task_planning_timeout,
-                                    max_skeletons,
-                                    use_visited_state_set=False)
+                                      goal,
+                                      ground_nsrts,
+                                      reachable_atoms,
+                                      heuristic,
+                                      CFG.seed,
+                                      CFG.grammar_search_task_planning_timeout,
+                                      max_skeletons,
+                                      use_visited_state_set=False)
             if CFG.grammar_search_expected_nodes_max_skeletons == -1:
                 max_skeletons = CFG.sesame_max_skeletons_optimized
             else:

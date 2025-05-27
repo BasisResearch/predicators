@@ -8,8 +8,8 @@ import numpy as np
 import torch as th
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PIL import Image
-from torchvision.transforms import ToPILImage  # type: ignore
 from torchvision import transforms  # type: ignore
+from torchvision.transforms import ToPILImage  # type: ignore
 
 from predicators import utils
 from predicators.structs import Mask, Object

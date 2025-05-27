@@ -1,17 +1,19 @@
 """An explorer that uses bilevel planning with NSRTs."""
 
-from typing import List, Set, Dict
 import logging
+from typing import Dict, List, Set
 
 from gym.spaces import Box
 
 from predicators import utils
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.option_model import _OptionModelBase
-from predicators.planning import sesame_plan, task_plan_grounding, \
-    PlanningFailure, _MaxSkeletonsFailure
+from predicators.planning import PlanningFailure, _MaxSkeletonsFailure, \
+    sesame_plan, task_plan_grounding
 from predicators.planning_with_processes import \
-    run_task_plan_with_processes_once, task_plan as task_plan_with_processes
+    run_task_plan_with_processes_once
+from predicators.planning_with_processes import \
+    task_plan as task_plan_with_processes
 from predicators.settings import CFG
 from predicators.structs import NSRT, CausalProcess, ExplorationStrategy, \
     ParameterizedOption, Predicate, Task, Type
@@ -58,8 +60,8 @@ class BilevelPlanningExplorer(BaseExplorer):
                     allow_noops=True,
                     compute_reachable_atoms=False)
                 heuristic = utils.create_task_planning_heuristic(
-                    CFG.sesame_task_planning_heuristic, init_atoms, 
-                    goal, ground_processes, self._predicates, objects)
+                    CFG.sesame_task_planning_heuristic, init_atoms, goal,
+                    ground_processes, self._predicates, objects)
                 plan_iterator = task_plan_with_processes(
                                         init_atoms,
                                         goal,
@@ -86,9 +88,9 @@ class BilevelPlanningExplorer(BaseExplorer):
                         # If the iterator is exhausted, raise an error or handle
                         # it
                         logging.debug(f"No more process plans available for "
-                                       f"task")
+                                      f"task")
                         raise PlanningFailure("No more process plans "
-                                                "available for task")
+                                              "available for task")
                 else:
                     process_plan = next(plan_iterator)
 

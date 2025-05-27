@@ -434,8 +434,10 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                 # The finger action is an absolute joint position for the fingers.
                 f_action = finger_position + finger_delta
                 # Override the meaningless finger values in joint_action.
-                joint_positions[pybullet_robot.left_finger_joint_idx] = f_action
-                joint_positions[pybullet_robot.right_finger_joint_idx] = f_action
+                joint_positions[
+                    pybullet_robot.left_finger_joint_idx] = f_action
+                joint_positions[
+                    pybullet_robot.right_finger_joint_idx] = f_action
                 # slide
                 action = np.array(joint_positions, dtype=np.float32)
                 action = action.clip(action_space.low,
@@ -503,8 +505,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             if len(objects) == 2:
                 robot, burner = objects
                 # Current
-                current_position = (state.get(robot, "x"), 
-                                    state.get(robot, "y"),
+                current_position = (state.get(robot,
+                                              "x"), state.get(robot, "y"),
                                     state.get(robot, "z"))
                 ee_orn = p.getQuaternionFromEuler(
                     [0, state.get(robot, "tilt"),
@@ -519,8 +521,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             else:
                 robot, = objects
                 # Current
-                current_position = (state.get(robot, "x"), 
-                                    state.get(robot, "y"),
+                current_position = (state.get(robot,
+                                              "x"), state.get(robot, "y"),
                                     state.get(robot, "z"))
                 ee_orn = p.getQuaternionFromEuler(
                     [0, state.get(robot, "tilt"),

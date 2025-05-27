@@ -6,17 +6,17 @@ Models (LLM's)
 
 import abc
 import base64
+import json
 import logging
 import os
 from io import BytesIO
 from typing import Collection, Dict, List, Optional, Union
-import json
-import requests
 
 import google.generativeai as genai
 import imagehash
 import openai
 import PIL.Image
+import requests
 from tenacity import retry, stop_after_attempt, wait_random_exponential
 
 from predicators.settings import CFG
@@ -397,6 +397,7 @@ class OpenAIVLM(VisionLanguageModel, OpenAIModel):
         ]
         return responses
 
+
 ###############################################################################
 # 1)  Shared utilities
 ###############################################################################
@@ -415,18 +416,16 @@ class OpenRouterModel:
 
     @retry(wait=wait_random_exponential(min=1, max=60),
            stop=stop_after_attempt(10))
-    def call_openrouter_api(
-        self,
-        *,
-        model: str,
-        messages: list,
-        seed: Optional[int] = None,
-        max_tokens: int = 128,
-        temperature: float = 0.2,
-        http_referer: Optional[str] = None,
-        x_title: Optional[str] = None,
-        verbose: bool = False
-    ) -> str:
+    def call_openrouter_api(self,
+                            *,
+                            model: str,
+                            messages: list,
+                            seed: Optional[int] = None,
+                            max_tokens: int = 128,
+                            temperature: float = 0.2,
+                            http_referer: Optional[str] = None,
+                            x_title: Optional[str] = None,
+                            verbose: bool = False) -> str:
         """Direct POST to /chat/completions."""
         headers = {
             "Authorization": f"Bearer {self._key}",
@@ -446,7 +445,9 @@ class OpenRouterModel:
         if seed is not None:
             body["seed"] = seed  # supported by OpenRouter
 
-        resp = requests.post(self._ENDPOINT, headers=headers, data=json.dumps(body))
+        resp = requests.post(self._ENDPOINT,
+                             headers=headers,
+                             data=json.dumps(body))
         resp.raise_for_status()
         payload = resp.json()
 
@@ -454,7 +455,8 @@ class OpenRouterModel:
             logging.debug(f"OpenRouter response: {payload}")
 
         # The shape mirrors OpenAI responses.
-        assert "choices" in payload and payload["choices"], "Unexpected response"
+        assert "choices" in payload and payload[
+            "choices"], "Unexpected response"
         text = payload["choices"][0]["message"]["content"]
         assert text is not None
         return text
@@ -480,10 +482,9 @@ class OpenRouterLLM(LargeLanguageModel, OpenRouterModel):
         imgs: Optional[List[PIL.Image.Image]],
         temperature: float,
         seed: int,
-        stop_token: Optional[str] = None,      # OpenRouter does *not* expose stop
-        num_completions: int = 1
-    ) -> List[str]:
-        del imgs, stop_token   # not used here
+        stop_token: Optional[str] = None,  # OpenRouter does *not* expose stop
+        num_completions: int = 1) -> List[str]:
+        del imgs, stop_token  # not used here
         messages = [{"role": "user", "content": prompt}]
         return [
             self.call_openrouter_api(
@@ -492,21 +493,22 @@ class OpenRouterLLM(LargeLanguageModel, OpenRouterModel):
                 temperature=temperature,
                 max_tokens=self._max_tokens,
                 seed=seed,
-            )
-            for _ in range(num_completions)
+            ) for _ in range(num_completions)
         ]
 
 
 ###############################################################################
 # 3)  Helper for VLMs (image encoding)
 ###############################################################################
-def _to_data_url_png(img: PIL.Image.Image, 
+def _to_data_url_png(img: PIL.Image.Image,
                      target_res: Optional[int] = 512) -> str:
-    """Resize *longest* side to `target_res`, encode PNG → base64 → data URL."""
+    """Resize *longest* side to `target_res`, encode PNG → base64 → data
+    URL."""
     resized = img
     if target_res:
         factor = target_res / max(img.size)
-        resized = img.resize((int(img.width * factor), int(img.height * factor)))
+        resized = img.resize(
+            (int(img.width * factor), int(img.height * factor)))
     buf = BytesIO()
     resized.save(buf, format="PNG")
     b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
@@ -527,15 +529,13 @@ class OpenRouterVLM(VisionLanguageModel, OpenRouterModel):
     def get_id(self) -> str:
         return f"OpenRouter-{self._model_name}"
 
-    def _sample_completions(
-        self,
-        prompt: str,
-        imgs: Optional[List[PIL.Image.Image]],
-        temperature: float,
-        seed: int,
-        stop_token: Optional[str] = None,
-        num_completions: int = 1
-    ) -> List[str]:
+    def _sample_completions(self,
+                            prompt: str,
+                            imgs: Optional[List[PIL.Image.Image]],
+                            temperature: float,
+                            seed: int,
+                            stop_token: Optional[str] = None,
+                            num_completions: int = 1) -> List[str]:
         assert imgs is not None, "OpenRouterVLM expects at least one image"
         del stop_token  # unsupported
 
@@ -545,7 +545,9 @@ class OpenRouterVLM(VisionLanguageModel, OpenRouterModel):
             for img in imgs:
                 content.append({
                     "type": "image_url",
-                    "image_url": {"url": _to_data_url_png(img)}
+                    "image_url": {
+                        "url": _to_data_url_png(img)
+                    }
                 })
             return [{"role": "user", "content": content}]
 
@@ -556,6 +558,5 @@ class OpenRouterVLM(VisionLanguageModel, OpenRouterModel):
                 temperature=temperature,
                 max_tokens=self._max_tokens,
                 seed=seed,
-            )
-            for _ in range(num_completions)
+            ) for _ in range(num_completions)
         ]

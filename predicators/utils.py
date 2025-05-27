@@ -53,19 +53,20 @@ from scipy.stats import norm
 from predicators.args import create_arg_parser
 from predicators.image_patch_wrapper import ImagePatch
 from predicators.pretrained_model_interface import GoogleGeminiLLM, \
-    GoogleGeminiVLM, LargeLanguageModel, OpenAILLM, OpenAIVLM, \
-    VisionLanguageModel, OpenRouterLLM, OpenRouterVLM
+    GoogleGeminiVLM, LargeLanguageModel, OpenAILLM, OpenAIVLM, OpenRouterLLM, \
+    OpenRouterVLM, VisionLanguageModel
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.settings import CFG, GlobalSettings
 from predicators.structs import NSRT, Action, Array, AtomOptionTrajectory, \
-    CausalProcess, DelayDistribution, DummyOption, EntToEntSub, GroundAtom, \
-    GroundAtomTrajectory, GroundNSRTOrSTRIPSOperator, Image, LDLRule, \
-    LiftedAtom, LiftedDecisionList, LiftedOrGroundAtom, LowLevelTrajectory, \
-    Mask, Metrics, NSRTOrSTRIPSOperator, Object, ObjectOrVariable, \
-    Observation, OptionSpec, ParameterizedOption, Predicate, Segment, State, \
+    CausalProcess, DelayDistribution, DummyOption, EntToEntSub, \
+    ExogenousProcess, GroundAtom, GroundAtomTrajectory, \
+    GroundNSRTOrSTRIPSOperator, Image, LDLRule, LiftedAtom, \
+    LiftedDecisionList, LiftedOrGroundAtom, LowLevelTrajectory, Mask, \
+    Metrics, NSRTOrSTRIPSOperator, Object, ObjectOrVariable, Observation, \
+    OptionSpec, ParameterizedOption, Predicate, Segment, State, \
     STRIPSOperator, Task, Type, Variable, VarToObjSub, Video, VLMPredicate, \
     _GroundEndogenousProcess, _GroundExogenousProcess, _GroundLDLRule, \
-    _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity, ExogenousProcess
+    _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
 
@@ -2687,9 +2688,8 @@ def create_llm_by_name(
     elif CFG.pretrained_model_service_provider == "openrouter":
         return OpenRouterLLM(model_name)
     else:
-        raise ValueError(
-            f"Unknown pretrained model service provider: "
-            f"{CFG.pretrained_model_service_provider}")
+        raise ValueError(f"Unknown pretrained model service provider: "
+                         f"{CFG.pretrained_model_service_provider}")
 
 
 def create_vlm_by_name(
@@ -2702,9 +2702,8 @@ def create_vlm_by_name(
     elif CFG.pretrained_model_service_provider == "openrouter":
         return OpenRouterVLM(model_name)
     else:
-        raise ValueError(
-            f"Unknown pretrained model service provider: "
-            f"{CFG.pretrained_model_service_provider}")
+        raise ValueError(f"Unknown pretrained model service provider: "
+                         f"{CFG.pretrained_model_service_provider}")
 
 
 def parse_model_output_into_option_plan(

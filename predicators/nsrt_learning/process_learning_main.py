@@ -18,17 +18,18 @@ from predicators.structs import PNAD, CausalProcess, DummyOption, \
 
 
 def learn_processes_from_data(
-        trajectories: List[LowLevelTrajectory], train_tasks: List[Task],
-        predicates: Set[Predicate], 
-        known_options: Optional[Set[ParameterizedOption]] = None,
-        action_space: Optional[Box] = None,
-        ground_atom_dataset: Optional[List[GroundAtomTrajectory]] = None,
-        sampler_learner: Optional[str] = None, 
-        annotations: Optional[List[Any]] = None,
-        current_processes: Optional[Set[CausalProcess]] = None,
-        relearn_all_exogenous_processes: bool = True,
-        log_all_processes: bool = True,
-        ) -> Set[CausalProcess]:
+    trajectories: List[LowLevelTrajectory],
+    train_tasks: List[Task],
+    predicates: Set[Predicate],
+    known_options: Optional[Set[ParameterizedOption]] = None,
+    action_space: Optional[Box] = None,
+    ground_atom_dataset: Optional[List[GroundAtomTrajectory]] = None,
+    sampler_learner: Optional[str] = None,
+    annotations: Optional[List[Any]] = None,
+    current_processes: Optional[Set[CausalProcess]] = None,
+    relearn_all_exogenous_processes: bool = True,
+    log_all_processes: bool = True,
+) -> Set[CausalProcess]:
     """Learn CausalProcesses from the given dataset of low-level transitions,
     using the given set of predicates."""
     logging.info(f"\nLearning CausalProcesses on {len(trajectories)} "
@@ -104,7 +105,8 @@ def learn_processes_from_data(
     CFG.strips_learner = CFG.exogenous_process_learner
 
     segmented_trajs = [
-        segment_trajectory(traj, predicates, verbose=False) for traj in trajectories
+        segment_trajectory(traj, predicates, verbose=False)
+        for traj in trajectories
     ]
     # Filter out segments explained by endogenous processes.
     filtered_segmented_trajs = filter_explained_segment(segmented_trajs,
@@ -114,11 +116,11 @@ def learn_processes_from_data(
     existing_exogenous_processes: List[ExogenousProcess] = []
     # if not relearn_all_exogenous_processes:
     #     # [optional] Filter out segments explained by existing exogenous
-    #     #   processes. 
+    #     #   processes.
     #     # And learn exogenous processes from the remaining segments.
     #     # The other option is to relearn exogenous ps. from all the data.
     #     # The second option should be used when there are new predicates.
-    #     existing_exogenous_processes = [p for p in current_processes if 
+    #     existing_exogenous_processes = [p for p in current_processes if
     #                                     isinstance(p, ExogenousProcess)]
     #     filtered_segmented_trajs = filter_explained_segment(
     #         filtered_segmented_trajs,
@@ -219,8 +221,7 @@ def filter_explained_segment(
                 filtered_segments.append(segment)
         filtered_trajs.append(filtered_segments)
 
-    num_filtered_segments = sum(
-        len(traj) for traj in filtered_trajs)
+    num_filtered_segments = sum(len(traj) for traj in filtered_trajs)
     logging.debug(f"Num of leftover segments: {num_filtered_segments}")
     for seg_traj in filtered_trajs:
         for i, seg in enumerate(seg_traj):

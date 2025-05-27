@@ -89,10 +89,11 @@ class OnlineProcessLearningAndPlanningApproach(
                 policy, termination_function = explorer.get_exploration_strategy(
                     task_idx, CFG.timeout)
                 # Create the interaction request.
-                req = InteractionRequest(train_task_idx=task_idx,
-                                     act_policy=policy,
-                                     query_policy=lambda s: None,
-                                     termination_function=termination_function)
+                req = InteractionRequest(
+                    train_task_idx=task_idx,
+                    act_policy=policy,
+                    query_policy=lambda s: None,
+                    termination_function=termination_function)
                 requests.append(req)
         return requests
 

@@ -62,9 +62,10 @@ class ProcessLearningAndPlanningApproach(
         if CFG.learn_process_parameters:
             self._learn_process_parameters(dataset)
 
-    def _learn_processes(self, trajectories: List[LowLevelTrajectory],
+    def _learn_processes(self,
+                         trajectories: List[LowLevelTrajectory],
                          online_learning_cycle: Optional[int],
-                         annotations: Optional[List[Any]]=None) -> None:
+                         annotations: Optional[List[Any]] = None) -> None:
         """Learn processes from the offline datasets."""
         dataset_fname, _ = utils.create_dataset_filename_str(
             saving_ground_atoms=True,
