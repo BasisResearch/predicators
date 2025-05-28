@@ -103,8 +103,8 @@ APPROACHES:
       online_nsrt_learning_requests_per_task: 8 # 2
       grammar_search_expected_nodes_optimal_demo_prob: 0.5
       cluster_and_inverse_planning_candidates: "top_consistent"
-      cluster_and_inverse_planning_top_consistent_method: "percentage"
-      cluster_and_inverse_planning_top_consistent_max_cost: 2
+      cluster_and_inverse_planning_top_consistent_method: "top_p_percent"
+      cluster_and_inverse_planning_top_p_percent: 3
 
 ENVS:
   # cover:
