@@ -109,7 +109,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
             # Step 1: Find the false positive examples
             exogenous_processes = list(self._get_current_exogenous_processes())
-            false_positive_process_state = get_false_positive_process_states(
+            false_positive_process_state = get_false_positive_states(
                 self._online_dataset.trajectories,
                 self._get_current_predicates(), exogenous_processes)
 
@@ -282,7 +282,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         return set(kept_predicates)
 
 
-def get_false_positive_process_states_from_segmented_trajs(
+def get_false_positive_states_from_seg_trajs(
     segmented_trajs: List[List[Segment]],
     exogenous_processes: List[ExogenousProcess],
 ) -> Dict[_GroundExogenousProcess, List[State]]:
@@ -338,7 +338,7 @@ def get_false_positive_process_states_from_segmented_trajs(
     return false_positive_process_state
 
 
-def get_false_positive_process_states(
+def get_false_positive_states(
     trajectories: List[LowLevelTrajectory],
     predicates: Set[Predicate],
     exogenous_processes: List[ExogenousProcess],
@@ -366,7 +366,7 @@ def get_false_positive_process_states(
     ]
     CFG.segmenter = initial_segmenter_method
 
-    return get_false_positive_process_states_from_segmented_trajs(
+    return get_false_positive_states_from_seg_trajs(
         segmented_trajs, exogenous_processes)
 
 
