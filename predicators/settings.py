@@ -589,6 +589,10 @@ class GlobalSettings:
     process_learner_check_false_positives = False
     cluster_and_search_process_learner_use_parallel = False
     cluster_search_max_workers = -1
+    cluster_and_inverse_planning_candidates = "top_consistent" # "all", "top_consistent"
+    cluster_and_inverse_planning_top_consistent_method = "percentage" # "number", "percentage", "cost", "percentage_cost"
+    cluster_and_inverse_planning_top_consistent_num = -1
+    cluster_and_inverse_planning_top_consistent_max_cost = "3"
 
     # torch GPU usage setting
     use_torch_gpu = False

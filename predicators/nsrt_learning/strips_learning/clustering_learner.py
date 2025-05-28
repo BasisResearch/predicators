@@ -2,6 +2,7 @@
 
 import abc
 import functools
+import itertools
 import logging
 import multiprocessing as mp
 import re
@@ -14,7 +15,12 @@ from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import BaseSTRIPSLearner
 from predicators.settings import CFG
 from predicators.structs import PNAD, Datastore, DummyOption, LiftedAtom, \
-    ParameterizedOption, Predicate, Segment, STRIPSOperator, VarToObjSub
+    ParameterizedOption, Predicate, Segment, STRIPSOperator, VarToObjSub, \
+    ExogenousProcess, EndogenousProcess
+from predicators.planning import task_plan_grounding, PlanningFailure, \
+    PlanningTimeout
+from predicators.planning_with_processes import \
+    task_plan as task_plan_with_processes
 
 
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
@@ -39,7 +45,8 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 (pnad_param_option, pnad_option_vars) = pnad.option_spec
                 if self.get_name() not in [
                         "cluster_and_llm_select",
-                        "cluster_and_search_process_learner"
+                        "cluster_and_search_process_learner",
+                        "cluster_and_inverse_planning"
                 ]:
                     preconds1 = frozenset()  # no preconditions
                     preconds2 = frozenset()  # no preconditions
@@ -76,7 +83,8 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
 
                 if self.get_name() in [
                         "cluster_and_llm_select",
-                        "cluster_and_search_process_learner"
+                        "cluster_and_search_process_learner",
+                        "cluster_and_inverse_planning"
                 ]:
                     # With cluster_and_llm_select, the param may include
                     # anything in the init atoms of the segment.
@@ -109,6 +117,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 pnads.append(PNAD(op, datastore, option_spec))
 
         if self.get_name() in ["cluster_and_search_process_learner"]:
+            # Do this extra step for this learner
             initial_segmenter_method = CFG.segmenter
             CFG.segmenter = "atom_changes"
             self._atom_change_segmented_trajs = [
@@ -617,7 +626,9 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
         obj_to_var = {v: k for k, v in var_to_obj.items()}
         initial_state: FrozenSet[LiftedAtom] = frozenset(
             atom.lift(obj_to_var) for atom in init_ground_atoms)
-        score_func = functools.partial(self._score_preconditions, pnad)
+        exogenous_process = pnad.make_exogenous_process()
+        score_func = functools.partial(self._score_preconditions, 
+                                       exogenous_process)
 
         path, _ = utils.run_gbfs(initial_state, lambda s: False,
                                  self._get_preconditions_successors,
@@ -628,10 +639,10 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
         # score_func(return_precon)
         return return_precon
 
-    def _score_preconditions(self, pnad: PNAD,
+    def _score_preconditions(self, exogenous_process: ExogenousProcess,
                              preconditions: FrozenSet[LiftedAtom]) -> float:
-        exogenous_process = pnad.op.copy_with(
-            preconditions=preconditions).make_exogenous_process()
+        exogenous_process.condition_at_start = set(preconditions)
+        exogenous_process.condition_overall = set(preconditions)
         false_positive_process_state =\
             self._get_false_positive_process_states_from_segmented_trajs(
                 self._atom_change_segmented_trajs, [exogenous_process])
@@ -655,6 +666,191 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
             successor = preconditions_sorted[:i] + preconditions_sorted[i + 1:]
             yield i, frozenset(successor), 1.0
 
+class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
+    def __init__(self, *args, 
+                 endogenous_processes: Set[EndogenousProcess],
+                 **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._endogenous_processes = endogenous_processes
+
+        from predicators.predicate_search_score_functions import \
+            _ExpectedNodesScoreFunction
+        self._get_optimality_prob =\
+            _ExpectedNodesScoreFunction._get_refinement_prob
+
+        from predicators.approaches.pp_online_predicate_invention_approach import \
+            get_false_positive_process_states_from_segmented_trajs
+        self._get_false_positive_process_states_from_segmented_trajs = \
+            get_false_positive_process_states_from_segmented_trajs
+        
+        self._atom_change_segmented_trajs: List[List[Segment]] = []
+        self._option_change_segmented_trajs: List[List[Segment]] = []
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "cluster_and_inverse_planning"
+
+    def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
+        """Find the set of PNADs (with corresponding processes) that allows the
+        agent make similar plans as the demonstrated/successful plans."""
+
+        # --- Existing exogenous processes ---
+        exogenous_process = [pnad.make_exogenous_process() for pnad in pnads]
+
+        # Get the segmented trajectories for scoring the processes.
+        initial_segmenter_method = CFG.segmenter
+        CFG.segmenter = "atom_changes"
+        self._atom_change_segmented_trajs = [
+            segment_trajectory(traj, self._predicates, verbose=False)
+            for traj in self._trajectories
+        ]
+        CFG.segmenter = "option_changes"
+        self._option_change_segmented_trajs = [
+            segment_trajectory(traj, self._predicates, verbose=False)
+            for traj in self._trajectories
+        ]
+        CFG.segmenter = initial_segmenter_method
+
+        # --- Get the candidate preconditions ---
+        # First option. Candidates are all possible subsets.
+        conditions_at_start = []
+        for pnad in pnads:
+            init_ground_atoms = pnad.datastore[0][0].init_atoms
+            var_to_obj = pnad.datastore[0][1]
+            obj_to_var = {v: k for k, v in var_to_obj.items()}
+            init_lift_atoms = set(atom.lift(obj_to_var) for atom in 
+                                    init_ground_atoms)
+            if CFG.cluster_and_inverse_planning_candidates == "all":
+                # 4 PNADS, with 7, 6, 7, 8 init atoms, possible combinations are
+                # - 2^7 * 2^6 * 2^7 * 2^8 = 2^28 = 268,435,456
+                # - 2^10 * 2^10 * 2^10 * 2^10 = 2^40 = 1,099,511,627,776
+                # Get the initial conditions of the PNAD
+                conditions_at_start.append(utils.all_subsets(init_lift_atoms))
+            elif CFG.cluster_and_inverse_planning_candidates == "top_consistent":
+                conditions_at_start.append(self.get_top_consistent_conditions(
+                    init_lift_atoms, pnad))
+            else:
+                raise NotImplementedError
+
+        # --- Search for the best combination of preconditions ---
+        best_score = -float("inf")
+        best_conditions = []
+        breakpoint()
+        # Score all combinations of preconditions
+        for combination in itertools.product(*conditions_at_start):
+            # Set the conditions for each process
+            for process, conditions in zip(exogenous_process, combination):
+                process.condition_at_start = conditions
+                process.condition_overall = conditions
+            
+            # Score this set of processes
+            score = self.compute_processes_score(set(exogenous_process))
+            if score > best_score:
+                best_score = score
+                best_conditions = combination
+
+        # --- Create new PNADs with the best conditions ---
+        final_pnads: List[PNAD] = []
+        for pnad, conditions in zip(pnads, best_conditions): 
+            # Check if this PNAD is unique
+            for final_pnad in final_pnads:
+                suc, _ = utils.unify_preconds_effects_options(
+                    frozenset(conditions),
+                    frozenset(final_pnad.op.preconditions),
+                    frozenset(pnad.op.add_effects),
+                    frozenset(final_pnad.op.add_effects),
+                    frozenset(pnad.op.delete_effects),
+                    frozenset(final_pnad.op.delete_effects),
+                    pnad.option_spec[0],
+                    final_pnad.option_spec[0],
+                    tuple(pnad.option_spec[1]),
+                    tuple(final_pnad.option_spec[1]),
+                )
+                if suc:
+                    # TODO: merge datastores if they are the same
+                    break
+            else:
+                # If we reach here, it means the PNAD is unique
+                # and we can add it to the final list
+                new_pnad = PNAD(
+                    pnad.op.copy_with(preconditions=conditions),
+                    pnad.datastore, pnad.option_spec)
+                final_pnads.append(new_pnad)
+        return final_pnads
+    
+    def get_top_consistent_conditions(self, initial_atom: Set[LiftedAtom],
+                                      pnad: PNAD) -> Iterator[Set[LiftedAtom]]:
+        """Get the top consistent conditions for a PNAD.
+        """
+        # TODO: implement the retrieval of the top n scoring ones.
+        exogenous_process = pnad.make_exogenous_process()
+        # candidates = []
+
+        for atoms in utils.all_subsets(initial_atom):
+            exogenous_process.condition_at_start = atoms
+            exogenous_process.condition_overall = atoms
+
+            # Check if the process is consistent with the trajectories
+            false_positive_process_state = \
+                self._get_false_positive_process_states_from_segmented_trajs(
+                    self._atom_change_segmented_trajs, [exogenous_process])
+            num_false_positives = 0
+            for _, states in false_positive_process_state.items():
+                num_false_positives += len(states)
+            logging.debug(f"Conditions: {atoms}, FP: {num_false_positives}")
+            if num_false_positives <=\
+                CFG.cluster_and_inverse_planning_top_consistent_max_cost:
+                # candidates.append(atoms)
+                yield atoms
+        # return candidates
+
+
+    def compute_processes_score(self, exogenous_processes: Set[ExogenousProcess]
+                                ) -> float:
+        """Score the PNAD based on how well it allows the agent to make plans."""
+        # TODO: also incorporate expected number of nodes expanded
+        score = 0.0
+        for i, traj in enumerate(self._trajectories):
+            if not traj.is_demo:
+                continue
+            demo_atoms_sequence = utils.segment_trajectory_to_atoms_sequence(
+                self._option_change_segmented_trajs[i])
+            init_atoms = self._option_change_segmented_trajs[i][0].init_atoms
+            objects = set(traj.states[0])
+            goal = self._train_tasks[traj.train_task_idx].goal
+            ground_processes, reachable_atoms = task_plan_grounding(
+                init_atoms,
+                objects,
+                exogenous_processes | self._endogenous_processes,
+                allow_noops=True,
+                compute_reachable_atoms=False)
+            heuristics = utils.create_task_planning_heuristic(
+                CFG.sesame_task_planning_heuristic, init_atoms, goal,
+                ground_processes,
+                self._predicates, objects)
+            generator = task_plan_with_processes(
+                init_atoms,
+                goal,
+                ground_processes,
+                reachable_atoms,
+                heuristics,
+                CFG.seed,
+                CFG.grammar_search_task_planning_timeout,
+                # max_skeletons_optimized=CFG.sesame_max_skeletons_optimized,
+                max_skeletons_optimized=1,
+                use_visited_state_set=True)
+            
+            optimality_prob = 0.0
+            try:
+                for idx, (_, plan_atoms_sequence, 
+                          metrics) in enumerate(generator):
+                    optimality_prob = self._get_optimality_prob(
+                        demo_atoms_sequence, plan_atoms_sequence)
+            except (PlanningTimeout, PlanningFailure):
+                pass
+            score += optimality_prob
+
+        return score
 
 class ClusterAndSearchSTRIPSLearner(ClusteringSTRIPSLearner):
     """A clustering STRIPS learner that learns preconditions via search,

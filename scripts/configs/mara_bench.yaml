@@ -76,7 +76,8 @@ APPROACHES:
       strips_learner: "llm"
       find_best_matching_pnad_skip_if_effect_not_subset: False
       # exogenous_process_learner: "cluster_and_llm_select"
-      exogenous_process_learner: "cluster_and_search_process_learner"
+      # exogenous_process_learner: "cluster_and_search_process_learner"
+      exogenous_process_learner: "cluster_and_inverse_planning"
       process_learner_check_false_positives: False
       # To have demos to stop when option terminates.
       terminate_on_goal_reached: False
@@ -101,6 +102,9 @@ APPROACHES:
       bilevel_planning_explorer_enumerate_plans: True
       online_nsrt_learning_requests_per_task: 8 # 2
       grammar_search_expected_nodes_optimal_demo_prob: 0.5
+      cluster_and_inverse_planning_candidates: "top_consistent"
+      cluster_and_inverse_planning_top_consistent_method: "percentage"
+      cluster_and_inverse_planning_top_consistent_max_cost: 2
 
 ENVS:
   # cover:
