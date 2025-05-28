@@ -13,14 +13,14 @@ from typing import Dict, FrozenSet, Iterator, List, Optional, Set, Tuple, cast
 from predicators import utils
 from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import BaseSTRIPSLearner
-from predicators.settings import CFG
-from predicators.structs import PNAD, Datastore, DummyOption, LiftedAtom, \
-    ParameterizedOption, Predicate, Segment, STRIPSOperator, VarToObjSub, \
-    ExogenousProcess, EndogenousProcess
-from predicators.planning import task_plan_grounding, PlanningFailure, \
-    PlanningTimeout
+from predicators.planning import PlanningFailure, PlanningTimeout, \
+    task_plan_grounding
 from predicators.planning_with_processes import \
     task_plan as task_plan_with_processes
+from predicators.settings import CFG
+from predicators.structs import PNAD, Datastore, DummyOption, \
+    EndogenousProcess, ExogenousProcess, LiftedAtom, ParameterizedOption, \
+    Predicate, Segment, STRIPSOperator, VarToObjSub
 
 
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
@@ -217,8 +217,8 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
         with open(prompt_file, "r") as f:
             self.base_prompt = f.read()
         from predicators.approaches.pp_online_predicate_invention_approach import \
-            get_false_positive_process_states
-        self._get_false_positive_process_states = get_false_positive_process_states
+            get_false_positive_states
+        self._get_false_positive_process_states = get_false_positive_states
 
     @classmethod
     def get_name(cls) -> str:
@@ -433,9 +433,9 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         from predicators.approaches.pp_online_predicate_invention_approach import \
-            get_false_positive_process_states_from_segmented_trajs
-        self._get_false_positive_process_states_from_segmented_trajs = \
-            get_false_positive_process_states_from_segmented_trajs
+            get_false_positive_states_from_seg_trajs
+        self._get_false_positive_states_from_seg_trajs = \
+            get_false_positive_states_from_seg_trajs
         self._atom_change_segmented_trajs: List[List[Segment]] = []
 
     @classmethod
@@ -572,7 +572,7 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
 
             from predicators import utils
             from predicators.approaches.pp_online_predicate_invention_approach import \
-                get_false_positive_process_states_from_segmented_trajs
+                get_false_positive_states_from_seg_trajs
             from predicators.settings import CFG
 
             # Recreate the search function
@@ -588,7 +588,7 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
                 exogenous_process = pnad.op.copy_with(
                     preconditions=preconditions).make_exogenous_process()
                 false_positive_process_state = \
-                    get_false_positive_process_states_from_segmented_trajs(
+                    get_false_positive_states_from_seg_trajs(
                         atom_change_segmented_trajs, [exogenous_process])
                 num_false_positives = sum(
                     len(states)
@@ -627,7 +627,7 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
         initial_state: FrozenSet[LiftedAtom] = frozenset(
             atom.lift(obj_to_var) for atom in init_ground_atoms)
         exogenous_process = pnad.make_exogenous_process()
-        score_func = functools.partial(self._score_preconditions, 
+        score_func = functools.partial(self._score_preconditions,
                                        exogenous_process)
 
         path, _ = utils.run_gbfs(initial_state, lambda s: False,
@@ -644,7 +644,7 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
         exogenous_process.condition_at_start = set(preconditions)
         exogenous_process.condition_overall = set(preconditions)
         false_positive_process_state =\
-            self._get_false_positive_process_states_from_segmented_trajs(
+            self._get_false_positive_states_from_seg_trajs(
                 self._atom_change_segmented_trajs, [exogenous_process])
         num_false_positives = 0
         for _, states in false_positive_process_state.items():
@@ -666,9 +666,10 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
             successor = preconditions_sorted[:i] + preconditions_sorted[i + 1:]
             yield i, frozenset(successor), 1.0
 
+
 class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
-    def __init__(self, *args, 
-                 endogenous_processes: Set[EndogenousProcess],
+
+    def __init__(self, *args, endogenous_processes: Set[EndogenousProcess],
                  **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._endogenous_processes = endogenous_processes
@@ -679,10 +680,10 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             _ExpectedNodesScoreFunction._get_refinement_prob
 
         from predicators.approaches.pp_online_predicate_invention_approach import \
-            get_false_positive_process_states_from_segmented_trajs
-        self._get_false_positive_process_states_from_segmented_trajs = \
-            get_false_positive_process_states_from_segmented_trajs
-        
+            get_false_positive_states_from_seg_trajs
+        self._get_fp_states_from_seg_trajs = \
+            get_false_positive_states_from_seg_trajs
+
         self._atom_change_segmented_trajs: List[List[Segment]] = []
         self._option_change_segmented_trajs: List[List[Segment]] = []
 
@@ -718,8 +719,8 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             init_ground_atoms = pnad.datastore[0][0].init_atoms
             var_to_obj = pnad.datastore[0][1]
             obj_to_var = {v: k for k, v in var_to_obj.items()}
-            init_lift_atoms = set(atom.lift(obj_to_var) for atom in 
-                                    init_ground_atoms)
+            init_lift_atoms = set(
+                atom.lift(obj_to_var) for atom in init_ground_atoms)
             if CFG.cluster_and_inverse_planning_candidates == "all":
                 # 4 PNADS, with 7, 6, 7, 8 init atoms, possible combinations are
                 # - 2^7 * 2^6 * 2^7 * 2^8 = 2^28 = 268,435,456
@@ -727,31 +728,33 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 # Get the initial conditions of the PNAD
                 conditions_at_start.append(utils.all_subsets(init_lift_atoms))
             elif CFG.cluster_and_inverse_planning_candidates == "top_consistent":
-                conditions_at_start.append(self.get_top_consistent_conditions(
-                    init_lift_atoms, pnad))
+                conditions_at_start.append(
+                    self._get_top_consistent_conditions(init_lift_atoms, pnad))
             else:
                 raise NotImplementedError
 
         # --- Search for the best combination of preconditions ---
         best_score = -float("inf")
         best_conditions = []
-        breakpoint()
         # Score all combinations of preconditions
-        for combination in itertools.product(*conditions_at_start):
+        for i, combination in enumerate(itertools.product(*conditions_at_start)):
             # Set the conditions for each process
             for process, conditions in zip(exogenous_process, combination):
                 process.condition_at_start = conditions
                 process.condition_overall = conditions
-            
+
             # Score this set of processes
             score = self.compute_processes_score(set(exogenous_process))
             if score > best_score:
                 best_score = score
                 best_conditions = combination
+            logging.debug(
+                f"Combination {i}: Score = {score}, Best Score = {best_score}")
+        breakpoint()
 
         # --- Create new PNADs with the best conditions ---
         final_pnads: List[PNAD] = []
-        for pnad, conditions in zip(pnads, best_conditions): 
+        for pnad, conditions in zip(pnads, best_conditions):
             # Check if this PNAD is unique
             for final_pnad in final_pnads:
                 suc, _ = utils.unify_preconds_effects_options(
@@ -772,42 +775,93 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             else:
                 # If we reach here, it means the PNAD is unique
                 # and we can add it to the final list
-                new_pnad = PNAD(
-                    pnad.op.copy_with(preconditions=conditions),
-                    pnad.datastore, pnad.option_spec)
+                new_pnad = PNAD(pnad.op.copy_with(preconditions=conditions),
+                                pnad.datastore, pnad.option_spec)
                 final_pnads.append(new_pnad)
         return final_pnads
-    
-    def get_top_consistent_conditions(self, initial_atom: Set[LiftedAtom],
+
+    def _get_top_consistent_conditions(self, initial_atom: Set[LiftedAtom],
                                       pnad: PNAD) -> Iterator[Set[LiftedAtom]]:
-        """Get the top consistent conditions for a PNAD.
-        """
-        # TODO: implement the retrieval of the top n scoring ones.
+        """Get the top consistent conditions for a PNAD."""
+        # TODO: maybe a better way is to based on percentage of the worse score
+        # because as the number of trajectories increases, the worse score
+        # increases
         exogenous_process = pnad.make_exogenous_process()
-        # candidates = []
 
-        for atoms in utils.all_subsets(initial_atom):
-            exogenous_process.condition_at_start = atoms
-            exogenous_process.condition_overall = atoms
+        method = CFG.cluster_and_inverse_planning_top_consistent_method
 
-            # Check if the process is consistent with the trajectories
-            false_positive_process_state = \
-                self._get_false_positive_process_states_from_segmented_trajs(
-                    self._atom_change_segmented_trajs, [exogenous_process])
-            num_false_positives = 0
-            for _, states in false_positive_process_state.items():
-                num_false_positives += len(states)
-            logging.debug(f"Conditions: {atoms}, FP: {num_false_positives}")
-            if num_false_positives <=\
-                CFG.cluster_and_inverse_planning_top_consistent_max_cost:
-                # candidates.append(atoms)
-                yield atoms
+        if method == "threshold":
+            # Original threshold-based approach
+            for condition_candidate in utils.all_subsets(initial_atom):
+                exogenous_process.condition_at_start = condition_candidate
+                exogenous_process.condition_overall = condition_candidate
+
+                false_positive_process_state = \
+                    self._get_fp_states_from_seg_trajs(
+                        self._atom_change_segmented_trajs, [exogenous_process])
+                num_false_positives = sum(
+                    len(states)
+                    for states in false_positive_process_state.values())
+
+                logging.debug(
+                    f"Conditions: {condition_candidate}, FP: {num_false_positives}"
+                )
+                if num_false_positives <= CFG.cluster_and_inverse_planning_top_consistent_max_cost:
+                    yield condition_candidate
         # return candidates
+        elif method in ["top_p_percent", "top_n"]:
+            # Collect all candidates with their scores
+            candidates_with_scores = []
 
+            for condition_candidate in utils.all_subsets(initial_atom):
+                exogenous_process.condition_at_start = condition_candidate
+                exogenous_process.condition_overall = condition_candidate
 
-    def compute_processes_score(self, exogenous_processes: Set[ExogenousProcess]
-                                ) -> float:
-        """Score the PNAD based on how well it allows the agent to make plans."""
+                false_positive_process_state = \
+                    self._get_fp_states_from_seg_trajs(
+                        self._atom_change_segmented_trajs, [exogenous_process])
+                num_false_positives = sum(
+                    len(states)
+                    for states in false_positive_process_state.values())
+
+                # Add complexity penalty for tie-breaking (prefer simpler conditions)
+                complexity_penalty =\
+                    CFG.grammar_search_pred_complexity_weight * len(
+                    condition_candidate)
+                score = num_false_positives + complexity_penalty
+
+                candidates_with_scores.append((score, condition_candidate))
+                logging.debug(
+                    f"Conditions: {condition_candidate}, Score: {score}")
+
+            # Sort by score (lower is better)
+            candidates_with_scores.sort(key=lambda x: x[0])
+
+            if method == "top_p_percent":
+                # Return top p% of candidates
+                p_percent = CFG.cluster_and_inverse_planning_top_p_percent
+                num_to_return = max(
+                    1, int(len(candidates_with_scores) * p_percent / 100.0))
+                top_candidates = candidates_with_scores[:num_to_return]
+            else:  # method == "top_n"
+                # Return top n candidates
+                n = CFG.cluster_and_inverse_planning_top_n
+                top_candidates = candidates_with_scores[:n]
+
+            # Yield the selected candidates
+            for score, condition_candidate in top_candidates:
+                yield condition_candidate
+
+        else:
+            raise ValueError(
+                f"Unknown method: {method}. Must be one of 'threshold', "
+                "'top_p_percent', 'top_n'"
+            )
+
+    def compute_processes_score(
+            self, exogenous_processes: Set[ExogenousProcess]) -> float:
+        """Score the PNAD based on how well it allows the agent to make
+        plans."""
         # TODO: also incorporate expected number of nodes expanded
         score = 0.0
         for i, traj in enumerate(self._trajectories):
@@ -826,8 +880,7 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 compute_reachable_atoms=False)
             heuristics = utils.create_task_planning_heuristic(
                 CFG.sesame_task_planning_heuristic, init_atoms, goal,
-                ground_processes,
-                self._predicates, objects)
+                ground_processes, self._predicates, objects)
             generator = task_plan_with_processes(
                 init_atoms,
                 goal,
@@ -839,10 +892,10 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 # max_skeletons_optimized=CFG.sesame_max_skeletons_optimized,
                 max_skeletons_optimized=1,
                 use_visited_state_set=True)
-            
+
             optimality_prob = 0.0
             try:
-                for idx, (_, plan_atoms_sequence, 
+                for idx, (_, plan_atoms_sequence,
                           metrics) in enumerate(generator):
                     optimality_prob = self._get_optimality_prob(
                         demo_atoms_sequence, plan_atoms_sequence)
@@ -851,6 +904,7 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             score += optimality_prob
 
         return score
+
 
 class ClusterAndSearchSTRIPSLearner(ClusteringSTRIPSLearner):
     """A clustering STRIPS learner that learns preconditions via search,
