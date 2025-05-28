@@ -686,6 +686,7 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
 
         self._atom_change_segmented_trajs: List[List[Segment]] = []
         self._option_change_segmented_trajs: List[List[Segment]] = []
+        self._demo_atoms_sequences: List[List[Set[LiftedAtom]]] = []
 
     @classmethod
     def get_name(cls) -> str:
@@ -711,6 +712,9 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             for traj in self._trajectories
         ]
         CFG.segmenter = initial_segmenter_method
+        self._demo_atoms_sequences = [
+                utils.segment_trajectory_to_atoms_sequence(seg_traj)
+            for seg_traj in self._option_change_segmented_trajs]
 
         # --- Get the candidate preconditions ---
         # First option. Candidates are all possible subsets.
@@ -750,7 +754,6 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 best_conditions = combination
             logging.debug(
                 f"Combination {i}: Score = {score}, Best Score = {best_score}")
-        breakpoint()
 
         # --- Create new PNADs with the best conditions ---
         final_pnads: List[PNAD] = []
@@ -862,13 +865,12 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             self, exogenous_processes: Set[ExogenousProcess]) -> float:
         """Score the PNAD based on how well it allows the agent to make
         plans."""
-        # TODO: also incorporate expected number of nodes expanded
+        # TODO: also incorporate number of nodes expanded to the function
         score = 0.0
         for i, traj in enumerate(self._trajectories):
             if not traj.is_demo:
                 continue
-            demo_atoms_sequence = utils.segment_trajectory_to_atoms_sequence(
-                self._option_change_segmented_trajs[i])
+            demo_atoms_sequence = self._demo_atoms_sequences[i]
             init_atoms = self._option_change_segmented_trajs[i][0].init_atoms
             objects = set(traj.states[0])
             goal = self._train_tasks[traj.train_task_idx].goal
