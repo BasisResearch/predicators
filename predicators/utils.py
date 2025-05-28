@@ -27,7 +27,7 @@ from pathlib import Path
 from pprint import pformat
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Collection, Dict, \
     FrozenSet, Generator, Generic, Hashable, Iterator, List, Optional, \
-    Sequence, Set, Tuple
+    Sequence, Set, Tuple, Iterable
 from typing import Type as TypingType
 from typing import TypeVar, Union, cast
 
@@ -4838,3 +4838,20 @@ def load_all_images_from_dir(dir_path: str) -> List[PIL.Image.Image]:
         if file.endswith(('.png', '.jpg')):
             images.append(PIL.Image.open(os.path.join(dir_path, file)))
     return images
+
+def all_subsets(input_set: Iterable[Any]) -> Iterator[Set[Any, ...]]:
+    """
+    Generates all subsets of a given set.
+
+    Args:
+        input_set: An iterable (e.g., a list, set, tuple)
+                   from which to generate subsets.
+
+    Yields:
+        tuple: Each subset as a tuple.
+    """
+    s = list(input_set) # Convert to list to handle various iterable inputs
+    n = len(s)
+    for i in range(n + 1): # Iterate from subset size 0 up to n
+        for subset in itertools.combinations(s, i):
+            yield set(subset)
