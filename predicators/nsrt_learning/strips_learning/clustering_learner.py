@@ -738,7 +738,7 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 raise NotImplementedError
 
         # --- Search for the best combination of preconditions ---
-        best_score = -float("inf")
+        best_cost = float("inf")
         best_conditions = []
         # Score all combinations of preconditions
         for i, combination in enumerate(itertools.product(*conditions_at_start)):
@@ -748,12 +748,12 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 process.condition_overall = conditions
 
             # Score this set of processes
-            score = self.compute_processes_score(set(exogenous_process))
-            if score > best_score:
-                best_score = score
+            cost = self.compute_processes_score(set(exogenous_process))
+            if cost < best_cost:
+                best_cost = cost
                 best_conditions = combination
             logging.debug(
-                f"Combination {i}: Score = {score}, Best Score = {best_score}")
+                f"Combination {i}: cost = {cost}, Best cost = {best_cost}")
 
         # --- Create new PNADs with the best conditions ---
         final_pnads: List[PNAD] = []
@@ -866,7 +866,7 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
         """Score the PNAD based on how well it allows the agent to make
         plans."""
         # TODO: also incorporate number of nodes expanded to the function
-        score = 0.0
+        cost = 0.0
         for i, traj in enumerate(self._trajectories):
             if not traj.is_demo:
                 continue
@@ -896,16 +896,19 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 use_visited_state_set=True)
 
             optimality_prob = 0.0
+            num_nodes = CFG.grammar_search_expected_nodes_upper_bound
             try:
                 for idx, (_, plan_atoms_sequence,
                           metrics) in enumerate(generator):
+                    num_nodes = metrics["num_nodes_created"]
                     optimality_prob = self._get_optimality_prob(
                         demo_atoms_sequence, plan_atoms_sequence)
             except (PlanningTimeout, PlanningFailure):
                 pass
-            score += optimality_prob
+            # low_quality_prob = 1.0 - optimality_prob
+            cost += (1 - optimality_prob) * num_nodes
 
-        return score
+        return cost
 
 
 class ClusterAndSearchSTRIPSLearner(ClusteringSTRIPSLearner):
