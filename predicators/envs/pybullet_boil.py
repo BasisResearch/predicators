@@ -574,6 +574,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     def _handle_heating_logic(self, state: State) -> None:
         """If a jug with water is on a turned-on burner, increment jug 'heat'
         up to 1.0."""
+        # TODO: check the jug is not held by the robot
         for i, burner_obj in enumerate(self._burners):
             burner_on = self._is_switch_on(self._burner_switches[i].id)
             if not burner_on:
@@ -587,7 +588,8 @@ class PyBulletBoilEnv(PyBulletEnv):
                 if dist < self.burner_align_threshold:
                     # Jug is on top of an active burner => increase heat
                     old_heat = state.get(jug_obj, "heat_level")
-                    if state.get(jug_obj, "water_level") > 0.0:
+                    if state.get(jug_obj, "water_level") > 0.0 and\
+                        not self._Holding_holds(state, [self._robot, jug_obj]):
                         new_heat = min(1.0, old_heat + self.heating_speed)
                         jug_obj.heat_level = new_heat
 
