@@ -6,7 +6,7 @@ APPROACHES:
   # oracle:
   #   NAME: "oracle_process_planning"
   #   FLAGS:
-  #     # boil_use_constant_delay: True
+  #     boil_use_constant_delay: True
   #     # boil_use_normal_delay: True
   #     demonstrator: "oracle_process_planning"
   # param_learning:
@@ -98,13 +98,14 @@ APPROACHES:
       grammar_search_grammar_includes_foralls: False
       grammar_search_prune_redundant_preds: False
       grammar_search_search_algorithm: "gbfs"
+      grammar_search_task_planning_timeout: 0.5
       learnable_delay_distribution: "constant" # "constant", "cmp", "normal"
       bilevel_planning_explorer_enumerate_plans: True
       online_nsrt_learning_requests_per_task: 8 # 2
       grammar_search_expected_nodes_optimal_demo_prob: 0.5
       cluster_and_inverse_planning_candidates: "top_consistent"
       cluster_and_inverse_planning_top_consistent_method: "top_p_percent"
-      cluster_and_inverse_planning_top_p_percent: 3
+      cluster_and_inverse_planning_top_p_percent: 4
 
 ENVS:
   # cover:
