@@ -114,18 +114,6 @@ def learn_processes_from_data(
                                                         remove_options=True)
 
     existing_exogenous_processes: List[ExogenousProcess] = []
-    # if not relearn_all_exogenous_processes:
-    #     # [optional] Filter out segments explained by existing exogenous
-    #     #   processes.
-    #     # And learn exogenous processes from the remaining segments.
-    #     # The other option is to relearn exogenous ps. from all the data.
-    #     # The second option should be used when there are new predicates.
-    #     existing_exogenous_processes = [p for p in current_processes if
-    #                                     isinstance(p, ExogenousProcess)]
-    #     filtered_segmented_trajs = filter_explained_segment(
-    #         filtered_segmented_trajs,
-    #         existing_exogenous_processes,
-    #         remove_options=True)
 
     # STEP 2: Learn the exogenous processes based on unexplained processes.
     #         This is different from STRIPS/endogenous processes, where these
@@ -224,7 +212,8 @@ def filter_explained_segment(
 
     num_filtered_segments = sum(len(traj) for traj in filtered_trajs)
     logging.debug(f"Num of leftover segments: {num_filtered_segments}")
-    for seg_traj in filtered_trajs:
+    for j, seg_traj in enumerate(filtered_trajs):
+        logging.debug(f"Trajectory {j}:")
         for i, seg in enumerate(seg_traj):
             logging.debug(f"Segment {i}: Add atoms: {seg.add_effects}; "
                           f"Delete atoms: {seg.delete_effects}; ")
