@@ -9,6 +9,7 @@ import re
 from collections import defaultdict
 from pprint import pformat
 from typing import Dict, FrozenSet, Iterator, List, Optional, Set, Tuple, cast
+import bisect
 
 from predicators import utils
 from predicators.nsrt_learning.segmentation import segment_trajectory
@@ -687,6 +688,7 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
         self._atom_change_segmented_trajs: List[List[Segment]] = []
         self._option_change_segmented_trajs: List[List[Segment]] = []
         self._demo_atoms_sequences: List[List[Set[LiftedAtom]]] = []
+        self._total_num_candidates = 0
 
     @classmethod
     def get_name(cls) -> str:
@@ -696,6 +698,7 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
         """Find the set of PNADs (with corresponding processes) that allows the
         agent make similar plans as the demonstrated/successful plans."""
 
+        self._total_num_candidates = 0
         # --- Existing exogenous processes ---
         exogenous_process = [pnad.make_exogenous_process() for pnad in pnads]
 
@@ -753,7 +756,8 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 best_cost = cost
                 best_conditions = combination
             logging.debug(
-                f"Combination {i}: cost = {cost}, Best cost = {best_cost}")
+                f"Combination {i+1}/{self._total_num_candidates}: cost = {cost},"
+                f" Best cost = {best_cost}")
 
         # --- Create new PNADs with the best conditions ---
         final_pnads: List[PNAD] = []
@@ -816,6 +820,7 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             # Collect all candidates with their scores
             candidates_with_scores = []
 
+            logging.info(f"For operator sketch:\n{pnad.op}")
             for condition_candidate in utils.all_subsets(initial_atom):
                 exogenous_process.condition_at_start = condition_candidate
                 exogenous_process.condition_overall = condition_candidate
@@ -843,9 +848,29 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             if method == "top_p_percent":
                 # Return top p% of candidates
                 p_percent = CFG.cluster_and_inverse_planning_top_p_percent
-                num_to_return = max(
-                    1, int(len(candidates_with_scores) * p_percent / 100.0))
-                top_candidates = candidates_with_scores[:num_to_return]
+                n_candidates = len(candidates_with_scores)
+                num_under_percentage = max(
+                    1, int(n_candidates * p_percent / 100.0))
+                score_at_threshold = candidates_with_scores[:num_under_percentage][-1][0]
+                scores = [score for score, _ in candidates_with_scores]
+                # Include all candidates with score_at_threshold
+                position = bisect.bisect_right(scores, score_at_threshold)
+                # scores = [score for score, _ in candidates_with_scores]
+                # # This gets the insertion point to keep list sorted if "target" were added
+                # position =  bisect.bisect_right(scores, 0.004)
+                # last_leq_index = position
+                # return_idx = max(last_leq_index, num_under_percentage)
+                # last_top_score = candidates_with_scores[num_under_percentage-1
+                #                                         ][0]
+                logging.info(f"Score threshold {score_at_threshold}; returning "
+                        f"{position}/{n_candidates} candidates")
+                
+                # Reocrd the total number of candidates
+                if self._total_num_candidates == 0:
+                    self._total_num_candidates += position
+                else:
+                    self._total_num_candidates *= position
+                top_candidates = candidates_with_scores[:position]
             else:  # method == "top_n"
                 # Return top n candidates
                 n = CFG.cluster_and_inverse_planning_top_n
@@ -853,6 +878,8 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
 
             # Yield the selected candidates
             for score, condition_candidate in top_candidates:
+                logging.info(
+                    f"Selected condition: {condition_candidate}, Score: {score}")
                 yield condition_candidate
 
         else:
@@ -906,7 +933,7 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             except (PlanningTimeout, PlanningFailure):
                 pass
             # low_quality_prob = 1.0 - optimality_prob
-            cost += (1 - optimality_prob) * num_nodes
+            cost += (1 - optimality_prob) # * num_nodes
 
         return cost
 
