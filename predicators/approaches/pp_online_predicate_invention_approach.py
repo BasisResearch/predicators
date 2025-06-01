@@ -83,8 +83,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
         # --- Learn processes & parameters ---
         self._learn_processes(
-            self._online_dataset.trajectories + \
-                self._offline_dataset.trajectories,
+            self._offline_dataset.trajectories + \
+                self._online_dataset.trajectories,
             online_learning_cycle=self._online_learning_cycle)
         # breakpoint()
 
