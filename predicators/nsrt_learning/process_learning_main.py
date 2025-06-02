@@ -131,7 +131,8 @@ def learn_processes_from_data(
             verify_harmlessness=False,
             verbose=(CFG.option_learner != "no_learning"),
             annotations=annotations,
-            endogenous_processes=set(endogenous_processes))
+            endogenous_processes=set(endogenous_processes),
+            )
         new_exogenous_processes = [
             pnad.make_exogenous_process() for pnad in exogenous_processes_pnad
         ]
