@@ -1830,9 +1830,17 @@ class PNAD:
         return self.op.make_endogenous_process(param_option, option_vars,
                                                self.sampler)
 
-    def make_exogenous_process(self) -> ExogenousProcess:
+    def make_exogenous_process(self,
+                    process_strength: Optional[float] = None,
+                    process_delay_params: Optional[Sequence[float]] = None,
+                    process_rng: Optional[np.random.Generator] = None
+                    ) -> ExogenousProcess:
         """Make an ExogenousProcess from this PNAD."""
-        return self.op.make_exogenous_process()
+        return self.op.make_exogenous_process(
+            process_strength=process_strength,
+            process_delay_params=process_delay_params,
+            process_rng=process_rng,
+        )
 
     def copy(self) -> PNAD:
         """Make a copy of this PNAD object, taking care to ensure that
