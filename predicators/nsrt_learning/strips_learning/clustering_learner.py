@@ -433,8 +433,8 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        from predicators.approaches.pp_online_predicate_invention_approach import \
-            get_false_positive_states_from_seg_trajs
+        from predicators.approaches.pp_online_predicate_invention_approach \
+            import get_false_positive_states_from_seg_trajs
         self._get_false_positive_states_from_seg_trajs = \
             get_false_positive_states_from_seg_trajs
         self._atom_change_segmented_trajs: List[List[Segment]] = []
@@ -456,62 +456,7 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
     def _learn_pnad_preconditions_parallel(self,
                                            pnads: List[PNAD]) -> List[PNAD]:
         """Parallelized version of precondition learning."""
-
-        # Determine number of workers
-        if CFG.cluster_search_max_workers == -1:
-            max_workers = mp.cpu_count()
-        else:
-            max_workers = CFG.cluster_search_max_workers
-        num_workers = min(max_workers, len(pnads))
-
-        logging.info(
-            f"Running parallel search with {num_workers} workers for {len(pnads)} PNADs"
-        )
-
-        # Phase 1: Run searches in parallel
-        search_results = []
-        try:
-            # Use spawn method to avoid issues with copying complex objects
-            ctx = mp.get_context('spawn')
-            with ctx.Pool(num_workers) as pool:
-                # Create partial function with shared data
-                search_worker = functools.partial(
-                    self._run_search_worker,
-                    atom_change_segmented_trajs=self.
-                    _atom_change_segmented_trajs)
-
-                # Run searches in parallel
-                search_results = pool.map(search_worker, pnads)
-
-        except Exception as e:
-            logging.warning(
-                f"Parallel processing failed: {e}. Falling back to sequential."
-            )
-            return self._learn_pnad_preconditions_sequential(pnads)
-
-        # Phase 2: Process results and check uniqueness sequentially
-        final_pnads: List[PNAD] = []
-
-        for pnad, precon in zip(pnads, search_results):
-            if precon is None:
-                logging.warning(
-                    f"Search failed for PNAD {pnad.op.name}, skipping.")
-                continue
-
-            add_eff = pnad.op.add_effects
-            del_eff = pnad.op.delete_effects
-            new_params = set(var for atom in precon | add_eff | del_eff
-                             for var in atom.variables)
-
-            # Check uniqueness against existing final_pnads
-            if self._is_unique_pnad(precon, pnad, final_pnads):
-                new_pnad = PNAD(
-                    pnad.op.copy_with(preconditions=precon,
-                                      parameters=new_params), pnad.datastore,
-                    pnad.option_spec)
-                final_pnads.append(new_pnad)
-
-        return final_pnads
+        return []
 
     def _learn_pnad_preconditions_sequential(self,
                                              pnads: List[PNAD]) -> List[PNAD]:
@@ -562,72 +507,18 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
                 return False
         return True
 
-    @staticmethod
-    def _run_search_worker(
-        pnad: PNAD, atom_change_segmented_trajs: List[List[Segment]]
-    ) -> Optional[FrozenSet[LiftedAtom]]:
-        """Worker function for parallel search execution."""
-        try:
-            # Import here to avoid pickling issues
-            import functools
-
-            from predicators import utils
-            from predicators.approaches.pp_online_predicate_invention_approach import \
-                get_false_positive_states_from_seg_trajs
-            from predicators.settings import CFG
-
-            # Recreate the search function
-            init_ground_atoms = pnad.datastore[0][0].init_atoms
-            var_to_obj = pnad.datastore[0][1]
-            obj_to_var = {v: k for k, v in var_to_obj.items()}
-            initial_state: FrozenSet[LiftedAtom] = frozenset(
-                atom.lift(obj_to_var) for atom in init_ground_atoms)
-
-            # Define score function for this worker
-            def score_preconditions(
-                    preconditions: FrozenSet[LiftedAtom]) -> float:
-                exogenous_process = pnad.op.copy_with(
-                    preconditions=preconditions).make_exogenous_process()
-                false_positive_process_state = \
-                    get_false_positive_states_from_seg_trajs(
-                        atom_change_segmented_trajs, [exogenous_process])
-                num_false_positives = sum(
-                    len(states)
-                    for states in false_positive_process_state.values())
-
-                complexity_penalty = CFG.grammar_search_pred_complexity_weight * \
-                                    len(preconditions)
-                return num_false_positives + complexity_penalty
-
-            # Define successor function
-            def get_preconditions_successors(
-                    preconditions: FrozenSet[LiftedAtom]):
-                preconditions_sorted = sorted(preconditions)
-                for i in range(len(preconditions_sorted)):
-                    successor = preconditions_sorted[:i] + preconditions_sorted[
-                        i + 1:]
-                    yield i, frozenset(successor), 1.0
-
-            # Run the search
-            path, _ = utils.run_gbfs(initial_state, lambda s: False,
-                                     get_preconditions_successors,
-                                     score_preconditions)
-
-            return path[-1]
-
-        except Exception as e:
-            logging.warning(
-                f"Search worker failed for PNAD {pnad.op.name}: {e}")
-            return None
-
     def _run_search(self, pnad: PNAD) -> FrozenSet[LiftedAtom]:
 
+        logging.info(f"For operator:\n{pnad.op}")
         init_ground_atoms = pnad.datastore[0][0].init_atoms
         var_to_obj = pnad.datastore[0][1]
         obj_to_var = {v: k for k, v in var_to_obj.items()}
         initial_state: FrozenSet[LiftedAtom] = frozenset(
             atom.lift(obj_to_var) for atom in init_ground_atoms)
-        exogenous_process = pnad.make_exogenous_process()
+        delay_param_estim = [len(pnad.datastore[0][0].actions)]
+        exogenous_process = pnad.make_exogenous_process(
+            process_delay_params=delay_param_estim
+        )
         score_func = functools.partial(self._score_preconditions,
                                        exogenous_process)
 
@@ -636,8 +527,8 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
                                  score_func)
 
         return_precon = path[-1]
-        # logging.debug(f"Search finished. Selected:")
-        # score_func(return_precon)
+        logging.debug(f"Search finished. Selected:")
+        score_func(return_precon)
         return return_precon
 
     def _score_preconditions(self, exogenous_process: ExogenousProcess,
@@ -655,7 +546,7 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
         complexity_penalty = CFG.grammar_search_pred_complexity_weight *\
                                     len(preconditions)
         cost = num_false_positives + complexity_penalty
-        # logging.debug(f"Score for precon {set(preconditions)}: {cost:.4f}")
+        logging.debug(f"Condition: {set(preconditions)}, Score {cost:.4f}")
         return cost
 
     def _get_preconditions_successors(
@@ -670,10 +561,9 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
 
 class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
 
-    def __init__(self, *args, endogenous_processes: Set[EndogenousProcess],
-                 **kwargs) -> None:
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._endogenous_processes = endogenous_processes
+        self._endogenous_processes = kwargs["endogenous_processes"]
 
         from predicators.predicate_search_score_functions import \
             _ExpectedNodesScoreFunction
