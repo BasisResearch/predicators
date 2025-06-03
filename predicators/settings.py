@@ -582,6 +582,7 @@ class GlobalSettings:
     cluster_and_intersect_soft_intersection_for_preconditions = False
     find_best_matching_pnad_skip_if_effect_not_subset = True
     exogenous_process_learner = "cluster_and_intersect"
+    exogenous_process_learner_do_intersect = False
     only_learn_exogenous_processes = False
     learn_process_parameters = False
     pause_after_process_learning_for_inspection = False

@@ -21,7 +21,7 @@ from predicators.planning_with_processes import \
 from predicators.settings import CFG
 from predicators.structs import PNAD, Datastore, DummyOption, \
     EndogenousProcess, ExogenousProcess, LiftedAtom, ParameterizedOption, \
-    Predicate, Segment, STRIPSOperator, VarToObjSub
+    Predicate, Segment, STRIPSOperator, VarToObjSub, Variable, Object
 
 
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
@@ -48,19 +48,22 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                         "cluster_and_llm_select",
                         "cluster_and_search_process_learner",
                         "cluster_and_inverse_planning"
-                ]:
+                ] or CFG.exogenous_process_learner_do_intersect:
                     preconds1 = frozenset()  # no preconditions
                     preconds2 = frozenset()  # no preconditions
                 else:
+                    # Ground
                     preconds1 = frozenset(segment.init_atoms)
+                    # Lifted
                     obj_to_var = {
                         v: k
-                        for k, v in pnad.datastore[0][1].items()
+                        for k, v in pnad.datastore[-1][1].items()
                     }
                     preconds2 = frozenset({
                         atom.lift(obj_to_var)
-                        for atom in pnad.datastore[0][0].init_atoms
+                        for atom in pnad.datastore[-1][0].init_atoms
                     })
+                # ent_to_ent_sub here is obj_to_var
                 suc, ent_to_ent_sub = utils.unify_preconds_effects_options(
                     preconds1, preconds2, frozenset(segment.add_effects),
                     frozenset(pnad.op.add_effects),
@@ -69,11 +72,23 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                     pnad_param_option, segment_option_objs,
                     tuple(pnad_option_vars))
                 sub = cast(VarToObjSub,
-                           {v: o
-                            for o, v in ent_to_ent_sub.items()})
+                           {v: o for o, v in ent_to_ent_sub.items()})
                 if suc:
                     # Add to this PNAD.
-                    assert set(sub.keys()) == set(pnad.op.parameters)
+                    if CFG.exogenous_process_learner_do_intersect:
+                        # Find the largest conditions that unifies the init
+                        # atoms of the segment and another segment in the PNAD.
+                        # and add that segment and sub to the datastore.
+                        # Doing this sequentially ensures one of the 
+                        # substitutions has the objects we care about with
+                        # intersection. Hence it can fall out later in
+                        # `induce_preconditions_via_intersection`.
+                        sub = self._maybe_intersect_segment_with_pnad(
+                            segment, pnad, ent_to_ent_sub,
+                            segment_param_option, pnad_param_option,
+                            segment_option_objs, tuple(pnad_option_vars))
+                    else:
+                        assert set(sub.keys()) == set(pnad.op.parameters)
                     pnad.add_to_datastore((segment, sub))
                     break
             else:
@@ -139,6 +154,84 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             for pnad in pnads:
                 logging.info(pnad)
         return pnads
+
+    def _maybe_intersect_segment_with_pnad(
+        self,
+        segment: Segment,
+        pnad: PNAD,
+        obj_to_var: Dict[Object, Variable],
+        segment_param_option: ParameterizedOption,
+        pnad_param_option: ParameterizedOption,
+        segment_option_objs: Tuple[Object],
+        pnad_option_vars: Tuple[Variable]
+    ) -> VarToObjSub:
+        """Try to unify and find the largest conditions that unify the init atoms
+        of the segment and the last segment in the pnad datastore. Returns an
+        updated VarToObjSub."""
+        seg_init_atoms_full = set(segment.init_atoms)
+
+        last_seg, last_var_to_obj = pnad.datastore[-1]
+        last_obj_to_var = {o: v for v, o in last_var_to_obj.items()}
+        lifted_last_init_atoms = {
+            atom.lift(last_obj_to_var) for atom in last_seg.init_atoms
+        }
+
+        # Candidate atoms that possibly match
+        common_preds = {a.predicate for a in seg_init_atoms_full} & \
+                    {b.predicate for b in lifted_last_init_atoms}
+
+        s_init_atoms_list = sorted(
+            [atom for atom in seg_init_atoms_full if atom.predicate in common_preds],
+            key=str
+        )
+        ds_lifted_init_atoms_list = sorted(
+            [atom for atom in lifted_last_init_atoms if atom.predicate in common_preds],
+            key=str
+        )
+        max_len1 = len(s_init_atoms_list)
+        max_len2 = len(ds_lifted_init_atoms_list)
+
+        seg_add_eff = frozenset(segment.add_effects)
+        pnad_add_eff = frozenset(pnad.op.add_effects)
+        seg_del_eff = frozenset(segment.delete_effects)
+        pnad_del_eff = frozenset(pnad.op.delete_effects)
+
+        unify_args = (
+            seg_add_eff, pnad_add_eff,
+            seg_del_eff, pnad_del_eff,
+            segment_param_option, pnad_param_option,
+            segment_option_objs, tuple(pnad_option_vars)
+        )
+
+        best_obj_to_var = obj_to_var
+        found_best_unification = False
+        k_limit = min(max_len1, max_len2)
+
+        for k_common in range(k_limit, -1, -1):
+            for p1_subset_tuple in itertools.combinations(s_init_atoms_list, k_common):
+                p1_candidate = frozenset(p1_subset_tuple)
+                for p2_subset_tuple in itertools.combinations(ds_lifted_init_atoms_list, k_common):
+                    p2_candidate = frozenset(p2_subset_tuple)
+
+                    # Check if they have the same predicates
+                    if {a.predicate for a in p1_candidate} != {a.predicate for a in p2_candidate}:
+                        continue
+
+                    # Check if they unify
+                    current_suc, current_obj_to_var = utils.unify_preconds_effects_options(
+                        p1_candidate, p2_candidate, *unify_args
+                    )
+                    if current_suc:
+                        best_obj_to_var = current_obj_to_var
+                        found_best_unification = True
+                        break
+                if found_best_unification:
+                    break
+            if found_best_unification:
+                break
+
+        sub = cast(VarToObjSub, {v: o for o, v in best_obj_to_var.items()})
+        return sub
 
     @abc.abstractmethod
     def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
@@ -613,11 +706,16 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
         # First option. Candidates are all possible subsets.
         conditions_at_start = []
         for pnad in pnads:
-            init_ground_atoms = pnad.datastore[0][0].init_atoms
-            var_to_obj = pnad.datastore[0][1]
-            obj_to_var = {v: k for k, v in var_to_obj.items()}
-            init_lift_atoms = set(
-                atom.lift(obj_to_var) for atom in init_ground_atoms)
+            if CFG.exogenous_process_learner_do_intersect:
+                init_lift_atoms = self._induce_preconditions_via_intersection(
+                    pnad)
+            else:
+                init_ground_atoms = pnad.datastore[0][0].init_atoms
+                var_to_obj = pnad.datastore[0][1]
+                obj_to_var = {v: k for k, v in var_to_obj.items()}
+                init_lift_atoms = set(atom.lift(obj_to_var) for atom in 
+                                      init_ground_atoms)
+
             if CFG.cluster_and_inverse_planning_candidates == "all":
                 # 4 PNADS, with 7, 6, 7, 8 init atoms, possible combinations are
                 # - 2^7 * 2^6 * 2^7 * 2^8 = 2^28 = 268,435,456

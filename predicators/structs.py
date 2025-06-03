@@ -1793,7 +1793,15 @@ class PNAD:
         seg, var_obj_sub = member
         if len(self.datastore) > 0:
             # All variables should have a corresponding object.
-            assert set(var_obj_sub) == set(self.op.parameters)
+            if CFG.exogenous_process_learner_do_intersect:
+                # When we don't assume preconditions contain only atoms with 
+                # variables present in the effect, we would first include
+                # all the variables in the op.parameters, and the var_obj_sub
+                # only contain parameters that can be unified with the last 
+                # segment. So it can be a subset of the op.parameters.
+                assert set(var_obj_sub).issubset(set(self.op.parameters))
+            else:
+                assert set(var_obj_sub) == set(self.op.parameters)
             # The effects should match.
             if check_effect_equality:
                 obj_var_sub = {o: v for (v, o) in var_obj_sub.items()}
