@@ -11,8 +11,6 @@ from predicators.option_model import _OptionModelBase
 from predicators.planning import PlanningFailure, _MaxSkeletonsFailure, \
     sesame_plan, task_plan_grounding
 from predicators.planning_with_processes import \
-    run_task_plan_with_processes_once
-from predicators.planning_with_processes import \
     task_plan as task_plan_with_processes
 from predicators.settings import CFG
 from predicators.structs import NSRT, CausalProcess, ExplorationStrategy, \
