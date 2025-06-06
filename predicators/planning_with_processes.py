@@ -213,7 +213,7 @@ def _skeleton_generator_with_processes(
     abstract_policy: Optional[AbstractPolicy] = None,
     sesame_max_policy_guided_rollout: int = 0,
     use_visited_state_set: bool = False,
-    log_sucessful_small_steps: bool = True,
+    log_sucessful_small_steps: bool = False,
     derived_predicates: Set[DerivedPredicate] = set(),
     objects: Set[Object] = set(),
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]]]]:

@@ -20,7 +20,8 @@ from predicators.planning_with_processes import \
 from predicators.settings import CFG
 from predicators.structs import PNAD, Datastore, DummyOption, \
     EndogenousProcess, ExogenousProcess, LiftedAtom, ParameterizedOption, \
-    Predicate, Segment, STRIPSOperator, VarToObjSub, Variable, Object
+    Predicate, Segment, STRIPSOperator, VarToObjSub, Variable, Object, \
+    DerivedPredicate
 
 
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
@@ -63,10 +64,16 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                         for atom in pnad.datastore[-1][0].init_atoms
                     })
                 # ent_to_ent_sub here is obj_to_var
+                # TODO: remove derived predicates from the segment's effects
+                seg_add_effects = frozenset(a for a in segment.add_effects
+                            if not isinstance(a.predicate, DerivedPredicate))
+                seg_del_effects = frozenset(a for a in segment.delete_effects
+                            if not isinstance(a.predicate, DerivedPredicate))
                 suc, ent_to_ent_sub = utils.unify_preconds_effects_options(
-                    preconds1, preconds2, frozenset(segment.add_effects),
+                    preconds1, preconds2, 
+                    seg_add_effects,
                     frozenset(pnad.op.add_effects),
-                    frozenset(segment.delete_effects),
+                    seg_del_effects,
                     frozenset(pnad.op.delete_effects), segment_param_option,
                     pnad_param_option, segment_option_objs,
                     tuple(pnad_option_vars))
@@ -116,11 +123,13 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 var_to_obj = dict(zip(params, objects_lst))
                 add_effects = {
                     atom.lift(obj_to_var)
-                    for atom in segment.add_effects
+                    for atom in segment.add_effects if not isinstance(
+                        atom.predicate, DerivedPredicate)
                 }
                 delete_effects = {
                     atom.lift(obj_to_var)
-                    for atom in segment.delete_effects
+                    for atom in segment.delete_effects if not isinstance(
+                        atom.predicate, DerivedPredicate)
                 }
                 ignore_effects: Set[Predicate] = set()  # will be learned later
                 op = STRIPSOperator(f"Op{len(pnads)}", params, preconds,
@@ -190,9 +199,11 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
         max_len1 = len(s_init_atoms_list)
         max_len2 = len(ds_lifted_init_atoms_list)
 
-        seg_add_eff = frozenset(segment.add_effects)
+        seg_add_eff = frozenset(a for a in segment.add_effects if 
+                                not isinstance(a.predicate, DerivedPredicate))
+        seg_del_eff = frozenset(a for a in segment.delete_effects if
+                                not isinstance(a.predicate, DerivedPredicate))
         pnad_add_eff = frozenset(pnad.op.add_effects)
-        seg_del_eff = frozenset(segment.delete_effects)
         pnad_del_eff = frozenset(pnad.op.delete_effects)
 
         unify_args = (

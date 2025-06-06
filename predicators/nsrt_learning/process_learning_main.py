@@ -14,7 +14,8 @@ from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.settings import CFG
 from predicators.structs import PNAD, CausalProcess, DummyOption, \
     EndogenousProcess, ExogenousProcess, GroundAtomTrajectory, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, Segment, Task
+    LowLevelTrajectory, ParameterizedOption, Predicate, Segment, Task, \
+    GroundAtom, DerivedPredicate
 
 
 def learn_processes_from_data(
@@ -195,8 +196,10 @@ def filter_explained_segment(
             else:
                 # all exogenous; mixed cases all handle at the top.
                 relevant_procs = processes
-            add_atoms = segment.add_effects
-            delete_atoms = segment.delete_effects
+            add_atoms = {a for a in segment.add_effects if not 
+                            isinstance(a.predicate, DerivedPredicate)}
+            delete_atoms = {a for a in segment.delete_effects if not 
+                            isinstance(a.predicate, DerivedPredicate)}
             # if not explained by any; consider explained if atom change is
             # a subset of the add_effects and delete_effects of any
             # ground process.
