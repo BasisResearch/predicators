@@ -37,6 +37,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         JugAtFaucet = predicates["JugAtFaucet"]
         NoJugAtFaucet = predicates["NoJugAtFaucet"]
         JugNotAtBurnerOrFaucet = predicates["JugNotAtBurnerOrFaucet"]
+        NoJugAtFaucetOrJugAtFaucetAndFilled = predicates[
+            "JugNotAtFaucetOrAtFaucetAndFilled"]
         JugFilled = predicates["JugFilled"]
         JugNotFilled = predicates["JugNotFilled"]
         # WaterSpilled = predicates["WaterSpilled"]
@@ -68,7 +70,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         # Create a random number generator
         rng = np.random.default_rng(CFG.seed)
 
-        processes = set()
+        processes: Set[CausalProcess] = set()
 
         # --- Endogenous Processes / Durative Actions ---
         # PickJugFromFaucet
@@ -416,7 +418,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(JugNotFilled, [jug]),
         }
         if CFG.boil_use_constant_delay:
-            delay_distribution = ConstantDelay(3)
+            delay_distribution = ConstantDelay(7)
         elif CFG.boil_use_normal_delay:
             delay_distribution = GaussianDelay(mean=4, std=0.2, rng=rng)
         else:
@@ -433,15 +435,15 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         faucet = Variable("?faucet", faucet_type)
         parameters = [jug, faucet]
         condition_at_start = {
-            LiftedAtom(JugAtFaucet, [jug, faucet]),
             LiftedAtom(FaucetOn, [faucet]),
-            LiftedAtom(JugFilled, [jug]),
         }
-        condition_overall = {
-            LiftedAtom(JugAtFaucet, [jug, faucet]),
-            LiftedAtom(FaucetOn, [faucet]),
-            LiftedAtom(JugFilled, [jug]),
-        }
+        if CFG.boil_use_derived_predicates:
+            condition_at_start.add(LiftedAtom(NoJugAtFaucetOrJugAtFaucetAndFilled, [jug, 
+                                                                         faucet]))
+        else:
+            condition_at_start.add(LiftedAtom(JugAtFaucet, [jug, faucet]))
+            condition_at_start.add(LiftedAtom(JugFilled, [jug]))
+        condition_overall = condition_at_start.copy()
         # add_effects = {
         #     LiftedAtom(WaterSpilled, []),
         # }
@@ -463,30 +465,31 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         processes.add(overfill_jug_process)
 
         # Spill
-        faucet = Variable("?faucet", faucet_type)
-        parameters = [faucet]
-        condition_at_start = {
-            LiftedAtom(NoJugAtFaucet, [faucet]),
-            LiftedAtom(FaucetOn, [faucet]),
-        }
-        # add_effects = {
-        #     LiftedAtom(WaterSpilled, []),
-        # }
-        add_effects = set()
-        delete_effects = {
-            LiftedAtom(NoWaterSpilled, []),
-        }
-        if CFG.boil_use_constant_delay:
-            delay_distribution = ConstantDelay(3)
-        elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
-        else:
-            delay_distribution = CMPDelay(55, 3, rng)
-        spill_process = ExogenousProcess("Spill",
+        if not CFG.boil_use_derived_predicates:
+            faucet = Variable("?faucet", faucet_type)
+            parameters = [faucet]
+            condition_at_start = {
+                LiftedAtom(NoJugAtFaucet, [faucet]),
+                LiftedAtom(FaucetOn, [faucet]),
+            }
+            # add_effects = {
+            #     LiftedAtom(WaterSpilled, []),
+            # }
+            add_effects = set()
+            delete_effects = {
+                LiftedAtom(NoWaterSpilled, []),
+            }
+            if CFG.boil_use_constant_delay:
+                delay_distribution = ConstantDelay(3)
+            elif CFG.boil_use_normal_delay:
+                delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
+            else:
+                delay_distribution = CMPDelay(55, 3, rng)
+            spill_process = ExogenousProcess("Spill",
                                          parameters, condition_at_start, set(),
                                          set(), add_effects, delete_effects,
                                          delay_distribution, 1.0)
-        processes.add(spill_process)
+            processes.add(spill_process)
 
         # Boil
         burner = Variable("?burner", burner_type)
