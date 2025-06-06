@@ -20,7 +20,7 @@ from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.planning import PlanningFailure, PlanningTimeout, task_plan, \
     task_plan_grounding
 from predicators.planning_with_processes import \
-    task_plan as task_plan_with_processes
+    task_plan_from_task as task_plan_with_processes
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, GroundAtom, \
     GroundAtomTrajectory, LowLevelTrajectory, Object, OptionSpec, Predicate, \
@@ -365,32 +365,20 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
             demo_atoms_sequence = utils.segment_trajectory_to_atoms_sequence(
                 seg_traj)
             seen_demos += 1
-            init_atoms = demo_atoms_sequence[0]
-            goal = self._train_tasks[ll_traj.train_task_idx].goal
-            # Ground everything once per demo.
-            objects = set(ll_traj.states[0])
             if self._use_processes:
-                ground_processes, reachable_atoms = task_plan_grounding(
-                    init_atoms,
-                    objects,
-                    strips_ops,
-                    allow_noops=True,
-                    compute_reachable_atoms=False)
-                heuristics = utils.create_task_planning_heuristic(
-                    CFG.sesame_task_planning_heuristic, init_atoms, goal,
-                    ground_processes,
-                    candidate_predicates | self._initial_predicates, objects)
                 generator = task_plan_with_processes(
-                    init_atoms,
-                    goal,
-                    ground_processes,
-                    reachable_atoms,
-                    heuristics,
+                    self._train_tasks[ll_traj.train_task_idx],
+                    candidate_predicates | self._initial_predicates,
+                    strips_ops,
                     CFG.seed,
                     CFG.grammar_search_task_planning_timeout,
                     max_skeletons_optimized=CFG.sesame_max_skeletons_optimized,
                     use_visited_state_set=True)
             else:
+                init_atoms = demo_atoms_sequence[0]
+                goal = self._train_tasks[ll_traj.train_task_idx].goal
+                # Ground everything once per demo.
+                objects = set(ll_traj.states[0])
                 dummy_nsrts = utils.ops_and_specs_to_dummy_nsrts(
                     strips_ops, option_specs)
                 ground_nsrts, reachable_atoms = task_plan_grounding(

@@ -11,7 +11,7 @@ from predicators.option_model import _OptionModelBase
 from predicators.planning import PlanningFailure, _MaxSkeletonsFailure, \
     sesame_plan, task_plan_grounding
 from predicators.planning_with_processes import \
-    task_plan as task_plan_with_processes
+    task_plan_from_task as task_plan_with_processes
 from predicators.settings import CFG
 from predicators.structs import NSRT, CausalProcess, ExplorationStrategy, \
     ParameterizedOption, Predicate, Task, Type
@@ -47,25 +47,10 @@ class BilevelPlanningExplorer(BaseExplorer):
         # PlanningTimeout and handling them accordingly.
         if CFG.bilevel_plan_without_sim:
             if isinstance(next(iter(self._nsrts)), CausalProcess):
-                init_atoms = utils.abstract(task.init, self._predicates)
-                goal = task.goal
-                processes = self._nsrts
-                objects = set(task.init)
-                ground_processes, reachable_atoms = task_plan_grounding(
-                    init_atoms,
-                    objects,
-                    processes,
-                    allow_noops=True,
-                    compute_reachable_atoms=False)
-                heuristic = utils.create_task_planning_heuristic(
-                    CFG.sesame_task_planning_heuristic, init_atoms, goal,
-                    ground_processes, self._predicates, objects)
                 plan_iterator = task_plan_with_processes(
-                                        init_atoms,
-                                        goal,
-                                        ground_processes,
-                                        reachable_atoms,
-                                        heuristic,
+                                        task,
+                                        self._predicates,
+                                        self._nsrts,
                                         seed,
                                         timeout,
                                         max_skeletons_optimized=\

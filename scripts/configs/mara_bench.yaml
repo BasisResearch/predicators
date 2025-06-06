@@ -65,7 +65,7 @@ APPROACHES:
         # with the current only_learn_exogenous_processes setting, it won't try
         # to learn the precondition for the DeclareComplete option.
       boil_goal: "human_happy" # Can also be "task_completed", "simple"
-      excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,JugNotFilled"
+      excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,JugNotFilled,JugNotAtFaucetOrAtFaucetAndFilled"
       # boil_use_constant_delay: True
       demonstrator: "oracle_process_planning"
       explorer: "exploit_planning"
@@ -78,6 +78,7 @@ APPROACHES:
       # exogenous_process_learner: "cluster_and_llm_select"
       # exogenous_process_learner: "cluster_and_search_process_learner"
       exogenous_process_learner: "cluster_and_inverse_planning"
+      exogenous_process_learner_do_intersect: True
       process_learner_check_false_positives: False
       # To have demos to stop when option terminates.
       terminate_on_goal_reached: False

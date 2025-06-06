@@ -420,6 +420,7 @@ class GlobalSettings:
     boil_use_constant_delay = False
     boil_use_normal_delay = False
     boil_goal = "simple"  # Can also be "task_completed", "human_happy"
+    boil_use_derived_predicates = True
 
     # parameters for random options approach
     random_options_max_tries = 100

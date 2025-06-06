@@ -14,10 +14,9 @@ import bisect
 from predicators import utils
 from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import BaseSTRIPSLearner
-from predicators.planning import PlanningFailure, PlanningTimeout, \
-    task_plan_grounding
+from predicators.planning import PlanningFailure, PlanningTimeout
 from predicators.planning_with_processes import \
-    task_plan as task_plan_with_processes
+    task_plan_from_task as task_plan_with_processes
 from predicators.settings import CFG
 from predicators.structs import PNAD, Datastore, DummyOption, \
     EndogenousProcess, ExogenousProcess, LiftedAtom, ParameterizedOption, \
@@ -886,24 +885,11 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             if not traj.is_demo:
                 continue
             demo_atoms_sequence = self._demo_atoms_sequences[i]
-            init_atoms = self._option_change_segmented_trajs[i][0].init_atoms
-            objects = set(traj.states[0])
-            goal = self._train_tasks[traj.train_task_idx].goal
-            ground_processes, reachable_atoms = task_plan_grounding(
-                init_atoms,
-                objects,
-                exogenous_processes | self._endogenous_processes,
-                allow_noops=True,
-                compute_reachable_atoms=False)
-            heuristics = utils.create_task_planning_heuristic(
-                CFG.sesame_task_planning_heuristic, init_atoms, goal,
-                ground_processes, self._predicates, objects)
+            task = self._train_tasks[traj.train_task_idx]
             generator = task_plan_with_processes(
-                init_atoms,
-                goal,
-                ground_processes,
-                reachable_atoms,
-                heuristics,
+                task,
+                self._predicates,
+                exogenous_processes | self._endogenous_processes,
                 CFG.seed,
                 CFG.grammar_search_task_planning_timeout,
                 # max_skeletons_optimized=CFG.sesame_max_skeletons_optimized,
