@@ -6,7 +6,7 @@ import abc
 import copy
 import itertools
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cached_property, lru_cache
 from typing import Any, Callable, Collection, DefaultDict, Dict, Iterator, \
     List, Optional, Sequence, Set, Tuple, TypeVar, Union, cast
@@ -399,6 +399,50 @@ class Predicate:
     def __lt__(self, other: Predicate) -> bool:
         return str(self) < str(other)
 
+@dataclass(frozen=True, order=False, repr=False)
+class DerivedPredicate(Predicate):
+    """Struct defining a concept predicate."""
+    name: str
+    types: Sequence[Type]
+    # The classifier takes in a complete state and a sequence of objects
+    # representing the arguments. These objects should be the only ones
+    # treated "specially" by the classifier.
+    _classifier: Callable[[Set[GroundAtom], Sequence[Object]],
+                          bool] = field(compare=False)
+    untransformed_predicate: Optional[Predicate] = field(default=None,
+                                                         compare=False)
+    auxiliary_predicates: Optional[Set[ConceptPredicate]] = field(default=None,
+                                                                compare=False)
+
+    def update_auxiliary_concepts(
+            self,
+            auxiliary_concepts: Set[ConceptPredicate]) -> ConceptPredicate:
+        """Create a new ConceptPredicate with updated auxiliary_concepts."""
+        return replace(self, auxiliary_concepts=auxiliary_concepts)
+
+    @cached_property
+    def _hash(self) -> int:
+        # return hash(str(self))
+        return hash(self.name + str(self.types))
+
+    def __hash__(self) -> int:
+        return self._hash
+
+    def holds(self, state: Set[GroundAtom], objects: Sequence[Object]) -> bool:
+        """Public method for calling the classifier.
+
+        Performs type checking first.
+        """
+        assert len(objects) == self.arity
+        for obj, pred_type in zip(objects, self.types):
+            assert isinstance(obj, Object)
+            assert obj.is_instance(pred_type)
+        return self._classifier(state, objects)
+
+    def _negated_classifier(self, state: Set[GroundAtom],
+                            objects: Sequence[Object]) -> bool:
+        # Separate this into a named function for pickling reasons.
+        return not self._classifier(state, objects)
 
 @dataclass(frozen=True, order=False, repr=False, eq=False)
 class VLMPredicate(Predicate):

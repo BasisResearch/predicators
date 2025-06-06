@@ -28,7 +28,7 @@ from predicators.structs import NSRT, AbstractPolicy, CausalProcess, \
     GroundAtom, Metrics, Object, OptionSpec, ParameterizedOption, Predicate, \
     State, STRIPSOperator, Task, Type, _GroundCausalProcess, \
     _GroundEndogenousProcess, _GroundExogenousProcess, _GroundNSRT, \
-    _GroundSTRIPSOperator, _Option
+    _GroundSTRIPSOperator, _Option, DerivedPredicate
 from predicators.utils import EnvironmentFailure, _TaskPlanningHeuristic
 
 
@@ -61,7 +61,9 @@ class ProcessWorldModel:
                  action_history: List[Optional[_GroundEndogenousProcess]] = [],
                  scheduled_events: Dict[int, List[Tuple[_GroundCausalProcess,
                                                         int]]] = {},
-                 t: int = 0) -> None:
+                 t: int = 0,
+                 derived_predicates: Set[DerivedPredicate] = set(),
+                 objects: Set[Object] = set()) -> None:
 
         self.ground_processes = ground_processes
         self.state = state
@@ -73,6 +75,8 @@ class ProcessWorldModel:
         self.scheduled_events: Dict[int, List[Tuple[_GroundCausalProcess,
                                                     int]]] = scheduled_events
         self.t = t
+        self.derived_predicates = derived_predicates
+        self.objects = objects
 
     def small_step(
             self,
@@ -115,6 +119,14 @@ class ProcessWorldModel:
                         small_step_action is None:
                         self.current_action = None
             del self.scheduled_events[self.t]
+
+            # Remove all the previous derived predicates before adding new
+            # ones.
+            if len(self.derived_predicates) > 0:
+                self.state = {atom for atom in self.state if not 
+                                isinstance(atom.predicate, DerivedPredicate)}
+                self.state |= utils.abstract_with_derived_predicates(
+                    self.state, self.derived_predicates, self.objects)
 
         # 3. Schedule new events whose condition are met
         for g_process in self.ground_processes:
@@ -201,11 +213,14 @@ def _skeleton_generator_with_processes(
     abstract_policy: Optional[AbstractPolicy] = None,
     sesame_max_policy_guided_rollout: int = 0,
     use_visited_state_set: bool = False,
-    log_sucessful_small_steps: bool = False,
+    log_sucessful_small_steps: bool = True,
+    derived_predicates: Set[DerivedPredicate] = set(),
+    objects: Set[Object] = set(),
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]]]]:
 
     # Filter out all the action from processes
     # zero heuristic
+    objects = objects.copy()
     ground_action_processes = [
         p for p in ground_processes if isinstance(p, _GroundEndogenousProcess)
     ]
@@ -280,7 +295,9 @@ def _skeleton_generator_with_processes(
                     state_history=node.state_history.copy(),
                     action_history=node.action_history.copy(),
                     scheduled_events=deepcopy(node.scheduled_events),
-                    t=len(node.state_history))
+                    t=len(node.state_history),
+                    derived_predicates=derived_predicates,
+                    objects=objects)
 
                 assert isinstance(action_process, _GroundEndogenousProcess)
                 # plan_so_far = [p.name for p in node.skeleton]
@@ -332,6 +349,45 @@ def _skeleton_generator_with_processes(
     raise _SkeletonSearchTimeout
 
 
+def task_plan_from_task(
+    task: Task,
+    predicates: Set[Predicate],
+    processes: Set[CausalProcess],
+    seed: int,
+    timeout: float,
+    max_skeletons_optimized: int,
+    use_visited_state_set: bool = True,
+) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]],
+                    Metrics]]:
+    # TODO: Expand the concept predicates to include all dependencies
+    all_predicates = utils.add_in_auxiliary_predicates(predicates)
+    derived_predicates = utils.get_derived_predicates(all_predicates)
+
+    init_atoms = utils.abstract(task.init, all_predicates)
+    goal = task.goal
+    objects = set(task.init)
+    ground_processes, reachable_atoms = task_plan_grounding(
+        init_atoms,
+        objects,
+        processes,
+        allow_noops=True,
+        compute_reachable_atoms=False)
+    heuristic = utils.create_task_planning_heuristic(
+                    CFG.sesame_task_planning_heuristic, init_atoms, goal,
+                    ground_processes, all_predicates, objects)
+    return task_plan(
+        init_atoms,
+        goal,
+        ground_processes,
+        reachable_atoms,
+        heuristic,
+        seed,
+        timeout,
+        max_skeletons_optimized,
+        use_visited_state_set=use_visited_state_set,
+        derived_predicates=derived_predicates,
+        objects=objects,)
+
 def task_plan(
     init_atoms: Set[GroundAtom],
     goal: Set[GroundAtom],
@@ -342,6 +398,8 @@ def task_plan(
     timeout: float,
     max_skeletons_optimized: int,
     use_visited_state_set: bool = True,
+    derived_predicates: Set[DerivedPredicate] = set(),
+    objects: Set[Object] = set(),
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]],
                     Metrics]]:
     """Run only the task planning portion of SeSamE. A* search is run, and
@@ -375,7 +433,9 @@ def task_plan(
         timeout,
         metrics,
         max_skeletons_optimized,
-        use_visited_state_set=use_visited_state_set)
+        use_visited_state_set=use_visited_state_set,
+        derived_predicates=derived_predicates,
+        objects=objects,)
 
     # Note that we use this pattern to avoid having to catch an exception
     # when _skeleton_generator runs out of skeletons to optimize.
@@ -399,34 +459,16 @@ def run_task_plan_with_processes_once(
     The sequence of ground atom sets returned represent NECESSARY atoms.
     """
 
-    init_atoms = utils.abstract(task.init, preds)
-    goal = task.goal
-    objects = set(task.init)
-
     start_time = time.perf_counter()
 
     if CFG.sesame_task_planner == "astar":
-        ground_processes, reachable_atoms = task_plan_grounding(
-            init_atoms,
-            objects,
-            processes,
-            allow_noops=True,
-            compute_reachable_atoms=compute_reachable_atoms)
-        # TODO: is this applicable here?
-        # assert task_planning_heuristic is not None
-        # heuristic = lambda x: 0
-        heuristic = utils.create_task_planning_heuristic(
-            task_planning_heuristic, init_atoms, goal, ground_processes, preds,
-            objects)
         duration = time.perf_counter() - start_time
         timeout -= duration
         plan, atoms_seq, metrics = next(
-            task_plan(
-                init_atoms,
-                goal,
-                ground_processes,
-                reachable_atoms,
-                heuristic,
+            task_plan_from_task(
+                task,
+                preds,
+                processes,
                 seed,
                 timeout,
                 max_skeletons_optimized=1,

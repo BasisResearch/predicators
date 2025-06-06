@@ -66,7 +66,7 @@ from predicators.structs import NSRT, Action, Array, AtomOptionTrajectory, \
     OptionSpec, ParameterizedOption, Predicate, Segment, State, \
     STRIPSOperator, Task, Type, Variable, VarToObjSub, Video, VLMPredicate, \
     _GroundEndogenousProcess, _GroundExogenousProcess, _GroundLDLRule, \
-    _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity
+    _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity, DerivedPredicate
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
 
@@ -2976,9 +2976,16 @@ def abstract(state: State,
     """
     # Start by pulling out all VLM predicates.
     vlm_preds = set(pred for pred in preds if isinstance(pred, VLMPredicate))
+    derived_preds, primitive_preds = set(), set()
+    for pred in preds:
+        if isinstance(pred, DerivedPredicate):  
+            derived_preds.add(pred)
+        else:
+            primitive_preds.add(pred)
+    
     # Next, classify all non-VLM predicates.
     atoms = set()
-    for pred in preds:
+    for pred in primitive_preds:
         if pred not in vlm_preds:
             for choice in get_object_combinations(list(state), pred.types):
                 if pred.holds(state, choice):
@@ -2992,6 +2999,20 @@ def abstract(state: State,
                 vlm_atoms.add(GroundAtom(pred, choice))
         true_vlm_atoms = query_vlm_for_atom_vals(vlm_atoms, state, vlm)
         atoms |= true_vlm_atoms
+
+    # Evaluate derived predicates.
+    if len(derived_preds) > 0:
+        try:
+            atoms |= abstract_with_derived_predicates(atoms, derived_preds,
+                                                      list(state))
+        except PredicateEvaluationError as e:
+            raise e
+            # buggy_pred = e.pred
+            # # logging.debug(f"preds before {buggy_pred} is removed: {preds}")
+            # cnpt_preds.remove(buggy_pred)
+            # # logging.debug(f"preds after {buggy_pred} is removed: {preds}")
+            # return abstract(state, prim_preds | cnpt_preds, vlm,
+            #                 return_valid_preds)
     return atoms
 
 
@@ -4855,3 +4876,70 @@ def all_subsets(input_set: Iterable[Any]) -> Iterator[Set[Any, ...]]:
     for i in range(n + 1):  # Iterate from subset size 0 up to n
         for subset in itertools.combinations(s, i):
             yield set(subset)
+
+def add_in_auxiliary_predicates(predicates: Set[Predicate]) -> Set[Predicate]:
+    # If a predicate is a drived predicate, check its auxiliary predicates 
+    # attribute, and add them and all their derived predicates to the set 
+    # recursively.
+    def add_auxiliary(pred: Predicate, preds: Set[Predicate]) -> None:
+        if isinstance(pred, DerivedPredicate):
+            if pred.auxiliary_predicates:
+                preds.update(pred.auxiliary_predicates)
+                for aux_pred in pred.auxiliary_predicates:
+                    add_auxiliary(aux_pred, preds)
+    new_preds = predicates.copy()
+    for pred in predicates:
+        add_auxiliary(pred, new_preds)
+    return new_preds
+
+def get_derived_predicates(
+        predicates: Set[Predicate]) -> Set[DerivedPredicate]:
+    """Get all derived predicates from a set of predicates."""
+    return {pred for pred in predicates if isinstance(pred, DerivedPredicate)}
+
+def abstract_with_derived_predicates(
+        atoms: Set[GroundAtom], derived_preds: Collection[DerivedPredicate],
+        objects: Collection[Object]) -> Set[GroundAtom]:
+    """Compute the fixed point of concept predicate atoms."""
+    primitive_atoms = atoms
+    new_concept_atoms: Set[GroundAtom] = set()
+    prev_new_concept_atoms: Set[GroundAtom] = set()
+    counter = 0
+    while True:
+        # All the concept atoms that holds; all the previous atoms
+        atoms = primitive_atoms | new_concept_atoms
+        new_concept_atoms = _abstract_with_derived_predicates(
+            atoms, derived_preds, objects)
+        # logging.debug(f"ite {counter} concept atoms: {new_concept_atoms}")
+        converged = new_concept_atoms == prev_new_concept_atoms
+        if converged:
+            # logging.debug("converged")
+            break
+        prev_new_concept_atoms = new_concept_atoms
+        counter += 1
+    return new_concept_atoms
+
+def _abstract_with_derived_predicates(
+        abs_state: Set[GroundAtom], derived_preds: Collection[DerivedPredicate],
+        objects: Collection[Object]) -> Set[GroundAtom]:
+    """Get the atoms based on the existing atomic state and concept
+    predicates."""
+    atoms: Set[GroundAtom] = set()
+    for pred in derived_preds:
+        for choice in get_object_combinations(objects, pred.types):
+            try:
+                if pred.holds(abs_state, choice):
+                    atoms.add(GroundAtom(pred, choice))
+            except Exception as e:
+                logging.error(f"Error in evaluating concept predicate {pred}: "
+                              f"{e}")
+                # raise e
+                raise PredicateEvaluationError(
+                    f"Error in evaluating concept predicate {pred}: {e}", pred)
+    return atoms
+
+class PredicateEvaluationError(Exception):
+
+    def __init__(self, message, pred):
+        super().__init__(message)
+        self.pred = pred
