@@ -9,7 +9,7 @@ from predicators.explorers.base_explorer import BaseExplorer
 from predicators.settings import CFG
 from predicators.structs import NSRT, Action, DummyOption, \
     ExplorationStrategy, ParameterizedOption, Predicate, State, Task, Type, \
-    _GroundNSRT
+    _GroundNSRT, _GroundEndogenousProcess
 
 
 class RandomNSRTsExplorer(BaseExplorer):
@@ -91,7 +91,12 @@ class RandomNSRTsExplorer(BaseExplorer):
                     state, ground_nsrts, self._predicates, self._rng)
                 if ground_nsrt is None:
                     return fallback_policy(state)
-                assert all(a.holds for a in ground_nsrt.preconditions)
+                if isinstance(ground_nsrt, _GroundNSRT):
+                    assert all(a.holds for a in ground_nsrt.preconditions)
+                elif isinstance(ground_nsrt, _GroundEndogenousProcess):
+                    assert all(a.holds for a in ground_nsrt.condition_at_start)
+                else:  
+                    raise Exception
 
                 # Sample an option.
                 option = ground_nsrt.sample_option(state,
