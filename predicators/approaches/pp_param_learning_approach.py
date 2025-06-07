@@ -245,9 +245,9 @@ class ParamLearningBilevelProcessPlanningApproach(
         for t in range(1, num_time_steps):
             x_t = trajectory.states[t]
             for j in range(len(all_possible_atoms)):
-                factor = defaultdict(float)  # Default value of 0.0
+                factor: Dict[bool, float] = defaultdict(float)  # Default value of 0.0
                 factor_atom = all_possible_atoms[j]
-                x_tj: Optional[GroundAtom] = factor_atom in x_t
+                x_tj: bool = factor_atom in x_t
 
                 # Factor from frame axiom: if atom didnt change
                 if (factor_atom in x_t) == (factor_atom in \
