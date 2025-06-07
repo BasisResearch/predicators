@@ -1851,11 +1851,13 @@ class PNAD:
                 obj_var_sub = {o: v for (v, o) in var_obj_sub.items()}
                 lifted_add_effects = {
                     a.lift(obj_var_sub)
-                    for a in seg.add_effects
+                    for a in seg.add_effects if 
+                        not isinstance(a.predicate, DerivedPredicate)
                 }
                 lifted_del_effects = {
                     a.lift(obj_var_sub)
-                    for a in seg.delete_effects
+                    for a in seg.delete_effects if 
+                        not isinstance(a.predicate, DerivedPredicate)
                 }
                 assert lifted_add_effects == self.op.add_effects
                 assert lifted_del_effects == self.op.delete_effects
@@ -2691,6 +2693,14 @@ class _GroundCausalProcess:
     def __eq__(self, other: object) -> bool:
         assert isinstance(other, _GroundCausalProcess)
         return str(self) == str(other)
+
+    def __lt__(self, other: object) -> bool:
+        assert isinstance(other, _GroundCausalProcess)
+        return str(self) < str(other)
+
+    def __gt__(self, other: object) -> bool:
+        assert isinstance(other, _GroundCausalProcess)
+        return str(self) > str(other)
 
     def name_and_objects_str(self) -> str:
         return f"{self.name}({', '.join([str(o) for o in self.objects])})"
