@@ -180,9 +180,11 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
 
         last_seg, last_var_to_obj = pnad.datastore[-1]
         last_obj_to_var = {o: v for v, o in last_var_to_obj.items()}
+        objects = set(last_obj_to_var)
         lifted_last_init_atoms = {
-            atom.lift(last_obj_to_var) for atom in last_seg.init_atoms
-        }
+                atom.lift(last_obj_to_var) for atom in last_seg.init_atoms
+                if all(o in objects for o in atom.objects)
+            }
 
         # Candidate atoms that possibly match
         common_preds = {a.predicate for a in seg_init_atoms_full} & \
@@ -711,6 +713,8 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
         self._demo_atoms_sequences = [
                 utils.segment_trajectory_to_atoms_sequence(seg_traj)
             for seg_traj in self._option_change_segmented_trajs]
+        # for i, seg_traj in enumerate(self._atom_change_segmented_trajs):
+        #     logging.info(f"atom change trajectory {i}: {pformat(seg_traj)}")
 
         # --- Get the candidate preconditions ---
         # First option. Candidates are all possible subsets.
@@ -756,6 +760,7 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             logging.debug(
                 f"Combination {i+1}/{self._total_num_candidates}: cost = {cost},"
                 f" Best cost = {best_cost}")
+        # breakpoint()
 
         # --- Create new PNADs with the best conditions ---
         final_pnads: List[PNAD] = []
@@ -853,15 +858,13 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 scores = [score for score, _ in candidates_with_scores]
                 # Include all candidates with score_at_threshold
                 position = bisect.bisect_right(scores, score_at_threshold)
-                # scores = [score for score, _ in candidates_with_scores]
-                # # This gets the insertion point to keep list sorted if "target" were added
-                # position =  bisect.bisect_right(scores, 0.004)
-                # last_leq_index = position
-                # return_idx = max(last_leq_index, num_under_percentage)
-                # last_top_score = candidates_with_scores[num_under_percentage-1
-                #                                         ][0]
                 logging.info(f"Score threshold {score_at_threshold}; returning "
                         f"{position}/{n_candidates} candidates")
+                
+                # include at most top_n_candidates
+                if CFG.cluster_and_inverse_planning_top_n > 0:
+                    position = min(position, 
+                                   CFG.cluster_and_inverse_planning_top_n)
                 
                 # Reocrd the total number of candidates
                 if self._total_num_candidates == 0:
