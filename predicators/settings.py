@@ -595,7 +595,8 @@ class GlobalSettings:
     cluster_and_inverse_planning_top_consistent_method = "percentage"  # "number", "percentage", "cost", "percentage_cost"
     cluster_and_inverse_planning_top_consistent_num = -1
     cluster_and_inverse_planning_top_p_percent = 3 # percentage of top consistent candidates to use
-    cluster_and_inverse_planning_top_consistent_max_cost = "3"
+    cluster_and_inverse_planning_top_consistent_max_cost = 3
+    cluster_and_inverse_planning_top_n = -1
 
     # torch GPU usage setting
     use_torch_gpu = False
@@ -739,6 +740,8 @@ class GlobalSettings:
     active_sampler_learning_init_cycles_to_pursue_goal = 1
 
     bilevel_planning_explorer_enumerate_plans = False
+    
+    exploit_bilevel_planning_explorer_fallback_explorer = "RandomOptions"
 
     # grammar search invention parameters
     grammar_search_grammar_use_single_feature = True

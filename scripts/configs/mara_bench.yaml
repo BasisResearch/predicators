@@ -105,8 +105,12 @@ APPROACHES:
       online_nsrt_learning_requests_per_task: 8 # 2
       grammar_search_expected_nodes_optimal_demo_prob: 0.5
       cluster_and_inverse_planning_candidates: "top_consistent"
+      # cluster_and_inverse_planning_top_consistent_method: "top_n"
       cluster_and_inverse_planning_top_consistent_method: "top_p_percent"
+      # cluster_and_inverse_planning_top_consistent_method: "threshold"
       cluster_and_inverse_planning_top_p_percent: 4
+      cluster_and_inverse_planning_top_n: 10
+      exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
 
 ENVS:
   # cover:
