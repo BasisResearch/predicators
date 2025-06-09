@@ -4316,6 +4316,11 @@ class ConstantDelay(DelayDistribution):
 
     def set_parameters(self, parameters):
         self.delay = parameters[0]
+        # Invalidate cached properties
+        if '_str' in self.__dict__:
+            del self.__dict__['_str']
+        if '_hash' in self.__dict__:
+            del self.__dict__['_hash']
 
     def probability(self, k: int) -> float:
         return 1.0 if k == self.delay else 0.0
@@ -4341,6 +4346,11 @@ class GaussianDelay(DelayDistribution):
     def set_parameters(self, parameters):
         self.mean = parameters[0]
         self.std = parameters[1]
+        # Invalidate cached properties
+        if '_str' in self.__dict__:
+            del self.__dict__['_str']
+        if '_hash' in self.__dict__:
+            del self.__dict__['_hash']
 
     def probability(self, k: int) -> float:
         return norm.pdf(k, self.mean, self.std)
@@ -4353,14 +4363,14 @@ class GaussianDelay(DelayDistribution):
 class CMPDelay(DelayDistribution):
     """Conway-Maxwell-Poisson (CMP) distribution for delays."""
 
-    def __init__(self, lam: float, nu: float, rng: np.random.Generator):
+    def __init__(self, lam: float, nu: float, rng: np.random.Generator) -> None:
         self.lam = lam
         self.nu = nu
         self.rng = rng
         self._max_k = 100
         self._update_cache()
 
-    def _update_cache(self):
+    def _update_cache(self) -> None:
         """Precompute and cache PMF and CDF."""
         # Calculate log factorial values once
         log_factorials = np.array([gammaln(n + 1) for n in range(self._max_k)])
@@ -4381,10 +4391,15 @@ class CMPDelay(DelayDistribution):
         self._pmf = masses / np.sum(masses)
         self._cdf = np.cumsum(self._pmf)
 
-    def set_parameters(self, parameters):
+    def set_parameters(self, parameters: Sequence[float]) -> None:
         self.lam = parameters[0]
         self.nu = parameters[1]
         self._update_cache()
+        # Invalidate cached properties
+        if '_str' in self.__dict__:
+            del self.__dict__['_str']
+        if '_hash' in self.__dict__:
+            del self.__dict__['_hash']
 
     def probability(self, k: int) -> float:
         """Return the probability of delay k."""
@@ -4396,12 +4411,85 @@ class CMPDelay(DelayDistribution):
     def _str(self) -> str:
         return f"CMPDelay({self.lam}, {self.nu})"
 
-    def sample(self):
+    def sample(self) -> None:
         """Sample from the CMP distribution using cached CDF."""
         u = self.rng.random()
         idx = np.searchsorted(self._cdf, u)
         return idx
 
+class DoublePoissonDelay(DelayDistribution):
+    """
+    Double-Poisson distribution for discrete delays.
+
+    Parameters
+    ----------
+    mu : float
+        Mean-like parameter ( > 0 ).
+    phi : float
+        Dispersion parameter ( > 0 ).
+        • phi < 1  → over-dispersion
+        • phi = 1 → Poisson
+        • phi > 1 → under-dispersion
+    rng : np.random.Generator
+        Numpy random generator used by `sample()`.
+    max_k : int, optional
+        Cache PMF/CDF up to this value (default 100).
+        Increase if your delays can be very large.
+    """
+
+    def __init__(self,
+                 mu: float,
+                 phi: float,
+                 rng: np.random.Generator,
+                 max_k: int = 50):
+        self.mu = mu
+        self.phi = phi
+        self.rng = rng
+        self._max_k = max_k
+        self._update_cache()
+
+    # ------------------------------------------------------------------ #
+    # Internals
+    # ------------------------------------------------------------------ #
+    def _update_cache(self) -> None:
+        """Vectorised pre-computation of PMF and CDF."""
+        ks = np.arange(self._max_k)                     # 0, 1, …, max_k-1
+        log_fact = gammaln(ks + 1)                      # log(k!)
+        # Saddle-point normaliser  C(μ, φ) ≈ (2π φ μ)^(-1/2)
+        log_C = -0.5 * (np.log(2 * np.pi) + np.log(self.phi) + np.log(self.mu))
+
+        # log P(Y=k)
+        log_p = (log_C
+                 + self.phi * (ks * np.log(self.mu) - log_fact)
+                 - self.phi * self.mu)
+
+        # Stabilise → exponentiate → renormalise
+        log_p -= log_p.max()                            # avoid overflow
+        pmf = np.exp(log_p)
+        pmf /= pmf.sum()
+
+        self._pmf = pmf
+        self._cdf = np.cumsum(pmf)
+
+    def set_parameters(self, parameters: Sequence[float]) -> None:
+        """Update μ and φ, then rebuild the cache."""
+        self.mu, self.phi = parameters
+        self._update_cache()
+
+    def probability(self, k: int) -> float:
+        """Fast O(1) lookup of P(delay = k)."""
+        if 0 <= k < self._max_k:
+            return float(self._pmf[k])
+        return 0.0
+
+    def sample(self) -> int:
+        """Inverse-CDF sampling using cached CDF (O(log max_k))."""
+        u = self.rng.random()
+        return int(np.searchsorted(self._cdf, u))
+
+    @cached_property
+    def _str(self) -> str:
+        return f"DoublePoissonDelay({self.mu}, {self.phi})"
 
 @functools.lru_cache(maxsize=None)
 def get_git_commit_hash() -> str:

@@ -2460,6 +2460,11 @@ class CausalProcess(abc.ABC):
     def _set_parameters(self, parameters: Sequence[float]) -> None:
         self.strength = parameters[0]
         self.delay_distribution.set_parameters(parameters[1:])
+        # Invalidate cached properties
+        if '_str' in self.__dict__:
+            del self.__dict__['_str']
+        if '_hash' in self.__dict__:
+            del self.__dict__['_hash']
 
     def delay_probability(self, delay: int) -> float:
         return self.delay_distribution.probability(delay)

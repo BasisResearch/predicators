@@ -1,6 +1,7 @@
 import logging
 from collections import defaultdict
 from typing import Dict, List, Optional, Sequence, Set, Tuple
+from pprint import pformat
 
 import numpy as np
 from gym.spaces import Box
@@ -142,9 +143,9 @@ class ParamLearningBilevelProcessPlanningApproach(
         progress_bar = tqdm(desc="Optim. params.", unit="iter")
 
         # 2. Define objective and optimize
-        def objective(params):
+        def objective(params) -> float:
             """Objective function for scipy.optimize.minimize to minimize.
-
+ˍ
             It does some preparation and then calls the -ELBO function.
             """
             nonlocal best_elbo
@@ -191,6 +192,10 @@ class ParamLearningBilevelProcessPlanningApproach(
             },
             method="L-BFGS-B")  # terminate in 19464iter
         progress_bar.close()
+        # Display the learned processes
+        logging.debug("Learned processes:")
+        for proc in self._processes:
+            logging.debug(pformat(proc))
         logging.info(f"Best likelihood bound: {-result.fun}")
         breakpoint()
 
