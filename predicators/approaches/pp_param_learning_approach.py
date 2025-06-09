@@ -138,7 +138,6 @@ class ParamLearningBilevelProcessPlanningApproach(
         #     num_q_params, num_processes)
 
         # Keep track of iterations for progress display
-        iteration_count = 0
         best_elbo = -np.inf 
         progress_bar = tqdm(desc="Optim. params.", unit="iter")
 
@@ -148,13 +147,11 @@ class ParamLearningBilevelProcessPlanningApproach(
 
             It does some preparation and then calls the -ELBO function.
             """
-            nonlocal iteration_count, best_elbo
+            nonlocal best_elbo
             nonlocal start_times
             nonlocal all_possible_atoms
             nonlocal atom_to_val_to_gps
 
-            iteration_count += 1
-            progress_bar.update(1)
 
             self._set_process_parameters(params[1:num_proc_params])
             guide_params = params[num_proc_params:]
@@ -179,6 +176,7 @@ class ParamLearningBilevelProcessPlanningApproach(
                 'Current ELBO': f'{elbo_val:.4f}',
                 'Best ELBO': f'{best_elbo:.4f}'
             })
+            progress_bar.update(1)
             return -elbo_val
 
         result = minimize(
