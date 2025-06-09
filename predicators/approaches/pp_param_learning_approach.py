@@ -1,6 +1,6 @@
 import logging
 from collections import defaultdict
-from typing import Dict, List, Optional, Sequence, Set
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 from gym.spaces import Box
@@ -53,7 +53,7 @@ class ParamLearningBilevelProcessPlanningApproach(
         return "param_learning_process_planning"
 
     @property
-    def is_learning_based(self):
+    def is_learning_based(self) -> bool:
         return True
 
     def _get_current_processes(self) -> Set[CausalProcess]:
@@ -72,18 +72,16 @@ class ParamLearningBilevelProcessPlanningApproach(
         return set()
 
     def learn_from_offline_dataset(self,
-                                   dataset: Dataset,
-                                   guide_per_process: bool = False) -> None:
+                                   dataset: Dataset) -> None:
         """Learn parameters of processes from the offline datasets.
 
         This is currently achieved by optimizing the marginal data
         likelihood.
         """
-        self._learn_process_parameters(dataset, guide_per_process)
+        self._learn_process_parameters(dataset)
 
     def _learn_process_parameters(self,
-                                  dataset: Dataset,
-                                  guide_per_process: bool = False) -> None:
+                                  dataset: Dataset) -> None:
         """Learn parameters of processes from the online dataset."""
         # TODO: relax the assumption of one datapoint
         # Q: should there only be a guide for the exogenous processes?
@@ -101,12 +99,22 @@ class ParamLearningBilevelProcessPlanningApproach(
         trajectory = atom_option_dataset[0]
         traj_len = len(trajectory.states)
         objects = set(trajectory._low_level_states[0])
-        self.ground_processes = planning.task_plan_grounding(
+        self.ground_processes, _ = planning.task_plan_grounding(
             init_atoms=set(),
             objects=objects,
             nsrts=self._processes,
             allow_noops=True,
-            compute_reachable_atoms=False)[0]
+            compute_reachable_atoms=False)
+
+        # Cache for normalization constants calculation
+        atom_to_val_to_gps: Dict[GroundAtom, Dict[bool, Set[_GroundCausalProcess]
+                                    ]] = defaultdict(lambda: defaultdict(set))
+        for gp in self.ground_processes:
+            for atom in gp.add_effects:
+                atom_to_val_to_gps[atom][True].add(gp)
+            for atom in gp.delete_effects:
+                atom_to_val_to_gps[atom][False].add(gp)
+
         num_time_steps = len(trajectory.states)
         start_times = [[
             t for t in range(num_time_steps)
@@ -120,12 +128,10 @@ class ParamLearningBilevelProcessPlanningApproach(
         num_ground_processes = len(self.ground_processes)
         num_proc_params = 1 + 3 * num_processes
         # New: a guide for each ground process
-        if guide_per_process:
-            num_q_params = num_processes * traj_len
-        else:
-            num_q_params = num_ground_processes * traj_len
+        num_q_params = num_ground_processes * traj_len
         num_parameters = num_proc_params + num_q_params
 
+        np.random.seed(CFG.seed)
         init_guess = np.random.rand(num_parameters)  # rand init -- kevin
         bounds = [(-100, 100)] * num_parameters  # allow negative -- tom
         # init_guess, bounds = self._initialize_parameters(
@@ -142,22 +148,18 @@ class ParamLearningBilevelProcessPlanningApproach(
             It does some preparation and then calls the -ELBO function.
             """
             nonlocal iteration_count
-            nonlocal guide_per_process
             nonlocal start_times
             nonlocal all_possible_atoms
+            nonlocal atom_to_val_to_gps
 
             iteration_count += 1
             progress_bar.update(1)
 
             self._set_process_parameters(params[1:num_proc_params])
             guide_params = params[num_proc_params:]
-            if guide_per_process:
-                keys = self._processes
-            else:
-                keys = self.ground_processes
             guide: Dict[_GroundCausalProcess, List[float]] = {
                 proc: guide_params[i * traj_len:(i + 1) * traj_len]
-                for i, proc in enumerate(keys)
+                for i, proc in enumerate(self.ground_processes)
             }
 
             elbo_val = self.elbo(atom_option_dataset,
@@ -166,9 +168,9 @@ class ParamLearningBilevelProcessPlanningApproach(
                                  guide,
                                  frame_strength=params[0],
                                  predicates=self._get_current_predicates(),
-                                 guide_per_process=guide_per_process,
                                  start_times=start_times,
-                                 all_possible_atoms=all_possible_atoms)
+                                 all_possible_atoms=set(all_possible_atoms),
+                                 atom_to_val_to_gps=atom_to_val_to_gps,)
             return -elbo_val
 
         result = minimize(
@@ -191,14 +193,14 @@ class ParamLearningBilevelProcessPlanningApproach(
     @staticmethod
     def elbo(
         atom_option_dataset: List[AtomOptionTrajectory],
-        processes: List[CausalProcess],
         ground_processes: List[_GroundCausalProcess],
-        guide: Dict[CausalProcess, List[float]],
+        guide: Dict[_GroundCausalProcess, List[float]],
         frame_strength: float,
-        predicates: Set[Predicate],
-        guide_per_process: bool,
         start_times: List[List[int]],
-        all_possible_atoms: List[GroundAtom],
+        all_possible_atoms: Set[GroundAtom],
+        atom_to_val_to_gps: Dict[GroundAtom, Dict[bool, Set[_GroundCausalProcess]]],
+        refactored_elbo: bool = True,
+        # refactored_elbo: bool = False,
     ) -> float:
         """Compute the ELBO of the dataset under the model.
 
@@ -211,10 +213,7 @@ class ParamLearningBilevelProcessPlanningApproach(
         """
         # Assume there is only one trajectory in the dataset
         assert len(atom_option_dataset) == 1
-        if guide_per_process:
-            assert len(processes) == len(guide)
-        else:
-            assert len(ground_processes) == len(guide)
+        assert len(ground_processes) == len(guide)
         trajectory = atom_option_dataset[0]
         num_time_steps = len(trajectory.states)
 
@@ -223,7 +222,7 @@ class ParamLearningBilevelProcessPlanningApproach(
         # action is taken
 
         # TODO: extend to multiple occurrences
-        for start_time_list in start_times:
+        for i, start_time_list in enumerate(start_times):
             assert len(start_time_list) <= 1
 
         # TODO: think more about what to do with the guide for processes that
@@ -239,55 +238,104 @@ class ParamLearningBilevelProcessPlanningApproach(
 
         # 1. Sum of effect factors for processes
         # 2. Normalization constant per time step
-        ll = 0  # Log likelihood
+        ll = 0.0  # Log likelihood
 
         # possible_states = powerset(all_possible_atoms)
         for t in range(1, num_time_steps):
-            x_t = trajectory.states[t]
-            for j in range(len(all_possible_atoms)):
-                factor: Dict[bool, float] = defaultdict(float)  # Default value of 0.0
-                factor_atom = all_possible_atoms[j]
-                x_tj: bool = factor_atom in x_t
+            yt = trajectory.states[t]
+            yt_m1 = trajectory.states[t - 1]
+            if not refactored_elbo:
+                # --- Old
+                all_possible_atoms = sorted(all_possible_atoms)
+                for j in range(len(all_possible_atoms)):
+                    factor: Dict[bool, float] = defaultdict(float)  # Default value of 0.0
+                    factor_atom = all_possible_atoms[j]
+                    y_tj: bool = factor_atom in yt
 
-                # Factor from frame axiom: if atom didnt change
-                if (factor_atom in x_t) == (factor_atom in \
-                                                    trajectory.states[t - 1]):
-                    factor[x_tj] += frame_strength
+                    # Factor from frame axiom: if atom didnt change
+                    if (factor_atom in yt) == (factor_atom in \
+                                                        trajectory.states[t - 1]):
+                        factor[y_tj] += frame_strength
 
-                # Factor from other processes
-                for gp in ground_processes:
-                    if guide_per_process:
-                        key = gp.parent
-                    else:
-                        key = gp
-                    factor[x_tj] += guide[key][t] *\
-                        gp.factored_effect_factor(x_tj, factor_atom)
+                    # Factor from other processes
+                    for gp in ground_processes:
+                        factor[y_tj] += guide[gp][t] *\
+                            gp.factored_effect_factor(y_tj, factor_atom)
 
-                Z = 0
-                for atom_value in [True, False]:
-                    atom_didnt_change = atom_value == (factor_atom in \
-                                                    trajectory.states[t - 1])
-                    if guide_per_process:
-                        Z += np.exp(
-                            sum(
-                                np.log(guide[gp.parent][t] * np.exp(
-                                    gp.factored_effect_factor(
-                                        atom_value, factor_atom)) +
-                                       (1 - guide[gp.parent][t]))
-                                for gp in ground_processes) +
-                            frame_strength * atom_didnt_change)
-                    else:
-                        Z += np.exp(
+                    sum_ytj = 0
+                    for atom_value in [True, False]:
+                        atom_didnt_change = atom_value == (factor_atom in \
+                                                        trajectory.states[t - 1])
+                        sum_ytj += np.exp(
+                                sum(
+                                    np.log(guide[gp][t] * np.exp(
+                                        gp.factored_effect_factor(
+                                            atom_value, factor_atom)) +
+                                        (1 - guide[gp][t]))
+                                    for gp in ground_processes) +
+                                frame_strength * atom_didnt_change)
+                        
+
+                    E_log_Ztj = np.log(sum_ytj)
+                    ll += factor[y_tj] - E_log_Ztj
+                # --- Old
+            else:
+                # --- New
+                # Instead of iterating over all possible atoms, we iterate over the
+                # atoms in the ground_processes' effects 
+
+                # Compute this by grouping the terms into two parts, atoms that
+                # present in laws' effects and atoms that are not.
+                E_log_Zt = 0
+
+                num_atom_vals = 0
+                for atom, val_to_gps in atom_to_val_to_gps.items():
+                    sum_ytj = 0
+                    _val_to_gps = {True: val_to_gps[True],
+                                  False: val_to_gps[False]}
+                    for val, gps in _val_to_gps.items():
+                    # for val, gps in val_to_gps.items():
+                        num_atom_vals += 1
+                        # --- Expected effect factors ---
+                        if val == (atom in yt):
+                            ll += sum(guide[gp][t] * gp.factored_effect_factor(
+                                    val, atom) for gp in gps)
+
+                        sum_ytj += np.exp(
                             sum(
                                 np.log(guide[gp][t] * np.exp(
-                                    gp.factored_effect_factor(
-                                        atom_value, factor_atom)) +
-                                       (1 - guide[gp][t]))
-                                for gp in ground_processes) +
-                            frame_strength * atom_didnt_change)
+                                    gp.factored_effect_factor(val, atom))
+                                        + (1 - guide[gp][t]))
+                                for gp in gps) +
+                                frame_strength * (val == (atom in yt_m1)))
+                    E_log_Zt += np.log(sum_ytj)
 
-                logZ = np.log(Z)
-                ll += factor[x_tj] - logZ
+                # --- Expected effect factors; frame factor ---
+                del_atoms = yt - yt_m1
+                add_atoms = yt_m1 - yt
+                atoms_unchanged = all_possible_atoms - add_atoms - del_atoms
+                atoms_in_law_effects = set(atom_to_val_to_gps)
+
+                atoms_unchanged_not_in_law_effects = \
+                    atoms_unchanged - atoms_in_law_effects
+                atoms_changed_not_in_law_effects = \
+                    (add_atoms | del_atoms) - atoms_in_law_effects
+                ll += frame_strength * len(atoms_unchanged)
+
+                # TODO: trying to refactor even more: add the contribututions of
+                # atom_vals whose atoms are in the law's effects but not the val
+                # so don't have to create _val_to_gps.
+                # num_of_unincluded_atom_vals = len(atoms_in_law_effects) * 2 - \
+                #     num_atom_vals
+                # E_log_Zt += num_of_unincluded_atom_vals
+
+                # Atoms unchanged but not described by the processes
+                E_log_Zt += len(atoms_unchanged_not_in_law_effects) * \
+                        np.log(1 + np.exp(frame_strength))
+                # Atoms changed and not described by the processes
+                E_log_Zt += len(atoms_changed_not_in_law_effects) * np.log(2)
+                ll -= E_log_Zt
+                # --- New End
 
         # 3. Sum of delay probabilities
         # TODO: update for potentially multiple occurrences
@@ -297,10 +345,7 @@ class ParamLearningBilevelProcessPlanningApproach(
                     delay_prob = gp.delay_distribution.probability(
                         t - start_time[0])
                     if delay_prob > 1e-9:
-                        if guide_per_process:
-                            ll += guide[gp.parent][t] * np.log(delay_prob)
-                        else:
-                            ll += guide[gp][t] * np.log(delay_prob)
+                        ll += guide[gp][t] * np.log(delay_prob)
 
         # 4. Entropy of the variational distributions
         H = 0
@@ -311,8 +356,10 @@ class ParamLearningBilevelProcessPlanningApproach(
                     if p > 1e-6:
                         H -= p * np.log(p)
 
-        logging.debug(f"H={H:.4f}, ELBO={ll + H:.4f}")
-        return ll + H
+        elbo = ll + H
+        logging.debug(f"H={H:.4f}, ELBO={elbo:.4f}")
+        breakpoint()
+        return elbo
 
     def _set_process_parameters(self, parameters: Sequence[float]) -> None:
         assert len(parameters) == 3 * len(self._processes)

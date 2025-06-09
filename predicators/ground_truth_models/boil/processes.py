@@ -419,6 +419,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(7)
+            delay_distribution = ConstantDelay(4) # temporary for param learning
         elif CFG.boil_use_normal_delay:
             delay_distribution = GaussianDelay(mean=4, std=0.2, rng=rng)
         else:
