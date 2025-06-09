@@ -135,11 +135,11 @@ class ParamLearningBilevelProcessPlanningApproach(
         np.random.seed(CFG.seed)
         init_guess = np.random.rand(num_parameters)  # rand init -- kevin
         bounds = [(-100, 100)] * num_parameters  # allow negative -- tom
-        # init_guess, bounds = self._initialize_parameters(
-        #     num_q_params, num_processes)
 
         # Keep track of iterations for progress display
         best_elbo = -np.inf 
+        iteration_count = 0
+        training_curve = {'iterations': [], 'elbos': [], 'best_elbos': []}
         progress_bar = tqdm(desc="Optim. params.", unit="iter")
 
         # 2. Define objective and optimize
@@ -148,12 +148,12 @@ class ParamLearningBilevelProcessPlanningApproach(
 ˍ
             It does some preparation and then calls the -ELBO function.
             """
-            nonlocal best_elbo
+            nonlocal best_elbo, iteration_count
             nonlocal start_times
             nonlocal all_possible_atoms
             nonlocal atom_to_val_to_gps
 
-
+            iteration_count += 1
             self._set_process_parameters(params[1:num_proc_params])
             guide_params = params[num_proc_params:]
             guide: Dict[_GroundCausalProcess, List[float]] = {
@@ -171,7 +171,11 @@ class ParamLearningBilevelProcessPlanningApproach(
             # Update best ELBO
             if elbo_val > best_elbo:
                 best_elbo = elbo_val
-            
+            # Store training curve data
+            training_curve['iterations'].append(iteration_count)
+            training_curve['elbos'].append(elbo_val)
+            training_curve['best_elbos'].append(best_elbo)
+         
             # Update progress bar with current and best ELBO
             progress_bar.set_postfix({
                 'Current ELBO': f'{elbo_val:.4f}',
@@ -379,50 +383,53 @@ class ParamLearningBilevelProcessPlanningApproach(
         for i in range(0, len(parameters), 3):
             self._processes[i // 3]._set_parameters(parameters[i:i + 3])
 
-    def _initialize_parameters(self, num_q_params: int, num_processes: int):
-        """Build an initial guess vector and corresponding bounds for: 1) frame
-        axiom strength (1 scalar) 2) per-process parameters:
-
-            - strength_i >= 0
-            - lambda_i in (0, 1)
-            - nu_i >= 0
-        3) variational logits (unbounded real)
-        """
-        init_guess = []
-        bounds = []
-
-        # 1) Frame axiom strength
-        #    For example, random in [0, 5], but adjust as needed.
-        fa_strength = np.random.uniform(0.0, 10.0)
-        init_guess.append(fa_strength)
-        # If you want no upper bound, use (0, None).
-        # If you prefer a big but finite upper bound, do (0, 1e2) or similar.
-        bounds.append((0, 100))
-
-        # 2) For each process, we have three parameters: strength, lambda, nu.
-        for _ in range(num_processes):
-            # strength_i, e.g. random in [0,5]
-            strength_i = np.random.uniform(0.0, 10.0)
-            init_guess.append(strength_i)
-            bounds.append((0, 100))
-
-            # lambda_i, e.g. random in (0,1)
-            lambda_i = np.random.uniform(0.01, 0.99)
-            init_guess.append(lambda_i)
-            bounds.append((1e-6, 1 - 1e-6))
-
-            # nu_i, e.g. random in [0.01, 5.0]
-            # If your use case requires strictly positive or equals 0, adjust accordingly.
-            nu_i = np.random.uniform(0.01, 5.0)
-            init_guess.append(nu_i)
-            bounds.append((1e-6, 100))
-
-        # 3) Variational distribution logits
-        #    These can be any real number, so we often have no bounds.
-        #    Initialize them near 0 or within [-1, 1].
-        for _ in range(num_q_params):
-            logit = np.random.uniform(-1.0, 1.0)
-            init_guess.append(logit)
-            # No bounds on logits => (None, None).
-            bounds.append((-100, 100))
-        return init_guess, bounds
+    def _plot_training_curve(self, training_curve: Dict) -> None:
+        """Plot the training curve showing ELBO over iterations."""
+        import matplotlib.pyplot as plt
+        
+        iterations = training_curve['iterations']
+        elbos = training_curve['elbos']
+        best_elbos = training_curve['best_elbos']
+        
+        plt.figure(figsize=(12, 6))
+        
+        # Plot current ELBO
+        plt.subplot(1, 2, 1)
+        plt.plot(iterations, elbos, 'b-', alpha=0.7, label='Current ELBO')
+        plt.plot(iterations, best_elbos, 'r-', linewidth=2, label='Best ELBO')
+        plt.xlabel('Iteration')
+        plt.ylabel('ELBO')
+        plt.title('Training Curve: ELBO vs Iteration')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        # Plot smoothed version (moving average) if enough points
+        plt.subplot(1, 2, 2)
+        if len(elbos) > 10:
+            window_size = max(10, len(elbos) // 20)
+            smoothed_elbos = []
+            for i in range(len(elbos)):
+                start_idx = max(0, i - window_size // 2)
+                end_idx = min(len(elbos), i + window_size // 2 + 1)
+                smoothed_elbos.append(np.mean(elbos[start_idx:end_idx]))
+            
+            plt.plot(iterations, smoothed_elbos, 'g-', label=f'Smoothed ELBO (window={window_size})')
+        else:
+            plt.plot(iterations, elbos, 'b-', alpha=0.7, label='Current ELBO')
+        
+        plt.plot(iterations, best_elbos, 'r-', linewidth=2, label='Best ELBO')
+        plt.xlabel('Iteration')
+        plt.ylabel('ELBO')
+        plt.title('Smoothed Training Curve')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        # Save the plot
+        filename = f"training_curve_seed_{CFG.seed}.png"
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        logging.info(f"Training curve saved to {filename}")
+        
+        # Show plot if in interactive mode
+        plt.show()
