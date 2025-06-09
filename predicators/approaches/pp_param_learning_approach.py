@@ -139,6 +139,7 @@ class ParamLearningBilevelProcessPlanningApproach(
 
         # Keep track of iterations for progress display
         iteration_count = 0
+        best_elbo = -np.inf 
         progress_bar = tqdm(desc="Optim. params.", unit="iter")
 
         # 2. Define objective and optimize
@@ -147,7 +148,7 @@ class ParamLearningBilevelProcessPlanningApproach(
 
             It does some preparation and then calls the -ELBO function.
             """
-            nonlocal iteration_count
+            nonlocal iteration_count, best_elbo
             nonlocal start_times
             nonlocal all_possible_atoms
             nonlocal atom_to_val_to_gps
@@ -163,14 +164,21 @@ class ParamLearningBilevelProcessPlanningApproach(
             }
 
             elbo_val = self.elbo(atom_option_dataset,
-                                 self._processes,
                                  self.ground_processes,
                                  guide,
                                  frame_strength=params[0],
-                                 predicates=self._get_current_predicates(),
                                  start_times=start_times,
                                  all_possible_atoms=set(all_possible_atoms),
                                  atom_to_val_to_gps=atom_to_val_to_gps,)
+            # Update best ELBO
+            if elbo_val > best_elbo:
+                best_elbo = elbo_val
+            
+            # Update progress bar with current and best ELBO
+            progress_bar.set_postfix({
+                'Current ELBO': f'{elbo_val:.4f}',
+                'Best ELBO': f'{best_elbo:.4f}'
+            })
             return -elbo_val
 
         result = minimize(
@@ -186,6 +194,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             method="L-BFGS-B")  # terminate in 19464iter
         progress_bar.close()
         logging.info(f"Best likelihood bound: {-result.fun}")
+        breakpoint()
 
         # 3. Set the optimized parameters
         self._set_process_parameters(result.x[1:num_proc_params])
@@ -357,8 +366,7 @@ class ParamLearningBilevelProcessPlanningApproach(
                         H -= p * np.log(p)
 
         elbo = ll + H
-        logging.debug(f"H={H:.4f}, ELBO={elbo:.4f}")
-        breakpoint()
+        # logging.debug(f"H={H:.4f}, ELBO={elbo:.4f}")
         return elbo
 
     def _set_process_parameters(self, parameters: Sequence[float]) -> None:
