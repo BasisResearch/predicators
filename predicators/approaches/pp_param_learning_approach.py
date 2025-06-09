@@ -143,7 +143,7 @@ class ParamLearningBilevelProcessPlanningApproach(
         progress_bar = tqdm(desc="Optim. params.", unit="iter")
 
         # 2. Define objective and optimize
-        def objective(params) -> float:
+        def objective(params: List[float]) -> float:
             """Objective function for scipy.optimize.minimize to minimize.
 ˍ
             It does some preparation and then calls the -ELBO function.
