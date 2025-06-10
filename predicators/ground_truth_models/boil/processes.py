@@ -9,7 +9,7 @@ from predicators.structs import CausalProcess, EndogenousProcess, \
     ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
     Variable
 from predicators.utils import CMPDelay, ConstantDelay, GaussianDelay, \
-    null_sampler
+    null_sampler, DoublePoissonDelay
 
 
 class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
@@ -95,9 +95,11 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(4)
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=4, std=0.2)
-        else:
+            delay_distribution = GaussianDelay(mean=4, std=0.2, rng=rng)
+        elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(80, 3)
+        else:
+            delay_distribution = DoublePoissonDelay(mu=4, phi=50)
         pick_jug_from_faucet_process = EndogenousProcess(
             "PickJugFromFaucet", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -125,9 +127,11 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(4)
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=4, std=0.2)
-        else:
+            delay_distribution = GaussianDelay(mean=4, std=0.2, rng=rng)
+        elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(80, 3)
+        else:
+            delay_distribution = DoublePoissonDelay(mu=4, phi=50)
         pick_jug_from_burner_process = EndogenousProcess(
             "PickJugFromBurner", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -155,8 +159,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             delay_distribution = ConstantDelay(3)
         elif CFG.boil_use_normal_delay:
             delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
-        else:
+        elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
+        else:
+            delay_distribution = DoublePoissonDelay(mu=3, phi=50)
         pick_jug_outside_faucet_burner_process = EndogenousProcess(
             "PickJugFromOutsideFaucetAndBurner", parameters,
             condition_at_start, set(), set(), add_effects, delete_effects,
@@ -184,9 +190,11 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(5)
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=5, std=0.2)
-        else:
+            delay_distribution = GaussianDelay(mean=5, std=0.2, rng=rng)
+        elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(100, 3)
+        else:
+            delay_distribution = DoublePoissonDelay(mu=5, phi=50)
         place_on_burner_process = EndogenousProcess(
             "PlaceOnBurner", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -214,9 +222,11 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(3)
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=3, std=0.2)
-        else:
+            delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
+        elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
+        else:
+            delay_distribution = DoublePoissonDelay(mu=3, phi=50)
         place_under_faucet_process = EndogenousProcess(
             "PlaceUnderFaucet", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -242,9 +252,11 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(3)
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=3, std=0.2)
-        else:
+            delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
+        elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
+        else:
+            delay_distribution = DoublePoissonDelay(mu=3, phi=50)
         place_at_outside_faucet_burner_process = EndogenousProcess(
             "PlaceOutsideFaucetAndBurner", parameters, condition_at_start,
             set(), set(), add_effects, delete_effects, delay_distribution, 1.0,
@@ -270,9 +282,11 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(1)
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=1, std=0.2)
-        else:
+            delay_distribution = GaussianDelay(mean=1, std=0.2, rng=rng)
+        elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(1, 1)
+        else:
+            delay_distribution = DoublePoissonDelay(mu=1, phi=50)
         switch_faucet_on_process = EndogenousProcess(
             "SwitchFaucetOn", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -298,9 +312,11 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(1)
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=1, std=0.2)
-        else:
+            delay_distribution = GaussianDelay(mean=1, std=0.2, rng=rng)
+        elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(1, 1)
+        else:
+            delay_distribution = DoublePoissonDelay(mu=1, phi=50)
         switch_faucet_off_process = EndogenousProcess(
             "SwitchFaucetOff", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -327,8 +343,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             delay_distribution = ConstantDelay(3)
         elif CFG.boil_use_normal_delay:
             delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
-        else:
+        elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
+        else:
+            delay_distribution = DoublePoissonDelay(mu=3, phi=50)
         switch_burner_on_process = EndogenousProcess(
             "SwitchBurnerOn", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -355,8 +373,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             delay_distribution = ConstantDelay(1)
         elif CFG.boil_use_normal_delay:
             delay_distribution = GaussianDelay(mean=1, std=0.2, rng=rng)
-        else:
+        elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(1, 1)
+        else:
+            delay_distribution = DoublePoissonDelay(mu=1, phi=50)
         switch_burner_off_process = EndogenousProcess(
             "SwitchBurnerOff", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -368,7 +388,6 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         parameters = [robot]
         option_vars = [robot]
         option = NoOp
-        # delay_distribution = GaussianDelay(3, 2, rng)
         delay_distribution = ConstantDelay(1)
         noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
                                          set(), set(), set(),
@@ -389,7 +408,14 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
                 LiftedAtom(BurnerOff, [burner]),
             }
             add_effects = {LiftedAtom(TaskCompleted, [])}
-            delay_distribution = ConstantDelay(1)
+            if CFG.boil_use_constant_delay:
+                delay_distribution = ConstantDelay(1)
+            elif CFG.boil_use_normal_delay:
+                delay_distribution = GaussianDelay(mean=1, std=0.2, rng=rng)
+            elif CFG.boil_use_cmp_delay:
+                delay_distribution = CMPDelay(1, 1) # Assumed from other mean=1 cases
+            else:
+                delay_distribution = DoublePoissonDelay(mu=1, phi=50)
             declare_complete_process = EndogenousProcess(
                 "DeclareComplete", parameters, condition_at_start, set(),
                 set(), add_effects, set(), delay_distribution, 1.0, option,
@@ -418,13 +444,15 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(JugNotFilled, [jug]),
         }
         if CFG.boil_use_constant_delay:
+            # Using the active value from original code for FillJug
             delay_distribution = ConstantDelay(7)
-            delay_distribution = ConstantDelay(
-                4)  # temporary for param learning
+            delay_distribution = ConstantDelay(4)
         elif CFG.boil_use_normal_delay:
             delay_distribution = GaussianDelay(mean=4, std=0.2, rng=rng)
-        else:
+        elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(100, 2.9)
+        else:
+            delay_distribution = DoublePoissonDelay(mu=4, phi=50) # mu=4 from ConstantDelay(4)
         fill_jug_process = ExogenousProcess("FillJug", parameters,
                                             condition_at_start,
                                             condition_overall, set(),
@@ -457,8 +485,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             delay_distribution = ConstantDelay(3)
         elif CFG.boil_use_normal_delay:
             delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
-        else:
+        elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
+        else:
+            delay_distribution = DoublePoissonDelay(mu=3, phi=50)
         overfill_jug_process = ExogenousProcess("OverfillJug", parameters,
                                                 condition_at_start,
                                                 condition_overall, set(),
@@ -485,8 +515,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
                 delay_distribution = ConstantDelay(3)
             elif CFG.boil_use_normal_delay:
                 delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
-            else:
+            elif CFG.boil_use_cmp_delay:
                 delay_distribution = CMPDelay(55, 3)
+            else:
+                delay_distribution = DoublePoissonDelay(mu=3, phi=50)
             spill_process = ExogenousProcess("Spill",
                                              parameters, condition_at_start,
                                              set(), set(), add_effects,
@@ -515,8 +547,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             delay_distribution = ConstantDelay(5)
         elif CFG.boil_use_normal_delay:
             delay_distribution = GaussianDelay(mean=5, std=0.2, rng=rng)
-        else:
+        elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(100, 3)
+        else:
+            delay_distribution = DoublePoissonDelay(mu=5, phi=50)
         boil_process = ExogenousProcess("Boil", parameters, condition_at_start,
                                         condition_overall, set(), add_effects,
                                         set(), delay_distribution, 1.0)
@@ -533,7 +567,14 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
                 LiftedAtom(BurnerOff, [burner]),
             }
             add_effects = {LiftedAtom(HumanHappy, [])}
-            delay_distribution = ConstantDelay(3)
+            if CFG.boil_use_constant_delay:
+                delay_distribution = ConstantDelay(3)
+            elif CFG.boil_use_normal_delay:
+                delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
+            elif CFG.boil_use_cmp_delay:
+                delay_distribution = CMPDelay(55, 3) # Assumed from other mean=3 cases
+            else:
+                delay_distribution = DoublePoissonDelay(mu=3, phi=50)
             human_happy_process = ExogenousProcess("HumanHappy", parameters,
                                                    condition_at_start, set(),
                                                    set(), add_effects, set(),

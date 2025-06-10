@@ -176,7 +176,7 @@ class ParamLearningBilevelProcessPlanningApproach(
 
         best_elbo = -np.inf
         iteration_count = 0
-        training_curve = {
+        training_curve: Dict[str, List] = {
             'iterations': [],
             'elbos': [],
             'best_elbos': [],

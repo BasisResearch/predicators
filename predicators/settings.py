@@ -419,6 +419,7 @@ class GlobalSettings:
     # boil env
     boil_use_constant_delay = False
     boil_use_normal_delay = False
+    boil_use_cmp_delay = False
     boil_goal = "simple"  # Can also be "task_completed", "human_happy"
     boil_use_derived_predicates = True
 
