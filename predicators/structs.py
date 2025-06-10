@@ -2487,7 +2487,7 @@ class CausalProcess(abc.ABC):
     Conditions at end: {sorted(self.condition_at_end, key=str)}
     Add Effects: {sorted(self.add_effects, key=str)}
     Delete Effects: {sorted(self.delete_effects, key=str)}
-    Strength: {self.strength}
+    Strength: {self.strength:.4f}
     Delay Distribution: {self.delay_distribution}"""
 
     def __str__(self) -> str:

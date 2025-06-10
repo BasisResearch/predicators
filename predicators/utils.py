@@ -4453,6 +4453,11 @@ class DoublePoissonDelay(DelayDistribution):
         self.mu = torch.tensor(parameters[0], dtype=torch.get_default_dtype())
         self.phi = torch.tensor(parameters[1], dtype=torch.get_default_dtype())
         self._update_cache()
+        # Invalidate cached properties
+        if '_str' in self.__dict__:
+            del self.__dict__['_str']
+        if '_hash' in self.__dict__:
+            del self.__dict__['_hash']
 
     def probability(self, k: int) -> float:
         """Fast O(1) lookup of P(delay = k)."""
@@ -4466,7 +4471,7 @@ class DoublePoissonDelay(DelayDistribution):
 
     @cached_property
     def _str(self) -> str:
-        return f"DoublePoissonDelay({self.mu}, {self.phi})"
+        return f"DoublePoissonDelay({self.mu:.4f}, {self.phi:.4f})"
 
 
 @functools.lru_cache(maxsize=None)
