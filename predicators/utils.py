@@ -3356,7 +3356,8 @@ def create_ground_atom_dataset(
 def create_ground_atom_option_dataset(
         trajectories: List[LowLevelTrajectory],
         predicates: Set[Predicate]) -> List[AtomOptionTrajectory]:
-    """Apply all predicates to all trajectories in the dataset."""
+    """Apply all predicates to all trajectories in the dataset and also
+    annotate with options (HLA)."""
     ground_atom_option_dataset = []
     for traj in trajectories:
         # TODO: this is current just based on the current states. We would
