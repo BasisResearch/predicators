@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from collections import defaultdict
 from pprint import pformat
@@ -17,7 +18,6 @@ from predicators.approaches.process_planning_approach import \
 from predicators.ground_truth_models import get_gt_processes
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
-import os
 from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     Dataset, EndogenousProcess, ExogenousProcess, GroundAtom, \
     ParameterizedOption, Predicate, Task, Type, _GroundCausalProcess
