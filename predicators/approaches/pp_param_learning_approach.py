@@ -89,7 +89,7 @@ class ParamLearningBilevelProcessPlanningApproach(
     def _learn_process_parameters(
         self,
         dataset: Dataset,
-        num_steps: int = 500,
+        num_steps: int = 200,
         lr: float = 5e-2,
         use_lbfgs: bool = True,
     ) -> None:
@@ -210,8 +210,8 @@ class ParamLearningBilevelProcessPlanningApproach(
             self._set_process_parameters(proc_params.detach())
 
             # construct guide dictionary (softmax per ground process instance) -----
-            guide: Dict[_GroundCausalProcess,
-                        Dict[int, Tensor]] = defaultdict(dict)
+            guide: Dict[_GroundCausalProcess, Dict[int,
+                                                   Tensor]] = defaultdict(dict)
             current_q_param_idx = 0
             for gp_instance_tuple in process_instances:
                 gp, start_t = gp_instance_tuple
@@ -268,7 +268,7 @@ class ParamLearningBilevelProcessPlanningApproach(
         if use_lbfgs:
             optimiser.step(_closure)
         else:
-            for _ in pbar:  # type: ignore[arg-type]
+            for _ in pbar:
                 loss = _closure()
                 optimiser.step()
 

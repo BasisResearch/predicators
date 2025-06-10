@@ -447,7 +447,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             # Using the active value from original code for FillJug
             delay_distribution = ConstantDelay(7)
-            delay_distribution = ConstantDelay(4)
+            # delay_distribution = ConstantDelay(4)
         elif CFG.boil_use_normal_delay:
             delay_distribution = GaussianDelay(mean=4, std=0.2, rng=rng)
         elif CFG.boil_use_cmp_delay:
