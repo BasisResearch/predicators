@@ -14,8 +14,8 @@ from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.objects import create_object, update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
-from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
-    Predicate, State, Type, DerivedPredicate
+from predicators.structs import Action, DerivedPredicate, EnvironmentTask, \
+    GroundAtom, Object, Predicate, State, Type
 
 
 class PyBulletBoilEnv(PyBulletEnv):
@@ -197,12 +197,12 @@ class PyBulletBoilEnv(PyBulletEnv):
         self._TaskCompleted = Predicate("TaskCompleted", [],
                                         self._TaskCompleted_holds)
         self._NoJugAtFaucetOrJugAtFaucetAndFilled = DerivedPredicate(
-            "JugNotAtFaucetOrAtFaucetAndFilled", 
-            [self._jug_type, self._faucet_type], 
+            "JugNotAtFaucetOrAtFaucetAndFilled",
+            [self._jug_type, self._faucet_type],
             self._NoJugAtFaucetOrJugAtFaucetAndFilled_holds,
-            auxiliary_predicates=[self._JugAtFaucet, self._JugFilled, 
-                                  self._NoJugAtFaucet])
-        
+            auxiliary_predicates=[
+                self._JugAtFaucet, self._JugFilled, self._NoJugAtFaucet
+            ])
 
     @classmethod
     def get_name(cls) -> str:
@@ -763,7 +763,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         return dist < self.burner_align_threshold
 
     def _JugAtFaucet_holds(self, state: State,
-                              objects: Sequence[Object]) -> bool:
+                           objects: Sequence[Object]) -> bool:
         (jug, faucet) = objects
         if self._Holding_holds(state, [self._robot, jug]):
             return False
@@ -795,7 +795,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         return True
 
     def _NoJugAtFaucet_holds(self, state: State,
-                                objects: Sequence[Object]) -> bool:
+                             objects: Sequence[Object]) -> bool:
         (faucet, ) = objects
         jugs = state.get_objects(self._jug_type)
         for jug in jugs:
@@ -854,9 +854,9 @@ class PyBulletBoilEnv(PyBulletEnv):
         del objects
         return self._robot_at_init_pose(state) and \
             self._simple_task_objective_holds(state)
-    
+
     def _NoJugAtFaucetOrJugAtFaucetAndFilled_holds(
-        self, atoms: Set[GroundAtom], objects: Sequence[Object]) -> bool:
+            self, atoms: Set[GroundAtom], objects: Sequence[Object]) -> bool:
         """A jug is not at the faucet, or if it is, it is filled."""
         (jug, faucet) = objects
 
@@ -873,8 +873,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             elif atom.predicate == self._JugFilled and atom.objects == [jug]:
                 jug_filled = True
 
-        return no_jug_at_faucet or (jug_at_faucet and jug_filled)             
-
+        return no_jug_at_faucet or (jug_at_faucet and jug_filled)
 
     # -------------------------------------------------------------------------
     # Task Generation

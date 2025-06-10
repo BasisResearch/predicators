@@ -366,8 +366,8 @@ def get_false_positive_states(
     ]
     CFG.segmenter = initial_segmenter_method
 
-    return get_false_positive_states_from_seg_trajs(
-        segmented_trajs, exogenous_processes)
+    return get_false_positive_states_from_seg_trajs(segmented_trajs,
+                                                    exogenous_processes)
 
 
 def get_true_positive_process_states(

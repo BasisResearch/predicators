@@ -399,6 +399,7 @@ class Predicate:
     def __lt__(self, other: Predicate) -> bool:
         return str(self) < str(other)
 
+
 @dataclass(frozen=True, order=False, repr=False)
 class DerivedPredicate(Predicate):
     """Struct defining a concept predicate."""
@@ -411,8 +412,8 @@ class DerivedPredicate(Predicate):
                           bool] = field(compare=False)
     untransformed_predicate: Optional[Predicate] = field(default=None,
                                                          compare=False)
-    auxiliary_predicates: Optional[Set[ConceptPredicate]] = field(default=None,
-                                                                compare=False)
+    auxiliary_predicates: Optional[Set[ConceptPredicate]] = field(
+        default=None, compare=False)
 
     def update_auxiliary_concepts(
             self,
@@ -443,6 +444,7 @@ class DerivedPredicate(Predicate):
                             objects: Sequence[Object]) -> bool:
         # Separate this into a named function for pickling reasons.
         return not self._classifier(state, objects)
+
 
 @dataclass(frozen=True, order=False, repr=False, eq=False)
 class VLMPredicate(Predicate):
@@ -1838,10 +1840,10 @@ class PNAD:
         if len(self.datastore) > 0:
             # All variables should have a corresponding object.
             if CFG.exogenous_process_learner_do_intersect:
-                # When we don't assume preconditions contain only atoms with 
+                # When we don't assume preconditions contain only atoms with
                 # variables present in the effect, we would first include
                 # all the variables in the op.parameters, and the var_obj_sub
-                # only contain parameters that can be unified with the last 
+                # only contain parameters that can be unified with the last
                 # segment. So it can be a subset of the op.parameters.
                 assert set(var_obj_sub).issubset(set(self.op.parameters))
             else:
@@ -1851,13 +1853,13 @@ class PNAD:
                 obj_var_sub = {o: v for (v, o) in var_obj_sub.items()}
                 lifted_add_effects = {
                     a.lift(obj_var_sub)
-                    for a in seg.add_effects if 
-                        not isinstance(a.predicate, DerivedPredicate)
+                    for a in seg.add_effects
+                    if not isinstance(a.predicate, DerivedPredicate)
                 }
                 lifted_del_effects = {
                     a.lift(obj_var_sub)
-                    for a in seg.delete_effects if 
-                        not isinstance(a.predicate, DerivedPredicate)
+                    for a in seg.delete_effects
+                    if not isinstance(a.predicate, DerivedPredicate)
                 }
                 assert lifted_add_effects == self.op.add_effects
                 assert lifted_del_effects == self.op.delete_effects
@@ -1884,11 +1886,12 @@ class PNAD:
         return self.op.make_endogenous_process(param_option, option_vars,
                                                self.sampler)
 
-    def make_exogenous_process(self,
-                    process_strength: Optional[float] = None,
-                    process_delay_params: Optional[Sequence[float]] = None,
-                    process_rng: Optional[np.random.Generator] = None
-                    ) -> ExogenousProcess:
+    def make_exogenous_process(
+            self,
+            process_strength: Optional[float] = None,
+            process_delay_params: Optional[Sequence[float]] = None,
+            process_rng: Optional[np.random.Generator] = None
+    ) -> ExogenousProcess:
         """Make an ExogenousProcess from this PNAD."""
         return self.op.make_exogenous_process(
             process_strength=process_strength,

@@ -24,11 +24,11 @@ from predicators.planning import PlanningFailure, PlanningTimeout, \
 from predicators.refinement_estimators import BaseRefinementEstimator
 from predicators.settings import CFG
 from predicators.structs import NSRT, AbstractPolicy, CausalProcess, \
-    DefaultState, DummyOption, EndogenousProcess, ExogenousProcess, \
-    GroundAtom, Metrics, Object, OptionSpec, ParameterizedOption, Predicate, \
-    State, STRIPSOperator, Task, Type, _GroundCausalProcess, \
-    _GroundEndogenousProcess, _GroundExogenousProcess, _GroundNSRT, \
-    _GroundSTRIPSOperator, _Option, DerivedPredicate
+    DefaultState, DerivedPredicate, DummyOption, EndogenousProcess, \
+    ExogenousProcess, GroundAtom, Metrics, Object, OptionSpec, \
+    ParameterizedOption, Predicate, State, STRIPSOperator, Task, Type, \
+    _GroundCausalProcess, _GroundEndogenousProcess, _GroundExogenousProcess, \
+    _GroundNSRT, _GroundSTRIPSOperator, _Option
 from predicators.utils import EnvironmentFailure, _TaskPlanningHeuristic
 
 
@@ -54,16 +54,18 @@ class _ProcessPlanningNode():
 
 class ProcessWorldModel:
 
-    def __init__(self,
-                 ground_processes: List[_GroundCausalProcess],
-                 state: Set[GroundAtom],
-                 state_history: List[Set[GroundAtom]] = [],
-                 action_history: List[Optional[_GroundEndogenousProcess]] = [],
-                 scheduled_events: Dict[int, List[Tuple[_GroundCausalProcess,
-                                                        int]]] = {},
-                 t: int = 0,
-                 derived_predicates: Set[DerivedPredicate] = set(),
-                 objects: Set[Object] = set()) -> None:
+    def __init__(
+        self,
+        ground_processes: List[_GroundCausalProcess],
+        state: Set[GroundAtom],
+        state_history: List[Set[GroundAtom]] = [],
+        action_history: List[Optional[_GroundEndogenousProcess]] = [],
+        scheduled_events: Dict[int, List[Tuple[_GroundCausalProcess,
+                                               int]]] = {},
+        t: int = 0,
+        derived_predicates: Set[DerivedPredicate] = set(),
+        objects: Set[Object] = set()
+    ) -> None:
 
         self.ground_processes = ground_processes
         self.state = state
@@ -123,8 +125,11 @@ class ProcessWorldModel:
             # Remove all the previous derived predicates before adding new
             # ones.
             if len(self.derived_predicates) > 0:
-                self.state = {atom for atom in self.state if not 
-                                isinstance(atom.predicate, DerivedPredicate)}
+                self.state = {
+                    atom
+                    for atom in self.state
+                    if not isinstance(atom.predicate, DerivedPredicate)
+                }
                 self.state |= utils.abstract_with_derived_predicates(
                     self.state, self.derived_predicates, self.objects)
 
@@ -373,8 +378,8 @@ def task_plan_from_task(
         allow_noops=True,
         compute_reachable_atoms=False)
     heuristic = utils.create_task_planning_heuristic(
-                    CFG.sesame_task_planning_heuristic, init_atoms, goal,
-                    ground_processes, all_predicates, objects)
+        CFG.sesame_task_planning_heuristic, init_atoms, goal, ground_processes,
+        all_predicates, objects)
     return task_plan(
         init_atoms,
         goal,
@@ -386,7 +391,9 @@ def task_plan_from_task(
         max_skeletons_optimized,
         use_visited_state_set=use_visited_state_set,
         derived_predicates=derived_predicates,
-        objects=objects,)
+        objects=objects,
+    )
+
 
 def task_plan(
     init_atoms: Set[GroundAtom],
@@ -435,7 +442,8 @@ def task_plan(
         max_skeletons_optimized,
         use_visited_state_set=use_visited_state_set,
         derived_predicates=derived_predicates,
-        objects=objects,)
+        objects=objects,
+    )
 
     # Note that we use this pattern to avoid having to catch an exception
     # when _skeleton_generator runs out of skeletons to optimize.

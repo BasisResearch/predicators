@@ -12,10 +12,10 @@ from predicators.nsrt_learning.process_learning import \
 from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.settings import CFG
-from predicators.structs import PNAD, CausalProcess, DummyOption, \
-    EndogenousProcess, ExogenousProcess, GroundAtomTrajectory, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, Segment, Task, \
-    GroundAtom, DerivedPredicate
+from predicators.structs import PNAD, CausalProcess, DerivedPredicate, \
+    DummyOption, EndogenousProcess, ExogenousProcess, GroundAtom, \
+    GroundAtomTrajectory, LowLevelTrajectory, ParameterizedOption, Predicate, \
+    Segment, Task
 
 
 def learn_processes_from_data(
@@ -133,7 +133,7 @@ def learn_processes_from_data(
             verbose=(CFG.option_learner != "no_learning"),
             annotations=annotations,
             endogenous_processes=set(endogenous_processes),
-            )
+        )
         new_exogenous_processes = [
             pnad.make_exogenous_process() for pnad in exogenous_processes_pnad
         ]
@@ -196,10 +196,16 @@ def filter_explained_segment(
             else:
                 # all exogenous; mixed cases all handle at the top.
                 relevant_procs = processes
-            add_atoms = {a for a in segment.add_effects if not 
-                            isinstance(a.predicate, DerivedPredicate)}
-            delete_atoms = {a for a in segment.delete_effects if not 
-                            isinstance(a.predicate, DerivedPredicate)}
+            add_atoms = {
+                a
+                for a in segment.add_effects
+                if not isinstance(a.predicate, DerivedPredicate)
+            }
+            delete_atoms = {
+                a
+                for a in segment.delete_effects
+                if not isinstance(a.predicate, DerivedPredicate)
+            }
             # if not explained by any; consider explained if atom change is
             # a subset of the add_effects and delete_effects of any
             # ground process.

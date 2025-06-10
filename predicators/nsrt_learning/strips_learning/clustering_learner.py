@@ -1,6 +1,7 @@
 """Algorithms for STRIPS learning that rely on clustering to obtain effects."""
 
 import abc
+import bisect
 import functools
 import itertools
 import logging
@@ -9,7 +10,6 @@ import re
 from collections import defaultdict
 from pprint import pformat
 from typing import Dict, FrozenSet, Iterator, List, Optional, Set, Tuple, cast
-import bisect
 
 from predicators import utils
 from predicators.nsrt_learning.segmentation import segment_trajectory
@@ -18,10 +18,10 @@ from predicators.planning import PlanningFailure, PlanningTimeout
 from predicators.planning_with_processes import \
     task_plan_from_task as task_plan_with_processes
 from predicators.settings import CFG
-from predicators.structs import PNAD, Datastore, DummyOption, \
-    EndogenousProcess, ExogenousProcess, LiftedAtom, ParameterizedOption, \
-    Predicate, Segment, STRIPSOperator, VarToObjSub, Variable, Object, \
-    DerivedPredicate
+from predicators.structs import PNAD, Datastore, DerivedPredicate, \
+    DummyOption, EndogenousProcess, ExogenousProcess, LiftedAtom, Object, \
+    ParameterizedOption, Predicate, Segment, STRIPSOperator, Variable, \
+    VarToObjSub
 
 
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
@@ -65,27 +65,28 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                     })
                 # ent_to_ent_sub here is obj_to_var
                 # TODO: remove derived predicates from the segment's effects
-                seg_add_effects = frozenset(a for a in segment.add_effects
-                            if not isinstance(a.predicate, DerivedPredicate))
-                seg_del_effects = frozenset(a for a in segment.delete_effects
-                            if not isinstance(a.predicate, DerivedPredicate))
+                seg_add_effects = frozenset(
+                    a for a in segment.add_effects
+                    if not isinstance(a.predicate, DerivedPredicate))
+                seg_del_effects = frozenset(
+                    a for a in segment.delete_effects
+                    if not isinstance(a.predicate, DerivedPredicate))
                 suc, ent_to_ent_sub = utils.unify_preconds_effects_options(
-                    preconds1, preconds2, 
-                    seg_add_effects,
-                    frozenset(pnad.op.add_effects),
-                    seg_del_effects,
+                    preconds1, preconds2, seg_add_effects,
+                    frozenset(pnad.op.add_effects), seg_del_effects,
                     frozenset(pnad.op.delete_effects), segment_param_option,
                     pnad_param_option, segment_option_objs,
                     tuple(pnad_option_vars))
                 sub = cast(VarToObjSub,
-                           {v: o for o, v in ent_to_ent_sub.items()})
+                           {v: o
+                            for o, v in ent_to_ent_sub.items()})
                 if suc:
                     # Add to this PNAD.
                     if CFG.exogenous_process_learner_do_intersect:
                         # Find the largest conditions that unifies the init
                         # atoms of the segment and another segment in the PNAD.
                         # and add that segment and sub to the datastore.
-                        # Doing this sequentially ensures one of the 
+                        # Doing this sequentially ensures one of the
                         # substitutions has the objects we care about with
                         # intersection. Hence it can fall out later in
                         # `induce_preconditions_via_intersection`.
@@ -123,13 +124,13 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 var_to_obj = dict(zip(params, objects_lst))
                 add_effects = {
                     atom.lift(obj_to_var)
-                    for atom in segment.add_effects if not isinstance(
-                        atom.predicate, DerivedPredicate)
+                    for atom in segment.add_effects
+                    if not isinstance(atom.predicate, DerivedPredicate)
                 }
                 delete_effects = {
                     atom.lift(obj_to_var)
-                    for atom in segment.delete_effects if not isinstance(
-                        atom.predicate, DerivedPredicate)
+                    for atom in segment.delete_effects
+                    if not isinstance(atom.predicate, DerivedPredicate)
                 }
                 ignore_effects: Set[Predicate] = set()  # will be learned later
                 op = STRIPSOperator(f"Op{len(pnads)}", params, preconds,
@@ -164,75 +165,80 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
         return pnads
 
     def _maybe_intersect_segment_with_pnad(
-        self,
-        segment: Segment,
-        pnad: PNAD,
-        obj_to_var: Dict[Object, Variable],
-        segment_param_option: ParameterizedOption,
-        pnad_param_option: ParameterizedOption,
-        segment_option_objs: Tuple[Object],
-        pnad_option_vars: Tuple[Variable]
-    ) -> VarToObjSub:
-        """Try to unify and find the largest conditions that unify the init atoms
-        of the segment and the last segment in the pnad datastore. Returns an
-        updated VarToObjSub."""
+            self, segment: Segment, pnad: PNAD, obj_to_var: Dict[Object,
+                                                                 Variable],
+            segment_param_option: ParameterizedOption,
+            pnad_param_option: ParameterizedOption,
+            segment_option_objs: Tuple[Object],
+            pnad_option_vars: Tuple[Variable]) -> VarToObjSub:
+        """Try to unify and find the largest conditions that unify the init
+        atoms of the segment and the last segment in the pnad datastore.
+
+        Returns an updated VarToObjSub.
+        """
         seg_init_atoms_full = set(segment.init_atoms)
 
         last_seg, last_var_to_obj = pnad.datastore[-1]
         last_obj_to_var = {o: v for v, o in last_var_to_obj.items()}
         objects = set(last_obj_to_var)
         lifted_last_init_atoms = {
-                atom.lift(last_obj_to_var) for atom in last_seg.init_atoms
-                if all(o in objects for o in atom.objects)
-            }
+            atom.lift(last_obj_to_var)
+            for atom in last_seg.init_atoms
+            if all(o in objects for o in atom.objects)
+        }
 
         # Candidate atoms that possibly match
         common_preds = {a.predicate for a in seg_init_atoms_full} & \
                     {b.predicate for b in lifted_last_init_atoms}
 
-        s_init_atoms_list = sorted(
-            [atom for atom in seg_init_atoms_full if atom.predicate in common_preds],
-            key=str
-        )
-        ds_lifted_init_atoms_list = sorted(
-            [atom for atom in lifted_last_init_atoms if atom.predicate in common_preds],
-            key=str
-        )
+        s_init_atoms_list = sorted([
+            atom
+            for atom in seg_init_atoms_full if atom.predicate in common_preds
+        ],
+                                   key=str)
+        ds_lifted_init_atoms_list = sorted([
+            atom for atom in lifted_last_init_atoms
+            if atom.predicate in common_preds
+        ],
+                                           key=str)
         max_len1 = len(s_init_atoms_list)
         max_len2 = len(ds_lifted_init_atoms_list)
 
-        seg_add_eff = frozenset(a for a in segment.add_effects if 
-                                not isinstance(a.predicate, DerivedPredicate))
-        seg_del_eff = frozenset(a for a in segment.delete_effects if
-                                not isinstance(a.predicate, DerivedPredicate))
+        seg_add_eff = frozenset(
+            a for a in segment.add_effects
+            if not isinstance(a.predicate, DerivedPredicate))
+        seg_del_eff = frozenset(
+            a for a in segment.delete_effects
+            if not isinstance(a.predicate, DerivedPredicate))
         pnad_add_eff = frozenset(pnad.op.add_effects)
         pnad_del_eff = frozenset(pnad.op.delete_effects)
 
-        unify_args = (
-            seg_add_eff, pnad_add_eff,
-            seg_del_eff, pnad_del_eff,
-            segment_param_option, pnad_param_option,
-            segment_option_objs, tuple(pnad_option_vars)
-        )
+        unify_args = (seg_add_eff, pnad_add_eff, seg_del_eff, pnad_del_eff,
+                      segment_param_option, pnad_param_option,
+                      segment_option_objs, tuple(pnad_option_vars))
 
         best_obj_to_var = obj_to_var
         found_best_unification = False
         k_limit = min(max_len1, max_len2)
 
         for k_common in range(k_limit, -1, -1):
-            for p1_subset_tuple in itertools.combinations(s_init_atoms_list, k_common):
+            for p1_subset_tuple in itertools.combinations(
+                    s_init_atoms_list, k_common):
                 p1_candidate = frozenset(p1_subset_tuple)
-                for p2_subset_tuple in itertools.combinations(ds_lifted_init_atoms_list, k_common):
+                for p2_subset_tuple in itertools.combinations(
+                        ds_lifted_init_atoms_list, k_common):
                     p2_candidate = frozenset(p2_subset_tuple)
 
                     # Check if they have the same predicates
-                    if {a.predicate for a in p1_candidate} != {a.predicate for a in p2_candidate}:
+                    if {a.predicate
+                            for a in p1_candidate
+                        } != {a.predicate
+                              for a in p2_candidate}:
                         continue
 
                     # Check if they unify
                     current_suc, current_obj_to_var = utils.unify_preconds_effects_options(
-                        p1_candidate, p2_candidate, *unify_args
-                    )
+                        p1_candidate, p2_candidate, *unify_args)
                     if current_suc:
                         best_obj_to_var = current_obj_to_var
                         found_best_unification = True
@@ -538,8 +544,8 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        from predicators.approaches.pp_online_predicate_invention_approach \
-            import get_false_positive_states_from_seg_trajs
+        from predicators.approaches.pp_online_predicate_invention_approach import \
+            get_false_positive_states_from_seg_trajs
         self._get_false_positive_states_from_seg_trajs = \
             get_false_positive_states_from_seg_trajs
         self._atom_change_segmented_trajs: List[List[Segment]] = []
@@ -622,8 +628,7 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
             atom.lift(obj_to_var) for atom in init_ground_atoms)
         delay_param_estim = [len(pnad.datastore[0][0].actions)]
         exogenous_process = pnad.make_exogenous_process(
-            process_delay_params=delay_param_estim
-        )
+            process_delay_params=delay_param_estim)
         score_func = functools.partial(self._score_preconditions,
                                        exogenous_process)
 
@@ -711,8 +716,9 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
         ]
         CFG.segmenter = initial_segmenter_method
         self._demo_atoms_sequences = [
-                utils.segment_trajectory_to_atoms_sequence(seg_traj)
-            for seg_traj in self._option_change_segmented_trajs]
+            utils.segment_trajectory_to_atoms_sequence(seg_traj)
+            for seg_traj in self._option_change_segmented_trajs
+        ]
         # for i, seg_traj in enumerate(self._atom_change_segmented_trajs):
         #     logging.info(f"atom change trajectory {i}: {pformat(seg_traj)}")
 
@@ -727,8 +733,8 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 init_ground_atoms = pnad.datastore[0][0].init_atoms
                 var_to_obj = pnad.datastore[0][1]
                 obj_to_var = {v: k for k, v in var_to_obj.items()}
-                init_lift_atoms = set(atom.lift(obj_to_var) for atom in 
-                                      init_ground_atoms)
+                init_lift_atoms = set(
+                    atom.lift(obj_to_var) for atom in init_ground_atoms)
 
             if CFG.cluster_and_inverse_planning_candidates == "all":
                 # 4 PNADS, with 7, 6, 7, 8 init atoms, possible combinations are
@@ -746,7 +752,8 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
         best_cost = float("inf")
         best_conditions = []
         # Score all combinations of preconditions
-        for i, combination in enumerate(itertools.product(*conditions_at_start)):
+        for i, combination in enumerate(
+                itertools.product(*conditions_at_start)):
             # Set the conditions for each process
             for process, conditions in zip(exogenous_process, combination):
                 process.condition_at_start = conditions
@@ -790,8 +797,9 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 final_pnads.append(new_pnad)
         return final_pnads
 
-    def _get_top_consistent_conditions(self, initial_atom: Set[LiftedAtom],
-                                      pnad: PNAD) -> Iterator[Set[LiftedAtom]]:
+    def _get_top_consistent_conditions(
+            self, initial_atom: Set[LiftedAtom],
+            pnad: PNAD) -> Iterator[Set[LiftedAtom]]:
         """Get the top consistent conditions for a PNAD."""
         # TODO: maybe a better way is to based on percentage of the worse score
         # because as the number of trajectories increases, the worse score
@@ -854,18 +862,21 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 n_candidates = len(candidates_with_scores)
                 num_under_percentage = max(
                     1, int(n_candidates * p_percent / 100.0))
-                score_at_threshold = candidates_with_scores[:num_under_percentage][-1][0]
+                score_at_threshold = candidates_with_scores[:
+                                                            num_under_percentage][
+                                                                -1][0]
                 scores = [score for score, _ in candidates_with_scores]
                 # Include all candidates with score_at_threshold
                 position = bisect.bisect_right(scores, score_at_threshold)
-                logging.info(f"Score threshold {score_at_threshold}; returning "
-                        f"{position}/{n_candidates} candidates")
-                
+                logging.info(
+                    f"Score threshold {score_at_threshold}; returning "
+                    f"{position}/{n_candidates} candidates")
+
                 # include at most top_n_candidates
                 if CFG.cluster_and_inverse_planning_top_n > 0:
-                    position = min(position, 
+                    position = min(position,
                                    CFG.cluster_and_inverse_planning_top_n)
-                
+
                 # Reocrd the total number of candidates
                 if self._total_num_candidates == 0:
                     self._total_num_candidates += position
@@ -880,14 +891,14 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             # Yield the selected candidates
             for score, condition_candidate in top_candidates:
                 logging.info(
-                    f"Selected condition: {condition_candidate}, Score: {score}")
+                    f"Selected condition: {condition_candidate}, Score: {score}"
+                )
                 yield condition_candidate
 
         else:
             raise ValueError(
                 f"Unknown method: {method}. Must be one of 'threshold', "
-                "'top_p_percent', 'top_n'"
-            )
+                "'top_p_percent', 'top_n'")
 
     def compute_processes_score(
             self, exogenous_processes: Set[ExogenousProcess]) -> float:
@@ -921,7 +932,7 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             except (PlanningTimeout, PlanningFailure):
                 pass
             # low_quality_prob = 1.0 - optimality_prob
-            cost += (1 - optimality_prob) # * num_nodes
+            cost += (1 - optimality_prob)  # * num_nodes
 
         return cost
 

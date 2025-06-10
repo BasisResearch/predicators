@@ -9,7 +9,7 @@ from predicators.explorers.base_explorer import BaseExplorer
 from predicators.settings import CFG
 from predicators.structs import NSRT, Action, DummyOption, \
     ExplorationStrategy, ParameterizedOption, Predicate, State, Task, Type, \
-    _GroundNSRT, _GroundEndogenousProcess
+    _GroundEndogenousProcess, _GroundNSRT
 
 
 class RandomNSRTsExplorer(BaseExplorer):
@@ -95,7 +95,7 @@ class RandomNSRTsExplorer(BaseExplorer):
                     assert all(a.holds for a in ground_nsrt.preconditions)
                 elif isinstance(ground_nsrt, _GroundEndogenousProcess):
                     assert all(a.holds for a in ground_nsrt.condition_at_start)
-                else:  
+                else:
                     raise Exception
 
                 # Sample an option.
