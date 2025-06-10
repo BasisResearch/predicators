@@ -4311,6 +4311,10 @@ class ConstantDelay(DelayDistribution):
 
     def __init__(self, delay: int):
         self.delay = delay
+        self._log_pmf_value = torch.tensor(0.0,
+                                           dtype=torch.get_default_dtype())
+        self._neg_inf = torch.tensor(float('-inf'),
+                                     dtype=torch.get_default_dtype())
 
     def sample(self):
         return self.delay
@@ -4326,9 +4330,24 @@ class ConstantDelay(DelayDistribution):
     def probability(self, k: int) -> float:
         return 1.0 if k == self.delay else 0.0
 
+    def log_prob(self, k: Union[int, torch.Tensor]) -> torch.Tensor:
+        """Fast vectorized lookup of log P(delay = k)."""
+        if not isinstance(k, torch.Tensor):
+            k_tensor = torch.tensor(k, dtype=torch.long)
+        else:
+            k_tensor = k.long()
+
+        # Initialize with -inf
+        log_probs = torch.full_like(k_tensor,
+                                    self._neg_inf,
+                                    dtype=torch.get_default_dtype())
+        # Set log(1.0) = 0.0 where k == self.delay
+        log_probs[k_tensor == self.delay] = self._log_pmf_value
+        return log_probs
+
     @cached_property
     def _str(self) -> str:
-        return f"ConstantDelay({self.delay})"
+        return f"ConstantDelay({self.delay:.4f})"
 
 
 class GaussianDelay(DelayDistribution):
@@ -4438,15 +4457,22 @@ class DoublePoissonDelay(DelayDistribution):
     def _update_cache(self) -> None:
         ks = torch.arange(self._max_k, dtype=torch.get_default_dtype())
         log_fact = gammaln(ks + 1)
-        log_C = -0.5 * (torch.log(torch.tensor(2 * torch.pi)) +
-                        torch.log(self.phi) + torch.log(self.mu))
-        log_p = (log_C + self.phi * (ks * torch.log(self.mu) - log_fact) -
-                 self.phi * self.mu)
-        log_p -= torch.max(log_p)
-        pmf = torch.exp(log_p)
-        pmf /= pmf.sum()
-        self._pmf = pmf
-        self._cdf = torch.cumsum(pmf, dim=0)
+        log_C = -0.5 * (
+            torch.log(torch.tensor(2 * torch.pi, dtype=self.mu.dtype))
+            +  # Ensure tensor has same dtype
+            torch.log(self.phi) + torch.log(self.mu))
+        # Calculate unnormalized log probabilities
+        log_p_unnormalized = (log_C + self.phi *
+                              (ks * torch.log(self.mu) - log_fact) -
+                              self.phi * self.mu)
+
+        # Calculate normalized log PMF using logsumexp for numerical stability
+        log_normalization_constant = torch.logsumexp(log_p_unnormalized, dim=0)
+        self._log_pmf = log_p_unnormalized - log_normalization_constant
+
+        # Calculate PMF from the normalized log PMF
+        self._pmf = torch.exp(self._log_pmf)
+        self._cdf = torch.cumsum(self._pmf, dim=0)
 
     def set_parameters(self, parameters: Sequence[float]) -> None:
         """Update μ and φ, then rebuild the cache."""
@@ -4464,6 +4490,32 @@ class DoublePoissonDelay(DelayDistribution):
         if 0 <= k < self._max_k:
             return float(self._pmf[k])
         return 0.0
+
+    def log_prob(self, k: Union[int, torch.Tensor]) -> torch.Tensor:
+        """Fast vectorized lookup of log P(delay = k)."""
+        if not isinstance(k, torch.Tensor):
+            k_tensor = torch.tensor(
+                k, dtype=torch.long)  # Use long for potential indexing
+        else:
+            k_tensor = k.long()  # Ensure long type for indexing
+
+        original_shape = k_tensor.shape
+        k_flat = k_tensor.flatten()
+
+        # Initialize log_probs with -inf, matching the default dtype
+        log_probs_flat = torch.full_like(k_flat,
+                                         float('-inf'),
+                                         dtype=torch.get_default_dtype())
+
+        assert self._log_pmf is not None, "Cache not updated, _log_pmf is None."
+
+        valid_mask = (k_flat >= 0) & (k_flat < self._max_k)
+        valid_indices_in_k = k_flat[valid_mask]
+
+        if valid_indices_in_k.numel() > 0:
+            log_probs_flat[valid_mask] = self._log_pmf[valid_indices_in_k]
+
+        return log_probs_flat.reshape(original_shape)
 
     def sample(self) -> int:
         u = torch.rand(1).item()

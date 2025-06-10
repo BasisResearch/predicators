@@ -333,11 +333,34 @@ class ParamLearningBilevelProcessPlanningApproach(
         for starts, gp in zip(start_times, ground_processes):
             if len(starts) > 0:
                 s0 = starts[0]
-                for t in range(s0 + 1, num_time_steps):
-                    delay_prob = gp.delay_distribution.probability(t - s0)
-                    if delay_prob > 1e-9:
-                        ll = ll + guide[gp][t] * torch.log(
-                            torch.tensor(delay_prob))
+                # Relevant time steps for this gp's delay calculation: s0+1 to 
+                # num_time_steps-1
+                # These correspond to delay values: 1 to num_time_steps-1-s0
+                # Check if there are any time steps for delay
+                if s0 + 1 < num_time_steps:
+                    # Create a tensor of delay values that occurred
+                    delay_values = torch.arange(1,
+                                                num_time_steps - s0,
+                                                dtype=torch.long)
+                    # Corresponding time indices for guide probabilities
+                    t_indices_for_guide = torch.arange(s0 + 1,
+                                                       num_time_steps,
+                                                       dtype=torch.long)
+
+                    # Get log prob for all possible delay values at once
+                    all_delay_log_probs = gp.delay_distribution.log_prob(
+                        delay_values)
+
+                    # Get the slice of guide prob relevant to these time steps
+                    guide_slice = guide[gp][t_indices_for_guide]
+
+                    # Mask for valid log prob (not -inf)
+                    valid_mask = ~torch.isneginf(all_delay_log_probs)
+
+                    # Add to ll only for terms where log probability is valid
+                    if valid_mask.any():
+                        ll = ll + torch.sum(guide_slice[valid_mask] *
+                                            all_delay_log_probs[valid_mask])
 
         # -----------------------------------------------------------------
         # 3.  Entropy of the variational distributions

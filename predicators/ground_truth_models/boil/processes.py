@@ -8,8 +8,8 @@ from predicators.settings import CFG
 from predicators.structs import CausalProcess, EndogenousProcess, \
     ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
     Variable
-from predicators.utils import CMPDelay, ConstantDelay, GaussianDelay, \
-    null_sampler, DoublePoissonDelay
+from predicators.utils import CMPDelay, ConstantDelay, DoublePoissonDelay, \
+    GaussianDelay, null_sampler
 
 
 class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
@@ -413,7 +413,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             elif CFG.boil_use_normal_delay:
                 delay_distribution = GaussianDelay(mean=1, std=0.2, rng=rng)
             elif CFG.boil_use_cmp_delay:
-                delay_distribution = CMPDelay(1, 1) # Assumed from other mean=1 cases
+                delay_distribution = CMPDelay(
+                    1, 1)  # Assumed from other mean=1 cases
             else:
                 delay_distribution = DoublePoissonDelay(mu=1, phi=50)
             declare_complete_process = EndogenousProcess(
@@ -452,7 +453,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(100, 2.9)
         else:
-            delay_distribution = DoublePoissonDelay(mu=4, phi=50) # mu=4 from ConstantDelay(4)
+            delay_distribution = DoublePoissonDelay(
+                mu=4, phi=50)  # mu=4 from ConstantDelay(4)
         fill_jug_process = ExogenousProcess("FillJug", parameters,
                                             condition_at_start,
                                             condition_overall, set(),
@@ -572,7 +574,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             elif CFG.boil_use_normal_delay:
                 delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
             elif CFG.boil_use_cmp_delay:
-                delay_distribution = CMPDelay(55, 3) # Assumed from other mean=3 cases
+                delay_distribution = CMPDelay(
+                    55, 3)  # Assumed from other mean=3 cases
             else:
                 delay_distribution = DoublePoissonDelay(mu=3, phi=50)
             human_happy_process = ExogenousProcess("HumanHappy", parameters,
