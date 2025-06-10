@@ -114,31 +114,46 @@ class ParamLearningBilevelProcessPlanningApproach(
         atom_to_val_to_gps: Dict[GroundAtom, Dict[
             bool,
             Set[_GroundCausalProcess]]] = defaultdict(lambda: defaultdict(set))
-        for gp in self.ground_processes:
+        # Filter for CausalProcess instances as task_plan_grounding can return NSRTs too
+        ground_causal_processes: List[_GroundCausalProcess] = [
+            gp for gp in self.ground_processes
+            if isinstance(gp, _GroundCausalProcess)
+        ]
+
+        for gp in ground_causal_processes:
             for atom in gp.add_effects:
                 atom_to_val_to_gps[atom][True].add(gp)
             for atom in gp.delete_effects:
                 atom_to_val_to_gps[atom][False].add(gp)
 
         num_time_steps = len(trajectory.states)
-        start_times = [[
+        # start_times_per_gp[gp_idx] is a list of start times for causal_ground_processes[gp_idx]
+        start_times_per_gp = [[
             t for t in range(num_time_steps)
             if gp.cause_triggered(trajectory.states[:t +
                                                     1], trajectory.actions[:t +
                                                                            1])
-        ] for gp in self.ground_processes]
+        ] for gp in ground_causal_processes]
+
+        # Create a flat list of all process instances (gp, s_i)
+        # Each instance will have its own variational distribution.
+        process_instances: List[Tuple[_GroundCausalProcess, int]] = []
+        for gp_idx, gp in enumerate(ground_causal_processes):
+            for s_i in start_times_per_gp[gp_idx]:
+                process_instances.append((gp, s_i))
+
         all_possible_atoms = utils.all_possible_ground_atoms(
             trajectory._low_level_states[0], self._get_current_predicates())
         # 1. Initialize the parameters.
         # The parameters are organized as follows:
         # - 1 param for the frame axiom, and
-        # - 3 parameters for each process (weight, mean, std)
-        # - num_processes * trajectory_length for the variational distribution
-        num_processes = len(self._processes)
-        num_ground_processes = len(self.ground_processes)
-        num_proc_params = 1 + 3 * num_processes
-        # New: a guide for each ground process
-        num_q_params = num_ground_processes * traj_len
+        # - 3 parameters for each CausalProcess (defined by the process type)
+        # - Variational parameters for q(z_t | gp, s_i) for each instance.
+        num_processes = len(self._processes)  # Number of CausalProcess *types*
+        num_activated_process_instances = len(process_instances)
+        num_proc_params = 1 + 3 * num_processes  # Params for frame axiom + CausalProcess types
+        # Each active instance (gp, s_i) gets a variational distribution over traj_len.
+        num_q_params = num_activated_process_instances * traj_len
         total_params = num_proc_params + num_q_params
 
         # -----------------------------------------------------------------
@@ -148,11 +163,13 @@ class ParamLearningBilevelProcessPlanningApproach(
         params = torch.nn.Parameter(init)
 
         # convenience slices -----------------------------------------------------
-        def _split(param_vec: Tensor) -> Tuple[float, Tensor, Tensor]:
+        def _split(
+            param_vec: Tensor
+        ) -> Tuple[Tensor, Tensor, Tensor]:  # frame_strength is a Tensor now
             frame_strength = param_vec[0]
             proc_params = param_vec[1:num_proc_params]
-            guide_params = param_vec[num_proc_params:]
-            return frame_strength, proc_params, guide_params
+            guide_q_params = param_vec[num_proc_params:]
+            return frame_strength, proc_params, guide_q_params
 
         # -----------------------------------------------------------------
         # 3.  Choose an optimiser
@@ -184,33 +201,44 @@ class ParamLearningBilevelProcessPlanningApproach(
         }
         start_time_for_curve = time.time()
 
-        def _closure() -> Tensor:
+        def _closure() -> float:  # LBFGS expects a float return
             nonlocal best_elbo, iteration_count
             optimiser.zero_grad(set_to_none=True)
             frame_strength, proc_params, guide_params = _split(params)
 
-            # push process parameters into the model ----------------------
+            # push CausalProcess parameters into the model ----------------------
             self._set_process_parameters(proc_params.detach())
 
-            # construct guide dictionary (softmax per ground process) -----
-            guide: Dict[_GroundCausalProcess, Tensor] = {}
-            for i, gp in enumerate(self.ground_processes):
-                raw = guide_params[i * traj_len:(i + 1) * traj_len]
+            # construct guide dictionary (softmax per ground process instance) -----
+            guide: Dict[_GroundCausalProcess,
+                        Dict[int, Tensor]] = defaultdict(dict)
+            current_q_param_idx = 0
+            for gp_instance_tuple in process_instances:
+                gp, start_t = gp_instance_tuple
+                raw_q_for_instance = guide_params[
+                    current_q_param_idx:current_q_param_idx + traj_len]
+                current_q_param_idx += traj_len
 
-                mask = torch.ones(traj_len, dtype=raw.dtype)
-                if len(start_times[i]) > 0:
-                    mask[:start_times[i][0] + 1] = 0.0
-                # Zero‑out impossible positions and renormalise
-                stable_exp = torch.exp(raw) * mask
-                probs = stable_exp / (stable_exp.sum() + 1e-12)
-                guide[gp] = probs
+                mask = torch.ones(traj_len, dtype=raw_q_for_instance.dtype)
+                # q(z_t | gp, s_i) is 0 if t <= s_i (effect must be after start)
+                mask[:start_t + 1] = 0.0
+
+                stable_exp = torch.exp(raw_q_for_instance) * mask
+                probs_sum = stable_exp.sum()
+
+                if probs_sum < 1e-12:
+                    # Ensure probs has same dtype and device as stable_exp
+                    probs = torch.zeros_like(stable_exp)
+                else:
+                    probs = stable_exp / probs_sum
+                guide[gp][start_t] = probs
 
             elbo = self.elbo_torch(
                 atom_option_dataset,
-                self.ground_processes,
+                ground_causal_processes,
+                start_times_per_gp,
                 guide,
                 frame_strength,
-                start_times,
                 set(all_possible_atoms),
                 atom_to_val_to_gps,
             )
@@ -234,7 +262,7 @@ class ParamLearningBilevelProcessPlanningApproach(
                     pbar.update(1)
 
             iteration_count += 1
-            return loss
+            return loss.item()  # LBFGS expects a float
 
         # LBFGS needs the closure inside step; Adam uses its own loop
         if use_lbfgs:
@@ -261,10 +289,13 @@ class ParamLearningBilevelProcessPlanningApproach(
     @staticmethod
     def elbo_torch(
         atom_option_dataset: List[AtomOptionTrajectory],
-        ground_processes: List[_GroundCausalProcess],
-        guide: Dict[_GroundCausalProcess, Tensor],
+        ground_processes: List[
+            _GroundCausalProcess],  # All potential ground causal processes
+        start_times_per_gp: List[List[
+            int]],  # start_times_per_gp[gp_idx] is list of s_i for ground_processes[gp_idx]
+        guide: Dict[_GroundCausalProcess,
+                    Dict[int, Tensor]],  # Variational params q(z_t ; gp, s_i)
         frame_strength: Tensor,
-        start_times: List[List[int]],
         all_possible_atoms: Set[GroundAtom],
         atom_to_val_to_gps: Dict[GroundAtom, Dict[bool,
                                                   Set[_GroundCausalProcess]]],
@@ -293,15 +324,20 @@ class ParamLearningBilevelProcessPlanningApproach(
                     gps = val_to_gps[val]
                     # expected effect factor for *observed* assignment
                     if val == (atom in yt):
-                        ll = ll + sum(guide[gp][t] * gp.factored_effect_factor(
-                            val, atom)  # type: ignore[index]
-                                      for gp in gps)
+                        ll = ll + sum(
+                            q[t] * gp.factored_effect_factor(val, atom)
+                            for gp in gps
+                            for st, q in guide[gp].items() if st < t)
                     # normalisation contribution ---------------------------
                     prod = torch.tensor(1.0, dtype=frame_strength.dtype)
                     for gp in gps:
-                        prod = prod * (guide[gp][t] * torch.exp(
-                            torch.tensor(gp.factored_effect_factor(val, atom)))
-                                       + (1 - guide[gp][t]))
+                        for st, q in guide[gp].items():
+                            if st < t:
+                                # q(z_t | gp, s_i) * exp(factor)
+                                prod = prod * (q[t] * torch.exp(
+                                    torch.tensor(
+                                        gp.factored_effect_factor(val, atom)))
+                                               + (1 - q[t]))
                     sum_ytj = sum_ytj + prod * torch.exp(frame_strength *
                                                          (val ==
                                                           (atom in yt_prev)))
@@ -322,7 +358,7 @@ class ParamLearningBilevelProcessPlanningApproach(
                 1 + torch.exp(frame_strength))
             # Atoms changed and not described by the processes
             E_log_Zt = E_log_Zt + len(atoms_changed_not_in_law) * torch.log(
-                torch.tensor(2.0))
+                torch.tensor(2.0, dtype=frame_strength.dtype))
 
             ll = ll - E_log_Zt
             yt_prev = yt
@@ -330,55 +366,69 @@ class ParamLearningBilevelProcessPlanningApproach(
         # -----------------------------------------------------------------
         # 2.  Delay probabilities
         # -----------------------------------------------------------------
-        for starts, gp in zip(start_times, ground_processes):
-            if len(starts) > 0:
-                s0 = starts[0]
-                # Relevant time steps for this gp's delay calculation: s0+1 to 
-                # num_time_steps-1
-                # These correspond to delay values: 1 to num_time_steps-1-s0
-                # Check if there are any time steps for delay
-                if s0 + 1 < num_time_steps:
-                    # Create a tensor of delay values that occurred
+        # Iterate through each ground process type and its list of start times
+        for gp_idx, gp_obj in enumerate(ground_processes):
+            for s_i in start_times_per_gp[
+                    gp_idx]:  # s_i is a specific start time for gp_obj
+                # This instance is (gp_obj, s_i)
+                # Effects can manifest at t = s_i + d, where d >= 1 (delay)
+                if s_i + 1 < num_time_steps:  # Check if any delay is possible
+                    # Delays d = 1, 2, ..., (num_time_steps - 1 - s_i)
                     delay_values = torch.arange(1,
-                                                num_time_steps - s0,
+                                                num_time_steps - s_i,
                                                 dtype=torch.long)
-                    # Corresponding time indices for guide probabilities
-                    t_indices_for_guide = torch.arange(s0 + 1,
-                                                       num_time_steps,
-                                                       dtype=torch.long)
+                    if delay_values.numel() == 0:
+                        continue
 
-                    # Get log prob for all possible delay values at once
-                    all_delay_log_probs = gp.delay_distribution.log_prob(
-                        delay_values)
+                    # t_indices are the time steps where effects manifest: s_i+1, ..., num_time_steps-1
+                    t_indices_for_guide = s_i + delay_values
 
-                    # Get the slice of guide prob relevant to these time steps
-                    guide_slice = guide[gp][t_indices_for_guide]
+                    # Get log prob of these delays P(d | gp_obj's params)
+                    all_delay_log_probs = gp_obj.delay_distribution.log_prob(
+                        delay_values)  # type: ignore
 
-                    # Mask for valid log prob (not -inf)
-                    valid_mask = ~torch.isneginf(all_delay_log_probs)
+                    # Get q(z_t | gp_obj, s_i) for t in t_indices_for_guide
+                    q_dist_for_instance = guide.get(gp_obj).get(s_i, None)
+                    if q_dist_for_instance is None:
+                        continue
 
-                    # Add to ll only for terms where log probability is valid
+                    guide_slice_for_delays = q_dist_for_instance[
+                        t_indices_for_guide]
+
+                    # Mask for valid log probs (not -inf) and non-zero guide probs
+                    valid_mask = ~torch.isneginf(all_delay_log_probs) & (
+                        guide_slice_for_delays > 1e-9)
+
                     if valid_mask.any():
-                        ll = ll + torch.sum(guide_slice[valid_mask] *
-                                            all_delay_log_probs[valid_mask])
+                        ll += torch.sum(guide_slice_for_delays[valid_mask] * \
+                                        all_delay_log_probs[valid_mask])
 
         # -----------------------------------------------------------------
         # 3.  Entropy of the variational distributions
         # -----------------------------------------------------------------
         H = torch.tensor(0.0, dtype=frame_strength.dtype)
-        for probs in guide.values():
-            mask = probs > 1e-6
-            if mask.any():
-                H = H - torch.sum(probs[mask] * torch.log(probs[mask]))
-
+        for start_time_q_map in guide.values(
+        ):  # Each value is a Tensor for one (gp,s_i)
+            for q_dist_for_instance in start_time_q_map.values():
+                mask = q_dist_for_instance > 1e-9
+                if mask.any():
+                    H -= torch.sum(q_dist_for_instance[mask] *
+                                   torch.log(q_dist_for_instance[mask]))
         return ll + H
 
-    def _set_process_parameters(self, parameters: Sequence[float]) -> None:
-        assert len(parameters) == 3 * len(self._processes)
+    def _set_process_parameters(self, parameters: Tensor) -> None:
+        # Parameters are for the CausalProcess types, not ground instances.
+        # Assumes 3 parameters per CausalProcess type (e.g., for its delay distribution)
+        num_causal_process_types = len(self._processes)
+        expected_len = 3 * num_causal_process_types
+        assert len(parameters) == expected_len, \
+            f"Expected {expected_len} params, got {len(parameters)}"
 
-        # Loop through the parameters 3 at a time
-        for i in range(0, len(parameters), 3):
-            self._processes[i // 3]._set_parameters(parameters[i:i + 3])
+        # Loop through the CausalProcess types
+        for i in range(num_causal_process_types):
+            param_slice = parameters[i * 3:(i + 1) * 3]
+            self._processes[i]._set_parameters(
+                param_slice.tolist())  # Pass list of floats
 
     def _plot_training_curve(self, training_curve: Dict) -> None:
         """Plot the training curve showing ELBO over iterations."""
