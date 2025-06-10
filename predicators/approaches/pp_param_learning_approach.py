@@ -1,11 +1,14 @@
 import logging
+import time
 from collections import defaultdict
-from typing import Dict, List, Optional, Sequence, Set, Tuple
 from pprint import pformat
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
+import torch
 from gym.spaces import Box
-from scipy.optimize import minimize
+from torch import Tensor
+from torch.optim import LBFGS, Adam
 from tqdm.auto import tqdm
 
 from predicators import planning, utils
@@ -17,6 +20,8 @@ from predicators.settings import CFG
 from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     Dataset, EndogenousProcess, ExogenousProcess, GroundAtom, \
     ParameterizedOption, Predicate, Task, Type, _GroundCausalProcess
+
+torch.set_default_dtype(torch.double)
 
 
 class ParamLearningBilevelProcessPlanningApproach(
@@ -72,8 +77,7 @@ class ParamLearningBilevelProcessPlanningApproach(
         """Get the current set of NSRTs."""
         return set()
 
-    def learn_from_offline_dataset(self,
-                                   dataset: Dataset) -> None:
+    def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         """Learn parameters of processes from the offline datasets.
 
         This is currently achieved by optimizing the marginal data
@@ -81,20 +85,18 @@ class ParamLearningBilevelProcessPlanningApproach(
         """
         self._learn_process_parameters(dataset)
 
-    def _learn_process_parameters(self,
-                                  dataset: Dataset) -> None:
+    def _learn_process_parameters(
+        self,
+        dataset: Dataset,
+        num_steps: int = 500,
+        lr: float = 5e-2,
+        use_lbfgs: bool = True,
+    ) -> None:
         """Learn parameters of processes from the online dataset."""
         # TODO: relax the assumption of one datapoint
-        # Q: should there only be a guide for the exogenous processes?
-        # A: No, we are also interested in the delay for actions.
 
-        # For now, assume there is a guide for each lifted process.
+        torch.manual_seed(CFG.seed)
 
-        # 1. Initialize the parameters.
-        # The parameters are organized as follows:
-        # - 1 param for the frame axiom, and
-        # - 3 parameters for each process (weight, mean, std)
-        # - num_processes * trajectory_length for the variational distribution
         atom_option_dataset = utils.create_ground_atom_option_dataset(
             dataset.trajectories, self._get_current_predicates())
         trajectory = atom_option_dataset[0]
@@ -108,8 +110,9 @@ class ParamLearningBilevelProcessPlanningApproach(
             compute_reachable_atoms=False)
 
         # Cache for normalization constants calculation
-        atom_to_val_to_gps: Dict[GroundAtom, Dict[bool, Set[_GroundCausalProcess]
-                                    ]] = defaultdict(lambda: defaultdict(set))
+        atom_to_val_to_gps: Dict[GroundAtom, Dict[
+            bool,
+            Set[_GroundCausalProcess]]] = defaultdict(lambda: defaultdict(set))
         for gp in self.ground_processes:
             for atom in gp.add_effects:
                 atom_to_val_to_gps[atom][True].add(gp)
@@ -125,256 +128,226 @@ class ParamLearningBilevelProcessPlanningApproach(
         ] for gp in self.ground_processes]
         all_possible_atoms = utils.all_possible_ground_atoms(
             trajectory._low_level_states[0], self._get_current_predicates())
+        # 1. Initialize the parameters.
+        # The parameters are organized as follows:
+        # - 1 param for the frame axiom, and
+        # - 3 parameters for each process (weight, mean, std)
+        # - num_processes * trajectory_length for the variational distribution
         num_processes = len(self._processes)
         num_ground_processes = len(self.ground_processes)
         num_proc_params = 1 + 3 * num_processes
         # New: a guide for each ground process
         num_q_params = num_ground_processes * traj_len
-        num_parameters = num_proc_params + num_q_params
+        total_params = num_proc_params + num_q_params
 
-        np.random.seed(CFG.seed)
-        init_guess = np.random.rand(num_parameters)  # rand init -- kevin
-        bounds = [(-100, 100)] * num_parameters  # allow negative -- tom
+        # -----------------------------------------------------------------
+        # 2.  Set up a single flattened torch Parameter vector
+        # -----------------------------------------------------------------
+        init = torch.rand(total_params, requires_grad=True)
+        params = torch.nn.Parameter(init)
 
-        # Keep track of iterations for progress display
-        best_elbo = -np.inf 
+        # convenience slices -----------------------------------------------------
+        def _split(param_vec: Tensor) -> Tuple[float, Tensor, Tensor]:
+            frame_strength = param_vec[0]
+            proc_params = param_vec[1:num_proc_params]
+            guide_params = param_vec[num_proc_params:]
+            return frame_strength, proc_params, guide_params
+
+        # -----------------------------------------------------------------
+        # 3.  Choose an optimiser
+        # -----------------------------------------------------------------
+        if use_lbfgs:
+            optimiser = LBFGS([params],
+                              max_iter=num_steps,
+                              line_search_fn="strong_wolfe")
+        else:
+            optimiser = Adam([params], lr=lr)
+
+        # -----------------------------------------------------------------
+        # 4.  Optimisation loop
+        # -----------------------------------------------------------------
+        if use_lbfgs:
+            # For LBFGS, num_steps is max_iter (max closure evaluations)
+            pbar = tqdm(total=num_steps, desc="Training (LBFGS)")
+        else:
+            # For Adam, num_steps is the number of optimization steps (epochs)
+            pbar = tqdm(range(num_steps), desc="Training (Adam)")
+
+        best_elbo = -np.inf
         iteration_count = 0
-        training_curve = {'iterations': [], 'elbos': [], 'best_elbos': []}
-        progress_bar = tqdm(desc="Optim. params.", unit="iter")
+        training_curve = {
+            'iterations': [],
+            'elbos': [],
+            'best_elbos': [],
+            'wall_time': []
+        }
+        start_time_for_curve = time.time()
 
-        # 2. Define objective and optimize
-        def objective(params: List[float]) -> float:
-            """Objective function for scipy.optimize.minimize to minimize.
-ˍ
-            It does some preparation and then calls the -ELBO function.
-            """
+        def _closure() -> Tensor:
             nonlocal best_elbo, iteration_count
-            nonlocal start_times
-            nonlocal all_possible_atoms
-            nonlocal atom_to_val_to_gps
+            optimiser.zero_grad(set_to_none=True)
+            frame_strength, proc_params, guide_params = _split(params)
+
+            # push process parameters into the model ----------------------
+            self._set_process_parameters(proc_params.detach())
+
+            # construct guide dictionary (softmax per ground process) -----
+            guide: Dict[_GroundCausalProcess, Tensor] = {}
+            for i, gp in enumerate(self.ground_processes):
+                raw = guide_params[i * traj_len:(i + 1) * traj_len]
+
+                mask = torch.ones(traj_len, dtype=raw.dtype)
+                if len(start_times[i]) > 0:
+                    mask[:start_times[i][0] + 1] = 0.0
+                # Zero‑out impossible positions and renormalise
+                stable_exp = torch.exp(raw) * mask
+                probs = stable_exp / (stable_exp.sum() + 1e-12)
+                guide[gp] = probs
+
+            elbo = self.elbo_torch(
+                atom_option_dataset,
+                self.ground_processes,
+                guide,
+                frame_strength,
+                start_times,
+                set(all_possible_atoms),
+                atom_to_val_to_gps,
+            )
+
+            loss = -elbo  # maximise ELBO == minimise negative ELBO
+            loss.backward()
+            if elbo > best_elbo:
+                best_elbo = elbo.detach().item()
+            training_curve['iterations'].append(iteration_count)
+            training_curve['elbos'].append(elbo.detach().item())
+            training_curve['best_elbos'].append(best_elbo)
+            training_curve['wall_time'].append(time.time() -
+                                               start_time_for_curve)
+
+            if pbar:
+                pbar.set_postfix({
+                    "ELBO": elbo.detach().item(),
+                    "best_ELBO": best_elbo
+                })
+                if use_lbfgs:
+                    pbar.update(1)
 
             iteration_count += 1
-            self._set_process_parameters(params[1:num_proc_params])
-            guide_params = params[num_proc_params:]
-            guide: Dict[_GroundCausalProcess, List[float]] = {
-                proc: guide_params[i * traj_len:(i + 1) * traj_len]
-                for i, proc in enumerate(self.ground_processes)
-            }
+            return loss
 
-            elbo_val = self.elbo(atom_option_dataset,
-                                 self.ground_processes,
-                                 guide,
-                                 frame_strength=params[0],
-                                 start_times=start_times,
-                                 all_possible_atoms=set(all_possible_atoms),
-                                 atom_to_val_to_gps=atom_to_val_to_gps,)
-            # Update best ELBO
-            if elbo_val > best_elbo:
-                best_elbo = elbo_val
-            # Store training curve data
-            training_curve['iterations'].append(iteration_count)
-            training_curve['elbos'].append(elbo_val)
-            training_curve['best_elbos'].append(best_elbo)
-         
-            # Update progress bar with current and best ELBO
-            progress_bar.set_postfix({
-                'Current ELBO': f'{elbo_val:.4f}',
-                'Best ELBO': f'{best_elbo:.4f}'
-            })
-            progress_bar.update(1)
-            return -elbo_val
+        # LBFGS needs the closure inside step; Adam uses its own loop
+        if use_lbfgs:
+            optimiser.step(_closure)
+        else:
+            for _ in pbar:  # type: ignore[arg-type]
+                loss = _closure()
+                optimiser.step()
 
-        result = minimize(
-            objective,
-            init_guess,
-            bounds=bounds,
-            # defaul params work ok
-            options={
-                "disp": True,
-                #     "maxiter": 10000,
-                #     "pgtol": 1e-9
-            },
-            method="L-BFGS-B")  # terminate in 19464iter
-        progress_bar.close()
-        # Display the learned processes
+        if pbar:
+            pbar.close()
+
+        # -----------------------------------------------------------------
+        # 5.  Save learned parameters back to the model state
+        # -----------------------------------------------------------------
+        frame_strength, proc_params, _ = _split(params.detach())
+        self._set_process_parameters(proc_params)
+        self._plot_training_curve(training_curve)
         logging.debug("Learned processes:")
         for proc in self._processes:
             logging.debug(pformat(proc))
-        logging.info(f"Best likelihood bound: {-result.fun}")
         breakpoint()
 
-        # 3. Set the optimized parameters
-        self._set_process_parameters(result.x[1:num_proc_params])
-
     @staticmethod
-    def elbo(
+    def elbo_torch(
         atom_option_dataset: List[AtomOptionTrajectory],
         ground_processes: List[_GroundCausalProcess],
-        guide: Dict[_GroundCausalProcess, List[float]],
-        frame_strength: float,
+        guide: Dict[_GroundCausalProcess, Tensor],
+        frame_strength: Tensor,
         start_times: List[List[int]],
         all_possible_atoms: Set[GroundAtom],
-        atom_to_val_to_gps: Dict[GroundAtom, Dict[bool, Set[_GroundCausalProcess]]],
-        refactored_elbo: bool = True,
-        # refactored_elbo: bool = False,
-    ) -> float:
-        """Compute the ELBO of the dataset under the model.
-
-        Args:
-            atom_option_dataset: ...
-            processes: A set of processes. (Our Model)
-            guide: A list of variational distributions. (Our Guide)
-            frame_strength: The strength of the frame axiom.
-        Note that different trajectories could have different objects.
+        atom_to_val_to_gps: Dict[GroundAtom, Dict[bool,
+                                                  Set[_GroundCausalProcess]]],
+    ) -> Tensor:
+        """*Differentiable* ELBO computation.
         """
-        # Assume there is only one trajectory in the dataset
         assert len(atom_option_dataset) == 1
-        assert len(ground_processes) == len(guide)
         trajectory = atom_option_dataset[0]
         num_time_steps = len(trajectory.states)
 
-        # start time per ground process
-        # for endogenous processes cause_triggered should be true when the
-        # action is taken
+        ll = torch.tensor(0.0, dtype=frame_strength.dtype)
+        yt_prev = trajectory.states[0]
 
-        # TODO: extend to multiple occurrences
-        for i, start_time_list in enumerate(start_times):
-            assert len(start_time_list) <= 1
-
-        # TODO: think more about what to do with the guide for processes that
-        # never occur.
-        guide = {proc: np.exp(q_i) for proc, q_i in guide.items()}
-        for gp, start_time in zip(ground_processes, start_times):
-            proc_guide = guide[gp]
-
-            if len(start_time) > 0:
-                proc_guide[:start_time[0] + 1] = 0
-                # TODO: check what to do for processes that never occur
-            proc_guide /= np.sum(proc_guide)
-
-        # 1. Sum of effect factors for processes
-        # 2. Normalization constant per time step
-        ll = 0.0  # Log likelihood
-
-        # possible_states = powerset(all_possible_atoms)
+        # -----------------------------------------------------------------
+        # 1.  Transition factors (refactored formulation)
+        # -----------------------------------------------------------------
         for t in range(1, num_time_steps):
             yt = trajectory.states[t]
-            yt_m1 = trajectory.states[t - 1]
-            if not refactored_elbo:
-                # --- Old
-                all_possible_atoms = sorted(all_possible_atoms)
-                for j in range(len(all_possible_atoms)):
-                    factor: Dict[bool, float] = defaultdict(float)  # Default value of 0.0
-                    factor_atom = all_possible_atoms[j]
-                    y_tj: bool = factor_atom in yt
 
-                    # Factor from frame axiom: if atom didnt change
-                    if (factor_atom in yt) == (factor_atom in \
-                                                        trajectory.states[t - 1]):
-                        factor[y_tj] += frame_strength
+            # --- expected effect terms + frame axiom -----------------------
+            E_log_Zt = torch.tensor(0.0, dtype=frame_strength.dtype)
+            for atom, val_to_gps in atom_to_val_to_gps.items():
+                # iterate over (val=True, False) pairs that appear in some law
+                sum_ytj = torch.tensor(0.0, dtype=frame_strength.dtype)
+                for val in (True, False):
+                    gps = val_to_gps[val]
+                    # expected effect factor for *observed* assignment
+                    if val == (atom in yt):
+                        ll = ll + sum(guide[gp][t] * gp.factored_effect_factor(
+                            val, atom)  # type: ignore[index]
+                                      for gp in gps)
+                    # normalisation contribution ---------------------------
+                    prod = torch.tensor(1.0, dtype=frame_strength.dtype)
+                    for gp in gps:
+                        prod = prod * (guide[gp][t] * torch.exp(
+                            torch.tensor(gp.factored_effect_factor(val, atom)))
+                                       + (1 - guide[gp][t]))
+                    sum_ytj = sum_ytj + prod * torch.exp(frame_strength *
+                                                         (val ==
+                                                          (atom in yt_prev)))
+                E_log_Zt = E_log_Zt + torch.log(sum_ytj + 1e-12)
 
-                    # Factor from other processes
-                    for gp in ground_processes:
-                        factor[y_tj] += guide[gp][t] *\
-                            gp.factored_effect_factor(y_tj, factor_atom)
+            # atoms not referenced in any process law -----------------------
+            del_atoms = yt - yt_prev
+            add_atoms = yt_prev - yt
+            atoms_unchanged = all_possible_atoms - add_atoms - del_atoms
+            atoms_in_law_effects = set(atom_to_val_to_gps)
+            atoms_unchanged_not_in_law = atoms_unchanged - atoms_in_law_effects
+            atoms_changed_not_in_law = (add_atoms
+                                        | del_atoms) - atoms_in_law_effects
 
-                    sum_ytj = 0
-                    for atom_value in [True, False]:
-                        atom_didnt_change = atom_value == (factor_atom in \
-                                                        trajectory.states[t - 1])
-                        sum_ytj += np.exp(
-                                sum(
-                                    np.log(guide[gp][t] * np.exp(
-                                        gp.factored_effect_factor(
-                                            atom_value, factor_atom)) +
-                                        (1 - guide[gp][t]))
-                                    for gp in ground_processes) +
-                                frame_strength * atom_didnt_change)
-                        
+            ll = ll + frame_strength * len(atoms_unchanged)
+            # Atoms unchanged but not described by the processes
+            E_log_Zt = E_log_Zt + len(atoms_unchanged_not_in_law) * torch.log(
+                1 + torch.exp(frame_strength))
+            # Atoms changed and not described by the processes
+            E_log_Zt = E_log_Zt + len(atoms_changed_not_in_law) * torch.log(
+                torch.tensor(2.0))
 
-                    E_log_Ztj = np.log(sum_ytj)
-                    ll += factor[y_tj] - E_log_Ztj
-                # --- Old
-            else:
-                # --- New
-                # Instead of iterating over all possible atoms, we iterate over the
-                # atoms in the ground_processes' effects 
+            ll = ll - E_log_Zt
+            yt_prev = yt
 
-                # Compute this by grouping the terms into two parts, atoms that
-                # present in laws' effects and atoms that are not.
-                E_log_Zt = 0
-
-                num_atom_vals = 0
-                for atom, val_to_gps in atom_to_val_to_gps.items():
-                    sum_ytj = 0
-                    _val_to_gps = {True: val_to_gps[True],
-                                  False: val_to_gps[False]}
-                    for val, gps in _val_to_gps.items():
-                    # for val, gps in val_to_gps.items():
-                        num_atom_vals += 1
-                        # --- Expected effect factors ---
-                        if val == (atom in yt):
-                            ll += sum(guide[gp][t] * gp.factored_effect_factor(
-                                    val, atom) for gp in gps)
-
-                        sum_ytj += np.exp(
-                            sum(
-                                np.log(guide[gp][t] * np.exp(
-                                    gp.factored_effect_factor(val, atom))
-                                        + (1 - guide[gp][t]))
-                                for gp in gps) +
-                                frame_strength * (val == (atom in yt_m1)))
-                    E_log_Zt += np.log(sum_ytj)
-
-                # --- Expected effect factors; frame factor ---
-                del_atoms = yt - yt_m1
-                add_atoms = yt_m1 - yt
-                atoms_unchanged = all_possible_atoms - add_atoms - del_atoms
-                atoms_in_law_effects = set(atom_to_val_to_gps)
-
-                atoms_unchanged_not_in_law_effects = \
-                    atoms_unchanged - atoms_in_law_effects
-                atoms_changed_not_in_law_effects = \
-                    (add_atoms | del_atoms) - atoms_in_law_effects
-                ll += frame_strength * len(atoms_unchanged)
-
-                # TODO: trying to refactor even more: add the contribututions of
-                # atom_vals whose atoms are in the law's effects but not the val
-                # so don't have to create _val_to_gps.
-                # num_of_unincluded_atom_vals = len(atoms_in_law_effects) * 2 - \
-                #     num_atom_vals
-                # E_log_Zt += num_of_unincluded_atom_vals
-
-                # Atoms unchanged but not described by the processes
-                E_log_Zt += len(atoms_unchanged_not_in_law_effects) * \
-                        np.log(1 + np.exp(frame_strength))
-                # Atoms changed and not described by the processes
-                E_log_Zt += len(atoms_changed_not_in_law_effects) * np.log(2)
-                ll -= E_log_Zt
-                # --- New End
-
-        # 3. Sum of delay probabilities
-        # TODO: update for potentially multiple occurrences
-        for start_time, gp in zip(start_times, ground_processes):
-            if len(start_time) > 0:
-                for t in range(start_time[0] + 1, num_time_steps):
-                    delay_prob = gp.delay_distribution.probability(
-                        t - start_time[0])
+        # -----------------------------------------------------------------
+        # 2.  Delay probabilities
+        # -----------------------------------------------------------------
+        for starts, gp in zip(start_times, ground_processes):
+            if len(starts) > 0:
+                s0 = starts[0]
+                for t in range(s0 + 1, num_time_steps):
+                    delay_prob = gp.delay_distribution.probability(t - s0)
                     if delay_prob > 1e-9:
-                        ll += guide[gp][t] * np.log(delay_prob)
+                        ll = ll + guide[gp][t] * torch.log(
+                            torch.tensor(delay_prob))
 
-        # 4. Entropy of the variational distributions
-        H = 0
-        for q_i in guide.values():
-            # skipping the guide whose process never occurs
-            if q_i[0] == 0:
-                for p in q_i:
-                    if p > 1e-6:
-                        H -= p * np.log(p)
+        # -----------------------------------------------------------------
+        # 3.  Entropy of the variational distributions
+        # -----------------------------------------------------------------
+        H = torch.tensor(0.0, dtype=frame_strength.dtype)
+        for probs in guide.values():
+            mask = probs > 1e-6
+            if mask.any():
+                H = H - torch.sum(probs[mask] * torch.log(probs[mask]))
 
-        elbo = ll + H
-        # logging.debug(f"H={H:.4f}, ELBO={elbo:.4f}")
-        return elbo
+        return ll + H
 
     def _set_process_parameters(self, parameters: Sequence[float]) -> None:
         assert len(parameters) == 3 * len(self._processes)
@@ -386,50 +359,38 @@ class ParamLearningBilevelProcessPlanningApproach(
     def _plot_training_curve(self, training_curve: Dict) -> None:
         """Plot the training curve showing ELBO over iterations."""
         import matplotlib.pyplot as plt
-        
+
         iterations = training_curve['iterations']
         elbos = training_curve['elbos']
         best_elbos = training_curve['best_elbos']
-        
-        plt.figure(figsize=(12, 6))
-        
-        # Plot current ELBO
+        wall_time = training_curve['wall_time']
+
+        plt.figure(figsize=(18, 6))  # Adjusted figure size for three plots
+
+        # Plot current ELBO vs Iteration
         plt.subplot(1, 2, 1)
         plt.plot(iterations, elbos, 'b-', alpha=0.7, label='Current ELBO')
         plt.plot(iterations, best_elbos, 'r-', linewidth=2, label='Best ELBO')
         plt.xlabel('Iteration')
         plt.ylabel('ELBO')
-        plt.title('Training Curve: ELBO vs Iteration')
+        plt.title('ELBO vs Iteration')
         plt.legend()
         plt.grid(True, alpha=0.3)
-        
-        # Plot smoothed version (moving average) if enough points
+
+        # Plot ELBO vs Wall Time
         plt.subplot(1, 2, 2)
-        if len(elbos) > 10:
-            window_size = max(10, len(elbos) // 20)
-            smoothed_elbos = []
-            for i in range(len(elbos)):
-                start_idx = max(0, i - window_size // 2)
-                end_idx = min(len(elbos), i + window_size // 2 + 1)
-                smoothed_elbos.append(np.mean(elbos[start_idx:end_idx]))
-            
-            plt.plot(iterations, smoothed_elbos, 'g-', label=f'Smoothed ELBO (window={window_size})')
-        else:
-            plt.plot(iterations, elbos, 'b-', alpha=0.7, label='Current ELBO')
-        
-        plt.plot(iterations, best_elbos, 'r-', linewidth=2, label='Best ELBO')
-        plt.xlabel('Iteration')
+        plt.plot(wall_time, elbos, 'b-', alpha=0.7, label='Current ELBO')
+        plt.plot(wall_time, best_elbos, 'r-', linewidth=2, label='Best ELBO')
+        plt.xlabel('Wall Time (s)')
         plt.ylabel('ELBO')
-        plt.title('Smoothed Training Curve')
+        plt.title('ELBO vs Wall Time')
         plt.legend()
         plt.grid(True, alpha=0.3)
-        
+
         plt.tight_layout()
-        
+
         # Save the plot
         filename = f"training_curve_seed_{CFG.seed}.png"
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        plt.savefig(filename)
         logging.info(f"Training curve saved to {filename}")
-        
-        # Show plot if in interactive mode
-        plt.show()
+        plt.close()

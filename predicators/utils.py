@@ -39,6 +39,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pathos.multiprocessing as mp
 import PIL.Image
+import torch
 from gym.spaces import Box
 from matplotlib import patches
 from numpy.typing import NDArray
@@ -58,15 +59,15 @@ from predicators.pretrained_model_interface import GoogleGeminiLLM, \
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.settings import CFG, GlobalSettings
 from predicators.structs import NSRT, Action, Array, AtomOptionTrajectory, \
-    CausalProcess, DelayDistribution, DummyOption, EntToEntSub, \
-    ExogenousProcess, GroundAtom, GroundAtomTrajectory, \
+    CausalProcess, DelayDistribution, DerivedPredicate, DummyOption, \
+    EntToEntSub, ExogenousProcess, GroundAtom, GroundAtomTrajectory, \
     GroundNSRTOrSTRIPSOperator, Image, LDLRule, LiftedAtom, \
     LiftedDecisionList, LiftedOrGroundAtom, LowLevelTrajectory, Mask, \
     Metrics, NSRTOrSTRIPSOperator, Object, ObjectOrVariable, Observation, \
     OptionSpec, ParameterizedOption, Predicate, Segment, State, \
     STRIPSOperator, Task, Type, Variable, VarToObjSub, Video, VLMPredicate, \
     _GroundEndogenousProcess, _GroundExogenousProcess, _GroundLDLRule, \
-    _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity, DerivedPredicate
+    _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
 
@@ -2978,11 +2979,11 @@ def abstract(state: State,
     vlm_preds = set(pred for pred in preds if isinstance(pred, VLMPredicate))
     derived_preds, primitive_preds = set(), set()
     for pred in preds:
-        if isinstance(pred, DerivedPredicate):  
+        if isinstance(pred, DerivedPredicate):
             derived_preds.add(pred)
         else:
             primitive_preds.add(pred)
-    
+
     # Next, classify all non-VLM predicates.
     atoms = set()
     for pred in primitive_preds:
@@ -4363,37 +4364,26 @@ class GaussianDelay(DelayDistribution):
 class CMPDelay(DelayDistribution):
     """Conway-Maxwell-Poisson (CMP) distribution for delays."""
 
-    def __init__(self, lam: float, nu: float, rng: np.random.Generator) -> None:
-        self.lam = lam
-        self.nu = nu
-        self.rng = rng
-        self._max_k = 100
+    def __init__(self, lam: float, nu: float, max_k: int = 50) -> None:
+        self.lam = torch.tensor(lam, dtype=torch.get_default_dtype())
+        self.nu = torch.tensor(nu, dtype=torch.get_default_dtype())
+        self._max_k = max_k
         self._update_cache()
 
     def _update_cache(self) -> None:
         """Precompute and cache PMF and CDF."""
-        # Calculate log factorial values once
-        log_factorials = np.array([gammaln(n + 1) for n in range(self._max_k)])
-
-        # Vectorized log mass calculation
-        ks = np.arange(self._max_k)
-        log_masses = ks * np.log(self.lam) - self.nu * log_factorials
-
-        # Special case for k=0
-        if self._max_k > 0:
-            log_masses[0] = -self.lam
-
-        # Find max to prevent overflow
-        max_log_mass = np.max(log_masses)
-        masses = np.exp(log_masses - max_log_mass)
-
-        # Normalize
-        self._pmf = masses / np.sum(masses)
-        self._cdf = np.cumsum(self._pmf)
+        ks = torch.arange(self._max_k, dtype=torch.get_default_dtype())
+        log_fact = gammaln(ks + 1)
+        log_masses = ks * torch.log(self.lam) - self.nu * log_fact
+        log_masses[0] = -self.lam  # special case for k=0
+        max_log_mass = torch.max(log_masses)
+        masses = torch.exp(log_masses - max_log_mass)
+        self._pmf = masses / masses.sum()
+        self._cdf = torch.cumsum(self._pmf, dim=0)
 
     def set_parameters(self, parameters: Sequence[float]) -> None:
-        self.lam = parameters[0]
-        self.nu = parameters[1]
+        self.lam = torch.tensor(parameters[0], dtype=torch.get_default_dtype())
+        self.nu = torch.tensor(parameters[1], dtype=torch.get_default_dtype())
         self._update_cache()
         # Invalidate cached properties
         if '_str' in self.__dict__:
@@ -4413,13 +4403,12 @@ class CMPDelay(DelayDistribution):
 
     def sample(self) -> None:
         """Sample from the CMP distribution using cached CDF."""
-        u = self.rng.random()
-        idx = np.searchsorted(self._cdf, u)
-        return idx
+        u = torch.rand(1).item()
+        return int(torch.searchsorted(self._cdf, torch.tensor(u)))
+
 
 class DoublePoissonDelay(DelayDistribution):
-    """
-    Double-Poisson distribution for discrete delays.
+    """Double-Poisson distribution for discrete delays.
 
     Parameters
     ----------
@@ -4437,14 +4426,9 @@ class DoublePoissonDelay(DelayDistribution):
         Increase if your delays can be very large.
     """
 
-    def __init__(self,
-                 mu: float,
-                 phi: float,
-                 rng: np.random.Generator,
-                 max_k: int = 50):
-        self.mu = mu
-        self.phi = phi
-        self.rng = rng
+    def __init__(self, mu: float, phi: float, max_k: int = 50):
+        self.mu = torch.tensor(mu, dtype=torch.get_default_dtype())
+        self.phi = torch.tensor(phi, dtype=torch.get_default_dtype())
         self._max_k = max_k
         self._update_cache()
 
@@ -4452,28 +4436,22 @@ class DoublePoissonDelay(DelayDistribution):
     # Internals
     # ------------------------------------------------------------------ #
     def _update_cache(self) -> None:
-        """Vectorised pre-computation of PMF and CDF."""
-        ks = np.arange(self._max_k)                     # 0, 1, …, max_k-1
-        log_fact = gammaln(ks + 1)                      # log(k!)
-        # Saddle-point normaliser  C(μ, φ) ≈ (2π φ μ)^(-1/2)
-        log_C = -0.5 * (np.log(2 * np.pi) + np.log(self.phi) + np.log(self.mu))
-
-        # log P(Y=k)
-        log_p = (log_C
-                 + self.phi * (ks * np.log(self.mu) - log_fact)
-                 - self.phi * self.mu)
-
-        # Stabilise → exponentiate → renormalise
-        log_p -= log_p.max()                            # avoid overflow
-        pmf = np.exp(log_p)
+        ks = torch.arange(self._max_k, dtype=torch.get_default_dtype())
+        log_fact = gammaln(ks + 1)
+        log_C = -0.5 * (torch.log(torch.tensor(2 * torch.pi)) +
+                        torch.log(self.phi) + torch.log(self.mu))
+        log_p = (log_C + self.phi * (ks * torch.log(self.mu) - log_fact) -
+                 self.phi * self.mu)
+        log_p -= torch.max(log_p)
+        pmf = torch.exp(log_p)
         pmf /= pmf.sum()
-
         self._pmf = pmf
-        self._cdf = np.cumsum(pmf)
+        self._cdf = torch.cumsum(pmf, dim=0)
 
     def set_parameters(self, parameters: Sequence[float]) -> None:
         """Update μ and φ, then rebuild the cache."""
-        self.mu, self.phi = parameters
+        self.mu = torch.tensor(parameters[0], dtype=torch.get_default_dtype())
+        self.phi = torch.tensor(parameters[1], dtype=torch.get_default_dtype())
         self._update_cache()
 
     def probability(self, k: int) -> float:
@@ -4483,13 +4461,13 @@ class DoublePoissonDelay(DelayDistribution):
         return 0.0
 
     def sample(self) -> int:
-        """Inverse-CDF sampling using cached CDF (O(log max_k))."""
-        u = self.rng.random()
-        return int(np.searchsorted(self._cdf, u))
+        u = torch.rand(1).item()
+        return int(torch.searchsorted(self._cdf, torch.tensor(u)))
 
     @cached_property
     def _str(self) -> str:
         return f"DoublePoissonDelay({self.mu}, {self.phi})"
+
 
 @functools.lru_cache(maxsize=None)
 def get_git_commit_hash() -> str:
@@ -4965,9 +4943,10 @@ def all_subsets(input_set: Iterable[Any]) -> Iterator[Set[Any, ...]]:
         for subset in itertools.combinations(s, i):
             yield set(subset)
 
+
 def add_in_auxiliary_predicates(predicates: Set[Predicate]) -> Set[Predicate]:
-    # If a predicate is a drived predicate, check its auxiliary predicates 
-    # attribute, and add them and all their derived predicates to the set 
+    # If a predicate is a drived predicate, check its auxiliary predicates
+    # attribute, and add them and all their derived predicates to the set
     # recursively.
     def add_auxiliary(pred: Predicate, preds: Set[Predicate]) -> None:
         if isinstance(pred, DerivedPredicate):
@@ -4975,15 +4954,18 @@ def add_in_auxiliary_predicates(predicates: Set[Predicate]) -> Set[Predicate]:
                 preds.update(pred.auxiliary_predicates)
                 for aux_pred in pred.auxiliary_predicates:
                     add_auxiliary(aux_pred, preds)
+
     new_preds = predicates.copy()
     for pred in predicates:
         add_auxiliary(pred, new_preds)
     return new_preds
 
+
 def get_derived_predicates(
         predicates: Set[Predicate]) -> Set[DerivedPredicate]:
     """Get all derived predicates from a set of predicates."""
     return {pred for pred in predicates if isinstance(pred, DerivedPredicate)}
+
 
 def abstract_with_derived_predicates(
         atoms: Set[GroundAtom], derived_preds: Collection[DerivedPredicate],
@@ -5007,8 +4989,10 @@ def abstract_with_derived_predicates(
         counter += 1
     return new_concept_atoms
 
+
 def _abstract_with_derived_predicates(
-        abs_state: Set[GroundAtom], derived_preds: Collection[DerivedPredicate],
+        abs_state: Set[GroundAtom],
+        derived_preds: Collection[DerivedPredicate],
         objects: Collection[Object]) -> Set[GroundAtom]:
     """Get the atoms based on the existing atomic state and concept
     predicates."""
@@ -5025,6 +5009,7 @@ def _abstract_with_derived_predicates(
                 raise PredicateEvaluationError(
                     f"Error in evaluating concept predicate {pred}: {e}", pred)
     return atoms
+
 
 class PredicateEvaluationError(Exception):
 
