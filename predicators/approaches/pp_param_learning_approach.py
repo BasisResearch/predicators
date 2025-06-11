@@ -1,10 +1,10 @@
 import logging
 import os
+import random
 import time
 from collections import defaultdict
 from pprint import pformat
-from typing import Dict, List, Optional, Sequence, Set, Tuple, Any
-import random
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import torch
@@ -95,9 +95,7 @@ class ParamLearningBilevelProcessPlanningApproach(
         batch_size: int = 100,
         inner_lbfgs_max_iter: int = 50,
     ) -> None:
-        """Stochastic (mini-batch) optimisation of process parameters.
-
-        """
+        """Stochastic (mini-batch) optimisation of process parameters."""
 
         torch.manual_seed(CFG.seed)
 
@@ -107,61 +105,69 @@ class ParamLearningBilevelProcessPlanningApproach(
         atom_option_dataset = utils.create_ground_atom_option_dataset(
             dataset.trajectories, self._get_current_predicates())
 
-        per_traj: List[Dict[str, Any]] = []
-        inst_slice: Dict[Tuple[int, _GroundCausalProcess, int],
-                         Tuple[int, int]] = {}
+        per_traj_data: List[Dict[str, Any]] = []
+        process_instance_slices: Dict[Tuple[int, _GroundCausalProcess, int],
+                                      Tuple[int, int]] = {}
 
         num_proc_params = 1 + 3 * len(self._processes)  # frame + process-type
         q_offset = 0  # running index in the guide-param block
 
         for traj_id, traj in enumerate(atom_option_dataset):
-            
-            tlen = len(traj.states)
+
+            traj_len = len(traj.states)
             objs = set(traj._low_level_states[0])
 
-            gp_all, _ = planning.task_plan_grounding(
+            _ground_processes, _ = planning.task_plan_grounding(
                 init_atoms=set(),
                 objects=objs,
                 nsrts=self._processes,
                 allow_noops=True,
                 compute_reachable_atoms=False)
-
-            gpcs = [
-                gp for gp in gp_all if isinstance(gp, _GroundCausalProcess)
+            ground_processes = [
+                gp for gp in _ground_processes
+                if isinstance(gp, _GroundCausalProcess)
             ]
 
-            atom2gps: Dict[GroundAtom, Dict[bool, Set[_GroundCausalProcess]]] \
-                = defaultdict(lambda: defaultdict(set))
-            for gp in gpcs:
+            atom_to_val_to_gps: Dict[GroundAtom, Dict[
+                bool, Set[_GroundCausalProcess]]] = defaultdict(
+                    lambda: defaultdict(set))
+            for gp in ground_processes:
                 for a in gp.add_effects:
-                    atom2gps[a][True].add(gp)
+                    atom_to_val_to_gps[a][True].add(gp)
                 for a in gp.delete_effects:
-                    atom2gps[a][False].add(gp)
+                    atom_to_val_to_gps[a][False].add(gp)
 
-            starts = [[
-                t for t in range(tlen)
+            start_times = [[
+                t for t in range(traj_len)
                 if gp.cause_triggered(traj.states[:t + 1], traj.actions[:t +
                                                                         1])
-            ] for gp in gpcs]
+            ] for gp in ground_processes]
 
-            slice_map: Dict[Tuple[_GroundCausalProcess, int], Tuple[int,
-                                                                    int]] = {}
-            for gp_idx, gp in enumerate(gpcs):
-                for s_i in starts[gp_idx]:
-                    lo, hi = q_offset, q_offset + tlen
-                    slice_map[(gp, s_i)] = (lo, hi)
-                    inst_slice[(traj_id, gp, s_i)] = (lo, hi)
+            gp_qparam_id_map: Dict[Tuple[_GroundCausalProcess, int],
+                                   Tuple[int, int]] = {}
+            for gp_idx, gp in enumerate(ground_processes):
+                for s_i in start_times[gp_idx]:
+                    lo, hi = q_offset, q_offset + traj_len
+                    gp_qparam_id_map[(gp, s_i)] = (lo, hi)
+                    process_instance_slices[(traj_id, gp, s_i)] = (lo, hi)
                     q_offset = hi
 
-            per_traj.append({
-                "trajectory": traj,
-                "traj_len": tlen,
-                "ground_causal_processes": gpcs,
-                "start_times_per_gp": starts,
-                "atom2gps": atom2gps,
-                "all_atoms": utils.all_possible_ground_atoms(
+            per_traj_data.append({
+                "trajectory":
+                traj,
+                "traj_len":
+                traj_len,
+                "ground_causal_processes":
+                ground_processes,
+                "start_times_per_gp":
+                start_times,
+                "atom_to_val_to_gps":
+                atom_to_val_to_gps,
+                "all_atoms":
+                utils.all_possible_ground_atoms(
                     traj._low_level_states[0], self._get_current_predicates()),
-                "slice_map": slice_map,
+                "gp_qparam_id_map":
+                gp_qparam_id_map,
             })
 
         total_params = num_proc_params + q_offset
@@ -169,7 +175,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             torch.rand(total_params, dtype=torch.double))
 
         # ---------------------- helpers -------------------------------- #
-        def _split(vec: torch.Tensor):
+        def _split(vec: torch.Tensor) -> Tuple[Tensor, Tensor, Tensor]:
             frame = vec[0]
             proc = vec[1:num_proc_params]
             guide = vec[num_proc_params:]
@@ -178,7 +184,7 @@ class ParamLearningBilevelProcessPlanningApproach(
         # ------------------- progress bar -------------------------- #
 
         if use_lbfgs:
-            # show one tick *per closure evaluation* (i.e. per function/grad call)
+            # show one tick *per closure evaluation*
             pbar = tqdm(total=num_steps * inner_lbfgs_max_iter,
                         desc="Training (mini‑batch LBFGS)")
         else:
@@ -186,42 +192,48 @@ class ParamLearningBilevelProcessPlanningApproach(
             pbar = tqdm(range(num_steps), desc="Training (Adam)")
 
         best_elbo = -float("inf")
-        curve = {"iterations": [], "elbos": [], "best_elbos": [], 
-                 "wall_time": []}
+        curve: Dict = {
+            "iterations": [],
+            "elbos": [],
+            "best_elbos": [],
+            "wall_time": []
+        }
         training_start_time = time.time()
         if not use_lbfgs:
             optim = Adam([params])
 
         # ------------------- training loop ----------------------------- #
-        iteration = 0          # counts closure evaluations
+        iteration = 0  # counts closure evaluations
         for outer_step in range(num_steps):
             if use_lbfgs:
                 optim = LBFGS([params],
-                            max_iter=inner_lbfgs_max_iter,
-                            line_search_fn="strong_wolfe")
+                              max_iter=inner_lbfgs_max_iter,
+                              line_search_fn="strong_wolfe")
             # random mini‑batch
-            batch_ids = random.sample(range(len(per_traj)),
-                                      k=min(batch_size, len(per_traj)))
+            batch_ids = random.sample(range(len(per_traj_data)),
+                                      k=min(batch_size, len(per_traj_data)))
 
             def closure() -> float:
-                """Compute –ELBO for the current mini‑batch; do pbar & logging."""
+                """Compute –ELBO for the current mini‑batch; do pbar &
+                logging."""
                 nonlocal best_elbo, iteration
-                optim.zero_grad(set_to_none=True)
+                if optim is not None:
+                    optim.zero_grad(set_to_none=True)
 
                 frame, proc, guide_flat = _split(params)
                 self._set_process_parameters(proc.detach())
 
                 elbo = torch.tensor(0.0, dtype=frame.dtype)
                 for tidx in batch_ids:
-                    td = per_traj[tidx]
-                    guide_dict = defaultdict(dict)
-                    for (gp, s_i), (lo, hi) in td["slice_map"].items():
+                    td = per_traj_data[tidx]
+                    guide_dict: Dict[_GroundCausalProcess, Dict[int, Tensor]
+                                     ] = defaultdict(dict)
+                    for (gp, s_i), (lo, hi) in td["gp_qparam_id_map"].items():
                         raw = guide_flat[lo:hi]
                         mask = torch.ones(td["traj_len"], dtype=raw.dtype)
                         mask[:s_i + 1] = 0
-                        probs = torch.softmax(raw + torch.log(mask + 1e-12), dim=0)
-                        # stable_exp = torch.exp(raw) * mask
-                        # probs = stable_exp / stable_exp.sum()
+                        probs = torch.softmax(raw + torch.log(mask + 1e-12),
+                                              dim=0)
                         guide_dict[gp][s_i] = probs
 
                     elbo += self.elbo_torch(
@@ -231,10 +243,10 @@ class ParamLearningBilevelProcessPlanningApproach(
                         guide_dict,
                         frame,
                         set(td["all_atoms"]),
-                        td["atom2gps"],
+                        td["atom_to_val_to_gps"],
                     )
                 loss = -(elbo / len(batch_ids))
-                loss.backward()
+                loss.backward()  # type: ignore
 
                 if elbo > best_elbo:
                     best_elbo = elbo.detach().item()
@@ -246,16 +258,16 @@ class ParamLearningBilevelProcessPlanningApproach(
                 curve["wall_time"].append(time.time() - training_start_time)
                 if pbar:
                     pbar.set_postfix(ELBO=elbo.detach().item(), best=best_elbo)
-                if use_lbfgs:          # tick every closure evaluation
+                if use_lbfgs:  # tick every closure evaluation
                     pbar.update(1)
 
                 iteration += 1
                 return loss.item()
 
             if use_lbfgs:
-                optim.step(closure)          # LBFGS calls closure internally
+                optim.step(closure)  # LBFGS calls closure internally
             else:
-                loss = closure()             # one call for Adam
+                loss = closure()  # one call for Adam
                 optim.step()
 
         pbar.close()
