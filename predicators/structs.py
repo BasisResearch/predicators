@@ -2558,8 +2558,7 @@ class ExogenousProcess(CausalProcess):
         delete_effects = {a.ground(sub) for a in self.delete_effects}
         return _GroundExogenousProcess(self, objects, condition_at_start,
                                        condition_overall, condition_at_end,
-                                       add_effects, delete_effects,
-                                       self.delay_distribution, self.strength)
+                                       add_effects, delete_effects)
 
 
 @dataclass(frozen=False, repr=False, eq=False)
@@ -2608,7 +2607,6 @@ class EndogenousProcess(CausalProcess):
         return _GroundEndogenousProcess(self, objects, condition_at_start,
                                         condition_overall, condition_at_end,
                                         add_effects, delete_effects,
-                                        self.delay_distribution, self.strength,
                                         self.option, option_objs,
                                         self._sampler)
 
@@ -2630,8 +2628,16 @@ class _GroundCausalProcess:
     condition_at_end: Set[GroundAtom]
     add_effects: Set[GroundAtom]
     delete_effects: Set[GroundAtom]
-    delay_distribution: DelayDistribution
-    strength: float
+
+    @property
+    def delay_distribution(self) -> DelayDistribution:
+        """The delay distribution of the parent CausalProcess."""
+        return self.parent.delay_distribution
+
+    @property
+    def strength(self) -> float:
+        """The strength of the parent CausalProcess."""
+        return self.parent.strength
 
     @abc.abstractmethod
     def cause_triggered(self, state_history: List[Set[GroundAtom]],
@@ -2763,8 +2769,7 @@ class _GroundEndogenousProcess(_GroundCausalProcess):
         return _GroundEndogenousProcess(
             self.parent, self.objects, new_condition_at_start,
             new_condition_overall, new_condition_at_end, new_add_effects,
-            new_delete_effects, self.delay_distribution, self.strength,
-            self.option, self.option_objs, self._sampler)
+            new_delete_effects, self.option, self.option_objs, self._sampler)
 
     def sample_option(self, state: State, goal: Set[GroundAtom],
                       rng: np.random.Generator) -> _Option:
@@ -2808,8 +2813,7 @@ class _GroundExogenousProcess(_GroundCausalProcess):
                                        new_condition_at_start,
                                        new_condition_overall,
                                        new_condition_at_end, new_add_effects,
-                                       new_delete_effects,
-                                       self.delay_distribution, self.strength)
+                                       new_delete_effects)
 
 
 # Convenience higher-order types useful throughout the code
