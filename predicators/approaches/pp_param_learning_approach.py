@@ -90,12 +90,16 @@ class ParamLearningBilevelProcessPlanningApproach(
     def _learn_process_parameters(
         self,
         dataset: Dataset,
-        num_steps: int = 1,
-        use_lbfgs: bool = True,
-        batch_size: int = 100,
-        inner_lbfgs_max_iter: int = 50,
+        use_lbfgs: bool = False,
     ) -> None:
         """Stochastic (mini-batch) optimisation of process parameters."""
+        if use_lbfgs:
+            num_steps = 1
+            batch_size = 100
+            inner_lbfgs_max_iter = 50
+        else:
+            num_steps = 100
+            batch_size = 16
 
         torch.manual_seed(CFG.seed)
 
@@ -182,7 +186,6 @@ class ParamLearningBilevelProcessPlanningApproach(
             return frame, proc, guide
 
         # ------------------- progress bar -------------------------- #
-
         if use_lbfgs:
             # show one tick *per closure evaluation*
             pbar = tqdm(total=num_steps * inner_lbfgs_max_iter,
@@ -200,7 +203,7 @@ class ParamLearningBilevelProcessPlanningApproach(
         }
         training_start_time = time.time()
         if not use_lbfgs:
-            optim = Adam([params])
+            optim = Adam([params], lr=5e-1)
 
         # ------------------- training loop ----------------------------- #
         iteration = 0  # counts closure evaluations
@@ -258,8 +261,7 @@ class ParamLearningBilevelProcessPlanningApproach(
                 curve["wall_time"].append(time.time() - training_start_time)
                 if pbar:
                     pbar.set_postfix(ELBO=elbo.detach().item(), best=best_elbo)
-                if use_lbfgs:  # tick every closure evaluation
-                    pbar.update(1)
+                pbar.update(1)
 
                 iteration += 1
                 return loss.item()
