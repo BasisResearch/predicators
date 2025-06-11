@@ -98,7 +98,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             batch_size = 100
             inner_lbfgs_max_iter = 50
         else:
-            num_steps = 100
+            num_steps = 50
             batch_size = 16
 
         torch.manual_seed(CFG.seed)
