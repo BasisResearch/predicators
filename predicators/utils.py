@@ -4310,76 +4310,47 @@ def null_sampler(state: State, goal: Set[GroundAtom], rng: np.random.Generator,
 
 class ConstantDelay(DelayDistribution):
 
-    def __init__(self, delay: int):
-        self.delay = delay
-        self._log_pmf_value = torch.tensor(0.0,
-                                           dtype=torch.get_default_dtype())
-        self._neg_inf = torch.tensor(float('-inf'),
-                                     dtype=torch.get_default_dtype())
+    def __init__(self, delay: Union[int, float, torch.Tensor]):
+        # keep dtype consistent with the rest of the model
+        self.delay = torch.as_tensor(delay, dtype=torch.get_default_dtype())
+        # reusable – matches self.delay’s dtype/device
+        self._neg_inf = torch.tensor(float("-inf"),
+                                     dtype=self.delay.dtype,
+                                     device=self.delay.device)
 
-    def sample(self):
-        return self.delay
+    def sample(self) -> int:
+        return int(self.delay.item())
 
-    def set_parameters(self, parameters):
+    def set_parameters(self, parameters, **kwargs: Any):
         self.delay = parameters[0]
         # Invalidate cached properties
-        if '_str' in self.__dict__:
-            del self.__dict__['_str']
-        if '_hash' in self.__dict__:
-            del self.__dict__['_hash']
+        self.__dict__.pop("_str", None)
+        self.__dict__.pop("_hash", None)
 
     def probability(self, k: int) -> float:
-        return 1.0 if k == self.delay else 0.0
+        return 1.0 if k == int(self.delay.item()) else 0.0
 
     def log_prob(self, k: Union[int, torch.Tensor]) -> torch.Tensor:
-        """Fast vectorized lookup of log P(delay = k)."""
-        if not isinstance(k, torch.Tensor):
-            k_tensor = torch.tensor(k, dtype=torch.long)
-        else:
-            k_tensor = k.long()
+        """Vectorised log-prob; differentiable w.r.t.
 
-        # Initialize with -inf
-        log_probs = torch.full_like(k_tensor,
-                                    self._neg_inf,
-                                    dtype=torch.get_default_dtype())
-        # Set log(1.0) = 0.0 where k == self.delay
-        log_probs[k_tensor == self.delay] = self._log_pmf_value
-        return log_probs
+        self.delay.
+        """
+        if not isinstance(k, torch.Tensor):
+            k_tensor = torch.tensor(k,
+                                    dtype=torch.long,
+                                    device=self.delay.device)
+        else:
+            k_tensor = k.long().to(self.delay.device)
+
+        zeros = torch.zeros_like(k_tensor, dtype=torch.get_default_dtype())
+        neg_inf = torch.full_like(k_tensor,
+                                  float("-inf"),
+                                  dtype=torch.get_default_dtype())
+        return torch.where(k_tensor == self.delay.long(), zeros, neg_inf)
 
     @cached_property
     def _str(self) -> str:
         return f"ConstantDelay({self.delay:.4f})"
-
-
-class GaussianDelay(DelayDistribution):
-
-    def __init__(self, mean: float, std: float, rng: np.random.Generator):
-        self.mean = mean
-        self.std = std
-        self.rng = rng
-
-    def sample(self):
-        while True:
-            delay = int(self.rng.normal(self.mean, self.std) + 0.5)
-            if delay > 0:
-                return delay
-
-    def set_parameters(self, parameters):
-        self.mean = parameters[0]
-        self.std = parameters[1]
-        # Invalidate cached properties
-        if '_str' in self.__dict__:
-            del self.__dict__['_str']
-        if '_hash' in self.__dict__:
-            del self.__dict__['_hash']
-
-    def probability(self, k: int) -> float:
-        return norm.pdf(k, self.mean, self.std)
-
-    @cached_property
-    def _str(self) -> str:
-        return f"GaussianDelay({self.mean}, {self.std})"
-
 
 class CMPDelay(DelayDistribution):
     """Conway-Maxwell-Poisson (CMP) distribution for delays."""
@@ -4401,9 +4372,11 @@ class CMPDelay(DelayDistribution):
         self._pmf = masses / masses.sum()
         self._cdf = torch.cumsum(self._pmf, dim=0)
 
-    def set_parameters(self, parameters: Sequence[float]) -> None:
-        self.lam = torch.tensor(parameters[0], dtype=torch.get_default_dtype())
-        self.nu = torch.tensor(parameters[1], dtype=torch.get_default_dtype())
+    def set_parameters(self, parameters: Sequence[torch.Tensor], max_k: Optional[int] = None) -> None:
+        """Update μ and φ, then rebuild the cache."""
+        self.mu, self.phi = parameters
+        if max_k is not None:
+            self._max_k = max_k
         self._update_cache()
         # Invalidate cached properties
         if '_str' in self.__dict__:
@@ -4446,9 +4419,9 @@ class DoublePoissonDelay(DelayDistribution):
         Increase if your delays can be very large.
     """
 
-    def __init__(self, mu: float, phi: float, max_k: int = 50):
-        self.mu = torch.tensor(mu, dtype=torch.get_default_dtype())
-        self.phi = torch.tensor(phi, dtype=torch.get_default_dtype())
+    def __init__(self, mu: torch.Tensor, phi: torch.Tensor, max_k: int = 300):
+        self.mu = mu
+        self.phi = phi
         self._max_k = max_k
         self._update_cache()
 
@@ -4456,29 +4429,52 @@ class DoublePoissonDelay(DelayDistribution):
     # Internals
     # ------------------------------------------------------------------ #
     def _update_cache(self) -> None:
-        ks = torch.arange(self._max_k, dtype=torch.get_default_dtype())
-        log_fact = gammaln(ks + 1)
-        log_C = -0.5 * (
-            torch.log(torch.tensor(2 * torch.pi, dtype=self.mu.dtype))
-            +  # Ensure tensor has same dtype
-            torch.log(self.phi) + torch.log(self.mu))
-        # Calculate unnormalized log probabilities
-        log_p_unnormalized = (log_C + self.phi *
-                              (ks * torch.log(self.mu) - log_fact) -
-                              self.phi * self.mu)
+        """Rebuild cached log-PMF / PMF / CDF with safe numerics.
 
-        # Calculate normalized log PMF using logsumexp for numerical stability
-        log_normalization_constant = torch.logsumexp(log_p_unnormalized, dim=0)
-        self._log_pmf = log_p_unnormalized - log_normalization_constant
+        * Clamp μ and φ strictly positive to avoid log(0) or log(negative).
+        * Replace any NaN / ±Inf that might still appear before final normalisation.
+        """
+        EPS = 1e-8  # small constant – OK to tweak
 
-        # Calculate PMF from the normalized log PMF
-        self._pmf = torch.exp(self._log_pmf)
+        # 1. force positivity while preserving gradients (piece-wise smooth)
+        mu = torch.clamp(self.mu, min=EPS)
+        phi = torch.clamp(self.phi, min=EPS)
+
+        # 2. vector of support values k = 0 … max_k−1 (same device / dtype)
+        ks = torch.arange(self._max_k, dtype=mu.dtype, device=mu.device)
+
+        # 3. log(k!) with gammaln for numerical stability
+        log_fact = torch.special.gammaln(ks + 1)
+
+        # 4. constant term in Double-Poisson
+        log_two_pi = torch.log(
+            torch.tensor(2 * torch.pi, dtype=mu.dtype, device=mu.device))
+        log_C = -0.5 * (log_two_pi + torch.log(phi) + torch.log(mu))
+
+        # 5. unnormalised log-probability
+        log_p_unnorm = (log_C + phi * (ks * torch.log(mu) - log_fact) -
+                        phi * mu)
+
+        # 6. zap any accidental NaNs / ±Inf before normalisation
+        log_p_unnorm = torch.nan_to_num(log_p_unnorm,
+                                        nan=-torch.inf,
+                                        posinf=-torch.inf,
+                                        neginf=-torch.inf)
+
+        # 7. normalise in log-space
+        log_norm = torch.logsumexp(log_p_unnorm, dim=0)
+        self._log_pmf = log_p_unnorm - log_norm
+
+        # 8. derive PMF and CDF
+        self._pmf = self._log_pmf.exp()
         self._cdf = torch.cumsum(self._pmf, dim=0)
 
-    def set_parameters(self, parameters: Sequence[float]) -> None:
+    def set_parameters(self, parameters: Sequence[torch.Tensor], 
+                       **kwargs: Any) -> None:
         """Update μ and φ, then rebuild the cache."""
-        self.mu = torch.tensor(parameters[0], dtype=torch.get_default_dtype())
-        self.phi = torch.tensor(parameters[1], dtype=torch.get_default_dtype())
+        self.mu, self.phi = parameters
+        if "max_k" in kwargs and kwargs["max_k"] is not None:
+            self._max_k = kwargs["max_k"]
         self._update_cache()
         # Invalidate cached properties
         if '_str' in self.__dict__:
@@ -4526,6 +4522,104 @@ class DoublePoissonDelay(DelayDistribution):
     def _str(self) -> str:
         return f"DoublePoissonDelay({self.mu:.4f}, {self.phi:.4f})"
 
+class DiscreteGaussianDelay(DelayDistribution):
+    r"""Truncated discrete Gaussian distribution  (a.k.a. Discrete Normal).
+
+    Parameters
+    ----------
+    mu : float or Tensor
+        Location parameter (can be any real number).
+    sigma : float or Tensor
+        Scale (> 0).  Smaller values → tighter mass around ``mu``.
+    max_k : int, optional
+        Build / cache the PMF on the support  k = 0 … max_k-1  (default 300).
+    """
+
+    def __init__(self,
+                mu: torch.Tensor,
+                sigma: torch.Tensor,
+                max_k: int = 300) -> None:
+        self.mu = mu
+        self.sigma = sigma
+        self._max_k = max_k
+        self._update_cache()
+
+    # ------------------------------------------------------------------ #
+    # Internals
+    # ------------------------------------------------------------------ #
+    def _update_cache(self) -> None:
+        r"""Rebuild cached log-PMF / PMF / CDF using safe numerics."""
+        EPS = 1e-8
+
+        mu    = self.mu
+        sigma = torch.clamp(self.sigma, min=EPS)          # ensure positivity
+
+        assert isinstance(self._max_k, int)
+        ks = torch.arange(self._max_k,
+                        dtype=mu.dtype,
+                        device=mu.device)               # k = 0 … max_k-1
+
+        # Unnormalised log-probability of a discrete Gaussian
+        #   p̃(k) = exp( −(k−μ)² / (2σ²) )
+        # Work in log-space for stability:
+        log_p_unnorm = -0.5 * ((ks - mu)**2) / (sigma**2)
+
+        # Remove any accidental NaNs / ±Inf
+        log_p_unnorm = torch.nan_to_num(log_p_unnorm,
+                                        nan=-torch.inf,
+                                        posinf=-torch.inf,
+                                        neginf=-torch.inf)
+
+        # Normalise on the bounded support 0 … max_k-1
+        log_norm = torch.logsumexp(log_p_unnorm, dim=0)
+        self._log_pmf = log_p_unnorm - log_norm
+
+        self._pmf = self._log_pmf.exp()
+        self._cdf = torch.cumsum(self._pmf, dim=0)
+
+    # ------------------------------------------------------------------ #
+    # Public interface (identical to DoublePoissonDelay)
+    # ------------------------------------------------------------------ #
+    def set_parameters(self,
+                    parameters: Sequence[torch.Tensor],
+                    **kwargs: Any) -> None:
+        self.mu, self.sigma = parameters
+        if "max_k" in kwargs and kwargs["max_k"] is not None:
+            self._max_k = kwargs["max_k"]
+        self._update_cache()
+        # Invalidate cached repr/hash if present
+        self.__dict__.pop('_str',  None)
+        self.__dict__.pop('_hash', None)
+
+    def probability(self, k: int) -> float:
+        if 0 <= k < self._max_k:
+            return float(self._pmf[k])
+        return 0.0
+
+    def log_prob(self, k: Union[int, torch.Tensor]) -> torch.Tensor:
+        if not isinstance(k, torch.Tensor):
+            k_tensor = torch.tensor(k, dtype=torch.long)
+        else:
+            k_tensor = k.long()
+
+        k_flat = k_tensor.flatten()
+        log_probs_flat = torch.full_like(k_flat,
+                                        float('-inf'),
+                                        dtype=self._log_pmf.dtype)
+
+        mask = (k_flat >= 0) & (k_flat < self._max_k)
+        if mask.any():
+            log_probs_flat[mask] = self._log_pmf[k_flat[mask]]
+
+        return log_probs_flat.reshape(k_tensor.shape)
+
+    def sample(self) -> int:
+        u = torch.rand(1).item()
+        return int(torch.searchsorted(self._cdf, torch.tensor(u)))
+
+    @cached_property
+    def _str(self) -> str:
+        return f"DiscreteGaussianDelay({self.mu:.4f}, {self.sigma:.4f})"
 
 @functools.lru_cache(maxsize=None)
 def get_git_commit_hash() -> str:
