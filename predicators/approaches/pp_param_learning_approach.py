@@ -90,15 +90,15 @@ class ParamLearningBilevelProcessPlanningApproach(
     def _learn_process_parameters(
         self,
         dataset: Dataset,
-        use_lbfgs: bool = True,
+        use_lbfgs: bool = False,
     ) -> None:
         """Stochastic (mini-batch) optimisation of process parameters."""
         if use_lbfgs:
             num_steps = 1
             batch_size = 100
-            inner_lbfgs_max_iter = 50
+            inner_lbfgs_max_iter = 200
         else:
-            num_steps = 50
+            num_steps = 200
             batch_size = 16
 
         torch.manual_seed(CFG.seed)
@@ -106,15 +106,27 @@ class ParamLearningBilevelProcessPlanningApproach(
         # -------------------------------------------------------------- #
         # 0.  Cache per-trajectory data & build a global param layout     #
         # -------------------------------------------------------------- #
-        per_traj_data, params, num_proc_params = self._prepare_training_data_and_model_params(
+        max_traj_len = max(len(traj.states) for traj in dataset.trajectories)\
+            if dataset.trajectories else 0
+        per_traj_data, params, num_proc_params =\
+            self._prepare_training_data_and_model_params(
             dataset)
+        init_frame, init_proc_param, init_guide_flat = self._split_params_tensor(
+            params, num_proc_params)
+        self._set_process_parameters(init_proc_param, 
+                                     **{'max_k': max_traj_len})
+        logging.debug(f"Init sum of frame strength: {init_frame.item()}, "
+                      f"process params: {init_proc_param.sum().item()}, "
+                      f"guide params: {init_guide_flat.max().item()}")
+        # logging.debug("Learned processes:")
+        # for p in self._processes:
+        #     logging.debug(pformat(p))
 
         # ------------------- progress bar -------------------------- #
         if use_lbfgs:
             # show one tick *per closure evaluation*
             pbar_total = num_steps * inner_lbfgs_max_iter
-            pbar = tqdm(total=pbar_total,
-                        desc="Training (mini‑batch LBFGS)")
+            pbar = tqdm(total=pbar_total, desc="Training (mini‑batch LBFGS)")
         else:
             # Adam: one tick per optimisation step
             pbar = tqdm(range(num_steps), desc="Training (Adam)")
@@ -130,24 +142,27 @@ class ParamLearningBilevelProcessPlanningApproach(
 
         optim: Optional[torch.optim.Optimizer] = None
         if use_lbfgs:
-            # LBFGS is re-initialized per step if that's the intended logic,
-            # or can be initialized once here.
-            # optim = LBFGS([params], max_iter=inner_lbfgs_max_iter, line_search_fn="strong_wolfe")
-            pass # Will be initialized in the loop
+            # LBFGS is re-initialized per outer step or initialized once here.
+            # optim = LBFGS([params], max_iter=inner_lbfgs_max_iter,
+            # line_search_fn="strong_wolfe")
+            pass  # Will be initialized in the loop
         else:
-            optim = Adam([params], lr=5e-1)
+            optim = Adam([params], 
+                         lr=1e-1
+                         )
 
         # ------------------- training loop ----------------------------- #
         iteration = 0  # counts closure evaluations
         for outer_step in range(num_steps):
             if use_lbfgs:
                 # Initialize LBFGS optimizer for the current step/batch
+                # current_optim = optim
                 current_optim = LBFGS([params],
                                       max_iter=inner_lbfgs_max_iter,
                                       line_search_fn="strong_wolfe")
             else:
-                current_optim = optim # Should be Adam optimizer
-            
+                current_optim = optim  # Should be Adam optimizer
+
             assert current_optim is not None, "Optimizer not initialized"
 
             # random mini‑batch
@@ -158,14 +173,16 @@ class ParamLearningBilevelProcessPlanningApproach(
                 """Compute –ELBO for the current mini‑batch; do pbar &
                 logging."""
                 nonlocal best_elbo, iteration # iteration is modified here
-                
+
                 current_optim.zero_grad(set_to_none=True)
 
                 frame, proc, guide_flat = self._split_params_tensor(
                     params, num_proc_params)
-                self._set_process_parameters(proc.detach())
+                self._set_process_parameters(proc)
 
-                elbo = torch.tensor(0.0, dtype=frame.dtype, device=params.device)
+                elbo = torch.tensor(0.0,
+                                    dtype=frame.dtype,
+                                    device=params.device)
                 for tidx in batch_ids:
                     td = per_traj_data[tidx]
                     # Pass traj_len explicitly
@@ -181,7 +198,7 @@ class ParamLearningBilevelProcessPlanningApproach(
                         set(td["all_atoms"]),
                         td["atom_to_val_to_gps"],
                     )
-                
+
                 # Ensure loss is on the same device as params for backward()
                 loss = -(elbo / len(batch_ids))
                 loss.backward()  # type: ignore
@@ -213,7 +230,8 @@ class ParamLearningBilevelProcessPlanningApproach(
 
         # ---------------- persist results & plot ------------------------ #
         # Use self._split_params_tensor here as well
-        _, proc_params, _ = self._split_params_tensor(params.detach(), num_proc_params)
+        frame, proc_params, guide_flat = self._split_params_tensor(
+            params.detach(), num_proc_params)
         self._set_process_parameters(proc_params)
         self._plot_training_curve(curve)
         logging.debug("Learned processes:")
@@ -351,7 +369,7 @@ class ParamLearningBilevelProcessPlanningApproach(
                                    torch.log(q_dist_for_instance[mask]))
         return ll + H
 
-    def _set_process_parameters(self, parameters: Tensor) -> None:
+    def _set_process_parameters(self, parameters: Tensor, **kwargs: Dict) -> None:
         # Parameters are for the CausalProcess types, not ground instances.
         # Assumes 3 parameters per CausalProcess type (e.g., for its delay distribution)
         num_causal_process_types = len(self._processes)
@@ -362,11 +380,11 @@ class ParamLearningBilevelProcessPlanningApproach(
         # Loop through the CausalProcess types
         for i in range(num_causal_process_types):
             param_slice = parameters[i * 3:(i + 1) * 3]
-            self._processes[i]._set_parameters(
-                param_slice.tolist())  # Pass list of floats
+            self._processes[i]._set_parameters(param_slice, **kwargs)
 
-    def _split_params_tensor(self, vec: torch.Tensor,
-                             num_proc_params: int) -> Tuple[Tensor, Tensor, Tensor]:
+    def _split_params_tensor(
+            self, vec: torch.Tensor,
+            num_proc_params: int) -> Tuple[Tensor, Tensor, Tensor]:
         """Helper to split the flat parameter tensor."""
         frame = vec[0]
         proc = vec[1:num_proc_params]
@@ -377,7 +395,8 @@ class ParamLearningBilevelProcessPlanningApproach(
         self,
         dataset: Dataset,
     ) -> Tuple[List[Dict[str, Any]], torch.nn.Parameter, int]:
-        """Cache per-trajectory data, build global param layout, and init params."""
+        """Cache per-trajectory data, build global param layout, and init
+        params."""
         atom_option_dataset = utils.create_ground_atom_option_dataset(
             dataset.trajectories, self._get_current_predicates())
 
@@ -411,7 +430,8 @@ class ParamLearningBilevelProcessPlanningApproach(
 
             start_times = [[
                 t for t in range(traj_len)
-                if gp.cause_triggered(traj.states[:t + 1], traj.actions[:t + 1])
+                if gp.cause_triggered(traj.states[:t + 1], traj.actions[:t +
+                                                                        1])
             ] for gp in ground_processes]
 
             gp_qparam_id_map: Dict[Tuple[_GroundCausalProcess, int],
@@ -423,14 +443,21 @@ class ParamLearningBilevelProcessPlanningApproach(
                     q_offset = hi
 
             per_traj_data.append({
-                "trajectory": traj,
-                "traj_len": traj_len,
-                "ground_causal_processes": ground_processes,
-                "start_times_per_gp": start_times,
-                "atom_to_val_to_gps": atom_to_val_to_gps,
-                "all_atoms": utils.all_possible_ground_atoms(
+                "trajectory":
+                traj,
+                "traj_len":
+                traj_len,
+                "ground_causal_processes":
+                ground_processes,
+                "start_times_per_gp":
+                start_times,
+                "atom_to_val_to_gps":
+                atom_to_val_to_gps,
+                "all_atoms":
+                utils.all_possible_ground_atoms(
                     traj._low_level_states[0], self._get_current_predicates()),
-                "gp_qparam_id_map": gp_qparam_id_map,
+                "gp_qparam_id_map":
+                gp_qparam_id_map,
             })
 
         total_params_len = num_proc_params + q_offset
@@ -444,14 +471,12 @@ class ParamLearningBilevelProcessPlanningApproach(
             traj_len: int) -> Dict[_GroundCausalProcess, Dict[int, Tensor]]:
         """Helper to create the guide distribution dictionary for a single
         trajectory."""
-        guide_dict: Dict[_GroundCausalProcess, Dict[int, Tensor]] = defaultdict(
-            dict)
+        guide_dict: Dict[_GroundCausalProcess,
+                         Dict[int, Tensor]] = defaultdict(dict)
         for (gp, s_i), (lo, hi) in td["gp_qparam_id_map"].items():
             raw = guide_flat[lo:hi]
             # Ensure mask is on the same device as raw and has the correct dtype
-            mask = torch.ones(traj_len,
-                              dtype=raw.dtype,
-                              device=raw.device)
+            mask = torch.ones(traj_len, dtype=raw.dtype, device=raw.device)
             mask[:s_i + 1] = 0
             probs = torch.softmax(raw + torch.log(mask + 1e-20), dim=0)
             guide_dict[gp][s_i] = probs
