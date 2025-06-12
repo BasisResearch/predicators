@@ -4352,6 +4352,7 @@ class ConstantDelay(DelayDistribution):
     def _str(self) -> str:
         return f"ConstantDelay({self.delay:.4f})"
 
+
 class CMPDelay(DelayDistribution):
     """Conway-Maxwell-Poisson (CMP) distribution for delays."""
 
@@ -4372,7 +4373,9 @@ class CMPDelay(DelayDistribution):
         self._pmf = masses / masses.sum()
         self._cdf = torch.cumsum(self._pmf, dim=0)
 
-    def set_parameters(self, parameters: Sequence[torch.Tensor], max_k: Optional[int] = None) -> None:
+    def set_parameters(self,
+                       parameters: Sequence[torch.Tensor],
+                       max_k: Optional[int] = None) -> None:
         """Update μ and φ, then rebuild the cache."""
         self.mu, self.phi = parameters
         if max_k is not None:
@@ -4469,7 +4472,7 @@ class DoublePoissonDelay(DelayDistribution):
         self._pmf = self._log_pmf.exp()
         self._cdf = torch.cumsum(self._pmf, dim=0)
 
-    def set_parameters(self, parameters: Sequence[torch.Tensor], 
+    def set_parameters(self, parameters: Sequence[torch.Tensor],
                        **kwargs: Any) -> None:
         """Update μ and φ, then rebuild the cache."""
         self.mu, self.phi = parameters
@@ -4522,6 +4525,7 @@ class DoublePoissonDelay(DelayDistribution):
     def _str(self) -> str:
         return f"DoublePoissonDelay({self.mu:.4f}, {self.phi:.4f})"
 
+
 class DiscreteGaussianDelay(DelayDistribution):
     r"""Truncated discrete Gaussian distribution  (a.k.a. Discrete Normal).
 
@@ -4536,9 +4540,9 @@ class DiscreteGaussianDelay(DelayDistribution):
     """
 
     def __init__(self,
-                mu: torch.Tensor,
-                sigma: torch.Tensor,
-                max_k: int = 300) -> None:
+                 mu: torch.Tensor,
+                 sigma: torch.Tensor,
+                 max_k: int = 300) -> None:
         self.mu = mu
         self.sigma = sigma
         self._max_k = max_k
@@ -4551,13 +4555,12 @@ class DiscreteGaussianDelay(DelayDistribution):
         r"""Rebuild cached log-PMF / PMF / CDF using safe numerics."""
         EPS = 1e-8
 
-        mu    = self.mu
-        sigma = torch.clamp(self.sigma, min=EPS)          # ensure positivity
+        mu = self.mu
+        sigma = torch.clamp(self.sigma, min=EPS)  # ensure positivity
 
         assert isinstance(self._max_k, int)
-        ks = torch.arange(self._max_k,
-                        dtype=mu.dtype,
-                        device=mu.device)               # k = 0 … max_k-1
+        ks = torch.arange(self._max_k, dtype=mu.dtype,
+                          device=mu.device)  # k = 0 … max_k-1
 
         # Unnormalised log-probability of a discrete Gaussian
         #   p̃(k) = exp( −(k−μ)² / (2σ²) )
@@ -4580,15 +4583,14 @@ class DiscreteGaussianDelay(DelayDistribution):
     # ------------------------------------------------------------------ #
     # Public interface (identical to DoublePoissonDelay)
     # ------------------------------------------------------------------ #
-    def set_parameters(self,
-                    parameters: Sequence[torch.Tensor],
-                    **kwargs: Any) -> None:
+    def set_parameters(self, parameters: Sequence[torch.Tensor],
+                       **kwargs: Any) -> None:
         self.mu, self.sigma = parameters
         if "max_k" in kwargs and kwargs["max_k"] is not None:
             self._max_k = kwargs["max_k"]
         self._update_cache()
         # Invalidate cached repr/hash if present
-        self.__dict__.pop('_str',  None)
+        self.__dict__.pop('_str', None)
         self.__dict__.pop('_hash', None)
 
     def probability(self, k: int) -> float:
@@ -4604,8 +4606,8 @@ class DiscreteGaussianDelay(DelayDistribution):
 
         k_flat = k_tensor.flatten()
         log_probs_flat = torch.full_like(k_flat,
-                                        float('-inf'),
-                                        dtype=self._log_pmf.dtype)
+                                         float('-inf'),
+                                         dtype=self._log_pmf.dtype)
 
         mask = (k_flat >= 0) & (k_flat < self._max_k)
         if mask.any():
@@ -4620,6 +4622,7 @@ class DiscreteGaussianDelay(DelayDistribution):
     @cached_property
     def _str(self) -> str:
         return f"DiscreteGaussianDelay({self.mu:.4f}, {self.sigma:.4f})"
+
 
 @functools.lru_cache(maxsize=None)
 def get_git_commit_hash() -> str:

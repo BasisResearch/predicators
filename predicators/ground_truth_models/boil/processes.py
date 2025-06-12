@@ -9,8 +9,8 @@ from predicators.settings import CFG
 from predicators.structs import CausalProcess, EndogenousProcess, \
     ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
     Variable
-from predicators.utils import CMPDelay, ConstantDelay, DoublePoissonDelay, \
-    DiscreteGaussianDelay, null_sampler
+from predicators.utils import CMPDelay, ConstantDelay, DiscreteGaussianDelay, \
+    DoublePoissonDelay, null_sampler
 
 
 class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
@@ -96,7 +96,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(4.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0), sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
+                                                       sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(80, 3)
         else:
@@ -129,7 +130,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(4.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0), sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
+                                                       sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(80, 3)
         else:
@@ -161,7 +163,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(3.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
+                                                       sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
         else:
@@ -194,7 +197,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(5.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(5.0), sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(5.0),
+                                                       sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(100, 3)
         else:
@@ -227,7 +231,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(3.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
+                                                       sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
         else:
@@ -258,7 +263,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(3.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
+                                                       sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
         else:
@@ -289,7 +295,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(1.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0), sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
+                                                       sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(1, 1)
         else:
@@ -320,7 +327,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(1.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0), sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
+                                                       sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(1, 1)
         else:
@@ -351,7 +359,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(3.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
+                                                       sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
         else:
@@ -382,7 +391,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(1.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0), sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
+                                                       sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(1, 1)
         else:
@@ -401,7 +411,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         option = NoOp
         delay_distribution = ConstantDelay(1)
         # if CFG.boil_use_normal_delay:
-        #     delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0), 
+        #     delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
         #                                                sigma=torch.tensor(0.1))
         noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
                                          set(), set(), set(),
@@ -425,7 +435,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             if CFG.boil_use_constant_delay:
                 delay_distribution = ConstantDelay(torch.tensor(1.0))
             elif CFG.boil_use_normal_delay:
-                delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0), sigma=torch.tensor(0.1))
+                delay_distribution = DiscreteGaussianDelay(
+                    mu=torch.tensor(1.0), sigma=torch.tensor(0.1))
             elif CFG.boil_use_cmp_delay:
                 delay_distribution = CMPDelay(
                     1, 1)  # Assumed from other mu=1 cases
@@ -464,7 +475,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             delay_distribution = ConstantDelay(torch.tensor(7.0))
             # delay_distribution = ConstantDelay(4)
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(7.0), sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(7.0),
+                                                       sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(100, 2.9)
         else:
@@ -502,7 +514,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(3.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
+                                                       sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
         else:
@@ -533,7 +546,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             if CFG.boil_use_constant_delay:
                 delay_distribution = ConstantDelay(torch.tensor(3.0))
             elif CFG.boil_use_normal_delay:
-                delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
+                delay_distribution = DiscreteGaussianDelay(
+                    mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
             elif CFG.boil_use_cmp_delay:
                 delay_distribution = CMPDelay(55, 3)
             else:
@@ -566,7 +580,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(5.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(5.0), sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(5.0),
+                                                       sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(100, 3)
         else:
@@ -591,7 +606,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             if CFG.boil_use_constant_delay:
                 delay_distribution = ConstantDelay(torch.tensor(3.0))
             elif CFG.boil_use_normal_delay:
-                delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
+                delay_distribution = DiscreteGaussianDelay(
+                    mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
             elif CFG.boil_use_cmp_delay:
                 delay_distribution = CMPDelay(
                     55, 3)  # Assumed from other mu=3 cases

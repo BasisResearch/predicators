@@ -2460,7 +2460,7 @@ class CausalProcess(abc.ABC):
         """
         pass
 
-    def _set_parameters(self, parameters: Sequence[float], 
+    def _set_parameters(self, parameters: Sequence[float],
                         **kwargs: Any) -> None:
         self.strength = parameters[0]
         self.delay_distribution.set_parameters(parameters[1:], **kwargs)

@@ -113,7 +113,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             dataset)
         init_frame, init_proc_param, init_guide_flat = self._split_params_tensor(
             params, num_proc_params)
-        self._set_process_parameters(init_proc_param, 
+        self._set_process_parameters(init_proc_param,
                                      **{'max_k': max_traj_len})
         logging.debug(f"Init sum of frame strength: {init_frame.item()}, "
                       f"process params: {init_proc_param.sum().item()}, "
@@ -147,9 +147,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             # line_search_fn="strong_wolfe")
             pass  # Will be initialized in the loop
         else:
-            optim = Adam([params], 
-                         lr=1e-1
-                         )
+            optim = Adam([params], lr=1e-1)
 
         # ------------------- training loop ----------------------------- #
         iteration = 0  # counts closure evaluations
@@ -172,7 +170,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             def closure() -> float:
                 """Compute –ELBO for the current mini‑batch; do pbar &
                 logging."""
-                nonlocal best_elbo, iteration # iteration is modified here
+                nonlocal best_elbo, iteration  # iteration is modified here
 
                 current_optim.zero_grad(set_to_none=True)
 
@@ -369,7 +367,8 @@ class ParamLearningBilevelProcessPlanningApproach(
                                    torch.log(q_dist_for_instance[mask]))
         return ll + H
 
-    def _set_process_parameters(self, parameters: Tensor, **kwargs: Dict) -> None:
+    def _set_process_parameters(self, parameters: Tensor,
+                                **kwargs: Dict) -> None:
         # Parameters are for the CausalProcess types, not ground instances.
         # Assumes 3 parameters per CausalProcess type (e.g., for its delay distribution)
         num_causal_process_types = len(self._processes)
