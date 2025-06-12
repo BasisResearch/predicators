@@ -20,6 +20,7 @@ APPROACHES:
       # else the demo collection will fail with an option plan exhausted error.
       terminate_on_goal_reached: False
       terminate_on_goal_reached_and_option_terminated: True
+      boil_use_normal_delay: True
   # offline_model_learning:
   #   # This can learn the JugFilled and WaterBoiled process but not spill.
   #   NAME: "process_learning_and_planning"
