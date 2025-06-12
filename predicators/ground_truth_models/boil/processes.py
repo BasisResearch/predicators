@@ -6,8 +6,11 @@ import torch
 
 from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, EndogenousProcess, ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, Variable
-from predicators.utils import CMPDelay, ConstantDelay, DoublePoissonDelay, GaussianDelay, null_sampler
+from predicators.structs import CausalProcess, EndogenousProcess, \
+    ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
+    Variable
+from predicators.utils import CMPDelay, ConstantDelay, DoublePoissonDelay, \
+    DiscreteGaussianDelay, null_sampler
 
 
 class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
@@ -93,11 +96,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(4.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=4, std=0.2, rng=rng)
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0), sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(80, 3)
         else:
-            delay_distribution = DoublePoissonDelay(mu=torch.tensor(4.0), phi=torch.tensor(50.0))
+            delay_distribution = DoublePoissonDelay(mu=torch.tensor(4.0),
+                                                    phi=torch.tensor(50.0))
         pick_jug_from_faucet_process = EndogenousProcess(
             "PickJugFromFaucet", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -125,11 +129,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(4.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=4, std=0.2, rng=rng)
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0), sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(80, 3)
         else:
-            delay_distribution = DoublePoissonDelay(mu=torch.tensor(4.0), phi=torch.tensor(50.0))
+            delay_distribution = DoublePoissonDelay(mu=torch.tensor(4.0),
+                                                    phi=torch.tensor(50.0))
         pick_jug_from_burner_process = EndogenousProcess(
             "PickJugFromBurner", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -156,11 +161,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(3.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
         else:
-            delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0), phi=torch.tensor(50.0))
+            delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0),
+                                                    phi=torch.tensor(50.0))
         pick_jug_outside_faucet_burner_process = EndogenousProcess(
             "PickJugFromOutsideFaucetAndBurner", parameters,
             condition_at_start, set(), set(), add_effects, delete_effects,
@@ -188,11 +194,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(5.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=5, std=0.2, rng=rng)
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(5.0), sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(100, 3)
         else:
-            delay_distribution = DoublePoissonDelay(mu=torch.tensor(5.0), phi=torch.tensor(50.0))
+            delay_distribution = DoublePoissonDelay(mu=torch.tensor(5.0),
+                                                    phi=torch.tensor(50.0))
         place_on_burner_process = EndogenousProcess(
             "PlaceOnBurner", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -220,11 +227,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(3.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
         else:
-            delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0), phi=torch.tensor(50.0))
+            delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0),
+                                                    phi=torch.tensor(50.0))
         place_under_faucet_process = EndogenousProcess(
             "PlaceUnderFaucet", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -250,11 +258,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(3.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
         else:
-            delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0), phi=torch.tensor(50.0))
+            delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0),
+                                                    phi=torch.tensor(50.0))
         place_at_outside_faucet_burner_process = EndogenousProcess(
             "PlaceOutsideFaucetAndBurner", parameters, condition_at_start,
             set(), set(), add_effects, delete_effects, delay_distribution, 1.0,
@@ -280,11 +289,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(1.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=1, std=0.2, rng=rng)
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0), sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(1, 1)
         else:
-            delay_distribution = DoublePoissonDelay(mu=torch.tensor(1.0), phi=torch.tensor(50.0))
+            delay_distribution = DoublePoissonDelay(mu=torch.tensor(1.0),
+                                                    phi=torch.tensor(50.0))
         switch_faucet_on_process = EndogenousProcess(
             "SwitchFaucetOn", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -310,11 +320,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(1.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=1, std=0.2, rng=rng)
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0), sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(1, 1)
         else:
-            delay_distribution = DoublePoissonDelay(mu=torch.tensor(1.0), phi=torch.tensor(50.0))
+            delay_distribution = DoublePoissonDelay(mu=torch.tensor(1.0),
+                                                    phi=torch.tensor(50.0))
         switch_faucet_off_process = EndogenousProcess(
             "SwitchFaucetOff", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -340,11 +351,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(3.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
         else:
-            delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0), phi=torch.tensor(50.0))
+            delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0),
+                                                    phi=torch.tensor(50.0))
         switch_burner_on_process = EndogenousProcess(
             "SwitchBurnerOn", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -370,11 +382,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(1.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=1, std=0.2, rng=rng)
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0), sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(1, 1)
         else:
-            delay_distribution = DoublePoissonDelay(mu=torch.tensor(1.0), phi=torch.tensor(50.0))
+            delay_distribution = DoublePoissonDelay(mu=torch.tensor(1.0),
+                                                    phi=torch.tensor(50.0))
         switch_burner_off_process = EndogenousProcess(
             "SwitchBurnerOff", parameters, condition_at_start, set(), set(),
             add_effects, delete_effects, delay_distribution, 1.0, option,
@@ -387,6 +400,9 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         option_vars = [robot]
         option = NoOp
         delay_distribution = ConstantDelay(1)
+        # if CFG.boil_use_normal_delay:
+        #     delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0), 
+        #                                                sigma=torch.tensor(0.1))
         noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
                                          set(), set(), set(),
                                          delay_distribution, 1.0, option,
@@ -409,12 +425,13 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             if CFG.boil_use_constant_delay:
                 delay_distribution = ConstantDelay(torch.tensor(1.0))
             elif CFG.boil_use_normal_delay:
-                delay_distribution = GaussianDelay(mean=1, std=0.2, rng=rng)
+                delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0), sigma=torch.tensor(0.1))
             elif CFG.boil_use_cmp_delay:
                 delay_distribution = CMPDelay(
-                    1, 1)  # Assumed from other mean=1 cases
+                    1, 1)  # Assumed from other mu=1 cases
             else:
-                delay_distribution = DoublePoissonDelay(mu=torch.tensor(1.0), phi=torch.tensor(50.0))
+                delay_distribution = DoublePoissonDelay(mu=torch.tensor(1.0),
+                                                        phi=torch.tensor(50.0))
             declare_complete_process = EndogenousProcess(
                 "DeclareComplete", parameters, condition_at_start, set(),
                 set(), add_effects, set(), delay_distribution, 1.0, option,
@@ -447,12 +464,13 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             delay_distribution = ConstantDelay(torch.tensor(7.0))
             # delay_distribution = ConstantDelay(4)
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=4, std=0.2, rng=rng)
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(7.0), sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(100, 2.9)
         else:
             delay_distribution = DoublePoissonDelay(
-                mu=torch.tensor(4.0), phi=torch.tensor(50.0))  # mu=4 from ConstantDelay(4)
+                mu=torch.tensor(4.0),
+                phi=torch.tensor(50.0))  # mu=4 from ConstantDelay(4)
         fill_jug_process = ExogenousProcess("FillJug", parameters,
                                             condition_at_start,
                                             condition_overall, set(),
@@ -484,11 +502,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(3.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(55, 3)
         else:
-            delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0), phi=torch.tensor(50.0))
+            delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0),
+                                                    phi=torch.tensor(50.0))
         overfill_jug_process = ExogenousProcess("OverfillJug", parameters,
                                                 condition_at_start,
                                                 condition_overall, set(),
@@ -514,11 +533,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             if CFG.boil_use_constant_delay:
                 delay_distribution = ConstantDelay(torch.tensor(3.0))
             elif CFG.boil_use_normal_delay:
-                delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
+                delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
             elif CFG.boil_use_cmp_delay:
                 delay_distribution = CMPDelay(55, 3)
             else:
-                delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0), phi=torch.tensor(50.0))
+                delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0),
+                                                        phi=torch.tensor(50.0))
             spill_process = ExogenousProcess("Spill",
                                              parameters, condition_at_start,
                                              set(), set(), add_effects,
@@ -546,11 +566,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(5.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = GaussianDelay(mean=5, std=0.2, rng=rng)
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(5.0), sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(100, 3)
         else:
-            delay_distribution = DoublePoissonDelay(mu=torch.tensor(5.0), phi=torch.tensor(50.0))
+            delay_distribution = DoublePoissonDelay(mu=torch.tensor(5.0),
+                                                    phi=torch.tensor(50.0))
         boil_process = ExogenousProcess("Boil", parameters, condition_at_start,
                                         condition_overall, set(), add_effects,
                                         set(), delay_distribution, 1.0)
@@ -570,12 +591,13 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             if CFG.boil_use_constant_delay:
                 delay_distribution = ConstantDelay(torch.tensor(3.0))
             elif CFG.boil_use_normal_delay:
-                delay_distribution = GaussianDelay(mean=3, std=0.2, rng=rng)
+                delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
             elif CFG.boil_use_cmp_delay:
                 delay_distribution = CMPDelay(
-                    55, 3)  # Assumed from other mean=3 cases
+                    55, 3)  # Assumed from other mu=3 cases
             else:
-                delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0), phi=torch.tensor(50.0))
+                delay_distribution = DoublePoissonDelay(mu=torch.tensor(3.0),
+                                                        phi=torch.tensor(50.0))
             human_happy_process = ExogenousProcess("HumanHappy", parameters,
                                                    condition_at_start, set(),
                                                    set(), add_effects, set(),
