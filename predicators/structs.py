@@ -2460,9 +2460,10 @@ class CausalProcess(abc.ABC):
         """
         pass
 
-    def _set_parameters(self, parameters: Sequence[float]) -> None:
+    def _set_parameters(self, parameters: Sequence[float], 
+                        **kwargs: Any) -> None:
         self.strength = parameters[0]
-        self.delay_distribution.set_parameters(parameters[1:])
+        self.delay_distribution.set_parameters(parameters[1:], **kwargs)
         # Invalidate cached properties
         if '_str' in self.__dict__:
             del self.__dict__['_str']
@@ -2766,10 +2767,12 @@ class _GroundEndogenousProcess(_GroundCausalProcess):
         new_condition_at_end = set(self.condition_at_end)
         new_add_effects = set(self.add_effects)
         new_delete_effects = set(self.delete_effects)
-        return _GroundEndogenousProcess(
-            self.parent, self.objects, new_condition_at_start,
-            new_condition_overall, new_condition_at_end, new_add_effects,
-            new_delete_effects, self.option, self.option_objs, self._sampler)
+        return _GroundEndogenousProcess(self.parent, self.objects,
+                                        new_condition_at_start,
+                                        new_condition_overall,
+                                        new_condition_at_end, new_add_effects,
+                                        new_delete_effects, self.option,
+                                        self.option_objs, self._sampler)
 
     def sample_option(self, state: State, goal: Set[GroundAtom],
                       rng: np.random.Generator) -> _Option:
