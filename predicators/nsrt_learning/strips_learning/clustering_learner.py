@@ -9,7 +9,8 @@ import multiprocessing as mp
 import re
 from collections import defaultdict
 from pprint import pformat
-from typing import Dict, FrozenSet, Iterator, List, Optional, Set, Tuple, cast
+from typing import Dict, FrozenSet, Iterator, List, Optional, Set, Tuple, \
+    cast, Any
 
 from predicators import utils
 from predicators.nsrt_learning.segmentation import segment_trajectory
@@ -539,16 +540,127 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
 
         return parsed_atoms
 
-
-class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
-
-    def __init__(self, *args, **kwargs) -> None:
+class ClusteringProcessLearner(ClusteringSTRIPSLearner):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        from predicators.approaches.pp_online_predicate_invention_approach import \
-            get_false_positive_states_from_seg_trajs
+        from predicators.approaches.pp_online_predicate_invention_approach \
+            import get_false_positive_states_from_seg_trajs
         self._get_false_positive_states_from_seg_trajs = \
             get_false_positive_states_from_seg_trajs
+
+        from predicators.approaches.pp_param_learning_approach import \
+            learn_process_parameters
+        self._get_data_likelihood_and_learn_params = \
+            learn_process_parameters
+
         self._atom_change_segmented_trajs: List[List[Segment]] = []
+    
+    def score_precondition_candidates(self, exogenous_process: ExogenousProcess, 
+        initial_atoms: Set[LiftedAtom]) -> List[Tuple[float, Set[LiftedAtom]]]:
+        candidates_with_scores = []
+
+        logging.info(f"For process sketch:\n{exogenous_process}")
+        for condition_candidate in utils.all_subsets(initial_atoms):
+            exogenous_process.condition_at_start = condition_candidate
+            exogenous_process.condition_overall = condition_candidate
+
+            if CFG.process_scoring_method == 'count_fp':
+                false_positive_process_state = \
+                    self._get_false_positive_states_from_seg_trajs(
+                        self._atom_change_segmented_trajs, 
+                        [exogenous_process])
+                num_false_positives = sum(
+                    len(states)
+                    for states in false_positive_process_state.values())
+
+                # Add complexity penalty for tie-breaking (prefer simpler)
+                complexity_penalty =\
+                    CFG.grammar_search_pred_complexity_weight * len(
+                    condition_candidate)
+                cost = num_false_positives + complexity_penalty
+            elif CFG.process_scoring_method == 'data_likelihood':
+                _, score = self._get_data_likelihood_and_learn_params(
+                    self._trajectories,
+                    self._predicates,
+                    [exogenous_process],
+                    use_lbfgs=True,
+                    plot_training_curve=False
+                )
+                cost = -score
+            else:
+                raise NotImplementedError
+
+            candidates_with_scores.append((cost, condition_candidate))
+            logging.debug(
+                f"Conditions: {condition_candidate}, Score: {cost}")
+        # Sort by score (lower is better)
+        candidates_with_scores.sort(key=lambda x: x[0])
+        return candidates_with_scores
+
+    def _get_top_consistent_conditions(
+            self, initial_atom: Set[LiftedAtom],
+            pnad: PNAD,
+            method: str) -> Iterator[Set[LiftedAtom]]:
+        """Get the top consistent conditions for a PNAD."""
+        # TODO: maybe a better way is to based on percentage of the worse score
+        # because as the number of trajectories increases, the worse score
+        # increases
+        exogenous_process = pnad.make_exogenous_process()
+        candidates_with_scores = self.score_precondition_candidates(
+            exogenous_process, initial_atom)
+
+        if method == "top_p_percent":
+            # Return top p% of candidates
+            p_percent = CFG.cluster_and_inverse_planning_top_p_percent
+            n_candidates = len(candidates_with_scores)
+            num_under_percentage = max(
+                1, int(n_candidates * p_percent / 100.0))
+            score_at_threshold = candidates_with_scores[:
+                                                        num_under_percentage][
+                                                            -1][0]
+            scores = [score for score, _ in candidates_with_scores]
+            # Include all candidates with score_at_threshold
+            position = bisect.bisect_right(scores, score_at_threshold)
+            logging.info(
+                f"Score threshold {score_at_threshold}; returning "
+                f"{position}/{n_candidates} candidates")
+
+            # include at most top_n_candidates
+            if CFG.cluster_process_learner_top_n_conditions > 0:
+                position = min(position,
+                                CFG.cluster_process_learner_top_n_conditions)
+            # Reocrd the total number of candidates
+            if self._total_num_candidates == 0:
+                self._total_num_candidates += position
+            else:
+                self._total_num_candidates *= position
+            top_candidates = candidates_with_scores[:position]
+        elif method == "top_n":
+            # Return top n candidates
+            n = CFG.cluster_process_learner_top_n_conditions
+            top_candidates = candidates_with_scores[:n]
+
+
+        elif method == "threshold":
+            # Original threshold-based approach
+            position = bisect.bisect_right(scores, score_at_threshold)
+            top_candidates = candidates_with_scores[:position]
+            logging.info(
+                f"Score threshold {score_at_threshold}; returning "
+                f"{position}/{n_candidates} candidates")
+
+        else:
+            raise NotImplementedError(
+                f"Unknown top consistent method: {method}")
+
+        # Yield the selected candidates
+        for score, condition_candidate in top_candidates:
+            logging.info(
+                f"Selected condition: {condition_candidate}, Score: {score}"
+            )
+            yield condition_candidate
+
+class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
     @classmethod
     def get_name(cls) -> str:
@@ -575,19 +687,33 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
         final_pnads: List[PNAD] = []
 
         for pnad in pnads:
-            precon = self._run_search(pnad)
+            if CFG.exogenous_process_learner_do_intersect:
+                init_lift_atoms = self._induce_preconditions_via_intersection(
+                    pnad)
+            else:
+                init_ground_atoms = pnad.datastore[0][0].init_atoms
+                var_to_obj = pnad.datastore[0][1]
+                obj_to_var = {v: k for k, v in var_to_obj.items()}
+                init_lift_atoms = set(
+                    atom.lift(obj_to_var) for atom in init_ground_atoms)
+            CFG.cluster_process_learner_top_n_conditions = 1
+            cond_at_start = next(self._get_top_consistent_conditions(
+                                init_lift_atoms, pnad, method="top_n"))
             add_eff = pnad.op.add_effects
             del_eff = pnad.op.delete_effects
-            new_params = set(var for atom in precon | add_eff | del_eff
+            new_params = set(var for atom in cond_at_start | add_eff | del_eff
                              for var in atom.variables)
 
             # Check uniqueness
-            if self._is_unique_pnad(precon, pnad, final_pnads):
+            if self._is_unique_pnad(frozenset(cond_at_start), pnad, 
+                                              final_pnads):
                 new_pnad = PNAD(
-                    pnad.op.copy_with(preconditions=precon,
+                    pnad.op.copy_with(preconditions=cond_at_start,
                                       parameters=new_params), pnad.datastore,
                     pnad.option_spec)
                 final_pnads.append(new_pnad)
+            # TODO: merge datastores if they are the same
+        breakpoint()
 
         return final_pnads
 
@@ -645,17 +771,23 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
                              preconditions: FrozenSet[LiftedAtom]) -> float:
         exogenous_process.condition_at_start = set(preconditions)
         exogenous_process.condition_overall = set(preconditions)
-        false_positive_process_state =\
-            self._get_false_positive_states_from_seg_trajs(
-                self._atom_change_segmented_trajs, [exogenous_process])
-        num_false_positives = 0
-        for _, states in false_positive_process_state.items():
-            num_false_positives += len(states)
-            # logging.debug(states)
+        if CFG.process_scoring_method == 'count_fp':
+            false_positive_process_state =\
+                self._get_false_positive_states_from_seg_trajs(
+                    self._atom_change_segmented_trajs, [exogenous_process])
+            num_false_positives = 0
+            for _, states in false_positive_process_state.items():
+                num_false_positives += len(states)
+                # logging.debug(states)
 
-        complexity_penalty = CFG.grammar_search_pred_complexity_weight *\
-                                    len(preconditions)
-        cost = num_false_positives + complexity_penalty
+            complexity_penalty = CFG.grammar_search_pred_complexity_weight *\
+                                        len(preconditions)
+            cost = num_false_positives + complexity_penalty
+        elif CFG.process_scoring_method == 'data_likelihood':
+            _, score = self._get_data_likelihood_and_learn_params(
+                self._trajectories, self._predicates, [exogenous_process],
+                use_lbfgs=True, plot_training_curve=False)
+            cost = -score
         logging.debug(f"Condition: {set(preconditions)}, Score {cost:.4f}")
         return cost
 
@@ -669,9 +801,9 @@ class ClusterAndSearchProcessLearner(ClusteringSTRIPSLearner):
             yield i, frozenset(successor), 1.0
 
 
-class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
+class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._endogenous_processes = kwargs["endogenous_processes"]
 
@@ -680,12 +812,6 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
         self._get_optimality_prob =\
             _ExpectedNodesScoreFunction._get_refinement_prob
 
-        from predicators.approaches.pp_online_predicate_invention_approach import \
-            get_false_positive_states_from_seg_trajs
-        self._get_fp_states_from_seg_trajs = \
-            get_false_positive_states_from_seg_trajs
-
-        self._atom_change_segmented_trajs: List[List[Segment]] = []
         self._option_change_segmented_trajs: List[List[Segment]] = []
         self._demo_atoms_sequences: List[List[Set[LiftedAtom]]] = []
         self._total_num_candidates = 0
@@ -744,13 +870,15 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 conditions_at_start.append(utils.all_subsets(init_lift_atoms))
             elif CFG.cluster_and_inverse_planning_candidates == "top_consistent":
                 conditions_at_start.append(
-                    self._get_top_consistent_conditions(init_lift_atoms, pnad))
+                    self._get_top_consistent_conditions(init_lift_atoms, pnad,
+                        CFG.cluster_and_inverse_planning_top_consistent_method))
             else:
                 raise NotImplementedError
 
         # --- Search for the best combination of preconditions ---
         best_cost = float("inf")
         best_conditions = []
+        breakpoint()
         # Score all combinations of preconditions
         for i, combination in enumerate(
                 itertools.product(*conditions_at_start)):
@@ -767,7 +895,6 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
             logging.debug(
                 f"Combination {i+1}/{self._total_num_candidates}: cost = {cost},"
                 f" Best cost = {best_cost}")
-        # breakpoint()
 
         # --- Create new PNADs with the best conditions ---
         final_pnads: List[PNAD] = []
@@ -797,108 +924,6 @@ class ClusterAndInversePlanningProcessLearner(ClusteringSTRIPSLearner):
                 final_pnads.append(new_pnad)
         return final_pnads
 
-    def _get_top_consistent_conditions(
-            self, initial_atom: Set[LiftedAtom],
-            pnad: PNAD) -> Iterator[Set[LiftedAtom]]:
-        """Get the top consistent conditions for a PNAD."""
-        # TODO: maybe a better way is to based on percentage of the worse score
-        # because as the number of trajectories increases, the worse score
-        # increases
-        exogenous_process = pnad.make_exogenous_process()
-
-        method = CFG.cluster_and_inverse_planning_top_consistent_method
-
-        if method == "threshold":
-            # Original threshold-based approach
-            for condition_candidate in utils.all_subsets(initial_atom):
-                exogenous_process.condition_at_start = condition_candidate
-                exogenous_process.condition_overall = condition_candidate
-
-                false_positive_process_state = \
-                    self._get_fp_states_from_seg_trajs(
-                        self._atom_change_segmented_trajs, [exogenous_process])
-                num_false_positives = sum(
-                    len(states)
-                    for states in false_positive_process_state.values())
-
-                logging.debug(
-                    f"Conditions: {condition_candidate}, FP: {num_false_positives}"
-                )
-                if num_false_positives <= CFG.cluster_and_inverse_planning_top_consistent_max_cost:
-                    yield condition_candidate
-        # return candidates
-        elif method in ["top_p_percent", "top_n"]:
-            # Collect all candidates with their scores
-            candidates_with_scores = []
-
-            logging.info(f"For operator sketch:\n{pnad.op}")
-            for condition_candidate in utils.all_subsets(initial_atom):
-                exogenous_process.condition_at_start = condition_candidate
-                exogenous_process.condition_overall = condition_candidate
-
-                false_positive_process_state = \
-                    self._get_fp_states_from_seg_trajs(
-                        self._atom_change_segmented_trajs, [exogenous_process])
-                num_false_positives = sum(
-                    len(states)
-                    for states in false_positive_process_state.values())
-
-                # Add complexity penalty for tie-breaking (prefer simpler conditions)
-                complexity_penalty =\
-                    CFG.grammar_search_pred_complexity_weight * len(
-                    condition_candidate)
-                score = num_false_positives + complexity_penalty
-
-                candidates_with_scores.append((score, condition_candidate))
-                logging.debug(
-                    f"Conditions: {condition_candidate}, Score: {score}")
-
-            # Sort by score (lower is better)
-            candidates_with_scores.sort(key=lambda x: x[0])
-
-            if method == "top_p_percent":
-                # Return top p% of candidates
-                p_percent = CFG.cluster_and_inverse_planning_top_p_percent
-                n_candidates = len(candidates_with_scores)
-                num_under_percentage = max(
-                    1, int(n_candidates * p_percent / 100.0))
-                score_at_threshold = candidates_with_scores[:
-                                                            num_under_percentage][
-                                                                -1][0]
-                scores = [score for score, _ in candidates_with_scores]
-                # Include all candidates with score_at_threshold
-                position = bisect.bisect_right(scores, score_at_threshold)
-                logging.info(
-                    f"Score threshold {score_at_threshold}; returning "
-                    f"{position}/{n_candidates} candidates")
-
-                # include at most top_n_candidates
-                if CFG.cluster_and_inverse_planning_top_n > 0:
-                    position = min(position,
-                                   CFG.cluster_and_inverse_planning_top_n)
-
-                # Reocrd the total number of candidates
-                if self._total_num_candidates == 0:
-                    self._total_num_candidates += position
-                else:
-                    self._total_num_candidates *= position
-                top_candidates = candidates_with_scores[:position]
-            else:  # method == "top_n"
-                # Return top n candidates
-                n = CFG.cluster_and_inverse_planning_top_n
-                top_candidates = candidates_with_scores[:n]
-
-            # Yield the selected candidates
-            for score, condition_candidate in top_candidates:
-                logging.info(
-                    f"Selected condition: {condition_candidate}, Score: {score}"
-                )
-                yield condition_candidate
-
-        else:
-            raise ValueError(
-                f"Unknown method: {method}. Must be one of 'threshold', "
-                "'top_p_percent', 'top_n'")
 
     def compute_processes_score(
             self, exogenous_processes: Set[ExogenousProcess]) -> float:
