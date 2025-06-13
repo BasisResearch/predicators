@@ -9,18 +9,18 @@ APPROACHES:
   #     boil_use_constant_delay: True
   #     # boil_use_normal_delay: True
   #     demonstrator: "oracle_process_planning"
-  param_learning:
-    NAME: "param_learning_process_planning"
-    ARGS:
-      - "load_data"
-    FLAGS:
-      # boil_use_constant_delay: True
-      demonstrator: "oracle_process_planning"
-      # This following is needed to generate a successful demo trajectory, or 
-      # else the demo collection will fail with an option plan exhausted error.
-      terminate_on_goal_reached: False
-      terminate_on_goal_reached_and_option_terminated: True
-      boil_use_normal_delay: True
+  # param_learning:
+  #   NAME: "param_learning_process_planning"
+  #   ARGS:
+  #     - "load_data"
+  #   FLAGS:
+  #     # boil_use_constant_delay: True
+  #     demonstrator: "oracle_process_planning"
+  #     # This following is needed to generate a successful demo trajectory, or 
+  #     # else the demo collection will fail with an option plan exhausted error.
+  #     terminate_on_goal_reached: False
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
   # offline_model_learning:
   #   # This can learn the JugFilled and WaterBoiled process but not spill.
   #   NAME: "process_learning_and_planning"
@@ -59,61 +59,60 @@ APPROACHES:
   #     only_learn_exogenous_processes: True
   #     online_learning_early_stopping: True
   #     num_online_learning_cycles: 1
-  # predicate_invention:
-  #   NAME: "online_predicate_invention_and_process_planning"
-  #   ARGS:
-  #     - "load_data"
-  #   FLAGS:
-  #     # boil_goal: "task_completed" # This option isn't fully ready because
-  #       # with the current only_learn_exogenous_processes setting, it won't try
-  #       # to learn the precondition for the DeclareComplete option.
-  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
-  #     excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,JugNotFilled,JugNotAtFaucetOrAtFaucetAndFilled"
-  #     # boil_use_constant_delay: True
-  #     demonstrator: "oracle_process_planning"
-  #     explorer: "exploit_planning"
-  #     online_nsrt_learning_requests_per_cycle: 1  # just 1 for now
-  #     max_num_steps_interaction_request: 300 # 300 should be enough
-  #     # This following is needed to generate a successful demo trajectory, or 
-  #     # else the demo collection will fail with an option plan exhausted error.
-  #     strips_learner: "llm"
-  #     find_best_matching_pnad_skip_if_effect_not_subset: False
-  #     # exogenous_process_learner: "cluster_and_llm_select"
-  #     # exogenous_process_learner: "cluster_and_search_process_learner"
-  #     exogenous_process_learner: "cluster_and_inverse_planning"
-  #     exogenous_process_learner_do_intersect: True
-  #     process_learner_check_false_positives: False
-  #     # To have demos to stop when option terminates.
-  #     terminate_on_goal_reached: False
-  #     terminate_on_goal_reached_and_option_terminated: True
-  #     only_learn_exogenous_processes: True
-  #     online_learning_early_stopping: True
-  #     # pause_after_process_learning_for_inspection: True
-  #     num_online_learning_cycles: 20
-  #     rgb_observation: False # for visual predicators
-  #     boil_use_constant_delay: True
-  #     # Testing predicate invention:
-  #     vlm_predicator_oracle_base_predicates: True
-  #     vlm_predicator_oracle_learned_predicates: True
-  #     vlm_predicator_use_grammar: False
-  #     grammar_search_grammar_use_single_feature: False
-  #     grammar_search_grammar_use_skip_grammar: False
-  #     grammar_search_grammar_includes_negation: True
-  #     grammar_search_grammar_includes_foralls: False
-  #     grammar_search_prune_redundant_preds: False
-  #     grammar_search_search_algorithm: "gbfs"
-  #     grammar_search_task_planning_timeout: 0.5
-  #     learnable_delay_distribution: "constant" # "constant", "cmp", "normal"
-  #     bilevel_planning_explorer_enumerate_plans: True
-  #     online_nsrt_learning_requests_per_task: 8 # 2
-  #     grammar_search_expected_nodes_optimal_demo_prob: 0.5
-  #     cluster_and_inverse_planning_candidates: "top_consistent"
-  #     # cluster_and_inverse_planning_top_consistent_method: "top_n"
-  #     cluster_and_inverse_planning_top_consistent_method: "top_p_percent"
-  #     # cluster_and_inverse_planning_top_consistent_method: "threshold"
-  #     cluster_and_inverse_planning_top_p_percent: 4
-  #     cluster_and_inverse_planning_top_n: 10
-  #     exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
+  predicate_invention:
+    NAME: "online_predicate_invention_and_process_planning"
+    ARGS:
+      - "load_data"
+    FLAGS:
+      # boil_goal: "task_completed" # This option isn't fully ready because
+        # with the current only_learn_exogenous_processes setting, it won't try
+        # to learn the precondition for the DeclareComplete option.
+      boil_goal: "human_happy" # Can also be "task_completed", "simple"
+      excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,JugNotFilled,JugNotAtFaucetOrAtFaucetAndFilled"
+      # boil_use_constant_delay: True
+      demonstrator: "oracle_process_planning"
+      explorer: "exploit_planning"
+      online_nsrt_learning_requests_per_cycle: 1  # just 1 for now
+      max_num_steps_interaction_request: 300 # 300 should be enough
+      # This following is needed to generate a successful demo trajectory, or 
+      # else the demo collection will fail with an option plan exhausted error.
+      find_best_matching_pnad_skip_if_effect_not_subset: False
+      # exogenous_process_learner: "cluster_and_llm_select"
+      exogenous_process_learner: "cluster_and_search_process_learner"
+      # exogenous_process_learner: "cluster_and_inverse_planning"
+      exogenous_process_learner_do_intersect: True
+      process_learner_check_false_positives: False
+      # To have demos to stop when option terminates.
+      terminate_on_goal_reached: False
+      terminate_on_goal_reached_and_option_terminated: True
+      only_learn_exogenous_processes: True
+      online_learning_early_stopping: True
+      # pause_after_process_learning_for_inspection: True
+      num_online_learning_cycles: 20
+      rgb_observation: False # for visual predicators
+      boil_use_constant_delay: True
+      # Testing predicate invention:
+      vlm_predicator_oracle_base_predicates: True
+      vlm_predicator_oracle_learned_predicates: True
+      vlm_predicator_use_grammar: False
+      grammar_search_grammar_use_single_feature: False
+      grammar_search_grammar_use_skip_grammar: False
+      grammar_search_grammar_includes_negation: True
+      grammar_search_grammar_includes_foralls: False
+      grammar_search_prune_redundant_preds: False
+      grammar_search_search_algorithm: "gbfs"
+      grammar_search_task_planning_timeout: 0.5
+      learnable_delay_distribution: "constant" # "constant", "cmp", "normal"
+      bilevel_planning_explorer_enumerate_plans: True
+      online_nsrt_learning_requests_per_task: 8 # 2
+      grammar_search_expected_nodes_optimal_demo_prob: 0.5
+      cluster_and_inverse_planning_candidates: "top_consistent"
+      # cluster_and_inverse_planning_top_consistent_method: "top_n"
+      cluster_and_inverse_planning_top_consistent_method: "top_p_percent"
+      # cluster_and_inverse_planning_top_consistent_method: "threshold"
+      cluster_and_inverse_planning_top_p_percent: 4
+      cluster_process_learner_top_n_conditions: 3
+      exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
 
 ENVS:
   # cover:

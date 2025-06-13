@@ -597,7 +597,8 @@ class GlobalSettings:
     cluster_and_inverse_planning_top_consistent_num = -1
     cluster_and_inverse_planning_top_p_percent = 3  # percentage of top consistent candidates to use
     cluster_and_inverse_planning_top_consistent_max_cost = 3
-    cluster_and_inverse_planning_top_n = -1
+    cluster_process_learner_top_n_conditions = -1
+    process_scoring_method = "data_likelihood" # "count_fp", "data_likelihood"
 
     # torch GPU usage setting
     use_torch_gpu = False
