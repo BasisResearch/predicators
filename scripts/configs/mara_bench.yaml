@@ -90,7 +90,6 @@ APPROACHES:
       # pause_after_process_learning_for_inspection: True
       num_online_learning_cycles: 20
       rgb_observation: False # for visual predicators
-      boil_use_constant_delay: True
       # Testing predicate invention:
       vlm_predicator_oracle_base_predicates: True
       vlm_predicator_oracle_learned_predicates: True
@@ -113,6 +112,7 @@ APPROACHES:
       cluster_and_inverse_planning_top_p_percent: 4
       cluster_process_learner_top_n_conditions: 3
       exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
+      learn_process_parameters: True
 
 ENVS:
   # cover:
