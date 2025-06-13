@@ -3366,7 +3366,7 @@ def create_ground_atom_option_dataset(
         options = [a.get_option() for a in traj.actions]
         ground_atom_option_dataset.append(
             AtomOptionTrajectory(traj.states, atoms, options, traj.is_demo,
-                                 traj.train_task_idx))
+                                 traj.train_task_idx if traj.is_demo else None))
     return ground_atom_option_dataset
 
 

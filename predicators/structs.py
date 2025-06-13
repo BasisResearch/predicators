@@ -11,6 +11,7 @@ from functools import cached_property, lru_cache
 from typing import Any, Callable, Collection, DefaultDict, Dict, Iterator, \
     List, Optional, Sequence, Set, Tuple, TypeVar, Union, cast
 
+import torch
 import numpy as np
 import PIL.Image
 from gym.spaces import Box
@@ -991,17 +992,12 @@ class STRIPSOperator:
     ) -> ExogenousProcess:
         """Make an ExogenousProcess out of this STRIPSOperator object."""
         if process_delay_params is None:
-            process_delay_params = [10, 1]
+            process_delay_params = [1, 1]
         if process_strength is None:
             process_strength = 1.0
         if process_rng is None:
             process_rng = np.random.default_rng(CFG.seed)
-        if CFG.learnable_delay_distribution == "cmp":
-            dist = utils.CMPDelay(*process_delay_params, rng=process_rng)
-        elif CFG.learnable_delay_distribution == "constant":
-            dist = utils.ConstantDelay(process_delay_params[0])
-        else:
-            raise NotImplementedError
+        dist = utils.DiscreteGaussianDelay(torch.tensor(1), torch.tensor(1))
 
         proc = ExogenousProcess(self.name,
                                 self.parameters,
