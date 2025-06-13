@@ -24,7 +24,7 @@ from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     ParameterizedOption, Predicate, Task, Type, _GroundCausalProcess, \
     LowLevelTrajectory
 
-torch.set_default_dtype(torch.double)
+# torch.set_default_dtype(torch.double)
 
 
 class ParamLearningBilevelProcessPlanningApproach(
@@ -103,7 +103,6 @@ class ParamLearningBilevelProcessPlanningApproach(
         logging.debug("Learned processes:")
         for p in processes:
             logging.debug(pformat(p))
-        breakpoint()
         return
 
 def learn_process_parameters(
@@ -112,11 +111,12 @@ def learn_process_parameters(
         processes: Sequence[CausalProcess],
         use_lbfgs: bool = False,
         plot_training_curve: bool = True,
+        lbfgs_max_iter: int = 200,
     ) -> Tuple[Sequence[CausalProcess], float]:
     if use_lbfgs:
         num_steps = 1
         batch_size = 100
-        inner_lbfgs_max_iter = 200
+        inner_lbfgs_max_iter = lbfgs_max_iter
     else:
         num_steps = 200
         batch_size = 16
@@ -485,7 +485,9 @@ def _prepare_training_data_and_model_params(
 
     total_params_len = num_proc_params + q_offset
     model_params = torch.nn.Parameter(
-        torch.rand(total_params_len, dtype=torch.double))
+        torch.rand(total_params_len, 
+                #    dtype=torch.double
+                   ))
 
     return per_traj_data, model_params, num_proc_params
 
