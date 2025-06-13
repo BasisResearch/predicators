@@ -486,22 +486,21 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
                     corresponding_pnad.option_spec)
                 final_pnads.append(pnad)
 
-                if CFG.process_learner_check_false_positives:
-                    # Go through the trajectories and check if this process
-                    # leads to false positive effect predications.
-                    false_positive_process_state = \
-                        self._get_false_positive_process_states(
-                            self._trajectories,
-                            self._predicates,
-                            [pnad.make_exogenous_process()])
+                # if CFG.process_learner_check_false_positives:
+                #     # Go through the trajectories and check if this process
+                #     # leads to false positive effect predications.
+                #     false_positive_process_state = \
+                #         self._get_false_positive_process_states(
+                #             self._trajectories,
+                #             self._predicates,
+                #             [pnad.make_exogenous_process()])
 
-                    for _, states in false_positive_process_state.items():
-                        if len(states) > 0:
-                            # initial_segmenter_method = CFG.segmenter
-                            # CFG.segmenter = "atom_changes"
-                            # segments = [segment_trajectory(traj, self._predicates) for traj in self._trajectories]
-                            # CFG.segmenter = initial_segmenter_method
-                            breakpoint()
+                #     for _, states in false_positive_process_state.items():
+                #         if len(states) > 0:
+                #             # initial_segmenter_method = CFG.segmenter
+                #             # CFG.segmenter = "atom_changes"
+                #             # segments = [segment_trajectory(traj, self._predicates) for traj in self._trajectories]
+                #             # CFG.segmenter = initial_segmenter_method
         return final_pnads
 
     def parse_effects_or_conditions(
@@ -584,7 +583,8 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                     self._predicates,
                     [exogenous_process],
                     use_lbfgs=True,
-                    plot_training_curve=False
+                    plot_training_curve=False,
+                    lbfgs_max_iter=20,
                 )
                 cost = -score
             else:
@@ -713,7 +713,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                     pnad.option_spec)
                 final_pnads.append(new_pnad)
             # TODO: merge datastores if they are the same
-        breakpoint()
 
         return final_pnads
 
@@ -771,6 +770,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                              preconditions: FrozenSet[LiftedAtom]) -> float:
         exogenous_process.condition_at_start = set(preconditions)
         exogenous_process.condition_overall = set(preconditions)
+        complexity_penalty = CFG.grammar_search_pred_complexity_weight *\
+                                        len(preconditions)
         if CFG.process_scoring_method == 'count_fp':
             false_positive_process_state =\
                 self._get_false_positive_states_from_seg_trajs(
@@ -780,14 +781,12 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 num_false_positives += len(states)
                 # logging.debug(states)
 
-            complexity_penalty = CFG.grammar_search_pred_complexity_weight *\
-                                        len(preconditions)
             cost = num_false_positives + complexity_penalty
         elif CFG.process_scoring_method == 'data_likelihood':
             _, score = self._get_data_likelihood_and_learn_params(
                 self._trajectories, self._predicates, [exogenous_process],
-                use_lbfgs=True, plot_training_curve=False)
-            cost = -score
+                use_lbfgs=True, plot_training_curve=False, lbfgs_max_iter=20)
+            cost = - score + complexity_penalty
         logging.debug(f"Condition: {set(preconditions)}, Score {cost:.4f}")
         return cost
 
