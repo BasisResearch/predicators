@@ -21,7 +21,8 @@ from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     Dataset, EndogenousProcess, ExogenousProcess, GroundAtom, \
-    ParameterizedOption, Predicate, Task, Type, _GroundCausalProcess
+    ParameterizedOption, Predicate, Task, Type, _GroundCausalProcess, \
+    LowLevelTrajectory
 
 torch.set_default_dtype(torch.double)
 
@@ -93,18 +94,25 @@ class ParamLearningBilevelProcessPlanningApproach(
         use_lbfgs: bool = False,
     ) -> None:
         """Stochastic (mini-batch) optimisation of process parameters."""
-        learn_process_parameters(dataset,
+        processes = sorted(self._get_current_processes())
+        learn_process_parameters(dataset.trajectories,
                 self._get_current_predicates(),
-                sorted(self._get_current_processes()),
+                processes,
                 use_lbfgs=use_lbfgs,
             )
+        logging.debug("Learned processes:")
+        for p in processes:
+            logging.debug(pformat(p))
+        breakpoint()
+        return
 
 def learn_process_parameters(
-        dataset: Dataset,
+        trajectories: List[LowLevelTrajectory],
         predicates: Set[Predicate],
         processes: Sequence[CausalProcess],
         use_lbfgs: bool = False,
-    ) -> Tuple[Set[CausalProcess], float]:
+        plot_training_curve: bool = True,
+    ) -> Tuple[Sequence[CausalProcess], float]:
     if use_lbfgs:
         num_steps = 1
         batch_size = 100
@@ -118,20 +126,20 @@ def learn_process_parameters(
     # -------------------------------------------------------------- #
     # 0.  Cache per-trajectory data & build a global param layout     #
     # -------------------------------------------------------------- #
-    max_traj_len = max(len(traj.states) for traj in dataset.trajectories)\
-        if dataset.trajectories else 0
+    max_traj_len = max(len(traj.states) for traj in trajectories)\
+        if len(trajectories) > 0 else 0
     per_traj_data, params, num_proc_params =\
         _prepare_training_data_and_model_params(
             predicates,
             processes,
-        dataset)
+            trajectories)
     init_frame, init_proc_param, init_guide_flat = _split_params_tensor(
         params, num_proc_params)
     _set_process_parameters(processes, init_proc_param,
                                     **{'max_k': max_traj_len})
-    logging.debug(f"Init sum of frame strength: {init_frame.item()}, "
-                    f"process params: {init_proc_param.sum().item()}, "
-                    f"guide params: {init_guide_flat.max().item()}")
+    # logging.debug(f"Init sum of frame strength: {init_frame.item()}, "
+    #                 f"process params: {init_proc_param.sum().item()}, "
+    #                 f"guide params: {init_guide_flat.max().item()}")
     # logging.debug("Learned processes:")
     # for p in self._processes:
     #     logging.debug(pformat(p))
@@ -246,11 +254,8 @@ def learn_process_parameters(
     frame, proc_params, guide_flat = _split_params_tensor(
         params.detach(), num_proc_params)
     _set_process_parameters(processes, proc_params)
-    _plot_training_curve(curve)
-    logging.debug("Learned processes:")
-    for p in processes:
-        logging.debug(pformat(p))
-    breakpoint()
+    if plot_training_curve:
+        _plot_training_curve(curve)
     return processes, best_elbo
 
 
@@ -410,12 +415,13 @@ def _split_params_tensor(
 def _prepare_training_data_and_model_params(
     predicates: Set[Predicate],
     processes: Sequence[CausalProcess],
-    dataset: Dataset,
+    trajectories: List[LowLevelTrajectory],
+
 ) -> Tuple[List[Dict[str, Any]], torch.nn.Parameter, int]:
     """Cache per-trajectory data, build global param layout, and init
     params."""
     atom_option_dataset = utils.create_ground_atom_option_dataset(
-        dataset.trajectories, predicates)
+        trajectories, predicates)
 
     per_traj_data: List[Dict[str, Any]] = []
     num_proc_params = 1 + 3 * len(processes)  # frame + process-type
