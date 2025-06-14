@@ -113,7 +113,8 @@ APPROACHES:
       cluster_process_learner_top_n_conditions: 3
       exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
       learn_process_parameters: True
-      cluster_and_search_process_learner_use_parallel: True
+      cluster_and_search_process_learner_parallel_condition: True
+      cluster_and_search_process_learner_parallel_pnad: False
 
 ENVS:
   # cover:

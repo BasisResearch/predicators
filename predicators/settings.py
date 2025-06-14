@@ -590,7 +590,8 @@ class GlobalSettings:
     pause_after_process_learning_for_inspection = False
     learnable_delay_distribution = "cmp"  # "constant", "cmp", "normal"
     process_learner_check_false_positives = False
-    cluster_and_search_process_learner_use_parallel = False
+    cluster_and_search_process_learner_parallel_condition = False
+    cluster_and_search_process_learner_parallel_pnad = False
     cluster_search_max_workers = -1
     cluster_and_inverse_planning_candidates = "top_consistent"  # "all", "top_consistent"
     cluster_and_inverse_planning_top_consistent_method = "percentage"  # "number", "percentage", "cost", "percentage_cost"

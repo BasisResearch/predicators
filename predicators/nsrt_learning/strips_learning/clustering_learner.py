@@ -67,6 +67,54 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
     return cost, condition_candidate
 
 
+# --- Helper for parallel precondition learning for ClusterAndSearchProcessLearner ---
+def _learn_pnad_preconditions_worker(args: Any) -> Tuple[PNAD, FrozenSet[LiftedAtom], Set[Variable]]:
+    """Helper run in a separate process to compute preconditions for a single
+    PNAD.
+
+    Args
+    ----
+    args : Tuple[ClusterAndSearchProcessLearner, PNAD]
+        The learner instance (so we can reuse its helper methods and state)
+        and the PNAD to process.
+
+    Returns
+    -------
+    Tuple[PNAD, FrozenSet[LiftedAtom], Set[Variable]]
+        The original PNAD, the discovered preconditions, and the full set of
+        parameters needed by the resulting operator.
+    """
+    learner, single_pnad = args  # unpack
+
+    # Derive the lifted atoms present at the start of the segment that gave
+    # rise to this PNAD.
+    if CFG.exogenous_process_learner_do_intersect:
+        init_lift_atoms = learner._induce_preconditions_via_intersection(
+            single_pnad)
+    else:
+        init_ground_atoms = single_pnad.datastore[0][0].init_atoms
+        var_to_obj = single_pnad.datastore[0][1]
+        obj_to_var = {v: k for k, v in var_to_obj.items()}
+        init_lift_atoms = {atom.lift(obj_to_var) for atom in init_ground_atoms}
+
+    # We only ever keep the single best consistent condition per PNAD.
+    original_top_n = CFG.cluster_process_learner_top_n_conditions
+    CFG.cluster_process_learner_top_n_conditions = 1
+    cond_at_start = next(
+        learner._get_top_consistent_conditions(
+            init_lift_atoms, single_pnad, method="top_n"))
+    # Restore original config in case the learner instance is reused in‑proc.
+    CFG.cluster_process_learner_top_n_conditions = original_top_n
+
+    # Collect all parameters that appear in the preconditions or effects.
+    add_eff = single_pnad.op.add_effects
+    del_eff = single_pnad.op.delete_effects
+    new_params = {v for atom in cond_at_start | add_eff | del_eff
+                  for v in atom.variables}
+
+    return single_pnad, cond_at_start, new_params
+
+
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
     """Base class for a clustering-based STRIPS learner."""
 
@@ -611,7 +659,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         # 'data_likelihood' scoring mode and when multiple CPUs are handy.
         cpu_count = mp.cpu_count()
         use_parallel = (CFG.process_scoring_method == "data_likelihood"
-                        and CFG.cluster_and_search_process_learner_use_parallel
+                        and CFG.cluster_and_search_process_learner_parallel_condition
                         and len(candidates) > 1 and cpu_count > 1)
 
         start_time = time.time()
@@ -734,18 +782,55 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
     def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
         # Check if parallelization is enabled and beneficial
-        # use_parallel = (CFG.cluster_and_search_process_learner_use_parallel
-        #                 and len(pnads) > 1 and mp.cpu_count() > 1)
+        use_parallel = (CFG.cluster_and_search_process_learner_parallel_pnad
+                        and len(pnads) > 1 and mp.cpu_count() > 1)
 
-        # if use_parallel:
-        #     return self._learn_pnad_preconditions_parallel(pnads)
-        # else:
-        return self._learn_pnad_preconditions_sequential(pnads)
+        if use_parallel:
+            return self._learn_pnad_preconditions_parallel(pnads)
+        else:
+            return self._learn_pnad_preconditions_sequential(pnads)
 
     def _learn_pnad_preconditions_parallel(self,
                                            pnads: List[PNAD]) -> List[PNAD]:
-        """Parallelized version of precondition learning."""
-        return []
+        """Parallelized version of precondition learning.
+
+        Each PNAD can be processed independently, so we distribute the search
+        for suitable preconditions across a multiprocessing pool.  After
+        gathering the results we remove duplicates (up to unification) to form
+        the final operator set.
+        """
+        # Short‑circuit on empty input for robustness.
+        if not pnads:
+            return []
+
+        # Build the work list – we need access to `self` inside the worker so
+        # that it can call helper methods already defined on the learner.
+        worker_args = [(self, pnad) for pnad in pnads]
+
+        # Re‑use the ProcessingPool abstraction already employed elsewhere in
+        # this module.  It relies on `dill`, which handles pickling of bound
+        # methods and large objects better than the stdlib `multiprocessing`.
+        cpu_cnt = mp.cpu_count()
+        with Pool(nodes=min(len(worker_args), cpu_cnt)) as pool:
+            results = pool.map(_learn_pnad_preconditions_worker, worker_args)
+
+        # Deduplicate PNADs whose (preconditions, effects, option) unify.
+        final_pnads: List[PNAD] = []
+        for base_pnad, cond_at_start, new_params in results:
+            if self._is_unique_pnad(frozenset(cond_at_start),
+                                    base_pnad,
+                                    final_pnads):
+                final_pnads.append(
+                    PNAD(
+                        base_pnad.op.copy_with(
+                            preconditions=cond_at_start,
+                            parameters=new_params),
+                        base_pnad.datastore,
+                        base_pnad.option_spec,
+                    )
+                )
+
+        return final_pnads
 
     def _learn_pnad_preconditions_sequential(self,
                                              pnads: List[PNAD]) -> List[PNAD]:
@@ -767,7 +852,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 self._get_top_consistent_conditions(init_lift_atoms,
                                                     pnad,
                                                     method="top_n"))
-            breakpoint()
             add_eff = pnad.op.add_effects
             del_eff = pnad.op.delete_effects
             new_params = set(var for atom in cond_at_start | add_eff | del_eff
