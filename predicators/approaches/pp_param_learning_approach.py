@@ -16,14 +16,14 @@ from tqdm.auto import tqdm
 from predicators import utils
 from predicators.approaches.process_planning_approach import \
     BilevelProcessPlanningApproach
-from predicators.planning_with_processes import process_task_plan_grounding
 from predicators.ground_truth_models import get_gt_processes
 from predicators.option_model import _OptionModelBase
+from predicators.planning_with_processes import process_task_plan_grounding
 from predicators.settings import CFG
 from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     Dataset, EndogenousProcess, ExogenousProcess, GroundAtom, \
-    ParameterizedOption, Predicate, Task, Type, _GroundCausalProcess, \
-    LowLevelTrajectory
+    LowLevelTrajectory, ParameterizedOption, Predicate, Task, Type, \
+    _GroundCausalProcess
 
 # torch.set_default_dtype(torch.double)
 
@@ -96,26 +96,28 @@ class ParamLearningBilevelProcessPlanningApproach(
     ) -> None:
         """Stochastic (mini-batch) optimisation of process parameters."""
         processes = sorted(self._get_current_processes())
-        learn_process_parameters(dataset.trajectories,
-                self._get_current_predicates(),
-                processes,
-                use_lbfgs=use_lbfgs,
-            )
+        learn_process_parameters(
+            dataset.trajectories,
+            self._get_current_predicates(),
+            processes,
+            use_lbfgs=use_lbfgs,
+        )
         logging.debug("Learned processes:")
         for p in processes:
             logging.debug(pformat(p))
         return
 
+
 def learn_process_parameters(
-        trajectories: List[LowLevelTrajectory],
-        predicates: Set[Predicate],
-        processes: Sequence[CausalProcess],
-        use_lbfgs: bool = False,
-        plot_training_curve: bool = True,
-        lbfgs_max_iter: int = 200,
-        seed: int = 0,
-        display_progress: bool = True,
-    ) -> Tuple[Sequence[CausalProcess], float]:
+    trajectories: List[LowLevelTrajectory],
+    predicates: Set[Predicate],
+    processes: Sequence[CausalProcess],
+    use_lbfgs: bool = False,
+    plot_training_curve: bool = True,
+    lbfgs_max_iter: int = 200,
+    seed: int = 0,
+    display_progress: bool = True,
+) -> Tuple[Sequence[CausalProcess], float]:
     if use_lbfgs:
         num_steps = 1
         batch_size = 100
@@ -139,7 +141,7 @@ def learn_process_parameters(
     init_frame, init_proc_param, init_guide_flat = _split_params_tensor(
         params, num_proc_params)
     _set_process_parameters(processes, init_proc_param,
-                                    **{'max_k': max_traj_len})
+                            **{'max_k': max_traj_len})
     # logging.debug(f"Init sum of frame strength: {init_frame.item()}, "
     #                 f"process params: {init_proc_param.sum().item()}, "
     #                 f"guide params: {init_guide_flat.max().item()}")
@@ -186,8 +188,8 @@ def learn_process_parameters(
             # Initialize LBFGS optimizer for the current step/batch
             # current_optim = optim
             current_optim = LBFGS([params],
-                                    max_iter=inner_lbfgs_max_iter,
-                                    line_search_fn="strong_wolfe")
+                                  max_iter=inner_lbfgs_max_iter,
+                                  line_search_fn="strong_wolfe")
         else:
             current_optim = optim  # Should be Adam optimizer
 
@@ -195,23 +197,19 @@ def learn_process_parameters(
 
         # random mini‑batch
         batch_ids = random.sample(range(len(per_traj_data)),
-                                    k=min(batch_size, len(per_traj_data)))
+                                  k=min(batch_size, len(per_traj_data)))
 
         def closure() -> float:
-            """Compute –ELBO for the current mini‑batch; do pbar &
-            logging."""
+            """Compute –ELBO for the current mini‑batch; do pbar & logging."""
             nonlocal best_elbo, iteration  # iteration is modified here
 
             current_optim.zero_grad(set_to_none=True)
 
             frame, proc_param, guide_flat = _split_params_tensor(
                 params, num_proc_params)
-            _set_process_parameters(processes, 
-                                    proc_param)
+            _set_process_parameters(processes, proc_param)
 
-            elbo = torch.tensor(0.0,
-                                dtype=frame.dtype,
-                                device=params.device)
+            elbo = torch.tensor(0.0, dtype=frame.dtype, device=params.device)
             for tidx in batch_ids:
                 td = per_traj_data[tidx]
                 # Pass traj_len explicitly
@@ -278,7 +276,7 @@ def elbo_torch(
     frame_strength: Tensor,
     all_possible_atoms: Set[GroundAtom],
     atom_to_val_to_gps: Dict[GroundAtom, Dict[bool,
-                                                Set[_GroundCausalProcess]]],
+                                              Set[_GroundCausalProcess]]],
 ) -> Tensor:
     """*Differentiable* ELBO computation.
     """
@@ -304,10 +302,9 @@ def elbo_torch(
                 gps = val_to_gps[val]
                 # expected effect factor for *observed* assignment
                 if val == (atom in yt):
-                    ll = ll + sum(
-                        q[t] * gp.factored_effect_factor(val, atom)
-                        for gp in gps
-                        for st, q in guide[gp].items() if st < t)
+                    ll = ll + sum(q[t] * gp.factored_effect_factor(val, atom)
+                                  for gp in gps
+                                  for st, q in guide[gp].items() if st < t)
                 # normalisation contribution ---------------------------
                 prod = torch.tensor(1.0, dtype=frame_strength.dtype)
                 for gp in gps:
@@ -315,11 +312,11 @@ def elbo_torch(
                         if st < t:
                             # q(z_t | gp, s_i) * exp(factor)
                             prod = prod * (q[t] * torch.exp(
-                                gp.factored_effect_factor(val, atom))
-                                            + (1 - q[t]))
+                                gp.factored_effect_factor(val, atom)) +
+                                           (1 - q[t]))
                 sum_ytj = sum_ytj + prod * torch.exp(frame_strength *
-                                                        (val ==
-                                                        (atom in yt_prev)))
+                                                     (val ==
+                                                      (atom in yt_prev)))
             E_log_Zt = E_log_Zt + torch.log(sum_ytj + 1e-12)
 
         # atoms not referenced in any process law -----------------------
@@ -392,12 +389,12 @@ def elbo_torch(
             mask = q_dist_for_instance > 1e-9
             if mask.any():
                 H -= torch.sum(q_dist_for_instance[mask] *
-                                torch.log(q_dist_for_instance[mask]))
+                               torch.log(q_dist_for_instance[mask]))
     return ll + H
 
+
 def _set_process_parameters(processes: Sequence[CausalProcess],
-                            parameters: Tensor,
-                            **kwargs: Dict) -> None:
+                            parameters: Tensor, **kwargs: Dict) -> None:
     # Parameters are for the CausalProcess types, not ground instances.
     # Assumes 3 parameters per CausalProcess type (e.g., for its delay distribution)
     num_causal_process_types = len(processes)
@@ -410,6 +407,7 @@ def _set_process_parameters(processes: Sequence[CausalProcess],
         param_slice = parameters[i * 3:(i + 1) * 3]
         processes[i]._set_parameters(param_slice, **kwargs)
 
+
 def _split_params_tensor(
         vec: torch.Tensor,
         num_proc_params: int) -> Tuple[Tensor, Tensor, Tensor]:
@@ -419,11 +417,11 @@ def _split_params_tensor(
     guide = vec[num_proc_params:]
     return frame, proc, guide
 
+
 def _prepare_training_data_and_model_params(
     predicates: Set[Predicate],
     processes: Sequence[CausalProcess],
     trajectories: List[LowLevelTrajectory],
-
 ) -> Tuple[List[Dict[str, Any]], torch.nn.Parameter, int]:
     """Cache per-trajectory data, build global param layout, and init
     params."""
@@ -444,15 +442,15 @@ def _prepare_training_data_and_model_params(
             nsrts=processes,
             allow_noops=True,
             compute_reachable_atoms=False,
-            )
+        )
         ground_processes = [
             gp for gp in _ground_processes
             if isinstance(gp, _GroundCausalProcess)
         ]
 
         atom_to_val_to_gps: Dict[GroundAtom, Dict[
-            bool, Set[_GroundCausalProcess]]] = defaultdict(
-                lambda: defaultdict(set))
+            bool,
+            Set[_GroundCausalProcess]]] = defaultdict(lambda: defaultdict(set))
         for gp in ground_processes:
             for a in gp.add_effects:
                 atom_to_val_to_gps[a][True].add(gp)
@@ -461,12 +459,11 @@ def _prepare_training_data_and_model_params(
 
         start_times = [[
             t for t in range(traj_len)
-            if gp.cause_triggered(traj.states[:t + 1], traj.actions[:t +
-                                                                    1])
+            if gp.cause_triggered(traj.states[:t + 1], traj.actions[:t + 1])
         ] for gp in ground_processes]
 
         gp_qparam_id_map: Dict[Tuple[_GroundCausalProcess, int],
-                                Tuple[int, int]] = {}
+                               Tuple[int, int]] = {}
         for gp_idx, gp in enumerate(ground_processes):
             for s_i in start_times[gp_idx]:
                 lo, hi = q_offset, q_offset + traj_len
@@ -485,27 +482,28 @@ def _prepare_training_data_and_model_params(
             "atom_to_val_to_gps":
             atom_to_val_to_gps,
             "all_atoms":
-            utils.all_possible_ground_atoms(
-                traj._low_level_states[0], predicates),
+            utils.all_possible_ground_atoms(traj._low_level_states[0],
+                                            predicates),
             "gp_qparam_id_map":
             gp_qparam_id_map,
         })
 
     total_params_len = num_proc_params + q_offset
     model_params = torch.nn.Parameter(
-        torch.rand(total_params_len, 
-                #    dtype=torch.double
+        torch.rand(total_params_len,
+                   #    dtype=torch.double
                    ))
 
     return per_traj_data, model_params, num_proc_params
+
 
 def _create_guide_dict_for_trajectory(
         td: Dict[str, Any], guide_flat: Tensor,
         traj_len: int) -> Dict[_GroundCausalProcess, Dict[int, Tensor]]:
     """Helper to create the guide distribution dictionary for a single
     trajectory."""
-    guide_dict: Dict[_GroundCausalProcess,
-                        Dict[int, Tensor]] = defaultdict(dict)
+    guide_dict: Dict[_GroundCausalProcess, Dict[int,
+                                                Tensor]] = defaultdict(dict)
     for (gp, s_i), (lo, hi) in td["gp_qparam_id_map"].items():
         raw = guide_flat[lo:hi]
         # Ensure mask is on the same device as raw and has the correct dtype
@@ -514,6 +512,7 @@ def _create_guide_dict_for_trajectory(
         probs = torch.softmax(raw + torch.log(mask + 1e-20), dim=0)
         guide_dict[gp][s_i] = probs
     return guide_dict
+
 
 def _plot_training_curve(training_curve: Dict,
                          image_dir: str = "images") -> None:

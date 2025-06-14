@@ -11,13 +11,13 @@ from functools import cached_property, lru_cache
 from typing import Any, Callable, Collection, DefaultDict, Dict, Iterator, \
     List, Optional, Sequence, Set, Tuple, TypeVar, Union, cast
 
-import torch
-from torch import Tensor
 import numpy as np
 import PIL.Image
+import torch
 from gym.spaces import Box
 from numpy.typing import NDArray
 from tabulate import tabulate
+from torch import Tensor
 
 import predicators.pretrained_model_interface
 import predicators.utils as utils  # pylint: disable=consider-using-from-import

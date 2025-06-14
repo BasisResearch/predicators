@@ -2,19 +2,19 @@
 
 import abc
 import bisect
+import copy
 import functools
 import itertools
 import logging
-import sys
-import multiprocess as mp
-import copy
-import time
-
 import re
+import sys
+import time
 from collections import defaultdict
 from pprint import pformat
-from typing import Dict, FrozenSet, Iterator, List, Optional, Set, Tuple, \
-    cast, Any
+from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Set, \
+    Tuple, cast
+
+import multiprocess as mp
 from pathos.multiprocessing import ProcessingPool as Pool
 
 from predicators import utils
@@ -31,11 +31,15 @@ from predicators.structs import PNAD, Datastore, DerivedPredicate, \
 
 if sys.platform == "darwin":
     # Set this when using macOS, to avoid issues with forked processes.
-    mp.set_start_method("spawn", force=True) 
+    mp.set_start_method("spawn", force=True)
+
 
 def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
     """Utility for multiprocessing: evaluate one condition_candidate under the
-    data‑likelihood scoring regime. Returns (cost, condition_candidate)."""
+    data‑likelihood scoring regime.
+
+    Returns (cost, condition_candidate).
+    """
     condition_candidate, trajectories, predicates, base_process, seed = args
     # Deep‑copy to isolate state per worker.
     # proc_copy = copy.deepcopy(base_process)
@@ -61,6 +65,7 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
     cost = -score + complexity_penalty
     # Original code minimises negative likelihood, so keep sign consistent.
     return cost, condition_candidate
+
 
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
     """Base class for a clustering-based STRIPS learner."""
@@ -576,11 +581,13 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
 
         return parsed_atoms
 
+
 class ClusteringProcessLearner(ClusteringSTRIPSLearner):
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        from predicators.approaches.pp_online_predicate_invention_approach \
-            import get_false_positive_states_from_seg_trajs
+        from predicators.approaches.pp_online_predicate_invention_approach import \
+            get_false_positive_states_from_seg_trajs
         self._get_false_positive_states_from_seg_trajs = \
             get_false_positive_states_from_seg_trajs
 
@@ -590,9 +597,11 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             learn_process_parameters
 
         self._atom_change_segmented_trajs: List[List[Segment]] = []
-    
-    def score_precondition_candidates(self, exogenous_process: ExogenousProcess,
-        initial_atoms: Set[LiftedAtom]) -> List[Tuple[float, Set[LiftedAtom]]]:
+
+    def score_precondition_candidates(
+            self, exogenous_process: ExogenousProcess,
+            initial_atoms: Set[LiftedAtom]
+    ) -> List[Tuple[float, Set[LiftedAtom]]]:
         candidates_with_scores = []
 
         # Build the candidate list once.
@@ -601,26 +610,20 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         # Decide whether to parallelise – we only do so for the
         # 'data_likelihood' scoring mode and when multiple CPUs are handy.
         cpu_count = mp.cpu_count()
-        use_parallel = (
-            CFG.process_scoring_method == "data_likelihood"
-            and CFG.cluster_and_search_process_learner_use_parallel
-            and len(candidates) > 1
-            and cpu_count > 1
-        )
+        use_parallel = (CFG.process_scoring_method == "data_likelihood"
+                        and CFG.cluster_and_search_process_learner_use_parallel
+                        and len(candidates) > 1 and cpu_count > 1)
 
         start_time = time.time()
         if use_parallel:
             logging.debug(f"Scoring {len(candidates)} candidates with "
                           f"{cpu_count} workers")
-            worker_args = [
-                (conditions, self._trajectories, self._predicates,
-                 copy.deepcopy(exogenous_process), CFG.seed)
-                for conditions in candidates
-            ]
+            worker_args = [(conditions, self._trajectories, self._predicates,
+                            copy.deepcopy(exogenous_process), CFG.seed)
+                           for conditions in candidates]
             with Pool(nodes=min(len(worker_args), cpu_count)) as pool:
                 candidates_with_scores.extend(
-                    pool.map(_compute_data_likelihood_cost, worker_args)
-                )
+                    pool.map(_compute_data_likelihood_cost, worker_args))
             for cost, condition_candidate in candidates_with_scores:
                 logging.debug(
                     f"Conditions: {condition_candidate}, Cost: {cost}")
@@ -659,15 +662,13 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                 logging.debug(
                     f"Conditions: {condition_candidate}, Score: {cost}")
         # Sort by score (lower is better)
-        logging.debug(
-            f"Scoring {len(candidates_with_scores)} candidates took "
-            f"{time.time() - start_time:.2f} seconds")
+        logging.debug(f"Scoring {len(candidates_with_scores)} candidates took "
+                      f"{time.time() - start_time:.2f} seconds")
         candidates_with_scores.sort(key=lambda x: x[0])
         return candidates_with_scores
 
     def _get_top_consistent_conditions(
-            self, initial_atom: Set[LiftedAtom],
-            pnad: PNAD,
+            self, initial_atom: Set[LiftedAtom], pnad: PNAD,
             method: str) -> Iterator[Set[LiftedAtom]]:
         """Get the top consistent conditions for a PNAD."""
         # TODO: maybe a better way is to based on percentage of the worse score
@@ -682,22 +683,20 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             # Return top p% of candidates
             p_percent = CFG.cluster_and_inverse_planning_top_p_percent
             n_candidates = len(candidates_with_scores)
-            num_under_percentage = max(
-                1, int(n_candidates * p_percent / 100.0))
-            score_at_threshold = candidates_with_scores[:
-                                                        num_under_percentage][
-                                                            -1][0]
+            num_under_percentage = max(1,
+                                       int(n_candidates * p_percent / 100.0))
+            score_at_threshold = candidates_with_scores[:num_under_percentage][
+                -1][0]
             scores = [score for score, _ in candidates_with_scores]
             # Include all candidates with score_at_threshold
             position = bisect.bisect_right(scores, score_at_threshold)
-            logging.info(
-                f"Score threshold {score_at_threshold}; returning "
-                f"{position}/{n_candidates} candidates")
+            logging.info(f"Score threshold {score_at_threshold}; returning "
+                         f"{position}/{n_candidates} candidates")
 
             # include at most top_n_candidates
             if CFG.cluster_process_learner_top_n_conditions > 0:
                 position = min(position,
-                                CFG.cluster_process_learner_top_n_conditions)
+                               CFG.cluster_process_learner_top_n_conditions)
             # Reocrd the total number of candidates
             if self._total_num_candidates == 0:
                 self._total_num_candidates += position
@@ -709,14 +708,12 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             n = CFG.cluster_process_learner_top_n_conditions
             top_candidates = candidates_with_scores[:n]
 
-
         elif method == "threshold":
             # Original threshold-based approach
             position = bisect.bisect_right(scores, score_at_threshold)
             top_candidates = candidates_with_scores[:position]
-            logging.info(
-                f"Score threshold {score_at_threshold}; returning "
-                f"{position}/{n_candidates} candidates")
+            logging.info(f"Score threshold {score_at_threshold}; returning "
+                         f"{position}/{n_candidates} candidates")
 
         else:
             raise NotImplementedError(
@@ -725,9 +722,9 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         # Yield the selected candidates
         for score, condition_candidate in top_candidates:
             logging.info(
-                f"Selected condition: {condition_candidate}, Score: {score}"
-            )
+                f"Selected condition: {condition_candidate}, Score: {score}")
             yield condition_candidate
+
 
 class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
@@ -766,8 +763,10 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 init_lift_atoms = set(
                     atom.lift(obj_to_var) for atom in init_ground_atoms)
             CFG.cluster_process_learner_top_n_conditions = 1
-            cond_at_start = next(self._get_top_consistent_conditions(
-                                init_lift_atoms, pnad, method="top_n"))
+            cond_at_start = next(
+                self._get_top_consistent_conditions(init_lift_atoms,
+                                                    pnad,
+                                                    method="top_n"))
             breakpoint()
             add_eff = pnad.op.add_effects
             del_eff = pnad.op.delete_effects
@@ -775,8 +774,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                              for var in atom.variables)
 
             # Check uniqueness
-            if self._is_unique_pnad(frozenset(cond_at_start), pnad, 
-                                              final_pnads):
+            if self._is_unique_pnad(frozenset(cond_at_start), pnad,
+                                    final_pnads):
                 new_pnad = PNAD(
                     pnad.op.copy_with(preconditions=cond_at_start,
                                       parameters=new_params), pnad.datastore,
@@ -854,9 +853,12 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             cost = num_false_positives + complexity_penalty
         elif CFG.process_scoring_method == 'data_likelihood':
             _, score = self._get_data_likelihood_and_learn_params(
-                self._trajectories, self._predicates, [exogenous_process],
-                use_lbfgs=True, plot_training_curve=False, lbfgs_max_iter=20)
-            cost = - score + complexity_penalty
+                self._trajectories,
+                self._predicates, [exogenous_process],
+                use_lbfgs=True,
+                plot_training_curve=False,
+                lbfgs_max_iter=20)
+            cost = -score + complexity_penalty
         logging.debug(f"Condition: {set(preconditions)}, Score {cost:.4f}")
         return cost
 
@@ -939,8 +941,9 @@ class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
                 conditions_at_start.append(utils.all_subsets(init_lift_atoms))
             elif CFG.cluster_and_inverse_planning_candidates == "top_consistent":
                 conditions_at_start.append(
-                    self._get_top_consistent_conditions(init_lift_atoms, pnad,
-                        CFG.cluster_and_inverse_planning_top_consistent_method))
+                    self._get_top_consistent_conditions(
+                        init_lift_atoms, pnad, CFG.
+                        cluster_and_inverse_planning_top_consistent_method))
             else:
                 raise NotImplementedError
 
@@ -991,7 +994,6 @@ class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
                                 pnad.datastore, pnad.option_spec)
                 final_pnads.append(new_pnad)
         return final_pnads
-
 
     def compute_processes_score(
             self, exogenous_processes: Set[ExogenousProcess]) -> float:

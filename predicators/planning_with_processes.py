@@ -61,6 +61,7 @@ def process_task_plan_grounding(
     reachable_nsrts = ground_nsrts
     return reachable_nsrts, reachable_atoms
 
+
 @dataclass(repr=False, eq=False)
 class _ProcessPlanningNode():
     """
@@ -575,11 +576,12 @@ if __name__ == "__main__":
     # Task
     rng = np.random.default_rng(CFG.seed)
     task = env._make_tasks(1, rng)[0]
-    ground_processes, _ = process_task_plan_grounding(init_atoms=task.init,
-                                              objects=set(task.init),
-                                              nsrts=processes,
-                                              allow_noops=True,
-                                              compute_reachable_atoms=False)
+    ground_processes, _ = process_task_plan_grounding(
+        init_atoms=task.init,
+        objects=set(task.init),
+        nsrts=processes,
+        allow_noops=True,
+        compute_reachable_atoms=False)
 
     world_model = ProcessWorldModel(ground_processes=ground_processes,
                                     state=utils.abstract(
