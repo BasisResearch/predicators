@@ -20,7 +20,7 @@ import numpy as np
 from predicators import utils
 from predicators.option_model import _OptionModelBase
 from predicators.planning import PlanningFailure, PlanningTimeout, \
-    _MaxSkeletonsFailure, _SkeletonSearchTimeout, task_plan_grounding
+    _MaxSkeletonsFailure, _SkeletonSearchTimeout
 from predicators.refinement_estimators import BaseRefinementEstimator
 from predicators.settings import CFG
 from predicators.structs import NSRT, AbstractPolicy, CausalProcess, \
@@ -31,6 +31,35 @@ from predicators.structs import NSRT, AbstractPolicy, CausalProcess, \
     _GroundNSRT, _GroundSTRIPSOperator, _Option
 from predicators.utils import EnvironmentFailure, _TaskPlanningHeuristic
 
+
+def process_task_plan_grounding(
+    init_atoms: Set[GroundAtom],
+    objects: Set[Object],
+    nsrts: Collection[CausalProcess],
+    allow_noops: bool = True,
+    compute_reachable_atoms: bool = False,
+) -> Tuple[List[_GroundCausalProcess], Set[GroundAtom]]:
+    """Ground all operators for task planning into dummy _GroundNSRTs,
+    filtering out ones that are unreachable or have empty effects.
+
+    Also return the set of reachable atoms, which is used by task
+    planning to quickly determine if a goal is unreachable.
+
+    See the task_plan docstring for usage instructions.
+    """
+    ground_nsrts = []
+    for nsrt in sorted(nsrts):
+        for ground_nsrt in utils.all_ground_nsrts(nsrt, objects):
+            if allow_noops or (ground_nsrt.add_effects
+                               | ground_nsrt.delete_effects):
+                ground_nsrts.append(ground_nsrt)
+    if compute_reachable_atoms:
+        reachable_atoms = utils.get_reachable_atoms(ground_nsrts, init_atoms)
+    else:
+        reachable_atoms = set()
+
+    reachable_nsrts = ground_nsrts
+    return reachable_nsrts, reachable_atoms
 
 @dataclass(repr=False, eq=False)
 class _ProcessPlanningNode():
@@ -371,7 +400,7 @@ def task_plan_from_task(
     init_atoms = utils.abstract(task.init, all_predicates)
     goal = task.goal
     objects = set(task.init)
-    ground_processes, reachable_atoms = task_plan_grounding(
+    ground_processes, reachable_atoms = process_task_plan_grounding(
         init_atoms,
         objects,
         processes,
@@ -546,7 +575,7 @@ if __name__ == "__main__":
     # Task
     rng = np.random.default_rng(CFG.seed)
     task = env._make_tasks(1, rng)[0]
-    ground_processes, _ = task_plan_grounding(init_atoms=task.init,
+    ground_processes, _ = process_task_plan_grounding(init_atoms=task.init,
                                               objects=set(task.init),
                                               nsrts=processes,
                                               allow_noops=True,

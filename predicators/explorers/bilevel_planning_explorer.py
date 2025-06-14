@@ -9,7 +9,7 @@ from predicators import utils
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.option_model import _OptionModelBase
 from predicators.planning import PlanningFailure, _MaxSkeletonsFailure, \
-    sesame_plan, task_plan_grounding
+    sesame_plan
 from predicators.planning_with_processes import \
     task_plan_from_task as task_plan_with_processes
 from predicators.settings import CFG

@@ -18,7 +18,7 @@ from predicators.nsrt_learning.process_learning_main import \
     filter_explained_segment
 from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.option_model import _OptionModelBase
-from predicators.planning import task_plan_grounding
+from predicators.planning_with_processes import process_task_plan_grounding
 from predicators.predicate_search_score_functions import \
     _PredicateSearchScoreFunction, create_score_function
 from predicators.settings import CFG
@@ -303,7 +303,7 @@ def get_false_positive_states_from_seg_trajs(
         objects = frozenset(segmented_traj[0].trajectory.states[0])
         # Only recompute if objects are different
         if objects not in objects_to_ground_processes:
-            ground_exogenous_processes, _ = task_plan_grounding(
+            ground_exogenous_processes, _ = process_task_plan_grounding(
                 set(),
                 objects,
                 exogenous_processes,
