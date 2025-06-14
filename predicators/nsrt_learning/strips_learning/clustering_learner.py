@@ -5,8 +5,8 @@ import bisect
 import functools
 import itertools
 import logging
+import sys
 import multiprocess as mp
-mp.set_start_method("spawn", force=True) 
 import copy
 import time
 
@@ -28,6 +28,10 @@ from predicators.structs import PNAD, Datastore, DerivedPredicate, \
     DummyOption, EndogenousProcess, ExogenousProcess, LiftedAtom, Object, \
     ParameterizedOption, Predicate, Segment, STRIPSOperator, Variable, \
     VarToObjSub
+
+if sys.platform == "darwin":
+    # Set this when using macOS, to avoid issues with forked processes.
+    mp.set_start_method("spawn", force=True) 
 
 def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
     """Utility for multiprocessing: evaluate one condition_candidate under the
