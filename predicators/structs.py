@@ -12,6 +12,7 @@ from typing import Any, Callable, Collection, DefaultDict, Dict, Iterator, \
     List, Optional, Sequence, Set, Tuple, TypeVar, Union, cast
 
 import torch
+from torch import Tensor
 import numpy as np
 import PIL.Image
 from gym.spaces import Box
@@ -2649,7 +2650,7 @@ class _GroundCausalProcess:
             and not self.delete_effects.issubset(state)) * self.strength
 
     def factored_effect_factor(self, y_tj: bool,
-                               factor_atom: GroundAtom) -> float:
+                               factor_atom: GroundAtom) -> Tensor:
         """If x_tj is True, we say that x_tj would get the effect factor of a
         process if at this time step, factor_atom is in the add effects and not
         in the delete effects of the process.
