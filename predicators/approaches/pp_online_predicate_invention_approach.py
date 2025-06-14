@@ -62,6 +62,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         return "online_predicate_invention_and_process_planning"
 
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
+        # Just store the dataset, don't learn from it yet.
         self._offline_dataset = dataset
 
     def learn_from_interaction_results(
