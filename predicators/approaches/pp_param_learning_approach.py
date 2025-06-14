@@ -315,8 +315,7 @@ def elbo_torch(
                         if st < t:
                             # q(z_t | gp, s_i) * exp(factor)
                             prod = prod * (q[t] * torch.exp(
-                                torch.tensor(
-                                    gp.factored_effect_factor(val, atom)))
+                                gp.factored_effect_factor(val, atom))
                                             + (1 - q[t]))
                 sum_ytj = sum_ytj + prod * torch.exp(frame_strength *
                                                         (val ==
