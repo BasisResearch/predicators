@@ -6,6 +6,8 @@ import functools
 import itertools
 import logging
 import multiprocessing as mp
+import copy
+
 import re
 from collections import defaultdict
 from pprint import pformat
@@ -24,6 +26,32 @@ from predicators.structs import PNAD, Datastore, DerivedPredicate, \
     ParameterizedOption, Predicate, Segment, STRIPSOperator, Variable, \
     VarToObjSub
 
+def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
+    """Utility for multiprocessing: evaluate one condition_candidate under the
+    data‑likelihood scoring regime. Returns (cost, condition_candidate)."""
+    condition_candidate, trajectories, predicates, base_process = args
+    # Deep‑copy to isolate state per worker.
+    proc_copy = copy.deepcopy(base_process)
+    proc_copy.condition_at_start = condition_candidate
+    proc_copy.condition_overall = condition_candidate
+    complexity_penalty = \
+        CFG.grammar_search_pred_complexity_weight * len(
+        condition_candidate)
+
+    # Local import avoids pickling issues with bound methods.
+    from predicators.approaches.pp_param_learning_approach import \
+        learn_process_parameters
+    _, score = learn_process_parameters(
+        trajectories,
+        predicates,
+        [proc_copy],
+        use_lbfgs=True,
+        plot_training_curve=False,
+        lbfgs_max_iter=20,
+    )
+    cost = -score + complexity_penalty
+    # Original code minimises negative likelihood, so keep sign consistent.
+    return cost, condition_candidate
 
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
     """Base class for a clustering-based STRIPS learner."""
@@ -554,45 +582,66 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
         self._atom_change_segmented_trajs: List[List[Segment]] = []
     
-    def score_precondition_candidates(self, exogenous_process: ExogenousProcess, 
+    def score_precondition_candidates(self, exogenous_process: ExogenousProcess,
         initial_atoms: Set[LiftedAtom]) -> List[Tuple[float, Set[LiftedAtom]]]:
         candidates_with_scores = []
 
-        logging.info(f"For process sketch:\n{exogenous_process}")
-        for condition_candidate in utils.all_subsets(initial_atoms):
-            exogenous_process.condition_at_start = condition_candidate
-            exogenous_process.condition_overall = condition_candidate
+        # Build the candidate list once.
+        candidates = list(utils.all_subsets(initial_atoms))
 
-            if CFG.process_scoring_method == 'count_fp':
-                false_positive_process_state = \
-                    self._get_false_positive_states_from_seg_trajs(
-                        self._atom_change_segmented_trajs, 
-                        [exogenous_process])
-                num_false_positives = sum(
-                    len(states)
-                    for states in false_positive_process_state.values())
+        # Decide whether to parallelise – we only do so for the
+        # 'data_likelihood' scoring mode and when multiple CPUs are handy.
+        use_parallel = (
+            CFG.process_scoring_method == "data_likelihood"
+            and CFG.cluster_and_search_process_learner_use_parallel
+            and len(candidates) > 1
+            and mp.cpu_count() > 1
+        )
 
-                # Add complexity penalty for tie-breaking (prefer simpler)
-                complexity_penalty =\
+        if use_parallel:
+            worker_args = [
+                (conditions, self._trajectories, self._predicates,
+                 copy.deepcopy(exogenous_process))
+                for conditions in candidates
+            ]
+            with mp.Pool(processes=min(len(worker_args), mp.cpu_count())) as pool:
+                candidates_with_scores.extend(
+                    pool.map(_compute_data_likelihood_cost, worker_args)
+                )
+        else:
+            # Original sequential evaluation path (unchanged logic).
+            for condition_candidate in candidates:
+                exogenous_process.condition_at_start = condition_candidate
+                exogenous_process.condition_overall = condition_candidate
+                complexity_penalty = \
                     CFG.grammar_search_pred_complexity_weight * len(
                     condition_candidate)
-                cost = num_false_positives + complexity_penalty
-            elif CFG.process_scoring_method == 'data_likelihood':
-                _, score = self._get_data_likelihood_and_learn_params(
-                    self._trajectories,
-                    self._predicates,
-                    [exogenous_process],
-                    use_lbfgs=True,
-                    plot_training_curve=False,
-                    lbfgs_max_iter=20,
-                )
-                cost = -score
-            else:
-                raise NotImplementedError
 
-            candidates_with_scores.append((cost, condition_candidate))
-            logging.debug(
-                f"Conditions: {condition_candidate}, Score: {cost}")
+                if CFG.process_scoring_method == 'count_fp':
+                    false_positive_process_state = \
+                        self._get_false_positive_states_from_seg_trajs(
+                            self._atom_change_segmented_trajs,
+                            [exogenous_process])
+                    num_false_positives = sum(
+                        len(states)
+                        for states in false_positive_process_state.values())
+                    cost = num_false_positives + complexity_penalty
+                elif CFG.process_scoring_method == 'data_likelihood':
+                    _, score = self._get_data_likelihood_and_learn_params(
+                        self._trajectories,
+                        self._predicates,
+                        [exogenous_process],
+                        use_lbfgs=True,
+                        plot_training_curve=False,
+                        lbfgs_max_iter=20,
+                    )
+                    cost = -score + complexity_penalty
+                else:
+                    raise NotImplementedError
+
+                candidates_with_scores.append((cost, condition_candidate))
+                logging.debug(
+                    f"Conditions: {condition_candidate}, Score: {cost}")
         # Sort by score (lower is better)
         candidates_with_scores.sort(key=lambda x: x[0])
         return candidates_with_scores
@@ -668,13 +717,13 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
     def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
         # Check if parallelization is enabled and beneficial
-        use_parallel = (CFG.cluster_and_search_process_learner_use_parallel
-                        and len(pnads) > 1 and mp.cpu_count() > 1)
+        # use_parallel = (CFG.cluster_and_search_process_learner_use_parallel
+        #                 and len(pnads) > 1 and mp.cpu_count() > 1)
 
-        if use_parallel:
-            return self._learn_pnad_preconditions_parallel(pnads)
-        else:
-            return self._learn_pnad_preconditions_sequential(pnads)
+        # if use_parallel:
+        #     return self._learn_pnad_preconditions_parallel(pnads)
+        # else:
+        return self._learn_pnad_preconditions_sequential(pnads)
 
     def _learn_pnad_preconditions_parallel(self,
                                            pnads: List[PNAD]) -> List[PNAD]:
@@ -877,7 +926,6 @@ class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
         # --- Search for the best combination of preconditions ---
         best_cost = float("inf")
         best_conditions = []
-        breakpoint()
         # Score all combinations of preconditions
         for i, combination in enumerate(
                 itertools.product(*conditions_at_start)):
