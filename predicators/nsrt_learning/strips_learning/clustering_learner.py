@@ -38,7 +38,7 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
     base_process.condition_at_start = condition_candidate
     base_process.condition_overall = condition_candidate
     complexity_penalty = \
-        CFG.grammar_search_pred_complexity_weight * len(
+        CFG.process_condition_search_complexity_weight * len(
         condition_candidate)
 
     # Local import avoids pickling issues with bound methods.
@@ -626,7 +626,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                 exogenous_process.condition_at_start = condition_candidate
                 exogenous_process.condition_overall = condition_candidate
                 complexity_penalty = \
-                    CFG.grammar_search_pred_complexity_weight * len(
+                    CFG.process_condition_search_complexity_weight * len(
                     condition_candidate)
 
                 if CFG.process_scoring_method == 'count_fp':
@@ -670,6 +670,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         # because as the number of trajectories increases, the worse score
         # increases
         exogenous_process = pnad.make_exogenous_process()
+        logging.debug(f"For Process sketch:\n{exogenous_process}")
         candidates_with_scores = self.score_precondition_candidates(
             exogenous_process, initial_atom)
 
@@ -763,6 +764,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             CFG.cluster_process_learner_top_n_conditions = 1
             cond_at_start = next(self._get_top_consistent_conditions(
                                 init_lift_atoms, pnad, method="top_n"))
+            breakpoint()
             add_eff = pnad.op.add_effects
             del_eff = pnad.op.delete_effects
             new_params = set(var for atom in cond_at_start | add_eff | del_eff
@@ -834,7 +836,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                              preconditions: FrozenSet[LiftedAtom]) -> float:
         exogenous_process.condition_at_start = set(preconditions)
         exogenous_process.condition_overall = set(preconditions)
-        complexity_penalty = CFG.grammar_search_pred_complexity_weight *\
+        complexity_penalty = CFG.process_condition_search_complexity_weight *\
                                         len(preconditions)
         if CFG.process_scoring_method == 'count_fp':
             false_positive_process_state =\
