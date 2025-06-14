@@ -92,7 +92,7 @@ class ParamLearningBilevelProcessPlanningApproach(
     def _learn_process_parameters(
         self,
         dataset: Dataset,
-        use_lbfgs: bool = False,
+        use_lbfgs: bool = True,
     ) -> None:
         """Stochastic (mini-batch) optimisation of process parameters."""
         processes = sorted(self._get_current_processes())
