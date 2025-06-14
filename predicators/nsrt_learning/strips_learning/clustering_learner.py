@@ -68,7 +68,8 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
 
 
 # --- Helper for parallel precondition learning for ClusterAndSearchProcessLearner ---
-def _learn_pnad_preconditions_worker(args: Any) -> Tuple[PNAD, FrozenSet[LiftedAtom], Set[Variable]]:
+def _learn_pnad_preconditions_worker(
+        args: Any) -> Tuple[PNAD, FrozenSet[LiftedAtom], Set[Variable]]:
     """Helper run in a separate process to compute preconditions for a single
     PNAD.
 
@@ -101,16 +102,19 @@ def _learn_pnad_preconditions_worker(args: Any) -> Tuple[PNAD, FrozenSet[LiftedA
     original_top_n = CFG.cluster_process_learner_top_n_conditions
     CFG.cluster_process_learner_top_n_conditions = 1
     cond_at_start = next(
-        learner._get_top_consistent_conditions(
-            init_lift_atoms, single_pnad, method="top_n"))
+        learner._get_top_consistent_conditions(init_lift_atoms,
+                                               single_pnad,
+                                               method="top_n"))
     # Restore original config in case the learner instance is reused in‑proc.
     CFG.cluster_process_learner_top_n_conditions = original_top_n
 
     # Collect all parameters that appear in the preconditions or effects.
     add_eff = single_pnad.op.add_effects
     del_eff = single_pnad.op.delete_effects
-    new_params = {v for atom in cond_at_start | add_eff | del_eff
-                  for v in atom.variables}
+    new_params = {
+        v
+        for atom in cond_at_start | add_eff | del_eff for v in atom.variables
+    }
 
     return single_pnad, cond_at_start, new_params
 
@@ -658,9 +662,10 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         # Decide whether to parallelise – we only do so for the
         # 'data_likelihood' scoring mode and when multiple CPUs are handy.
         cpu_count = mp.cpu_count()
-        use_parallel = (CFG.process_scoring_method == "data_likelihood"
-                        and CFG.cluster_and_search_process_learner_parallel_condition
-                        and len(candidates) > 1 and cpu_count > 1)
+        use_parallel = (
+            CFG.process_scoring_method == "data_likelihood"
+            and CFG.cluster_and_search_process_learner_parallel_condition
+            and len(candidates) > 1 and cpu_count > 1)
 
         start_time = time.time()
         if use_parallel:
@@ -794,10 +799,10 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                                            pnads: List[PNAD]) -> List[PNAD]:
         """Parallelized version of precondition learning.
 
-        Each PNAD can be processed independently, so we distribute the search
-        for suitable preconditions across a multiprocessing pool.  After
-        gathering the results we remove duplicates (up to unification) to form
-        the final operator set.
+        Each PNAD can be processed independently, so we distribute the
+        search for suitable preconditions across a multiprocessing pool.
+        After gathering the results we remove duplicates (up to
+        unification) to form the final operator set.
         """
         # Short‑circuit on empty input for robustness.
         if not pnads:
@@ -817,18 +822,15 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         # Deduplicate PNADs whose (preconditions, effects, option) unify.
         final_pnads: List[PNAD] = []
         for base_pnad, cond_at_start, new_params in results:
-            if self._is_unique_pnad(frozenset(cond_at_start),
-                                    base_pnad,
+            if self._is_unique_pnad(frozenset(cond_at_start), base_pnad,
                                     final_pnads):
                 final_pnads.append(
                     PNAD(
-                        base_pnad.op.copy_with(
-                            preconditions=cond_at_start,
-                            parameters=new_params),
+                        base_pnad.op.copy_with(preconditions=cond_at_start,
+                                               parameters=new_params),
                         base_pnad.datastore,
                         base_pnad.option_spec,
-                    )
-                )
+                    ))
 
         return final_pnads
 
