@@ -5,14 +5,17 @@ import bisect
 import functools
 import itertools
 import logging
-import multiprocessing as mp
+import multiprocess as mp
+mp.set_start_method("spawn", force=True) 
 import copy
+import time
 
 import re
 from collections import defaultdict
 from pprint import pformat
 from typing import Dict, FrozenSet, Iterator, List, Optional, Set, Tuple, \
     cast, Any
+from pathos.multiprocessing import ProcessingPool as Pool
 
 from predicators import utils
 from predicators.nsrt_learning.segmentation import segment_trajectory
@@ -29,11 +32,11 @@ from predicators.structs import PNAD, Datastore, DerivedPredicate, \
 def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
     """Utility for multiprocessing: evaluate one condition_candidate under the
     data‑likelihood scoring regime. Returns (cost, condition_candidate)."""
-    condition_candidate, trajectories, predicates, base_process = args
+    condition_candidate, trajectories, predicates, base_process, seed = args
     # Deep‑copy to isolate state per worker.
-    proc_copy = copy.deepcopy(base_process)
-    proc_copy.condition_at_start = condition_candidate
-    proc_copy.condition_overall = condition_candidate
+    # proc_copy = copy.deepcopy(base_process)
+    base_process.condition_at_start = condition_candidate
+    base_process.condition_overall = condition_candidate
     complexity_penalty = \
         CFG.grammar_search_pred_complexity_weight * len(
         condition_candidate)
@@ -44,10 +47,12 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
     _, score = learn_process_parameters(
         trajectories,
         predicates,
-        [proc_copy],
+        [base_process],
         use_lbfgs=True,
         plot_training_curve=False,
         lbfgs_max_iter=20,
+        seed=seed,
+        display_progress=False,
     )
     cost = -score + complexity_penalty
     # Original code minimises negative likelihood, so keep sign consistent.
@@ -591,23 +596,30 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
         # Decide whether to parallelise – we only do so for the
         # 'data_likelihood' scoring mode and when multiple CPUs are handy.
+        cpu_count = mp.cpu_count()
         use_parallel = (
             CFG.process_scoring_method == "data_likelihood"
             and CFG.cluster_and_search_process_learner_use_parallel
             and len(candidates) > 1
-            and mp.cpu_count() > 1
+            and cpu_count > 1
         )
 
+        start_time = time.time()
         if use_parallel:
+            logging.debug(f"Scoring {len(candidates)} candidates with "
+                          f"{cpu_count} workers")
             worker_args = [
                 (conditions, self._trajectories, self._predicates,
-                 copy.deepcopy(exogenous_process))
+                 copy.deepcopy(exogenous_process), CFG.seed)
                 for conditions in candidates
             ]
-            with mp.Pool(processes=min(len(worker_args), mp.cpu_count())) as pool:
+            with Pool(nodes=min(len(worker_args), cpu_count)) as pool:
                 candidates_with_scores.extend(
                     pool.map(_compute_data_likelihood_cost, worker_args)
                 )
+            for cost, condition_candidate in candidates_with_scores:
+                logging.debug(
+                    f"Conditions: {condition_candidate}, Cost: {cost}")
         else:
             # Original sequential evaluation path (unchanged logic).
             for condition_candidate in candidates:
@@ -643,6 +655,9 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                 logging.debug(
                     f"Conditions: {condition_candidate}, Score: {cost}")
         # Sort by score (lower is better)
+        logging.debug(
+            f"Scoring {len(candidates_with_scores)} candidates took "
+            f"{time.time() - start_time:.2f} seconds")
         candidates_with_scores.sort(key=lambda x: x[0])
         return candidates_with_scores
 
