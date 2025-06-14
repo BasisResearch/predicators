@@ -13,9 +13,10 @@ from torch import Tensor
 from torch.optim import LBFGS, Adam
 from tqdm.auto import tqdm
 
-from predicators import planning, utils
+from predicators import utils
 from predicators.approaches.process_planning_approach import \
     BilevelProcessPlanningApproach
+from predicators.planning_with_processes import process_task_plan_grounding
 from predicators.ground_truth_models import get_gt_processes
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
@@ -112,6 +113,8 @@ def learn_process_parameters(
         use_lbfgs: bool = False,
         plot_training_curve: bool = True,
         lbfgs_max_iter: int = 200,
+        seed: int = 0,
+        display_progress: bool = True,
     ) -> Tuple[Sequence[CausalProcess], float]:
     if use_lbfgs:
         num_steps = 1
@@ -121,7 +124,7 @@ def learn_process_parameters(
         num_steps = 200
         batch_size = 16
 
-    torch.manual_seed(CFG.seed)
+    torch.manual_seed(seed)
 
     # -------------------------------------------------------------- #
     # 0.  Cache per-trajectory data & build a global param layout     #
@@ -148,10 +151,15 @@ def learn_process_parameters(
     if use_lbfgs:
         # show one tick *per closure evaluation*
         pbar_total = num_steps * inner_lbfgs_max_iter
-        pbar = tqdm(total=pbar_total, desc="Training (mini‑batch LBFGS)")
+        desc = "Training (mini‑batch LBFGS)"
     else:
         # Adam: one tick per optimisation step
-        pbar = tqdm(range(num_steps), desc="Training (Adam)")
+        pbar_total = num_steps
+        desc = "Training (Adam)"
+    if display_progress:
+        pbar = tqdm(total=pbar_total, desc=desc)
+    else:
+        pbar = None
 
     best_elbo = -float("inf")
     curve: Dict = {
@@ -431,12 +439,13 @@ def _prepare_training_data_and_model_params(
         traj_len = len(traj.states)
         objs = set(traj._low_level_states[0])
 
-        _ground_processes, _ = planning.task_plan_grounding(
+        _ground_processes, _ = process_task_plan_grounding(
             init_atoms=set(),
             objects=objs,
             nsrts=processes,
             allow_noops=True,
-            compute_reachable_atoms=False)
+            compute_reachable_atoms=False,
+            )
         ground_processes = [
             gp for gp in _ground_processes
             if isinstance(gp, _GroundCausalProcess)
@@ -507,7 +516,8 @@ def _create_guide_dict_for_trajectory(
         guide_dict[gp][s_i] = probs
     return guide_dict
 
-def _plot_training_curve(training_curve: Dict) -> None:
+def _plot_training_curve(training_curve: Dict,
+                         image_dir: str = "images") -> None:
     """Plot the training curve showing ELBO over iterations."""
     import matplotlib.pyplot as plt
 
@@ -541,7 +551,7 @@ def _plot_training_curve(training_curve: Dict) -> None:
     plt.tight_layout()
 
     # Save the plot
-    filename = f"training_curve_seed_{CFG.seed}.png"
-    plt.savefig(os.path.join(CFG.image_dir, filename))
+    filename = f"training_curve.png"
+    plt.savefig(os.path.join(image_dir, filename))
     logging.info(f"Training curve saved to {filename}")
     plt.close()
