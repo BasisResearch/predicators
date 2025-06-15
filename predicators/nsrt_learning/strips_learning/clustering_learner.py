@@ -784,7 +784,11 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                 f"Unknown top consistent method: {method}")
 
         # Yield the selected candidates
-        for score, condition_candidate in top_candidates:
+        for top_candidates in candidates_with_scores:
+            if len(top_candidates) == 2:
+                score, condition_candidate = top_candidates
+            else:
+                score, condition_candidate, _ = top_candidates
             logging.info(
                 f"Selected condition: {condition_candidate}, Score: {score}")
             yield condition_candidate
