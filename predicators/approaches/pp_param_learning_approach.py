@@ -11,6 +11,7 @@ import torch
 from gym.spaces import Box
 from torch import Tensor
 from torch.optim import LBFGS, Adam
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm.auto import tqdm
 
 from predicators import utils
@@ -25,7 +26,6 @@ from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     LowLevelTrajectory, ParameterizedOption, Predicate, Task, Type, \
     _GroundCausalProcess
 
-# torch.set_default_dtype(torch.double)
 
 
 class ParamLearningBilevelProcessPlanningApproach(
@@ -173,13 +173,20 @@ def learn_process_parameters(
     training_start_time = time.time()
 
     optim: Optional[torch.optim.Optimizer] = None
+    scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None  # Add this
     if use_lbfgs:
         # LBFGS is re-initialized per outer step or initialized once here.
         # optim = LBFGS([params], max_iter=inner_lbfgs_max_iter,
         # line_search_fn="strong_wolfe")
         pass  # Will be initialized in the loop
     else:
-        optim = Adam([params], lr=1e-1)
+        optim = Adam([params], 
+                     lr=1e-1
+                     )
+        # Initialize ReduceLROnPlateau scheduler
+        scheduler = ReduceLROnPlateau(optim, 
+                                        threshold=1e-1,
+                                        verbose=True)
 
     # ------------------- training loop ----------------------------- #
     iteration = 0  # counts closure evaluations
@@ -249,8 +256,13 @@ def learn_process_parameters(
         if use_lbfgs:
             current_optim.step(closure)  # LBFGS calls closure internally
         else:
-            _ = closure()  # Adam: closure computes loss and gradients
+            loss = closure()  # Adam: closure computes loss and gradients
             current_optim.step()
+            if scheduler is not None:
+                # Assuming ELBO is maximized, so use -loss_val for ReduceLROnPlateau if it expects a value to be minimized
+                # Or, if you are tracking ELBO directly (as `detached_elbo_item`), use that.
+                # scheduler.step(detached_elbo_item) # Use this if your metric is ELBO and you want to maximize it
+                scheduler.step(loss) # Step with the latest ELBO
 
     if pbar:
         pbar.close()
@@ -490,9 +502,7 @@ def _prepare_training_data_and_model_params(
 
     total_params_len = num_proc_params + q_offset
     model_params = torch.nn.Parameter(
-        torch.rand(total_params_len,
-                   #    dtype=torch.double
-                   ))
+        torch.rand(total_params_len))
 
     return per_traj_data, model_params, num_proc_params
 
