@@ -164,6 +164,7 @@ def learn_process_parameters(
         pbar = None
 
     best_elbo = -float("inf")
+    exp_state_at_best, exp_delay_at_best, entropy_at_best = 0.0, 0.0, 0.0
     curve: Dict = {
         "iterations": [],
         "elbos": [],
@@ -185,7 +186,7 @@ def learn_process_parameters(
                      )
         # Initialize ReduceLROnPlateau scheduler
         scheduler = ReduceLROnPlateau(optim, 
-                                        threshold=1e-1,
+                                        threshold=1e-2,
                                         verbose=True)
 
     # ------------------- training loop ----------------------------- #
@@ -208,7 +209,7 @@ def learn_process_parameters(
 
         def closure() -> float:
             """Compute –ELBO for the current mini‑batch; do pbar & logging."""
-            nonlocal best_elbo, iteration  # iteration is modified here
+            nonlocal best_elbo, iteration, exp_state_at_best, exp_delay_at_best, entropy_at_best
 
             current_optim.zero_grad(set_to_none=True)
 
@@ -217,13 +218,16 @@ def learn_process_parameters(
             _set_process_parameters(processes, proc_param)
 
             elbo = torch.tensor(0.0, dtype=frame.dtype, device=params.device)
+            exp_state = torch.tensor(0.0, dtype=frame.dtype, device=params.device)
+            exp_delay = torch.tensor(0.0, dtype=frame.dtype, device=params.device)
+            entropy = torch.tensor(0.0, dtype=frame.dtype, device=params.device)
             for tidx in batch_ids:
                 td = per_traj_data[tidx]
                 # Pass traj_len explicitly
                 guide_dict = _create_guide_dict_for_trajectory(
                     td, guide_flat, td["traj_len"])
 
-                elbo += elbo_torch(
+                data_elbo, data_exp_state, data_exp_delay, data_entropy = elbo_torch(
                     [td["trajectory"]],
                     td["ground_causal_processes"],
                     td["start_times_per_gp"],
@@ -232,6 +236,10 @@ def learn_process_parameters(
                     set(td["all_atoms"]),
                     td["atom_to_val_to_gps"],
                 )
+                elbo = elbo + data_elbo
+                exp_state = exp_state + data_exp_state
+                exp_delay = exp_delay + data_exp_delay
+                entropy = entropy + data_entropy
 
             # Ensure loss is on the same device as params for backward()
             loss = -(elbo / len(batch_ids))
@@ -240,6 +248,9 @@ def learn_process_parameters(
             detached_elbo_item = elbo.detach().item()
             if detached_elbo_item > best_elbo:
                 best_elbo = detached_elbo_item
+                exp_state_at_best = exp_state.detach().item()
+                exp_delay_at_best = exp_delay.detach().item()
+                entropy_at_best = entropy.detach().item()
 
             # --- progress‑bar & bookkeeping --------------------------------
             curve["iterations"].append(iteration)
@@ -274,7 +285,8 @@ def learn_process_parameters(
     _set_process_parameters(processes, proc_params)
     if plot_training_curve:
         _plot_training_curve(curve)
-    return processes, best_elbo
+    return processes, (best_elbo, exp_state_at_best, exp_delay_at_best, 
+                       entropy_at_best)
 
 
 def elbo_torch(
@@ -300,8 +312,9 @@ def elbo_torch(
     yt_prev = trajectory.states[0]
 
     # -----------------------------------------------------------------
-    # 1.  Transition factors (refactored formulation)
+    # 1.  Expected log state probabilities
     # -----------------------------------------------------------------
+    exp_state_prob = torch.tensor(0.0, dtype=frame_strength.dtype)
     for t in range(1, num_time_steps):
         yt = trajectory.states[t]
 
@@ -314,7 +327,7 @@ def elbo_torch(
                 gps = val_to_gps[val]
                 # expected effect factor for *observed* assignment
                 if val == (atom in yt):
-                    ll = ll + sum(q[t] * gp.factored_effect_factor(val, atom)
+                    exp_state_prob = exp_state_prob + sum(q[t] * gp.factored_effect_factor(val, atom)
                                   for gp in gps
                                   for st, q in guide[gp].items() if st < t)
                 # normalisation contribution ---------------------------
@@ -340,7 +353,7 @@ def elbo_torch(
         atoms_changed_not_in_law = (add_atoms
                                     | del_atoms) - atoms_in_law_effects
 
-        ll = ll + frame_strength * len(atoms_unchanged)
+        exp_state_prob = exp_state_prob + frame_strength * len(atoms_unchanged)
         # Atoms unchanged but not described by the processes
         E_log_Zt = E_log_Zt + len(atoms_unchanged_not_in_law) * torch.log(
             1 + torch.exp(frame_strength))
@@ -348,13 +361,15 @@ def elbo_torch(
         E_log_Zt = E_log_Zt + len(atoms_changed_not_in_law) * torch.log(
             torch.tensor(2.0, dtype=frame_strength.dtype))
 
-        ll = ll - E_log_Zt
+        exp_state_prob = exp_state_prob - E_log_Zt
         yt_prev = yt
+    ll = ll + exp_state_prob
 
     # -----------------------------------------------------------------
-    # 2.  Delay probabilities
+    # 2.  Expected Delay probabilities
     # -----------------------------------------------------------------
     # Iterate through each ground process type and its list of start times
+    exp_delay_prob = torch.tensor(0.0, dtype=frame_strength.dtype)
     for gp_idx, gp_obj in enumerate(ground_processes):
         for s_i in start_times_per_gp[
                 gp_idx]:  # s_i is a specific start time for gp_obj
@@ -388,21 +403,24 @@ def elbo_torch(
                     guide_slice_for_delays > 1e-9)
 
                 if valid_mask.any():
-                    ll += torch.sum(guide_slice_for_delays[valid_mask] * \
+                    exp_delay_prob = exp_delay_prob + torch.sum(
+                                        guide_slice_for_delays[valid_mask] * \
                                     all_delay_log_probs[valid_mask])
+    ll = ll + exp_delay_prob
 
     # -----------------------------------------------------------------
     # 3.  Entropy of the variational distributions
     # -----------------------------------------------------------------
-    H = torch.tensor(0.0, dtype=frame_strength.dtype)
+    entropy = torch.tensor(0.0, dtype=frame_strength.dtype)
     for start_time_q_map in guide.values(
     ):  # Each value is a Tensor for one (gp,s_i)
         for q_dist_for_instance in start_time_q_map.values():
             mask = q_dist_for_instance > 1e-9
             if mask.any():
-                H -= torch.sum(q_dist_for_instance[mask] *
+                entropy -= torch.sum(q_dist_for_instance[mask] *
                                torch.log(q_dist_for_instance[mask]))
-    return ll + H
+    elbo = ll + entropy
+    return elbo, exp_state_prob, exp_delay_prob, entropy
 
 
 def _set_process_parameters(processes: Sequence[CausalProcess],

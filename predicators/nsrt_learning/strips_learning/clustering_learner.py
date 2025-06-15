@@ -52,7 +52,7 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
     # Local import avoids pickling issues with bound methods.
     from predicators.approaches.pp_param_learning_approach import \
         learn_process_parameters
-    _, score = learn_process_parameters(
+    _, scores = learn_process_parameters(
         trajectories,
         predicates,
         [base_process],
@@ -62,9 +62,9 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
         seed=seed,
         display_progress=False,
     )
-    cost = -score + complexity_penalty
+    cost = -scores[0] + complexity_penalty
     # Original code minimises negative likelihood, so keep sign consistent.
-    return cost, condition_candidate
+    return cost, condition_candidate, scores
 
 
 # --- Helper for parallel precondition learning for ClusterAndSearchProcessLearner ---
@@ -677,9 +677,12 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             with Pool(nodes=min(len(worker_args), cpu_count)) as pool:
                 candidates_with_scores.extend(
                     pool.map(_compute_data_likelihood_cost, worker_args))
-            for cost, condition_candidate in candidates_with_scores:
+            for cost, condition_candidate, scores in candidates_with_scores:
                 logging.debug(
-                    f"Conditions: {condition_candidate}, Cost: {cost}")
+                    f"Conditions: {condition_candidate}, Cost: {cost}, "
+                    f"Exp_state_at_best: {scores[1]:.4f}, "
+                    f"Exp_delay_at_best: {scores[2]:.4f}, "
+                    f"Entropy_at_best: {scores[3]:.4f}")
         else:
             # Original sequential evaluation path (unchanged logic).
             for condition_candidate in candidates:
@@ -699,7 +702,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                         for states in false_positive_process_state.values())
                     cost = num_false_positives + complexity_penalty
                 elif CFG.process_scoring_method == 'data_likelihood':
-                    _, score = self._get_data_likelihood_and_learn_params(
+                    _, scores = self._get_data_likelihood_and_learn_params(
                         self._trajectories,
                         self._predicates,
                         [exogenous_process],
@@ -707,13 +710,21 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                         plot_training_curve=False,
                         lbfgs_max_iter=20,
                     )
-                    cost = -score + complexity_penalty
+                    cost = -scores[0] + complexity_penalty
                 else:
                     raise NotImplementedError
 
                 candidates_with_scores.append((cost, condition_candidate))
-                logging.debug(
-                    f"Conditions: {condition_candidate}, Score: {cost}")
+                # if scores variable is define
+                if 'scores' in locals():
+                    logging.debug(
+                        f"Conditions: {condition_candidate}, Score: {cost}, "
+                        f"Exp_state_at_best: {scores[1]:.4f}, "
+                        f"Exp_delay_at_best: {scores[2]:.4f}, "
+                        f"Entropy_at_best: {scores[3]:.4f}")
+                else:
+                    logging.debug(
+                        f"Conditions: {condition_candidate}, Score: {cost}")
         # Sort by score (lower is better)
         logging.debug(f"Scoring {len(candidates_with_scores)} candidates took "
                       f"{time.time() - start_time:.2f} seconds")
