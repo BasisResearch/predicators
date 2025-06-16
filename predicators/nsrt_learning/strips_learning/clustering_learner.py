@@ -69,55 +69,55 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
 
 
 # --- Helper for parallel precondition learning for ClusterAndSearchProcessLearner ---
-def _learn_pnad_preconditions_worker(
-        args: Any) -> Tuple[PNAD, FrozenSet[LiftedAtom], Set[Variable]]:
-    """Helper run in a separate process to compute preconditions for a single
-    PNAD.
+# def _learn_pnad_preconditions_worker(
+#         args: Any) -> Tuple[PNAD, FrozenSet[LiftedAtom], Set[Variable]]:
+#     """Helper run in a separate process to compute preconditions for a single
+#     PNAD.
 
-    Args
-    ----
-    args : Tuple[ClusterAndSearchProcessLearner, PNAD]
-        The learner instance (so we can reuse its helper methods and state)
-        and the PNAD to process.
+#     Args
+#     ----
+#     args : Tuple[ClusterAndSearchProcessLearner, PNAD]
+#         The learner instance (so we can reuse its helper methods and state)
+#         and the PNAD to process.
 
-    Returns
-    -------
-    Tuple[PNAD, FrozenSet[LiftedAtom], Set[Variable]]
-        The original PNAD, the discovered preconditions, and the full set of
-        parameters needed by the resulting operator.
-    """
-    learner, single_pnad = args  # unpack
+#     Returns
+#     -------
+#     Tuple[PNAD, FrozenSet[LiftedAtom], Set[Variable]]
+#         The original PNAD, the discovered preconditions, and the full set of
+#         parameters needed by the resulting operator.
+#     """
+#     learner, single_pnad = args  # unpack
 
-    # Derive the lifted atoms present at the start of the segment that gave
-    # rise to this PNAD.
-    if CFG.exogenous_process_learner_do_intersect:
-        init_lift_atoms = learner._induce_preconditions_via_intersection(
-            single_pnad)
-    else:
-        init_ground_atoms = single_pnad.datastore[0][0].init_atoms
-        var_to_obj = single_pnad.datastore[0][1]
-        obj_to_var = {v: k for k, v in var_to_obj.items()}
-        init_lift_atoms = {atom.lift(obj_to_var) for atom in init_ground_atoms}
+#     # Derive the lifted atoms present at the start of the segment that gave
+#     # rise to this PNAD.
+#     if CFG.exogenous_process_learner_do_intersect:
+#         init_lift_atoms = learner._induce_preconditions_via_intersection(
+#             single_pnad)
+#     else:
+#         init_ground_atoms = single_pnad.datastore[0][0].init_atoms
+#         var_to_obj = single_pnad.datastore[0][1]
+#         obj_to_var = {v: k for k, v in var_to_obj.items()}
+#         init_lift_atoms = {atom.lift(obj_to_var) for atom in init_ground_atoms}
 
-    # We only ever keep the single best consistent condition per PNAD.
-    original_top_n = CFG.cluster_process_learner_top_n_conditions
-    CFG.cluster_process_learner_top_n_conditions = 1
-    cond_at_start = next(
-        learner._get_top_consistent_conditions(init_lift_atoms,
-                                               single_pnad,
-                                               method="top_n"))
-    # Restore original config in case the learner instance is reused in‑proc.
-    CFG.cluster_process_learner_top_n_conditions = original_top_n
+#     # We only ever keep the single best consistent condition per PNAD.
+#     original_top_n = CFG.cluster_process_learner_top_n_conditions
+#     CFG.cluster_process_learner_top_n_conditions = 1
+#     cond_at_start = next(
+#         learner._get_top_consistent_conditions(init_lift_atoms,
+#                                                single_pnad,
+#                                                method="top_n"))
+#     # Restore original config in case the learner instance is reused in‑proc.
+#     CFG.cluster_process_learner_top_n_conditions = original_top_n
 
-    # Collect all parameters that appear in the preconditions or effects.
-    add_eff = single_pnad.op.add_effects
-    del_eff = single_pnad.op.delete_effects
-    new_params = {
-        v
-        for atom in cond_at_start | add_eff | del_eff for v in atom.variables
-    }
+#     # Collect all parameters that appear in the preconditions or effects.
+#     add_eff = single_pnad.op.add_effects
+#     del_eff = single_pnad.op.delete_effects
+#     new_params = {
+#         v
+#         for atom in cond_at_start | add_eff | del_eff for v in atom.variables
+#     }
 
-    return single_pnad, cond_at_start, new_params
+#     return single_pnad, cond_at_start, new_params
 
 
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
@@ -785,11 +785,11 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                 f"Unknown top consistent method: {method}")
 
         # Yield the selected candidates
-        for top_candidates in candidates_with_scores:
-            if len(top_candidates) == 2:
-                score, condition_candidate = top_candidates
+        for candidate in top_candidates:
+            if len(candidate) == 2:
+                score, condition_candidate = candidate
             else:
-                score, condition_candidate, _ = top_candidates
+                score, condition_candidate, _ = candidate
             logging.info(
                 f"Selected condition: {condition_candidate}, Score: {score}")
             yield condition_candidate
@@ -1052,6 +1052,7 @@ class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
         # --- Search for the best combination of preconditions ---
         best_cost = float("inf")
         best_conditions = []
+        breakpoint()
         # Score all combinations of preconditions
         for i, combination in enumerate(
                 itertools.product(*conditions_at_start)):
