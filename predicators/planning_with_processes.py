@@ -189,6 +189,7 @@ class ProcessWorldModel:
                 ((is_exogenous and first_state_or_prev_state_doesnt_satisfy) or
                  (is_endogenous and first_step_running_action and not_noop))):
                 delay = g_process.delay_distribution.sample()
+                delay = min(1, delay)  # Ensure delay is at least 1.
                 schedued_time = self.t + delay
                 # logging.debug(f"At time {self.t}, scheduling "
                 #               f"{g_process.name_and_objects_str()} "
