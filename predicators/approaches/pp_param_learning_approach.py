@@ -101,6 +101,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             self._get_current_predicates(),
             processes,
             use_lbfgs=use_lbfgs,
+            adam_num_steps=2000,
         )
         logging.debug("Learned processes:")
         for p in processes:
@@ -117,13 +118,14 @@ def learn_process_parameters(
     lbfgs_max_iter: int = 200,
     seed: int = 0,
     display_progress: bool = True,
+    adam_num_steps: int = 200,
 ) -> Tuple[Sequence[CausalProcess], float]:
     if use_lbfgs:
         num_steps = 1
         batch_size = 100
         inner_lbfgs_max_iter = lbfgs_max_iter
     else:
-        num_steps = 200
+        num_steps = adam_num_steps
         batch_size = 16
 
     torch.manual_seed(seed)
