@@ -100,7 +100,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             self._get_current_predicates(),
             processes,
             use_lbfgs=use_lbfgs,
-            adam_num_steps=2000,
+            adam_num_steps=200,
         )
         logging.debug("Learned processes:")
         for p in processes:
