@@ -11,7 +11,6 @@ import torch
 from gym.spaces import Box
 from torch import Tensor
 from torch.optim import LBFGS, Adam
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm.auto import tqdm
 
 from predicators import utils
@@ -176,7 +175,6 @@ def learn_process_parameters(
     training_start_time = time.time()
 
     optim: Optional[torch.optim.Optimizer] = None
-    scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None  # Add this
     if use_lbfgs:
         # LBFGS is re-initialized per outer step or initialized once here.
         # optim = LBFGS([params], max_iter=inner_lbfgs_max_iter,
@@ -186,10 +184,6 @@ def learn_process_parameters(
         optim = Adam([params], 
                      lr=1e-1
                      )
-        # Initialize ReduceLROnPlateau scheduler
-        scheduler = ReduceLROnPlateau(optim, 
-                                        threshold=1e-2,
-                                        verbose=True)
 
     # ------------------- training loop ----------------------------- #
     iteration = 0  # counts closure evaluations
@@ -271,11 +265,6 @@ def learn_process_parameters(
         else:
             loss = closure()  # Adam: closure computes loss and gradients
             current_optim.step()
-            if scheduler is not None:
-                # Assuming ELBO is maximized, so use -loss_val for ReduceLROnPlateau if it expects a value to be minimized
-                # Or, if you are tracking ELBO directly (as `detached_elbo_item`), use that.
-                # scheduler.step(detached_elbo_item) # Use this if your metric is ELBO and you want to maximize it
-                scheduler.step(loss) # Step with the latest ELBO
 
     if pbar:
         pbar.close()
