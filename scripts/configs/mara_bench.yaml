@@ -103,7 +103,7 @@ APPROACHES:
       grammar_search_task_planning_timeout: 0.5
       learnable_delay_distribution: "constant" # "constant", "cmp", "normal"
       bilevel_planning_explorer_enumerate_plans: True
-      online_nsrt_learning_requests_per_task: 1 # 8 2
+      online_nsrt_learning_requests_per_task: 2 # 8 2
       grammar_search_expected_nodes_optimal_demo_prob: 0.5
       cluster_and_inverse_planning_candidates: "top_consistent"
       # cluster_and_inverse_planning_top_consistent_method: "top_n"
