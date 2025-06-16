@@ -56,7 +56,7 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
         trajectories,
         predicates,
         [base_process],
-        use_lbfgs=True,
+        use_lbfgs=False,
         plot_training_curve=False,
         lbfgs_max_iter=20,
         seed=seed,
