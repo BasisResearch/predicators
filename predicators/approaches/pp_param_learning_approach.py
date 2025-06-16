@@ -100,7 +100,8 @@ class ParamLearningBilevelProcessPlanningApproach(
             self._get_current_predicates(),
             processes,
             use_lbfgs=use_lbfgs,
-            adam_num_steps=200,
+            lbfgs_max_iter=CFG.process_param_learning_num_steps,
+            adam_num_steps=CFG.process_param_learning_num_steps,
         )
         logging.debug("Learned processes:")
         for p in processes:
@@ -200,8 +201,11 @@ def learn_process_parameters(
         assert current_optim is not None, "Optimizer not initialized"
 
         # random mini‑batch
-        batch_ids = random.sample(range(len(per_traj_data)),
-                                  k=min(batch_size, len(per_traj_data)))
+        # Ensure id 0 is always included in the batch
+        remaining_ids = list(range(1, len(per_traj_data)))
+        additional_samples = min(batch_size - 1, len(remaining_ids))
+        batch_ids = [0] + random.sample(remaining_ids, k=additional_samples)
+
 
         def closure() -> float:
             """Compute –ELBO for the current mini‑batch; do pbar & logging."""

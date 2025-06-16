@@ -80,6 +80,7 @@ APPROACHES:
       # exogenous_process_learner: "cluster_and_llm_select"
       exogenous_process_learner: "cluster_and_search_process_learner"
       # exogenous_process_learner: "cluster_and_inverse_planning"
+      # process_scoring_method: "count_fp"
       exogenous_process_learner_do_intersect: True
       process_learner_check_false_positives: False
       # To have demos to stop when option terminates.
@@ -103,18 +104,20 @@ APPROACHES:
       grammar_search_task_planning_timeout: 0.5
       learnable_delay_distribution: "constant" # "constant", "cmp", "normal"
       bilevel_planning_explorer_enumerate_plans: True
-      online_nsrt_learning_requests_per_task: 4 # 8 2
+      online_nsrt_learning_requests_per_task: 8 # 8 2
       grammar_search_expected_nodes_optimal_demo_prob: 0.5
       cluster_and_inverse_planning_candidates: "top_consistent"
       # cluster_and_inverse_planning_top_consistent_method: "top_n"
       cluster_and_inverse_planning_top_consistent_method: "top_p_percent"
       # cluster_and_inverse_planning_top_consistent_method: "threshold"
       cluster_and_inverse_planning_top_p_percent: 4
-      cluster_process_learner_top_n_conditions: 3
+      cluster_process_learner_top_n_conditions: 32
       exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
       learn_process_parameters: True
       cluster_and_search_process_learner_parallel_condition: True
       cluster_and_search_process_learner_parallel_pnad: False
+      cluster_and_search_vi_steps: 1
+      process_param_learning_num_steps: 1
 
 ENVS:
   # cover:

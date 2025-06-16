@@ -592,6 +592,7 @@ class GlobalSettings:
     process_learner_check_false_positives = False
     cluster_and_search_process_learner_parallel_condition = False
     cluster_and_search_process_learner_parallel_pnad = False
+    cluster_and_search_vi_steps = 200
     cluster_search_max_workers = -1
     cluster_and_inverse_planning_candidates = "top_consistent"  # "all", "top_consistent"
     cluster_and_inverse_planning_top_consistent_method = "percentage"  # "number", "percentage", "cost", "percentage_cost"
@@ -601,6 +602,7 @@ class GlobalSettings:
     cluster_process_learner_top_n_conditions = -1
     process_scoring_method = "data_likelihood"  # "count_fp", "data_likelihood"
     process_condition_search_complexity_weight = 1e-1
+    process_param_learning_num_steps = 1
 
     # torch GPU usage setting
     use_torch_gpu = False

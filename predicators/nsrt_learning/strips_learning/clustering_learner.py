@@ -40,7 +40,7 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
 
     Returns (cost, condition_candidate).
     """
-    condition_candidate, trajectories, predicates, base_process, seed = args
+    condition_candidate, trajectories, predicates, base_process, seed, num_it = args
     # Deep‑copy to isolate state per worker.
     # proc_copy = copy.deepcopy(base_process)
     base_process.condition_at_start = condition_candidate
@@ -58,8 +58,8 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
         [base_process],
         use_lbfgs=False,
         plot_training_curve=False,
-        lbfgs_max_iter=20,
-        adam_num_steps=20,
+        lbfgs_max_iter=num_it,
+        adam_num_steps=num_it,
         seed=seed,
         display_progress=False,
     )
@@ -673,7 +673,8 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             logging.debug(f"Scoring {len(candidates)} candidates with "
                           f"{cpu_count} workers")
             worker_args = [(conditions, self._trajectories, self._predicates,
-                            copy.deepcopy(exogenous_process), CFG.seed)
+                            copy.deepcopy(exogenous_process), CFG.seed,
+                            CFG.cluster_and_search_vi_steps)
                            for conditions in candidates]
             with Pool(nodes=min(len(worker_args), cpu_count)) as pool:
                 candidates_with_scores.extend(
@@ -709,7 +710,8 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                         [exogenous_process],
                         use_lbfgs=True,
                         plot_training_curve=False,
-                        lbfgs_max_iter=20,
+                        lbfgs_max_iter=CFG.cluster_and_search_vi_steps,
+                        adam_num_steps=CFG.cluster_and_search_vi_steps,
                     )
                     cost = -scores[0] + complexity_penalty
                 else:
