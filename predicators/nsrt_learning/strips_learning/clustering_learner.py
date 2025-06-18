@@ -666,9 +666,11 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             # Get the top candidates either by percentage or number or both
             candidates_with_approx_scores.sort(key=lambda x: x[0])
             top_candidates_with_score = self._get_top_candidates(
-                    candidates_with_approx_scores, percentage=0, number=32)
-            candidates = [condition_candidate for _, condition_candidate in
-                            top_candidates_with_score]
+                candidates_with_approx_scores, percentage=0, number=32)
+            candidates = [
+                condition_candidate
+                for _, condition_candidate in top_candidates_with_score
+            ]
 
         # ---- Actual scoring ----
         # Decide whether to parallelise – we only do so for the
@@ -687,34 +689,31 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                             CFG.cluster_and_search_vi_steps)
                            for conditions in candidates]
             with Pool(nodes=min(len(worker_args), cpu_count)) as pool:
-                candidates_with_scores = pool.map(_compute_data_likelihood_cost,
-                                                  worker_args)
+                candidates_with_scores = pool.map(
+                    _compute_data_likelihood_cost, worker_args)
         else:
             candidates_with_scores = self._score_precondition_candidates(
-                candidates, exogenous_process, CFG.process_scoring_method
-            )
+                candidates, exogenous_process, CFG.process_scoring_method)
 
         # Sort by score (lower is better)
         candidates_with_scores.sort(key=lambda x: x[0])
         for i, result in enumerate(candidates_with_scores):
             if len(result) == 2:
                 score, condition_candidate = result
-                logging.debug(
-                    f"Conditions {i}: {condition_candidate}, "
-                    f"Score: {score}")
+                logging.debug(f"Conditions {i}: {condition_candidate}, "
+                              f"Score: {score}")
             else:
                 score, condition_candidate, scores = result
-                logging.debug(
-                    f"Conditions {i}: {condition_candidate}, "
-                    f"Score: {score}, "
-                    f"Exp_state_at_best: {scores[1]:.4f}, "
-                    f"Exp_delay_at_best: {scores[2]:.4f}, "
-                    f"Entropy_at_best: {scores[3]:.4f}")
+                logging.debug(f"Conditions {i}: {condition_candidate}, "
+                              f"Score: {score}, "
+                              f"Exp_state_at_best: {scores[1]:.4f}, "
+                              f"Exp_delay_at_best: {scores[2]:.4f}, "
+                              f"Entropy_at_best: {scores[3]:.4f}")
 
         logging.debug(f"Scored {len(candidates_with_scores)} candidates took "
                       f"{time.time() - start_time:.2f} seconds")
         return candidates_with_scores
-    
+
     def _score_precondition_candidates(self, candidates: List[Set[LiftedAtom]],
                                        exogenous_process: ExogenousProcess,
                                        score_method: str) -> Any:
@@ -757,21 +756,23 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         return candidates_with_scores
 
     @staticmethod
-    def _get_top_candidates(candidates_with_scores: List, 
-                            percentage: float,
-                            number: int) -> List[Tuple[float, Set[LiftedAtom]]]:
+    def _get_top_candidates(
+            candidates_with_scores: List, percentage: float,
+            number: int) -> List[Tuple[float, Set[LiftedAtom]]]:
         assert percentage > 0 or number > 0, \
             "At least one of percentage or number must be greater than 0."
         n_candidates = len(candidates_with_scores)
         if percentage > 0:
-            num_under_percentage = max(1, int(n_candidates * percentage / 100.0))
+            num_under_percentage = max(1,
+                                       int(n_candidates * percentage / 100.0))
             score_at_threshold = candidates_with_scores[:num_under_percentage][
-                    -1][0]
+                -1][0]
             scores = [score for score, _ in candidates_with_scores]
             # Include all candidates with score_at_threshold
             position = bisect.bisect_right(scores, score_at_threshold)
-            logging.info(f"Score threshold {score_at_threshold}; "
-                    f"Candidates under threshold: {position}/{n_candidates}")
+            logging.info(
+                f"Score threshold {score_at_threshold}; "
+                f"Candidates under threshold: {position}/{n_candidates}")
         else:
             position = n_candidates
 
@@ -798,9 +799,10 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
         if method == "top_p_percent":
             # Return top p% of candidates
-            top_candidates = self._get_top_candidates(candidates_with_scores, 
-                                CFG.cluster_process_learner_top_p_percent,
-                                CFG.cluster_process_learner_top_n_conditions)
+            top_candidates = self._get_top_candidates(
+                candidates_with_scores,
+                CFG.cluster_process_learner_top_p_percent,
+                CFG.cluster_process_learner_top_n_conditions)
             num_top_candidates = len(top_candidates)
             # Reocrd the total number of candidates
             if self._total_num_candidates == 0:

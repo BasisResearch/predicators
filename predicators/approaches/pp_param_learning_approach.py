@@ -26,7 +26,6 @@ from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     _GroundCausalProcess
 
 
-
 class ParamLearningBilevelProcessPlanningApproach(
         BilevelProcessPlanningApproach):
     """A bilevel planning approach that uses hand-specified processes."""
@@ -182,9 +181,7 @@ def learn_process_parameters(
         # line_search_fn="strong_wolfe")
         pass  # Will be initialized in the loop
     else:
-        optim = Adam([params], 
-                     lr=1e-1
-                     )
+        optim = Adam([params], lr=1e-1)
 
     # ------------------- training loop ----------------------------- #
     iteration = 0  # counts closure evaluations
@@ -206,7 +203,6 @@ def learn_process_parameters(
         additional_samples = min(batch_size - 1, len(remaining_ids))
         batch_ids = [0] + random.sample(remaining_ids, k=additional_samples)
 
-
         def closure() -> float:
             """Compute –ELBO for the current mini‑batch; do pbar & logging."""
             nonlocal best_elbo, iteration, exp_state_at_best, exp_delay_at_best, entropy_at_best
@@ -218,9 +214,15 @@ def learn_process_parameters(
             _set_process_parameters(processes, proc_param)
 
             elbo = torch.tensor(0.0, dtype=frame.dtype, device=params.device)
-            exp_state = torch.tensor(0.0, dtype=frame.dtype, device=params.device)
-            exp_delay = torch.tensor(0.0, dtype=frame.dtype, device=params.device)
-            entropy = torch.tensor(0.0, dtype=frame.dtype, device=params.device)
+            exp_state = torch.tensor(0.0,
+                                     dtype=frame.dtype,
+                                     device=params.device)
+            exp_delay = torch.tensor(0.0,
+                                     dtype=frame.dtype,
+                                     device=params.device)
+            entropy = torch.tensor(0.0,
+                                   dtype=frame.dtype,
+                                   device=params.device)
             for tidx in batch_ids:
                 td = per_traj_data[tidx]
                 # Pass traj_len explicitly
@@ -280,7 +282,7 @@ def learn_process_parameters(
     _set_process_parameters(processes, proc_params)
     if plot_training_curve:
         _plot_training_curve(curve)
-    return processes, (best_elbo, exp_state_at_best, exp_delay_at_best, 
+    return processes, (best_elbo, exp_state_at_best, exp_delay_at_best,
                        entropy_at_best)
 
 
@@ -322,9 +324,9 @@ def elbo_torch(
                 gps = val_to_gps[val]
                 # expected effect factor for *observed* assignment
                 if val == (atom in yt):
-                    exp_state_prob = exp_state_prob + sum(q[t] * gp.factored_effect_factor(val, atom)
-                                  for gp in gps
-                                  for st, q in guide[gp].items() if st < t)
+                    exp_state_prob = exp_state_prob + sum(
+                        q[t] * gp.factored_effect_factor(val, atom)
+                        for gp in gps for st, q in guide[gp].items() if st < t)
                 # normalisation contribution ---------------------------
                 prod = torch.tensor(1.0, dtype=frame_strength.dtype)
                 for gp in gps:
@@ -413,7 +415,7 @@ def elbo_torch(
             mask = q_dist_for_instance > 1e-9
             if mask.any():
                 entropy -= torch.sum(q_dist_for_instance[mask] *
-                               torch.log(q_dist_for_instance[mask]))
+                                     torch.log(q_dist_for_instance[mask]))
     elbo = ll + entropy
     return elbo, exp_state_prob, exp_delay_prob, entropy
 
@@ -514,8 +516,7 @@ def _prepare_training_data_and_model_params(
         })
 
     total_params_len = num_proc_params + q_offset
-    model_params = torch.nn.Parameter(
-        torch.rand(total_params_len))
+    model_params = torch.nn.Parameter(torch.rand(total_params_len))
 
     return per_traj_data, model_params, num_proc_params
 
