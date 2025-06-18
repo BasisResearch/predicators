@@ -603,6 +603,7 @@ class GlobalSettings:
     process_scoring_method = "data_likelihood"  # "count_fp", "data_likelihood"
     process_condition_search_complexity_weight = 1e-1
     process_param_learning_num_steps = 1
+    process_condition_search_prune_with_fp_count = False
 
     # torch GPU usage setting
     use_torch_gpu = False

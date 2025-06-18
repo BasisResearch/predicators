@@ -655,11 +655,22 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             self, exogenous_process: ExogenousProcess,
             initial_atoms: Set[LiftedAtom]
     ) -> List[Tuple[float, Set[LiftedAtom]]]:
-        candidates_with_scores = []
-
         # Build the candidate list once.
         candidates = list(utils.all_subsets(initial_atoms))
 
+        # ---- Pruning with count_fp ----
+        if CFG.process_scoring_method == 'data_likelihood' and \
+                CFG.process_condition_search_prune_with_fp_count:
+            candidates_with_approx_scores = self._score_precondition_candidates(
+                candidates, exogenous_process, "count_fp")
+            # Get the top candidates either by percentage or number or both
+            candidates_with_approx_scores.sort(key=lambda x: x[0])
+            top_candidates_with_score = self._get_top_candidates(
+                    candidates_with_approx_scores, percentage=0, number=32)
+            candidates = [condition_candidate for _, condition_candidate in
+                            top_candidates_with_score]
+
+        # ---- Actual scoring ----
         # Decide whether to parallelise – we only do so for the
         # 'data_likelihood' scoring mode and when multiple CPUs are handy.
         cpu_count = mp.cpu_count()
@@ -667,7 +678,6 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             CFG.process_scoring_method == "data_likelihood"
             and CFG.cluster_and_search_process_learner_parallel_condition
             and len(candidates) > 1 and cpu_count > 1)
-
         start_time = time.time()
         if use_parallel:
             logging.debug(f"Scoring {len(candidates)} candidates with "
@@ -677,44 +687,12 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                             CFG.cluster_and_search_vi_steps)
                            for conditions in candidates]
             with Pool(nodes=min(len(worker_args), cpu_count)) as pool:
-                candidates_with_scores.extend(
-                    pool.map(_compute_data_likelihood_cost, worker_args))
+                candidates_with_scores = pool.map(_compute_data_likelihood_cost,
+                                                  worker_args)
         else:
-            # Original sequential evaluation path (unchanged logic).
-            for condition_candidate in candidates:
-                exogenous_process.condition_at_start = condition_candidate
-                exogenous_process.condition_overall = condition_candidate
-                complexity_penalty = \
-                    CFG.process_condition_search_complexity_weight * len(
-                    condition_candidate)
-
-                if CFG.process_scoring_method == 'count_fp':
-                    false_positive_process_state = \
-                        self._get_false_positive_states_from_seg_trajs(
-                            self._atom_change_segmented_trajs,
-                            [exogenous_process])
-                    num_false_positives = sum(
-                        len(states)
-                        for states in false_positive_process_state.values())
-                    cost = num_false_positives + complexity_penalty
-                elif CFG.process_scoring_method == 'data_likelihood':
-                    _, scores = self._get_data_likelihood_and_learn_params(
-                        self._trajectories,
-                        self._predicates,
-                        [exogenous_process],
-                        use_lbfgs=True,
-                        plot_training_curve=False,
-                        lbfgs_max_iter=CFG.cluster_and_search_vi_steps,
-                        adam_num_steps=CFG.cluster_and_search_vi_steps,
-                    )
-                    cost = -scores[0] + complexity_penalty
-                else:
-                    raise NotImplementedError
-
-                result = [cost, condition_candidate]
-                if 'scores' in locals():
-                    result.append(scores)
-                candidates_with_scores.append(result)
+            candidates_with_scores = self._score_precondition_candidates(
+                candidates, exogenous_process, CFG.process_scoring_method
+            )
 
         # Sort by score (lower is better)
         candidates_with_scores.sort(key=lambda x: x[0])
@@ -736,6 +714,75 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         logging.debug(f"Scored {len(candidates_with_scores)} candidates took "
                       f"{time.time() - start_time:.2f} seconds")
         return candidates_with_scores
+    
+    def _score_precondition_candidates(self, candidates: List[Set[LiftedAtom]],
+                                       exogenous_process: ExogenousProcess,
+                                       score_method: str) -> Any:
+        candidates_with_scores = []
+        # Original sequential evaluation path (unchanged logic).
+        for condition_candidate in candidates:
+            exogenous_process.condition_at_start = condition_candidate
+            exogenous_process.condition_overall = condition_candidate
+            complexity_penalty = \
+                CFG.process_condition_search_complexity_weight * len(
+                condition_candidate)
+
+            if score_method == 'count_fp':
+                false_positive_process_state = \
+                    self._get_false_positive_states_from_seg_trajs(
+                        self._atom_change_segmented_trajs,
+                        [exogenous_process])
+                num_false_positives = sum(
+                    len(states)
+                    for states in false_positive_process_state.values())
+                cost = num_false_positives + complexity_penalty
+            elif score_method == 'data_likelihood':
+                _, scores = self._get_data_likelihood_and_learn_params(
+                    self._trajectories,
+                    self._predicates,
+                    [exogenous_process],
+                    use_lbfgs=True,
+                    plot_training_curve=False,
+                    lbfgs_max_iter=CFG.cluster_and_search_vi_steps,
+                    adam_num_steps=CFG.cluster_and_search_vi_steps,
+                )
+                cost = -scores[0] + complexity_penalty
+            else:
+                raise NotImplementedError
+
+            result = [cost, condition_candidate]
+            if 'scores' in locals():
+                result.append(scores)
+            candidates_with_scores.append(result)
+        return candidates_with_scores
+
+    @staticmethod
+    def _get_top_candidates(candidates_with_scores: List, 
+                            percentage: float,
+                            number: int) -> List[Tuple[float, Set[LiftedAtom]]]:
+        assert percentage > 0 or number > 0, \
+            "At least one of percentage or number must be greater than 0."
+        n_candidates = len(candidates_with_scores)
+        if percentage > 0:
+            num_under_percentage = max(1, int(n_candidates * percentage / 100.0))
+            score_at_threshold = candidates_with_scores[:num_under_percentage][
+                    -1][0]
+            scores = [score for score, _ in candidates_with_scores]
+            # Include all candidates with score_at_threshold
+            position = bisect.bisect_right(scores, score_at_threshold)
+            logging.info(f"Score threshold {score_at_threshold}; "
+                    f"Candidates under threshold: {position}/{n_candidates}")
+        else:
+            position = n_candidates
+
+        # include at most top_n_candidates
+        if number > 0:
+            position = min(position, number)
+        logging.info(f"Returning {position}/{n_candidates} candidates:")
+        for candidate in candidates_with_scores:
+            score, condition_candidate = candidate
+            logging.info(f"{condition_candidate}, Score: {score}")
+        return candidates_with_scores[:position]
 
     def _get_top_consistent_conditions(
             self, initial_atom: Set[LiftedAtom], pnad: PNAD,
@@ -751,40 +798,19 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
         if method == "top_p_percent":
             # Return top p% of candidates
-            p_percent = CFG.cluster_and_inverse_planning_top_p_percent
-            n_candidates = len(candidates_with_scores)
-            num_under_percentage = max(1,
-                                       int(n_candidates * p_percent / 100.0))
-            score_at_threshold = candidates_with_scores[:num_under_percentage][
-                -1][0]
-            scores = [score for score, _ in candidates_with_scores]
-            # Include all candidates with score_at_threshold
-            position = bisect.bisect_right(scores, score_at_threshold)
-            logging.info(f"Score threshold {score_at_threshold}; returning "
-                         f"{position}/{n_candidates} candidates")
-
-            # include at most top_n_candidates
-            if CFG.cluster_process_learner_top_n_conditions > 0:
-                position = min(position,
-                               CFG.cluster_process_learner_top_n_conditions)
+            top_candidates = self._get_top_candidates(candidates_with_scores, 
+                                CFG.cluster_process_learner_top_p_percent,
+                                CFG.cluster_process_learner_top_n_conditions)
+            num_top_candidates = len(top_candidates)
             # Reocrd the total number of candidates
             if self._total_num_candidates == 0:
-                self._total_num_candidates += position
+                self._total_num_candidates += num_top_candidates
             else:
-                self._total_num_candidates *= position
-            top_candidates = candidates_with_scores[:position]
+                self._total_num_candidates *= num_top_candidates
         elif method == "top_n":
             # Return top n candidates
             n = CFG.cluster_process_learner_top_n_conditions
             top_candidates = candidates_with_scores[:n]
-
-        elif method == "threshold":
-            # Original threshold-based approach
-            position = bisect.bisect_right(scores, score_at_threshold)
-            top_candidates = candidates_with_scores[:position]
-            logging.info(f"Score threshold {score_at_threshold}; returning "
-                         f"{position}/{n_candidates} candidates")
-
         else:
             raise NotImplementedError(
                 f"Unknown top consistent method: {method}")
