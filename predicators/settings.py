@@ -590,7 +590,7 @@ class GlobalSettings:
     pause_after_process_learning_for_inspection = False
     learnable_delay_distribution = "cmp"  # "constant", "cmp", "normal"
     process_learner_check_false_positives = False
-    cluster_and_search_process_learner_parallel_condition = False
+    cluster_and_search_process_learner_parallel_condition = True
     cluster_and_search_process_learner_parallel_pnad = False
     cluster_and_search_vi_steps = 200
     cluster_search_max_workers = -1

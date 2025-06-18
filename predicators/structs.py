@@ -401,6 +401,16 @@ class Predicate:
     def __lt__(self, other: Predicate) -> bool:
         return str(self) < str(other)
 
+    def __reduce__(self) -> Tuple:
+        """
+        Tell pickle/dill how to re-create a Predicate:
+
+        (constructor, (name, types, classifier))
+        """
+        # • `tuple(self.types)` ensures the sequence itself is picklable
+        # • `_classifier` must be a top-level def or otherwise dill-pickleable
+        return (self.__class__, (self.name, tuple(self.types), self._classifier))
+
 
 @dataclass(frozen=True, order=False, repr=False)
 class DerivedPredicate(Predicate):
@@ -446,6 +456,18 @@ class DerivedPredicate(Predicate):
                             objects: Sequence[Object]) -> bool:
         # Separate this into a named function for pickling reasons.
         return not self._classifier(state, objects)
+    
+    def __reduce__(self) -> Tuple:
+        """
+        Tell pickle/dill how to re-create a DerivedPredicate:
+
+        (constructor, (name, types, classifier))
+        """
+        # • `tuple(self.types)` ensures the sequence itself is picklable
+        # • `_classifier` must be a top-level def or otherwise dill-pickleable
+        return (self.__class__, (self.name, tuple(self.types), self._classifier,
+                                 self.untransformed_predicate,
+                                 self.auxiliary_predicates))
 
 
 @dataclass(frozen=True, order=False, repr=False, eq=False)
@@ -613,6 +635,17 @@ class _Atom:
     def __lt__(self, other: object) -> bool:
         assert isinstance(other, _Atom)
         return str(self) < str(other)
+
+    def __reduce__(self) -> Tuple:
+        """Return a pickling recipe: call the class with (predicate, entities).
+        - This ensures that when the object is unpickled, all dataclass fields 
+        (predicate, entities) are set before anything like hashing or 
+        stringification is triggered.
+	    - This prevents errors where e.g. self.predicate does not exist yet at 
+        the time __hash__ or __str__ is called during deserialization (which is
+        exactly what caused crash during parallel pnad learning).
+        """
+        return (self.__class__, (self.predicate, tuple(self.entities)))
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -996,8 +1029,6 @@ class STRIPSOperator:
             process_delay_params = [1, 1]
         if process_strength is None:
             process_strength = 1.0
-        if process_rng is None:
-            process_rng = np.random.default_rng(CFG.seed)
         dist = utils.DiscreteGaussianDelay(torch.tensor(1), torch.tensor(1))
 
         proc = ExogenousProcess(self.name,
