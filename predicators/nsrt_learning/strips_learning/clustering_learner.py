@@ -679,12 +679,6 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             with Pool(nodes=min(len(worker_args), cpu_count)) as pool:
                 candidates_with_scores.extend(
                     pool.map(_compute_data_likelihood_cost, worker_args))
-            for cost, condition_candidate, scores in candidates_with_scores:
-                logging.debug(
-                    f"Conditions: {condition_candidate}, Cost: {cost}, "
-                    f"Exp_state_at_best: {scores[1]:.4f}, "
-                    f"Exp_delay_at_best: {scores[2]:.4f}, "
-                    f"Entropy_at_best: {scores[3]:.4f}")
         else:
             # Original sequential evaluation path (unchanged logic).
             for condition_candidate in candidates:
@@ -717,21 +711,30 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                 else:
                     raise NotImplementedError
 
-                candidates_with_scores.append((cost, condition_candidate))
-                # if scores variable is define
+                result = [cost, condition_candidate]
                 if 'scores' in locals():
-                    logging.debug(
-                        f"Conditions: {condition_candidate}, Score: {cost}, "
-                        f"Exp_state_at_best: {scores[1]:.4f}, "
-                        f"Exp_delay_at_best: {scores[2]:.4f}, "
-                        f"Entropy_at_best: {scores[3]:.4f}")
-                else:
-                    logging.debug(
-                        f"Conditions: {condition_candidate}, Score: {cost}")
+                    result.append(scores)
+                candidates_with_scores.append(result)
+
         # Sort by score (lower is better)
-        logging.debug(f"Scoring {len(candidates_with_scores)} candidates took "
-                      f"{time.time() - start_time:.2f} seconds")
         candidates_with_scores.sort(key=lambda x: x[0])
+        for i, result in enumerate(candidates_with_scores):
+            if len(result) == 2:
+                score, condition_candidate = result
+                logging.debug(
+                    f"Conditions {i}: {condition_candidate}, "
+                    f"Score: {score}")
+            else:
+                score, condition_candidate, scores = result
+                logging.debug(
+                    f"Conditions {i}: {condition_candidate}, "
+                    f"Score: {score}, "
+                    f"Exp_state_at_best: {scores[1]:.4f}, "
+                    f"Exp_delay_at_best: {scores[2]:.4f}, "
+                    f"Entropy_at_best: {scores[3]:.4f}")
+
+        logging.debug(f"Scored {len(candidates_with_scores)} candidates took "
+                      f"{time.time() - start_time:.2f} seconds")
         return candidates_with_scores
 
     def _get_top_consistent_conditions(
@@ -1054,7 +1057,6 @@ class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
         # --- Search for the best combination of preconditions ---
         best_cost = float("inf")
         best_conditions = []
-        breakpoint()
         # Score all combinations of preconditions
         for i, combination in enumerate(
                 itertools.product(*conditions_at_start)):
