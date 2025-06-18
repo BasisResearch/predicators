@@ -779,9 +779,9 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         if number > 0:
             position = min(position, number)
         logging.info(f"Returning {position}/{n_candidates} candidates:")
-        for candidate in candidates_with_scores:
+        for i, candidate in enumerate(candidates_with_scores):
             score, condition_candidate = candidate
-            logging.info(f"{condition_candidate}, Score: {score}")
+            logging.info(f"{i}: {condition_candidate}, Score: {score}")
         return candidates_with_scores[:position]
 
     def _get_top_consistent_conditions(
