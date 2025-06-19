@@ -978,7 +978,7 @@ class LinearChainParameterizedOption(ParameterizedOption):
                                                params)
             except:
                 breakpoint()
-        logging.debug(f"Executing {current_child.name}")
+        # logging.debug(f"Executing {current_child.name}")
         return current_child.policy(state, child_memory, objects, params)
 
     def _terminal(self, state: State, memory: Dict, objects: Sequence[Object],
