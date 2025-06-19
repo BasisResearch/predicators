@@ -402,14 +402,14 @@ class Predicate:
         return str(self) < str(other)
 
     def __reduce__(self) -> Tuple:
-        """
-        Tell pickle/dill how to re-create a Predicate:
+        """Tell pickle/dill how to re-create a Predicate:
 
         (constructor, (name, types, classifier))
         """
         # • `tuple(self.types)` ensures the sequence itself is picklable
         # • `_classifier` must be a top-level def or otherwise dill-pickleable
-        return (self.__class__, (self.name, tuple(self.types), self._classifier))
+        return (self.__class__, (self.name, tuple(self.types),
+                                 self._classifier))
 
 
 @dataclass(frozen=True, order=False, repr=False)
@@ -456,18 +456,17 @@ class DerivedPredicate(Predicate):
                             objects: Sequence[Object]) -> bool:
         # Separate this into a named function for pickling reasons.
         return not self._classifier(state, objects)
-    
+
     def __reduce__(self) -> Tuple:
-        """
-        Tell pickle/dill how to re-create a DerivedPredicate:
+        """Tell pickle/dill how to re-create a DerivedPredicate:
 
         (constructor, (name, types, classifier))
         """
         # • `tuple(self.types)` ensures the sequence itself is picklable
         # • `_classifier` must be a top-level def or otherwise dill-pickleable
-        return (self.__class__, (self.name, tuple(self.types), self._classifier,
-                                 self.untransformed_predicate,
-                                 self.auxiliary_predicates))
+        return (self.__class__,
+                (self.name, tuple(self.types), self._classifier,
+                 self.untransformed_predicate, self.auxiliary_predicates))
 
 
 @dataclass(frozen=True, order=False, repr=False, eq=False)
@@ -638,10 +637,11 @@ class _Atom:
 
     def __reduce__(self) -> Tuple:
         """Return a pickling recipe: call the class with (predicate, entities).
-        - This ensures that when the object is unpickled, all dataclass fields 
-        (predicate, entities) are set before anything like hashing or 
+
+        - This ensures that when the object is unpickled, all dataclass fields
+        (predicate, entities) are set before anything like hashing or
         stringification is triggered.
-	    - This prevents errors where e.g. self.predicate does not exist yet at 
+            - This prevents errors where e.g. self.predicate does not exist yet at
         the time __hash__ or __str__ is called during deserialization (which is
         exactly what caused crash during parallel pnad learning).
         """
