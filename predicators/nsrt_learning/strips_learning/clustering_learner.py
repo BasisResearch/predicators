@@ -883,7 +883,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 
                 candidates_with_approx_scores.sort(key=lambda x: x[0])
                 top_candidates = self._get_top_candidates(
-                    candidates_with_approx_scores, percentage=0, number=2)
+                    candidates_with_approx_scores, percentage=0, number=48)
                     # candidates_with_approx_scores, percentage=0, number=48)
                 pruned_candidates = [cand for _, cand in top_candidates]
                 final_candidates_for_pnad[i] = pruned_candidates
