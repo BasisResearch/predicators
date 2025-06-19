@@ -668,7 +668,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             # Get the top candidates either by percentage or number or both
             candidates_with_approx_scores.sort(key=lambda x: x[0])
             top_candidates_with_score = self._get_top_candidates(
-                candidates_with_approx_scores, percentage=0, number=32)
+                candidates_with_approx_scores, percentage=0, number=48)
             candidates = [
                 condition_candidate
                 for _, condition_candidate in top_candidates_with_score
