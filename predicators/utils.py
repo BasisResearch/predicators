@@ -4544,21 +4544,38 @@ class DiscreteGaussianDelay(DelayDistribution):
                  mu: torch.Tensor,
                  sigma: torch.Tensor,
                  max_k: int = 300) -> None:
-        self.mu = mu
-        self.sigma = sigma
+        if not torch.all(sigma > 0):
+            raise ValueError("Initial sigma must be positive.")
+        
+        self.log_mu = torch.log(mu)
+        self.log_sigma = torch.log(sigma)
         self._max_k = max_k
         self._update_cache()
 
+    @property
+    def sigma(self) -> torch.Tensor:
+        """The actual standard deviation, derived from the optimized log_sigma.
+        """
+        return torch.exp(self.log_sigma)
+
+    @property
+    def mu(self) -> torch.Tensor:
+        """The mean of the discrete Gaussian."""
+        return torch.exp(self.log_mu)
+    
     # ------------------------------------------------------------------ #
     # Internals
     # ------------------------------------------------------------------ #
     def _update_cache(self) -> None:
-        r"""Rebuild cached log-PMF / PMF / CDF using safe numerics."""
+        """Rebuild cached log-PMF / PMF / CDF using safe numerics."""
         EPS = 1e-8
 
         mu = self.mu
-        sigma = torch.clamp(self.sigma, min=EPS)  # ensure positivity
-
+        sigma_val = self.sigma
+        sigma = torch.clamp(sigma_val, min=EPS)  # ensure positivity
+        if not torch.all(sigma > 0):
+            raise ValueError("Initial sigma must be positive.")
+        
         assert isinstance(self._max_k, int)
         ks = torch.arange(self._max_k, dtype=mu.dtype,
                           device=mu.device)  # k = 0 … max_k-1
@@ -4586,7 +4603,7 @@ class DiscreteGaussianDelay(DelayDistribution):
     # ------------------------------------------------------------------ #
     def set_parameters(self, parameters: Sequence[torch.Tensor],
                        **kwargs: Any) -> None:
-        self.mu, self.sigma = parameters
+        self.log_mu, self.log_sigma = parameters
         if "max_k" in kwargs and kwargs["max_k"] is not None:
             self._max_k = kwargs["max_k"]
         self._update_cache()
