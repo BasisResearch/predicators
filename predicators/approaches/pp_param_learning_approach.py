@@ -122,7 +122,7 @@ def learn_process_parameters(
     seed: int = 0,
     display_progress: bool = True,
     adam_num_steps: int = 200,
-    std_regularization: int = 50,
+    std_regularization: Optional[int] = 50,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float]]:
     if use_lbfgs:
         num_steps = 1
@@ -257,8 +257,7 @@ def learn_process_parameters(
             # Ensure loss is on the same device as params for backward()
             loss = -(elbo / len(batch_ids))
             if std_regularization:
-                reg_strength = 50
-                loss = loss + reg_strength * (proc_param[2::3].sum())
+                loss = loss + std_regularization * (proc_param[2::3].sum())
             loss.backward()  # type: ignore
 
             detached_elbo_item = elbo.detach().item()
