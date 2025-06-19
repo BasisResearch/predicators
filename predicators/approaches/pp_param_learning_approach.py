@@ -348,17 +348,18 @@ def elbo_torch(
         del_atoms = yt_prev - yt
         atoms_unchanged = all_possible_atoms - del_atoms - add_atoms
         atoms_in_law_effects = set(atom_to_val_to_gps)
-        atoms_unchanged_not_in_law = atoms_unchanged - atoms_in_law_effects
+        atoms_not_in_law_effects = all_possible_atoms - atoms_in_law_effects
+        # atoms_unchanged_not_in_law = atoms_unchanged - atoms_in_law_effects
         atoms_changed_not_in_law = (del_atoms
                                     | add_atoms) - atoms_in_law_effects
 
         exp_state_prob = exp_state_prob + log_frame_strength * len(atoms_unchanged)
         # Atoms unchanged but not described by the processes
-        E_log_Zt = E_log_Zt + len(atoms_unchanged_not_in_law) * torch.log(
+        E_log_Zt = E_log_Zt + len(atoms_not_in_law_effects) * torch.log(
             1 + torch.exp(log_frame_strength))
-        # Atoms changed and not described by the processes
-        E_log_Zt = E_log_Zt + len(atoms_changed_not_in_law) * torch.log(
-            torch.tensor(2.0, dtype=log_frame_strength.dtype))
+        # # Atoms changed and not described by the processes
+        # E_log_Zt = E_log_Zt + len(atoms_changed_not_in_law) * torch.log(
+        #     torch.tensor(2.0, dtype=log_frame_strength.dtype))
 
         exp_state_prob = exp_state_prob - E_log_Zt
         yt_prev = yt
