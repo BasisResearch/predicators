@@ -3,6 +3,7 @@
 from typing import List, Set
 
 from gym.spaces import Box
+import logging
 
 from predicators import utils
 from predicators.explorers.base_explorer import BaseExplorer
@@ -102,6 +103,7 @@ class RandomNSRTsExplorer(BaseExplorer):
                 option = ground_nsrt.sample_option(state,
                                                    goal=task.goal,
                                                    rng=self._rng)
+                logging.debug(f"Chosen option: {option}")
                 cur_option = option
                 assert cur_option.initiable(state)
 
