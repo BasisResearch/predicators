@@ -67,58 +67,47 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
     # Original code minimises negative likelihood, so keep sign consistent.
     return cost, condition_candidate, scores
 
+def _flat_pnad_scoring_worker(
+    args: Tuple[int, ExogenousProcess, Set[LiftedAtom], List[Any], Set[Predicate],
+              int, int, float]
+) -> Tuple[int, float, Set[LiftedAtom], Tuple[float, ...]]:
+    """Utility for flat multiprocessing: evaluates one condition candidate for
+    one PNAD under the data-likelihood scoring regime.
 
-# --- Helper for parallel precondition learning for ClusterAndSearchProcessLearner ---
-def _learn_pnad_preconditions_worker(
-        args: Any) -> Tuple[PNAD, FrozenSet[LiftedAtom], Set[Variable]]:
-    """Helper run in a separate process to compute preconditions for a single
-    PNAD.
-
-    Args
-    ----
-    args : Tuple[ClusterAndSearchProcessLearner, PNAD]
-        The learner instance (so we can reuse its helper methods and state)
-        and the PNAD to process.
-
-    Returns
-    -------
-    Tuple[PNAD, FrozenSet[LiftedAtom], Set[Variable]]
-        The original PNAD, the discovered preconditions, and the full set of
-        parameters needed by the resulting operator.
+    Returns (pnad_idx, cost, condition_candidate, scores_tuple).
     """
-    learner, single_pnad, seed = args  # unpack
+    (pnad_idx, base_process, condition_candidate, trajectories, predicates,
+     seed, num_it, complexity_weight) = args
 
-    # Derive the lifted atoms present at the start of the segment that gave
-    # rise to this PNAD.
-    if CFG.exogenous_process_learner_do_intersect:
-        init_lift_atoms = learner._induce_preconditions_via_intersection(
-            single_pnad)
-    else:
-        init_ground_atoms = single_pnad.datastore[0][0].init_atoms
-        var_to_obj = single_pnad.datastore[0][1]
-        obj_to_var = {v: k for k, v in var_to_obj.items()}
-        init_lift_atoms = {atom.lift(obj_to_var) for atom in init_ground_atoms}
+    # Set the conditions on the process object.
+    base_process.condition_at_start = condition_candidate
+    base_process.condition_overall = condition_candidate
 
-    # We only ever keep the single best consistent condition per PNAD.
-    original_top_n = CFG.cluster_process_learner_top_n_conditions
-    CFG.cluster_process_learner_top_n_conditions = 1
-    cond_at_start = next(
-        learner._get_top_consistent_conditions(init_lift_atoms, single_pnad,
-                                               "top_n", seed))
-    # Restore original config in case the learner instance is reused in‑proc.
-    CFG.cluster_process_learner_top_n_conditions = original_top_n
+    # Calculate complexity penalty.
+    complexity_penalty = complexity_weight * len(condition_candidate)
 
-    # Collect all parameters that appear in the preconditions or effects.
-    add_eff = single_pnad.op.add_effects
-    del_eff = single_pnad.op.delete_effects
-    new_params = {
-        v
-        for atom in cond_at_start | add_eff | del_eff for v in atom.variables
-    }
+    # Local import avoids pickling issues with bound methods.
+    from predicators.approaches.pp_param_learning_approach import \
+        learn_process_parameters
 
-    return single_pnad, cond_at_start, new_params
+    # Perform the expensive part: learning and scoring.
+    _, scores = learn_process_parameters(
+        trajectories,
+        predicates,
+        [base_process],  # The list now contains just the one process to score.
+        use_lbfgs=False,
+        plot_training_curve=False,
+        lbfgs_max_iter=num_it,
+        adam_num_steps=num_it,
+        seed=seed,
+        display_progress=False,
+    )
 
+    # Cost is negative log-likelihood plus penalty.
+    cost = -scores[0] + complexity_penalty
 
+    # Return the identifier, cost, candidate, and the full scores tuple for logging.
+    return pnad_idx, cost, condition_candidate, scores
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
     """Base class for a clustering-based STRIPS learner."""
 
@@ -836,51 +825,129 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         return "cluster_and_search_process_learner"
 
     def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
-        # Check if parallelization is enabled and beneficial
+        """Learns preconditions for all PNADs.
+
+        This implementation flattens the search for preconditions into a
+        single multiprocessing pool. It supports an optional preliminary
+        pruning step using a fast false-positive count metric to reduce the
+        number of candidates that need to be scored with the more
+        expensive data-likelihood metric.
+        """
+        # Check if parallelization is enabled and beneficial.
         use_parallel = (CFG.cluster_and_search_process_learner_parallel_pnad
                         and len(pnads) > 1 and mp.cpu_count() > 1)
 
-        if use_parallel:
-            return self._learn_pnad_preconditions_parallel(pnads)
-        else:
+        if not use_parallel:
+            logging.info("Learning PNAD preconditions sequentially.")
             return self._learn_pnad_preconditions_sequential(pnads)
 
-    def _learn_pnad_preconditions_parallel(self,
-                                           pnads: List[PNAD]) -> List[PNAD]:
-        """Parallelized version of precondition learning.
+        logging.info(f"Learning preconditions for {len(pnads)} PNADs "
+                     f"using a flat parallel pool.")
 
-        Each PNAD can be processed independently, so we distribute the
-        search for suitable preconditions across a multiprocessing pool.
-        After gathering the results we remove duplicates (up to
-        unification) to form the final operator set.
-        """
-        # Short‑circuit on empty input for robustness.
-        if not pnads:
+        indexed_pnads = {i: pnad for i, pnad in enumerate(pnads)}
+        final_candidates_for_pnad: Dict[int, List[Set[LiftedAtom]]] = {}
+
+        # Step 1 (Optional): Prune candidate conditions using count_fp.
+        pruning_enabled = (CFG.process_scoring_method == 'data_likelihood' and
+                           CFG.process_condition_search_prune_with_fp_count)
+
+        for i, pnad in indexed_pnads.items():
+            if CFG.exogenous_process_learner_do_intersect:
+                initial_lift_atoms = self._induce_preconditions_via_intersection(pnad)
+            else:
+                init_ground_atoms = pnad.datastore[0][0].init_atoms
+                var_to_obj = pnad.datastore[0][1]
+                obj_to_var = {v: k for k, v in var_to_obj.items()}
+                initial_lift_atoms = {atom.lift(obj_to_var) for atom in init_ground_atoms}
+            
+            all_candidates = list(utils.all_subsets(initial_lift_atoms))
+
+            if not all_candidates:
+                final_candidates_for_pnad[i] = []
+                continue
+
+            if pruning_enabled:
+                base_process = pnad.make_exogenous_process()
+                logging.debug(f"Pruning {len(all_candidates)} candidates for "
+                              f"PNAD {i}:\n{base_process}")
+                candidates_with_approx_scores = []
+                for candidate in all_candidates:
+                    base_process.condition_at_start = candidate
+                    base_process.condition_overall = candidate
+                    complexity_penalty = CFG.process_condition_search_complexity_weight * len(candidate)
+                    false_positive_states = self._get_false_positive_states_from_seg_trajs(
+                            self._atom_change_segmented_trajs, [base_process])
+                    num_false_positives = sum(len(s) for s in false_positive_states.values())
+                    cost = num_false_positives + complexity_penalty
+                    candidates_with_approx_scores.append((cost, candidate))
+                
+                candidates_with_approx_scores.sort(key=lambda x: x[0])
+                top_candidates = self._get_top_candidates(
+                    candidates_with_approx_scores, percentage=0, number=2)
+                    # candidates_with_approx_scores, percentage=0, number=48)
+                pruned_candidates = [cand for _, cand in top_candidates]
+                final_candidates_for_pnad[i] = pruned_candidates
+                logging.debug(f"Pruned to {len(pruned_candidates)} candidates for PNAD {i}.")
+            else:
+                final_candidates_for_pnad[i] = all_candidates
+        
+        # Step 2: Build work items for the expensive data_likelihood scoring.
+        work_items = []
+        for i, pnad in indexed_pnads.items():
+            base_process = pnad.make_exogenous_process()
+            for condition in final_candidates_for_pnad[i]:
+                item = (i, copy.deepcopy(base_process), condition, self._trajectories,
+                        self._predicates, CFG.seed, CFG.cluster_and_search_vi_steps,
+                        CFG.process_condition_search_complexity_weight)
+                work_items.append(item)
+
+        if not work_items:
             return []
 
-        # Build the work list – we need access to `self` inside the worker so
-        # that it can call helper methods already defined on the learner.
-        worker_args = [(self, pnad, CFG.seed) for pnad in pnads]
-
-        # Re‑use the ProcessingPool abstraction already employed elsewhere in
-        # this module.  It relies on `dill`, which handles pickling of bound
-        # methods and large objects better than the stdlib `multiprocessing`.
+        # Step 3: Distribute scoring across a single, flat multiprocessing pool.
         cpu_cnt = mp.cpu_count()
-        with Pool(nodes=min(len(worker_args), cpu_cnt)) as pool:
-            results = pool.map(_learn_pnad_preconditions_worker, worker_args)
+        start_time = time.time()
+        logging.info(f"Scoring {len(work_items)} total conditions for "
+                     f"{len(pnads)} PNADs using up to {cpu_cnt} workers.")
+        with Pool(nodes=min(len(work_items), cpu_cnt)) as pool:
+            results = pool.map(_flat_pnad_scoring_worker, work_items)
+        logging.info(f"Finished scoring in {time.time() - start_time:.2f}s.")
 
-        # Deduplicate PNADs whose (preconditions, effects, option) unify.
+        # Step 4: Process results, log details, and select the best condition.
+        pnad_scores: Dict[int, List[Tuple[float, FrozenSet[LiftedAtom], Tuple[float, ...]]]] = defaultdict(list)
+        for pnad_idx, cost, condition, scores_tuple in results:
+            pnad_scores[pnad_idx].append((cost, frozenset(condition), scores_tuple))
+
+        best_conditions: Dict[int, FrozenSet[LiftedAtom]] = {}
+        for pnad_idx, scored_conditions in pnad_scores.items():
+            scored_conditions.sort(key=lambda x: x[0])
+
+            logging.debug(f"Scored conditions for Process sketch {pnad_idx}:"
+                          f"{indexed_pnads[pnad_idx].make_exogenous_process()}")
+            for rank, result in enumerate(scored_conditions):
+                cost, condition_candidate, scores = result
+                logging.debug(f"Conditions {rank}: {condition_candidate}, "
+                              f"Cost: {cost}, "
+                              f"Exp_state_at_best: {scores[1]:.4f}, "
+                              f"Exp_delay_at_best: {scores[2]:.4f}, "
+                              f"Entropy_at_best: {scores[3]:.4f}")
+
+            _, best_condition, _ = scored_conditions[0]
+            best_conditions[pnad_idx] = best_condition
+            logging.info(f"Selected best condition {best_condition}")
+
+        # Step 5: Construct the final unique PNADs.
         final_pnads: List[PNAD] = []
-        for base_pnad, cond_at_start, new_params in results:
-            if self._is_unique_pnad(frozenset(cond_at_start), base_pnad,
-                                    final_pnads):
-                final_pnads.append(
-                    PNAD(
-                        base_pnad.op.copy_with(preconditions=cond_at_start,
-                                               parameters=new_params),
-                        base_pnad.datastore,
-                        base_pnad.option_spec,
-                    ))
+        for pnad_idx in sorted(best_conditions.keys()):
+            cond_at_start = best_conditions[pnad_idx]
+            base_pnad = indexed_pnads[pnad_idx]
+            add_eff = base_pnad.op.add_effects
+            del_eff = base_pnad.op.delete_effects
+            new_params = {v for atom in cond_at_start | add_eff | del_eff for v in atom.variables}
+            if self._is_unique_pnad(cond_at_start, base_pnad, final_pnads):
+                final_pnads.append(PNAD(
+                        base_pnad.op.copy_with(preconditions=cond_at_start, parameters=new_params),
+                        base_pnad.datastore, base_pnad.option_spec))
 
         return final_pnads
 

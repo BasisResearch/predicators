@@ -115,7 +115,7 @@ APPROACHES:
       exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
       learn_process_parameters: True
       cluster_and_search_process_learner_parallel_condition: True
-      cluster_and_search_process_learner_parallel_pnad: False
+      cluster_and_search_process_learner_parallel_pnad: True
       cluster_and_search_vi_steps: 200
       process_param_learning_num_steps: 1
       process_condition_search_prune_with_fp_count: True
