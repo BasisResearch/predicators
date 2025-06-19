@@ -705,7 +705,7 @@ class PyBulletEnv(BaseEnv):
         # If not currently holding something, and fingers are closing, check
         # for a new grasp.
         if self._held_constraint_id is None and self._fingers_closing(action):
-            logging.debug("Finger closing")
+            # logging.debug("Finger closing")
             # Detect if an object is held. If so, create a grasp constraint.
             self._held_obj_id = self._detect_held_object()
             # logging.debug(f"Detected held object: {self._held_obj_id}")
@@ -719,7 +719,7 @@ class PyBulletEnv(BaseEnv):
             p.removeConstraint(self._held_constraint_id,
                                physicsClientId=self._physics_client_id)
             self._held_constraint_id = None
-            logging.debug("Finger opening")
+            # logging.debug("Finger opening")
             self._held_obj_id = None
 
         # Depending on the observation mode, either return object-centric state
