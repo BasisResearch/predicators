@@ -317,7 +317,8 @@ def elbo_torch(
     for t in range(1, num_time_steps):
         yt = trajectory.states[t]
 
-        # --- expected effect terms + frame axiom -----------------------
+        # --- expected effect terms + frame axiom, and normalization 
+        # contribution from atoms described by the processes
         E_log_Zt = torch.tensor(0.0, dtype=log_frame_strength.dtype)
         for atom, val_to_gps in atom_to_val_to_gps.items():
             # iterate over (val=True, False) pairs that appear in some law
@@ -334,7 +335,6 @@ def elbo_torch(
                 for gp in gps:
                     for st, q in guide[gp].items():
                         if st < t:
-                            # q(z_t | gp, s_i) * exp(factor)
                             prod = prod * (q[t] * torch.exp(
                                 gp.factored_effect_factor(val, atom)) +
                                            (1 - q[t]))
@@ -343,23 +343,17 @@ def elbo_torch(
                                                       (atom in yt_prev)))
             E_log_Zt = E_log_Zt + torch.log(sum_ytj + 1e-12)
 
-        # atoms not referenced in any process law -----------------------
+        # Atoms not referenced in any process law, and 
         add_atoms = yt - yt_prev
         del_atoms = yt_prev - yt
         atoms_unchanged = all_possible_atoms - del_atoms - add_atoms
+        exp_state_prob = exp_state_prob + log_frame_strength * len(atoms_unchanged)
+
+        # Normalization contribution from atoms not described by the processes
         atoms_in_law_effects = set(atom_to_val_to_gps)
         atoms_not_in_law_effects = all_possible_atoms - atoms_in_law_effects
-        # atoms_unchanged_not_in_law = atoms_unchanged - atoms_in_law_effects
-        atoms_changed_not_in_law = (del_atoms
-                                    | add_atoms) - atoms_in_law_effects
-
-        exp_state_prob = exp_state_prob + log_frame_strength * len(atoms_unchanged)
-        # Atoms unchanged but not described by the processes
         E_log_Zt = E_log_Zt + len(atoms_not_in_law_effects) * torch.log(
             1 + torch.exp(log_frame_strength))
-        # # Atoms changed and not described by the processes
-        # E_log_Zt = E_log_Zt + len(atoms_changed_not_in_law) * torch.log(
-        #     torch.tensor(2.0, dtype=log_frame_strength.dtype))
 
         exp_state_prob = exp_state_prob - E_log_Zt
         yt_prev = yt
