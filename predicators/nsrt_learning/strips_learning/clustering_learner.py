@@ -947,43 +947,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 return False
         return True
 
-    def _score_preconditions(self, exogenous_process: ExogenousProcess,
-                             preconditions: FrozenSet[LiftedAtom]) -> float:
-        exogenous_process.condition_at_start = set(preconditions)
-        exogenous_process.condition_overall = set(preconditions)
-        complexity_penalty = CFG.process_condition_search_complexity_weight *\
-                                        len(preconditions)
-        if CFG.process_scoring_method == 'count_fp':
-            false_positive_process_state =\
-                self._get_false_positive_states_from_seg_trajs(
-                    self._atom_change_segmented_trajs, [exogenous_process])
-            num_false_positives = 0
-            for _, states in false_positive_process_state.items():
-                num_false_positives += len(states)
-                # logging.debug(states)
-
-            cost = num_false_positives + complexity_penalty
-        elif CFG.process_scoring_method == 'data_likelihood':
-            _, score = self._get_data_likelihood_and_learn_params(
-                self._trajectories,
-                self._predicates, [exogenous_process],
-                use_lbfgs=True,
-                plot_training_curve=False,
-                lbfgs_max_iter=20)
-            cost = -score + complexity_penalty
-        logging.debug(f"Condition: {set(preconditions)}, Score {cost:.4f}")
-        return cost
-
-    def _get_preconditions_successors(
-        self, preconditions: FrozenSet[LiftedAtom]
-    ) -> Iterator[Tuple[int, FrozenSet[LiftedAtom], float]]:
-        """The successors remove each atom in the preconditions."""
-        preconditions_sorted = sorted(preconditions)
-        for i in range(len(preconditions_sorted)):
-            successor = preconditions_sorted[:i] + preconditions_sorted[i + 1:]
-            yield i, frozenset(successor), 1.0
-
-
 class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
