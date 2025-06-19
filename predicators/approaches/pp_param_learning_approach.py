@@ -11,6 +11,7 @@ import torch
 from gym.spaces import Box
 from torch import Tensor
 from torch.optim import LBFGS, Adam
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm.auto import tqdm
 
 from predicators import utils
@@ -110,6 +111,7 @@ class ParamLearningBilevelProcessPlanningApproach(
         return
 
 
+
 def learn_process_parameters(
     trajectories: List[LowLevelTrajectory],
     predicates: Set[Predicate],
@@ -120,7 +122,8 @@ def learn_process_parameters(
     seed: int = 0,
     display_progress: bool = True,
     adam_num_steps: int = 200,
-) -> Tuple[Sequence[CausalProcess], float]:
+    std_regularization: int = 50,
+) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float]]:
     if use_lbfgs:
         num_steps = 1
         batch_size = 100
@@ -177,6 +180,7 @@ def learn_process_parameters(
     training_start_time = time.time()
 
     optim: Optional[torch.optim.Optimizer] = None
+    scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None
     if use_lbfgs:
         # LBFGS is re-initialized per outer step or initialized once here.
         # optim = LBFGS([params], max_iter=inner_lbfgs_max_iter,
@@ -184,6 +188,11 @@ def learn_process_parameters(
         pass  # Will be initialized in the loop
     else:
         optim = Adam([params], lr=1e-1)
+        # scheduler = ReduceLROnPlateau(optim,
+        #                               mode='min',
+        #                               factor=0.1,
+        #                               patience=10,
+        #                               verbose=True,)
 
     # ------------------- training loop ----------------------------- #
     iteration = 0  # counts closure evaluations
@@ -247,6 +256,9 @@ def learn_process_parameters(
 
             # Ensure loss is on the same device as params for backward()
             loss = -(elbo / len(batch_ids))
+            if std_regularization:
+                reg_strength = 50
+                loss = loss + reg_strength * (proc_param[2::3].sum())
             loss.backward()  # type: ignore
 
             detached_elbo_item = elbo.detach().item()
@@ -273,6 +285,8 @@ def learn_process_parameters(
         else:
             loss = closure()  # Adam: closure computes loss and gradients
             current_optim.step()
+            if scheduler:
+                scheduler.step(loss)
 
     if pbar:
         pbar.close()
