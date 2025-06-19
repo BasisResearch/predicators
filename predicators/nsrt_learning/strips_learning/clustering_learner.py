@@ -103,10 +103,8 @@ def _learn_pnad_preconditions_worker(
     original_top_n = CFG.cluster_process_learner_top_n_conditions
     CFG.cluster_process_learner_top_n_conditions = 1
     cond_at_start = next(
-        learner._get_top_consistent_conditions(init_lift_atoms,
-                                               single_pnad,
-                                               "top_n",
-                                               seed))
+        learner._get_top_consistent_conditions(init_lift_atoms, single_pnad,
+                                               "top_n", seed))
     # Restore original config in case the learner instance is reused in‑proc.
     CFG.cluster_process_learner_top_n_conditions = original_top_n
 
@@ -653,9 +651,10 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         self._atom_change_segmented_trajs: List[List[Segment]] = []
 
     def score_precondition_candidates(
-            self, exogenous_process: ExogenousProcess,
-            initial_atoms: Set[LiftedAtom],
-            seed: int,
+        self,
+        exogenous_process: ExogenousProcess,
+        initial_atoms: Set[LiftedAtom],
+        seed: int,
     ) -> List[Tuple[float, Set[LiftedAtom]]]:
         # Build the candidate list once.
         candidates = list(utils.all_subsets(initial_atoms))
@@ -787,9 +786,9 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             logging.info(f"{i}: {condition_candidate}, Score: {score}")
         return candidates_with_scores[:position]
 
-    def _get_top_consistent_conditions(
-            self, initial_atom: Set[LiftedAtom], pnad: PNAD,
-            method: str, seed: int) -> Iterator[Set[LiftedAtom]]:
+    def _get_top_consistent_conditions(self, initial_atom: Set[LiftedAtom],
+                                       pnad: PNAD, method: str,
+                                       seed: int) -> Iterator[Set[LiftedAtom]]:
         """Get the top consistent conditions for a PNAD."""
         # TODO: maybe a better way is to based on percentage of the worse score
         # because as the number of trajectories increases, the worse score
@@ -902,10 +901,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                     atom.lift(obj_to_var) for atom in init_ground_atoms)
             CFG.cluster_process_learner_top_n_conditions = 1
             cond_at_start = next(
-                self._get_top_consistent_conditions(init_lift_atoms,
-                                                    pnad,
-                                                    "top_n",
-                                                    CFG.seed))
+                self._get_top_consistent_conditions(init_lift_atoms, pnad,
+                                                    "top_n", CFG.seed))
             add_eff = pnad.op.add_effects
             del_eff = pnad.op.delete_effects
             new_params = set(var for atom in cond_at_start | add_eff | del_eff
@@ -1057,8 +1054,8 @@ class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
             elif CFG.cluster_and_inverse_planning_candidates == "top_consistent":
                 conditions_at_start.append(
                     self._get_top_consistent_conditions(
-                        init_lift_atoms, pnad, CFG.
-                        cluster_and_inverse_planning_top_consistent_method,
+                        init_lift_atoms, pnad,
+                        CFG.cluster_and_inverse_planning_top_consistent_method,
                         CFG.seed))
             else:
                 raise NotImplementedError

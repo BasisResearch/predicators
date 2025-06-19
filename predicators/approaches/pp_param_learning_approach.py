@@ -317,7 +317,7 @@ def elbo_torch(
     for t in range(1, num_time_steps):
         yt = trajectory.states[t]
 
-        # --- expected effect terms + frame axiom, and normalization 
+        # --- expected effect terms + frame axiom, and normalization
         # contribution from atoms described by the processes
         E_log_Zt = torch.tensor(0.0, dtype=log_frame_strength.dtype)
         for atom, val_to_gps in atom_to_val_to_gps.items():
@@ -343,11 +343,12 @@ def elbo_torch(
                                                       (atom in yt_prev)))
             E_log_Zt = E_log_Zt + torch.log(sum_ytj + 1e-12)
 
-        # Atoms not referenced in any process law, and 
+        # Atoms not referenced in any process law, and
         add_atoms = yt - yt_prev
         del_atoms = yt_prev - yt
         atoms_unchanged = all_possible_atoms - del_atoms - add_atoms
-        exp_state_prob = exp_state_prob + log_frame_strength * len(atoms_unchanged)
+        exp_state_prob = exp_state_prob + log_frame_strength * len(
+            atoms_unchanged)
 
         # Normalization contribution from atoms not described by the processes
         atoms_in_law_effects = set(atom_to_val_to_gps)
@@ -388,7 +389,8 @@ def elbo_torch(
                 q_dist_for_instance = guide.get(gp_obj).get(s_i, None)
                 if q_dist_for_instance is None:
                     raise Exception(
-                        f"Guide distribution not found for {gp_obj} at s_i={s_i}")
+                        f"Guide distribution not found for {gp_obj} at s_i={s_i}"
+                    )
 
                 guide_slice_for_delays = q_dist_for_instance[
                     t_indices_for_guide]
