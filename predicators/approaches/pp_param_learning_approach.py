@@ -103,6 +103,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             lbfgs_max_iter=CFG.process_param_learning_num_steps,
             adam_num_steps=CFG.process_param_learning_num_steps,
             learn_frame_strength=True,
+            learn_process_strength=True,
         )
         logging.debug(f"ELBO: {scores[0]}, exp_state: {scores[1]}, "
                       f"exp_delay: {scores[2]}, entropy: {scores[3]}")
@@ -126,6 +127,7 @@ def learn_process_parameters(
     adam_num_steps: int = 200,
     std_regularization: Optional[int] = 50,
     learn_frame_strength: bool = False,
+    learn_process_strength: bool = False,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
     if use_lbfgs:
         num_steps = 1
@@ -144,26 +146,52 @@ def learn_process_parameters(
     max_traj_len = max(len(traj.states) for traj in trajectories)\
         if len(trajectories) > 0 else 0
         
-    # Prepare process and guide parameters (now separate from frame strength)
-    per_traj_data, proc_and_guide_params, num_proc_params = \
+    per_traj_data, proc_and_guide_params_full, num_proc_params = \
         _prepare_training_data_and_model_params(
             predicates,
             processes,
             trajectories
         )
 
-    # Handle frame strength based on the new flag
-    if learn_frame_strength:
-        # Initialize frame strength as a learnable parameter
-        frame_param = torch.nn.Parameter(torch.randn(1) * 0.01)
-        learnable_params = [proc_and_guide_params, frame_param]
-    else:
-        # Use a fixed, reasonable default for frame strength. Not learnable.
-        frame_param = torch.tensor([2.5])  # exp(2.5) ≈ 12.2
-        learnable_params = [proc_and_guide_params]
+    # --- Separate parameter tensor into logical, learnable components ---
+    
+    # All process parameters (strength + delay) from the initial tensor
+    proc_params_full = proc_and_guide_params_full[:num_proc_params]
+    # All guide parameters, wrapped to be a distinct learnable parameter
+    guide_params = torch.nn.Parameter(proc_and_guide_params_full[num_proc_params:])
 
-    # Set initial process parameters
-    init_proc_param = proc_and_guide_params[:num_proc_params].detach()
+    learnable_params_for_optim = [guide_params]
+    
+    # These will hold the components of the process parameters
+    fixed_strengths = None
+    learnable_proc_params = None
+    
+    if learn_process_strength:
+        # The entire process parameter block is one learnable unit
+        learnable_proc_params = torch.nn.Parameter(proc_params_full)
+        learnable_params_for_optim.append(learnable_proc_params)
+    else:
+        # Separate strength (fixed) from delay (learnable)
+        num_processes = len(processes)
+        strength_indices = [i * 3 for i in range(num_processes)]
+        delay_indices = [i * 3 + j for i in range(num_processes) for j in [1, 2]]
+        
+        # Create a fixed tensor for strengths with a default value
+        fixed_strengths = torch.full((num_processes,), 0.0) # log_strength=0.0 -> strength=1.0
+
+        # Create a learnable parameter tensor for delay params only
+        learnable_proc_params = torch.nn.Parameter(proc_params_full[delay_indices])
+        learnable_params_for_optim.append(learnable_proc_params)
+
+    # Handle frame strength as before
+    if learn_frame_strength:
+        frame_param = torch.nn.Parameter(torch.randn(1) * 0.01)
+        learnable_params_for_optim.append(frame_param)
+    else:
+        frame_param = torch.tensor([2.5])  # exp(2.5) ≈ 12.2
+
+    # Set initial process parameters for inspection if needed
+    init_proc_param = proc_params_full.detach()
     _set_process_parameters(processes, init_proc_param,
                             **{'max_k': max_traj_len})
 
@@ -197,7 +225,7 @@ def learn_process_parameters(
         # line_search_fn="strong_wolfe")
         pass  # Will be initialized in the loop
     else:
-        optim = Adam(learnable_params, lr=1e-1)
+        optim = Adam(learnable_params_for_optim, lr=1e-1)
         # scheduler = ReduceLROnPlateau(optim,
         #                               mode='min',
         #                               factor=0.1,
@@ -205,10 +233,10 @@ def learn_process_parameters(
         #                               verbose=True,)
 
     # ------------------- training loop ----------------------------- #
-    iteration = 0  # counts closure evaluations
+    iteration = 0
     for outer_step in range(num_steps):
         if use_lbfgs:
-            current_optim = LBFGS(learnable_params,
+            current_optim = LBFGS(learnable_params_for_optim,
                                   max_iter=inner_lbfgs_max_iter,
                                   line_search_fn="strong_wolfe")
         else:
@@ -225,12 +253,19 @@ def learn_process_parameters(
 
             current_optim.zero_grad(set_to_none=True)
 
-            # Split the process and guide parameters manually
-            proc_param = proc_and_guide_params[:num_proc_params]
-            guide_flat = proc_and_guide_params[num_proc_params:]
+            # --- Reconstruct the full process parameter tensor ---
+            if learn_process_strength:
+                # All process params are in a single learnable tensor
+                proc_param = learnable_proc_params
+            else:
+                # Reconstruct from fixed strengths and learnable delay params
+                proc_param = torch.zeros_like(proc_params_full)
+                proc_param[strength_indices] = fixed_strengths.to(proc_param.device)
+                proc_param[delay_indices] = learnable_proc_params
+            
             _set_process_parameters(processes, proc_param)
             
-            # The frame strength is the separate frame_param tensor
+            guide_flat = guide_params
             frame = frame_param
 
             elbo = torch.tensor(0.0, dtype=frame.dtype, device=frame.device)
@@ -259,8 +294,15 @@ def learn_process_parameters(
 
             loss = -(elbo / len(batch_ids))
             if std_regularization:
-                loss = loss + std_regularization * (proc_param[2::3].sum())
-            loss.backward()  # type: ignore
+                # Regularize only the learnable delay parameters (2nd of every 3)
+                if learn_process_strength:
+                    # All proc params are learnable, slice as before
+                    loss = loss + std_regularization * (proc_param[2::3].sum())
+                else:
+                    # learnable_proc_params contains only delay params. The std is the 2nd of every 2.
+                    loss = loss + std_regularization * (learnable_proc_params[1::2].sum())
+
+            loss.backward()
 
             detached_elbo_item = elbo.detach().item()
             if detached_elbo_item > best_elbo:
@@ -293,8 +335,14 @@ def learn_process_parameters(
         pbar.close()
 
     # ---------------- persist results & plot ------------------------ #
-    final_proc_and_guide = proc_and_guide_params.detach()
-    proc_params = final_proc_and_guide[:num_proc_params]
+    if learn_process_strength:
+        proc_params = learnable_proc_params.detach()
+    else:
+        # Reconstruct final parameters for saving
+        proc_params = torch.zeros_like(proc_params_full)
+        proc_params[strength_indices] = fixed_strengths.to(proc_params.device)
+        proc_params[delay_indices] = learnable_proc_params.detach()
+
     _set_process_parameters(processes, proc_params)
     
     if plot_training_curve:
