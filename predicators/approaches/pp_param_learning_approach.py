@@ -130,6 +130,8 @@ def learn_process_parameters(
     learn_guide: bool = False,
     learn_frame_strength: bool = False,
     learn_process_strength: bool = False,
+    early_stopping_patience: Optional[int] = 20,
+    early_stopping_tolerance: float = 1e-4,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
     if use_lbfgs:
         num_steps = 1
@@ -216,6 +218,9 @@ def learn_process_parameters(
     }
     training_start_time = time.time()
 
+    # --- Early stopping setup ---
+    patience_counter = early_stopping_patience
+    best_params_state = None
     optim: Optional[torch.optim.Optimizer] = None
     scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None
     if use_lbfgs:
@@ -249,8 +254,11 @@ def learn_process_parameters(
 
         def closure() -> float:
             nonlocal best_elbo, iteration, exp_state_at_best, exp_delay_at_best, entropy_at_best
+            # --- Early stopping nonlocals ---
+            nonlocal patience_counter, best_params_state
 
-            current_optim.zero_grad(set_to_none=True)
+            if current_optim:
+                current_optim.zero_grad(set_to_none=True)
 
             if learn_process_strength:
                 proc_param = learnable_proc_params
@@ -301,11 +309,26 @@ def learn_process_parameters(
 
             # ... (logging and bookkeeping is unchanged) ...
             detached_elbo_item = elbo.detach().item()
-            if detached_elbo_item > best_elbo:
-                best_elbo = detached_elbo_item
-                exp_state_at_best = exp_state.detach().item()
-                exp_delay_at_best = exp_delay.detach().item()
-                entropy_at_best = entropy.detach().item()
+            
+            # --- Early stopping check ---
+            if early_stopping_patience is not None:
+                if detached_elbo_item > best_elbo + early_stopping_tolerance:
+                    # Improvement found, save state and reset patience
+                    best_elbo = detached_elbo_item
+                    best_params_state = [p.clone().detach() for p in learnable_params_for_optim]
+                    exp_state_at_best = exp_state.detach().item()
+                    exp_delay_at_best = exp_delay.detach().item()
+                    entropy_at_best = entropy.detach().item()
+                    patience_counter = early_stopping_patience
+                else:
+                    # No improvement
+                    patience_counter -= 1
+            elif detached_elbo_item > best_elbo:
+                # Regular tracking of best ELBO if early stopping is off
+                 best_elbo = detached_elbo_item
+                 exp_state_at_best = exp_state.detach().item()
+                 exp_delay_at_best = exp_delay.detach().item()
+                 entropy_at_best = entropy.detach().item()
 
             curve["iterations"].append(iteration)
             curve["elbos"].append(detached_elbo_item)
@@ -325,6 +348,11 @@ def learn_process_parameters(
             current_optim.step()
             if scheduler:
                 scheduler.step(loss)
+
+        # --- Trigger early stop if patience has run out ---
+        if early_stopping_patience is not None and patience_counter <= 0:
+            print(f"\nEarly stopping triggered after {iteration} iterations.")
+            break
 
     if pbar:
         pbar.close()
