@@ -102,6 +102,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             use_lbfgs=use_lbfgs,
             lbfgs_max_iter=CFG.process_param_learning_num_steps,
             adam_num_steps=CFG.process_param_learning_num_steps,
+            learn_frame_strength=True,
         )
         logging.debug(f"ELBO: {scores[0]}, exp_state: {scores[1]}, "
                       f"exp_delay: {scores[2]}, entropy: {scores[3]}")
@@ -123,6 +124,7 @@ def learn_process_parameters(
     display_progress: bool = True,
     adam_num_steps: int = 200,
     std_regularization: Optional[int] = 50,
+    learn_frame_strength: bool = False,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float]]:
     if use_lbfgs:
         num_steps = 1
@@ -140,29 +142,35 @@ def learn_process_parameters(
     # -------------------------------------------------------------- #
     max_traj_len = max(len(traj.states) for traj in trajectories)\
         if len(trajectories) > 0 else 0
-    per_traj_data, params, num_proc_params =\
+        
+    # Prepare process and guide parameters (now separate from frame strength)
+    per_traj_data, proc_and_guide_params, num_proc_params = \
         _prepare_training_data_and_model_params(
             predicates,
             processes,
-            trajectories)
-    init_frame, init_proc_param, init_guide_flat = _split_params_tensor(
-        params, num_proc_params)
+            trajectories
+        )
+
+    # Handle frame strength based on the new flag
+    if learn_frame_strength:
+        # Initialize frame strength as a learnable parameter
+        frame_param = torch.nn.Parameter(torch.randn(1) * 0.1)
+        learnable_params = [proc_and_guide_params, frame_param]
+    else:
+        # Use a fixed, reasonable default for frame strength. Not learnable.
+        frame_param = torch.tensor([2.5])  # exp(2.5) ≈ 12.2
+        learnable_params = [proc_and_guide_params]
+
+    # Set initial process parameters
+    init_proc_param = proc_and_guide_params[:num_proc_params].detach()
     _set_process_parameters(processes, init_proc_param,
                             **{'max_k': max_traj_len})
-    # logging.debug(f"Init sum of frame strength: {init_frame.item()}, "
-    #                 f"process params: {init_proc_param.sum().item()}, "
-    #                 f"guide params: {init_guide_flat.max().item()}")
-    # logging.debug("Learned processes:")
-    # for p in self._processes:
-    #     logging.debug(pformat(p))
 
     # ------------------- progress bar -------------------------- #
     if use_lbfgs:
-        # show one tick *per closure evaluation*
         pbar_total = num_steps * inner_lbfgs_max_iter
         desc = "Training (mini‑batch LBFGS)"
     else:
-        # Adam: one tick per optimisation step
         pbar_total = num_steps
         desc = "Training (Adam)"
     if display_progress:
@@ -188,7 +196,7 @@ def learn_process_parameters(
         # line_search_fn="strong_wolfe")
         pass  # Will be initialized in the loop
     else:
-        optim = Adam([params], lr=1e-1)
+        optim = Adam(learnable_params, lr=1e-1)
         # scheduler = ReduceLROnPlateau(optim,
         #                               mode='min',
         #                               factor=0.1,
@@ -199,45 +207,38 @@ def learn_process_parameters(
     iteration = 0  # counts closure evaluations
     for outer_step in range(num_steps):
         if use_lbfgs:
-            # Initialize LBFGS optimizer for the current step/batch
-            # current_optim = optim
-            current_optim = LBFGS([params],
+            current_optim = LBFGS(learnable_params,
                                   max_iter=inner_lbfgs_max_iter,
                                   line_search_fn="strong_wolfe")
         else:
-            current_optim = optim  # Should be Adam optimizer
+            current_optim = optim
 
         assert current_optim is not None, "Optimizer not initialized"
 
-        # random mini‑batch
-        # Ensure id 0 is always included in the batch
         remaining_ids = list(range(1, len(per_traj_data)))
         additional_samples = min(batch_size - 1, len(remaining_ids))
         batch_ids = [0] + random.sample(remaining_ids, k=additional_samples)
 
         def closure() -> float:
-            """Compute –ELBO for the current mini‑batch; do pbar & logging."""
             nonlocal best_elbo, iteration, exp_state_at_best, exp_delay_at_best, entropy_at_best
 
             current_optim.zero_grad(set_to_none=True)
 
-            frame, proc_param, guide_flat = _split_params_tensor(
-                params, num_proc_params)
+            # Split the process and guide parameters manually
+            proc_param = proc_and_guide_params[:num_proc_params]
+            guide_flat = proc_and_guide_params[num_proc_params:]
             _set_process_parameters(processes, proc_param)
+            
+            # The frame strength is the separate frame_param tensor
+            frame = frame_param
 
-            elbo = torch.tensor(0.0, dtype=frame.dtype, device=params.device)
-            exp_state = torch.tensor(0.0,
-                                     dtype=frame.dtype,
-                                     device=params.device)
-            exp_delay = torch.tensor(0.0,
-                                     dtype=frame.dtype,
-                                     device=params.device)
-            entropy = torch.tensor(0.0,
-                                   dtype=frame.dtype,
-                                   device=params.device)
+            elbo = torch.tensor(0.0, dtype=frame.dtype, device=frame.device)
+            exp_state = torch.tensor(0.0, dtype=frame.dtype, device=frame.device)
+            exp_delay = torch.tensor(0.0, dtype=frame.dtype, device=frame.device)
+            entropy = torch.tensor(0.0, dtype=frame.dtype, device=frame.device)
+
             for tidx in batch_ids:
                 td = per_traj_data[tidx]
-                # Pass traj_len explicitly
                 guide_dict = _create_guide_dict_for_trajectory(
                     td, guide_flat, td["traj_len"])
 
@@ -255,7 +256,6 @@ def learn_process_parameters(
                 exp_delay = exp_delay + data_exp_delay
                 entropy = entropy + data_entropy
 
-            # Ensure loss is on the same device as params for backward()
             loss = -(elbo / len(batch_ids))
             if std_regularization:
                 loss = loss + std_regularization * (proc_param[2::3].sum())
@@ -281,9 +281,9 @@ def learn_process_parameters(
             return loss.item()
 
         if use_lbfgs:
-            current_optim.step(closure)  # LBFGS calls closure internally
+            current_optim.step(closure)
         else:
-            loss = closure()  # Adam: closure computes loss and gradients
+            closure()
             current_optim.step()
             if scheduler:
                 scheduler.step(loss)
@@ -292,15 +292,15 @@ def learn_process_parameters(
         pbar.close()
 
     # ---------------- persist results & plot ------------------------ #
-    # Use _split_params_tensor here as well
-    frame, proc_params, guide_flat = _split_params_tensor(
-        params.detach(), num_proc_params)
+    final_proc_and_guide = proc_and_guide_params.detach()
+    proc_params = final_proc_and_guide[:num_proc_params]
     _set_process_parameters(processes, proc_params)
+    
     if plot_training_curve:
         _plot_training_curve(curve)
+        
     return processes, (best_elbo, exp_state_at_best, exp_delay_at_best,
                        entropy_at_best)
-
 
 def elbo_torch(
     atom_option_dataset: List[AtomOptionTrajectory],
@@ -458,20 +458,20 @@ def _split_params_tensor(
     guide = vec[num_proc_params:]
     return frame, proc, guide
 
-
 def _prepare_training_data_and_model_params(
     predicates: Set[Predicate],
     processes: Sequence[CausalProcess],
     trajectories: List[LowLevelTrajectory],
 ) -> Tuple[List[Dict[str, Any]], torch.nn.Parameter, int]:
-    """Cache per-trajectory data, build global param layout, and init
-    params."""
+    """Cache per-trajectory data, build global param layout for process
+    and guide parameters, and initialize them."""
     atom_option_dataset = utils.create_ground_atom_option_dataset(
         trajectories, predicates)
 
     per_traj_data: List[Dict[str, Any]] = []
-    num_proc_params = 1 + 3 * len(processes)  # frame + process-type
-    q_offset = 0  # running index in the guide-param block
+    # num_proc_params is now just the number of process parameters
+    num_proc_params = 3 * len(processes)
+    q_offset = 0
 
     for traj_id, traj in enumerate(atom_option_dataset):
         traj_len = len(traj.states)
@@ -512,23 +512,17 @@ def _prepare_training_data_and_model_params(
                 q_offset = hi
 
         per_traj_data.append({
-            "trajectory":
-            traj,
-            "traj_len":
-            traj_len,
-            "ground_causal_processes":
-            ground_processes,
-            "start_times_per_gp":
-            start_times,
-            "atom_to_val_to_gps":
-            atom_to_val_to_gps,
-            "all_atoms":
-            utils.all_possible_ground_atoms(traj._low_level_states[0],
-                                            predicates),
-            "gp_qparam_id_map":
-            gp_qparam_id_map,
+            "trajectory": traj,
+            "traj_len": traj_len,
+            "ground_causal_processes": ground_processes,
+            "start_times_per_gp": start_times,
+            "atom_to_val_to_gps": atom_to_val_to_gps,
+            "all_atoms": utils.all_possible_ground_atoms(
+                traj._low_level_states[0], predicates),
+            "gp_qparam_id_map": gp_qparam_id_map,
         })
 
+    # Total parameters for processes and the guide ONLY
     total_params_len = num_proc_params + q_offset
     model_params = torch.nn.Parameter(torch.randn(total_params_len) * 0.01)
 
