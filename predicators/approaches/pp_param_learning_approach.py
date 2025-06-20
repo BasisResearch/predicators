@@ -109,6 +109,7 @@ class ParamLearningBilevelProcessPlanningApproach(
         logging.debug("Learned processes:")
         for p in processes:
             logging.debug(pformat(p))
+        logging.debug(f"Log frame strength: {scores[4]}")
         return
 
 
@@ -125,7 +126,7 @@ def learn_process_parameters(
     adam_num_steps: int = 200,
     std_regularization: Optional[int] = 50,
     learn_frame_strength: bool = False,
-) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float]]:
+) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
     if use_lbfgs:
         num_steps = 1
         batch_size = 100
@@ -154,7 +155,7 @@ def learn_process_parameters(
     # Handle frame strength based on the new flag
     if learn_frame_strength:
         # Initialize frame strength as a learnable parameter
-        frame_param = torch.nn.Parameter(torch.randn(1) * 0.1)
+        frame_param = torch.nn.Parameter(torch.randn(1) * 0.01)
         learnable_params = [proc_and_guide_params, frame_param]
     else:
         # Use a fixed, reasonable default for frame strength. Not learnable.
@@ -300,7 +301,7 @@ def learn_process_parameters(
         _plot_training_curve(curve)
         
     return processes, (best_elbo, exp_state_at_best, exp_delay_at_best,
-                       entropy_at_best)
+                       entropy_at_best, frame_param.detach().item())
 
 def elbo_torch(
     atom_option_dataset: List[AtomOptionTrajectory],
