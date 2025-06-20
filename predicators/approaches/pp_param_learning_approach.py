@@ -133,6 +133,7 @@ def learn_process_parameters(
         batch_size = 16
 
     torch.manual_seed(seed)
+    random.seed(seed)
 
     # -------------------------------------------------------------- #
     # 0.  Cache per-trajectory data & build a global param layout     #
@@ -529,7 +530,7 @@ def _prepare_training_data_and_model_params(
         })
 
     total_params_len = num_proc_params + q_offset
-    model_params = torch.nn.Parameter(torch.rand(total_params_len))
+    model_params = torch.nn.Parameter(torch.randn(total_params_len) * 0.01)
 
     return per_traj_data, model_params, num_proc_params
 
