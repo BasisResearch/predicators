@@ -4633,9 +4633,12 @@ class DiscreteGaussianDelay(DelayDistribution):
 
         return log_probs_flat.reshape(k_tensor.shape)
 
-    def sample(self) -> int:
-        u = torch.rand(1).item()
-        return int(torch.searchsorted(self._cdf, torch.tensor(u)))
+    def sample(self, sample_mode: bool = True) -> int:
+        if sample_mode:
+            return int(self.mu.item())
+        else:
+            u = torch.rand(1).item()
+            return int(torch.searchsorted(self._cdf, torch.tensor(u)))
 
     @cached_property
     def _str(self) -> str:
