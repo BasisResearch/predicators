@@ -104,6 +104,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             adam_num_steps=CFG.process_param_learning_num_steps,
             learn_frame_strength=True,
             learn_process_strength=True,
+            learn_guide=True,
         )
         logging.debug(f"ELBO: {scores[0]}, exp_state: {scores[1]}, "
                       f"exp_delay: {scores[2]}, entropy: {scores[3]}")
@@ -126,6 +127,7 @@ def learn_process_parameters(
     display_progress: bool = True,
     adam_num_steps: int = 200,
     std_regularization: Optional[int] = 50,
+    learn_guide: bool = False,
     learn_frame_strength: bool = False,
     learn_process_strength: bool = False,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
@@ -157,40 +159,37 @@ def learn_process_parameters(
     
     # All process parameters (strength + delay) from the initial tensor
     proc_params_full = proc_and_guide_params_full[:num_proc_params]
-    # All guide parameters, wrapped to be a distinct learnable parameter
-    guide_params = torch.nn.Parameter(proc_and_guide_params_full[num_proc_params:])
-
-    learnable_params_for_optim = [guide_params]
     
-    # These will hold the components of the process parameters
+    learnable_params_for_optim = []
+
+    # Handle guide parameters based on the new flag
+    if learn_guide:
+        guide_params = torch.nn.Parameter(proc_and_guide_params_full[num_proc_params:])
+        learnable_params_for_optim.append(guide_params)
+    else:
+        # Guide is not learnable; detach it from the computation graph.
+        guide_params = proc_and_guide_params_full[num_proc_params:].detach()
+    
     fixed_strengths = None
     learnable_proc_params = None
     
     if learn_process_strength:
-        # The entire process parameter block is one learnable unit
         learnable_proc_params = torch.nn.Parameter(proc_params_full)
         learnable_params_for_optim.append(learnable_proc_params)
     else:
-        # Separate strength (fixed) from delay (learnable)
         num_processes = len(processes)
         strength_indices = [i * 3 for i in range(num_processes)]
         delay_indices = [i * 3 + j for i in range(num_processes) for j in [1, 2]]
-        
-        # Create a fixed tensor for strengths with a default value
         fixed_strengths = torch.full((num_processes,), 0.0) # log_strength=0.0 -> strength=1.0
-
-        # Create a learnable parameter tensor for delay params only
         learnable_proc_params = torch.nn.Parameter(proc_params_full[delay_indices])
         learnable_params_for_optim.append(learnable_proc_params)
 
-    # Handle frame strength as before
     if learn_frame_strength:
         frame_param = torch.nn.Parameter(torch.randn(1) * 0.01)
         learnable_params_for_optim.append(frame_param)
     else:
         frame_param = torch.tensor([2.5])  # exp(2.5) ≈ 12.2
 
-    # Set initial process parameters for inspection if needed
     init_proc_param = proc_params_full.detach()
     _set_process_parameters(processes, init_proc_param,
                             **{'max_k': max_traj_len})
@@ -253,12 +252,9 @@ def learn_process_parameters(
 
             current_optim.zero_grad(set_to_none=True)
 
-            # --- Reconstruct the full process parameter tensor ---
             if learn_process_strength:
-                # All process params are in a single learnable tensor
                 proc_param = learnable_proc_params
             else:
-                # Reconstruct from fixed strengths and learnable delay params
                 proc_param = torch.zeros_like(proc_params_full)
                 proc_param[strength_indices] = fixed_strengths.to(proc_param.device)
                 proc_param[delay_indices] = learnable_proc_params
@@ -276,7 +272,7 @@ def learn_process_parameters(
             for tidx in batch_ids:
                 td = per_traj_data[tidx]
                 guide_dict = _create_guide_dict_for_trajectory(
-                    td, guide_flat, td["traj_len"])
+                    td, guide_flat, td["traj_len"], learn_guide)
 
                 data_elbo, data_exp_state, data_exp_delay, data_entropy = elbo_torch(
                     [td["trajectory"]],
@@ -293,17 +289,17 @@ def learn_process_parameters(
                 entropy = entropy + data_entropy
 
             loss = -(elbo / len(batch_ids))
-            if std_regularization:
-                # Regularize only the learnable delay parameters (2nd of every 3)
+            if std_regularization and learnable_params_for_optim:
                 if learn_process_strength:
-                    # All proc params are learnable, slice as before
                     loss = loss + std_regularization * (proc_param[2::3].sum())
                 else:
                     # learnable_proc_params contains only delay params. The std is the 2nd of every 2.
                     loss = loss + std_regularization * (learnable_proc_params[1::2].sum())
 
-            loss.backward()
+            if learnable_params_for_optim:
+                loss.backward() # type: ignore
 
+            # ... (logging and bookkeeping is unchanged) ...
             detached_elbo_item = elbo.detach().item()
             if detached_elbo_item > best_elbo:
                 best_elbo = detached_elbo_item
@@ -311,7 +307,6 @@ def learn_process_parameters(
                 exp_delay_at_best = exp_delay.detach().item()
                 entropy_at_best = entropy.detach().item()
 
-            # --- progress‑bar & bookkeeping --------------------------------
             curve["iterations"].append(iteration)
             curve["elbos"].append(detached_elbo_item)
             curve["best_elbos"].append(best_elbo)
@@ -338,7 +333,6 @@ def learn_process_parameters(
     if learn_process_strength:
         proc_params = learnable_proc_params.detach()
     else:
-        # Reconstruct final parameters for saving
         proc_params = torch.zeros_like(proc_params_full)
         proc_params[strength_indices] = fixed_strengths.to(proc_params.device)
         proc_params[delay_indices] = learnable_proc_params.detach()
@@ -579,18 +573,31 @@ def _prepare_training_data_and_model_params(
 
 
 def _create_guide_dict_for_trajectory(
-        td: Dict[str, Any], guide_flat: Tensor,
-        traj_len: int) -> Dict[_GroundCausalProcess, Dict[int, Tensor]]:
-    """Helper to create the guide distribution dictionary for a single
-    trajectory."""
-    guide_dict: Dict[_GroundCausalProcess, Dict[int,
-                                                Tensor]] = defaultdict(dict)
+    td: Dict[str, Any], 
+    guide_flat: Tensor,
+    traj_len: int,
+    learn_guide: bool  # New parameter
+) -> Dict[_GroundCausalProcess, Dict[int, Tensor]]:
+    """Helper to create the guide distribution dictionary for a single trajectory."""
+    guide_dict: Dict[_GroundCausalProcess, Dict[int, Tensor]] = defaultdict(dict)
     for (gp, s_i), (lo, hi) in td["gp_qparam_id_map"].items():
-        raw = guide_flat[lo:hi]
-        # Ensure mask is on the same device as raw and has the correct dtype
-        mask = torch.ones(traj_len, dtype=raw.dtype, device=raw.device)
+        # Create the causality mask to prevent effects from occurring at or before the cause
+        mask = torch.ones(traj_len, dtype=torch.float32, device=guide_flat.device)
         mask[:s_i + 1] = 0
-        probs = torch.softmax(raw + torch.log(mask + 1e-20), dim=0)
+
+        if learn_guide:
+            # Current behavior: softmax over learnable logits
+            raw = guide_flat[lo:hi]
+            probs = torch.softmax(raw + torch.log(mask + 1e-20), dim=0)
+        else:
+            # New behavior: fixed uniform distribution over valid time steps
+            num_valid_steps = mask.sum()
+            if num_valid_steps > 0:
+                probs = mask / num_valid_steps
+            else:
+                # If there are no valid future steps, the distribution is all zeros
+                probs = torch.zeros_like(mask)
+
         guide_dict[gp][s_i] = probs
     return guide_dict
 
