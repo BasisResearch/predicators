@@ -114,7 +114,44 @@ class ParamLearningBilevelProcessPlanningApproach(
         logging.debug(f"Log frame strength: {scores[4]}")
         return
 
+@torch.no_grad()
+def evaluate_model_on_dataset(
+    per_traj_data: List[Dict[str, Any]],
+    frame_param: torch.Tensor,
+    guide_params: torch.Tensor,
+    learn_guide: bool
+) -> Tuple[float, float, float, float]:
+    """
+    Evaluates a trained model on the full dataset.
+    """
+    total_elbo, total_exp_state, total_exp_delay, total_entropy = 0.0, 0.0, 0.0, 0.0
 
+    for td in per_traj_data:
+        guide_dict = _create_guide_dict_for_trajectory(
+            td, guide_params, td["traj_len"], learn_guide
+        )
+        
+        data_elbo, data_exp_state, data_exp_delay, data_entropy = elbo_torch(
+            [td["trajectory"]],
+            td["ground_causal_processes"],
+            td["start_times_per_gp"],
+            guide_dict,
+            frame_param,
+            set(td["all_atoms"]),
+            td["atom_to_val_to_gps"],
+        )
+        total_elbo += data_elbo.item()
+        total_exp_state += data_exp_state.item()
+        total_exp_delay += data_exp_delay.item()
+        total_entropy += data_entropy.item()
+
+    num_trajectories = len(per_traj_data)
+    mean_elbo = total_elbo / num_trajectories
+    mean_exp_state = total_exp_state / num_trajectories
+    mean_exp_delay = total_exp_delay / num_trajectories
+    mean_entropy = total_entropy / num_trajectories
+    
+    return mean_elbo, mean_exp_state, mean_exp_delay, mean_entropy
 
 def learn_process_parameters(
     trajectories: List[LowLevelTrajectory],
@@ -127,9 +164,9 @@ def learn_process_parameters(
     display_progress: bool = True,
     adam_num_steps: int = 200,
     std_regularization: Optional[int] = 50,
-    learn_guide: bool = False,
-    learn_frame_strength: bool = False,
-    learn_process_strength: bool = False,
+    learn_guide: bool = True,
+    learn_frame_strength: bool = True,
+    learn_process_strength: bool = True,
     early_stopping_patience: Optional[int] = 20,
     early_stopping_tolerance: float = 1e-4,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
@@ -164,12 +201,10 @@ def learn_process_parameters(
     
     learnable_params_for_optim = []
 
-    # Handle guide parameters based on the new flag
     if learn_guide:
         guide_params = torch.nn.Parameter(proc_and_guide_params_full[num_proc_params:])
         learnable_params_for_optim.append(guide_params)
     else:
-        # Guide is not learnable; detach it from the computation graph.
         guide_params = proc_and_guide_params_full[num_proc_params:].detach()
     
     fixed_strengths = None
@@ -207,15 +242,9 @@ def learn_process_parameters(
         pbar = tqdm(total=pbar_total, desc=desc)
     else:
         pbar = None
-
+        
     best_elbo = -float("inf")
-    exp_state_at_best, exp_delay_at_best, entropy_at_best = 0.0, 0.0, 0.0
-    curve: Dict = {
-        "iterations": [],
-        "elbos": [],
-        "best_elbos": [],
-        "wall_time": []
-    }
+    curve: Dict = { "iterations": [], "elbos": [], "best_elbos": [], "wall_time": [] }
     training_start_time = time.time()
 
     # --- Early stopping setup ---
@@ -253,8 +282,7 @@ def learn_process_parameters(
         batch_ids = [0] + random.sample(remaining_ids, k=additional_samples)
 
         def closure() -> float:
-            nonlocal best_elbo, iteration, exp_state_at_best, exp_delay_at_best, entropy_at_best
-            # --- Early stopping nonlocals ---
+            nonlocal best_elbo, iteration
             nonlocal patience_counter, best_params_state
 
             if current_optim:
@@ -273,16 +301,13 @@ def learn_process_parameters(
             frame = frame_param
 
             elbo = torch.tensor(0.0, dtype=frame.dtype, device=frame.device)
-            exp_state = torch.tensor(0.0, dtype=frame.dtype, device=frame.device)
-            exp_delay = torch.tensor(0.0, dtype=frame.dtype, device=frame.device)
-            entropy = torch.tensor(0.0, dtype=frame.dtype, device=frame.device)
 
             for tidx in batch_ids:
                 td = per_traj_data[tidx]
                 guide_dict = _create_guide_dict_for_trajectory(
                     td, guide_flat, td["traj_len"], learn_guide)
 
-                data_elbo, data_exp_state, data_exp_delay, data_entropy = elbo_torch(
+                data_elbo, _, _, _ = elbo_torch(
                     [td["trajectory"]],
                     td["ground_causal_processes"],
                     td["start_times_per_gp"],
@@ -292,43 +317,29 @@ def learn_process_parameters(
                     td["atom_to_val_to_gps"],
                 )
                 elbo = elbo + data_elbo
-                exp_state = exp_state + data_exp_state
-                exp_delay = exp_delay + data_exp_delay
-                entropy = entropy + data_entropy
 
             loss = -(elbo / len(batch_ids))
             if std_regularization and learnable_params_for_optim:
                 if learn_process_strength:
                     loss = loss + std_regularization * (proc_param[2::3].sum())
-                else:
-                    # learnable_proc_params contains only delay params. The std is the 2nd of every 2.
+                elif learn_process_strength is False and learnable_proc_params in learnable_params_for_optim:
                     loss = loss + std_regularization * (learnable_proc_params[1::2].sum())
 
             if learnable_params_for_optim:
                 loss.backward() # type: ignore
 
-            # ... (logging and bookkeeping is unchanged) ...
             detached_elbo_item = elbo.detach().item()
             
             # --- Early stopping check ---
             if early_stopping_patience is not None:
                 if detached_elbo_item > best_elbo + early_stopping_tolerance:
-                    # Improvement found, save state and reset patience
                     best_elbo = detached_elbo_item
                     best_params_state = [p.clone().detach() for p in learnable_params_for_optim]
-                    exp_state_at_best = exp_state.detach().item()
-                    exp_delay_at_best = exp_delay.detach().item()
-                    entropy_at_best = entropy.detach().item()
                     patience_counter = early_stopping_patience
                 else:
-                    # No improvement
                     patience_counter -= 1
             elif detached_elbo_item > best_elbo:
-                # Regular tracking of best ELBO if early stopping is off
                  best_elbo = detached_elbo_item
-                 exp_state_at_best = exp_state.detach().item()
-                 exp_delay_at_best = exp_delay.detach().item()
-                 entropy_at_best = entropy.detach().item()
 
             curve["iterations"].append(iteration)
             curve["elbos"].append(detached_elbo_item)
@@ -357,22 +368,38 @@ def learn_process_parameters(
     if pbar:
         pbar.close()
 
-    # ---------------- persist results & plot ------------------------ #
-    if learn_process_strength:
-        proc_params = learnable_proc_params.detach()
-    else:
-        proc_params = torch.zeros_like(proc_params_full)
-        proc_params[strength_indices] = fixed_strengths.to(proc_params.device)
-        proc_params[delay_indices] = learnable_proc_params.detach()
+    # --- Restore best parameters before evaluation ---
+    if best_params_state is not None:
+        print("Restoring model to best parameters found during training.")
+        for param, best_state in zip(learnable_params_for_optim, best_params_state):
+            param.data.copy_(best_state)
 
-    _set_process_parameters(processes, proc_params)
+    # --- Persist Final Parameters and Evaluate ---
+    final_guide_params = guide_params.detach()
+    if learn_process_strength:
+        final_proc_params = learnable_proc_params.detach()
+    else:
+        final_proc_params = torch.zeros_like(proc_params_full)
+        final_proc_params[strength_indices] = fixed_strengths.to(final_proc_params.device)
+        final_proc_params[delay_indices] = learnable_proc_params.detach()
+    
+    _set_process_parameters(processes, final_proc_params)
+    final_frame_param = frame_param.detach()
+
+    # Call the new independent evaluation function
+    mean_elbo, mean_exp_state, mean_exp_delay, mean_entropy = evaluate_model_on_dataset(
+        per_traj_data=per_traj_data,
+        frame_param=final_frame_param,
+        guide_params=final_guide_params,
+        learn_guide=learn_guide
+    )
     
     if plot_training_curve:
         _plot_training_curve(curve)
         
-    return processes, (best_elbo, exp_state_at_best, exp_delay_at_best,
-                       entropy_at_best, frame_param.detach().item())
-
+    return processes, (mean_elbo, mean_exp_state, mean_exp_delay,
+                       mean_entropy, final_frame_param.item())
+                       
 def elbo_torch(
     atom_option_dataset: List[AtomOptionTrajectory],
     ground_processes: List[
