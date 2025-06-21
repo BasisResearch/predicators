@@ -370,7 +370,6 @@ def learn_process_parameters(
 
     # --- Restore best parameters before evaluation ---
     if best_params_state is not None:
-        print("Restoring model to best parameters found during training.")
         for param, best_state in zip(learnable_params_for_optim, best_params_state):
             param.data.copy_(best_state)
 
