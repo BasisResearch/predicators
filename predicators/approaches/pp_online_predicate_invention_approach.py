@@ -92,8 +92,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
             online_learning_cycle=self._online_learning_cycle)
         # breakpoint()
 
-        # if CFG.learn_process_parameters:
-        #     self._learn_process_parameters(self._online_dataset)
+        if CFG.learn_process_parameters:
+            self._learn_process_parameters(self._online_dataset)
 
         self._online_learning_cycle += 1
 
