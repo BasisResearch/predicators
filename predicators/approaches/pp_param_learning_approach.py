@@ -129,7 +129,7 @@ def learn_process_parameters(
     learn_guide: bool = True,
     learn_frame_strength: bool = True,
     learn_process_strength: bool = True,
-    early_stopping_patience: Optional[int] = 20,
+    early_stopping_patience: Optional[int] = None,
     early_stopping_tolerance: float = 1e-4,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
     if use_lbfgs:
