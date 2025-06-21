@@ -182,7 +182,7 @@ def learn_process_parameters(
         num_processes = len(processes)
         strength_indices = [i * 3 for i in range(num_processes)]
         delay_indices = [i * 3 + j for i in range(num_processes) for j in [1, 2]]
-        fixed_strengths = torch.full((num_processes,), 0.0) # log_strength=0.0 -> strength=1.0
+        fixed_strengths = torch.full((num_processes,), 1.0) # log_strength=0.0 -> strength=1.0
         learnable_proc_params = torch.nn.Parameter(proc_params_full[delay_indices])
         learnable_params_for_optim.append(learnable_proc_params)
 
