@@ -114,44 +114,6 @@ class ParamLearningBilevelProcessPlanningApproach(
         logging.debug(f"Log frame strength: {scores[4]}")
         return
 
-@torch.no_grad()
-def evaluate_model_on_dataset(
-    per_traj_data: List[Dict[str, Any]],
-    frame_param: torch.Tensor,
-    guide_params: torch.Tensor,
-    learn_guide: bool
-) -> Tuple[float, float, float, float]:
-    """
-    Evaluates a trained model on the full dataset.
-    """
-    total_elbo, total_exp_state, total_exp_delay, total_entropy = 0.0, 0.0, 0.0, 0.0
-
-    for td in per_traj_data:
-        guide_dict = _create_guide_dict_for_trajectory(
-            td, guide_params, td["traj_len"], learn_guide
-        )
-        
-        data_elbo, data_exp_state, data_exp_delay, data_entropy = elbo_torch(
-            [td["trajectory"]],
-            td["ground_causal_processes"],
-            td["start_times_per_gp"],
-            guide_dict,
-            frame_param,
-            set(td["all_atoms"]),
-            td["atom_to_val_to_gps"],
-        )
-        total_elbo += data_elbo.item()
-        total_exp_state += data_exp_state.item()
-        total_exp_delay += data_exp_delay.item()
-        total_entropy += data_entropy.item()
-
-    num_trajectories = len(per_traj_data)
-    mean_elbo = total_elbo / num_trajectories
-    mean_exp_state = total_exp_state / num_trajectories
-    mean_exp_delay = total_exp_delay / num_trajectories
-    mean_entropy = total_entropy / num_trajectories
-    
-    return mean_elbo, mean_exp_state, mean_exp_delay, mean_entropy
 
 def learn_process_parameters(
     trajectories: List[LowLevelTrajectory],
@@ -529,6 +491,45 @@ def elbo_torch(
                                      torch.log(q_dist_for_instance[mask]))
     elbo = ll + entropy
     return elbo, exp_state_prob, exp_delay_prob, entropy
+
+@torch.no_grad()
+def evaluate_model_on_dataset(
+    per_traj_data: List[Dict[str, Any]],
+    frame_param: torch.Tensor,
+    guide_params: torch.Tensor,
+    learn_guide: bool
+) -> Tuple[float, float, float, float]:
+    """
+    Evaluates a trained model on the full dataset.
+    """
+    total_elbo, total_exp_state, total_exp_delay, total_entropy = 0.0, 0.0, 0.0, 0.0
+
+    for td in per_traj_data:
+        guide_dict = _create_guide_dict_for_trajectory(
+            td, guide_params, td["traj_len"], learn_guide
+        )
+        
+        data_elbo, data_exp_state, data_exp_delay, data_entropy = elbo_torch(
+            [td["trajectory"]],
+            td["ground_causal_processes"],
+            td["start_times_per_gp"],
+            guide_dict,
+            frame_param,
+            set(td["all_atoms"]),
+            td["atom_to_val_to_gps"],
+        )
+        total_elbo += data_elbo.item()
+        total_exp_state += data_exp_state.item()
+        total_exp_delay += data_exp_delay.item()
+        total_entropy += data_entropy.item()
+
+    num_trajectories = len(per_traj_data)
+    mean_elbo = total_elbo / num_trajectories
+    mean_exp_state = total_exp_state / num_trajectories
+    mean_exp_delay = total_exp_delay / num_trajectories
+    mean_entropy = total_entropy / num_trajectories
+    
+    return mean_elbo, mean_exp_state, mean_exp_delay, mean_entropy
 
 
 def _set_process_parameters(processes: Sequence[CausalProcess],
