@@ -125,7 +125,7 @@ def learn_process_parameters(
     seed: int = 0,
     display_progress: bool = True,
     adam_num_steps: int = 200,
-    std_regularization: Optional[int] = 50,
+    std_regularization: Optional[int] = None,
     learn_guide: bool = True,
     learn_frame_strength: bool = True,
     learn_process_strength: bool = True,
@@ -179,7 +179,7 @@ def learn_process_parameters(
         num_processes = len(processes)
         strength_indices = [i * 3 for i in range(num_processes)]
         delay_indices = [i * 3 + j for i in range(num_processes) for j in [1, 2]]
-        fixed_strengths = torch.full((num_processes,), 1.0) # log_strength=0.0 -> strength=1.0
+        fixed_strengths = torch.full((num_processes,), 1.0) # log_strength=1.0
         learnable_proc_params = torch.nn.Parameter(proc_params_full[delay_indices])
         learnable_params_for_optim.append(learnable_proc_params)
 
@@ -239,9 +239,12 @@ def learn_process_parameters(
 
         assert current_optim is not None, "Optimizer not initialized"
 
-        remaining_ids = list(range(1, len(per_traj_data)))
-        additional_samples = min(batch_size - 1, len(remaining_ids))
-        batch_ids = [0] + random.sample(remaining_ids, k=additional_samples)
+        # remaining_ids = list(range(1, len(per_traj_data)))
+        # additional_samples = min(batch_size - 1, len(remaining_ids))
+        # batch_ids = [0] + random.sample(remaining_ids, k=additional_samples)
+        num_trajs = len(per_traj_data)
+        batch_ids = random.sample(range(num_trajs), k=min(batch_size, 
+                                                            num_trajs))
 
         def closure() -> float:
             nonlocal best_elbo, iteration
