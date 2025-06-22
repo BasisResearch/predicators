@@ -697,12 +697,14 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                               f"Score: {score}")
             else:
                 score, condition_candidate, scores, process = result
+                process_param_str = ", ".join([f"{v:.4f}" for v in 
+                                               process._get_parameters()])
                 logging.debug(f"Conditions {i}: {condition_candidate}, "
                               f"Score: {score}, "
                               f"Exp_state_at_best: {scores[1]:.4f}, "
                               f"Exp_delay_at_best: {scores[2]:.4f}, "
                               f"Entropy_at_best: {scores[3]:.4f}, "
-                              f"Process params: {process._get_parameters()}")
+                              f"Process params: {process_param_str}")
 
         logging.debug(f"Scored {len(candidates_with_scores)} candidates took "
                       f"{time.time() - start_time:.2f} seconds")
