@@ -391,8 +391,13 @@ def elbo_torch(
     # 1.  Expected log state probabilities
     # -----------------------------------------------------------------
     exp_state_prob = torch.tensor(0.0, dtype=log_frame_strength.dtype)
-    def _condition_overall_holds(gp, st, t, history, check_condition_overall
-                                 )-> bool:
+    def _condition_overall_holds(
+        gp: _GroundCausalProcess,
+        st: int,
+        t: int,
+        history: List[Set[GroundAtom]],
+        check_condition_overall: bool
+    ) -> bool:
         """Helper to check if condition_overall holds for gp between st and t.
         """
         if not check_condition_overall:
