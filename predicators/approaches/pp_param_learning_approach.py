@@ -131,6 +131,7 @@ def learn_process_parameters(
     learn_process_strength: bool = True,
     early_stopping_patience: Optional[int] = None,
     early_stopping_tolerance: float = 1e-4,
+    check_condition_overall: bool = True,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
     if use_lbfgs:
         num_steps = 1
@@ -153,7 +154,8 @@ def learn_process_parameters(
         _prepare_training_data_and_model_params(
             predicates,
             processes,
-            trajectories
+            trajectories,
+            check_condition_overall,
         )
 
     # --- Separate parameter tensor into logical, learnable components ---
@@ -394,7 +396,6 @@ def elbo_torch(
     atom_to_val_to_gps: Dict[GroundAtom, Dict[bool,
                                               Set[_GroundCausalProcess]]],
     condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]],
-    check_condition_overall: bool = True,
 ) -> Tensor:
     """*Differentiable* ELBO computation with efficient, cached condition checks."""
     assert len(atom_option_dataset) == 1
@@ -585,6 +586,7 @@ def _prepare_training_data_and_model_params(
     predicates: Set[Predicate],
     processes: Sequence[CausalProcess],
     trajectories: List[LowLevelTrajectory],
+    check_condition_overall: bool
 ) -> Tuple[List[Dict[str, Any]], torch.nn.Parameter, int]:
     """Cache per-trajectory data, build global param layout for process and
     guide parameters, and initialize them."""
@@ -627,12 +629,15 @@ def _prepare_training_data_and_model_params(
         ] for gp in ground_processes]
         
         # Pre-compute the condition cache for this trajectory
-        condition_cache = _compute_condition_cache_for_traj(
-            ground_processes,
-            start_times,
-            traj.states,
-            traj_len
-        )
+        condition_cache: Dict[_GroundCausalProcess, 
+                              Dict[int, Dict[int, bool]]] = {}
+        if check_condition_overall:
+            condition_cache = _compute_condition_cache_for_traj(
+                ground_processes,
+                start_times,
+                traj.states,
+                traj_len
+            )
 
         gp_qparam_id_map: Dict[Tuple[_GroundCausalProcess, int],
                                Tuple[int, int]] = {}
