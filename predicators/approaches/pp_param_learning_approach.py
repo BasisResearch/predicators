@@ -427,7 +427,8 @@ def elbo_torch(
                         if st < t:
                             # --- Efficient Cache Lookup ---
                             # Default to True if not in cache (e.g., no overall cond.)
-                            condition_overall_holds = condition_cache.get(gp, {}).get(st, {}).get(t, True)
+                            condition_overall_holds = condition_cache.get(
+                                gp, {}).get(st, {}).get(t-1, True)
 
                             # --- Numerator Part ---
                             if val == (atom in yt) and condition_overall_holds:
