@@ -2497,6 +2497,14 @@ class CausalProcess(abc.ABC):
             del self.__dict__['_str']
         if '_hash' in self.__dict__:
             del self.__dict__['_hash']
+    
+    def _get_parameters(self) -> Sequence[float]:
+        """Get the parameters of this CausalProcess.
+
+        The first parameter is the strength, and the rest are the delay
+        distribution parameters.
+        """
+        return [self.strength] + self.delay_distribution.get_parameters()
 
     def delay_probability(self, delay: int) -> float:
         return self.delay_distribution.probability(delay)

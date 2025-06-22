@@ -52,7 +52,7 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
     # Local import avoids pickling issues with bound methods.
     from predicators.approaches.pp_param_learning_approach import \
         learn_process_parameters
-    _, scores = learn_process_parameters(
+    process, scores = learn_process_parameters(
         trajectories,
         predicates,
         [base_process],
@@ -65,7 +65,7 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
     )
     cost = -scores[0] + complexity_penalty
     # Original code minimises negative likelihood, so keep sign consistent.
-    return cost, condition_candidate, scores
+    return cost, condition_candidate, scores, process
 
 
 def _flat_pnad_scoring_worker(
@@ -696,12 +696,13 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                 logging.debug(f"Conditions {i}: {condition_candidate}, "
                               f"Score: {score}")
             else:
-                score, condition_candidate, scores = result
+                score, condition_candidate, scores, process = result
                 logging.debug(f"Conditions {i}: {condition_candidate}, "
                               f"Score: {score}, "
                               f"Exp_state_at_best: {scores[1]:.4f}, "
                               f"Exp_delay_at_best: {scores[2]:.4f}, "
-                              f"Entropy_at_best: {scores[3]:.4f}")
+                              f"Entropy_at_best: {scores[3]:.4f}, "
+                              f"Process params: {process._get_parameters()}")
 
         logging.debug(f"Scored {len(candidates_with_scores)} candidates took "
                       f"{time.time() - start_time:.2f} seconds")
