@@ -459,7 +459,6 @@ def elbo_torch(
         yt_prev = yt
     ll = ll + exp_state_prob
 
-    # ... The Expected Delay and Entropy sections are unchanged ...
     # -----------------------------------------------------------------
     # 2.  Expected Delay probabilities
     # -----------------------------------------------------------------
