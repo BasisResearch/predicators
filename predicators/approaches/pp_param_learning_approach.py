@@ -378,11 +378,32 @@ def elbo_torch(
                                               Set[_GroundCausalProcess]]],
     check_condition_overall: bool = True,
 ) -> Tensor:
-    """*Differentiable* ELBO computation that accounts for condition_overall."""
+    """*Differentiable* ELBO computation with efficient, cached condition checks."""
     assert len(atom_option_dataset) == 1
     trajectory = atom_option_dataset[0]
     num_time_steps = len(trajectory.states)
     history = trajectory.states # The full history of observed states y_{1:T}
+
+    # --- Pre-computation Cache for condition_overall ---
+    # This cache will store the results of the check to avoid redundant computation.
+    # The structure is: cache[ground_process][start_time][end_time] -> bool
+    condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]] = {}
+    if check_condition_overall:
+        for gp_idx, gp in enumerate(ground_processes):
+            # Only need to cache for processes that have an overall condition
+            if not gp.condition_overall:
+                continue
+            condition_cache[gp] = {}
+            for st in start_times_per_gp[gp_idx]:
+                condition_cache[gp][st] = {}
+                # Use dynamic programming: the result at `t` depends on the result at `t-1`
+                is_still_holding = True
+                for t_interval in range(st + 1, num_time_steps):
+                    # Check only the new state at the end of the interval
+                    if not gp.condition_overall.issubset(history[t_interval]):
+                        is_still_holding = False
+                    # The result for the interval [st+1, t_interval+1] is stored
+                    condition_cache[gp][st][t_interval] = is_still_holding
 
     ll = torch.tensor(0.0, dtype=log_frame_strength.dtype)
     yt_prev = trajectory.states[0]
@@ -391,28 +412,11 @@ def elbo_torch(
     # 1.  Expected log state probabilities
     # -----------------------------------------------------------------
     exp_state_prob = torch.tensor(0.0, dtype=log_frame_strength.dtype)
-    def _condition_overall_holds(
-        gp: _GroundCausalProcess,
-        st: int,
-        t: int,
-        history: List[Set[GroundAtom]],
-        check_condition_overall: bool
-    ) -> bool:
-        """Helper to check if condition_overall holds for gp between st and t.
-        """
-        if not check_condition_overall:
-            return True
-        return all(gp.condition_overall.issubset(s) for s in 
-                   history[st + 1 : t])
-
     for t in range(1, num_time_steps):
         yt = trajectory.states[t]
 
-        # --- expected effect terms + frame axiom, and normalization
-        # contribution from atoms described by the processes
         E_log_Zt = torch.tensor(0.0, dtype=log_frame_strength.dtype)
         for atom, val_to_gps in atom_to_val_to_gps.items():
-            # iterate over (val=True, False) pairs that appear in some law
             sum_ytj = torch.tensor(0.0, dtype=log_frame_strength.dtype)
             for val in (True, False):
                 gps = val_to_gps.get(val, set())
@@ -421,15 +425,16 @@ def elbo_torch(
                 for gp in gps:
                     for st, q in guide.get(gp, {}).items():
                         if st < t:
-                            condition_overall_holds = _condition_overall_holds(
-                                gp, st, t, history, check_condition_overall)
+                            # --- Efficient Cache Lookup ---
+                            # Default to True if not in cache (e.g., no overall cond.)
+                            condition_overall_holds = condition_cache.get(gp, {}).get(st, {}).get(t, True)
+
                             # --- Numerator Part ---
                             if val == (atom in yt) and condition_overall_holds:
                                 exp_state_prob = exp_state_prob + q[t] * \
                                     gp.factored_effect_factor(val, atom)
-                            # --- Denominator Part (Normalization Constant) ---
+                            # --- Denominator Part ---
                             if condition_overall_holds:
-                                # Only multiply if condition_overall holds
                                 prod = prod * (q[t] * torch.exp(
                                     gp.factored_effect_factor(val, atom)) +
                                     (1 - q[t]))
@@ -455,36 +460,32 @@ def elbo_torch(
         yt_prev = yt
     ll = ll + exp_state_prob
 
+    # ... The Expected Delay and Entropy sections are unchanged ...
     # -----------------------------------------------------------------
     # 2.  Expected Delay probabilities
     # -----------------------------------------------------------------
-    # Iterate through each ground process type and its list of start times
     exp_delay_prob = torch.tensor(0.0, dtype=log_frame_strength.dtype)
     for gp_idx, gp_obj in enumerate(ground_processes):
         for s_i in start_times_per_gp[gp_idx]:
             if s_i + 1 < num_time_steps:
                 delay_values = torch.arange(1,
                                             num_time_steps - s_i,
-                                            dtype=torch.long)
+                                            dtype=torch.long,
+                                            device=log_frame_strength.device)
                 if delay_values.numel() == 0:
                     continue
-
                 t_indices_for_guide = s_i + delay_values
                 all_delay_log_probs = gp_obj.delay_distribution.log_prob(
                     delay_values)
-
                 q_dist_for_instance = guide.get(gp_obj, {}).get(s_i, None)
                 if q_dist_for_instance is None:
                     raise Exception(
                         f"Guide distribution not found for {gp_obj} at s_i={s_i}"
                     )
-
                 guide_slice_for_delays = q_dist_for_instance[
                     t_indices_for_guide]
-
                 valid_mask = ~torch.isneginf(all_delay_log_probs) & (
                     guide_slice_for_delays > 1e-9)
-
                 if valid_mask.any():
                     exp_delay_prob = exp_delay_prob + torch.sum(
                         guide_slice_for_delays[valid_mask] *
@@ -492,7 +493,7 @@ def elbo_torch(
     ll = ll + exp_delay_prob
 
     # -----------------------------------------------------------------
-    # 3.  Entropy of the variational distributions (This part is unchanged)
+    # 3.  Entropy of the variational distributions
     # -----------------------------------------------------------------
     entropy = torch.tensor(0.0, dtype=log_frame_strength.dtype)
     for start_time_q_map in guide.values():
