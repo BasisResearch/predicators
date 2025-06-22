@@ -148,7 +148,7 @@ def learn_process_parameters(
     # -------------------------------------------------------------- #
     max_traj_len = max(len(traj.states) for traj in trajectories)\
         if len(trajectories) > 0 else 0
-        
+
     per_traj_data, proc_and_guide_params_full, num_proc_params = \
         _prepare_training_data_and_model_params(
             predicates,
@@ -157,30 +157,35 @@ def learn_process_parameters(
         )
 
     # --- Separate parameter tensor into logical, learnable components ---
-    
+
     # All process parameters (strength + delay) from the initial tensor
     proc_params_full = proc_and_guide_params_full[:num_proc_params]
-    
+
     learnable_params_for_optim = []
 
     if learn_guide:
-        guide_params = torch.nn.Parameter(proc_and_guide_params_full[num_proc_params:])
+        guide_params = torch.nn.Parameter(
+            proc_and_guide_params_full[num_proc_params:])
         learnable_params_for_optim.append(guide_params)
     else:
         guide_params = proc_and_guide_params_full[num_proc_params:].detach()
-    
+
     fixed_strengths = None
     learnable_proc_params = None
-    
+
     if learn_process_strength:
         learnable_proc_params = torch.nn.Parameter(proc_params_full)
         learnable_params_for_optim.append(learnable_proc_params)
     else:
         num_processes = len(processes)
         strength_indices = [i * 3 for i in range(num_processes)]
-        delay_indices = [i * 3 + j for i in range(num_processes) for j in [1, 2]]
-        fixed_strengths = torch.full((num_processes,), 1.0) # log_strength=1.0
-        learnable_proc_params = torch.nn.Parameter(proc_params_full[delay_indices])
+        delay_indices = [
+            i * 3 + j for i in range(num_processes) for j in [1, 2]
+        ]
+        fixed_strengths = torch.full((num_processes, ),
+                                     1.0)  # log_strength=1.0
+        learnable_proc_params = torch.nn.Parameter(
+            proc_params_full[delay_indices])
         learnable_params_for_optim.append(learnable_proc_params)
 
     if learn_frame_strength:
@@ -204,9 +209,14 @@ def learn_process_parameters(
         pbar = tqdm(total=pbar_total, desc=desc)
     else:
         pbar = None
-        
+
     best_elbo = -float("inf")
-    curve: Dict = { "iterations": [], "elbos": [], "best_elbos": [], "wall_time": [] }
+    curve: Dict = {
+        "iterations": [],
+        "elbos": [],
+        "best_elbos": [],
+        "wall_time": []
+    }
     training_start_time = time.time()
 
     # --- Early stopping setup ---
@@ -243,8 +253,8 @@ def learn_process_parameters(
         # additional_samples = min(batch_size - 1, len(remaining_ids))
         # batch_ids = [0] + random.sample(remaining_ids, k=additional_samples)
         num_trajs = len(per_traj_data)
-        batch_ids = random.sample(range(num_trajs), k=min(batch_size, 
-                                                            num_trajs))
+        batch_ids = random.sample(range(num_trajs),
+                                  k=min(batch_size, num_trajs))
 
         def closure() -> float:
             nonlocal best_elbo, iteration
@@ -257,11 +267,12 @@ def learn_process_parameters(
                 proc_param = learnable_proc_params
             else:
                 proc_param = torch.zeros_like(proc_params_full)
-                proc_param[strength_indices] = fixed_strengths.to(proc_param.device)
+                proc_param[strength_indices] = fixed_strengths.to(
+                    proc_param.device)
                 proc_param[delay_indices] = learnable_proc_params
-            
+
             _set_process_parameters(processes, proc_param)
-            
+
             guide_flat = guide_params
             frame = frame_param
 
@@ -288,23 +299,26 @@ def learn_process_parameters(
                 if learn_process_strength:
                     loss = loss + std_regularization * (proc_param[2::3].sum())
                 elif learn_process_strength is False and learnable_proc_params in learnable_params_for_optim:
-                    loss = loss + std_regularization * (learnable_proc_params[1::2].sum())
+                    loss = loss + std_regularization * (
+                        learnable_proc_params[1::2].sum())
 
             if learnable_params_for_optim:
-                loss.backward() # type: ignore
+                loss.backward()  # type: ignore
 
             detached_elbo_item = elbo.detach().item()
-            
+
             # --- Early stopping check ---
             if early_stopping_patience is not None:
                 if detached_elbo_item > best_elbo + early_stopping_tolerance:
                     best_elbo = detached_elbo_item
-                    best_params_state = [p.clone().detach() for p in learnable_params_for_optim]
+                    best_params_state = [
+                        p.clone().detach() for p in learnable_params_for_optim
+                    ]
                     patience_counter = early_stopping_patience
                 else:
                     patience_counter -= 1
             elif detached_elbo_item > best_elbo:
-                 best_elbo = detached_elbo_item
+                best_elbo = detached_elbo_item
 
             curve["iterations"].append(iteration)
             curve["elbos"].append(detached_elbo_item)
@@ -335,7 +349,8 @@ def learn_process_parameters(
 
     # --- Restore best parameters before evaluation ---
     if best_params_state is not None:
-        for param, best_state in zip(learnable_params_for_optim, best_params_state):
+        for param, best_state in zip(learnable_params_for_optim,
+                                     best_params_state):
             param.data.copy_(best_state)
 
     # --- Persist Final Parameters and Evaluate ---
@@ -344,9 +359,10 @@ def learn_process_parameters(
         final_proc_params = learnable_proc_params.detach()
     else:
         final_proc_params = torch.zeros_like(proc_params_full)
-        final_proc_params[strength_indices] = fixed_strengths.to(final_proc_params.device)
+        final_proc_params[strength_indices] = fixed_strengths.to(
+            final_proc_params.device)
         final_proc_params[delay_indices] = learnable_proc_params.detach()
-    
+
     _set_process_parameters(processes, final_proc_params)
     final_frame_param = frame_param.detach()
 
@@ -355,15 +371,15 @@ def learn_process_parameters(
         per_traj_data=per_traj_data,
         frame_param=final_frame_param,
         guide_params=final_guide_params,
-        learn_guide=learn_guide
-    )
-    
+        learn_guide=learn_guide)
+
     if plot_training_curve:
         _plot_training_curve(curve)
-        
-    return processes, (mean_elbo, mean_exp_state, mean_exp_delay,
-                       mean_entropy, final_frame_param.item())
-                       
+
+    return processes, (mean_elbo, mean_exp_state, mean_exp_delay, mean_entropy,
+                       final_frame_param.item())
+
+
 def elbo_torch(
     atom_option_dataset: List[AtomOptionTrajectory],
     ground_processes: List[
@@ -382,12 +398,13 @@ def elbo_torch(
     assert len(atom_option_dataset) == 1
     trajectory = atom_option_dataset[0]
     num_time_steps = len(trajectory.states)
-    history = trajectory.states # The full history of observed states y_{1:T}
+    history = trajectory.states  # The full history of observed states y_{1:T}
 
     # --- Pre-computation Cache for condition_overall ---
     # This cache will store the results of the check to avoid redundant computation.
     # The structure is: cache[ground_process][start_time][end_time] -> bool
-    condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]] = {}
+    condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int,
+                                                               bool]]] = {}
     if check_condition_overall:
         for gp_idx, gp in enumerate(ground_processes):
             # Only need to cache for processes that have an overall condition
@@ -428,7 +445,7 @@ def elbo_torch(
                             # --- Efficient Cache Lookup ---
                             # Default to True if not in cache (e.g., no overall cond.)
                             condition_overall_holds = condition_cache.get(
-                                gp, {}).get(st, {}).get(t-1, True)
+                                gp, {}).get(st, {}).get(t - 1, True)
 
                             # --- Numerator Part ---
                             if val == (atom in yt) and condition_overall_holds:
@@ -438,10 +455,11 @@ def elbo_torch(
                             if condition_overall_holds:
                                 prod = prod * (q[t] * torch.exp(
                                     gp.factored_effect_factor(val, atom)) +
-                                    (1 - q[t]))
-                
+                                               (1 - q[t]))
+
                 sum_ytj = sum_ytj + prod * torch.exp(log_frame_strength *
-                                                     (val == (atom in yt_prev)))
+                                                     (val ==
+                                                      (atom in yt_prev)))
             E_log_Zt = E_log_Zt + torch.log(sum_ytj + 1e-12)
 
         # Atoms not referenced in any process law
@@ -506,23 +524,20 @@ def elbo_torch(
     elbo = ll + entropy
     return elbo, exp_state_prob, exp_delay_prob, entropy
 
+
 @torch.no_grad()
 def evaluate_model_on_dataset(
-    per_traj_data: List[Dict[str, Any]],
-    frame_param: torch.Tensor,
-    guide_params: torch.Tensor,
-    learn_guide: bool
-) -> Tuple[float, float, float, float]:
-    """
-    Evaluates a trained model on the full dataset.
-    """
+        per_traj_data: List[Dict[str, Any]], frame_param: torch.Tensor,
+        guide_params: torch.Tensor,
+        learn_guide: bool) -> Tuple[float, float, float, float]:
+    """Evaluates a trained model on the full dataset."""
     total_elbo, total_exp_state, total_exp_delay, total_entropy = 0.0, 0.0, 0.0, 0.0
 
     for td in per_traj_data:
-        guide_dict = _create_guide_dict_for_trajectory(
-            td, guide_params, td["traj_len"], learn_guide
-        )
-        
+        guide_dict = _create_guide_dict_for_trajectory(td, guide_params,
+                                                       td["traj_len"],
+                                                       learn_guide)
+
         data_elbo, data_exp_state, data_exp_delay, data_entropy = elbo_torch(
             [td["trajectory"]],
             td["ground_causal_processes"],
@@ -542,7 +557,7 @@ def evaluate_model_on_dataset(
     mean_exp_state = total_exp_state / num_trajectories
     mean_exp_delay = total_exp_delay / num_trajectories
     mean_entropy = total_entropy / num_trajectories
-    
+
     return mean_elbo, mean_exp_state, mean_exp_delay, mean_entropy
 
 
@@ -570,13 +585,14 @@ def _split_params_tensor(
     guide = vec[num_proc_params:]
     return frame, proc, guide
 
+
 def _prepare_training_data_and_model_params(
     predicates: Set[Predicate],
     processes: Sequence[CausalProcess],
     trajectories: List[LowLevelTrajectory],
 ) -> Tuple[List[Dict[str, Any]], torch.nn.Parameter, int]:
-    """Cache per-trajectory data, build global param layout for process
-    and guide parameters, and initialize them."""
+    """Cache per-trajectory data, build global param layout for process and
+    guide parameters, and initialize them."""
     atom_option_dataset = utils.create_ground_atom_option_dataset(
         trajectories, predicates)
 
@@ -624,14 +640,21 @@ def _prepare_training_data_and_model_params(
                 q_offset = hi
 
         per_traj_data.append({
-            "trajectory": traj,
-            "traj_len": traj_len,
-            "ground_causal_processes": ground_processes,
-            "start_times_per_gp": start_times,
-            "atom_to_val_to_gps": atom_to_val_to_gps,
-            "all_atoms": utils.all_possible_ground_atoms(
-                traj._low_level_states[0], predicates),
-            "gp_qparam_id_map": gp_qparam_id_map,
+            "trajectory":
+            traj,
+            "traj_len":
+            traj_len,
+            "ground_causal_processes":
+            ground_processes,
+            "start_times_per_gp":
+            start_times,
+            "atom_to_val_to_gps":
+            atom_to_val_to_gps,
+            "all_atoms":
+            utils.all_possible_ground_atoms(traj._low_level_states[0],
+                                            predicates),
+            "gp_qparam_id_map":
+            gp_qparam_id_map,
         })
 
     # Total parameters for processes and the guide ONLY
@@ -642,16 +665,20 @@ def _prepare_training_data_and_model_params(
 
 
 def _create_guide_dict_for_trajectory(
-    td: Dict[str, Any], 
+    td: Dict[str, Any],
     guide_flat: Tensor,
     traj_len: int,
     learn_guide: bool  # New parameter
 ) -> Dict[_GroundCausalProcess, Dict[int, Tensor]]:
-    """Helper to create the guide distribution dictionary for a single trajectory."""
-    guide_dict: Dict[_GroundCausalProcess, Dict[int, Tensor]] = defaultdict(dict)
+    """Helper to create the guide distribution dictionary for a single
+    trajectory."""
+    guide_dict: Dict[_GroundCausalProcess, Dict[int,
+                                                Tensor]] = defaultdict(dict)
     for (gp, s_i), (lo, hi) in td["gp_qparam_id_map"].items():
         # Create the causality mask to prevent effects from occurring at or before the cause
-        mask = torch.ones(traj_len, dtype=torch.float32, device=guide_flat.device)
+        mask = torch.ones(traj_len,
+                          dtype=torch.float32,
+                          device=guide_flat.device)
         mask[:s_i + 1] = 0
 
         if learn_guide:

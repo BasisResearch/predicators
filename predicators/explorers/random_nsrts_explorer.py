@@ -1,9 +1,9 @@
 """An explorer that takes random NSRTs."""
 
+import logging
 from typing import List, Set
 
 from gym.spaces import Box
-import logging
 
 from predicators import utils
 from predicators.explorers.base_explorer import BaseExplorer

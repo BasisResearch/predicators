@@ -4546,7 +4546,7 @@ class DiscreteGaussianDelay(DelayDistribution):
                  max_k: int = 300) -> None:
         if not torch.all(sigma > 0):
             raise ValueError("Initial sigma must be positive.")
-        
+
         self.log_mu = torch.log(mu)
         self.log_sigma = torch.log(sigma)
         self._max_k = max_k
@@ -4554,15 +4554,15 @@ class DiscreteGaussianDelay(DelayDistribution):
 
     @property
     def sigma(self) -> torch.Tensor:
-        """The actual standard deviation, derived from the optimized log_sigma.
-        """
+        """The actual standard deviation, derived from the optimized
+        log_sigma."""
         return torch.exp(self.log_sigma)
 
     @property
     def mu(self) -> torch.Tensor:
         """The mean of the discrete Gaussian."""
         return torch.exp(self.log_mu)
-    
+
     # ------------------------------------------------------------------ #
     # Internals
     # ------------------------------------------------------------------ #
@@ -4575,7 +4575,7 @@ class DiscreteGaussianDelay(DelayDistribution):
         sigma = torch.clamp(sigma_val, min=EPS)  # ensure positivity
         if not torch.all(sigma > 0):
             raise ValueError("Initial sigma must be positive.")
-        
+
         assert isinstance(self._max_k, int)
         ks = torch.arange(self._max_k, dtype=mu.dtype,
                           device=mu.device)  # k = 0 … max_k-1
