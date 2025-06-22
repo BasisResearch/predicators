@@ -291,6 +291,7 @@ def learn_process_parameters(
                     frame,
                     set(td["all_atoms"]),
                     td["atom_to_val_to_gps"],
+                    td["condition_cache"],
                 )
                 elbo = elbo + data_elbo
 
@@ -392,6 +393,7 @@ def elbo_torch(
     all_possible_atoms: Set[GroundAtom],
     atom_to_val_to_gps: Dict[GroundAtom, Dict[bool,
                                               Set[_GroundCausalProcess]]],
+    condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]],
     check_condition_overall: bool = True,
 ) -> Tensor:
     """*Differentiable* ELBO computation with efficient, cached condition checks."""
@@ -399,28 +401,6 @@ def elbo_torch(
     trajectory = atom_option_dataset[0]
     num_time_steps = len(trajectory.states)
     history = trajectory.states  # The full history of observed states y_{1:T}
-
-    # --- Pre-computation Cache for condition_overall ---
-    # This cache will store the results of the check to avoid redundant computation.
-    # The structure is: cache[ground_process][start_time][end_time] -> bool
-    condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int,
-                                                               bool]]] = {}
-    if check_condition_overall:
-        for gp_idx, gp in enumerate(ground_processes):
-            # Only need to cache for processes that have an overall condition
-            if not gp.condition_overall:
-                continue
-            condition_cache[gp] = {}
-            for st in start_times_per_gp[gp_idx]:
-                condition_cache[gp][st] = {}
-                # Use dynamic programming: the result at `t` depends on the result at `t-1`
-                is_still_holding = True
-                for t_interval in range(st + 1, num_time_steps):
-                    # Check only the new state at the end of the interval
-                    if not gp.condition_overall.issubset(history[t_interval]):
-                        is_still_holding = False
-                    # The result for the interval [st+1, t_interval+1] is stored
-                    condition_cache[gp][st][t_interval] = is_still_holding
 
     ll = torch.tensor(0.0, dtype=log_frame_strength.dtype)
     yt_prev = trajectory.states[0]
@@ -546,6 +526,7 @@ def evaluate_model_on_dataset(
             frame_param,
             set(td["all_atoms"]),
             td["atom_to_val_to_gps"],
+            td["condition_cache"],
         )
         total_elbo += data_elbo.item()
         total_exp_state += data_exp_state.item()
@@ -575,16 +556,31 @@ def _set_process_parameters(processes: Sequence[CausalProcess],
         param_slice = parameters[i * 3:(i + 1) * 3]
         processes[i]._set_parameters(param_slice, **kwargs)
 
-
-def _split_params_tensor(
-        vec: torch.Tensor,
-        num_proc_params: int) -> Tuple[Tensor, Tensor, Tensor]:
-    """Helper to split the flat parameter tensor."""
-    frame = vec[0]
-    proc = vec[1:num_proc_params]
-    guide = vec[num_proc_params:]
-    return frame, proc, guide
-
+def _compute_condition_cache_for_traj(
+    ground_processes: List[_GroundCausalProcess],
+    start_times_per_gp: List[List[int]],
+    history: List[Set[GroundAtom]],
+    num_time_steps: int
+) -> Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]]:
+    """Pre-computes which `condition_overall` holds at each time step for a 
+    single trajectory."""
+    condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]] = {}
+    for gp_idx, gp in enumerate(ground_processes):
+        # Only need to cache for processes that have an overall condition
+        if not gp.condition_overall:
+            continue
+        condition_cache[gp] = {}
+        for st in start_times_per_gp[gp_idx]:
+            condition_cache[gp][st] = {}
+            # Use dynamic programming: the result at `t` depends on the result at `t-1`
+            is_still_holding = True
+            for t_interval in range(st + 1, num_time_steps):
+                # Check only the new state at the end of the interval
+                if not gp.condition_overall.issubset(history[t_interval]):
+                    is_still_holding = False
+                # The result for the interval [st+1, t_interval+1] is stored
+                condition_cache[gp][st][t_interval] = is_still_holding
+    return condition_cache
 
 def _prepare_training_data_and_model_params(
     predicates: Set[Predicate],
@@ -630,6 +626,14 @@ def _prepare_training_data_and_model_params(
             t for t in range(traj_len)
             if gp.cause_triggered(traj.states[:t + 1], traj.actions[:t + 1])
         ] for gp in ground_processes]
+        
+        # Pre-compute the condition cache for this trajectory
+        condition_cache = _compute_condition_cache_for_traj(
+            ground_processes,
+            start_times,
+            traj.states,
+            traj_len
+        )
 
         gp_qparam_id_map: Dict[Tuple[_GroundCausalProcess, int],
                                Tuple[int, int]] = {}
@@ -655,6 +659,8 @@ def _prepare_training_data_and_model_params(
                                             predicates),
             "gp_qparam_id_map":
             gp_qparam_id_map,
+            "condition_cache":
+            condition_cache
         })
 
     # Total parameters for processes and the guide ONLY
