@@ -65,13 +65,13 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
     )
     cost = -scores[0] + complexity_penalty
     # Original code minimises negative likelihood, so keep sign consistent.
-    return cost, condition_candidate, scores, process
+    return cost, condition_candidate, scores, process[0]
 
 
 def _flat_pnad_scoring_worker(
     args: Tuple[int, ExogenousProcess, Set[LiftedAtom], List[Any],
                 Set[Predicate], int, int, float]
-) -> Tuple[int, float, Set[LiftedAtom], Tuple[float, ...]]:
+) -> Tuple[int, float, Set[LiftedAtom], Tuple[float, ...], ExogenousProcess]:
     """Utility for flat multiprocessing: evaluates one condition candidate for
     one PNAD under the data-likelihood scoring regime.
 
@@ -92,7 +92,7 @@ def _flat_pnad_scoring_worker(
         learn_process_parameters
 
     # Perform the expensive part: learning and scoring.
-    _, scores = learn_process_parameters(
+    process, scores = learn_process_parameters(
         trajectories,
         predicates,
         [base_process],  # The list now contains just the one process to score.
@@ -108,7 +108,7 @@ def _flat_pnad_scoring_worker(
     cost = -scores[0] + complexity_penalty
 
     # Return the identifier, cost, candidate, and the full scores tuple for logging.
-    return pnad_idx, cost, condition_candidate, scores
+    return pnad_idx, cost, condition_candidate, scores, process[0]
 
 
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
@@ -896,7 +896,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 candidates_with_approx_scores.sort(key=lambda x: x[0])
                 top_candidates = self._get_top_candidates(
                     candidates_with_approx_scores, percentage=0, number=48)
-                # candidates_with_approx_scores, percentage=0, number=48)
                 pruned_candidates = [cand for _, cand in top_candidates]
                 final_candidates_for_pnad[i] = pruned_candidates
                 logging.debug(
@@ -932,9 +931,9 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         pnad_scores: Dict[int, List[Tuple[float, FrozenSet[LiftedAtom],
                                           Tuple[float,
                                                 ...]]]] = defaultdict(list)
-        for pnad_idx, cost, condition, scores_tuple in results:
+        for pnad_idx, cost, condition, scores_tuple, process in results:
             pnad_scores[pnad_idx].append(
-                (cost, frozenset(condition), scores_tuple))
+                (cost, frozenset(condition), scores_tuple, process))
 
         best_conditions: Dict[int, FrozenSet[LiftedAtom]] = {}
         for pnad_idx, scored_conditions in pnad_scores.items():
@@ -944,14 +943,17 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 f"Scored conditions for Process sketch {pnad_idx}:"
                 f"{indexed_pnads[pnad_idx].make_exogenous_process()}")
             for rank, result in enumerate(scored_conditions):
-                cost, condition_candidate, scores = result
+                cost, condition_candidate, scores, process = result
+                process_param_str = ", ".join([f"{v:.4f}" for v in
+                                               process._get_parameters()])
                 logging.debug(f"Conditions {rank}: {condition_candidate}, "
                               f"Cost: {cost}, "
                               f"Exp_state_at_best: {scores[1]:.4f}, "
                               f"Exp_delay_at_best: {scores[2]:.4f}, "
-                              f"Entropy_at_best: {scores[3]:.4f}")
+                              f"Entropy_at_best: {scores[3]:.4f}, "
+                              f"Process params: {process_param_str}")
 
-            _, best_condition, _ = scored_conditions[0]
+            _, best_condition, _, _ = scored_conditions[0]
             best_conditions[pnad_idx] = best_condition
             logging.info(f"Selected best condition {best_condition}")
 
