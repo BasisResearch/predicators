@@ -129,7 +129,7 @@ def learn_process_parameters(
     learn_guide: bool = True,
     learn_frame_strength: bool = True,
     learn_process_strength: bool = True,
-    early_stopping_patience: Optional[int] = None,
+    early_stopping_patience: Optional[int] = 20,
     early_stopping_tolerance: float = 1e-4,
     check_condition_overall: bool = True,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
@@ -260,7 +260,7 @@ def learn_process_parameters(
 
         def closure() -> float:
             nonlocal best_elbo, iteration
-            nonlocal patience_counter, best_params_state
+            nonlocal patience_counter #, best_params_state
 
             if current_optim:
                 current_optim.zero_grad(set_to_none=True)
@@ -314,9 +314,9 @@ def learn_process_parameters(
             if early_stopping_patience is not None:
                 if detached_elbo_item > best_elbo + early_stopping_tolerance:
                     best_elbo = detached_elbo_item
-                    best_params_state = [
-                        p.clone().detach() for p in learnable_params_for_optim
-                    ]
+                    # best_params_state = [
+                    #     p.clone().detach() for p in learnable_params_for_optim
+                    # ]
                     patience_counter = early_stopping_patience
                 else:
                     patience_counter -= 1
