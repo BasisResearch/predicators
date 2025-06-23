@@ -128,7 +128,7 @@ def learn_process_parameters(
     learn_guide: bool = True,
     learn_frame_strength: bool = True,
     learn_process_strength: bool = True,
-    early_stopping_patience: Optional[int] = 20,
+    early_stopping_patience: Optional[int] = None,
     early_stopping_tolerance: float = 1e-4,
     check_condition_overall: bool = True,
     load_dir: Optional[str] = None,
@@ -569,7 +569,7 @@ def evaluate_model_on_dataset(
         per_traj_data: List[Dict[str, Any]], frame_param: torch.Tensor,
         guide_params: torch.Tensor,
         learn_guide: bool,
-        ignore_entropy: bool = False) -> Tuple[float, float, float, float]:
+        ignore_entropy: bool = True) -> Tuple[float, float, float, float]:
     """Evaluates a trained model on the full dataset."""
     total_elbo, total_exp_state, total_exp_delay, total_entropy = 0.0, 0.0, 0.0, 0.0
 
