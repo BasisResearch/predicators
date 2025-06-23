@@ -176,9 +176,9 @@ def learn_process_parameters(
             with torch.no_grad():
                 proc_and_guide_params_full.data[:num_proc_params].copy_(
                     saved_state['proc_params'])
-                if 'guide_params' in saved_state:
-                    proc_and_guide_params_full.data[num_proc_params:].copy_(
-                        saved_state['guide_params'])
+                # if 'guide_params' in saved_state:
+                #     proc_and_guide_params_full.data[num_proc_params:].copy_(
+                #         saved_state['guide_params'])
             loaded_frame_param = saved_state['frame_param']
 
     # --- Separate parameter tensor into logical, learnable components ---
@@ -424,7 +424,7 @@ def learn_process_parameters(
         params_to_save = {
             'frame_param': final_frame_param,
             'proc_params': final_proc_params,
-            'guide_params': final_guide_params,
+            # 'guide_params': final_guide_params,
         }
 
         torch.save(params_to_save, save_path)
