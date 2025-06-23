@@ -543,6 +543,7 @@ def elbo_torch(
     # -----------------------------------------------------------------
     # 3.  Entropy of the variational distributions
     # -----------------------------------------------------------------
+    num_started_delays = 0
     entropy = torch.tensor(0.0, dtype=log_frame_strength.dtype)
     for start_time_q_map in guide.values():
         for q_dist_for_instance in start_time_q_map.values():
@@ -550,6 +551,15 @@ def elbo_torch(
             if mask.any():
                 entropy -= torch.sum(q_dist_for_instance[mask] *
                                      torch.log(q_dist_for_instance[mask]))
+            num_started_delays += 1
+    # Add entropy for guide for delay variables who were not activated
+    num_gp = len(ground_processes)
+    num_unstarted_delays = num_gp * num_time_steps - num_started_delays
+    unstarted_delay_entropy = num_unstarted_delays * torch.log(
+                                    torch.tensor(1/num_time_steps, 
+                                                dtype=log_frame_strength.dtype))
+    entropy -= unstarted_delay_entropy
+
     elbo = ll + entropy
     return elbo, exp_state_prob, exp_delay_prob, entropy
 
@@ -558,7 +568,8 @@ def elbo_torch(
 def evaluate_model_on_dataset(
         per_traj_data: List[Dict[str, Any]], frame_param: torch.Tensor,
         guide_params: torch.Tensor,
-        learn_guide: bool) -> Tuple[float, float, float, float]:
+        learn_guide: bool,
+        ignore_entropy: bool = False) -> Tuple[float, float, float, float]:
     """Evaluates a trained model on the full dataset."""
     total_elbo, total_exp_state, total_exp_delay, total_entropy = 0.0, 0.0, 0.0, 0.0
 
@@ -578,6 +589,8 @@ def evaluate_model_on_dataset(
             td["condition_cache"],
         )
         total_elbo += data_elbo.item()
+        if ignore_entropy:
+            total_elbo -= data_entropy.item()
         total_exp_state += data_exp_state.item()
         total_exp_delay += data_exp_delay.item()
         total_entropy += data_entropy.item()
