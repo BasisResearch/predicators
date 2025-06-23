@@ -843,8 +843,9 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         expensive data-likelihood metric.
         """
         # Check if parallelization is enabled and beneficial.
+        num_cpus = mp.cpu_count()
         use_parallel = (CFG.cluster_and_search_process_learner_parallel_pnad
-                        and len(pnads) > 1 and mp.cpu_count() > 1)
+                        and len(pnads) > 1 and num_cpus > 1)
 
         if not use_parallel:
             logging.info("Learning PNAD preconditions sequentially.")
@@ -860,6 +861,22 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         pruning_enabled = (CFG.process_scoring_method == 'data_likelihood' and
                            CFG.process_condition_search_prune_with_fp_count)
 
+        num_candidates_per_pnad = [2**len(
+            self._induce_preconditions_via_intersection(pnad)) for pnad in 
+            pnads]
+        max_num_candidates = max(num_candidates_per_pnad)
+        num_pnads = len(pnads)
+        num_candidates_to_keep = 1
+        for i in range(max_num_candidates, 0, -1):
+            total_candidates = sum([min(num, i) for num in 
+                                     num_candidates_per_pnad])
+            if total_candidates <= num_cpus:
+                logging.info(f"Setting candidate cap per PNAD to "
+                f"{num_candidates_to_keep} to utilize {num_cpus} CPUs (total "
+                f"candidates: {total_candidates}).")
+                num_candidates_to_keep = i
+                break
+        
         for i, pnad in indexed_pnads.items():
             if CFG.exogenous_process_learner_do_intersect:
                 initial_lift_atoms = self._induce_preconditions_via_intersection(
@@ -898,7 +915,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
                 candidates_with_approx_scores.sort(key=lambda x: x[0])
                 top_candidates = self._get_top_candidates(
-                    candidates_with_approx_scores, percentage=0, number=48)
+                    candidates_with_approx_scores, percentage=0, 
+                    number=num_candidates_to_keep)
                 pruned_candidates = [cand for _, cand in top_candidates]
                 final_candidates_for_pnad[i] = pruned_candidates
                 logging.debug(
