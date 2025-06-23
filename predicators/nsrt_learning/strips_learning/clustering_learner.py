@@ -1,5 +1,5 @@
 """Algorithms for STRIPS learning that rely on clustering to obtain effects."""
-
+import os
 import abc
 import bisect
 import copy
@@ -70,15 +70,15 @@ def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
 
 def _flat_pnad_scoring_worker(
     args: Tuple[int, ExogenousProcess, Set[LiftedAtom], List[Any],
-                Set[Predicate], int, int, float]
-) -> Tuple[int, float, Set[LiftedAtom], Tuple[float, ...], ExogenousProcess]:
+                Set[Predicate], int, int, float, Optional[str], Optional[str]]
+) -> Tuple[int, float, Set[LiftedAtom], Tuple[float, ...]]:
     """Utility for flat multiprocessing: evaluates one condition candidate for
     one PNAD under the data-likelihood scoring regime.
 
     Returns (pnad_idx, cost, condition_candidate, scores_tuple).
     """
     (pnad_idx, base_process, condition_candidate, trajectories, predicates,
-     seed, num_it, complexity_weight) = args
+     seed, num_it, complexity_weight, load_dir, save_dir) = args
 
     # Set the conditions on the process object.
     base_process.condition_at_start = condition_candidate
@@ -102,6 +102,8 @@ def _flat_pnad_scoring_worker(
         adam_num_steps=num_it,
         seed=seed,
         display_progress=False,
+        load_dir=load_dir,
+        save_dir=save_dir,
     )
 
     # Cost is negative log-likelihood plus penalty.
@@ -630,6 +632,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        self.online_learning_cycle = kwargs.get("online_learning_cycle", None)
         from predicators.approaches.pp_online_predicate_invention_approach import \
             get_false_positive_states_from_seg_trajs
         self._get_false_positive_states_from_seg_trajs = \
@@ -905,6 +908,14 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 final_candidates_for_pnad[i] = all_candidates
 
         # Step 2: Build work items for the expensive data_likelihood scoring.
+        load_dir, save_dir = None, None
+        if self.online_learning_cycle is not None:
+            load_save_dir = os.path.join(CFG.approach_dir,
+                                   utils.get_config_path_str())
+            load_dir = os.path.join(load_save_dir,
+                                f"online_cycle_{self.online_learning_cycle-1}")
+            save_dir = os.path.join(load_save_dir,
+                                f"online_cycle_{self.online_learning_cycle}")
         work_items = []
         for i, pnad in indexed_pnads.items():
             base_process = pnad.make_exogenous_process()
@@ -912,7 +923,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 item = (i, copy.deepcopy(base_process), condition,
                         self._trajectories, self._predicates, CFG.seed,
                         CFG.cluster_and_search_vi_steps,
-                        CFG.process_condition_search_complexity_weight)
+                        CFG.process_condition_search_complexity_weight,
+                        load_dir, save_dir)
                 work_items.append(item)
 
         if not work_items:

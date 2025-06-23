@@ -86,7 +86,8 @@ class ProcessLearningAndPlanningApproach(
                                 ground_atom_dataset,
                                 sampler_learner=CFG.sampler_learner,
                                 annotations=annotations,
-                                current_processes=self._get_current_processes())
+                                current_processes=self._get_current_processes(),
+                                online_learning_cycle=online_learning_cycle,)
 
         save_path = utils.get_approach_save_path_str()
         with open(f"{save_path}_{online_learning_cycle}.PROCes", "wb") as f:
