@@ -6,7 +6,6 @@ from collections import defaultdict
 from pprint import pformat
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-import numpy as np
 import torch
 from gym.spaces import Box
 from torch import Tensor
@@ -23,8 +22,8 @@ from predicators.planning_with_processes import process_task_plan_grounding
 from predicators.settings import CFG
 from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     Dataset, EndogenousProcess, ExogenousProcess, GroundAtom, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, Task, Type, \
-    _GroundCausalProcess
+    LowLevelTrajectory, ParameterizedOption, Predicate, Task, \
+    Type, _GroundCausalProcess
 
 
 class ParamLearningBilevelProcessPlanningApproach(
@@ -132,6 +131,8 @@ def learn_process_parameters(
     early_stopping_patience: Optional[int] = 20,
     early_stopping_tolerance: float = 1e-4,
     check_condition_overall: bool = True,
+    load_dir: Optional[str] = None,
+    save_dir: Optional[str] = None,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
     if use_lbfgs:
         num_steps = 1
@@ -157,6 +158,28 @@ def learn_process_parameters(
             trajectories,
             check_condition_overall,
         )
+
+    loaded_frame_param = None
+    if load_dir and len(processes) == 1:
+        process = processes[0]
+        all_effects = process.add_effects.union(process.delete_effects)
+        cond_str = "_".join(
+            sorted([p.predicate.name for p in process.condition_at_start]))
+        effects_str = "_".join(
+            sorted([p.predicate.name for p in all_effects]))
+        filename = f"cond_{cond_str}__eff_{effects_str}.pt"
+        load_path = os.path.join(load_dir, filename)
+
+        if os.path.exists(load_path):
+            print(f"Loading parameters from {load_path} and continuing training.")
+            saved_state = torch.load(load_path)
+            with torch.no_grad():
+                proc_and_guide_params_full.data[:num_proc_params].copy_(
+                    saved_state['proc_params'])
+                if 'guide_params' in saved_state:
+                    proc_and_guide_params_full.data[num_proc_params:].copy_(
+                        saved_state['guide_params'])
+            loaded_frame_param = saved_state['frame_param']
 
     # --- Separate parameter tensor into logical, learnable components ---
 
@@ -191,10 +214,16 @@ def learn_process_parameters(
         learnable_params_for_optim.append(learnable_proc_params)
 
     if learn_frame_strength:
-        frame_param = torch.nn.Parameter(torch.randn(1) * 0.01)
+        if loaded_frame_param is not None:
+            frame_param = torch.nn.Parameter(loaded_frame_param)
+        else:
+            frame_param = torch.nn.Parameter(torch.randn(1) * 0.01)
         learnable_params_for_optim.append(frame_param)
     else:
-        frame_param = torch.tensor([2.5])  # exp(2.5) ≈ 12.2
+        if loaded_frame_param is not None:
+            frame_param = loaded_frame_param.detach()
+        else:
+            frame_param = torch.tensor([2.5])  # exp(2.5) ≈ 12.2
 
     init_proc_param = proc_params_full.detach()
     _set_process_parameters(processes, init_proc_param,
@@ -319,7 +348,8 @@ def learn_process_parameters(
                     # ]
                     patience_counter = early_stopping_patience
                 else:
-                    patience_counter -= 1
+                    if patience_counter is not None:
+                        patience_counter -= 1
             elif detached_elbo_item > best_elbo:
                 best_elbo = detached_elbo_item
 
@@ -343,8 +373,7 @@ def learn_process_parameters(
                 scheduler.step(loss)
 
         # --- Trigger early stop if patience has run out ---
-        if early_stopping_patience is not None and patience_counter <= 0:
-            print(f"\nEarly stopping triggered after {iteration} iterations.")
+        if early_stopping_patience is not None and patience_counter is not None and patience_counter <= 0:
             break
 
     if pbar:
@@ -379,6 +408,27 @@ def learn_process_parameters(
     if plot_training_curve:
         _plot_training_curve(curve)
 
+    if save_dir and len(processes) == 1:
+        process = processes[0]
+        all_effects = process.add_effects.union(process.delete_effects)
+        cond_str = "_".join(
+            sorted([p.predicate.name for p in process.condition_at_start]))
+        effects_str = "_".join(
+            sorted([p.predicate.name for p in all_effects]))
+        filename = f"cond_{cond_str}__eff_{effects_str}.proc"
+
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        save_path = os.path.join(save_dir, filename)
+
+        params_to_save = {
+            'frame_param': final_frame_param,
+            'proc_params': final_proc_params,
+            'guide_params': final_guide_params,
+        }
+
+        torch.save(params_to_save, save_path)
+
     return processes, (mean_elbo, mean_exp_state, mean_exp_delay, mean_entropy,
                        final_frame_param.item())
 
@@ -396,7 +446,7 @@ def elbo_torch(
     atom_to_val_to_gps: Dict[GroundAtom, Dict[bool,
                                               Set[_GroundCausalProcess]]],
     condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]],
-) -> Tensor:
+) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """*Differentiable* ELBO computation with efficient, cached condition checks."""
     assert len(atom_option_dataset) == 1
     trajectory = atom_option_dataset[0]

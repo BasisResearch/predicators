@@ -30,6 +30,7 @@ def learn_processes_from_data(
     current_processes: Optional[Set[CausalProcess]] = None,
     relearn_all_exogenous_processes: bool = True,
     log_all_processes: bool = True,
+    online_learning_cycle: Optional[int] = None,
 ) -> Set[CausalProcess]:
     """Learn CausalProcesses from the given dataset of low-level transitions,
     using the given set of predicates."""
@@ -133,6 +134,7 @@ def learn_processes_from_data(
             verbose=(CFG.option_learner != "no_learning"),
             annotations=annotations,
             endogenous_processes=set(endogenous_processes),
+            online_learning_cycle=online_learning_cycle,
         )
         new_exogenous_processes = [
             pnad.make_exogenous_process() for pnad in exogenous_processes_pnad
