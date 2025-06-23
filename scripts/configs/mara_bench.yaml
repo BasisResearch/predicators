@@ -315,7 +315,6 @@ FLAGS:
   video_fps: 20
   pybullet_camera_height: 900
   pybullet_camera_width: 900
-  use_counterfactual_dataset_path_name: True
   # use_classification_problem_setting: False # This decides the entry point
   keep_failed_demos: True
   planning_filter_unreachable_nsrt: False
