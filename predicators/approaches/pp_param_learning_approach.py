@@ -315,7 +315,7 @@ def learn_process_parameters(
                     td, guide_flat, td["traj_len"], learn_guide)
 
                 data_elbo, _, _, _ = elbo_torch(
-                    [td["trajectory"]],
+                    td["trajectory"],
                     td["ground_causal_processes"],
                     td["start_times_per_gp"],
                     guide_dict,
@@ -434,7 +434,7 @@ def learn_process_parameters(
 
 
 def elbo_torch(
-    atom_option_dataset: List[AtomOptionTrajectory],
+    atom_option_trajectory: AtomOptionTrajectory,
     ground_processes: List[
         _GroundCausalProcess],  # All potential ground causal processes
     start_times_per_gp: List[List[
@@ -448,8 +448,7 @@ def elbo_torch(
     condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]],
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """*Differentiable* ELBO computation with efficient, cached condition checks."""
-    assert len(atom_option_dataset) == 1
-    trajectory = atom_option_dataset[0]
+    trajectory = atom_option_trajectory
     num_time_steps = len(trajectory.states)
     history = trajectory.states  # The full history of observed states y_{1:T}
 
@@ -569,7 +568,7 @@ def evaluate_model_on_dataset(
                                                        learn_guide)
 
         data_elbo, data_exp_state, data_exp_delay, data_entropy = elbo_torch(
-            [td["trajectory"]],
+            td["trajectory"],
             td["ground_causal_processes"],
             td["start_times_per_gp"],
             guide_dict,
