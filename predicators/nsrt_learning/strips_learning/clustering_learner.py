@@ -34,38 +34,41 @@ if sys.platform == "darwin":
     mp.set_start_method("spawn", force=True)
 
 
-def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
-    """Utility for multiprocessing: evaluate one condition_candidate under the
-    data‑likelihood scoring regime.
+# Comment out to simplify debugging
+# def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
+#     """Utility for multiprocessing: evaluate one condition_candidate under the
+#     data‑likelihood scoring regime.
 
-    Returns (cost, condition_candidate).
-    """
-    condition_candidate, trajectories, predicates, base_process, seed, num_it = args
-    # Deep‑copy to isolate state per worker.
-    # proc_copy = copy.deepcopy(base_process)
-    base_process.condition_at_start = condition_candidate
-    base_process.condition_overall = condition_candidate
-    complexity_penalty = \
-        CFG.process_condition_search_complexity_weight * len(
-        condition_candidate)
+#     Returns (cost, condition_candidate).
+#     """
+#     condition_candidate, trajectories, predicates, base_process, seed, num_it,\
+#          early_stopping_patience = args
+#     # Deep‑copy to isolate state per worker.
+#     # proc_copy = copy.deepcopy(base_process)
+#     base_process.condition_at_start = condition_candidate
+#     base_process.condition_overall = condition_candidate
+#     complexity_penalty = \
+#         CFG.process_condition_search_complexity_weight * len(
+#         condition_candidate)
 
-    # Local import avoids pickling issues with bound methods.
-    from predicators.approaches.pp_param_learning_approach import \
-        learn_process_parameters
-    process, scores = learn_process_parameters(
-        trajectories,
-        predicates,
-        [base_process],
-        use_lbfgs=False,
-        plot_training_curve=False,
-        lbfgs_max_iter=num_it,
-        adam_num_steps=num_it,
-        seed=seed,
-        display_progress=False,
-    )
-    cost = -scores[0] + complexity_penalty
-    # Original code minimises negative likelihood, so keep sign consistent.
-    return cost, condition_candidate, scores, process[0]
+#     # Local import avoids pickling issues with bound methods.
+#     from predicators.approaches.pp_param_learning_approach import \
+#         learn_process_parameters
+#     process, scores = learn_process_parameters(
+#         trajectories,
+#         predicates,
+#         [base_process],
+#         use_lbfgs=False,
+#         plot_training_curve=False,
+#         lbfgs_max_iter=num_it,
+#         adam_num_steps=num_it,
+#         seed=seed,
+#         display_progress=False,
+#         early_stopping_patience=early_stopping_patience,
+#     )
+#     cost = -scores[0] + complexity_penalty
+#     # Original code minimises negative likelihood, so keep sign consistent.
+#     return cost, condition_candidate, scores, process[0]
 
 
 def _flat_pnad_scoring_worker(
@@ -78,7 +81,8 @@ def _flat_pnad_scoring_worker(
     Returns (pnad_idx, cost, condition_candidate, scores_tuple).
     """
     (pnad_idx, base_process, condition_candidate, trajectories, predicates,
-     seed, num_it, complexity_weight, load_dir, save_dir) = args
+     seed, num_it, complexity_weight, load_dir, save_dir,
+     early_stopping_patience) = args
 
     # Set the conditions on the process object.
     base_process.condition_at_start = condition_candidate
@@ -104,6 +108,7 @@ def _flat_pnad_scoring_worker(
         display_progress=False,
         load_dir=load_dir,
         save_dir=save_dir,
+        early_stopping_patience=early_stopping_patience,
     )
 
     # Cost is negative log-likelihood plus penalty.
@@ -645,114 +650,118 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
         self._atom_change_segmented_trajs: List[List[Segment]] = []
 
-    def score_precondition_candidates(
-        self,
-        exogenous_process: ExogenousProcess,
-        initial_atoms: Set[LiftedAtom],
-        seed: int,
-    ) -> List[Tuple[float, Set[LiftedAtom]]]:
-        # Build the candidate list once.
-        candidates = list(utils.all_subsets(initial_atoms))
+    # Comment out to simplify debugging
+    # def score_precondition_candidates(
+    #     self,
+    #     exogenous_process: ExogenousProcess,
+    #     initial_atoms: Set[LiftedAtom],
+    #     seed: int,
+    # ) -> List[Tuple[float, Set[LiftedAtom]]]:
+    #     # Build the candidate list once.
+    #     candidates = list(utils.all_subsets(initial_atoms))
 
-        # ---- Pruning with count_fp ----
-        if CFG.process_scoring_method == 'data_likelihood' and \
-                CFG.process_condition_search_prune_with_fp_count:
-            candidates_with_approx_scores = self._score_precondition_candidates(
-                candidates, exogenous_process, "count_fp")
-            # Get the top candidates either by percentage or number or both
-            candidates_with_approx_scores.sort(key=lambda x: x[0])
-            top_candidates_with_score = self._get_top_candidates(
-                candidates_with_approx_scores, percentage=0, number=48)
-            candidates = [
-                condition_candidate
-                for _, condition_candidate in top_candidates_with_score
-            ]
+    #     # ---- Pruning with count_fp ----
+    #     if CFG.process_scoring_method == 'data_likelihood' and \
+    #             CFG.process_condition_search_prune_with_fp_count:
+    #         candidates_with_approx_scores = self._score_precondition_candidates(
+    #             candidates, exogenous_process, "count_fp")
+    #         # Get the top candidates either by percentage or number or both
+    #         candidates_with_approx_scores.sort(key=lambda x: x[0])
+    #         top_candidates_with_score = self._get_top_candidates(
+    #             candidates_with_approx_scores, percentage=0, number=48)
+    #         candidates = [
+    #             condition_candidate
+    #             for _, condition_candidate in top_candidates_with_score
+    #         ]
 
-        # ---- Actual scoring ----
-        # Decide whether to parallelise – we only do so for the
-        # 'data_likelihood' scoring mode and when multiple CPUs are handy.
-        cpu_count = mp.cpu_count()
-        use_parallel = (
-            CFG.process_scoring_method == "data_likelihood"
-            and CFG.cluster_and_search_process_learner_parallel_condition
-            and len(candidates) > 1 and cpu_count > 1)
-        start_time = time.time()
-        if use_parallel:
-            logging.debug(f"Scoring {len(candidates)} candidates with "
-                          f"{cpu_count} workers")
-            worker_args = [(conditions, self._trajectories, self._predicates,
-                            copy.deepcopy(exogenous_process), seed,
-                            CFG.cluster_and_search_vi_steps)
-                           for conditions in candidates]
-            with Pool(nodes=min(len(worker_args), cpu_count)) as pool:
-                candidates_with_scores = pool.map(
-                    _compute_data_likelihood_cost, worker_args)
-        else:
-            candidates_with_scores = self._score_precondition_candidates(
-                candidates, exogenous_process, CFG.process_scoring_method)
+    #     # ---- Actual scoring ----
+    #     # Decide whether to parallelise – we only do so for the
+    #     # 'data_likelihood' scoring mode and when multiple CPUs are handy.
+    #     cpu_count = mp.cpu_count()
+    #     use_parallel = (
+    #         CFG.process_scoring_method == "data_likelihood"
+    #         and CFG.cluster_and_search_process_learner_parallel_condition
+    #         and len(candidates) > 1 and cpu_count > 1)
+    #     start_time = time.time()
+    #     if use_parallel:
+    #         logging.debug(f"Scoring {len(candidates)} candidates with "
+    #                       f"{cpu_count} workers")
+    #         logging.debug(f"Early stopping patience: "
+    #                         f"{CFG.process_param_learning_patience}")
+    #         worker_args = [(conditions, self._trajectories, self._predicates,
+    #                         copy.deepcopy(exogenous_process), seed,
+    #                         CFG.cluster_and_search_vi_steps,
+    #                         CFG.process_param_learning_patience)
+    #                     for conditions in candidates]
+    #         with Pool(nodes=min(len(worker_args), cpu_count)) as pool:
+    #             candidates_with_scores = pool.map(
+    #                 _compute_data_likelihood_cost, worker_args)
+    #     else:
+    #         candidates_with_scores = self._score_precondition_candidates(
+    #             candidates, exogenous_process, CFG.process_scoring_method)
 
-        # Sort by score (lower is better)
-        candidates_with_scores.sort(key=lambda x: x[0])
-        for i, result in enumerate(candidates_with_scores):
-            if len(result) == 2:
-                score, condition_candidate = result
-                logging.debug(f"Conditions {i}: {condition_candidate}, "
-                              f"Score: {score}")
-            else:
-                score, condition_candidate, scores, process = result
-                process_param_str = ", ".join([f"{v:.4f}" for v in 
-                                               process._get_parameters()])
-                logging.debug(f"Conditions {i}: {condition_candidate}, "
-                              f"Score: {score}, "
-                              f"Exp_state_at_best: {scores[1]:.4f}, "
-                              f"Exp_delay_at_best: {scores[2]:.4f}, "
-                              f"Entropy_at_best: {scores[3]:.4f}, "
-                              f"Process params: {process_param_str}")
+    #     # Sort by score (lower is better)
+    #     candidates_with_scores.sort(key=lambda x: x[0])
+    #     for i, result in enumerate(candidates_with_scores):
+    #         if len(result) == 2:
+    #             score, condition_candidate = result
+    #             logging.debug(f"Conditions {i}: {condition_candidate}, "
+    #                           f"Score: {score}")
+    #         else:
+    #             score, condition_candidate, scores, process = result
+    #             process_param_str = ", ".join([f"{v:.4f}" for v in 
+    #                                            process._get_parameters()])
+    #             logging.debug(f"Conditions {i}: {condition_candidate}, "
+    #                           f"Score: {score}, "
+    #                           f"Exp_state_at_best: {scores[1]:.4f}, "
+    #                           f"Exp_delay_at_best: {scores[2]:.4f}, "
+    #                           f"Entropy_at_best: {scores[3]:.4f}, "
+    #                           f"Process params: {process_param_str}")
 
-        logging.debug(f"Scored {len(candidates_with_scores)} candidates took "
-                      f"{time.time() - start_time:.2f} seconds")
-        return candidates_with_scores
+    #     logging.debug(f"Scored {len(candidates_with_scores)} candidates took "
+    #                   f"{time.time() - start_time:.2f} seconds")
+    #     return candidates_with_scores
 
-    def _score_precondition_candidates(self, candidates: List[Set[LiftedAtom]],
-                                       exogenous_process: ExogenousProcess,
-                                       score_method: str) -> Any:
-        candidates_with_scores = []
-        # Original sequential evaluation path (unchanged logic).
-        for condition_candidate in candidates:
-            exogenous_process.condition_at_start = condition_candidate
-            exogenous_process.condition_overall = condition_candidate
-            complexity_penalty = \
-                CFG.process_condition_search_complexity_weight * len(
-                condition_candidate)
+    # def _score_precondition_candidates(self, candidates: List[Set[LiftedAtom]],
+    #                                    exogenous_process: ExogenousProcess,
+    #                                    score_method: str) -> Any:
+    #     candidates_with_scores = []
+    #     # Original sequential evaluation path (unchanged logic).
+    #     for condition_candidate in candidates:
+    #         exogenous_process.condition_at_start = condition_candidate
+    #         exogenous_process.condition_overall = condition_candidate
+    #         complexity_penalty = \
+    #             CFG.process_condition_search_complexity_weight * len(
+    #             condition_candidate)
 
-            if score_method == 'count_fp':
-                false_positive_process_state = \
-                    self._get_false_positive_states_from_seg_trajs(
-                        self._atom_change_segmented_trajs,
-                        [exogenous_process])
-                num_false_positives = sum(
-                    len(states)
-                    for states in false_positive_process_state.values())
-                cost = num_false_positives + complexity_penalty
-            elif score_method == 'data_likelihood':
-                _, scores = self._get_data_likelihood_and_learn_params(
-                    self._trajectories,
-                    self._predicates,
-                    [exogenous_process],
-                    use_lbfgs=True,
-                    plot_training_curve=False,
-                    lbfgs_max_iter=CFG.cluster_and_search_vi_steps,
-                    adam_num_steps=CFG.cluster_and_search_vi_steps,
-                )
-                cost = -scores[0] + complexity_penalty
-            else:
-                raise NotImplementedError
+    #         if score_method == 'count_fp':
+    #             false_positive_process_state = \
+    #                 self._get_false_positive_states_from_seg_trajs(
+    #                     self._atom_change_segmented_trajs,
+    #                     [exogenous_process])
+    #             num_false_positives = sum(
+    #                 len(states)
+    #                 for states in false_positive_process_state.values())
+    #             cost = num_false_positives + complexity_penalty
+    #         elif score_method == 'data_likelihood':
+    #             _, scores = self._get_data_likelihood_and_learn_params(
+    #                 self._trajectories,
+    #                 self._predicates,
+    #                 [exogenous_process],
+    #                 use_lbfgs=True,
+    #                 plot_training_curve=False,
+    #                 lbfgs_max_iter=CFG.cluster_and_search_vi_steps,
+    #                 adam_num_steps=CFG.cluster_and_search_vi_steps,
+    #             )
+    #             cost = -scores[0] + complexity_penalty
+    #         else:
+    #             raise NotImplementedError
 
-            result = [cost, condition_candidate]
-            if 'scores' in locals():
-                result.append(scores)
-            candidates_with_scores.append(result)
-        return candidates_with_scores
+    #         result = [cost, condition_candidate]
+    #         if 'scores' in locals():
+    #             result.append(scores)
+    #         candidates_with_scores.append(result)
+    #     return candidates_with_scores
 
     @staticmethod
     def _get_top_candidates(
@@ -843,9 +852,9 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         expensive data-likelihood metric.
         """
         # Check if parallelization is enabled and beneficial.
-        num_cpus = mp.cpu_count()
+        cpu_cnt = max(1, mp.cpu_count() - 1)
         use_parallel = (CFG.cluster_and_search_process_learner_parallel_pnad
-                        and len(pnads) > 1 and num_cpus > 1)
+                        and len(pnads) > 1 and cpu_cnt > 1)
 
         if not use_parallel:
             logging.info("Learning PNAD preconditions sequentially.")
@@ -865,14 +874,13 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             self._induce_preconditions_via_intersection(pnad)) for pnad in 
             pnads]
         max_num_candidates = max(num_candidates_per_pnad)
-        num_pnads = len(pnads)
         num_candidates_to_keep = 1
         for i in range(max_num_candidates, 0, -1):
             total_candidates = sum([min(num, i) for num in 
                                      num_candidates_per_pnad])
-            if total_candidates <= num_cpus:
+            if total_candidates <= cpu_cnt:
                 logging.info(f"Setting candidate cap per PNAD to "
-                f"{num_candidates_to_keep} to utilize {num_cpus} CPUs (total "
+                f"{num_candidates_to_keep} to utilize {cpu_cnt} CPUs (total "
                 f"candidates: {total_candidates}).")
                 num_candidates_to_keep = i
                 break
@@ -942,17 +950,18 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                         self._trajectories, self._predicates, CFG.seed,
                         CFG.cluster_and_search_vi_steps,
                         CFG.process_condition_search_complexity_weight,
-                        load_dir, save_dir)
+                        load_dir, save_dir, CFG.process_param_learning_patience)
                 work_items.append(item)
 
         if not work_items:
             return []
 
         # Step 3: Distribute scoring across a single, flat multiprocessing pool.
-        cpu_cnt = mp.cpu_count()
         start_time = time.time()
         logging.info(f"Scoring {len(work_items)} total conditions for "
                      f"{len(pnads)} PNADs using up to {cpu_cnt} workers.")
+        logging.debug(f"Early stopping patience: "
+                            f"{CFG.process_param_learning_patience}")
         with Pool(nodes=min(len(work_items), cpu_cnt)) as pool:
             results = pool.map(_flat_pnad_scoring_worker, work_items)
         logging.info(f"Finished scoring in {time.time() - start_time:.2f}s.")
