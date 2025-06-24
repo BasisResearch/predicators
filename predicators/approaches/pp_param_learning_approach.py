@@ -85,17 +85,17 @@ class ParamLearningBilevelProcessPlanningApproach(
         This is currently achieved by optimizing the marginal data
         likelihood.
         """
-        self._learn_process_parameters(dataset)
+        self._learn_process_parameters(dataset.trajectories)
 
     def _learn_process_parameters(
         self,
-        dataset: Dataset,
+        trajectories: List[LowLevelTrajectory],
         use_lbfgs: bool = False,
     ) -> None:
         """Stochastic (mini-batch) optimisation of process parameters."""
         processes = sorted(self._get_current_processes())
         _, scores = learn_process_parameters(
-            dataset.trajectories[:1],
+            trajectories[:1],
             self._get_current_predicates(),
             processes,
             use_lbfgs=use_lbfgs,
@@ -569,7 +569,7 @@ def evaluate_model_on_dataset(
         per_traj_data: List[Dict[str, Any]], frame_param: torch.Tensor,
         guide_params: torch.Tensor,
         learn_guide: bool,
-        ignore_entropy: bool = True) -> Tuple[float, float, float, float]:
+        ignore_entropy: bool = False) -> Tuple[float, float, float, float]:
     """Evaluates a trained model on the full dataset."""
     total_elbo, total_exp_state, total_exp_delay, total_entropy = 0.0, 0.0, 0.0, 0.0
 

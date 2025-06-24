@@ -63,4 +63,4 @@ class PredicateInventionProcessPlanningApproach(
                               annotations=(dataset.annotations if
                                            dataset.has_annotations else None))
         if CFG.learn_process_parameters:
-            self._learn_process_parameters(dataset)
+            self._learn_process_parameters(dataset.trajectories)

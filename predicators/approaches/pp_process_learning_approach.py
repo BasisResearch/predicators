@@ -60,7 +60,7 @@ class ProcessLearningAndPlanningApproach(
                                            dataset.has_annotations else None))
         # Optional: learn process parameters
         if CFG.learn_process_parameters:
-            self._learn_process_parameters(dataset)
+            self._learn_process_parameters(dataset.trajectories)
 
     def _learn_processes(self,
                          trajectories: List[LowLevelTrajectory],

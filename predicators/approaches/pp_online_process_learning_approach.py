@@ -126,7 +126,8 @@ class OnlineProcessLearningAndPlanningApproach(
             annotations=annotations)
 
         if CFG.learn_process_parameters:
-            self._learn_process_parameters(self._online_dataset)
+            self._learn_process_parameters(self._offline_dataset.trajectories+\
+                                           self._online_dataset.trajectories)
 
         self._online_learning_cycle += 1
 
