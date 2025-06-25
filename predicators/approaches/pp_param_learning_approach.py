@@ -221,10 +221,7 @@ def learn_process_parameters(
             frame_param = torch.nn.Parameter(torch.randn(1) * 0.01)
         learnable_params_for_optim.append(frame_param)
     else:
-        if loaded_frame_param is not None:
-            frame_param = loaded_frame_param.detach()
-        else:
-            frame_param = torch.tensor([2.5])  # exp(2.5) ≈ 12.2
+        frame_param = torch.tensor([2.5])  # exp(2.5) ≈ 12.2
 
     init_proc_param = proc_params_full.detach()
     _set_process_parameters(processes, init_proc_param,
