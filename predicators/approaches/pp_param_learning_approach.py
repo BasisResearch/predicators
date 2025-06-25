@@ -104,6 +104,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             learn_frame_strength=True,
             learn_process_strength=True,
             learn_guide=True,
+            early_stopping_patience=20,
         )
         logging.debug(f"ELBO: {scores[0]}, exp_state: {scores[1]}, "
                       f"exp_delay: {scores[2]}, entropy: {scores[3]}")
