@@ -605,6 +605,7 @@ class GlobalSettings:
     process_param_learning_num_steps = 200
     process_param_learning_patience = None
     process_condition_search_prune_with_fp_count = False
+    process_learning_learn_strength = True
 
     # torch GPU usage setting
     use_torch_gpu = False
