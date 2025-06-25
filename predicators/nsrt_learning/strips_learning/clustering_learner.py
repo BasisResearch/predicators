@@ -13,6 +13,8 @@ from collections import defaultdict
 from pprint import pformat
 from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Set, \
     Tuple, cast
+import psutil
+
 
 import multiprocess as mp
 from pathos.multiprocessing import ProcessingPool as Pool
@@ -854,7 +856,10 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         expensive data-likelihood metric.
         """
         # Check if parallelization is enabled and beneficial.
-        cpu_cnt = max(1, mp.cpu_count() - 1)
+        if CFG.process_learning_process_per_physical_core:
+            cpu_cnt = max(1, psutil.cpu_count(logical=False)-1)
+        else:
+            cpu_cnt = max(1, mp.cpu_count() - 1)
         use_parallel = (CFG.cluster_and_search_process_learner_parallel_pnad
                         and len(pnads) > 1 and cpu_cnt > 1)
 
@@ -937,7 +942,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
         # Step 2: Build work items for the expensive data_likelihood scoring.
         load_dir, save_dir = None, None
-        if self.online_learning_cycle is not None:
+        if self.online_learning_cycle is not None and \
+            CFG.process_learning_init_at_previous_results:
             load_save_dir = os.path.join(CFG.approach_dir,
                                    utils.get_config_path_str())
             load_dir = os.path.join(load_save_dir,

@@ -606,6 +606,8 @@ class GlobalSettings:
     process_param_learning_patience = None
     process_condition_search_prune_with_fp_count = False
     process_learning_learn_strength = True
+    process_learning_process_per_physical_core = True # Physical core vs logical core
+    process_learning_init_at_previous_results = False
 
     # torch GPU usage setting
     use_torch_gpu = False
