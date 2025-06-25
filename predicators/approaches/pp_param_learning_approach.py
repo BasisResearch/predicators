@@ -168,7 +168,7 @@ def learn_process_parameters(
             sorted([p.predicate.name for p in process.condition_at_start]))
         effects_str = "_".join(
             sorted([p.predicate.name for p in all_effects]))
-        filename = f"cond_{cond_str}__eff_{effects_str}.pt"
+        filename = f"cond_{cond_str}__eff_{effects_str}.proc"
         load_path = os.path.join(load_dir, filename)
 
         if os.path.exists(load_path):
