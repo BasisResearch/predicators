@@ -1,11 +1,11 @@
 """Algorithms for STRIPS learning that rely on clustering to obtain effects."""
-import os
 import abc
 import bisect
 import copy
 import functools
 import itertools
 import logging
+import os
 import re
 import sys
 import time
@@ -13,10 +13,9 @@ from collections import defaultdict
 from pprint import pformat
 from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Set, \
     Tuple, cast
-import psutil
-
 
 import multiprocess as mp
+import psutil
 from pathos.multiprocessing import ProcessingPool as Pool
 
 from predicators import utils
@@ -34,7 +33,6 @@ from predicators.structs import PNAD, Datastore, DerivedPredicate, \
 if sys.platform == "darwin":
     # Set this when using macOS, to avoid issues with forked processes.
     mp.set_start_method("spawn", force=True)
-
 
 # Comment out to simplify debugging
 # def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
@@ -713,7 +711,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
     #                           f"Score: {score}")
     #         else:
     #             score, condition_candidate, scores, process = result
-    #             process_param_str = ", ".join([f"{v:.4f}" for v in 
+    #             process_param_str = ", ".join([f"{v:.4f}" for v in
     #                                            process._get_parameters()])
     #             logging.debug(f"Conditions {i}: {condition_candidate}, "
     #                           f"Score: {score}, "
@@ -857,7 +855,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         """
         # Check if parallelization is enabled and beneficial.
         if CFG.process_learning_process_per_physical_core:
-            cpu_cnt = max(1, psutil.cpu_count(logical=False)-1)
+            cpu_cnt = max(1, psutil.cpu_count(logical=False) - 1)
         else:
             cpu_cnt = max(1, mp.cpu_count() - 1)
         use_parallel = (CFG.cluster_and_search_process_learner_parallel_pnad
@@ -877,21 +875,23 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         pruning_enabled = (CFG.process_scoring_method == 'data_likelihood' and
                            CFG.process_condition_search_prune_with_fp_count)
 
-        num_candidates_per_pnad = [2**len(
-            self._induce_preconditions_via_intersection(pnad)) for pnad in 
-            pnads]
+        num_candidates_per_pnad = [
+            2**len(self._induce_preconditions_via_intersection(pnad))
+            for pnad in pnads
+        ]
         max_num_candidates = max(num_candidates_per_pnad)
         num_candidates_to_keep = 1
         for i in range(max_num_candidates, 0, -1):
-            total_candidates = sum([min(num, i) for num in 
-                                     num_candidates_per_pnad])
+            total_candidates = sum(
+                [min(num, i) for num in num_candidates_per_pnad])
             if total_candidates <= cpu_cnt:
-                logging.info(f"Setting candidate cap per PNAD to "
-                f"{num_candidates_to_keep} to utilize {cpu_cnt} CPUs (total "
-                f"candidates: {total_candidates}).")
+                logging.info(
+                    f"Setting candidate cap per PNAD to "
+                    f"{num_candidates_to_keep} to utilize {cpu_cnt} CPUs (total "
+                    f"candidates: {total_candidates}).")
                 num_candidates_to_keep = i
                 break
-        
+
         for i, pnad in indexed_pnads.items():
             if CFG.exogenous_process_learner_do_intersect:
                 initial_lift_atoms = self._induce_preconditions_via_intersection(
@@ -930,7 +930,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
                 candidates_with_approx_scores.sort(key=lambda x: x[0])
                 top_candidates = self._get_top_candidates(
-                    candidates_with_approx_scores, percentage=0, 
+                    candidates_with_approx_scores,
+                    percentage=0,
                     number=num_candidates_to_keep)
                 pruned_candidates = [cand for _, cand in top_candidates]
                 final_candidates_for_pnad[i] = pruned_candidates
@@ -945,11 +946,11 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         if self.online_learning_cycle is not None and \
             CFG.process_learning_init_at_previous_results:
             load_save_dir = os.path.join(CFG.approach_dir,
-                                   utils.get_config_path_str())
-            load_dir = os.path.join(load_save_dir,
-                                f"online_cycle_{self.online_learning_cycle-1}")
-            save_dir = os.path.join(load_save_dir,
-                                f"online_cycle_{self.online_learning_cycle}")
+                                         utils.get_config_path_str())
+            load_dir = os.path.join(
+                load_save_dir, f"online_cycle_{self.online_learning_cycle-1}")
+            save_dir = os.path.join(
+                load_save_dir, f"online_cycle_{self.online_learning_cycle}")
         work_items = []
         for i, pnad in indexed_pnads.items():
             base_process = pnad.make_exogenous_process()
@@ -958,7 +959,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                         self._trajectories, self._predicates, CFG.seed,
                         CFG.cluster_and_search_vi_steps,
                         CFG.process_condition_search_complexity_weight,
-                        load_dir, save_dir, CFG.process_param_learning_patience,
+                        load_dir, save_dir,
+                        CFG.process_param_learning_patience,
                         CFG.process_learning_learn_strength)
                 work_items.append(item)
 
@@ -970,7 +972,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         logging.info(f"Scoring {len(work_items)} total conditions for "
                      f"{len(pnads)} PNADs using up to {cpu_cnt} workers.")
         logging.debug(f"Early stopping patience: "
-                            f"{CFG.process_param_learning_patience}")
+                      f"{CFG.process_param_learning_patience}")
         with Pool(nodes=min(len(work_items), cpu_cnt)) as pool:
             results = pool.map(_flat_pnad_scoring_worker, work_items)
         logging.info(f"Finished scoring in {time.time() - start_time:.2f}s.")
@@ -992,8 +994,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 f"{indexed_pnads[pnad_idx].make_exogenous_process()}")
             for rank, result in enumerate(scored_conditions):
                 cost, condition_candidate, scores, process = result
-                process_param_str = ", ".join([f"{v:.4f}" for v in
-                                               process._get_parameters()])
+                process_param_str = ", ".join(
+                    [f"{v:.4f}" for v in process._get_parameters()])
                 logging.debug(f"Conditions {rank}: {condition_candidate}, "
                               f"Cost: {cost}, "
                               f"Exp_state_at_best: {scores[1]:.4f}, "

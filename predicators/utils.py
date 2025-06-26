@@ -4327,7 +4327,7 @@ class ConstantDelay(DelayDistribution):
         # Invalidate cached properties
         self.__dict__.pop("_str", None)
         self.__dict__.pop("_hash", None)
-    
+
     def get_parameters(self) -> Sequence[float]:
         """Return the parameters of the distribution."""
         return [self.delay.item()]
@@ -4614,7 +4614,7 @@ class DiscreteGaussianDelay(DelayDistribution):
         # Invalidate cached repr/hash if present
         self.__dict__.pop('_str', None)
         self.__dict__.pop('_hash', None)
-    
+
     def get_parameters(self) -> Sequence[float]:
         """Return the parameters of the distribution."""
         return [self.mu.item(), self.sigma.item()]

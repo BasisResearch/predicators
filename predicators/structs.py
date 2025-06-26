@@ -2497,7 +2497,7 @@ class CausalProcess(abc.ABC):
             del self.__dict__['_str']
         if '_hash' in self.__dict__:
             del self.__dict__['_hash']
-    
+
     def _get_parameters(self) -> Sequence[float]:
         """Get the parameters of this CausalProcess.
 

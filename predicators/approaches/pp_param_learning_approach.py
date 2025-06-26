@@ -22,8 +22,8 @@ from predicators.planning_with_processes import process_task_plan_grounding
 from predicators.settings import CFG
 from predicators.structs import NSRT, AtomOptionTrajectory, CausalProcess, \
     Dataset, EndogenousProcess, ExogenousProcess, GroundAtom, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, Task, \
-    Type, _GroundCausalProcess
+    LowLevelTrajectory, ParameterizedOption, Predicate, Task, Type, \
+    _GroundCausalProcess
 
 
 class ParamLearningBilevelProcessPlanningApproach(
@@ -166,13 +166,14 @@ def learn_process_parameters(
         all_effects = process.add_effects.union(process.delete_effects)
         cond_str = "_".join(
             sorted([p.predicate.name for p in process.condition_at_start]))
-        effects_str = "_".join(
-            sorted([p.predicate.name for p in all_effects]))
+        effects_str = "_".join(sorted([p.predicate.name for p in all_effects]))
         filename = f"cond_{cond_str}__eff_{effects_str}.proc"
         load_path = os.path.join(load_dir, filename)
 
         if os.path.exists(load_path):
-            print(f"Loading parameters from {load_path} and continuing training.")
+            print(
+                f"Loading parameters from {load_path} and continuing training."
+            )
             saved_state = torch.load(load_path)
             with torch.no_grad():
                 proc_and_guide_params_full.data[:num_proc_params].copy_(
@@ -287,7 +288,7 @@ def learn_process_parameters(
 
         def closure() -> float:
             nonlocal best_elbo, iteration
-            nonlocal patience_counter #, best_params_state
+            nonlocal patience_counter  #, best_params_state
 
             if current_optim:
                 current_optim.zero_grad(set_to_none=True)
@@ -411,8 +412,7 @@ def learn_process_parameters(
         all_effects = process.add_effects.union(process.delete_effects)
         cond_str = "_".join(
             sorted([p.predicate.name for p in process.condition_at_start]))
-        effects_str = "_".join(
-            sorted([p.predicate.name for p in all_effects]))
+        effects_str = "_".join(sorted([p.predicate.name for p in all_effects]))
         filename = f"cond_{cond_str}__eff_{effects_str}.proc"
 
         if not os.path.exists(save_dir):
@@ -554,8 +554,7 @@ def elbo_torch(
     num_gp = len(ground_processes)
     num_unstarted_delays = num_gp * num_time_steps - num_started_delays
     unstarted_delay_entropy = num_unstarted_delays * torch.log(
-                                    torch.tensor(1/num_time_steps, 
-                                                dtype=log_frame_strength.dtype))
+        torch.tensor(1 / num_time_steps, dtype=log_frame_strength.dtype))
     entropy -= unstarted_delay_entropy
 
     elbo = ll + entropy
@@ -564,7 +563,8 @@ def elbo_torch(
 
 @torch.no_grad()
 def evaluate_model_on_dataset(
-        per_traj_data: List[Dict[str, Any]], frame_param: torch.Tensor,
+        per_traj_data: List[Dict[str, Any]],
+        frame_param: torch.Tensor,
         guide_params: torch.Tensor,
         learn_guide: bool,
         ignore_entropy: bool = False) -> Tuple[float, float, float, float]:
@@ -616,15 +616,16 @@ def _set_process_parameters(processes: Sequence[CausalProcess],
         param_slice = parameters[i * 3:(i + 1) * 3]
         processes[i]._set_parameters(param_slice, **kwargs)
 
+
 def _compute_condition_cache_for_traj(
     ground_processes: List[_GroundCausalProcess],
-    start_times_per_gp: List[List[int]],
-    history: List[Set[GroundAtom]],
+    start_times_per_gp: List[List[int]], history: List[Set[GroundAtom]],
     num_time_steps: int
 ) -> Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]]:
-    """Pre-computes which `condition_overall` holds at each time step for a 
+    """Pre-computes which `condition_overall` holds at each time step for a
     single trajectory."""
-    condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]] = {}
+    condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int,
+                                                               bool]]] = {}
     for gp_idx, gp in enumerate(ground_processes):
         # Only need to cache for processes that have an overall condition
         if not gp.condition_overall:
@@ -642,11 +643,10 @@ def _compute_condition_cache_for_traj(
                 condition_cache[gp][st][t_interval] = is_still_holding
     return condition_cache
 
+
 def _prepare_training_data_and_model_params(
-    predicates: Set[Predicate],
-    processes: Sequence[CausalProcess],
-    trajectories: List[LowLevelTrajectory],
-    check_condition_overall: bool
+    predicates: Set[Predicate], processes: Sequence[CausalProcess],
+    trajectories: List[LowLevelTrajectory], check_condition_overall: bool
 ) -> Tuple[List[Dict[str, Any]], torch.nn.Parameter, int]:
     """Cache per-trajectory data, build global param layout for process and
     guide parameters, and initialize them."""
@@ -687,17 +687,13 @@ def _prepare_training_data_and_model_params(
             t for t in range(traj_len)
             if gp.cause_triggered(traj.states[:t + 1], traj.actions[:t + 1])
         ] for gp in ground_processes]
-        
+
         # Pre-compute the condition cache for this trajectory
-        condition_cache: Dict[_GroundCausalProcess, 
+        condition_cache: Dict[_GroundCausalProcess,
                               Dict[int, Dict[int, bool]]] = {}
         if check_condition_overall:
             condition_cache = _compute_condition_cache_for_traj(
-                ground_processes,
-                start_times,
-                traj.states,
-                traj_len
-            )
+                ground_processes, start_times, traj.states, traj_len)
 
         gp_qparam_id_map: Dict[Tuple[_GroundCausalProcess, int],
                                Tuple[int, int]] = {}
