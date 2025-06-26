@@ -9,8 +9,8 @@ from predicators.settings import CFG
 from predicators.structs import CausalProcess, EndogenousProcess, \
     ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
     Variable
-from predicators.utils import CMPDelay, ConstantDelay, DiscreteGaussianDelay, \
-    DoublePoissonDelay, null_sampler
+from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
+    null_sampler
 
 
 class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
