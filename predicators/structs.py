@@ -2443,7 +2443,8 @@ class GroundMacro:
 @dataclass(frozen=False, repr=False, eq=False)
 class DelayDistribution:
 
-    def set_parameters(self, parameters: Sequence[float]) -> None:
+    def set_parameters(self, parameters: Sequence[torch.Tensor], **kwargs: Any
+                       ) -> None:
         raise NotImplementedError
 
     def sample(self) -> int:
