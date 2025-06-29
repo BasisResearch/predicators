@@ -82,7 +82,7 @@ def _flat_pnad_scoring_worker(
     """
     (pnad_idx, base_process, condition_candidate, trajectories, predicates,
      seed, num_it, complexity_weight, load_dir, save_dir,
-     early_stopping_patience, learn_strength_params) = args
+     early_stopping_patience) = args
 
     # Set the conditions on the process object.
     base_process.condition_at_start = condition_candidate
@@ -109,8 +109,6 @@ def _flat_pnad_scoring_worker(
         load_dir=load_dir,
         save_dir=save_dir,
         early_stopping_patience=early_stopping_patience,
-        learn_frame_strength=learn_strength_params,
-        learn_process_strength=learn_strength_params,
     )
 
     # Cost is negative log-likelihood plus penalty.
@@ -960,8 +958,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                         CFG.cluster_and_search_vi_steps,
                         CFG.process_condition_search_complexity_weight,
                         load_dir, save_dir,
-                        CFG.process_param_learning_patience,
-                        CFG.process_learning_learn_strength)
+                        CFG.process_param_learning_patience)
                 work_items.append(item)
 
         if not work_items:

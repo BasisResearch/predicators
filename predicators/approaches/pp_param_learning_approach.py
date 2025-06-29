@@ -101,8 +101,6 @@ class ParamLearningBilevelProcessPlanningApproach(
             use_lbfgs=use_lbfgs,
             lbfgs_max_iter=CFG.process_param_learning_num_steps,
             adam_num_steps=CFG.process_param_learning_num_steps,
-            learn_frame_strength=True,
-            learn_process_strength=True,
             learn_guide=True,
             early_stopping_patience=20,
         )
@@ -127,8 +125,6 @@ def learn_process_parameters(
     adam_num_steps: int = 200,
     std_regularization: Optional[int] = None,
     learn_guide: bool = True,
-    learn_frame_strength: bool = True,
-    learn_process_strength: bool = True,
     early_stopping_patience: Optional[int] = None,
     early_stopping_tolerance: float = 1e-4,
     check_condition_overall: bool = True,
@@ -200,29 +196,14 @@ def learn_process_parameters(
     fixed_strengths = None
     learnable_proc_params = None
 
-    if learn_process_strength:
-        learnable_proc_params = torch.nn.Parameter(proc_params_full)
-        learnable_params_for_optim.append(learnable_proc_params)
-    else:
-        num_processes = len(processes)
-        strength_indices = [i * 3 for i in range(num_processes)]
-        delay_indices = [
-            i * 3 + j for i in range(num_processes) for j in [1, 2]
-        ]
-        fixed_strengths = torch.full((num_processes, ),
-                                     1.0)  # log_strength=1.0
-        learnable_proc_params = torch.nn.Parameter(
-            proc_params_full[delay_indices])
-        learnable_params_for_optim.append(learnable_proc_params)
+    learnable_proc_params = torch.nn.Parameter(proc_params_full)
+    learnable_params_for_optim.append(learnable_proc_params)
 
-    if learn_frame_strength:
-        if loaded_frame_param is not None:
-            frame_param = torch.nn.Parameter(loaded_frame_param)
-        else:
-            frame_param = torch.nn.Parameter(torch.randn(1) * 0.01)
-        learnable_params_for_optim.append(frame_param)
+    if loaded_frame_param is not None:
+        frame_param = torch.nn.Parameter(loaded_frame_param)
     else:
-        frame_param = torch.tensor([2.5])  # exp(2.5) ≈ 12.2
+        frame_param = torch.nn.Parameter(torch.randn(1) * 0.01)
+    learnable_params_for_optim.append(frame_param)
 
     init_proc_param = proc_params_full.detach()
     _set_process_parameters(processes, init_proc_param,
@@ -293,13 +274,7 @@ def learn_process_parameters(
             if current_optim:
                 current_optim.zero_grad(set_to_none=True)
 
-            if learn_process_strength:
-                proc_param = learnable_proc_params
-            else:
-                proc_param = torch.zeros_like(proc_params_full)
-                proc_param[strength_indices] = fixed_strengths.to(
-                    proc_param.device)
-                proc_param[delay_indices] = learnable_proc_params
+            proc_param = learnable_proc_params
 
             _set_process_parameters(processes, proc_param)
 
@@ -327,11 +302,7 @@ def learn_process_parameters(
 
             loss = -(elbo / len(batch_ids))
             if std_regularization and learnable_params_for_optim:
-                if learn_process_strength:
-                    loss = loss + std_regularization * (proc_param[2::3].sum())
-                elif learn_process_strength is False and learnable_proc_params in learnable_params_for_optim:
-                    loss = loss + std_regularization * (
-                        learnable_proc_params[1::2].sum())
+                loss = loss + std_regularization * (proc_param[2::3].sum())
 
             if learnable_params_for_optim:
                 loss.backward()  # type: ignore
@@ -386,13 +357,7 @@ def learn_process_parameters(
 
     # --- Persist Final Parameters and Evaluate ---
     final_guide_params = guide_params.detach()
-    if learn_process_strength:
-        final_proc_params = learnable_proc_params.detach()
-    else:
-        final_proc_params = torch.zeros_like(proc_params_full)
-        final_proc_params[strength_indices] = fixed_strengths.to(
-            final_proc_params.device)
-        final_proc_params[delay_indices] = learnable_proc_params.detach()
+    final_proc_params = learnable_proc_params.detach()
 
     _set_process_parameters(processes, final_proc_params)
     final_frame_param = frame_param.detach()
