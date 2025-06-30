@@ -622,7 +622,7 @@ class PyBulletBoilEnv(PyBulletEnv):
 
     def _update_human_happiness(self, state: State) -> None:
         """Update the human's happiness."""
-        happy_condition_holds = self._simple_task_objective_holds(state)
+        happy_condition_holds = self._task_objective_holds(state)
 
         if happy_condition_holds:
             old_happiness_level = state.get(self._human, "happiness_level")
@@ -819,7 +819,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         # Check if all jugs are filled
         return state.get(self._human, "happiness_level") >= 1.0
 
-    def _simple_task_objective_holds(self, state: State) -> bool:
+    def _task_objective_holds(self, state: State) -> bool:
         """A simple task objective: all jugs are filled, no water spilled, all
         jugs are boiled, and all burners are off."""
         all_filled = all(
@@ -831,7 +831,10 @@ class PyBulletBoilEnv(PyBulletEnv):
                          for burner in self._burners)
         # logging.debug(f"all_filled: {all_filled}, no_spill: {no_spill}, "
         #               f"all_boiled: {all_boiled}, burner_off: {burner_off}")
-        return all([all_filled, no_spill, all_boiled, burner_off])
+        if CFG.boil_goal_simple_human_happy:
+            return all_filled
+        else:
+            return all([all_filled, no_spill, all_boiled, burner_off])
 
     def _robot_at_init_pose(self, state: State) -> bool:
         """Completion is declared when it's at a particular pose (e.g. the
@@ -853,7 +856,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         simple task objective holds."""
         del objects
         return self._robot_at_init_pose(state) and \
-            self._simple_task_objective_holds(state)
+            self._task_objective_holds(state)
 
     def _NoJugAtFaucetOrJugAtFaucetAndFilled_holds(
             self, atoms: Set[GroundAtom], objects: Sequence[Object]) -> bool:
