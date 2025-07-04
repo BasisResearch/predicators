@@ -440,14 +440,17 @@ def elbo_torch(
                             condition_overall_holds = condition_cache.get(
                                 gp, {}).get(st, {}).get(t - 1, True)
 
+                            prev_val = atom in yt_prev
                             # --- Numerator Part ---
                             if val == (atom in yt) and condition_overall_holds:
                                 exp_state_prob = exp_state_prob + q[t] * \
-                                    gp.factored_effect_factor(val, atom)
+                                    gp.factored_effect_factor(val, atom, 
+                                    prev_val)
                             # --- Denominator Part ---
                             if condition_overall_holds:
                                 prod = prod * (q[t] * torch.exp(
-                                    gp.factored_effect_factor(val, atom)) +
+                                    gp.factored_effect_factor(val, atom, 
+                                    prev_val)) +
                                                (1 - q[t]))
 
                 sum_ytj = sum_ytj + prod * torch.exp(log_frame_strength *

@@ -2690,7 +2690,8 @@ class _GroundCausalProcess:
             and not self.delete_effects.issubset(state)) * self.strength
 
     def factored_effect_factor(self, y_tj: bool,
-                               factor_atom: GroundAtom) -> Tensor:
+                               factor_atom: GroundAtom,
+                               prev_val: bool) -> Tensor:
         """If x_tj is True, we say that x_tj would get the effect factor of a
         process if at this time step, factor_atom is in the add effects and not
         in the delete effects of the process.
@@ -2707,10 +2708,10 @@ class _GroundCausalProcess:
         # match1 = (factor_atom in self.add_effects and
         #          factor_atom not in self.delete_effects) == x_tj
         if y_tj:
-            match = int(factor_atom in self.add_effects
+            match = int(y_tj != prev_val and factor_atom in self.add_effects
                         and factor_atom not in self.delete_effects)
         else:
-            match = int(factor_atom in self.delete_effects
+            match = int(y_tj != prev_val and factor_atom in self.delete_effects
                         and factor_atom not in self.add_effects)
         return match * self.strength
 
