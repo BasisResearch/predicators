@@ -276,26 +276,26 @@ ENVS:
   #     sesame_check_expected_atoms: False
   #     terminate_on_goal_reached: False
   #     pybullet_ik_validate: False
-  boil:
-    NAME: "pybullet_boil"
-    FLAGS:
-      pybullet_ik_validate: False
-      max_num_steps_option_rollout: 50
-      bilevel_plan_without_sim: True
-      horizon: 300 # 300 should be enough, 50 is good during dev
-      # boil_goal: "task_completed" # This option isn't fully ready because
-        # with the current only_learn_exogenous_processes setting, it won't try
-        # to learn the precondition for the DeclareComplete option.
-      boil_goal: "human_happy" # Can also be "task_completed", "simple"
-  # boil_smpl:
+  # boil:
   #   NAME: "pybullet_boil"
   #   FLAGS:
   #     pybullet_ik_validate: False
   #     max_num_steps_option_rollout: 50
   #     bilevel_plan_without_sim: True
-  #     horizon: 150
+  #     horizon: 300 # 300 should be enough, 50 is good during dev
+  #     # boil_goal: "task_completed" # This option isn't fully ready because
+  #       # with the current only_learn_exogenous_processes setting, it won't try
+  #       # to learn the precondition for the DeclareComplete option.
   #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
-  #     boil_goal_simple_human_happy: True
+  boil_smpl:
+    NAME: "pybullet_boil"
+    FLAGS:
+      pybullet_ik_validate: False
+      max_num_steps_option_rollout: 50
+      bilevel_plan_without_sim: True
+      horizon: 150
+      boil_goal: "human_happy" # Can also be "task_completed", "simple"
+      boil_goal_simple_human_happy: True
 ARGS:
   - "debug"
   # - "use_gui"
