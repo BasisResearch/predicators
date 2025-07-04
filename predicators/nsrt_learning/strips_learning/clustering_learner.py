@@ -106,8 +106,6 @@ def _flat_pnad_scoring_worker(
         adam_num_steps=num_it,
         seed=seed,
         display_progress=False,
-        load_dir=load_dir,
-        save_dir=save_dir,
         early_stopping_patience=early_stopping_patience,
     )
 

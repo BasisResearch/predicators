@@ -127,6 +127,7 @@ def learn_process_parameters(
     early_stopping_tolerance: float = 1e-4,
     check_condition_overall: bool = True,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
+    """Learn process parameters using stochastic optimization."""
     if use_lbfgs:
         num_steps = 1
         batch_size = 100
