@@ -290,6 +290,7 @@ def learn_process_parameters(
 
                 data_elbo, _, _, _ = elbo_torch(
                     td["trajectory"],
+                    td["sparse_trajectory"],
                     td["ground_causal_processes"],
                     td["start_times_per_gp"],
                     guide_dict,
@@ -398,6 +399,7 @@ def learn_process_parameters(
 
 def elbo_torch(
     atom_option_trajectory: AtomOptionTrajectory,
+    sparse_trajectory: List[Tuple[Set[GroundAtom], int, int]],
     ground_processes: List[
         _GroundCausalProcess],  # All potential ground causal processes
     start_times_per_gp: List[List[
@@ -409,11 +411,11 @@ def elbo_torch(
     atom_to_val_to_gps: Dict[GroundAtom, Dict[bool,
                                               Set[_GroundCausalProcess]]],
     condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]],
+    use_sparse_trajectory: bool = True,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """*Differentiable* ELBO computation with efficient, cached condition checks."""
     trajectory = atom_option_trajectory
     num_time_steps = len(trajectory.states)
-    history = trajectory.states  # The full history of observed states y_{1:T}
 
     ll = torch.tensor(0.0, dtype=log_frame_strength.dtype)
     yt_prev = trajectory.states[0]
@@ -422,9 +424,7 @@ def elbo_torch(
     # 1.  Expected log state probabilities
     # -----------------------------------------------------------------
     exp_state_prob = torch.tensor(0.0, dtype=log_frame_strength.dtype)
-    for t in range(1, num_time_steps):
-        yt = trajectory.states[t]
-
+    for yt, start_t, _ in sparse_trajectory[1:]:
         E_log_Zt = torch.tensor(0.0, dtype=log_frame_strength.dtype)
         for atom, val_to_gps in atom_to_val_to_gps.items():
             sum_ytj = torch.tensor(0.0, dtype=log_frame_strength.dtype)
@@ -434,30 +434,27 @@ def elbo_torch(
                 prod = torch.tensor(1.0, dtype=log_frame_strength.dtype)
                 for gp in gps:
                     for st, q in guide.get(gp, {}).items():
-                        if st < t:
+                        if st < start_t:
                             # --- Efficient Cache Lookup ---
                             # Default to True if not in cache (e.g., no overall cond.)
                             condition_overall_holds = condition_cache.get(
-                                gp, {}).get(st, {}).get(t - 1, True)
-
+                                gp, {}).get(st, {}).get(start_t - 1, True)
                             prev_val = atom in yt_prev
                             # --- Numerator Part ---
                             if val == (atom in yt) and condition_overall_holds:
-                                exp_state_prob = exp_state_prob + q[t] * \
-                                    gp.factored_effect_factor(val, atom, 
-                                    prev_val)
+                                exp_state_prob = exp_state_prob + q[start_t] * \
+                                    gp.factored_effect_factor(val, atom,
+                                                            prev_val)
                             # --- Denominator Part ---
                             if condition_overall_holds:
-                                prod = prod * (q[t] * torch.exp(
-                                    gp.factored_effect_factor(val, atom, 
-                                    prev_val)) +
-                                               (1 - q[t]))
-
+                                prod = prod * (q[start_t] * torch.exp(
+                                    gp.factored_effect_factor(val, atom,
+                                                            prev_val)) +
+                                            (1 - q[start_t]))
                 sum_ytj = sum_ytj + prod * torch.exp(log_frame_strength *
-                                                     (val ==
-                                                      (atom in yt_prev)))
+                                                    (val == (atom in yt_prev)))
             E_log_Zt = E_log_Zt + torch.log(sum_ytj + 1e-12)
-
+        
         # Atoms not referenced in any process law
         add_atoms = yt - yt_prev
         del_atoms = yt_prev - yt
@@ -471,7 +468,7 @@ def elbo_torch(
         E_log_Zt = E_log_Zt + len(atoms_not_in_law_effects) * torch.log(
             1 + torch.exp(log_frame_strength))
 
-        exp_state_prob = exp_state_prob - E_log_Zt
+        exp_state_prob = exp_state_prob - E_log_Zt            
         yt_prev = yt
     ll = ll + exp_state_prob
 
@@ -546,6 +543,7 @@ def evaluate_model_on_dataset(
 
         data_elbo, data_exp_state, data_exp_delay, data_entropy = elbo_torch(
             td["trajectory"],
+            td["sparse_trajectory"],
             td["ground_causal_processes"],
             td["start_times_per_gp"],
             guide_dict,
@@ -671,9 +669,23 @@ def _prepare_training_data_and_model_params(
                 gp_qparam_id_map[(gp, s_i)] = (lo, hi)
                 q_offset = hi
 
+        # 1. Create sparse representation: [(state, start_time, end_time)]
+        sparse_trajectory = []
+        if len(traj.states) > 1:
+            yt_prev = traj.states[0]
+            start_t = 0
+            for t in range(1, len(traj.states)):
+                if traj.states[t] != yt_prev:
+                    sparse_trajectory.append((yt_prev, start_t, t - 1))
+                    yt_prev = traj.states[t]
+                    start_t = t
+            sparse_trajectory.append((yt_prev, start_t, len(traj.states) - 1))
+
         per_traj_data.append({
             "trajectory":
             traj,
+            "sparse_trajectory":
+            sparse_trajectory,
             "traj_len":
             traj_len,
             "ground_causal_processes":
