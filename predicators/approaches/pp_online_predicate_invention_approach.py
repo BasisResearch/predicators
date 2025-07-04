@@ -102,8 +102,10 @@ class OnlinePredicateInventionProcessPlanningApproach(
         if CFG.vlm_predicator_oracle_base_predicates:
             prim_predicates = self._oracle_predicates - self._initial_predicates
             if CFG.boil_goal_simple_human_happy:
-                prim_predicates = {p for p in prim_predicates if p.name in 
-                                    {"JugFilled"}}
+                prim_predicates = {
+                    p
+                    for p in prim_predicates if p.name in {"JugFilled"}
+                }
         else:
             # --- Invent predicates based on the dataset
 

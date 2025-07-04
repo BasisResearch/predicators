@@ -411,7 +411,6 @@ def elbo_torch(
     atom_to_val_to_gps: Dict[GroundAtom, Dict[bool,
                                               Set[_GroundCausalProcess]]],
     condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]],
-    use_sparse_trajectory: bool = True,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """*Differentiable* ELBO computation with efficient, cached condition checks."""
     trajectory = atom_option_trajectory
@@ -448,13 +447,14 @@ def elbo_torch(
                             # --- Denominator Part ---
                             if condition_overall_holds:
                                 prod = prod * (q[start_t] * torch.exp(
-                                    gp.factored_effect_factor(val, atom,
-                                                            prev_val)) +
-                                            (1 - q[start_t]))
+                                    gp.factored_effect_factor(
+                                        val, atom, prev_val)) +
+                                               (1 - q[start_t]))
                 sum_ytj = sum_ytj + prod * torch.exp(log_frame_strength *
-                                                    (val == (atom in yt_prev)))
+                                                     (val ==
+                                                      (atom in yt_prev)))
             E_log_Zt = E_log_Zt + torch.log(sum_ytj + 1e-12)
-        
+
         # Atoms not referenced in any process law
         add_atoms = yt - yt_prev
         del_atoms = yt_prev - yt
@@ -468,7 +468,7 @@ def elbo_torch(
         E_log_Zt = E_log_Zt + len(atoms_not_in_law_effects) * torch.log(
             1 + torch.exp(log_frame_strength))
 
-        exp_state_prob = exp_state_prob - E_log_Zt            
+        exp_state_prob = exp_state_prob - E_log_Zt
         yt_prev = yt
     ll = ll + exp_state_prob
 

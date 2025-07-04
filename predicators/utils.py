@@ -4322,8 +4322,8 @@ class ConstantDelay(DelayDistribution):
     def sample(self) -> int:
         return int(self.delay.item())
 
-    def set_parameters(self, parameters: Sequence[torch.Tensor], **kwargs: Any
-                       ) -> None:
+    def set_parameters(self, parameters: Sequence[torch.Tensor],
+                       **kwargs: Any) -> None:
         self.delay = parameters[0]
         # Invalidate cached properties
         self.__dict__.pop("_str", None)
@@ -4357,6 +4357,7 @@ class ConstantDelay(DelayDistribution):
     @cached_property
     def _str(self) -> str:
         return f"ConstantDelay({self.delay:.4f})"
+
 
 class DiscreteGaussianDelay(DelayDistribution):
     r"""Truncated discrete Gaussian distribution  (a.k.a. Discrete Normal).

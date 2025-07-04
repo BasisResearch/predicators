@@ -421,7 +421,7 @@ class GlobalSettings:
     boil_use_normal_delay = True
     boil_use_cmp_delay = False
     boil_goal = "simple"  # Can also be "task_completed", "human_happy"
-    boil_goal_simple_human_happy = False # Require a simpler condition for human happy
+    boil_goal_simple_human_happy = False  # Require a simpler condition for human happy
     boil_use_derived_predicates = True
 
     # parameters for random options approach

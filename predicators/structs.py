@@ -2443,8 +2443,8 @@ class GroundMacro:
 @dataclass(frozen=False, repr=False, eq=False)
 class DelayDistribution:
 
-    def set_parameters(self, parameters: Sequence[torch.Tensor], **kwargs: Any
-                       ) -> None:
+    def set_parameters(self, parameters: Sequence[torch.Tensor],
+                       **kwargs: Any) -> None:
         raise NotImplementedError
 
     def sample(self) -> int:
@@ -2689,8 +2689,7 @@ class _GroundCausalProcess:
             self.add_effects.issubset(state)
             and not self.delete_effects.issubset(state)) * self.strength
 
-    def factored_effect_factor(self, y_tj: bool,
-                               factor_atom: GroundAtom,
+    def factored_effect_factor(self, y_tj: bool, factor_atom: GroundAtom,
                                prev_val: bool) -> Tensor:
         """If x_tj is True, we say that x_tj would get the effect factor of a
         process if at this time step, factor_atom is in the add effects and not
