@@ -101,7 +101,6 @@ class ParamLearningBilevelProcessPlanningApproach(
             use_lbfgs=use_lbfgs,
             lbfgs_max_iter=CFG.process_param_learning_num_steps,
             adam_num_steps=CFG.process_param_learning_num_steps,
-            learn_guide=True,
             early_stopping_patience=20,
         )
         logging.debug(f"ELBO: {scores[0]}, exp_state: {scores[1]}, "
@@ -124,12 +123,9 @@ def learn_process_parameters(
     display_progress: bool = True,
     adam_num_steps: int = 200,
     std_regularization: Optional[int] = None,
-    learn_guide: bool = True,
     early_stopping_patience: Optional[int] = None,
     early_stopping_tolerance: float = 1e-4,
     check_condition_overall: bool = True,
-    load_dir: Optional[str] = None,
-    save_dir: Optional[str] = None,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
     if use_lbfgs:
         num_steps = 1
@@ -156,26 +152,6 @@ def learn_process_parameters(
             check_condition_overall,
         )
 
-    loaded_frame_param = None
-    if load_dir and len(processes) == 1:
-        process = processes[0]
-        all_effects = process.add_effects.union(process.delete_effects)
-        cond_str = "_".join(
-            sorted([p.predicate.name for p in process.condition_at_start]))
-        effects_str = "_".join(sorted([p.predicate.name for p in all_effects]))
-        filename = f"cond_{cond_str}__eff_{effects_str}.proc"
-        load_path = os.path.join(load_dir, filename)
-
-        if os.path.exists(load_path):
-            print(
-                f"Loading parameters from {load_path} and continuing training."
-            )
-            saved_state = torch.load(load_path)
-            with torch.no_grad():
-                proc_and_guide_params_full.data[:num_proc_params].copy_(
-                    saved_state['proc_params'])
-            loaded_frame_param = saved_state['frame_param']
-
     # --- Separate parameter tensor into logical, learnable components ---
 
     # All process parameters (strength + delay) from the initial tensor
@@ -183,20 +159,14 @@ def learn_process_parameters(
 
     learnable_params_for_optim = []
 
-    if learn_guide:
-        guide_params = torch.nn.Parameter(
-            proc_and_guide_params_full[num_proc_params:])
-        learnable_params_for_optim.append(guide_params)
-    else:
-        guide_params = proc_and_guide_params_full[num_proc_params:].detach()
+    guide_params = torch.nn.Parameter(
+        proc_and_guide_params_full[num_proc_params:])
+    learnable_params_for_optim.append(guide_params)
 
     learnable_proc_params = torch.nn.Parameter(proc_params_full)
     learnable_params_for_optim.append(learnable_proc_params)
 
-    if loaded_frame_param is not None:
-        frame_param = torch.nn.Parameter(loaded_frame_param)
-    else:
-        frame_param = torch.nn.Parameter(torch.randn(1) * 0.01)
+    frame_param = torch.nn.Parameter(torch.randn(1) * 0.01)
     learnable_params_for_optim.append(frame_param)
 
     init_proc_param = proc_params_full.detach()
@@ -280,7 +250,7 @@ def learn_process_parameters(
             for tidx in batch_ids:
                 td = per_traj_data[tidx]
                 guide_dict = _create_guide_dict_for_trajectory(
-                    td, guide_flat, td["traj_len"], learn_guide)
+                    td, guide_flat, td["traj_len"])
 
                 data_elbo, _, _, _ = elbo_torch(
                     td["trajectory"],
@@ -361,31 +331,10 @@ def learn_process_parameters(
     mean_elbo, mean_exp_state, mean_exp_delay, mean_entropy = evaluate_model_on_dataset(
         per_traj_data=per_traj_data,
         frame_param=final_frame_param,
-        guide_params=final_guide_params,
-        learn_guide=learn_guide)
+        guide_params=final_guide_params)
 
     if plot_training_curve:
         _plot_training_curve(curve)
-
-    if save_dir and len(processes) == 1:
-        process = processes[0]
-        all_effects = process.add_effects.union(process.delete_effects)
-        cond_str = "_".join(
-            sorted([p.predicate.name for p in process.condition_at_start]))
-        effects_str = "_".join(sorted([p.predicate.name for p in all_effects]))
-        filename = f"cond_{cond_str}__eff_{effects_str}.proc"
-
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        save_path = os.path.join(save_dir, filename)
-
-        params_to_save = {
-            'frame_param': final_frame_param,
-            'proc_params': final_proc_params,
-            # 'guide_params': final_guide_params,
-        }
-
-        torch.save(params_to_save, save_path)
 
     return processes, (mean_elbo, mean_exp_state, mean_exp_delay, mean_entropy,
                        final_frame_param.item())
@@ -525,15 +474,13 @@ def evaluate_model_on_dataset(
         per_traj_data: List[Dict[str, Any]],
         frame_param: torch.Tensor,
         guide_params: torch.Tensor,
-        learn_guide: bool,
         ignore_entropy: bool = False) -> Tuple[float, float, float, float]:
     """Evaluates a trained model on the full dataset."""
     total_elbo, total_exp_state, total_exp_delay, total_entropy = 0.0, 0.0, 0.0, 0.0
 
     for td in per_traj_data:
         guide_dict = _create_guide_dict_for_trajectory(td, guide_params,
-                                                       td["traj_len"],
-                                                       learn_guide)
+                                                       td["traj_len"])
 
         data_elbo, data_exp_state, data_exp_delay, data_entropy = elbo_torch(
             td["trajectory"],
@@ -708,7 +655,6 @@ def _create_guide_dict_for_trajectory(
     td: Dict[str, Any],
     guide_flat: Tensor,
     traj_len: int,
-    learn_guide: bool  # New parameter
 ) -> Dict[_GroundCausalProcess, Dict[int, Tensor]]:
     """Helper to create the guide distribution dictionary for a single
     trajectory."""
@@ -721,18 +667,9 @@ def _create_guide_dict_for_trajectory(
                           device=guide_flat.device)
         mask[:s_i + 1] = 0
 
-        if learn_guide:
-            # Current behavior: softmax over learnable logits
-            raw = guide_flat[lo:hi]
-            probs = torch.softmax(raw + torch.log(mask + 1e-20), dim=0)
-        else:
-            # New behavior: fixed uniform distribution over valid time steps
-            num_valid_steps = mask.sum()
-            if num_valid_steps > 0:
-                probs = mask / num_valid_steps
-            else:
-                # If there are no valid future steps, the distribution is all zeros
-                probs = torch.zeros_like(mask)
+        # Current behavior: softmax over learnable logits
+        raw = guide_flat[lo:hi]
+        probs = torch.softmax(raw + torch.log(mask + 1e-20), dim=0)
 
         guide_dict[gp][s_i] = probs
     return guide_dict
