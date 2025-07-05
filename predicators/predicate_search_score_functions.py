@@ -365,6 +365,13 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
             demo_atoms_sequence = utils.segment_trajectory_to_atoms_sequence(
                 seg_traj)
             seen_demos += 1
+            goal = self._train_tasks[ll_traj.train_task_idx].goal
+            if CFG.grammar_search_expected_nodes_max_skeletons == -1:
+                max_skeletons = CFG.sesame_max_skeletons_optimized
+            else:
+                max_skeletons = CFG.grammar_search_expected_nodes_max_skeletons
+            assert max_skeletons <= CFG.sesame_max_skeletons_optimized
+            assert not CFG.sesame_use_visited_state_set
             if self._use_processes:
                 generator = task_plan_with_processes(
                     self._train_tasks[ll_traj.train_task_idx],
@@ -372,11 +379,10 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                     strips_ops,
                     CFG.seed,
                     CFG.grammar_search_task_planning_timeout,
-                    max_skeletons_optimized=CFG.sesame_max_skeletons_optimized,
+                    max_skeletons_optimized=max_skeletons,
                     use_visited_state_set=True)
             else:
                 init_atoms = demo_atoms_sequence[0]
-                goal = self._train_tasks[ll_traj.train_task_idx].goal
                 # Ground everything once per demo.
                 objects = set(ll_traj.states[0])
                 dummy_nsrts = utils.ops_and_specs_to_dummy_nsrts(
@@ -399,12 +405,6 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                                       CFG.grammar_search_task_planning_timeout,
                                       max_skeletons,
                                       use_visited_state_set=False)
-            if CFG.grammar_search_expected_nodes_max_skeletons == -1:
-                max_skeletons = CFG.sesame_max_skeletons_optimized
-            else:
-                max_skeletons = CFG.grammar_search_expected_nodes_max_skeletons
-            assert max_skeletons <= CFG.sesame_max_skeletons_optimized
-            assert not CFG.sesame_use_visited_state_set
             # The expected time needed before a low-level plan is found. We
             # approximate this using node creations and by adding a penalty
             # for every skeleton after the first to account for backtracking.
