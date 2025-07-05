@@ -101,11 +101,6 @@ class OnlinePredicateInventionProcessPlanningApproach(
     def _get_predicate_proposals(self) -> Set[Predicate]:
         if CFG.vlm_predicator_oracle_base_predicates:
             prim_predicates = self._oracle_predicates - self._initial_predicates
-            if CFG.boil_goal_simple_human_happy:
-                prim_predicates = {
-                    p
-                    for p in prim_predicates if p.name in {"JugFilled"}
-                }
         else:
             # --- Invent predicates based on the dataset
 
@@ -148,9 +143,13 @@ class OnlinePredicateInventionProcessPlanningApproach(
         proposed_predicates: Set[Predicate],
         train_tasks: List[Task] = None,
     ) -> Set[Predicate]:
-        pass
         if CFG.vlm_predicator_oracle_learned_predicates:
             selected_preds = proposed_predicates
+            if CFG.boil_goal_simple_human_happy:
+                selected_preds = {
+                    p
+                    for p in proposed_predicates if p.name in {"JugFilled"}
+                }
         else:
             self.base_prim_candidates |= proposed_predicates
 
