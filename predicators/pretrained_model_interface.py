@@ -501,7 +501,7 @@ class OpenRouterLLM(LargeLanguageModel, OpenRouterModel):
 # 3)  Helper for VLMs (image encoding)
 ###############################################################################
 def _to_data_url_png(img: PIL.Image.Image,
-                     target_res: Optional[int] = 512) -> str:
+                     target_res: Optional[int] = None) -> str:
     """Resize *longest* side to `target_res`, encode PNG → base64 → data
     URL."""
     resized = img

@@ -63,6 +63,18 @@ class Type:
             curr_type = curr_type.parent
         return ancestors_set
 
+    def pretty_str(self) -> str:
+        """Display the type in a nice human-readable format."""
+        formatted_features = [f"'{name}'" for name in self.feature_names]
+        return f"{self.name}: {{{', '.join(formatted_features)}}}"
+    
+    def python_definition_str(self) -> str:
+        """Display in a format similar to how a type is instantiated
+        """
+        formatted_features = [f"'{name}'" for name in self.feature_names]
+        return f"_{self.name}_type = Type('{self.name}', "+\
+                f"[{', '.join(formatted_features)}])"
+
     def __call__(self, name: str) -> _TypedEntity:
         """Convenience method for generating _TypedEntities."""
         if name.startswith("?"):
@@ -159,6 +171,14 @@ class Object(_TypedEntity):
         if not isinstance(other, Object):
             return False
         return self.name == other.name and self.type == other.type
+    
+    @cached_property
+    def id_name(self) -> str:
+        try:
+            assert self.id is not None, "Object must have an id set to use id_name"
+        except:
+            breakpoint()
+        return f"{self.type.name}{self.id}"
 
 
 @dataclass(frozen=False, order=True, repr=False)
@@ -187,6 +207,20 @@ class State:
         # Check feature vector dimensions.
         for obj in self:
             assert len(self[obj]) == obj.type.dim
+
+    def __hash__(self) -> int:
+        # Hash object keys and array contents using numpy's built-in hashing
+        items = []
+        for obj in sorted(self.data.keys()):
+            arr = self.data[obj]
+            if hasattr(arr, 'tobytes'):
+                # For numpy arrays, hash the bytes representation
+                items.append((obj, hash(arr.tobytes())))
+            else:
+                items.append((obj, hash(tuple(arr))))
+        
+        data_hash = hash(tuple(items)) 
+        return data_hash
 
     def __iter__(self) -> Iterator[Object]:
         """An iterator over the state's objects, in sorted order."""
@@ -274,7 +308,8 @@ class State:
         suffix = "\n" + "#" * ll + "\n"
         return prefix + "\n\n".join(table_strs) + suffix
 
-    def dict_str(self, indent: int = 0, object_features: bool = True) -> str:
+    def dict_str(self, indent: int = 0, object_features: bool = True, 
+                 num_decimal_points: int = 2) -> str:
         """Return a dictionary representation of the state."""
         state_dict = {}
         for obj in self:
@@ -292,7 +327,15 @@ class State:
         dict_str = spaces + "{"
         n_keys = len(state_dict.keys())
         for i, (key, value) in enumerate(state_dict.items()):
-            value_str = ', '.join(f"'{k}': {v}" for k, v in value.items())
+            # Format values in the string representation
+            formatted_items = []
+            for k, v in value.items():
+                if isinstance(v, (float, np.floating)):
+                    formatted_items.append(f"'{k}': {v:.{num_decimal_points}f}")
+                else:
+                    formatted_items.append(f"'{k}': {v}")
+            value_str = ', '.join(formatted_items)
+            
             if i == 0:
                 dict_str += f"'{key}': {{{value_str}}},\n"
             elif i == n_keys - 1:
@@ -316,6 +359,9 @@ class Predicate:
     # treated "specially" by the classifier.
     _classifier: Callable[[State, Sequence[Object]],
                           bool] = field(compare=False)
+    natural_language_assertion: Optional[Callable[[List[str]],
+                                               str]] = field(default=None,
+                                                             compare=False)
 
     def __call__(self, entities: Sequence[_TypedEntity]) -> _Atom:
         """Convenience method for generating Atoms."""
@@ -378,6 +424,24 @@ class Predicate:
             for i in range(self.arity))
         body_str = f"{self.name}({vars_str_no_types})"
         return vars_str, body_str
+
+    def pretty_str_with_assertion(self) -> str:
+        var_names = []
+        vars_str = []
+        for i, t in enumerate(self.types):
+            vars_str.append(
+                f"{CFG.grammar_search_classifier_pretty_str_names[i]}:{t.name}"
+            )
+            var_names.append(
+                f"{t.name} {CFG.grammar_search_classifier_pretty_str_names[i]}"
+            )
+        vars_str = ", ".join(vars_str)
+
+        body_str = f"{self.name}({vars_str})"
+        if hasattr(self, "parameterized_assertion") and\
+            self.natural_language_assertion is not None:
+            body_str += f": {self.natural_language_assertion(var_names)}"
+        return body_str
 
     def pddl_str(self) -> str:
         """Get a string representation suitable for writing out to a PDDL
@@ -478,7 +542,8 @@ class VLMPredicate(Predicate):
     classifier (i.e., one that returns simply raises some kind of error instead
     of actually outputting a value of any kind).
     """
-    get_vlm_query_str: Callable[[Sequence[Object]], str]
+    get_vlm_query_str: Optional[Callable[[Sequence[Object]], str]] = field(
+        default=None)
 
 
 class NSPredicate(Predicate):

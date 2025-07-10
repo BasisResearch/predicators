@@ -336,6 +336,7 @@ class PyBulletBoilEnv(PyBulletEnv):
 
     def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
         """Store references to all PyBullet IDs in the environment objects."""
+        self._robot.id = self._pybullet_robot.robot_id
         # Jugs
         for i, jug_obj in enumerate(self._jugs):
             jug_obj.id = pybullet_bodies["jug_ids"][i]

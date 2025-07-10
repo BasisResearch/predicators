@@ -1110,6 +1110,47 @@ class PyBulletState(State):
         self.simulator_state["obj_mask_dict"] = masks
         self.label_all_objects()
 
+    def dict_str(self, indent: int = 0, object_features: bool = True, 
+                 num_decimal_points: int = 2, use_object_id: bool = False
+                 ) -> str:
+        """Return a dictionary representation of the state."""
+        state_dict = {}
+        for obj in self:
+            obj_dict = {}
+            if obj.type.name == "robot" or object_features:
+                for attribute, value in zip(obj.type.feature_names, self[obj]):
+                    obj_dict[attribute] = value
+            if use_object_id:
+                obj_name = obj.id_name
+            else:
+                obj_name = obj.name
+            state_dict[f"{obj_name}:{obj.type.name}"] = obj_dict
+
+        # Create a string of n_space spaces
+        spaces = " " * indent
+
+        # Create a PrettyPrinter with a large width
+        dict_str = spaces + "{"
+        n_keys = len(state_dict.keys())
+        for i, (key, value) in enumerate(state_dict.items()):
+            # Format values in the string representation
+            formatted_items = []
+            for k, v in value.items():
+                if isinstance(v, (float, np.floating)):
+                    formatted_items.append(f"'{k}': {v:.{num_decimal_points}f}")
+                else:
+                    formatted_items.append(f"'{k}': {v}")
+            value_str = ', '.join(formatted_items)
+            
+            if i == 0:
+                dict_str += f"'{key}': {{{value_str}}},\n"
+            elif i == n_keys - 1:
+                dict_str += spaces + f" '{key}': {{{value_str}}}"
+            else:
+                dict_str += spaces + f" '{key}': {{{value_str}}},\n"
+        dict_str += "}"
+        return dict_str
+
 
 BoundingBox = namedtuple('BoundingBox', 'left lower right upper')
 
