@@ -184,10 +184,10 @@ def filter_explained_segment(
     logging.debug(f"\nNum of segments before filtering the ones explained by "
                   f"{processes_type_str} procs: {num_segments}, from "
                   f"{len(segmented_trajs)} trajs.")
-    filtered_trajs = []
+    remaining_trajs = []
     for traj in segmented_trajs:
         objects = set(traj[0].trajectory.states[0])
-        filtered_segments = []
+        remaining_segments = []
         for segment in traj:
             # TODO: is this kind of like "cover"?
             if processes_type_str == "endogenous":
@@ -219,14 +219,14 @@ def filter_explained_segment(
             ]):
                 if remove_options:
                     segment.set_option(DummyOption)
-                filtered_segments.append(segment)
-        filtered_trajs.append(filtered_segments)
+                remaining_segments.append(segment)
+        remaining_trajs.append(remaining_segments)
 
-    num_filtered_segments = sum(len(traj) for traj in filtered_trajs)
-    logging.debug(f"Num of leftover segments: {num_filtered_segments}")
+    num_remaining_segments = sum(len(traj) for traj in remaining_trajs)
+    logging.debug(f"Num of leftover segments: {num_remaining_segments}")
     # for j, seg_traj in enumerate(filtered_trajs):
     #     logging.debug(f"Trajectory {j}:")
     #     for i, seg in enumerate(seg_traj):
     #         logging.debug(f"Segment {i}: Add atoms: {seg.add_effects}; "
     #                       f"Delete atoms: {seg.delete_effects}; ")
-    return filtered_trajs
+    return remaining_trajs
