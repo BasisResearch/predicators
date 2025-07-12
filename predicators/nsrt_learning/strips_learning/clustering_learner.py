@@ -704,12 +704,12 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                     else:
                         add_effects -= g_proc.add_effects
                         delete_effects -= g_proc.delete_effects
-                    logging.debug(
-                        f"Processing lifted atoms: {process_lifted_atoms}, "
-                        f"Removed effects of {g_proc} \n from "
-                        f"segment with \n add effect {seg_add_eff} "
-                        f"and delete effect {seg_del_eff}\n"
-                        f"new add effects: {add_effects}, del effects: {delete_effects}")
+                    # logging.debug(
+                    #     f"Processing lifted atoms: {process_lifted_atoms}, "
+                    #     f"Removed effects of {g_proc} \n from "
+                    #     f"segment with \n add effect {seg_add_eff} "
+                    #     f"and delete effect {seg_del_eff}\n"
+                    #     f"new add effects: {add_effects}, del effects: {delete_effects}")
         return add_effects, delete_effects
 
     # Comment out to simplify debugging
