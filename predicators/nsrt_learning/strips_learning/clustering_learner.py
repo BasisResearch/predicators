@@ -163,6 +163,14 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 seg_del_effects = frozenset(
                     a for a in segment.delete_effects
                     if not isinstance(a.predicate, DerivedPredicate))
+                if self.get_name() in ["cluster_and_search_process_learner"]:
+                    # Remove atoms explained by endogenous processes
+                    seg_add_effects, seg_del_effects = \
+                        self.remove_atoms_explained_by_endogenous_processes(
+                            segment, self._endogenous_processes, 
+                            set(seg_add_effects), set(seg_del_effects))
+                    seg_add_effects = frozenset(seg_add_effects)
+                    seg_del_effects = frozenset(seg_del_effects)
                 suc, ent_to_ent_sub = utils.unify_preconds_effects_options(
                     preconds1, preconds2, seg_add_effects,
                     frozenset(pnad.op.add_effects), seg_del_effects,
@@ -188,7 +196,9 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                             segment_option_objs, tuple(pnad_option_vars))
                     else:
                         assert set(sub.keys()) == set(pnad.op.parameters)
-                    pnad.add_to_datastore((segment, sub))
+                    pnad.add_to_datastore((segment, sub),
+                                    check_effect_equality=not self.get_name() 
+                                    in ["cluster_and_search_process_learner"])
                     break
             else:
                 # Otherwise, create a new PNAD.
@@ -225,6 +235,17 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                     if not isinstance(atom.predicate, DerivedPredicate)
                 }
                 ignore_effects: Set[Predicate] = set()  # will be learned later
+                # TODO 1: remove the parts that have been explained by existing
+                # endogenous processes
+                if self.get_name() in ["cluster_and_search_process_learner"]:
+                    # Remove atoms explained by endogenous processes
+                    add_effects, delete_effects = \
+                        self.remove_atoms_explained_by_endogenous_processes(
+                            segment, self._endogenous_processes, add_effects,
+                            delete_effects, obj_to_var)
+                                    
+                # TODO 2: If there are still processes with multiple effects,
+                # add multiple PNAD here.
                 op = STRIPSOperator(f"Op{len(pnads)}", params, preconds,
                                     add_effects, delete_effects,
                                     ignore_effects)
@@ -636,6 +657,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.online_learning_cycle = kwargs.get("online_learning_cycle", None)
+        self._endogenous_processes = kwargs["endogenous_processes"]
         from predicators.approaches.pp_online_predicate_invention_approach import \
             get_false_positive_states_from_seg_trajs
         self._get_false_positive_states_from_seg_trajs = \
@@ -647,6 +669,48 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             learn_process_parameters
 
         self._atom_change_segmented_trajs: List[List[Segment]] = []
+    
+    @staticmethod
+    def remove_atoms_explained_by_endogenous_processes(
+            segment: Segment,
+            endogenous_processes: List[EndogenousProcess],
+            add_effects: Set[LiftedAtom],
+            delete_effects: Set[LiftedAtom],
+            obj_to_var: Optional[Dict[Object, Variable]]=None
+        ) -> Tuple[Set[LiftedAtom], Set[LiftedAtom]]:
+        """If obj_to_var is None, we are taking in a set of ground atoms.
+        and will return a set of ground atoms. They are otherwise lifted.
+        """
+        if obj_to_var:
+            process_lifted_atoms = True
+        else:
+            process_lifted_atoms = False
+        objects = set(segment.states[0])
+        seg_add_eff = segment.add_effects
+        seg_del_eff = segment.delete_effects
+
+        for endo_proc in endogenous_processes:
+            if endo_proc.name == "NoOp":
+                continue
+            for g_proc in utils.all_ground_operators(endo_proc,
+                                                    objects):
+                if g_proc.add_effects.issubset(seg_add_eff) and\
+                    g_proc.delete_effects.issubset(seg_del_eff):
+                    if process_lifted_atoms:
+                        add_effects -= {atom.lift(obj_to_var) for 
+                                    atom in g_proc.add_effects}
+                        delete_effects -= {atom.lift(obj_to_var) for 
+                                        atom in g_proc.delete_effects}
+                    else:
+                        add_effects -= g_proc.add_effects
+                        delete_effects -= g_proc.delete_effects
+                    logging.debug(
+                        f"Processing lifted atoms: {process_lifted_atoms}, "
+                        f"Removed effects of {g_proc} \n from "
+                        f"segment with \n add effect {seg_add_eff} "
+                        f"and delete effect {seg_del_eff}\n"
+                        f"new add effects: {add_effects}, del effects: {delete_effects}")
+        return add_effects, delete_effects
 
     # Comment out to simplify debugging
     # def score_precondition_candidates(
@@ -1091,7 +1155,6 @@ class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._endogenous_processes = kwargs["endogenous_processes"]
 
         from predicators.predicate_search_score_functions import \
             _ExpectedNodesScoreFunction
