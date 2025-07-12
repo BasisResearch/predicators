@@ -223,7 +223,7 @@ def filter_explained_segment(
         filtered_trajs.append(filtered_segments)
 
     num_filtered_segments = sum(len(traj) for traj in filtered_trajs)
-    # logging.debug(f"Num of leftover segments: {num_filtered_segments}")
+    logging.debug(f"Num of leftover segments: {num_filtered_segments}")
     # for j, seg_traj in enumerate(filtered_trajs):
     #     logging.debug(f"Trajectory {j}:")
     #     for i, seg in enumerate(seg_traj):
