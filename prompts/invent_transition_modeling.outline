@@ -10,7 +10,6 @@ The robot tried to execute its skills and got the following results:
 {EXPERIENCE_IN_ENV}
 
 Objective: Examine each object's property before and after each action's execution. Propose new predicates that are important in describing the preconditions (conditions that must be True for an action to be executed) and effects of each action. Propose at least one per action.
-For each predicate you generate, also propose variations that make similar or opposite assertions, so that any predicate relevant to the action is included and can be later refined or selected.
 
 Instructions for Response:
 1. Propose predicates in the following format:
