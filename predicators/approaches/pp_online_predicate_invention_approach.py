@@ -55,7 +55,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         # just used for oracle predicate proposal or learned predicate
         self._oracle_predicates = create_new_env(CFG.env,
                                                  use_gui=False).predicates
-        self._candidate_predicates: Set[Predicate] = initial_predicates.copy()
+        self._candidate_predicates: Set[Predicate] = set()
         self._llm = utils.create_llm_by_name(CFG.llm_model_name)
         self._vlm = utils.create_vlm_by_name(CFG.llm_model_name)
         super().__init__(initial_predicates,
@@ -75,6 +75,9 @@ class OnlinePredicateInventionProcessPlanningApproach(
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         # Just store the dataset, don't learn from it yet.
         self._offline_dataset = dataset
+        # proposed_predicates = self._get_predicate_proposals(
+        #     "transition_modelling",
+        #     self._offline_dataset.trajectories)
 
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
@@ -146,17 +149,24 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 with open(f"{CFG.log_file}/ite{self._online_learning_cycle}"
                             f"_s1_tm.prompt", "w") as f:
                     f.write(prompt)
-                images = load_images_from_directory(
-                    CFG.log_file + f"ite{self._online_learning_cycle}_obs/")
-                
                 
                 # 3. Get spec proposals
-                spec_response = self._vlm.sample_completions(
-                    prompt,
-                    images,
-                    temperature=0,
-                    num_completions=1,
-                    seed=CFG.seed)[0]
+                if CFG.rgb_observation:
+                    images = load_images_from_directory(
+                        CFG.log_file + f"ite{self._online_learning_cycle}_obs/")
+                    spec_response = self._vlm.sample_completions(
+                        prompt,
+                        images,
+                        temperature=0,
+                        num_completions=1,
+                        seed=CFG.seed)[0]
+                else:
+                    spec_response = self._llm.sample_completions(
+                        prompt,
+                        imgs=None,
+                        temperature=0,
+                        num_completions=1,
+                        seed=CFG.seed)[0]
                 with open(f"{CFG.log_file}/ite{self._online_learning_cycle}"
                             f"_s1_tm.response", "w") as f:
                     f.write(spec_response)
@@ -263,14 +273,15 @@ class OnlinePredicateInventionProcessPlanningApproach(
         else:
             self._candidate_predicates |= proposed_predicates
 
-            all_candidates: Dict[Predicate, float] = {}
+            all_candidates: Dict[Predicate, float] = {
+                p: float(p.arity) for p in self._initial_predicates
+            }
             if CFG.vlm_predicator_use_grammar:
                 grammar = _create_grammar(dataset=Dataset(all_trajs),
                                           given_predicates=\
-                            self._candidate_predicates|self._initial_predicates)
+                                            self._candidate_predicates)
             else:
-                grammar = _GivenPredicateGrammar(self._candidate_predicates
-                                                 | self._initial_predicates)
+                grammar = _GivenPredicateGrammar(self._candidate_predicates)
             all_candidates.update(
                 grammar.generate(max_num=CFG.grammar_search_max_predicates))
 

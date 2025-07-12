@@ -85,14 +85,14 @@ APPROACHES:
       online_learning_early_stopping: True
       # pause_after_process_learning_for_inspection: True
       num_online_learning_cycles: 20
-      rgb_observation: True # for visual predicators
+      rgb_observation: False # for visual predicators
       # Testing predicate invention:
       vlm_predicator_oracle_base_predicates: False
       vlm_predicator_oracle_learned_predicates: False
       vlm_predicator_use_grammar: False
       grammar_search_grammar_use_single_feature: False
       grammar_search_grammar_use_skip_grammar: False
-      grammar_search_grammar_includes_negation: True
+      grammar_search_grammar_includes_negation: False
       grammar_search_grammar_includes_foralls: False
       grammar_search_prune_redundant_preds: False
       grammar_search_search_algorithm: "gbfs"
