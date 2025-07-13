@@ -593,6 +593,7 @@ class GlobalSettings:
     process_learner_check_false_positives = False
     cluster_and_search_process_learner_parallel_condition = True
     cluster_and_search_process_learner_parallel_pnad = False
+    cluster_and_search_process_learner_llm_select = False
     cluster_and_search_vi_steps = 200
     cluster_search_max_workers = -1
     cluster_and_inverse_planning_candidates = "top_consistent"  # "all", "top_consistent"

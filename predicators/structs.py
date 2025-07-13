@@ -2593,6 +2593,15 @@ class CausalProcess(abc.ABC):
     Log Strength: {self.strength:.4f}
     Delay Distribution: {self.delay_distribution}"""
 
+    @cached_property
+    def _str_wo_params(self) -> str:
+        return f"""    Parameters: {self.parameters}
+    Conditions at start: {sorted(self.condition_at_start, key=str)}
+    Conditions overall: {sorted(self.condition_overall, key=str)}
+    Conditions at end: {sorted(self.condition_at_end, key=str)}
+    Add Effects: {sorted(self.add_effects, key=str)}
+    Delete Effects: {sorted(self.delete_effects, key=str)}"""
+
     def __str__(self) -> str:
         return self._str
 
@@ -2646,6 +2655,12 @@ class ExogenousProcess(CausalProcess):
     @cached_property
     def _str(self) -> str:
         process_str = super()._str
+        return f"""ExogenousProcess-{self.name}:
+{process_str}"""
+
+    @cached_property
+    def _str_wo_params(self) -> str:
+        process_str = super()._str_wo_params
         return f"""ExogenousProcess-{self.name}:
 {process_str}"""
 
