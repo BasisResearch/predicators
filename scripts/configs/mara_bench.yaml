@@ -292,6 +292,7 @@ ENVS:
   boil_smpl:
     NAME: "pybullet_boil"
     FLAGS:
+      excluded_objects_in_state_str: "switch"
       pybullet_ik_validate: False
       max_num_steps_option_rollout: 50
       bilevel_plan_without_sim: True

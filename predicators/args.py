@@ -54,4 +54,5 @@ def create_arg_parser(env_required: bool = True,
                         const=logging.DEBUG,
                         default=logging.INFO)
     parser.add_argument("--crash_on_failure", action="store_true")
+    parser.add_argument("--excluded_objects_in_state_str", default="", type=str)
     return parser
