@@ -156,7 +156,6 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                         for atom in pnad.datastore[-1][0].init_atoms
                     })
                 # ent_to_ent_sub here is obj_to_var
-                # TODO: remove derived predicates from the segment's effects
                 seg_add_effects = frozenset(
                     a for a in segment.add_effects
                     if not isinstance(a.predicate, DerivedPredicate))
@@ -235,8 +234,6 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                     if not isinstance(atom.predicate, DerivedPredicate)
                 }
                 ignore_effects: Set[Predicate] = set()  # will be learned later
-                # TODO 1: remove the parts that have been explained by existing
-                # endogenous processes
                 if self.get_name() in ["cluster_and_search_process_learner"]:
                     # Remove atoms explained by endogenous processes
                     add_effects, delete_effects = \
@@ -244,7 +241,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                             segment, self._endogenous_processes, add_effects,
                             delete_effects, obj_to_var)
                                     
-                # TODO 2: If there are still processes with multiple effects,
+                # TODO: If there are still processes with multiple effects,
                 # add multiple PNAD here.
                 op = STRIPSOperator(f"Op{len(pnads)}", params, preconds,
                                     add_effects, delete_effects,
@@ -866,9 +863,6 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                                        pnad: PNAD, method: str,
                                        seed: int) -> Iterator[Set[LiftedAtom]]:
         """Get the top consistent conditions for a PNAD."""
-        # TODO: maybe a better way is to based on percentage of the worse score
-        # because as the number of trajectories increases, the worse score
-        # increases
         exogenous_process = pnad.make_exogenous_process()
         logging.debug(f"For Process sketch:\n{exogenous_process}")
         candidates_with_scores = self.score_precondition_candidates(
