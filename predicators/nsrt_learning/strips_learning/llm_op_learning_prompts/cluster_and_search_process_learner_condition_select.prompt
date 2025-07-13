@@ -7,3 +7,4 @@ For each process, the conditions listed below got the same data likelihood. But 
 {TOP_SCORING_CONDITIONS}
 
 Select the *index* of the condition you judge to be the most suitable. Provide your final answer in a `<answer>...</answer>` tag.
+You should think through the reasoning internally, but only output the final answer.
