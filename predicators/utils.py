@@ -1110,9 +1110,11 @@ class PyBulletState(State):
         self.simulator_state["obj_mask_dict"] = masks
         self.label_all_objects()
 
-    def dict_str(self, indent: int = 0, object_features: bool = True, 
-                 num_decimal_points: int = 2, use_object_id: bool = False
-                 ) -> str:
+    def dict_str(self,
+                 indent: int = 0,
+                 object_features: bool = True,
+                 num_decimal_points: int = 2,
+                 use_object_id: bool = False) -> str:
         """Return a dictionary representation of the state."""
         excluded_objects = []
         if CFG.excluded_objects_in_state_str:
@@ -1123,7 +1125,8 @@ class PyBulletState(State):
             obj_type_name = obj.type.name
             if not obj_type_name in excluded_objects:
                 if obj_type_name == "robot" or object_features:
-                    for attribute, value in zip(obj.type.feature_names, self[obj]):
+                    for attribute, value in zip(obj.type.feature_names,
+                                                self[obj]):
                         obj_dict[attribute] = value
                 if use_object_id:
                     obj_name = obj.id_name
@@ -1142,11 +1145,12 @@ class PyBulletState(State):
             formatted_items = []
             for k, v in value.items():
                 if isinstance(v, (float, np.floating)):
-                    formatted_items.append(f"'{k}': {v:.{num_decimal_points}f}")
+                    formatted_items.append(
+                        f"'{k}': {v:.{num_decimal_points}f}")
                 else:
                     formatted_items.append(f"'{k}': {v}")
             value_str = ', '.join(formatted_items)
-            
+
             if i == 0:
                 dict_str += f"'{key}': {{{value_str}}},\n"
             elif i == n_keys - 1:

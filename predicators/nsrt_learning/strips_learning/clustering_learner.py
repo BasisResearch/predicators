@@ -25,10 +25,10 @@ from predicators.planning import PlanningFailure, PlanningTimeout
 from predicators.planning_with_processes import \
     task_plan_from_task as task_plan_with_processes
 from predicators.settings import CFG
-from predicators.structs import PNAD, Datastore, DerivedPredicate, \
-    DummyOption, EndogenousProcess, ExogenousProcess, LiftedAtom, Object, \
-    ParameterizedOption, Predicate, Segment, STRIPSOperator, Variable, \
-    VarToObjSub, CausalProcess
+from predicators.structs import PNAD, CausalProcess, Datastore, \
+    DerivedPredicate, DummyOption, EndogenousProcess, ExogenousProcess, \
+    LiftedAtom, Object, ParameterizedOption, Predicate, Segment, \
+    STRIPSOperator, Variable, VarToObjSub
 
 if sys.platform == "darwin":
     # Set this when using macOS, to avoid issues with forked processes.
@@ -166,7 +166,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                     # Remove atoms explained by endogenous processes
                     seg_add_effects, seg_del_effects = \
                         self.remove_atoms_explained_by_endogenous_processes(
-                            segment, self._endogenous_processes, 
+                            segment, self._endogenous_processes,
                             set(seg_add_effects), set(seg_del_effects))
                     seg_add_effects = frozenset(seg_add_effects)
                     seg_del_effects = frozenset(seg_del_effects)
@@ -195,9 +195,10 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                             segment_option_objs, tuple(pnad_option_vars))
                     else:
                         assert set(sub.keys()) == set(pnad.op.parameters)
-                    pnad.add_to_datastore((segment, sub),
-                                    check_effect_equality=not self.get_name() 
-                                    in ["cluster_and_search_process_learner"])
+                    pnad.add_to_datastore(
+                        (segment, sub),
+                        check_effect_equality=not self.get_name()
+                        in ["cluster_and_search_process_learner"])
                     break
             else:
                 # Otherwise, create a new PNAD.
@@ -240,7 +241,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                         self.remove_atoms_explained_by_endogenous_processes(
                             segment, self._endogenous_processes, add_effects,
                             delete_effects, obj_to_var)
-                                    
+
                 # TODO: If there are still processes with multiple effects,
                 # add multiple PNAD here.
                 op = STRIPSOperator(f"Op{len(pnads)}", params, preconds,
@@ -668,22 +669,23 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
         self._atom_change_segmented_trajs: List[List[Segment]] = []
 
-
         if CFG.cluster_and_search_process_learner_llm_select:
             self._llm = utils.create_llm_by_name(CFG.llm_model_name)
         else:
             self._llm = None
-    
+
     @staticmethod
     def remove_atoms_explained_by_endogenous_processes(
-            segment: Segment,
-            endogenous_processes: List[EndogenousProcess],
-            add_effects: Set[LiftedAtom],
-            delete_effects: Set[LiftedAtom],
-            obj_to_var: Optional[Dict[Object, Variable]]=None
-        ) -> Tuple[Set[LiftedAtom], Set[LiftedAtom]]:
+        segment: Segment,
+        endogenous_processes: List[EndogenousProcess],
+        add_effects: Set[LiftedAtom],
+        delete_effects: Set[LiftedAtom],
+        obj_to_var: Optional[Dict[Object, Variable]] = None
+    ) -> Tuple[Set[LiftedAtom], Set[LiftedAtom]]:
         """If obj_to_var is None, we are taking in a set of ground atoms.
-        and will return a set of ground atoms. They are otherwise lifted.
+
+        and will return a set of ground atoms. They are otherwise
+        lifted.
         """
         if obj_to_var:
             process_lifted_atoms = True
@@ -696,15 +698,18 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         for endo_proc in endogenous_processes:
             if endo_proc.name == "NoOp":
                 continue
-            for g_proc in utils.all_ground_operators(endo_proc,
-                                                    objects):
+            for g_proc in utils.all_ground_operators(endo_proc, objects):
                 if g_proc.add_effects.issubset(seg_add_eff) and\
                     g_proc.delete_effects.issubset(seg_del_eff):
                     if process_lifted_atoms:
-                        add_effects -= {atom.lift(obj_to_var) for 
-                                    atom in g_proc.add_effects}
-                        delete_effects -= {atom.lift(obj_to_var) for 
-                                        atom in g_proc.delete_effects}
+                        add_effects -= {
+                            atom.lift(obj_to_var)
+                            for atom in g_proc.add_effects
+                        }
+                        delete_effects -= {
+                            atom.lift(obj_to_var)
+                            for atom in g_proc.delete_effects
+                        }
                     else:
                         add_effects -= g_proc.add_effects
                         delete_effects -= g_proc.delete_effects
@@ -1067,23 +1072,24 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                               f"Exp_delay_at_best: {scores[2]:.4f}, "
                               f"Entropy_at_best: {scores[3]:.4f}, "
                               f"Process params: {process_param_str}")
-            
+
             # Get the conditions with the top marginal likelihood
             multiple_top_conditions = False
             best_ll = scored_conditions[0][2][0]
-            num_top_conditions = len(list(itertools.takewhile(
-                                            lambda x: x[2][0] == best_ll,
-                                            scored_conditions)))
+            num_top_conditions = len(
+                list(
+                    itertools.takewhile(lambda x: x[2][0] == best_ll,
+                                        scored_conditions)))
             if num_top_conditions > 1:
                 multiple_top_conditions = True
 
-            # Use LLM to select if there are multiple with the same marginal 
+            # Use LLM to select if there are multiple with the same marginal
             # likelihood
             if CFG.cluster_and_search_process_learner_llm_select and\
                 multiple_top_conditions:
                 # TODO: add preference for using atoms in action's effects
                 best_condition = self._prompt_llm_to_select_from_top_conditions(
-                    indexed_pnads[pnad_idx], 
+                    indexed_pnads[pnad_idx],
                     scored_conditions[:num_top_conditions])
             else:
                 _, best_condition, _, _ = scored_conditions[0]
@@ -1173,12 +1179,12 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             if suc:
                 return False
         return True
-    
-    def _prompt_llm_to_select_from_top_conditions(self, pnad: PNAD,
-                        scored_conditions: List[Tuple[float, 
-                                          FrozenSet[LiftedAtom],
-                                          Tuple,
-                                          CausalProcess]]) -> Set[LiftedAtom]:
+
+    def _prompt_llm_to_select_from_top_conditions(
+        self, pnad: PNAD, scored_conditions: List[Tuple[float,
+                                                        FrozenSet[LiftedAtom],
+                                                        Tuple, CausalProcess]]
+    ) -> Set[LiftedAtom]:
         """Use the LLM to select the best condition from the top scored
         conditions for a PNAD."""
         assert self._llm is not None
@@ -1189,7 +1195,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             "cluster_and_search_process_learner_condition_select.prompt"
         with open(prompt_file, "r") as f:
             self.template = f.read()
-        
+
         # 2. Fill the prompt template.
         prompt = self.template.format(
             EXOGENOUS_PROCESS_SKETCH=\
@@ -1201,14 +1207,13 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         )
 
         # 3. Prompt the LLM.
-        response = self._llm.sample_completions(
-            prompt,
-            imgs=None,
-            temperature=0,
-            seed=CFG.seed)[0]
-        
+        response = self._llm.sample_completions(prompt,
+                                                imgs=None,
+                                                temperature=0,
+                                                seed=CFG.seed)[0]
+
         # Save the prompt and response for debugging
-        with open(f"{CFG.log_file}/pnad_{pnad.op.name}_cond_select.txt", 
+        with open(f"{CFG.log_file}/pnad_{pnad.op.name}_cond_select.txt",
                   "w") as f:
             f.write(f"{prompt}\n=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*\n"
                     f"{response}")
@@ -1217,7 +1222,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         indices_str = re.findall(r"<answer>(.*?)</answer>", response)
         if indices_str:
             try:
-                selected_idx = int(indices_str[0].strip())                
+                selected_idx = int(indices_str[0].strip())
                 if 0 <= selected_idx < len(scored_conditions):
                     # The condition is the second element of the tuple.
                     _, best_condition, _, _ = scored_conditions[selected_idx]
@@ -1226,7 +1231,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 # If parsing fails or index is out of bounds, fall back.
                 logging.warning("LLM response parsing failed or index out of "
                                 "bounds.")
-        
+
         # Fallback: if LLM fails to produce a valid choice, pick the best one.
         logging.warning("LLM failed to select a condition, picking the best.")
         _, best_condition, _, _ = scored_conditions[0]
