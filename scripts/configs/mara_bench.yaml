@@ -279,27 +279,28 @@ ENVS:
   #     sesame_check_expected_atoms: False
   #     terminate_on_goal_reached: False
   #     pybullet_ik_validate: False
-  # boil:
-  #   NAME: "pybullet_boil"
-  #   FLAGS:
-  #     pybullet_ik_validate: False
-  #     max_num_steps_option_rollout: 50
-  #     bilevel_plan_without_sim: True
-  #     horizon: 300 # 300 should be enough, 50 is good during dev
-  #     # boil_goal: "task_completed" # This option isn't fully ready because
-  #       # with the current only_learn_exogenous_processes setting, it won't try
-  #       # to learn the precondition for the DeclareComplete option.
-  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
-  boil_smpl:
+  boil:
     NAME: "pybullet_boil"
     FLAGS:
       excluded_objects_in_state_str: "switch"
       pybullet_ik_validate: False
       max_num_steps_option_rollout: 50
       bilevel_plan_without_sim: True
-      horizon: 150
+      horizon: 300 # 300 should be enough, 50 is good during dev
+      # boil_goal: "task_completed" # This option isn't fully ready because
+        # with the current only_learn_exogenous_processes setting, it won't try
+        # to learn the precondition for the DeclareComplete option.
       boil_goal: "human_happy" # Can also be "task_completed", "simple"
-      boil_goal_simple_human_happy: True
+  # boil_smpl:
+  #   NAME: "pybullet_boil"
+  #   FLAGS:
+  #     excluded_objects_in_state_str: "switch"
+  #     pybullet_ik_validate: False
+  #     max_num_steps_option_rollout: 50
+  #     bilevel_plan_without_sim: True
+  #     horizon: 150
+  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
+  #     boil_goal_simple_human_happy: True
 ARGS:
   - "debug"
   # - "use_gui"
@@ -321,7 +322,7 @@ FLAGS:
   # a more complete video?
   pretrained_model_service_provider: "openrouter" # "openrouter" or "openai"
   llm_model_name: "google/gemini-2.5-pro" # "openai/gpt-4o", "gpt-4.1", "gpt-4o"
-  llm_openai_max_response_tokens: 5000
+  llm_openai_max_response_tokens: 1e6
   terminate_on_goal_reached: False
   num_train_tasks: 1
   num_test_tasks: 1

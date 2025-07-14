@@ -696,7 +696,7 @@ def _get_transition_str(
     segmented_trajs = [
         segment_trajectory(ll_traj, predicates) for ll_traj in trajectories
     ]
-    result_str, state_str_set = [], set()
+    result_str, state_str_set = [], []
     state_hash_to_id: Dict[int, int] = {}
     for seg_traj in segmented_trajs:
         for i, segment in enumerate(seg_traj):
@@ -712,17 +712,19 @@ def _get_transition_str(
                 result_str.append(
                     f"Starting at {obs_name} with additional info:")
             state = segment.states[0]
-            state_str = state.dict_str(indent=2, use_object_id=True)
+            state_str = state.dict_str(indent=2, 
+                                        use_object_id=CFG.rgb_observation)
             result_str.append(f"{state_str}")
             str_for_this_state = [f"  {obs_name} with additional info:"]
             str_for_this_state.append(f"{state_str}")
-            state_str_set.add("\n".join(str_for_this_state))
+            state_str_set.append("\n".join(str_for_this_state))
             if CFG.rgb_observation:
                 save_image_with_label(state.labeled_image.copy(), obs_name,
                                       obs_dir)
 
             # Append action
-            action_str = segment.actions[0].get_option().simple_str()
+            action_str = segment.actions[0].get_option().simple_str(
+                use_object_id=CFG.rgb_observation)
             result_str.append(
                 f"\nAction {action_str} was executed in {obs_name}")
 
@@ -740,12 +742,12 @@ def _get_transition_str(
         result_str.append(f"{state_str}")
         str_for_this_state = [f"  {obs_name} with additional info:"]
         str_for_this_state.append(f"{state_str}")
-        state_str_set.add("\n".join(str_for_this_state))
+        state_str_set.append("\n".join(str_for_this_state))
         if CFG.rgb_observation:
             save_image_with_label(state.labeled_image.copy(), obs_name,
                                   obs_dir)
 
-    return "\n".join(result_str), "\n".join(sorted(state_str_set))
+    return "\n".join(result_str), "\n\n".join(state_str_set)
 
 
 def save_image_with_label(img_copy: Image,
