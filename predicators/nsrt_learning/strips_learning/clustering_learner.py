@@ -858,10 +858,11 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         # include at most top_n_candidates
         if number > 0:
             position = min(position, number)
-        logging.info(f"Returning {position}/{n_candidates} candidates:")
-        for i, candidate in enumerate(candidates_with_scores):
+        logging.debug(f"Returning {position}/{n_candidates} candidates:")
+        num_to_log = 100
+        for i, candidate in enumerate(candidates_with_scores[:num_to_log]):
             score, condition_candidate = candidate
-            logging.info(f"{i}: {condition_candidate}, Score: {score}")
+            logging.debug(f"{i}: {condition_candidate}, Score: {score}")
         return candidates_with_scores[:position]
 
     def _get_top_consistent_conditions(self, initial_atom: Set[LiftedAtom],
