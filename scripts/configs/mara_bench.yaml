@@ -117,6 +117,7 @@ APPROACHES:
       process_condition_search_prune_with_fp_count: True
       grammar_search_expected_nodes_max_skeletons: 1
       grammar_search_operator_complexity_weight: 0.1
+      vlm_predicator_num_proposal_batches: 1
 
 ENVS:
   # cover:

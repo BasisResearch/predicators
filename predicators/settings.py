@@ -833,6 +833,7 @@ class GlobalSettings:
     vlm_predicator_oracle_base_predicates = False
     vlm_predicator_oracle_learned_predicates = False
     vlm_predicator_use_grammar = True
+    vlm_predicator_num_proposal_batches = 1
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:

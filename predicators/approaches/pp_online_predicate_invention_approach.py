@@ -114,143 +114,155 @@ class OnlinePredicateInventionProcessPlanningApproach(
         if CFG.vlm_predicator_oracle_base_predicates:
             base_candidates = self._oracle_predicates - self._initial_predicates
         else:
-            # --- Invent predicates based on the dataset
+            base_candidates: Set[Predicate] = set()
+            for i in range(CFG.vlm_predicator_num_proposal_batches):
+                base_candidates |= self._get_predicate_proposals_from_fm(
+                    proposal_method, trajectories, i)
+            # TODO: filter semantically equivalent predicate by evaluation
+        return base_candidates
 
-            # "transition_modelling", "discrimination", "unconditional"
-            proposal_method = proposal_method
-            assert proposal_method in [
-                "transition_modelling", "discrimination", "unconditional"
-            ]
+    def _get_predicate_proposals_from_fm(self, proposal_method: str,
+                    trajectories: List[LowLevelTrajectory],
+                    proposal_batch_id: int) -> Set[Predicate]:
+        """Get predicate proposals from the FM."""
+        # --- Invent predicates based on the dataset
+        b_id = proposal_batch_id
+        seed = CFG.seed * 100 + self._online_learning_cycle * 10 + b_id
 
-            # transition modelling (2 fm calls): spec -> implementation
-            # discrimination (3 fm calls): nl -> spec -> implementation
-            # unconditional: (3 calls): spec -> primitive impl -> concept impl
-            if proposal_method == "transition_modelling":
-                # 1. Get template
-                prompt_template_f = "prompts/invent_transition_modeling.outline"
-                with open(prompt_template_f, "r") as f:
-                    prompt_template = f.read()
+        # "transition_modelling", "discrimination", "unconditional"
+        assert proposal_method in [
+            "transition_modelling", "discrimination", "unconditional"
+        ]
 
-                # 2. Fill and save the template
-                pred_str = _get_predicates_str(self._get_current_predicates())
-                types = set(o.type for o in set(trajectories[0].states[0]))
-                experience_str, state_str = _get_transition_str(
-                    self._offline_dataset.trajectories +\
+        # transition modelling (2 fm calls): spec -> implementation
+        # discrimination (3 fm calls): nl -> spec -> implementation
+        # unconditional: (3 calls): spec -> primitive impl -> concept impl
+        if proposal_method == "transition_modelling":
+            # 1. Get template
+            prompt_template_f = "prompts/invent_transition_modeling.outline"
+            with open(prompt_template_f, "r") as f:
+                prompt_template = f.read()
+
+            # 2. Fill and save the template
+            pred_str = _get_predicates_str(self._get_current_predicates())
+            types = set(o.type for o in set(trajectories[0].states[0]))
+            experience_str, state_str = _get_transition_str(
+                self._offline_dataset.trajectories +\
                     self._online_dataset.trajectories,
-                    self._train_tasks,
-                    self._get_current_predicates(),
-                    ite=self._online_learning_cycle,
-                )
-                prompt = prompt_template.format(
-                    PREDICATES_IN_ENV=pred_str,
-                    TYPES_IN_ENV=_get_types_str(types),
-                    EXPERIENCE_IN_ENV=experience_str)
-                with open(
-                        f"{CFG.log_file}/ite{self._online_learning_cycle}"
-                        f"_s1_tm.prompt", "w") as f:
-                    f.write(prompt)
-
-                # 3. Get spec proposals
-                if CFG.rgb_observation:
-                    images = load_images_from_directory(
-                        CFG.log_file +
-                        f"ite{self._online_learning_cycle}_obs/")
-                    spec_response = self._vlm.sample_completions(
-                        prompt,
-                        images,
-                        temperature=0,
-                        num_completions=1,
-                        seed=CFG.seed)[0]
-                else:
-                    spec_response = self._llm.sample_completions(
-                        prompt,
-                        imgs=None,
-                        temperature=0,
-                        num_completions=1,
-                        seed=CFG.seed)[0]
-                with open(
-                        f"{CFG.log_file}/ite{self._online_learning_cycle}"
-                        f"_s1_tm.response", "w") as f:
-                    f.write(spec_response)
-            elif proposal_method == "discrimination":
-                # Method 1: Find each state, if it satisfies the condition of an
-                #   exogenous process, check later that its effect did take place, save
-                #   it if not.
-                #   Then for each exogenous process, compare the above negative state
-                #   with positive states where the effect took place (e.g. in the demo).
-                # Maybe this will mirror the planner.
-                # Remember to reset at the end
-
-                # Step 1: Find the false positive examples
-                exogenous_processes = list(
-                    self._get_current_exogenous_processes())
-                false_positive_process_state = get_false_positive_states(
-                    self._online_dataset.trajectories,
-                    self._get_current_predicates(), exogenous_processes)
-
-                # Step 2: Find the true positive examples
-                # For each expected effect that did not take place, find in the demo
-                #  the initial state where it did take place, and save it as a positive
-                #  example.
-                true_positive_process_state = get_true_positive_process_states(
-                    self._get_current_predicates(), exogenous_processes,
-                    list(false_positive_process_state.keys()),
-                    self._offline_dataset.trajectories)
-
-                # Step 3: Prompt VLM to invent predicates
-                # TODO: prepare the prompt
-                # TODO: implement the prompt and parse logic
-            else:
-                raise NotImplementedError
-            # Implement the predicates in python
-            # Create the implementation prompt
-            if CFG.predicate_invent_neural_symbolic_predicates:
-                raise NotImplementedError
-            else:
-                template_f = "prompts/invent_sym_pred_implementation.outline"
-                state_api_f = "prompts/api_oo_state.py"
-                pred_api_f = "prompts/api_sym_predicate.py"
-
-            with open(f"./{template_f}", "r") as f:
-                template = f.read()
-            with open(f"./{state_api_f}", "r") as f:
-                state_cls_str = f.read()
-            with open(f"./{pred_api_f}", "r") as f:
-                pred_cls_str = f.read()
-
-            prompt = template.format(
-                STRUCT_DEFINITION=add_python_quote(state_cls_str + "\n\n" +
-                                                   pred_cls_str),
-                TYPES_IN_ENV=add_python_quote(
-                    _get_types_str(types, use_python_def_str=True)),
-                PREDICATES_IN_ENV=pred_str,
-                LISTED_STATES=state_str,
-                PREDICATE_SPECS=spec_response,
+                self._train_tasks,
+                self._get_current_predicates(),
+                ite=self._online_learning_cycle,
             )
+            prompt = prompt_template.format(
+                PREDICATES_IN_ENV=pred_str,
+                TYPES_IN_ENV=_get_types_str(types),
+                EXPERIENCE_IN_ENV=experience_str)
             with open(
-                    f"{CFG.log_file}/ite{self._online_learning_cycle}"
-                    f"_s2_impl.prompt", "w") as f:
+                    f"{CFG.log_file}/ite{self._online_learning_cycle}_b{b_id}"
+                    f"_s1_tm.prompt", "w") as f:
                 f.write(prompt)
 
-            impl_response = self._llm.sample_completions(prompt,
-                                                         imgs=None,
-                                                         temperature=0,
-                                                         num_completions=1,
-                                                         seed=CFG.seed)[0]
+            # 3. Get spec proposals
+            temperature = 0.2
+            if CFG.rgb_observation:
+                images = load_images_from_directory(
+                    CFG.log_file +
+                    f"ite{self._online_learning_cycle}_b{b_id}_obs/")
+                spec_response = self._vlm.sample_completions(
+                    prompt,
+                    images,
+                    temperature=temperature,
+                    num_completions=1,
+                    seed=seed)[0]
+            else:
+                spec_response = self._llm.sample_completions(
+                    prompt,
+                    imgs=None,
+                    temperature=temperature,
+                    num_completions=1,
+                    seed=seed)[0]
             with open(
-                    f"{CFG.log_file}/ite{self._online_learning_cycle}"
-                    f"_s2_impl.response", "w") as f:
-                f.write(impl_response)
+                    f"{CFG.log_file}/ite{self._online_learning_cycle}_b{b_id}"
+                    f"_s1_tm.response", "w") as f:
+                f.write(spec_response)
+        elif proposal_method == "discrimination":
+            # Method 1: Find each state, if it satisfies the condition of an
+            #   exogenous process, check later that its effect did take place, save
+            #   it if not.
+            #   Then for each exogenous process, compare the above negative state
+            #   with positive states where the effect took place (e.g. in the demo).
+            # Maybe this will mirror the planner.
+            # Remember to reset at the end
 
-            prim_predicates, deri_predicates =\
-                    _parse_predicates_predictions(impl_response,
-                                                self._initial_predicates,
-                                                self._candidate_predicates,
-                                                types,
-                                                self._train_tasks[0].init
-                                                )
-            base_candidates = set(prim_predicates) | set(deri_predicates)
+            # Step 1: Find the false positive examples
+            exogenous_processes = list(
+                self._get_current_exogenous_processes())
+            false_positive_process_state = get_false_positive_states(
+                self._online_dataset.trajectories,
+                self._get_current_predicates(), exogenous_processes)
 
+            # Step 2: Find the true positive examples
+            # For each expected effect that did not take place, find in the demo
+            #  the initial state where it did take place, and save it as a positive
+            #  example.
+            true_positive_process_state = get_true_positive_process_states(
+                self._get_current_predicates(), exogenous_processes,
+                list(false_positive_process_state.keys()),
+                self._offline_dataset.trajectories)
+
+            # Step 3: Prompt VLM to invent predicates
+            # TODO: prepare the prompt
+            # TODO: implement the prompt and parse logic
+        else:
+            raise NotImplementedError
+        # Implement the predicates in python
+        # Create the implementation prompt
+        if CFG.predicate_invent_neural_symbolic_predicates:
+            raise NotImplementedError
+        else:
+            template_f = "prompts/invent_sym_pred_implementation.outline"
+            state_api_f = "prompts/api_oo_state.py"
+            pred_api_f = "prompts/api_sym_predicate.py"
+
+        with open(f"./{template_f}", "r") as f:
+            template = f.read()
+        with open(f"./{state_api_f}", "r") as f:
+            state_cls_str = f.read()
+        with open(f"./{pred_api_f}", "r") as f:
+            pred_cls_str = f.read()
+
+        prompt = template.format(
+            STRUCT_DEFINITION=add_python_quote(state_cls_str + "\n\n" +
+                                                pred_cls_str),
+            TYPES_IN_ENV=add_python_quote(
+                _get_types_str(types, use_python_def_str=True)),
+            PREDICATES_IN_ENV=pred_str,
+            LISTED_STATES=state_str,
+            PREDICATE_SPECS=spec_response,
+        )
+        with open(
+                f"{CFG.log_file}/ite{self._online_learning_cycle}_b{b_id}"
+                f"_s2_impl.prompt", "w") as f:
+            f.write(prompt)
+
+        impl_response = self._llm.sample_completions(prompt,
+                                                        imgs=None,
+                                                        temperature=0,
+                                                        num_completions=1,
+                                                        seed=seed)[0]
+        with open(
+                f"{CFG.log_file}/ite{self._online_learning_cycle}_b{b_id}"
+                f"_s2_impl.response", "w") as f:
+            f.write(impl_response)
+
+        prim_predicates, deri_predicates =\
+                _parse_predicates_predictions(impl_response,
+                                            self._initial_predicates,
+                                            self._candidate_predicates,
+                                            types,
+                                            self._train_tasks[0].init
+                                            )
+        base_candidates = set(prim_predicates) | set(deri_predicates)
         return base_candidates
 
     def _select_predicates_and_learn_processes(
@@ -712,6 +724,7 @@ def _get_transition_str(
                 result_str.append(
                     f"Starting at {obs_name} with additional info:")
             state = segment.states[0]
+            assert isinstance(state, utils.PyBulletState)
             state_str = state.dict_str(indent=2, 
                                         use_object_id=CFG.rgb_observation)
             result_str.append(f"{state_str}")
