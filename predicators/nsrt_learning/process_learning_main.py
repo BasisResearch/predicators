@@ -111,7 +111,7 @@ def learn_processes_from_data(
         for traj in trajectories
     ]
     # Filter out segments explained by endogenous processes.
-    filtered_segmented_trajs = filter_explained_segment(segmented_trajs,
+    remaining_segmented_trajs = filter_explained_segment(segmented_trajs,
                                                         endogenous_processes,
                                                         remove_options=True)
 
@@ -121,7 +121,7 @@ def learn_processes_from_data(
     #         This is different from STRIPS/endogenous processes, where these
     #         don't have options and samplers.
     num_unexplaned_segments = sum(
-        len(sugments) for sugments in filtered_segmented_trajs)
+        len(sugments) for sugments in remaining_segmented_trajs)
     if num_unexplaned_segments == 0:
         new_exogenous_processes = []
     else:
@@ -129,7 +129,7 @@ def learn_processes_from_data(
             trajectories,
             train_tasks,
             predicates,
-            filtered_segmented_trajs,
+            remaining_segmented_trajs,
             verify_harmlessness=False,
             verbose=(CFG.option_learner != "no_learning"),
             annotations=annotations,
@@ -140,7 +140,7 @@ def learn_processes_from_data(
             pnad.make_exogenous_process() for pnad in exogenous_processes_pnad
         ]
         logging.info(
-            f"Segmented trajectories:\n{pformat(filtered_segmented_trajs)}")
+            f"Segmented trajectories:\n{pformat(remaining_segmented_trajs)}")
         logging.info(
             f"Learned {len(new_exogenous_processes)} exogenous processes:\n"
             f"{pformat(new_exogenous_processes)}")
