@@ -475,7 +475,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             delay_distribution = ConstantDelay(torch.tensor(7.0))
             # delay_distribution = ConstantDelay(4)
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(7.0),
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(5.0),
                                                        sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(100, 2.9)
