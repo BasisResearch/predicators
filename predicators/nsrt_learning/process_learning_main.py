@@ -28,7 +28,6 @@ def learn_processes_from_data(
     sampler_learner: Optional[str] = None,
     annotations: Optional[List[Any]] = None,
     current_processes: Optional[Set[CausalProcess]] = None,
-    relearn_all_exogenous_processes: bool = True,
     log_all_processes: bool = True,
     online_learning_cycle: Optional[int] = None,
 ) -> Set[CausalProcess]:
@@ -140,8 +139,6 @@ def learn_processes_from_data(
             pnad.make_exogenous_process() for pnad in exogenous_processes_pnad
         ]
         logging.info(
-            f"Segmented trajectories:\n{pformat(remaining_segmented_trajs)}")
-        logging.info(
             f"Learned {len(new_exogenous_processes)} exogenous processes:\n"
             f"{pformat(new_exogenous_processes)}")
     if CFG.pause_after_process_learning_for_inspection:
@@ -224,9 +221,7 @@ def filter_explained_segment(
 
     num_remaining_segments = sum(len(traj) for traj in remaining_trajs)
     logging.debug(f"Num of leftover segments: {num_remaining_segments}")
-    # for j, seg_traj in enumerate(filtered_trajs):
-    #     logging.debug(f"Trajectory {j}:")
-    #     for i, seg in enumerate(seg_traj):
-    #         logging.debug(f"Segment {i}: Add atoms: {seg.add_effects}; "
-    #                       f"Delete atoms: {seg.delete_effects}; ")
+    if log_remaining_trajs:
+        for j, seg_traj in enumerate(remaining_trajs):
+            logging.debug(f"Trajectory {j}:\n{pformat(seg_traj)}")
     return remaining_trajs
