@@ -227,8 +227,62 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                             segment, self._endogenous_processes, add_effects,
                             delete_effects, obj_to_var)
 
-                # TODO: If there are still processes with multiple effects,
-                # add multiple PNAD here.
+                    # ---- Single effect bias ----
+                    if CFG.cluster_learning_one_effect_per_process:
+                        #   If there are still processes with multiple effects,
+                        #   add multiple PNAD here; after checking such pnad don't
+                        #   already exists.
+                        for atom in add_effects | delete_effects:
+                            if atom in add_effects:
+                                add_effect_set = frozenset({atom})
+                                del_effect_set = frozenset()
+                            else:
+                                add_effect_set = frozenset()
+                                del_effect_set = frozenset({atom})
+                            # Check if the pnad already exists
+                            suc, ent_to_ent_sub, pnad =\
+                                self._unify_segment_with_pnads(
+                                    frozenset(), add_effect_set, del_effect_set,
+                                    segment_param_option, segment_option_objs,
+                                    pnads)
+                            if suc:
+                                sub = cast(
+                                    VarToObjSub,
+                                    {v: o
+                                    for o, v in ent_to_ent_sub.items()})
+                                # Add to this PNAD.
+                                if CFG.exogenous_process_learner_do_intersect:
+                                    # Find the largest conditions that unifies the init
+                                    # atoms of the segment and another segment in the PNAD.
+                                    # and add that segment and sub to the datastore.
+                                    # Doing this sequentially ensures one of the
+                                    # substitutions has the objects we care about with
+                                    # intersection. Hence it can fall out later in
+                                    # `induce_preconditions_via_intersection`.
+                                    (pnad_param_option,
+                                    pnad_option_vars) = pnad.option_spec
+                                    sub = self._maybe_intersect_segment_with_pnad(
+                                        segment, pnad, ent_to_ent_sub,
+                                        segment_param_option,
+                                        pnad_param_option, segment_option_objs,
+                                        tuple(pnad_option_vars))
+                                else:
+                                    assert set(sub.keys()) == set(
+                                        pnad.op.parameters)
+                                pnad.add_to_datastore((segment, sub),
+                                                    check_effect_equality=False)
+                            else:
+                                # Create a new pnad with this atom
+                                op = STRIPSOperator(f"Op{len(pnads)}", params,
+                                                    preconds, add_effect_set,
+                                                    del_effect_set, ignore_effects)
+                                datastore = [(segment, var_to_obj)]
+                                option_vars = [
+                                    obj_to_var[o] for o in segment_option_objs
+                                ]
+                                option_spec = (segment_param_option, option_vars)
+                                pnads.append(PNAD(op, datastore, option_spec))
+                        continue
                 op = STRIPSOperator(f"Op{len(pnads)}", params, preconds,
                                     add_effects, delete_effects,
                                     ignore_effects)
@@ -959,12 +1013,17 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         pruning_enabled = (CFG.process_scoring_method == 'data_likelihood' and
                            CFG.process_condition_search_prune_with_fp_count)
 
+        # Determine how many candidate preconditions to keep per PNAD for 
+        # parallel scoring.
         num_candidates_per_pnad = [
             2**len(self._induce_preconditions_via_intersection(pnad))
             for pnad in pnads
         ]
         max_num_candidates = max(num_candidates_per_pnad)
         num_candidates_to_keep = 1
+        # Try to find the largest cap on candidates per PNAD such that the total
+        # number of candidates across all PNADs does not exceed the number of
+        # available CPUs.
         for i in range(max_num_candidates, 0, -1):
             total_candidates = sum(
                 [min(num, i) for num in num_candidates_per_pnad])
