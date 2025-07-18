@@ -131,75 +131,60 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             else:
                 segment_param_option = DummyOption.parent
                 segment_option_objs = tuple()
-            for pnad in pnads:
-                # Try to unify this transition with existing effects.
-                # Note that both add and delete effects must unify,
-                # and also the objects that are arguments to the options.
-                (pnad_param_option, pnad_option_vars) = pnad.option_spec
-                if self.get_name() not in [
-                        "cluster_and_llm_select",
-                        "cluster_and_search_process_learner",
-                        "cluster_and_inverse_planning"
-                ] or CFG.exogenous_process_learner_do_intersect:
-                    preconds1 = frozenset()  # no preconditions
-                    preconds2 = frozenset()  # no preconditions
-                else:
-                    # Ground
-                    preconds1 = frozenset(segment.init_atoms)
-                    # Lifted
-                    obj_to_var = {
-                        v: k
-                        for k, v in pnad.datastore[-1][1].items()
-                    }
-                    preconds2 = frozenset({
-                        atom.lift(obj_to_var)
-                        for atom in pnad.datastore[-1][0].init_atoms
-                    })
-                # ent_to_ent_sub here is obj_to_var
-                seg_add_effects = frozenset(
-                    a for a in segment.add_effects
-                    if not isinstance(a.predicate, DerivedPredicate))
-                seg_del_effects = frozenset(
-                    a for a in segment.delete_effects
-                    if not isinstance(a.predicate, DerivedPredicate))
-                if self.get_name() in ["cluster_and_search_process_learner"]:
-                    # Remove atoms explained by endogenous processes
-                    seg_add_effects, seg_del_effects = \
-                        self.remove_atoms_explained_by_endogenous_processes(
-                            segment, self._endogenous_processes,
-                            set(seg_add_effects), set(seg_del_effects))
-                    seg_add_effects = frozenset(seg_add_effects)
-                    seg_del_effects = frozenset(seg_del_effects)
-                suc, ent_to_ent_sub = utils.unify_preconds_effects_options(
-                    preconds1, preconds2, seg_add_effects,
-                    frozenset(pnad.op.add_effects), seg_del_effects,
-                    frozenset(pnad.op.delete_effects), segment_param_option,
-                    pnad_param_option, segment_option_objs,
-                    tuple(pnad_option_vars))
+            if self.get_name() not in [
+                    "cluster_and_llm_select",
+                    "cluster_and_search_process_learner",
+                    "cluster_and_inverse_planning"
+            ] or CFG.exogenous_process_learner_do_intersect:
+                preconds1 = frozenset()  # no preconditions
+            else:
+                # Ground
+                preconds1 = frozenset(segment.init_atoms)
+
+            # ent_to_ent_sub here is obj_to_var
+            seg_add_effects = frozenset(
+                a for a in segment.add_effects
+                if not isinstance(a.predicate, DerivedPredicate))
+            seg_del_effects = frozenset(
+                a for a in segment.delete_effects
+                if not isinstance(a.predicate, DerivedPredicate))
+            if self.get_name() in ["cluster_and_search_process_learner"]:
+                # Remove atoms explained by endogenous processes
+                seg_add_effects, seg_del_effects = \
+                    self.remove_atoms_explained_by_endogenous_processes(
+                        segment, self._endogenous_processes,
+                        set(seg_add_effects), set(seg_del_effects))
+                seg_add_effects = frozenset(seg_add_effects)
+                seg_del_effects = frozenset(seg_del_effects)
+
+            suc, ent_to_ent_sub, pnad = self._unify_segment_with_pnads(
+                preconds1, seg_add_effects, seg_del_effects,
+                segment_param_option, segment_option_objs, pnads)
+
+            if suc:
                 sub = cast(VarToObjSub,
                            {v: o
                             for o, v in ent_to_ent_sub.items()})
-                if suc:
-                    # Add to this PNAD.
-                    if CFG.exogenous_process_learner_do_intersect:
-                        # Find the largest conditions that unifies the init
-                        # atoms of the segment and another segment in the PNAD.
-                        # and add that segment and sub to the datastore.
-                        # Doing this sequentially ensures one of the
-                        # substitutions has the objects we care about with
-                        # intersection. Hence it can fall out later in
-                        # `induce_preconditions_via_intersection`.
-                        sub = self._maybe_intersect_segment_with_pnad(
-                            segment, pnad, ent_to_ent_sub,
-                            segment_param_option, pnad_param_option,
-                            segment_option_objs, tuple(pnad_option_vars))
-                    else:
-                        assert set(sub.keys()) == set(pnad.op.parameters)
-                    pnad.add_to_datastore(
-                        (segment, sub),
-                        check_effect_equality=not self.get_name()
+                # Add to this PNAD.
+                if CFG.exogenous_process_learner_do_intersect:
+                    # Find the largest conditions that unifies the init
+                    # atoms of the segment and another segment in the PNAD.
+                    # and add that segment and sub to the datastore.
+                    # Doing this sequentially ensures one of the
+                    # substitutions has the objects we care about with
+                    # intersection. Hence it can fall out later in
+                    # `induce_preconditions_via_intersection`.
+                    (pnad_param_option, pnad_option_vars) = pnad.option_spec
+                    sub = self._maybe_intersect_segment_with_pnad(
+                        segment, pnad, ent_to_ent_sub, segment_param_option,
+                        pnad_param_option, segment_option_objs,
+                        tuple(pnad_option_vars))
+                else:
+                    assert set(sub.keys()) == set(pnad.op.parameters)
+                pnad.add_to_datastore(
+                    (segment, sub),
+                    check_effect_equality=not self.get_name()
                         in ["cluster_and_search_process_learner"])
-                    break
             else:
                 # Otherwise, create a new PNAD.
                 objects = {o for atom in segment.add_effects |
@@ -274,6 +259,38 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             for pnad in pnads:
                 logging.info(pnad)
         return pnads
+
+    def _unify_segment_with_pnads(self, seg_preconds, seg_add_effects,
+                                  seg_del_effects, seg_param_option,
+                                  seg_option_objs, pnads: List[PNAD]) -> \
+                                  Tuple[bool, VarToObjSub]:
+        """Try to unify the segment with the PNADs."""
+        for pnad in pnads:
+            # Try to unify this transition with existing effects.
+            # Note that both add and delete effects must unify,
+            # and also the objects that are arguments to the options.
+            (pnad_param_option, pnad_option_vars) = pnad.option_spec
+            if self.get_name() not in [
+                    "cluster_and_llm_select",
+                    "cluster_and_search_process_learner",
+                    "cluster_and_inverse_planning"
+            ] or CFG.exogenous_process_learner_do_intersect:
+                preconds2 = frozenset()  # no preconditions
+            else:
+                # Lifted
+                obj_to_var = {v: k for k, v in pnad.datastore[-1][1].items()}
+                preconds2 = frozenset({
+                    atom.lift(obj_to_var)
+                    for atom in pnad.datastore[-1][0].init_atoms
+                })
+            suc, ent_to_ent_sub = utils.unify_preconds_effects_options(
+                seg_preconds, preconds2, seg_add_effects,
+                frozenset(pnad.op.add_effects), seg_del_effects,
+                frozenset(pnad.op.delete_effects), seg_param_option,
+                pnad_param_option, seg_option_objs, tuple(pnad_option_vars))
+            if suc:
+                return True, ent_to_ent_sub, pnad
+        return False, dict(), None
 
     def _maybe_intersect_segment_with_pnad(
             self, segment: Segment, pnad: PNAD, obj_to_var: Dict[Object,
@@ -1060,7 +1077,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             scored_conditions.sort(key=lambda x: x[0])
 
             logging.debug(
-                f"Scored conditions for Process sketch {pnad_idx}:"
+                f"Scored conditions for Process sketch {pnad_idx}:\n"
                 f"{indexed_pnads[pnad_idx].make_exogenous_process()}")
             # Logging the sorted results.
             for rank, result in enumerate(scored_conditions):

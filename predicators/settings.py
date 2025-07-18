@@ -611,6 +611,7 @@ class GlobalSettings:
     process_learning_process_per_physical_core = True  # Physical core vs logical core
     process_learning_init_at_previous_results = False  # Loading hasn't been very helpful
     predicate_invent_neural_symbolic_predicates = False
+    cluster_learning_one_effect_per_process = False
 
     # torch GPU usage setting
     use_torch_gpu = False
