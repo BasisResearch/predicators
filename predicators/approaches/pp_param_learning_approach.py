@@ -303,7 +303,7 @@ def learn_process_parameters(
         if use_lbfgs:
             current_optim.step(closure)
         else:
-            closure()
+            loss = closure()
             current_optim.step()
             if scheduler:
                 scheduler.step(loss)
@@ -355,6 +355,7 @@ def elbo_torch(
     atom_to_val_to_gps: Dict[GroundAtom, Dict[bool,
                                               Set[_GroundCausalProcess]]],
     condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]],
+    use_sparse_trajectory: bool = True,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """*Differentiable* ELBO computation with efficient, cached condition checks."""
     trajectory = atom_option_trajectory
@@ -367,53 +368,106 @@ def elbo_torch(
     # 1.  Expected log state probabilities
     # -----------------------------------------------------------------
     exp_state_prob = torch.tensor(0.0, dtype=log_frame_strength.dtype)
-    for yt, start_t, _ in sparse_trajectory[1:]:
-        E_log_Zt = torch.tensor(0.0, dtype=log_frame_strength.dtype)
-        for atom, val_to_gps in atom_to_val_to_gps.items():
-            sum_ytj = torch.tensor(0.0, dtype=log_frame_strength.dtype)
-            for val in (True, False):
-                gps = val_to_gps.get(val, set())
+    if use_sparse_trajectory:
+        for yt, start_t, _ in sparse_trajectory[1:]:
+            E_log_Zt = torch.tensor(0.0, dtype=log_frame_strength.dtype)
+            for atom, val_to_gps in atom_to_val_to_gps.items():
+                sum_ytj = torch.tensor(0.0, dtype=log_frame_strength.dtype)
+                for val in (True, False):
+                    gps = val_to_gps.get(val, set())
 
-                prod = torch.tensor(1.0, dtype=log_frame_strength.dtype)
-                for gp in gps:
-                    for st, q in guide.get(gp, {}).items():
-                        if st < start_t:
-                            # --- Efficient Cache Lookup ---
-                            # Default to True if not in cache (e.g., no overall cond.)
-                            condition_overall_holds = condition_cache.get(
-                                gp, {}).get(st, {}).get(start_t - 1, True)
-                            prev_val = atom in yt_prev
-                            # --- Numerator Part ---
-                            if val == (atom in yt) and condition_overall_holds:
-                                exp_state_prob = exp_state_prob + q[start_t] * \
-                                    gp.factored_effect_factor(val, atom,
-                                                            prev_val)
-                            # --- Denominator Part ---
-                            if condition_overall_holds:
-                                prod = prod * (q[start_t] * torch.exp(
-                                    gp.factored_effect_factor(
-                                        val, atom, prev_val)) +
-                                               (1 - q[start_t]))
-                sum_ytj = sum_ytj + prod * torch.exp(log_frame_strength *
-                                                     (val ==
-                                                      (atom in yt_prev)))
-            E_log_Zt = E_log_Zt + torch.log(sum_ytj + 1e-12)
+                    prod = torch.tensor(1.0, dtype=log_frame_strength.dtype)
+                    for gp in gps:
+                        for st, q in guide.get(gp, {}).items():
+                            if st < start_t:
+                                # --- Efficient Cache Lookup ---
+                                # Default to True if not in cache (e.g., no overall cond.)
+                                condition_overall_holds = condition_cache.get(
+                                    gp, {}).get(st, {}).get(start_t - 1, True)
+                                prev_val = atom in yt_prev
+                                # --- Numerator Part ---
+                                if val == (atom in yt) and condition_overall_holds:
+                                    exp_state_prob = exp_state_prob + q[start_t] * \
+                                        gp.factored_effect_factor(val, atom,
+                                                                prev_val)
+                                # --- Denominator Part ---
+                                if condition_overall_holds:
+                                    prod = prod * (q[start_t] * torch.exp(
+                                        gp.factored_effect_factor(
+                                            val, atom, prev_val)) +
+                                                (1 - q[start_t]))
+                    sum_ytj = sum_ytj + prod * torch.exp(log_frame_strength *
+                                                        (val ==
+                                                        (atom in yt_prev)))
+                E_log_Zt = E_log_Zt + torch.log(sum_ytj + 1e-12)
 
-        # Atoms not referenced in any process law
-        add_atoms = yt - yt_prev
-        del_atoms = yt_prev - yt
-        atoms_unchanged = all_possible_atoms - del_atoms - add_atoms
-        exp_state_prob = exp_state_prob + log_frame_strength * len(
-            atoms_unchanged)
+            # Atoms not referenced in any process law
+            add_atoms = yt - yt_prev
+            del_atoms = yt_prev - yt
+            atoms_unchanged = all_possible_atoms - del_atoms - add_atoms
+            exp_state_prob = exp_state_prob + log_frame_strength * len(
+                atoms_unchanged)
 
-        # Normalization contribution from atoms not described by the processes
-        atoms_in_law_effects = set(atom_to_val_to_gps)
-        atoms_not_in_law_effects = all_possible_atoms - atoms_in_law_effects
-        E_log_Zt = E_log_Zt + len(atoms_not_in_law_effects) * torch.log(
-            1 + torch.exp(log_frame_strength))
+            # Normalization contribution from atoms not described by the processes
+            atoms_in_law_effects = set(atom_to_val_to_gps)
+            atoms_not_in_law_effects = all_possible_atoms - atoms_in_law_effects
+            E_log_Zt = E_log_Zt + len(atoms_not_in_law_effects) * torch.log(
+                1 + torch.exp(log_frame_strength))
 
-        exp_state_prob = exp_state_prob - E_log_Zt
-        yt_prev = yt
+            exp_state_prob = exp_state_prob - E_log_Zt
+            yt_prev = yt
+    else:
+        for t in range(1, num_time_steps):
+            yt = trajectory.states[t]
+
+            E_log_Zt = torch.tensor(0.0, dtype=log_frame_strength.dtype)
+            for atom, val_to_gps in atom_to_val_to_gps.items():
+                sum_ytj = torch.tensor(0.0, dtype=log_frame_strength.dtype)
+                for val in (True, False):
+                    gps = val_to_gps.get(val, set())
+
+                    prod = torch.tensor(1.0, dtype=log_frame_strength.dtype)
+                    for gp in gps:
+                        for st, q in guide.get(gp, {}).items():
+                            if st < t:
+                                # --- Efficient Cache Lookup ---
+                                # Default to True if not in cache (e.g., no overall cond.)
+                                condition_overall_holds = condition_cache.get(
+                                    gp, {}).get(st, {}).get(t - 1, True)
+
+                                prev_val = atom in yt_prev
+                                # --- Numerator Part ---
+                                if val == (atom in yt) and condition_overall_holds:
+                                    exp_state_prob = exp_state_prob + q[t] * \
+                                        gp.factored_effect_factor(val, atom, 
+                                        prev_val)
+                                # --- Denominator Part ---
+                                if condition_overall_holds:
+                                    prod = prod * (q[t] * torch.exp(
+                                        gp.factored_effect_factor(val, atom, 
+                                        prev_val)) +
+                                                (1 - q[t]))
+
+                    sum_ytj = sum_ytj + prod * torch.exp(log_frame_strength *
+                                                        (val ==
+                                                        (atom in yt_prev)))
+                E_log_Zt = E_log_Zt + torch.log(sum_ytj + 1e-12)
+
+            # Atoms not referenced in any process law
+            add_atoms = yt - yt_prev
+            del_atoms = yt_prev - yt
+            atoms_unchanged = all_possible_atoms - del_atoms - add_atoms
+            exp_state_prob = exp_state_prob + log_frame_strength * len(
+                atoms_unchanged)
+
+            # Normalization contribution from atoms not described by the processes
+            atoms_in_law_effects = set(atom_to_val_to_gps)
+            atoms_not_in_law_effects = all_possible_atoms - atoms_in_law_effects
+            E_log_Zt = E_log_Zt + len(atoms_not_in_law_effects) * torch.log(
+                1 + torch.exp(log_frame_strength))
+
+            exp_state_prob = exp_state_prob - E_log_Zt
+            yt_prev = yt
     ll = ll + exp_state_prob
 
     # -----------------------------------------------------------------
