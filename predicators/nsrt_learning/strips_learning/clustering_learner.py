@@ -1108,6 +1108,50 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                         CFG.process_param_learning_patience)
                 work_items.append(item)
 
+        # ----- Debug start -----
+        def debug_func(work_item):
+            (pnad_idx, base_process, condition_candidate, trajectories,
+             predicates, seed, num_it, complexity_weight, load_dir, save_dir,
+             early_stopping_patience) = work_item
+            logging.info(f"Debugging condition {condition_candidate} for "
+                         f"PNAD index {pnad_idx}")
+            # Set the conditions on the process object.
+            base_process.condition_at_start = condition_candidate
+            base_process.condition_overall = condition_candidate
+
+            from predicators.approaches.pp_param_learning_approach import \
+                learn_process_parameters
+
+            # Perform the expensive part: learning and scoring.
+            process, scores = learn_process_parameters(
+                trajectories,
+                predicates,
+                [base_process],  # The list now contains just the one process to score.
+                use_lbfgs=False,
+                plot_training_curve=False,
+                lbfgs_max_iter=num_it,
+                adam_num_steps=num_it,
+                seed=seed,
+                display_progress=True,
+                early_stopping_patience=early_stopping_patience,
+                debug_log=True
+            )
+            process_param_str = ", ".join(
+                [f"{v:.4f}" for v in process[0]._get_parameters()])
+            logging.info(f"ELBO: {scores[0]:.4f}, "
+                         f"Exp_state_prob: {scores[1]:.4f}, "
+                         f"Exp_delay_prob: {scores[2]:.4f}, "
+                         f"Entropy: {scores[3]:.4f}, "
+                         f"Process params: {process_param_str}\n")
+        # with mu=5; work_item 2: FaucetOn
+        #            work_item 5: BrunerOn
+        # # ------ For FaucetOn
+        # debug_func(work_items[2])
+
+        # # ------ For BurnerOn
+        # debug_func(work_items[5])
+        # breakpoint()
+        # ----- Debug end -----
         if not work_items:
             return []
 
@@ -1145,9 +1189,10 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                     [f"{v:.4f}" for v in process._get_parameters()])
                 logging.debug(f"Conditions {rank}: {condition_candidate}, "
                               f"Cost: {cost}, "
-                              f"Exp_state_at_best: {scores[1]:.4f}, "
-                              f"Exp_delay_at_best: {scores[2]:.4f}, "
-                              f"Entropy_at_best: {scores[3]:.4f}, "
+                              f"ELBO: {scores[0]:.4f}, "
+                              f"Exp_state_prob: {scores[1]:.4f}, "
+                              f"Exp_delay_prob: {scores[2]:.4f}, "
+                              f"Entropy: {scores[3]:.4f}, "
                               f"Process params: {process_param_str}")
 
             # Get the conditions with the top marginal likelihood

@@ -126,6 +126,7 @@ def learn_process_parameters(
     early_stopping_patience: Optional[int] = None,
     early_stopping_tolerance: float = 1e-4,
     check_condition_overall: bool = True,
+    debug_log: bool = False
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
     """Learn process parameters using stochastic optimization."""
     if use_lbfgs:
@@ -206,12 +207,24 @@ def learn_process_parameters(
         # line_search_fn="strong_wolfe")
         pass  # Will be initialized in the loop
     else:
-        optim = Adam(learnable_params_for_optim, lr=1e-1)
+        # 1e-1; 500 steps: 983;     
+        #       5k steps (no scheduler): 987.0547/987.0568
+        #       5k steps (scheduler):    987.0547/987.0537
+        #       10k      (no schedule) : 987.0574
+        # 5e-2; 500 steps: 980/981; 5k steps: 986/987
+        # 1e-2; 500 steps: 953/962; 5k steps: 984/984
+        lr = 1e-1
+        if debug_log:
+            logging.debug(f"lr={lr}")
+        optim = Adam(learnable_params_for_optim, lr=lr)
         # scheduler = ReduceLROnPlateau(optim,
         #                               mode='min',
-        #                               factor=0.1,
-        #                               patience=10,
+        #                               factor=0.5,
+        #                               patience=20,
         #                               verbose=True,)
+        if debug_log:
+            if scheduler:
+                logging.debug(f"Scheduler initialized: {scheduler}")
 
     # ------------------- training loop ----------------------------- #
     iteration = 0
@@ -306,7 +319,13 @@ def learn_process_parameters(
             loss = closure()
             current_optim.step()
             if scheduler:
+                if debug_log:
+                    prev_lr = scheduler.get_last_lr()
                 scheduler.step(loss)
+                if debug_log:
+                    curr_lr = scheduler.get_last_lr()
+                    if curr_lr != prev_lr:
+                        logging.debug(f"decreasing lr from {prev_lr} to {curr_lr}")
 
         # --- Trigger early stop if patience has run out ---
         if early_stopping_patience is not None and patience_counter is not None and patience_counter <= 0:
@@ -332,7 +351,8 @@ def learn_process_parameters(
     mean_elbo, mean_exp_state, mean_exp_delay, mean_entropy = evaluate_model_on_dataset(
         per_traj_data=per_traj_data,
         frame_param=final_frame_param,
-        guide_params=final_guide_params)
+        guide_params=final_guide_params,
+        debug_log=debug_log)
 
     if plot_training_curve:
         _plot_training_curve(curve)
@@ -356,6 +376,7 @@ def elbo_torch(
                                               Set[_GroundCausalProcess]]],
     condition_cache: Dict[_GroundCausalProcess, Dict[int, Dict[int, bool]]],
     use_sparse_trajectory: bool = True,
+    debug_log: bool = False,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
     """*Differentiable* ELBO computation with efficient, cached condition checks."""
     trajectory = atom_option_trajectory
@@ -369,11 +390,17 @@ def elbo_torch(
     # -----------------------------------------------------------------
     exp_state_prob = torch.tensor(0.0, dtype=log_frame_strength.dtype)
     if use_sparse_trajectory:
-        for yt, start_t, _ in sparse_trajectory[1:]:
+        if debug_log:
+            logging.debug(f"Compute exp_state_prob from "
+                        f"{len(sparse_trajectory)-1} segments")
+        for i, (yt, start_t, _) in enumerate(sparse_trajectory[1:]):
+            state_prob_t = torch.tensor(0.0, dtype=log_frame_strength.dtype)
             E_log_Zt = torch.tensor(0.0, dtype=log_frame_strength.dtype)
             for atom, val_to_gps in atom_to_val_to_gps.items():
                 sum_ytj = torch.tensor(0.0, dtype=log_frame_strength.dtype)
                 for val in (True, False):
+                    # Ground processes which have this atom in the add or delete
+                    # effects.
                     gps = val_to_gps.get(val, set())
 
                     prod = torch.tensor(1.0, dtype=log_frame_strength.dtype)
@@ -387,18 +414,22 @@ def elbo_torch(
                                 prev_val = atom in yt_prev
                                 # --- Numerator Part ---
                                 if val == (atom in yt) and condition_overall_holds:
-                                    exp_state_prob = exp_state_prob + q[start_t] * \
+                                    exp_state_prob = exp_state_prob + \
+                                        q[start_t] * \
                                         gp.factored_effect_factor(val, atom,
-                                                                prev_val)
+                                                prev_val)
+                                    state_prob_t = state_prob_t + \
+                                        q[start_t] * \
+                                        gp.factored_effect_factor(val, atom,
+                                                prev_val)
+
                                 # --- Denominator Part ---
                                 if condition_overall_holds:
                                     prod = prod * (q[start_t] * torch.exp(
-                                        gp.factored_effect_factor(
-                                            val, atom, prev_val)) +
-                                                (1 - q[start_t]))
+                                        gp.factored_effect_factor(val, atom, 
+                                                prev_val)) + (1 - q[start_t]))
                     sum_ytj = sum_ytj + prod * torch.exp(log_frame_strength *
-                                                        (val ==
-                                                        (atom in yt_prev)))
+                                                (val == (atom in yt_prev)))
                 E_log_Zt = E_log_Zt + torch.log(sum_ytj + 1e-12)
 
             # Atoms not referenced in any process law
@@ -406,6 +437,8 @@ def elbo_torch(
             del_atoms = yt_prev - yt
             atoms_unchanged = all_possible_atoms - del_atoms - add_atoms
             exp_state_prob = exp_state_prob + log_frame_strength * len(
+                atoms_unchanged)
+            state_prob_t = state_prob_t + log_frame_strength * len(
                 atoms_unchanged)
 
             # Normalization contribution from atoms not described by the processes
@@ -415,7 +448,12 @@ def elbo_torch(
                 1 + torch.exp(log_frame_strength))
 
             exp_state_prob = exp_state_prob - E_log_Zt
+            state_prob_t = state_prob_t - E_log_Zt
             yt_prev = yt
+            if debug_log:
+                logging.debug(f"seg {i}: start_t={start_t}, "
+                    f"exp_state_prob_t={state_prob_t.detach().item():.4f}, "
+                    f"add atoms: {add_atoms}, del atoms: {del_atoms}")
     else:
         for t in range(1, num_time_steps):
             yt = trajectory.states[t]
@@ -496,9 +534,19 @@ def elbo_torch(
                 valid_mask = ~torch.isneginf(all_delay_log_probs) & (
                     guide_slice_for_delays > 1e-9)
                 if valid_mask.any():
-                    exp_delay_prob = exp_delay_prob + torch.sum(
+                    single_exp_delay_prob = torch.sum(
                         guide_slice_for_delays[valid_mask] *
                         all_delay_log_probs[valid_mask])
+                    exp_delay_prob = exp_delay_prob + single_exp_delay_prob
+                    if debug_log:
+                        logging.debug(
+                            f"exp_delay_prob={single_exp_delay_prob.detach().item():.4f} "
+                            f"start_t={s_i}, "
+                            f"max_guide_values: at t={torch.argmax(q_dist_for_instance)}: {torch.max(q_dist_for_instance)}")
+                        logging.debug(
+                            f"guide_prob at arrival_t (94): {q_dist_for_instance[94]}"
+                        )
+                        
     ll = ll + exp_delay_prob
 
     # -----------------------------------------------------------------
@@ -529,8 +577,11 @@ def evaluate_model_on_dataset(
         per_traj_data: List[Dict[str, Any]],
         frame_param: torch.Tensor,
         guide_params: torch.Tensor,
-        ignore_entropy: bool = False) -> Tuple[float, float, float, float]:
-    """Evaluates a trained model on the full dataset."""
+        ignore_entropy: bool = False,
+        debug_log: bool = False) -> Tuple[float, float, float, float]:
+    """Evaluates a trained model on the full dataset.
+    TODO: maybe normalize by number of segments? or total number of steps?
+    """
     total_elbo, total_exp_state, total_exp_delay, total_entropy = 0.0, 0.0, 0.0, 0.0
 
     for td in per_traj_data:
@@ -547,6 +598,7 @@ def evaluate_model_on_dataset(
             set(td["all_atoms"]),
             td["atom_to_val_to_gps"],
             td["condition_cache"],
+            debug_log=debug_log
         )
         total_elbo += data_elbo.item()
         if ignore_entropy:

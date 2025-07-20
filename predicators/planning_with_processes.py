@@ -127,6 +127,8 @@ class ProcessWorldModel:
             self.current_action = small_step_action.copy()
             # logging.debug(f"At time {self.t}, start performing "
             #               f"{self.current_action.name}")
+        self.action_history.append(self.current_action.copy() if self.
+                                   current_action is not None else None)
 
         # 2. Process effects scheduled for this timestep.
         if self.t in self.scheduled_events:
@@ -160,6 +162,11 @@ class ProcessWorldModel:
                     for atom in self.state
                     if not isinstance(atom.predicate, DerivedPredicate)
                 }
+                # for atom in self.state:
+                #     if atom.predicate.name == "JugFilled":
+                #         # it has a tuple of types instead of a list..
+                #         breakpoint()
+                #         break
                 self.state |= utils.abstract_with_derived_predicates(
                     self.state, self.derived_predicates, self.objects)
 
@@ -204,8 +211,6 @@ class ProcessWorldModel:
         # if the action has finished and set to None.
         if self.current_action is None:
             return
-        self.action_history.append(self.current_action.copy() if self.
-                                   current_action is not None else None)
         self.t += 1
 
     def big_step(self,
@@ -313,7 +318,7 @@ def _skeleton_generator_with_processes(
                     logging.debug(f"State {i}: {state}")
                     action_str = action.name_and_objects_str() \
                                     if action is not None else None
-                    logging.debug(f"Action {i}: {action_str}")
+                    logging.debug(f"Action {i}: {action_str}\n")
                 logging.debug(f"State {len(node.state_history)}: "
                               f"{node.state_history[-1]}")
             yield node.skeleton, node.atoms_sequence
@@ -339,10 +344,11 @@ def _skeleton_generator_with_processes(
                 # plan_so_far = [p.name for p in node.skeleton]
                 # logging.debug(f"Expand after plan {plan_so_far}:")
                 # if len(node.skeleton) > 2 and \
-                #     node.skeleton[0].name == 'PickJug' and \
+                #     node.skeleton[0].name == 'PickJugFromOutsideFaucetAndBurner' and \
                 #     node.skeleton[1].name == 'PlaceUnderFaucet' and \
                 #     node.skeleton[2].name == 'SwitchFaucetOn' and \
-                #     action_process.name == 'NoOp':
+                #     action_process.name == 'SwitchBurnerOn':
+                #     breakpoint()
                 world_model.big_step(action_process)
                 child_atoms = world_model.state.copy()
                 # --- End

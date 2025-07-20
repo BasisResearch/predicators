@@ -61,8 +61,8 @@ APPROACHES:
   #     num_online_learning_cycles: 1
   predicate_invention:
     NAME: "online_predicate_invention_and_process_planning"
-    ARGS:
-      - "load_data"
+    # ARGS:
+    #   - "load_data"
     FLAGS:
       excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,JugNotFilled,JugNotAtFaucetOrAtFaucetAndFilled"
       demonstrator: "oracle_process_planning"
@@ -84,11 +84,11 @@ APPROACHES:
       only_learn_exogenous_processes: True
       online_learning_early_stopping: True
       # pause_after_process_learning_for_inspection: True
-      num_online_learning_cycles: 5
+      num_online_learning_cycles: 10
       rgb_observation: False # for visual predicators
       # Testing predicate invention:
-      vlm_predicator_oracle_base_predicates: False
-      vlm_predicator_oracle_learned_predicates: False
+      vlm_predicator_oracle_base_predicates: True
+      vlm_predicator_oracle_learned_predicates: True
       vlm_predicator_use_grammar: False
       grammar_search_grammar_use_single_feature: False
       grammar_search_grammar_use_skip_grammar: False
@@ -99,7 +99,7 @@ APPROACHES:
       grammar_search_task_planning_timeout: 0.5
       learnable_delay_distribution: "constant" # "constant", "cmp", "normal"
       bilevel_planning_explorer_enumerate_plans: True
-      online_nsrt_learning_requests_per_task: 8 # 8 2
+      online_nsrt_learning_requests_per_task: 1 # 8 2
       grammar_search_expected_nodes_optimal_demo_prob: 0.5
       cluster_and_inverse_planning_candidates: "top_consistent"
       # cluster_and_inverse_planning_top_consistent_method: "top_n"
@@ -111,9 +111,10 @@ APPROACHES:
       learn_process_parameters: True
       cluster_and_search_process_learner_parallel_condition: True
       cluster_and_search_process_learner_parallel_pnad: True
-      cluster_and_search_process_learner_llm_select: True
-      cluster_and_search_vi_steps: 500
-      process_param_learning_patience: 70
+      cluster_and_search_process_learner_llm_select: False
+      cluster_and_search_vi_steps: 10000
+      cluster_learning_one_effect_per_process: False
+      process_param_learning_patience: 10000
       process_condition_search_prune_with_fp_count: True
       grammar_search_expected_nodes_max_skeletons: 1
       grammar_search_operator_complexity_weight: 0.1

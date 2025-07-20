@@ -386,6 +386,18 @@ class Predicate:
     def __hash__(self) -> int:
         return self._hash
 
+    def __eq__(self, other: Predicate) -> bool:
+        # equal by name
+        assert isinstance(other, Predicate)
+        if self.name != other.name:
+            return False
+        if len(self.types) != len(other.types):
+            return False
+        for self_type, other_type in zip(self.types, other.types):
+            if self_type != other_type:
+                return False
+        return True
+
     @cached_property
     def arity(self) -> int:
         """The arity of this predicate (number of arguments)."""

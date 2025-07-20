@@ -1,8 +1,10 @@
 """Ground-truth processes for the boil environments."""
 from typing import Dict, Set
+from pprint import pformat
 
 import numpy as np
 import torch
+import logging
 
 from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.settings import CFG
@@ -295,7 +297,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(1.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
                                                        sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(1, 1)
