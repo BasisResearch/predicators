@@ -107,6 +107,7 @@ def _flat_pnad_scoring_worker(
         seed=seed,
         display_progress=False,
         early_stopping_patience=early_stopping_patience,
+        batch_size=CFG.process_param_learning_batch_size,
     )
 
     # Cost is negative log-likelihood plus penalty.

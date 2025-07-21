@@ -126,7 +126,8 @@ def learn_process_parameters(
     early_stopping_patience: Optional[int] = None,
     early_stopping_tolerance: float = 1e-4,
     check_condition_overall: bool = True,
-    debug_log: bool = False
+    batch_size: int = 16,
+    debug_log: bool = False,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
     """Learn process parameters using stochastic optimization."""
     if use_lbfgs:
@@ -135,7 +136,7 @@ def learn_process_parameters(
         inner_lbfgs_max_iter = lbfgs_max_iter
     else:
         num_steps = adam_num_steps
-        batch_size = 16
+        batch_size = batch_size
 
     torch.manual_seed(seed)
     random.seed(seed)

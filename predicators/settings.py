@@ -606,6 +606,7 @@ class GlobalSettings:
     process_condition_search_complexity_weight = 1e-4
     process_param_learning_num_steps = 200
     process_param_learning_patience = None
+    process_param_learning_batch_size = 16
     process_condition_search_prune_with_fp_count = False
     process_learning_learn_strength = True
     process_learning_process_per_physical_core = True  # Physical core vs logical core
