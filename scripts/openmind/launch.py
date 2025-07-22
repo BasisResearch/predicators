@@ -17,7 +17,7 @@ from scripts.openmind.submit_openmind_job import submit_openmind_job
 def _main() -> None:
     # Set up argparse.
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True, type=str)
+    parser.add_argument("-c", "--config", required=True, type=str)
     args = parser.parse_args()
     _launch_experiments(args.config)
 
