@@ -600,7 +600,12 @@ class PyBulletBoilEnv(PyBulletEnv):
                 if dist < self.burner_align_threshold:
                     # Jug is on top of an active burner => increase heat
                     old_heat = state.get(jug_obj, "heat_level")
-                    if state.get(jug_obj, "water_volumn") > 0.0 and\
+                    if CFG.boil_require_jug_full_to_heatup:
+                        required_vol = self.water_filled_height
+                    else:
+                        required_vol = 0.0
+
+                    if state.get(jug_obj, "water_volumn") > required_vol and\
                         not self._Holding_holds(state, [self._robot, jug_obj]):
                         new_heat = min(1.0, old_heat + self.heating_speed)
                         jug_obj.heat_level = new_heat

@@ -423,6 +423,7 @@ class GlobalSettings:
     boil_goal = "simple"  # Can also be "task_completed", "human_happy"
     boil_goal_simple_human_happy = False  # Require a simpler condition for human happy
     boil_use_derived_predicates = True
+    boil_require_jug_full_to_heatup = False
 
     # parameters for random options approach
     random_options_max_tries = 100
