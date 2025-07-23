@@ -121,9 +121,9 @@ class OnlinePredicateInventionProcessPlanningApproach(
             # TODO: filter semantically equivalent predicate by evaluation
         return base_candidates
 
-    def _get_predicate_proposals_from_fm(self, proposal_method: str,
-                    trajectories: List[LowLevelTrajectory],
-                    proposal_batch_id: int) -> Set[Predicate]:
+    def _get_predicate_proposals_from_fm(
+            self, proposal_method: str, trajectories: List[LowLevelTrajectory],
+            proposal_batch_id: int) -> Set[Predicate]:
         """Get predicate proposals from the FM."""
         # --- Invent predicates based on the dataset
         b_id = proposal_batch_id
@@ -153,10 +153,9 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 self._get_current_predicates(),
                 ite=self._online_learning_cycle,
             )
-            prompt = prompt_template.format(
-                PREDICATES_IN_ENV=pred_str,
-                TYPES_IN_ENV=_get_types_str(types),
-                EXPERIENCE_IN_ENV=experience_str)
+            prompt = prompt_template.format(PREDICATES_IN_ENV=pred_str,
+                                            TYPES_IN_ENV=_get_types_str(types),
+                                            EXPERIENCE_IN_ENV=experience_str)
             with open(
                     f"{CFG.log_file}/ite{self._online_learning_cycle}_b{b_id}"
                     f"_s1_tm.prompt", "w") as f:
@@ -195,8 +194,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
             # Remember to reset at the end
 
             # Step 1: Find the false positive examples
-            exogenous_processes = list(
-                self._get_current_exogenous_processes())
+            exogenous_processes = list(self._get_current_exogenous_processes())
             false_positive_process_state = get_false_positive_states(
                 self._online_dataset.trajectories,
                 self._get_current_predicates(), exogenous_processes)
@@ -233,7 +231,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
         prompt = template.format(
             STRUCT_DEFINITION=add_python_quote(state_cls_str + "\n\n" +
-                                                pred_cls_str),
+                                               pred_cls_str),
             TYPES_IN_ENV=add_python_quote(
                 _get_types_str(types, use_python_def_str=True)),
             PREDICATES_IN_ENV=pred_str,
@@ -246,10 +244,10 @@ class OnlinePredicateInventionProcessPlanningApproach(
             f.write(prompt)
 
         impl_response = self._llm.sample_completions(prompt,
-                                                        imgs=None,
-                                                        temperature=0,
-                                                        num_completions=1,
-                                                        seed=seed)[0]
+                                                     imgs=None,
+                                                     temperature=0,
+                                                     num_completions=1,
+                                                     seed=seed)[0]
         with open(
                 f"{CFG.log_file}/ite{self._online_learning_cycle}_b{b_id}"
                 f"_s2_impl.response", "w") as f:
@@ -725,8 +723,8 @@ def _get_transition_str(
                     f"Starting at {obs_name} with additional info:")
             state = segment.states[0]
             assert isinstance(state, utils.PyBulletState)
-            state_str = state.dict_str(indent=2, 
-                                        use_object_id=CFG.rgb_observation)
+            state_str = state.dict_str(indent=2,
+                                       use_object_id=CFG.rgb_observation)
             result_str.append(f"{state_str}")
             str_for_this_state = [f"  {obs_name} with additional info:"]
             str_for_this_state.append(f"{state_str}")

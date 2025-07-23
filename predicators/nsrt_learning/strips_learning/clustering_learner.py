@@ -185,7 +185,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 pnad.add_to_datastore(
                     (segment, sub),
                     check_effect_equality=not self.get_name()
-                        in ["cluster_and_search_process_learner"])
+                    in ["cluster_and_search_process_learner"])
             else:
                 # Otherwise, create a new PNAD.
                 objects = {o for atom in segment.add_effects |
@@ -250,7 +250,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                                 sub = cast(
                                     VarToObjSub,
                                     {v: o
-                                    for o, v in ent_to_ent_sub.items()})
+                                     for o, v in ent_to_ent_sub.items()})
                                 # Add to this PNAD.
                                 if CFG.exogenous_process_learner_do_intersect:
                                     # Find the largest conditions that unifies the init
@@ -261,7 +261,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                                     # intersection. Hence it can fall out later in
                                     # `induce_preconditions_via_intersection`.
                                     (pnad_param_option,
-                                    pnad_option_vars) = pnad.option_spec
+                                     pnad_option_vars) = pnad.option_spec
                                     sub = self._maybe_intersect_segment_with_pnad(
                                         segment, pnad, ent_to_ent_sub,
                                         segment_param_option,
@@ -270,18 +270,21 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                                 else:
                                     assert set(sub.keys()) == set(
                                         pnad.op.parameters)
-                                pnad.add_to_datastore((segment, sub),
-                                                    check_effect_equality=False)
+                                pnad.add_to_datastore(
+                                    (segment, sub),
+                                    check_effect_equality=False)
                             else:
                                 # Create a new pnad with this atom
                                 op = STRIPSOperator(f"Op{len(pnads)}", params,
                                                     preconds, add_effect_set,
-                                                    del_effect_set, ignore_effects)
+                                                    del_effect_set,
+                                                    ignore_effects)
                                 datastore = [(segment, var_to_obj)]
                                 option_vars = [
                                     obj_to_var[o] for o in segment_option_objs
                                 ]
-                                option_spec = (segment_param_option, option_vars)
+                                option_spec = (segment_param_option,
+                                               option_vars)
                                 pnads.append(PNAD(op, datastore, option_spec))
                         continue
                 op = STRIPSOperator(f"Op{len(pnads)}", params, preconds,
@@ -1014,7 +1017,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         pruning_enabled = (CFG.process_scoring_method == 'data_likelihood' and
                            CFG.process_condition_search_prune_with_fp_count)
 
-        # Determine how many candidate preconditions to keep per PNAD for 
+        # Determine how many candidate preconditions to keep per PNAD for
         # parallel scoring.
         num_candidates_per_pnad = [
             2**len(self._induce_preconditions_via_intersection(pnad))
@@ -1127,7 +1130,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             process, scores = learn_process_parameters(
                 trajectories,
                 predicates,
-                [base_process],  # The list now contains just the one process to score.
+                [base_process
+                 ],  # The list now contains just the one process to score.
                 use_lbfgs=False,
                 plot_training_curve=False,
                 lbfgs_max_iter=num_it,
@@ -1135,8 +1139,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 seed=seed,
                 display_progress=True,
                 early_stopping_patience=early_stopping_patience,
-                debug_log=True
-            )
+                debug_log=True)
             process_param_str = ", ".join(
                 [f"{v:.4f}" for v in process[0]._get_parameters()])
             logging.info(f"ELBO: {scores[0]:.4f}, "
@@ -1144,6 +1147,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                          f"Exp_delay_prob: {scores[2]:.4f}, "
                          f"Entropy: {scores[3]:.4f}, "
                          f"Process params: {process_param_str}\n")
+
         # with mu=5; work_item 2: FaucetOn
         #            work_item 5: BrunerOn
         # # ------ For FaucetOn

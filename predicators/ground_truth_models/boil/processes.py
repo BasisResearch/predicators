@@ -1,10 +1,10 @@
 """Ground-truth processes for the boil environments."""
-from typing import Dict, Set
+import logging
 from pprint import pformat
+from typing import Dict, Set
 
 import numpy as np
 import torch
-import logging
 
 from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.settings import CFG

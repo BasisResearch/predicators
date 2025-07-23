@@ -111,8 +111,8 @@ def learn_processes_from_data(
     ]
     # Filter out segments explained by endogenous processes.
     remaining_segmented_trajs = filter_explained_segment(segmented_trajs,
-                                                        endogenous_processes,
-                                                        remove_options=True)
+                                                         endogenous_processes,
+                                                         remove_options=True)
 
     existing_exogenous_processes: List[ExogenousProcess] = []
 
