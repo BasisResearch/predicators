@@ -1164,8 +1164,9 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         start_time = time.time()
         logging.info(f"Scoring {len(work_items)} total conditions for "
                      f"{len(pnads)} PNADs using up to {cpu_cnt} workers.")
-        logging.debug(f"Early stopping patience: "
-                      f"{CFG.process_param_learning_patience}")
+        logging.debug(f"Num vi steps: {CFG.cluster_and_search_vi_steps}, "
+                        "Early stopping patience: "
+                        f"{CFG.process_param_learning_patience}")
         with Pool(nodes=min(len(work_items), cpu_cnt)) as pool:
             results = pool.map(_flat_pnad_scoring_worker, work_items)
         logging.info(f"Finished scoring in {time.time() - start_time:.2f}s.")
