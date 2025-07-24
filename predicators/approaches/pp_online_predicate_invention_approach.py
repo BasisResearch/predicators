@@ -316,7 +316,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         all_trajs: List[LowLevelTrajectory],
         proposed_predicates: Set[Predicate],
         train_tasks: List[Task] = [],
-        enumerate_processes: bool = True,
+        enumerate_processes: bool = False,
     ) -> None:
         if CFG.vlm_predicator_oracle_learned_predicates:
             selected_preds = proposed_predicates
@@ -350,44 +350,39 @@ class OnlinePredicateInventionProcessPlanningApproach(
             atom_dataset: List[GroundAtomTrajectory] =\
                         utils.create_ground_atom_dataset(all_trajs,
                                                         set(all_candidates))
+
+            self._learned_predicates = set(all_candidates)  # temp
+            self._learn_processes(
+                self._offline_dataset.trajectories + \
+                    self._online_dataset.trajectories,
+                online_learning_cycle=self._online_learning_cycle)
+
+            if CFG.learn_process_parameters:
+                self._learn_process_parameters(
+                                    self._offline_dataset.trajectories+\
+                                    self._online_dataset.trajectories)
             # Whether to do predicate selection by scoring different predicate
             # set or by scoring different process set.
             start_time = time.perf_counter()
             if enumerate_processes:
                 # Learn processes based on all the candidates.
-                self._learned_predicates = set(all_candidates)  # temp
-                self._learn_processes(
-                    self._offline_dataset.trajectories + \
-                        self._online_dataset.trajectories,
-                    online_learning_cycle=self._online_learning_cycle)
-
-                if CFG.learn_process_parameters:
-                    self._learn_process_parameters(
-                                        self._offline_dataset.trajectories+\
-                                        self._online_dataset.trajectories)
 
                 # Search by scoring different set of processes.
+                # When commented out: keeping all candidates.
                 selected_processes =\
                     self._select_processes_by_score_optimization(train_tasks,
                                                 self._processes, atom_dataset)
                 self._processes = selected_processes
                 # TODO: remove duplicate predicates
                 self._learned_predicates = self._get_predicates_in_processes(
-                    selected_processes, set(all_candidates))
+                    self._processes, set(all_candidates))
             else:
                 # select predicates
                 logging.info("[Start] Predicate search.")
-                score_function = create_score_function(
-                    CFG.grammar_search_score_function,
-                    self._initial_predicates,
-                    atom_dataset,
-                    all_candidates,
-                    train_tasks,
-                    current_processes=self._get_current_processes(),
-                    use_processes=True)
-                selected_preds = self._select_predicates_by_score_optimization(
-                    ite, all_candidates, score_function,
-                    self._initial_predicates)
+                self._learned_predicates =\
+                    self._select_predicates_by_score_optimization(
+                        train_tasks, all_candidates, self._processes, 
+                        atom_dataset)
             logging.info("[Finished] Predicate search.")
             logging.info("Total search time "
                          f"{time.perf_counter() - start_time:.2f}s")
@@ -505,114 +500,174 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 f"{CFG.grammar_search_search_algorithm}.")
 
         selected_exogenous_processes = path[-1]
-        logging.debug(f"Selected processes: {pformat(selected_exogenous_processes)}")
+        logging.debug(f"Selected processes: "
+                        f"{pformat(selected_exogenous_processes)}")
 
         return endogenous_processes | selected_exogenous_processes
 
-    # def _select_predicates_by_score_optimization(
-    #         self,
-    #         ite: int,
-    #         candidates: Dict[Predicate, float],
-    #         score_function: _PredicateSearchScoreFunction,
-    #         initial_predicates: Set[Predicate] = set(),
-    # ) -> Set[Predicate]:
-    #     """Perform a greedy search over predicate sets."""
+    def _select_predicates_by_score_optimization(
+            self,
+            train_tasks: List[Task],
+            candidates: Dict[Predicate, float],
+            all_processes: Set[CausalProcess],
+            atom_dataset: List[GroundAtomTrajectory],
+    ) -> Set[Predicate]:
+        """Perform a greedy search over predicate sets."""
+        endogenous_processes = {p for p in all_processes
+                                if isinstance(p, EndogenousProcess)}
+        exogenous_processes = {p for p in all_processes
+                                 if isinstance(p, ExogenousProcess)}
 
-    #     def _check_goal(s: FrozenSet[Predicate]) -> bool:
-    #         del s  # unused
-    #         return False
+        # Precompute stuff for scoring.
+        segmented_trajs = [
+            segment_trajectory(ll_traj, self._get_current_predicates(),
+                               atom_seq)
+            for (ll_traj, atom_seq) in atom_dataset
+        ]
+        score_func = _ExpectedNodesScoreFunction(
+            _initial_predicates=set(),
+            _atom_dataset=[],
+            _candidates=dict(),
+            _train_tasks=train_tasks,
+            _current_processes=set(),
+            _use_processes=True,
+            metric_name="num_nodes_expanded")
+        
+        def _score_predicates(candidate_predicates: FrozenSet[Predicate]
+                              ) -> float:
+            # Remove parts that are outside of candidates predicates
+            remaining_exogenous_processes = set()
+            removed_proc_names = []
+            for proc in exogenous_processes:
+                proc_copy = proc.copy()
+                proc_copy.condition_at_start = {
+                    atom
+                    for atom in proc.condition_at_start
+                    if atom.predicate in candidate_predicates
+                }
+                proc_copy.add_effects = {
+                    atom
+                    for atom in proc.add_effects
+                    if atom.predicate in candidate_predicates
+                }
+                proc_copy.delete_effects = {
+                    atom
+                    for atom in proc.delete_effects
+                    if atom.predicate in candidate_predicates
+                }
+                if proc_copy.add_effects | proc_copy.delete_effects:
+                    remaining_exogenous_processes.add(proc_copy)
+                else:
+                    removed_proc_names.append(proc_copy.name)
+            new_preds = candidate_predicates - self._initial_predicates
+            logging.debug(f"Evaluating predicates: {set(new_preds)}")
+            # Score processes with the score function.
+            process_score = score_func.evaluate_with_operators(
+                candidate_predicates=candidate_predicates,
+                low_level_trajs=self._offline_dataset.trajectories +
+                                    self._online_dataset.trajectories,
+                segmented_trajs=segmented_trajs,
+                strips_ops=remaining_exogenous_processes | endogenous_processes,
+                option_specs=[])
+            process_penalty = _ExpectedNodesScoreFunction._get_operator_penalty(
+                remaining_exogenous_processes)
+            return process_score + process_penalty
 
-    #     # Successively consider larger predicate sets.
-    #     def _get_successors(
-    #         s: FrozenSet[Predicate]
-    #     ) -> Iterator[Tuple[None, FrozenSet[Predicate], float]]:
-    #         for predicate in sorted(set(candidates) - s):  # determinism
-    #             # Actions not needed. Frozensets for hashing. The cost of
-    #             # 1.0 is irrelevant because we're doing GBFS / hill
-    #             # climbing and not A* (because we don't care about the
-    #             # path).
-    #             yield (None, frozenset(s | {predicate}), 1.0)
+        def _check_goal(s: FrozenSet[Predicate]) -> bool:
+            del s  # unused
+            return False
 
-    #     # Start the search with no candidates.
-    #     # Don't need to include the initial predicates here because its
-    #     init: FrozenSet[Predicate] = frozenset(initial_predicates)
+        # Successively consider larger predicate sets.
+        def _get_successors(
+            s: FrozenSet[Predicate]
+        ) -> Iterator[Tuple[None, FrozenSet[Predicate], float]]:
+            for predicate in sorted(set(candidates) - s):  # determinism
+                # Actions not needed. Frozensets for hashing. The cost of
+                # 1.0 is irrelevant because we're doing GBFS / hill
+                # climbing and not A* (because we don't care about the
+                # path).
+                yield (None, frozenset(s | {predicate}), 1.0)
 
-    #     # calculate the number of total combinations of all sizes
-    #     num_combinations = 2**len(set(candidates))
+        # Start the search with no candidates.
+        # Don't need to include the initial predicates here because its
+        init: FrozenSet[Predicate] = frozenset(self._initial_predicates)
 
-    #     # Greedy local hill climbing search.
-    #     if CFG.grammar_search_search_algorithm == "hill_climbing":
-    #         path, _, heuristics = utils.run_hill_climbing(
-    #             init,
-    #             _check_goal,
-    #             _get_successors,
-    #             score_function.evaluate,
-    #             enforced_depth=CFG.grammar_search_hill_climbing_depth,
-    #             parallelize=CFG.grammar_search_parallelize_hill_climbing)
-    #         logging.info("\nHill climbing summary:")
-    #         for i in range(1, len(path)):
-    #             new_additions = path[i] - path[i - 1]
-    #             assert len(new_additions) == 1
-    #             new_addition = next(iter(new_additions))
-    #             h = heuristics[i]
-    #             prev_h = heuristics[i - 1]
-    #             logging.info(f"\tOn step {i}, added {new_addition}, with "
-    #                          f"heuristic {h:.3f} (an improvement of "
-    #                          f"{prev_h - h:.3f} over the previous step)")
-    #     elif CFG.grammar_search_search_algorithm == "gbfs":
-    #         path, _ = utils.run_gbfs(
-    #             init,
-    #             _check_goal,
-    #             _get_successors,
-    #             score_function.evaluate,
-    #             max_evals=CFG.grammar_search_gbfs_num_evals,
-    #         )
-    #     else:
-    #         raise NotImplementedError(
-    #             "Unrecognized grammar_search_search_algorithm: "
-    #             f"{CFG.grammar_search_search_algorithm}.")
-    #     kept_predicates = path[-1]
-    #     # The total number of predicate sets evaluated is just the
-    #     # ((number of candidates selected) + 1) * total number of candidates.
-    #     # However, since 'path' always has length one more than the
-    #     # number of selected candidates (since it evaluates the empty
-    #     # predicate set first), we can just compute it as below.
-    #     assert self._metrics.get("total_num_predicate_evaluations") is None
-    #     self._metrics["total_num_predicate_evaluations"] = len(path) * len(
-    #         candidates)
+        # Greedy local hill climbing search.
+        if CFG.grammar_search_search_algorithm == "hill_climbing":
+            path, _, heuristics = utils.run_hill_climbing(
+                init,
+                _check_goal,
+                _get_successors,
+                _score_predicates,
+                enforced_depth=CFG.grammar_search_hill_climbing_depth,
+                parallelize=CFG.grammar_search_parallelize_hill_climbing)
+            logging.info("\nHill climbing summary:")
+            for i in range(1, len(path)):
+                new_additions = path[i] - path[i - 1]
+                assert len(new_additions) == 1
+                new_addition = next(iter(new_additions))
+                h = heuristics[i]
+                prev_h = heuristics[i - 1]
+                logging.info(f"\tOn step {i}, added {new_addition}, with "
+                             f"heuristic {h:.3f} (an improvement of "
+                             f"{prev_h - h:.3f} over the previous step)")
+        elif CFG.grammar_search_search_algorithm == "gbfs":
+            path, _ = utils.run_gbfs(
+                init,
+                _check_goal,
+                _get_successors,
+                _score_predicates,
+                max_evals=CFG.grammar_search_gbfs_num_evals,
+            )
+        else:
+            raise NotImplementedError(
+                "Unrecognized grammar_search_search_algorithm: "
+                f"{CFG.grammar_search_search_algorithm}.")
+        kept_predicates = path[-1]
+        # The total number of predicate sets evaluated is just the
+        # ((number of candidates selected) + 1) * total number of candidates.
+        # However, since 'path' always has length one more than the
+        # number of selected candidates (since it evaluates the empty
+        # predicate set first), we can just compute it as below.
+        assert self._metrics.get("total_num_predicate_evaluations") is None
+        self._metrics["total_num_predicate_evaluations"] = len(path) * len(
+            candidates)
 
-    #     # # Filter out predicates that don't appear in some operator
-    #     # # preconditions.
-    #     # logging.info("\nFiltering out predicates that don't appear in "
-    #     #              "preconditions...")
-    #     # preds = kept_predicates | initial_predicates
-    #     # pruned_atom_data = utils.prune_ground_atom_dataset(atom_dataset, preds)
-    #     # segmented_trajs = [
-    #     #     segment_trajectory(ll_traj, set(preds), atom_seq=atom_seq)
-    #     #     for (ll_traj, atom_seq) in pruned_atom_data
-    #     # ]
-    #     # low_level_trajs = [ll_traj for ll_traj, _ in pruned_atom_data]
-    #     # preds_in_preconds = set()
-    #     # for pnad in learn_strips_operators(low_level_trajs,
-    #     #                                    train_tasks,
-    #     #                                    set(kept_predicates
-    #     #                                        | initial_predicates),
-    #     #                                    segmented_trajs,
-    #     #                                    verify_harmlessness=False,
-    #     #                                    annotations=None,
-    #     #                                    verbose=False):
-    #     #     for atom in pnad.op.preconditions:
-    #     #         preds_in_preconds.add(atom.predicate)
-    #     # kept_predicates &= preds_in_preconds
+        # # Filter out predicates that don't appear in some operator
+        # # preconditions.
+        # logging.info("\nFiltering out predicates that don't appear in "
+        #              "preconditions...")
+        # preds = kept_predicates | initial_predicates
+        # pruned_atom_data = utils.prune_ground_atom_dataset(atom_dataset, preds)
+        # segmented_trajs = [
+        #     segment_trajectory(ll_traj, set(preds), atom_seq=atom_seq)
+        #     for (ll_traj, atom_seq) in pruned_atom_data
+        # ]
+        # low_level_trajs = [ll_traj for ll_traj, _ in pruned_atom_data]
+        # preds_in_preconds = set()
+        # for pnad in learn_strips_operators(low_level_trajs,
+        #                                    train_tasks,
+        #                                    set(kept_predicates
+        #                                        | initial_predicates),
+        #                                    segmented_trajs,
+        #                                    verify_harmlessness=False,
+        #                                    annotations=None,
+        #                                    verbose=False):
+        #     for atom in pnad.op.preconditions:
+        #         preds_in_preconds.add(atom.predicate)
+        # kept_predicates &= preds_in_preconds
 
-    #     logging.info(
-    #         f"\n[ite {ite}] Selected {len(kept_predicates)} predicates"
-    #         f" out of {len(candidates)} candidates:")
-    #     for pred in kept_predicates:
-    #         logging.info(f"\t{pred}")
-    #     score_function.evaluate(kept_predicates)  # log useful numbers
+        newly_selected = kept_predicates - self._initial_predicates
+        new_candidates = set(candidates) - self._initial_predicates
+        logging.info(
+            f"\n[ite {self._online_learning_cycle}] Selected "
+            f"{len(newly_selected)} predicates"
+            f" out of {len(new_candidates)} candidates:")
+        for pred in newly_selected:
+            logging.info(f"\t{pred}")
+        _score_predicates(kept_predicates)  # log useful numbers
 
-    #     return set(kept_predicates)
+        return set(kept_predicates)
 
 
 def get_false_positive_states_from_seg_trajs(
