@@ -937,7 +937,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         num_to_log = 100
         for i, candidate in enumerate(candidates_with_scores[:num_to_log]):
             score, condition_candidate = candidate
-            logging.debug(f"{i}: {condition_candidate}, Score: {score}")
+            logging.debug(f"{i}: {condition_candidate}, Score: {score:.4f}")
         return candidates_with_scores[:position]
 
     def _get_top_consistent_conditions(self, initial_atom: Set[LiftedAtom],

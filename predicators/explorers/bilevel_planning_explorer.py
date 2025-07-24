@@ -67,11 +67,11 @@ class BilevelPlanningExplorer(BaseExplorer):
                     try:
                         process_plan, _, _ = next(
                             self._process_plan_iterators[task])
-                    except _MaxSkeletonsFailure:
+                    except _MaxSkeletonsFailure as e:
                         # If the iterator is exhausted, raise an error or handle
                         # it
                         logging.debug(f"No more process plans available for "
-                                      f"task")
+                                      f"task: {e}")
                         raise PlanningFailure("No more process plans "
                                               "available for task")
                 else:
