@@ -181,6 +181,9 @@ class ProcessWorldModel:
                 or not g_process.condition_at_start.issubset(
                     self.state_history[-1]))
             is_exogenous = isinstance(g_process, _GroundExogenousProcess)
+            # if is_exogenous:
+            #     logging.debug(f"process {g_process} ")
+            #     breakpoint()
             # Action. Here we shouldn't require it was previous unsatisfied.
             is_endogenous = isinstance(g_process, _GroundEndogenousProcess)
             first_step_running_action = small_step_action is not None and \
@@ -205,6 +208,7 @@ class ProcessWorldModel:
                     self.scheduled_events[schedued_time] = []
                 self.scheduled_events[schedued_time].append(
                     (g_process, self.t))
+                # logging.debug(f"current scheduled_events: {self.scheduled_events.keys()}")
 
         self.state_history.append(self.state.copy())
 
@@ -343,11 +347,19 @@ def _skeleton_generator_with_processes(
                 assert isinstance(action_process, _GroundEndogenousProcess)
                 # plan_so_far = [p.name for p in node.skeleton]
                 # logging.debug(f"Expand after plan {plan_so_far}:")
-                # if len(node.skeleton) > 2 and \
-                #     node.skeleton[0].name == 'PickJugFromOutsideFaucetAndBurner' and \
-                #     node.skeleton[1].name == 'PlaceUnderFaucet' and \
-                #     node.skeleton[2].name == 'SwitchFaucetOn' and \
-                #     action_process.name == 'SwitchBurnerOn':
+                # action_names = [p.name for p in node.skeleton]
+                # target_action_names = ['PickJugFromOutsideFaucetAndBurner',
+                #                        'PlaceUnderFaucet',
+                #                        'SwitchFaucetOn',
+                #                        'SwitchBurnerOn',
+                #                        'NoOp',
+                #                        'PickJugFromFaucet',
+                #                        'PlaceOnBurner',
+                #                        'SwitchFaucetOff',
+                #                     #    'NoOp'
+                #                        ]
+                # if action_names == target_action_names and \
+                #     action_process.name == 'NoOp':
                 #     breakpoint()
                 world_model.big_step(action_process)
                 child_atoms = world_model.state.copy()
@@ -553,7 +565,7 @@ if __name__ == "__main__":
     jug1 = env._jugs[0]
     burner1 = env._burners[0]
 
-    # processes
+    # Processes
     options = get_gt_options(env.get_name())
     processes = get_gt_processes(env.get_name(), env.predicates, options)
     action_processes = [
@@ -573,6 +585,9 @@ if __name__ == "__main__":
         noop.ground([robot])
     ]
 
+    # Predicates
+    predicates = env.predicates
+
     def policy():
         global plan
         if len(plan) > 0:
@@ -591,8 +606,7 @@ if __name__ == "__main__":
         compute_reachable_atoms=False)
 
     world_model = ProcessWorldModel(ground_processes=ground_processes,
-                                    state=utils.abstract(
-                                        task.init, env.predicates),
+                                    state=utils.abstract(task.init, predicates),
                                     state_history=[],
                                     action_history=[],
                                     scheduled_events={},
