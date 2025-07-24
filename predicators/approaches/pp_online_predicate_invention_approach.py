@@ -3,6 +3,7 @@ import os
 import re
 import time
 import traceback
+import dill as pkl
 from collections import defaultdict
 from pprint import pformat
 from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Sequence, \
@@ -76,6 +77,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         # proposed_predicates = self._get_predicate_proposals(
         #     "transition_modelling",
         #     self._offline_dataset.trajectories)
+        self.save()
 
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
@@ -105,8 +107,53 @@ class OnlinePredicateInventionProcessPlanningApproach(
         if CFG.learn_process_parameters:
             self._learn_process_parameters(self._offline_dataset.trajectories+\
                                            self._online_dataset.trajectories)
+        self.save(self._online_learning_cycle)
 
         self._online_learning_cycle += 1
+
+    def save(self, online_learning_cycle: Optional[int] = None) -> None:
+        # Saving the learned processes, dataset, candidate predicates
+        save_path = utils.get_approach_save_path_str()
+        with open(f"{save_path}_{online_learning_cycle}.PROCes", "wb"
+                  ) as f:
+            save_dict = {
+                "processes": self._processes,
+                "candidate_predicates": self._candidate_predicates,
+                "offline_dataset": self._offline_dataset,
+                "online_dataset": self._online_dataset
+            }
+            pkl.dump(save_dict, f)
+            logging.info(f"Saved approach to {save_path}_"
+                            f"{online_learning_cycle}.PROCes")
+
+    def load(self, online_learning_cycle: Optional[int] = None) -> None:
+        save_path = utils.get_approach_load_path_str()
+        with open(f"{save_path}_{online_learning_cycle}.PROCes", "rb") as f:
+            save_dict = pkl.load(f)
+        # check save_dict has "processes", "candidate_predicate" values
+        assert "processes" in save_dict, "Processes not found in save_dict"
+        assert "candidate_predicates" in save_dict, \
+            "Candidate predicates not found in save_dict"
+        assert "offline_dataset" in save_dict, \
+            "Offline dataset not found in save_dict"
+        assert "online_dataset" in save_dict, \
+            "Online dataset not found in save_dict"
+        self._processes = save_dict["processes"]
+        self._candidate_predicates = save_dict["candidate_predicates"]
+        self._offline_dataset = save_dict["offline_dataset"]
+        self._online_dataset = save_dict["online_dataset"]
+        logging.info(f"\n\nLoaded Processes:")
+        for process in sorted(self._processes):
+            logging.info(process)
+        logging.info(f"Loaded {len(self._processes)} processes, "
+            f"{len(self._candidate_predicates)} candidate predicates, "
+            f"{len(self._offline_dataset.trajectories)} offline trajectories, "
+            f"{len(self._online_dataset.trajectories)} online trajectories\n")
+
+        for proc in self._processes:
+            if isinstance(proc, EndogenousProcess):
+                proc.option.params_space.seed(CFG.seed)
+        pass
 
     def _get_predicate_proposals(
             self, proposal_method: str,
@@ -377,16 +424,17 @@ class OnlinePredicateInventionProcessPlanningApproach(
         atom_dataset: List[GroundAtomTrajectory],
     ) -> Set[CausalProcess]:
         """Perform a greedy search over process sets."""
-        candidate_to_score: List[Tuple[ExogenousProcess, float]] = []
-        endogenous_processes = set(p for p in all_processes
-                                   if isinstance(p, EndogenousProcess))
+        endogenous_processes = {p for p in all_processes
+                                if isinstance(p, EndogenousProcess)}
+        exogenous_processes = {p for p in all_processes
+                                 if isinstance(p, ExogenousProcess)}
+
+        # Precompute stuff for scoring.
         segmented_trajs = [
             segment_trajectory(ll_traj, self._get_current_predicates(),
                                atom_seq)
             for (ll_traj, atom_seq) in atom_dataset
         ]
-        exogenous_processes = set(p for p in all_processes
-                                  if isinstance(p, ExogenousProcess))
         score_func = _ExpectedNodesScoreFunction(
             _initial_predicates=set(),
             _atom_dataset=[],
@@ -396,31 +444,70 @@ class OnlinePredicateInventionProcessPlanningApproach(
             _use_processes=True,
             metric_name="num_nodes_expanded")
 
-        for candidate_exogenous_processes in utils.all_subsets(
-                exogenous_processes):
+        # Define the score function for a set of processes.
+        def _score_processes(
+                    candidate_exogenous_processes: FrozenSet[ExogenousProcess]
+                ) -> float:
             process_score = score_func.evaluate_with_operators(
                 candidate_predicates=self._get_current_predicates(),
                 low_level_trajs=self._offline_dataset.trajectories +
                 self._online_dataset.trajectories,
                 segmented_trajs=segmented_trajs,
-                strips_ops=candidate_exogenous_processes
-                | endogenous_processes,
+                strips_ops=candidate_exogenous_processes | endogenous_processes,
                 option_specs=[])
             process_penalty = _ExpectedNodesScoreFunction._get_operator_penalty(
                 candidate_exogenous_processes)
-            process_score += process_penalty
-            processes_names = sorted(p.name
-                                     for p in candidate_exogenous_processes)
-            logging.debug(
-                f"Processes: {processes_names} got score: "
-                f"{process_score:.3f}, penalty: {process_penalty:.3f}")
-            candidate_to_score.append(
-                (candidate_exogenous_processes, process_score))
+            return process_score + process_penalty
 
-        selected_processes = min(candidate_to_score, key=lambda x: x[1])[0]
-        logging.debug(f"Selected processes: {pformat(selected_processes)}")
+        # Set up the search.
+        init_set: FrozenSet[ExogenousProcess] = frozenset()
 
-        return endogenous_processes | selected_processes
+        def _check_goal(s: FrozenSet[ExogenousProcess]) -> bool:
+            del s  # unused
+            return False
+
+        def _get_successors(
+            s: FrozenSet[ExogenousProcess]
+        ) -> Iterator[Tuple[None, FrozenSet[ExogenousProcess], float]]:
+            for process in sorted(exogenous_processes - s):
+                yield (None, frozenset(s | {process}), 1.0)
+
+        # Run the search.
+        if CFG.grammar_search_search_algorithm == "hill_climbing":
+            path, _, heuristics = utils.run_hill_climbing(
+                init_set,
+                _check_goal,
+                _get_successors,
+                _score_processes,
+                enforced_depth=CFG.grammar_search_hill_climbing_depth,
+                parallelize=CFG.grammar_search_parallelize_hill_climbing)
+            logging.info("\nHill climbing summary:")
+            for i in range(1, len(path)):  # pragma: no cover
+                new_additions = path[i] - path[i - 1]
+                assert len(new_additions) == 1
+                new_addition = next(iter(new_additions))
+                h = heuristics[i]
+                prev_h = heuristics[i - 1]
+                logging.info(f"\tOn step {i}, added {new_addition}, with "
+                             f"heuristic {h:.3f} (an improvement of "
+                             f"{prev_h - h:.3f} over the previous step)")
+        elif CFG.grammar_search_search_algorithm == "gbfs":
+            path, _ = utils.run_gbfs(
+                init_set,
+                _check_goal,
+                _get_successors,
+                _score_processes,
+                max_evals=CFG.grammar_search_gbfs_num_evals,
+            )
+        else:
+            raise NotImplementedError(
+                "Unrecognized grammar_search_search_algorithm: "
+                f"{CFG.grammar_search_search_algorithm}.")
+
+        selected_exogenous_processes = path[-1]
+        logging.debug(f"Selected processes: {pformat(selected_exogenous_processes)}")
+
+        return endogenous_processes | selected_exogenous_processes
 
     # def _select_predicates_by_score_optimization(
     #         self,

@@ -69,7 +69,6 @@ class OnlineProcessLearningAndPlanningApproach(
         2. try whether removing one of the conditions of the exogenous 
         process would allow the process to succeed.
         """
-        # TODO: Implement something like the one in VisualPredicator?
         explorer = self._create_explorer()
 
         # As in OnlineNSRTLearningApproach, do some resets.
