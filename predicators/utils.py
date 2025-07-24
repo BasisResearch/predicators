@@ -2317,6 +2317,8 @@ def run_hill_climbing(
     0 corresponds to simple hill climbing. Terminate when no improvement can
     be found. early_termination_heuristic_thresh allows for searching until
     heuristic reaches a specified value.
+    Let b be the branching factor, d be the enforced_depth, this has time 
+    complxity of O(b^{d+1}).
 
     Lower heuristic is better.
     """
@@ -2369,6 +2371,7 @@ def run_hill_climbing(
                     successors_at_depth.append(child_node)
                     if parallelize:
                         continue  # heuristic computation is parallelized later
+                    logging.debug(f"Eval state: {child_node.state}")
                     child_heuristic = heuristic(child_node.state)
                     if child_heuristic < best_heuristic:
                         best_heuristic = child_heuristic
