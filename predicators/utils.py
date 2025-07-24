@@ -2371,7 +2371,6 @@ def run_hill_climbing(
                     successors_at_depth.append(child_node)
                     if parallelize:
                         continue  # heuristic computation is parallelized later
-                    logging.debug(f"Eval state: {child_node.state}")
                     child_heuristic = heuristic(child_node.state)
                     if child_heuristic < best_heuristic:
                         best_heuristic = child_heuristic
