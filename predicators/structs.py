@@ -2559,6 +2559,11 @@ class CausalProcess(abc.ABC):
         pass
 
     @abc.abstractmethod
+    def copy(self) -> CausalProcess:
+        """Create a deep copy of this causal process."""
+        pass
+
+    @abc.abstractmethod
     def filter_predicates(self, kept: Collection[Predicate]) -> CausalProcess:
         """Keep only the given predicates in the preconditions, add effects,
         delete effects, and ignore effects.
@@ -2647,6 +2652,19 @@ class CausalProcess(abc.ABC):
 @dataclass(frozen=False, repr=False, eq=False)
 class ExogenousProcess(CausalProcess):
 
+    def copy(self) -> ExogenousProcess:
+        """Create a deep copy of this exogenous process."""
+        return ExogenousProcess(
+            name=self.name,
+            parameters=list(self.parameters),
+            condition_at_start=self.condition_at_start.copy(),
+            condition_overall=self.condition_overall.copy(),
+            condition_at_end=self.condition_at_end.copy(),
+            add_effects=self.add_effects.copy(),
+            delete_effects=self.delete_effects.copy(),
+            delay_distribution=copy.deepcopy(self.delay_distribution),
+            strength=self.strength)
+
     def filter_predicates(self,
                           kept: Collection[Predicate]) -> ExogenousProcess:
         condition_at_start = {a for a in self.condition_at_start if a.predicate\
@@ -2698,6 +2716,22 @@ class EndogenousProcess(CausalProcess):
     option: ParameterizedOption
     option_vars: Sequence[Variable]
     _sampler: NSRTSampler = field(repr=False)
+
+    def copy(self) -> EndogenousProcess:
+        """Create a deep copy of this endogenous process."""
+        return EndogenousProcess(
+            name=self.name,
+            parameters=list(self.parameters),
+            condition_at_start=self.condition_at_start.copy(),
+            condition_overall=self.condition_overall.copy(),
+            condition_at_end=self.condition_at_end.copy(),
+            add_effects=self.add_effects.copy(),
+            delete_effects=self.delete_effects.copy(),
+            delay_distribution=copy.deepcopy(self.delay_distribution),
+            strength=self.strength.copy(),
+            option=self.option.copy(),
+            option_vars=list(self.option_vars).copy(),
+            _sampler=self._sampler.copy())
 
     def filter_predicates(self,
                           kept: Collection[Predicate]) -> EndogenousProcess:
