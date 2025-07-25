@@ -533,11 +533,11 @@ class OnlinePredicateInventionProcessPlanningApproach(
             _use_processes=True,
             metric_name="num_nodes_expanded")
         
-        def _score_predicates(candidate_predicates: FrozenSet[Predicate]
-                              ) -> float:
-            # Remove parts that are outside of candidates predicates
+        def _filter_processes(
+            candidate_predicates: FrozenSet[Predicate]
+        ) -> Set[ExogenousProcess]:
+            """Filter out processes that are not compatible with the predicates."""
             remaining_exogenous_processes = set()
-            removed_proc_names = []
             for proc in exogenous_processes:
                 proc_copy = proc.copy()
                 proc_copy.condition_at_start = {
@@ -557,8 +557,13 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 }
                 if proc_copy.add_effects | proc_copy.delete_effects:
                     remaining_exogenous_processes.add(proc_copy)
-                else:
-                    removed_proc_names.append(proc_copy.name)
+            return remaining_exogenous_processes
+
+        def _score_predicates(candidate_predicates: FrozenSet[Predicate]
+                              ) -> float:
+            # Remove parts that are outside of candidates predicates
+            remaining_exogenous_processes = _filter_processes(
+                candidate_predicates)
             new_preds = candidate_predicates - self._initial_predicates
             logging.debug(f"Evaluating predicates: {set(new_preds)}")
             # Score processes with the score function.
@@ -666,6 +671,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
         for pred in newly_selected:
             logging.info(f"\t{pred}")
         _score_predicates(kept_predicates)  # log useful numbers
+        self._processes = endogenous_processes |\
+                            _filter_processes(kept_predicates)
 
         return set(kept_predicates)
 
