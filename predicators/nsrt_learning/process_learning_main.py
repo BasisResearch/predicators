@@ -168,7 +168,7 @@ def filter_explained_segment(
     segmented_trajs: List[List[Segment]],
     processes: List[CausalProcess],
     remove_options: bool = False,
-    log_remaining_trajs: bool = True,
+    log_remaining_trajs: bool = False,
 ) -> List[List[Segment]]:
     """Filter out segments that are explained by the given PNADs."""
     num_segments = sum(len(traj) for traj in segmented_trajs)
