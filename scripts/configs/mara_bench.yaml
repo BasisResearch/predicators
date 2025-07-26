@@ -98,7 +98,7 @@ APPROACHES:
       grammar_search_grammar_includes_foralls: False
       grammar_search_prune_redundant_preds: False
       grammar_search_search_algorithm: "hill_climbing"
-      grammar_search_task_planning_timeout: 0.5
+      grammar_search_task_planning_timeout: 1
       learnable_delay_distribution: "constant" # "constant", "cmp", "normal"
       bilevel_planning_explorer_enumerate_plans: True
       online_nsrt_learning_requests_per_task: 8 # 8 2
@@ -120,7 +120,7 @@ APPROACHES:
       process_condition_search_prune_with_fp_count: True
       grammar_search_expected_nodes_max_skeletons: 1
       grammar_search_operator_complexity_weight: 0.1
-      grammar_search_hill_climbing_depth: 3
+      grammar_search_hill_climbing_depth: 2
       vlm_predicator_num_proposal_batches: 1
       process_learning_process_per_physical_core: True
 
