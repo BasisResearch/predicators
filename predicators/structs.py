@@ -1105,9 +1105,9 @@ class STRIPSOperator:
     ) -> ExogenousProcess:
         """Make an ExogenousProcess out of this STRIPSOperator object."""
         if process_delay_params is None:
-            process_delay_params = [1, 1]
+            process_delay_params = torch.tensor([1, 1])
         if process_strength is None:
-            process_strength = 1.0
+            process_strength = torch.tensor(1.0)
         dist = utils.DiscreteGaussianDelay(torch.tensor(1), torch.tensor(1))
 
         proc = ExogenousProcess(self.name,
@@ -2552,7 +2552,7 @@ class CausalProcess(abc.ABC):
     add_effects: Set[LiftedAtom]
     delete_effects: Set[LiftedAtom]
     delay_distribution: DelayDistribution
-    strength: float
+    strength: torch.Tensor
 
     @abc.abstractmethod
     def ground(self, objects: Sequence[Object]) -> _GroundCausalProcess:
@@ -2662,8 +2662,8 @@ class ExogenousProcess(CausalProcess):
             condition_at_end=self.condition_at_end.copy(),
             add_effects=self.add_effects.copy(),
             delete_effects=self.delete_effects.copy(),
-            delay_distribution=copy.deepcopy(self.delay_distribution),
-            strength=self.strength)
+            delay_distribution=self.delay_distribution.copy(),
+            strength=self.strength.clone())
 
     def filter_predicates(self,
                           kept: Collection[Predicate]) -> ExogenousProcess:
@@ -2727,10 +2727,10 @@ class EndogenousProcess(CausalProcess):
             condition_at_end=self.condition_at_end.copy(),
             add_effects=self.add_effects.copy(),
             delete_effects=self.delete_effects.copy(),
-            delay_distribution=copy.deepcopy(self.delay_distribution),
-            strength=self.strength.copy(),
+            delay_distribution=self.delay_distribution.copy(),
+            strength=self.strength.clone(),
             option=self.option.copy(),
-            option_vars=list(self.option_vars).copy(),
+            option_vars=self.option_vars.copy(),
             _sampler=self._sampler.copy())
 
     def filter_predicates(self,
