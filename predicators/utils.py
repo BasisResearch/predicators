@@ -2305,13 +2305,16 @@ def run_hill_climbing(
     heuristic: Callable[[_S], float],
     early_termination_heuristic_thresh: Optional[float] = None,
     enforced_depth: int = 0,
+    exhaustive_lookahead: bool = False,
     parallelize: bool = False,
     verbose: bool = True,
     timeout: float = float('inf')
 ) -> Tuple[List[_S], List[_A], List[float]]:
     """Enforced hill climbing local search.
 
-    For each node, the best child node is always selected, if that child is
+    For each node, this search looks for an improvement up to `enforced_depth`.
+    If `exhaustive_lookahead` is False (default), for each node, the best child 
+    node is always selected, if that child is
     an improvement over the node. If no children improve on the node, look
     at the children's children, etc., up to enforced_depth, where enforced_depth
     0 corresponds to simple hill climbing. Terminate when no improvement can
@@ -2319,6 +2322,8 @@ def run_hill_climbing(
     heuristic reaches a specified value.
     Let b be the branching factor, d be the enforced_depth, this has time 
     complxity of O(b^{d+1}).
+    If True, it searches the entire horizon up to the
+    enforced depth and picks the best overall improvement.
 
     Lower heuristic is better.
     """
@@ -2386,15 +2391,26 @@ def run_hill_climbing(
                             best_heuristic = child_heuristic
                             best_child_node = child_node
             all_best_heuristics.append(best_heuristic)
-            if last_heuristic > best_heuristic:
+
+            if not exhaustive_lookahead and last_heuristic > best_heuristic:
                 # Some improvement found.
                 if verbose:
                     logging.info(f"Found an improvement at depth {depth}")
                 break
             # Continue on to the next depth.
             current_depth_nodes = successors_at_depth
+            if not current_depth_nodes:
+                if verbose:
+                    logging.info(f"No more successors to explore at depth {depth}.")
+                break # No need to search deeper if there are no more nodes.
+
             if verbose:
-                logging.info(f"No improvement found at depth {depth}")
+                if exhaustive_lookahead:
+                    logging.info(f"Finished depth {depth}. "
+                                f"Best heuristic so far: {best_heuristic}")
+                elif last_heuristic <= best_heuristic:
+                    logging.info(f"No improvement found at depth {depth}")
+
         if best_child_node is None:
             if verbose:
                 logging.info("\nTerminating hill climbing, no more successors")
@@ -2410,9 +2426,13 @@ def run_hill_climbing(
         if verbose:
             logging.info(f"\nHill climbing reached new state {cur_node.state} "
                          f"with heuristic {last_heuristic}")
+            
     states, actions = _finish_plan(cur_node)
-    assert len(states) == len(heuristics)
-    return states, actions, heuristics
+    # The number of heuristics might not match the plan length perfectly now,
+    # so we should regenerate them from the final plan.
+    final_heuristics = [heuristic(s) for s in states]
+    assert len(states) == len(final_heuristics)
+    return states, actions, final_heuristics
 
 
 def run_policy_guided_astar(
@@ -4371,6 +4391,10 @@ class ConstantDelay(DelayDistribution):
                                      dtype=self.delay.dtype,
                                      device=self.delay.device)
 
+    def copy(self) -> ConstantDelay:
+        """Return a copy of this distribution."""
+        return ConstantDelay(self.delay.clone())
+
     def sample(self) -> int:
         return int(self.delay.item())
 
@@ -4435,6 +4459,11 @@ class DiscreteGaussianDelay(DelayDistribution):
         self.log_sigma = torch.log(sigma)
         self._max_k = max_k
         self._update_cache()
+
+    def copy(self) -> DiscreteGaussianDelay:
+        """Return a copy of this distribution."""
+        return DiscreteGaussianDelay(self.mu.clone(), self.sigma.clone(),
+                                     self._max_k)
 
     @property
     def sigma(self) -> torch.Tensor:
