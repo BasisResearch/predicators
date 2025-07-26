@@ -1,21 +1,21 @@
 import logging
 from pprint import pformat
-from typing import Any, List, Optional, Set
+from typing import Any, List, Optional, Set, Tuple, Dict, FrozenSet
 
 from gym.spaces import Box
 
 from predicators import utils
 from predicators.nsrt_learning.nsrt_learning_main import _learn_pnad_options, \
     _learn_pnad_samplers
-from predicators.nsrt_learning.process_learning import \
-    learn_exogenous_processes
 from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import learn_strips_operators
+from predicators.nsrt_learning.strips_learning.clustering_learner import \
+    ClusterAndSearchProcessLearner
 from predicators.settings import CFG
 from predicators.structs import PNAD, CausalProcess, DerivedPredicate, \
     DummyOption, EndogenousProcess, ExogenousProcess, GroundAtom, \
     GroundAtomTrajectory, LowLevelTrajectory, ParameterizedOption, Predicate, \
-    Segment, Task
+    Segment, Task, LiftedAtom
 
 
 def learn_processes_from_data(
@@ -30,7 +30,7 @@ def learn_processes_from_data(
     current_processes: Optional[Set[CausalProcess]] = None,
     log_all_processes: bool = True,
     online_learning_cycle: Optional[int] = None,
-) -> Set[CausalProcess]:
+) -> Tuple[Set[CausalProcess], Dict[str, List]]:
     """Learn CausalProcesses from the given dataset of low-level transitions,
     using the given set of predicates."""
     logging.info(f"\nLearning CausalProcesses on {len(trajectories)} "
@@ -114,7 +114,6 @@ def learn_processes_from_data(
                                                          endogenous_processes,
                                                          remove_options=True)
 
-    existing_exogenous_processes: List[ExogenousProcess] = []
 
     # STEP 2: Learn the exogenous processes based on unexplained processes.
     #         This is different from STRIPS/endogenous processes, where these
@@ -124,7 +123,7 @@ def learn_processes_from_data(
     if num_unexplaned_segments == 0:
         new_exogenous_processes = []
     else:
-        exogenous_processes_pnad = learn_strips_operators(
+        process_learner = ClusterAndSearchProcessLearner(
             trajectories,
             train_tasks,
             predicates,
@@ -135,9 +134,14 @@ def learn_processes_from_data(
             endogenous_processes=set(endogenous_processes),
             online_learning_cycle=online_learning_cycle,
         )
+        exogenous_processes_pnad = process_learner.learn()
         new_exogenous_processes = [
             pnad.make_exogenous_process() for pnad in exogenous_processes_pnad
         ]
+        # Get the other conditions' scores through class attributes.
+        proc_name_to_results: Dict[str, List[
+            Tuple[float, FrozenSet[LiftedAtom], Tuple, ExogenousProcess]]] =\
+                process_learner.proc_name_to_results
         logging.info(
             f"Learned {len(new_exogenous_processes)} exogenous processes:\n"
             f"{pformat(new_exogenous_processes)}")
@@ -145,13 +149,12 @@ def learn_processes_from_data(
         input("Press Enter to continue...")  # pause for user inspection
 
     # STEP 3: Make, log, and return the endogenous and exogenous processes.
-    processes = endogenous_processes + new_exogenous_processes + \
-        existing_exogenous_processes
+    processes = endogenous_processes + new_exogenous_processes
     if log_all_processes:
         logging.info(f"\nLearned CausalProcesses:\n{pformat(processes)}")
 
     CFG.segmenter = initial_segmentation_method
-    return set(processes)
+    return set(processes), proc_name_to_results
 
 
 def is_endogenous_process_list(processes: List) -> bool:

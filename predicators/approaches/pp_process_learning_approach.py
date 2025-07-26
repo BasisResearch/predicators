@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, FrozenSet
 
 import dill as pkl
 from gym.spaces import Box
@@ -13,7 +13,8 @@ from predicators.nsrt_learning.process_learning_main import \
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, Dataset, GroundAtomTrajectory, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, Task, Type
+    LowLevelTrajectory, ParameterizedOption, Predicate, Task, Type, \
+    ExogenousProcess
 
 
 class ProcessLearningAndPlanningApproach(
@@ -46,7 +47,9 @@ class ProcessLearningAndPlanningApproach(
                                                only_endogenous=True)
         else:
             # Learn all
-            self._processes: Set[CausalProcess] = set()
+            self._processes: Set[ExogenousProcess] = set()
+        self._proc_name_to_results: Dict[str, List[
+            Tuple[float, FrozenSet[LiftedAtom], Tuple, ExogenousProcess]]] = {}
 
     @classmethod
     def get_name(cls) -> str:
@@ -77,7 +80,7 @@ class ProcessLearningAndPlanningApproach(
         elif CFG.save_atoms:
             ground_atom_dataset = utils.create_ground_atom_dataset(
                 trajectories, self._get_current_predicates())
-        self._processes = \
+        self._processes, self._proc_name_to_results = \
             learn_processes_from_data(trajectories,
                                 self._train_tasks,
                                 self._get_current_predicates(),

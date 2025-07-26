@@ -74,7 +74,7 @@ if sys.platform == "darwin":
 def _flat_pnad_scoring_worker(
     args: Tuple[int, ExogenousProcess, Set[LiftedAtom], List[Any],
                 Set[Predicate], int, int, float, Optional[str], Optional[str]]
-) -> Tuple[int, float, Set[LiftedAtom], Tuple[float, ...]]:
+) -> Tuple[int, float, Set[LiftedAtom], Tuple[float, ...], ExogenousProcess]:
     """Utility for flat multiprocessing: evaluates one condition candidate for
     one PNAD under the data-likelihood scoring regime.
 
@@ -981,6 +981,13 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
 
 class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize the process learner."""
+        super().__init__(*args, **kwargs)
+        self.proc_name_to_results: Dict[str, List[
+            Tuple[float, FrozenSet[LiftedAtom], Tuple, ExogenousProcess]]] =\
+                defaultdict(list)
+        
 
     @classmethod
     def get_name(cls) -> str:
@@ -1174,8 +1181,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         # Step 4: Process results, log details, and select the best condition.
         #   Sort results by PNAD index.
         pnad_scores: Dict[int, List[Tuple[float, FrozenSet[LiftedAtom],
-                                          Tuple[float,
-                                                ...]]]] = defaultdict(list)
+                    Tuple[float, ...], ExogenousProcess]]] = defaultdict(list)
         for pnad_idx, cost, condition, scores_tuple, process in results:
             pnad_scores[pnad_idx].append(
                 (cost, frozenset(condition), scores_tuple, process))
@@ -1184,6 +1190,10 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         best_conditions: Dict[int, FrozenSet[LiftedAtom]] = {}
         for pnad_idx, scored_conditions in pnad_scores.items():
             scored_conditions.sort(key=lambda x: x[0])
+            # Save the scoring results to be potentially used in predicate 
+            # learning.
+            self.proc_name_to_results[indexed_pnads[pnad_idx].op.name] =\
+                scored_conditions
 
             logging.debug(
                 f"Scored conditions for Process sketch {pnad_idx}:\n"
