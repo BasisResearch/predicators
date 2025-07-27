@@ -414,6 +414,10 @@ def task_plan_from_task(
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]],
                     Metrics]]:
     # TODO: Expand the concept predicates to include all dependencies
+    if type(predicates) is FrozenSet:
+        predicates = set(predicates)
+    assert isinstance(predicates, set), \
+        f"Expected predicates to be a set, got {type(predicates)}"
     all_predicates = utils.add_in_auxiliary_predicates(predicates)
     derived_predicates = utils.get_derived_predicates(all_predicates)
 
