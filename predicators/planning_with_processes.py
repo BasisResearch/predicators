@@ -414,7 +414,7 @@ def task_plan_from_task(
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]],
                     Metrics]]:
     # TODO: Expand the concept predicates to include all dependencies
-    if type(predicates) is FrozenSet:
+    if isinstance(predicates, FrozenSet):
         predicates = set(predicates)
     assert isinstance(predicates, set), \
         f"Expected predicates to be a set, got {type(predicates)}"
