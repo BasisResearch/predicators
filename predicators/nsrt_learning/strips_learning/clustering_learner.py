@@ -28,7 +28,7 @@ from predicators.settings import CFG
 from predicators.structs import PNAD, CausalProcess, Datastore, \
     DerivedPredicate, DummyOption, EndogenousProcess, ExogenousProcess, \
     LiftedAtom, Object, ParameterizedOption, Predicate, Segment, \
-    STRIPSOperator, Variable, VarToObjSub
+    STRIPSOperator, Variable, VarToObjSub, GroundAtom
 
 if sys.platform == "darwin":
     # Set this when using macOS, to avoid issues with forked processes.
@@ -177,7 +177,8 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                     # `induce_preconditions_via_intersection`.
                     (pnad_param_option, pnad_option_vars) = pnad.option_spec
                     sub = self._maybe_intersect_segment_with_pnad(
-                        segment, pnad, ent_to_ent_sub, segment_param_option,
+                        segment, seg_add_effects, seg_del_effects, pnad, 
+                        ent_to_ent_sub, segment_param_option,
                         pnad_param_option, segment_option_objs,
                         tuple(pnad_option_vars))
                 else:
@@ -210,31 +211,33 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 preconds: Set[LiftedAtom] = set()  # will be learned later
                 obj_to_var = dict(zip(objects_lst, params))
                 var_to_obj = dict(zip(params, objects_lst))
-                add_effects = {
-                    atom.lift(obj_to_var)
-                    for atom in segment.add_effects
-                    if not isinstance(atom.predicate, DerivedPredicate)
-                }
-                delete_effects = {
-                    atom.lift(obj_to_var)
-                    for atom in segment.delete_effects
-                    if not isinstance(atom.predicate, DerivedPredicate)
-                }
+                grd_add_effects = {atom for atom in segment.add_effects
+                    if not isinstance(atom.predicate, DerivedPredicate)}
+                grd_delete_effects = {atom for atom in segment.delete_effects
+                    if not isinstance(atom.predicate, DerivedPredicate)}
+                lfd_add_effects = {atom.lift(obj_to_var) 
+                                        for atom in grd_add_effects}
+                lfd_delete_effects = {atom.lift(obj_to_var)
+                                        for atom in grd_delete_effects}
                 ignore_effects: Set[Predicate] = set()  # will be learned later
                 if self.get_name() in ["cluster_and_search_process_learner"]:
                     # Remove atoms explained by endogenous processes
-                    add_effects, delete_effects = \
+                    lfd_add_effects, lfd_delete_effects = \
                         self.remove_atoms_explained_by_endogenous_processes(
-                            segment, self._endogenous_processes, add_effects,
-                            delete_effects, obj_to_var)
+                        segment, self._endogenous_processes, lfd_add_effects,
+                        lfd_delete_effects, obj_to_var)
+                    grd_add_effects, grd_delete_effects = \
+                        self.remove_atoms_explained_by_endogenous_processes(
+                        segment, self._endogenous_processes, grd_add_effects,
+                        grd_delete_effects)
 
                     # ---- Single effect bias ----
                     if CFG.cluster_learning_one_effect_per_process:
                         #   If there are still processes with multiple effects,
                         #   add multiple PNAD here; after checking such pnad don't
                         #   already exists.
-                        for atom in add_effects | delete_effects:
-                            if atom in add_effects:
+                        for atom in grd_add_effects | grd_delete_effects:
+                            if atom in grd_add_effects:
                                 add_effect_set = frozenset({atom})
                                 del_effect_set = frozenset()
                             else:
@@ -263,7 +266,8 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                                     (pnad_param_option,
                                      pnad_option_vars) = pnad.option_spec
                                     sub = self._maybe_intersect_segment_with_pnad(
-                                        segment, pnad, ent_to_ent_sub,
+                                        segment, add_effect_set, del_effect_set,
+                                        pnad, ent_to_ent_sub,
                                         segment_param_option,
                                         pnad_param_option, segment_option_objs,
                                         tuple(pnad_option_vars))
@@ -274,6 +278,10 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                                     (segment, sub),
                                     check_effect_equality=False)
                             else:
+                                add_effect_set = frozenset({atom.lift(obj_to_var)
+                                                for atom in add_effect_set})
+                                del_effect_set = frozenset({atom.lift(obj_to_var)
+                                                for atom in del_effect_set})
                                 # Create a new pnad with this atom
                                 op = STRIPSOperator(f"Op{len(pnads)}", params,
                                                     preconds, add_effect_set,
@@ -288,7 +296,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                                 pnads.append(PNAD(op, datastore, option_spec))
                         continue
                 op = STRIPSOperator(f"Op{len(pnads)}", params, preconds,
-                                    add_effects, delete_effects,
+                                    lfd_add_effects, lfd_delete_effects,
                                     ignore_effects)
                 datastore = [(segment, var_to_obj)]
                 option_vars = [obj_to_var[o] for o in segment_option_objs]
@@ -351,8 +359,10 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
         return False, dict(), None
 
     def _maybe_intersect_segment_with_pnad(
-            self, segment: Segment, pnad: PNAD, obj_to_var: Dict[Object,
-                                                                 Variable],
+            self, segment: Segment, 
+            seg_add_eff: FrozenSet[GroundAtom], 
+            seg_del_eff: FrozenSet[GroundAtom],
+            pnad: PNAD, obj_to_var: Dict[Object, Variable],
             segment_param_option: ParameterizedOption,
             pnad_param_option: ParameterizedOption,
             segment_option_objs: Tuple[Object],
@@ -391,10 +401,10 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
         max_len2 = len(ds_lifted_init_atoms_list)
 
         seg_add_eff = frozenset(
-            a for a in segment.add_effects
+            a for a in seg_add_eff
             if not isinstance(a.predicate, DerivedPredicate))
         seg_del_eff = frozenset(
-            a for a in segment.delete_effects
+            a for a in seg_del_eff
             if not isinstance(a.predicate, DerivedPredicate))
         pnad_add_eff = frozenset(pnad.op.add_effects)
         pnad_del_eff = frozenset(pnad.op.delete_effects)
