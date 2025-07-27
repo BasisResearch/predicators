@@ -87,26 +87,30 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 result.states, result.actions,
                 _train_task_idx=0)  # TODO: remove the heck
             self._online_dataset.append(traj)
+        
+        all_trajs = self._offline_dataset.trajectories + \
+            self._online_dataset.trajectories
 
-        proposed_predicates = self._get_predicate_proposals(
-            "transition_modelling",
-            self._offline_dataset.trajectories + \
-                self._online_dataset.trajectories)
+        # TODO: change to only propose when stop improving?
+        # Test to only generate proposals at cycle 0.
+        if self._online_learning_cycle == 0:
+            proposed_predicates = self._get_predicate_proposals(
+            "transition_modelling", all_trajs)
+        else:
+            proposed_predicates = set()
         logging.info(f"Done: created {len(proposed_predicates)} predicates")
 
         # --- Select the predicates to keep ---
         self._select_predicates_and_learn_processes(
             ite=self._online_learning_cycle,
-            all_trajs=self._online_dataset.trajectories + \
-                        self._offline_dataset.trajectories,
+            all_trajs=all_trajs,
             proposed_predicates=proposed_predicates,
             train_tasks=self._train_tasks)
         logging.debug(f"Learned predicates: "
                       f"{self._learned_predicates-self._initial_predicates}")
 
         if CFG.learn_process_parameters:
-            self._learn_process_parameters(self._offline_dataset.trajectories+\
-                                           self._online_dataset.trajectories)
+            self._learn_process_parameters(all_trajs)
         self.save(self._online_learning_cycle)
 
         self._online_learning_cycle += 1
@@ -162,6 +166,13 @@ class OnlinePredicateInventionProcessPlanningApproach(
             base_candidates = self._oracle_predicates - self._initial_predicates
         else:
             base_candidates: Set[Predicate] = set()
+
+            noisy_but_complete_proposal = True
+            if noisy_but_complete_proposal:
+                base_candidates |= set(p for p in self._oracle_predicates if 
+                        p.name in 
+                    ["NoWaterSpilled", "JugNotAtFaucetOrAtFaucetAndFilled"])
+
             for i in range(CFG.vlm_predicator_num_proposal_batches):
                 base_candidates |= self._get_predicate_proposals_from_fm(
                     proposal_method, trajectories, i)
@@ -328,11 +339,12 @@ class OnlinePredicateInventionProcessPlanningApproach(
             self._learned_predicates = selected_preds
             # --- Learn processes & parameters ---
             self._learn_processes(
-                self._offline_dataset.trajectories + \
-                    self._online_dataset.trajectories,
+                all_trajs,
                 online_learning_cycle=self._online_learning_cycle)
         else:
             self._candidate_predicates |= proposed_predicates
+            logging.info("Candidate predicates: "
+                            f"{pformat(self._candidate_predicates)}")
 
             all_candidates: Dict[Predicate, float] = {
                 p: float(p.arity)
@@ -352,15 +364,14 @@ class OnlinePredicateInventionProcessPlanningApproach(
                                                         set(all_candidates))
 
             self._learned_predicates = set(all_candidates)  # temp
+            # TODO: we need to save the top ranking conditions here so it can be
+            #       used later in predicate selection.
             self._learn_processes(
-                self._offline_dataset.trajectories + \
-                    self._online_dataset.trajectories,
+                all_trajs,
                 online_learning_cycle=self._online_learning_cycle)
 
             if CFG.learn_process_parameters:
-                self._learn_process_parameters(
-                                    self._offline_dataset.trajectories+\
-                                    self._online_dataset.trajectories)
+                self._learn_process_parameters(all_trajs)
             # Whether to do predicate selection by scoring different predicate
             # set or by scoring different process set.
             start_time = time.perf_counter()
@@ -382,7 +393,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 self._learned_predicates =\
                     self._select_predicates_by_score_optimization(
                         train_tasks, all_candidates, self._processes, 
-                        atom_dataset)
+                        all_trajs, atom_dataset)
             logging.info("[Finished] Predicate search.")
             logging.info("Total search time "
                          f"{time.perf_counter() - start_time:.2f}s")
@@ -510,6 +521,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
             train_tasks: List[Task],
             candidates: Dict[Predicate, float],
             all_processes: Set[CausalProcess],
+            all_trajs: List[LowLevelTrajectory],
             atom_dataset: List[GroundAtomTrajectory],
     ) -> Set[Predicate]:
         """Perform a greedy search over predicate sets."""
@@ -533,50 +545,88 @@ class OnlinePredicateInventionProcessPlanningApproach(
             _use_processes=True,
             metric_name="num_nodes_expanded")
         
-        def _filter_processes(
+        def _filter_process(process: CausalProcess,
+                            candidate_predicates: FrozenSet[Predicate]
+                            ) -> CausalProcess:
+            """Filter a process to only keep atoms with candidate predicates."""
+            proc_copy = process.copy()
+            proc_copy.condition_at_start = {
+                atom
+                for atom in proc_copy.condition_at_start
+                if atom.predicate in candidate_predicates
+            }
+            proc_copy.condition_overall = proc_copy.condition_at_start.copy()
+            proc_copy.add_effects = {
+                atom
+                for atom in proc_copy.add_effects
+                if atom.predicate in candidate_predicates
+            }
+            proc_copy.delete_effects = {
+                atom
+                for atom in proc_copy.delete_effects
+                if atom.predicate in candidate_predicates
+            }
+            return proc_copy
+
+        def _get_best_compatible_exo_processes(
             candidate_predicates: FrozenSet[Predicate]
-        ) -> Set[ExogenousProcess]:
-            """Filter out processes that are not compatible with the predicates."""
+            ) -> Set[ExogenousProcess]:
+            """Get the best compatible exogenous processes.
+            # Get the processes compatible with the candidate predicates.
+            # Look at all the scored conditions, find the top one that's a 
+            # subset of the candidate predicates; if none, remove the none
+            # candidates from the top conditions.
+            # Remove parts that are outside of candidates predicates
+            """
             remaining_exogenous_processes = set()
-            for proc in exogenous_processes:
-                proc_copy = proc.copy()
-                proc_copy.condition_at_start = {
-                    atom
-                    for atom in proc.condition_at_start
-                    if atom.predicate in candidate_predicates
-                }
-                proc_copy.add_effects = {
-                    atom
-                    for atom in proc.add_effects
-                    if atom.predicate in candidate_predicates
-                }
-                proc_copy.delete_effects = {
-                    atom
-                    for atom in proc.delete_effects
-                    if atom.predicate in candidate_predicates
-                }
-                if proc_copy.add_effects | proc_copy.delete_effects:
-                    remaining_exogenous_processes.add(proc_copy)
+            for _, results in self._proc_name_to_results.items():
+                best_compatible_process = results[0][3]
+                effect_pred = {atom.predicate for atom in 
+                                best_compatible_process.add_effects |
+                                best_compatible_process.delete_effects}
+                if effect_pred.issubset(candidate_predicates):
+                    for _, (_, condition, _, proc) in enumerate(results):
+                        condition_pred = {atom.predicate for atom in condition}
+                        if condition_pred.issubset(candidate_predicates):
+                            # If the condition is a subset of the candidate
+                            # predicates, then we can use this process.
+                            best_compatible_process = proc
+                            # logging.debug(f"Found compatible condition for "
+                            #                 f"{proc.name}")
+                            break
+                    # else:
+                    #     logging.debug(f"No compatible condition found for "
+                    #                  f"{best_compatible_process.name}, "
+                    #                  f"filtering out non-candidate atoms.")
+                    # Haven't found a condition that is a subset of the
+                    # candidate predicates, so we filter out the non-candidate 
+                    # condition
+                    proc_copy = _filter_process(best_compatible_process,
+                                                candidate_predicates)
+                    if proc_copy.add_effects | proc_copy.delete_effects:
+                        remaining_exogenous_processes.add(proc_copy)
+            logging.debug(f"Remaining exogenous processes:\n"
+                          f"{pformat(remaining_exogenous_processes)}")
             return remaining_exogenous_processes
 
         def _score_predicates(candidate_predicates: FrozenSet[Predicate]
                               ) -> float:
-            # Remove parts that are outside of candidates predicates
-            remaining_exogenous_processes = _filter_processes(
-                candidate_predicates)
             new_preds = candidate_predicates - self._initial_predicates
-            logging.debug(f"Evaluating predicates: {set(new_preds)}")
+            logging.debug(f"Evaluating predicates: {sorted(set(new_preds))}")
+            remaining_exogenous_processes = _get_best_compatible_exo_processes(
+                candidate_predicates)
             # Score processes with the score function.
             process_score = score_func.evaluate_with_operators(
                 candidate_predicates=candidate_predicates,
-                low_level_trajs=self._offline_dataset.trajectories +
-                                    self._online_dataset.trajectories,
+                low_level_trajs=all_trajs,
                 segmented_trajs=segmented_trajs,
                 strips_ops=remaining_exogenous_processes | endogenous_processes,
                 option_specs=[])
             process_penalty = _ExpectedNodesScoreFunction._get_operator_penalty(
                 remaining_exogenous_processes)
-            return process_score + process_penalty
+            final_score = process_score + process_penalty
+            logging.debug(f"Candidate scores: {final_score:.4f}")
+            return final_score
 
         def _check_goal(s: FrozenSet[Predicate]) -> bool:
             del s  # unused
@@ -605,7 +655,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 _get_successors,
                 _score_predicates,
                 enforced_depth=CFG.grammar_search_hill_climbing_depth,
-                parallelize=CFG.grammar_search_parallelize_hill_climbing)
+                parallelize=CFG.grammar_search_parallelize_hill_climbing,
+                exhaustive_lookahead=True)
             logging.info("\nHill climbing summary:")
             for i in range(1, len(path)):
                 new_additions = path[i] - path[i - 1]
@@ -672,7 +723,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
             logging.info(f"\t{pred}")
         _score_predicates(kept_predicates)  # log useful numbers
         self._processes = endogenous_processes |\
-                            _filter_processes(kept_predicates)
+                            _get_best_compatible_exo_processes(kept_predicates)
 
         return set(kept_predicates)
 
