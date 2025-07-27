@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, FrozenSet
+from typing import Any, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
 
 import dill as pkl
 from gym.spaces import Box
@@ -12,9 +12,9 @@ from predicators.nsrt_learning.process_learning_main import \
     learn_processes_from_data
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, Dataset, GroundAtomTrajectory, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, Task, Type, \
-    ExogenousProcess
+from predicators.structs import CausalProcess, Dataset, ExogenousProcess, \
+    GroundAtomTrajectory, LowLevelTrajectory, ParameterizedOption, Predicate, \
+    Task, Type
 
 
 class ProcessLearningAndPlanningApproach(
@@ -48,8 +48,11 @@ class ProcessLearningAndPlanningApproach(
         else:
             # Learn all
             self._processes: Set[ExogenousProcess] = set()
-        self._proc_name_to_results: Dict[str, List[
-            Tuple[float, FrozenSet[LiftedAtom], Tuple, ExogenousProcess]]] = {}
+        self._proc_name_to_results: Dict[str,
+                                         List[Tuple[float,
+                                                    FrozenSet[LiftedAtom],
+                                                    Tuple,
+                                                    ExogenousProcess]]] = {}
 
     @classmethod
     def get_name(cls) -> str:

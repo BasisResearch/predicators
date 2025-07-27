@@ -1,6 +1,6 @@
 import logging
 from pprint import pformat
-from typing import Any, List, Optional, Set, Tuple, Dict, FrozenSet
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 from gym.spaces import Box
 
@@ -14,8 +14,8 @@ from predicators.nsrt_learning.strips_learning.clustering_learner import \
 from predicators.settings import CFG
 from predicators.structs import PNAD, CausalProcess, DerivedPredicate, \
     DummyOption, EndogenousProcess, ExogenousProcess, GroundAtom, \
-    GroundAtomTrajectory, LowLevelTrajectory, ParameterizedOption, Predicate, \
-    Segment, Task, LiftedAtom
+    GroundAtomTrajectory, LiftedAtom, LowLevelTrajectory, \
+    ParameterizedOption, Predicate, Segment, Task
 
 
 def learn_processes_from_data(
@@ -113,7 +113,6 @@ def learn_processes_from_data(
     remaining_segmented_trajs = filter_explained_segment(segmented_trajs,
                                                          endogenous_processes,
                                                          remove_options=True)
-
 
     # STEP 2: Learn the exogenous processes based on unexplained processes.
     #         This is different from STRIPS/endogenous processes, where these

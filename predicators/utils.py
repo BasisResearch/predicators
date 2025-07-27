@@ -2313,14 +2313,14 @@ def run_hill_climbing(
     """Enforced hill climbing local search.
 
     For each node, this search looks for an improvement up to `enforced_depth`.
-    If `exhaustive_lookahead` is False (default), for each node, the best child 
+    If `exhaustive_lookahead` is False (default), for each node, the best child
     node is always selected, if that child is
     an improvement over the node. If no children improve on the node, look
     at the children's children, etc., up to enforced_depth, where enforced_depth
     0 corresponds to simple hill climbing. Terminate when no improvement can
     be found. early_termination_heuristic_thresh allows for searching until
     heuristic reaches a specified value.
-    Let b be the branching factor, d be the enforced_depth, this has time 
+    Let b be the branching factor, d be the enforced_depth, this has time
     complxity of O(b^{d+1}).
     If True, it searches the entire horizon up to the
     enforced depth and picks the best overall improvement.
@@ -2401,13 +2401,14 @@ def run_hill_climbing(
             current_depth_nodes = successors_at_depth
             if not current_depth_nodes:
                 if verbose:
-                    logging.info(f"No more successors to explore at depth {depth}.")
-                break # No need to search deeper if there are no more nodes.
+                    logging.info(
+                        f"No more successors to explore at depth {depth}.")
+                break  # No need to search deeper if there are no more nodes.
 
             if verbose:
                 if exhaustive_lookahead:
                     logging.info(f"Finished depth {depth}. "
-                                f"Best heuristic so far: {best_heuristic}")
+                                 f"Best heuristic so far: {best_heuristic}")
                 elif last_heuristic <= best_heuristic:
                     logging.info(f"No improvement found at depth {depth}")
 
@@ -2426,7 +2427,7 @@ def run_hill_climbing(
         if verbose:
             logging.info(f"\nHill climbing reached new state {cur_node.state} "
                          f"with heuristic {last_heuristic}")
-            
+
     states, actions = _finish_plan(cur_node)
     # The number of heuristics might not match the plan length perfectly now,
     # so we should regenerate them from the final plan.

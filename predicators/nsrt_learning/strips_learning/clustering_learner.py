@@ -27,8 +27,8 @@ from predicators.planning_with_processes import \
 from predicators.settings import CFG
 from predicators.structs import PNAD, CausalProcess, Datastore, \
     DerivedPredicate, DummyOption, EndogenousProcess, ExogenousProcess, \
-    LiftedAtom, Object, ParameterizedOption, Predicate, Segment, \
-    STRIPSOperator, Variable, VarToObjSub, GroundAtom
+    GroundAtom, LiftedAtom, Object, ParameterizedOption, Predicate, Segment, \
+    STRIPSOperator, Variable, VarToObjSub
 
 if sys.platform == "darwin":
     # Set this when using macOS, to avoid issues with forked processes.
@@ -177,7 +177,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                     # `induce_preconditions_via_intersection`.
                     (pnad_param_option, pnad_option_vars) = pnad.option_spec
                     sub = self._maybe_intersect_segment_with_pnad(
-                        segment, seg_add_effects, seg_del_effects, pnad, 
+                        segment, seg_add_effects, seg_del_effects, pnad,
                         ent_to_ent_sub, segment_param_option,
                         pnad_param_option, segment_option_objs,
                         tuple(pnad_option_vars))
@@ -211,14 +211,24 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 preconds: Set[LiftedAtom] = set()  # will be learned later
                 obj_to_var = dict(zip(objects_lst, params))
                 var_to_obj = dict(zip(params, objects_lst))
-                grd_add_effects = {atom for atom in segment.add_effects
-                    if not isinstance(atom.predicate, DerivedPredicate)}
-                grd_delete_effects = {atom for atom in segment.delete_effects
-                    if not isinstance(atom.predicate, DerivedPredicate)}
-                lfd_add_effects = {atom.lift(obj_to_var) 
-                                        for atom in grd_add_effects}
-                lfd_delete_effects = {atom.lift(obj_to_var)
-                                        for atom in grd_delete_effects}
+                grd_add_effects = {
+                    atom
+                    for atom in segment.add_effects
+                    if not isinstance(atom.predicate, DerivedPredicate)
+                }
+                grd_delete_effects = {
+                    atom
+                    for atom in segment.delete_effects
+                    if not isinstance(atom.predicate, DerivedPredicate)
+                }
+                lfd_add_effects = {
+                    atom.lift(obj_to_var)
+                    for atom in grd_add_effects
+                }
+                lfd_delete_effects = {
+                    atom.lift(obj_to_var)
+                    for atom in grd_delete_effects
+                }
                 ignore_effects: Set[Predicate] = set()  # will be learned later
                 if self.get_name() in ["cluster_and_search_process_learner"]:
                     # Remove atoms explained by endogenous processes
@@ -266,8 +276,8 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                                     (pnad_param_option,
                                      pnad_option_vars) = pnad.option_spec
                                     sub = self._maybe_intersect_segment_with_pnad(
-                                        segment, add_effect_set, del_effect_set,
-                                        pnad, ent_to_ent_sub,
+                                        segment, add_effect_set,
+                                        del_effect_set, pnad, ent_to_ent_sub,
                                         segment_param_option,
                                         pnad_param_option, segment_option_objs,
                                         tuple(pnad_option_vars))
@@ -278,10 +288,14 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                                     (segment, sub),
                                     check_effect_equality=False)
                             else:
-                                add_effect_set = frozenset({atom.lift(obj_to_var)
-                                                for atom in add_effect_set})
-                                del_effect_set = frozenset({atom.lift(obj_to_var)
-                                                for atom in del_effect_set})
+                                add_effect_set = frozenset({
+                                    atom.lift(obj_to_var)
+                                    for atom in add_effect_set
+                                })
+                                del_effect_set = frozenset({
+                                    atom.lift(obj_to_var)
+                                    for atom in del_effect_set
+                                })
                                 # Create a new pnad with this atom
                                 op = STRIPSOperator(f"Op{len(pnads)}", params,
                                                     preconds, add_effect_set,
@@ -359,10 +373,9 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
         return False, dict(), None
 
     def _maybe_intersect_segment_with_pnad(
-            self, segment: Segment, 
-            seg_add_eff: FrozenSet[GroundAtom], 
-            seg_del_eff: FrozenSet[GroundAtom],
-            pnad: PNAD, obj_to_var: Dict[Object, Variable],
+            self, segment: Segment, seg_add_eff: FrozenSet[GroundAtom],
+            seg_del_eff: FrozenSet[GroundAtom], pnad: PNAD,
+            obj_to_var: Dict[Object, Variable],
             segment_param_option: ParameterizedOption,
             pnad_param_option: ParameterizedOption,
             segment_option_objs: Tuple[Object],
@@ -991,13 +1004,13 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
 
 class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize the process learner."""
         super().__init__(*args, **kwargs)
         self.proc_name_to_results: Dict[str, List[
             Tuple[float, FrozenSet[LiftedAtom], Tuple, ExogenousProcess]]] =\
                 defaultdict(list)
-        
 
     @classmethod
     def get_name(cls) -> str:
@@ -1182,16 +1195,18 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         logging.info(f"Scoring {len(work_items)} total conditions for "
                      f"{len(pnads)} PNADs using up to {cpu_cnt} workers.")
         logging.debug(f"Num vi steps: {CFG.cluster_and_search_vi_steps}, "
-                        "Early stopping patience: "
-                        f"{CFG.process_param_learning_patience}")
+                      "Early stopping patience: "
+                      f"{CFG.process_param_learning_patience}")
         with Pool(nodes=min(len(work_items), cpu_cnt)) as pool:
             results = pool.map(_flat_pnad_scoring_worker, work_items)
         logging.info(f"Finished scoring in {time.time() - start_time:.2f}s.")
 
         # Step 4: Process results, log details, and select the best condition.
         #   Sort results by PNAD index.
-        pnad_scores: Dict[int, List[Tuple[float, FrozenSet[LiftedAtom],
-                    Tuple[float, ...], ExogenousProcess]]] = defaultdict(list)
+        pnad_scores: Dict[int,
+                          List[Tuple[float, FrozenSet[LiftedAtom], Tuple[float,
+                                                                         ...],
+                                     ExogenousProcess]]] = defaultdict(list)
         for pnad_idx, cost, condition, scores_tuple, process in results:
             pnad_scores[pnad_idx].append(
                 (cost, frozenset(condition), scores_tuple, process))
@@ -1200,7 +1215,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         best_conditions: Dict[int, FrozenSet[LiftedAtom]] = {}
         for pnad_idx, scored_conditions in pnad_scores.items():
             scored_conditions.sort(key=lambda x: x[0])
-            # Save the scoring results to be potentially used in predicate 
+            # Save the scoring results to be potentially used in predicate
             # learning.
             self.proc_name_to_results[indexed_pnads[pnad_idx].op.name] =\
                 scored_conditions

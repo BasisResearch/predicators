@@ -3,12 +3,12 @@ import os
 import re
 import time
 import traceback
-import dill as pkl
 from collections import defaultdict
 from pprint import pformat
 from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Sequence, \
     Set, Tuple
 
+import dill as pkl
 import PIL
 from gym.spaces import Box
 from PIL import ImageDraw, ImageFont
@@ -87,7 +87,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 result.states, result.actions,
                 _train_task_idx=0)  # TODO: remove the heck
             self._online_dataset.append(traj)
-        
+
         all_trajs = self._offline_dataset.trajectories + \
             self._online_dataset.trajectories
 
@@ -95,7 +95,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         # Test to only generate proposals at cycle 0.
         if self._online_learning_cycle == 0:
             proposed_predicates = self._get_predicate_proposals(
-            "transition_modelling", all_trajs)
+                "transition_modelling", all_trajs)
         else:
             proposed_predicates = set()
         logging.info(f"Done: created {len(proposed_predicates)} predicates")
@@ -118,8 +118,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
     def save(self, online_learning_cycle: Optional[int] = None) -> None:
         # Saving the learned processes, dataset, candidate predicates
         save_path = utils.get_approach_save_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.PROCes", "wb"
-                  ) as f:
+        with open(f"{save_path}_{online_learning_cycle}.PROCes", "wb") as f:
             save_dict = {
                 "processes": self._processes,
                 "candidate_predicates": self._candidate_predicates,
@@ -128,7 +127,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
             }
             pkl.dump(save_dict, f)
             logging.info(f"Saved approach to {save_path}_"
-                            f"{online_learning_cycle}.PROCes")
+                         f"{online_learning_cycle}.PROCes")
 
     def load(self, online_learning_cycle: Optional[int] = None) -> None:
         save_path = utils.get_approach_load_path_str()
@@ -149,7 +148,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
         logging.info(f"\n\nLoaded Processes:")
         for process in sorted(self._processes):
             logging.info(process)
-        logging.info(f"Loaded {len(self._processes)} processes, "
+        logging.info(
+            f"Loaded {len(self._processes)} processes, "
             f"{len(self._candidate_predicates)} candidate predicates, "
             f"{len(self._offline_dataset.trajectories)} offline trajectories, "
             f"{len(self._online_dataset.trajectories)} online trajectories\n")
@@ -169,8 +169,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
             noisy_but_complete_proposal = True
             if noisy_but_complete_proposal:
-                base_candidates |= set(p for p in self._oracle_predicates if 
-                        p.name in 
+                base_candidates |= set(
+                    p for p in self._oracle_predicates if p.name in
                     ["NoWaterSpilled", "JugNotAtFaucetOrAtFaucetAndFilled"])
 
             for i in range(CFG.vlm_predicator_num_proposal_batches):
@@ -339,12 +339,11 @@ class OnlinePredicateInventionProcessPlanningApproach(
             self._learned_predicates = selected_preds
             # --- Learn processes & parameters ---
             self._learn_processes(
-                all_trajs,
-                online_learning_cycle=self._online_learning_cycle)
+                all_trajs, online_learning_cycle=self._online_learning_cycle)
         else:
             self._candidate_predicates |= proposed_predicates
             logging.info("Candidate predicates: "
-                            f"{pformat(self._candidate_predicates)}")
+                         f"{pformat(self._candidate_predicates)}")
 
             all_candidates: Dict[Predicate, float] = {
                 p: float(p.arity)
@@ -367,8 +366,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
             # TODO: we need to save the top ranking conditions here so it can be
             #       used later in predicate selection.
             self._learn_processes(
-                all_trajs,
-                online_learning_cycle=self._online_learning_cycle)
+                all_trajs, online_learning_cycle=self._online_learning_cycle)
 
             if CFG.learn_process_parameters:
                 self._learn_process_parameters(all_trajs)
@@ -392,7 +390,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 logging.info("[Start] Predicate search.")
                 self._learned_predicates =\
                     self._select_predicates_by_score_optimization(
-                        train_tasks, all_candidates, self._processes, 
+                        train_tasks, all_candidates, self._processes,
                         all_trajs, atom_dataset)
             logging.info("[Finished] Predicate search.")
             logging.info("Total search time "
@@ -430,10 +428,14 @@ class OnlinePredicateInventionProcessPlanningApproach(
         atom_dataset: List[GroundAtomTrajectory],
     ) -> Set[CausalProcess]:
         """Perform a greedy search over process sets."""
-        endogenous_processes = {p for p in all_processes
-                                if isinstance(p, EndogenousProcess)}
-        exogenous_processes = {p for p in all_processes
-                                 if isinstance(p, ExogenousProcess)}
+        endogenous_processes = {
+            p
+            for p in all_processes if isinstance(p, EndogenousProcess)
+        }
+        exogenous_processes = {
+            p
+            for p in all_processes if isinstance(p, ExogenousProcess)
+        }
 
         # Precompute stuff for scoring.
         segmented_trajs = [
@@ -452,14 +454,15 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
         # Define the score function for a set of processes.
         def _score_processes(
-                    candidate_exogenous_processes: FrozenSet[ExogenousProcess]
-                ) -> float:
+            candidate_exogenous_processes: FrozenSet[ExogenousProcess]
+        ) -> float:
             process_score = score_func.evaluate_with_operators(
                 candidate_predicates=self._get_current_predicates(),
                 low_level_trajs=self._offline_dataset.trajectories +
                 self._online_dataset.trajectories,
                 segmented_trajs=segmented_trajs,
-                strips_ops=candidate_exogenous_processes | endogenous_processes,
+                strips_ops=candidate_exogenous_processes
+                | endogenous_processes,
                 option_specs=[])
             process_penalty = _ExpectedNodesScoreFunction._get_operator_penalty(
                 candidate_exogenous_processes)
@@ -512,23 +515,27 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
         selected_exogenous_processes = path[-1]
         logging.debug(f"Selected processes: "
-                        f"{pformat(selected_exogenous_processes)}")
+                      f"{pformat(selected_exogenous_processes)}")
 
         return endogenous_processes | selected_exogenous_processes
 
     def _select_predicates_by_score_optimization(
-            self,
-            train_tasks: List[Task],
-            candidates: Dict[Predicate, float],
-            all_processes: Set[CausalProcess],
-            all_trajs: List[LowLevelTrajectory],
-            atom_dataset: List[GroundAtomTrajectory],
+        self,
+        train_tasks: List[Task],
+        candidates: Dict[Predicate, float],
+        all_processes: Set[CausalProcess],
+        all_trajs: List[LowLevelTrajectory],
+        atom_dataset: List[GroundAtomTrajectory],
     ) -> Set[Predicate]:
         """Perform a greedy search over predicate sets."""
-        endogenous_processes = {p for p in all_processes
-                                if isinstance(p, EndogenousProcess)}
-        exogenous_processes = {p for p in all_processes
-                                 if isinstance(p, ExogenousProcess)}
+        endogenous_processes = {
+            p
+            for p in all_processes if isinstance(p, EndogenousProcess)
+        }
+        exogenous_processes = {
+            p
+            for p in all_processes if isinstance(p, ExogenousProcess)
+        }
 
         # Precompute stuff for scoring.
         segmented_trajs = [
@@ -544,11 +551,12 @@ class OnlinePredicateInventionProcessPlanningApproach(
             _current_processes=set(),
             _use_processes=True,
             metric_name="num_nodes_expanded")
-        
-        def _filter_process(process: CausalProcess,
-                            candidate_predicates: FrozenSet[Predicate]
-                            ) -> CausalProcess:
-            """Filter a process to only keep atoms with candidate predicates."""
+
+        def _filter_process(
+                process: CausalProcess,
+                candidate_predicates: FrozenSet[Predicate]) -> CausalProcess:
+            """Filter a process to only keep atoms with candidate
+            predicates."""
             proc_copy = process.copy()
             proc_copy.condition_at_start = {
                 atom
@@ -570,20 +578,23 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
         def _get_best_compatible_exo_processes(
             candidate_predicates: FrozenSet[Predicate]
-            ) -> Set[ExogenousProcess]:
+        ) -> Set[ExogenousProcess]:
             """Get the best compatible exogenous processes.
-            # Get the processes compatible with the candidate predicates.
-            # Look at all the scored conditions, find the top one that's a 
-            # subset of the candidate predicates; if none, remove the none
-            # candidates from the top conditions.
+
+            # Get the processes compatible with the candidate
+            predicates. # Look at all the scored conditions, find the
+            top one that's a # subset of the candidate predicates; if
+            none, remove the none # candidates from the top conditions.
             # Remove parts that are outside of candidates predicates
             """
             remaining_exogenous_processes = set()
             for _, results in self._proc_name_to_results.items():
                 best_compatible_process = results[0][3]
-                effect_pred = {atom.predicate for atom in 
-                                best_compatible_process.add_effects |
-                                best_compatible_process.delete_effects}
+                effect_pred = {
+                    atom.predicate
+                    for atom in best_compatible_process.add_effects
+                    | best_compatible_process.delete_effects
+                }
                 if effect_pred.issubset(candidate_predicates):
                     for _, (_, condition, _, proc) in enumerate(results):
                         condition_pred = {atom.predicate for atom in condition}
@@ -599,7 +610,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                     #                  f"{best_compatible_process.name}, "
                     #                  f"filtering out non-candidate atoms.")
                     # Haven't found a condition that is a subset of the
-                    # candidate predicates, so we filter out the non-candidate 
+                    # candidate predicates, so we filter out the non-candidate
                     # condition
                     proc_copy = _filter_process(best_compatible_process,
                                                 candidate_predicates)
@@ -609,8 +620,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
                           f"{pformat(remaining_exogenous_processes)}")
             return remaining_exogenous_processes
 
-        def _score_predicates(candidate_predicates: FrozenSet[Predicate]
-                              ) -> float:
+        def _score_predicates(
+                candidate_predicates: FrozenSet[Predicate]) -> float:
             new_preds = candidate_predicates - self._initial_predicates
             logging.debug(f"Evaluating predicates: {sorted(set(new_preds))}")
             remaining_exogenous_processes = _get_best_compatible_exo_processes(
@@ -620,7 +631,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 candidate_predicates=candidate_predicates,
                 low_level_trajs=all_trajs,
                 segmented_trajs=segmented_trajs,
-                strips_ops=remaining_exogenous_processes | endogenous_processes,
+                strips_ops=remaining_exogenous_processes
+                | endogenous_processes,
                 option_specs=[])
             process_penalty = _ExpectedNodesScoreFunction._get_operator_penalty(
                 remaining_exogenous_processes)
@@ -715,10 +727,9 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
         newly_selected = kept_predicates - self._initial_predicates
         new_candidates = set(candidates) - self._initial_predicates
-        logging.info(
-            f"\n[ite {self._online_learning_cycle}] Selected "
-            f"{len(newly_selected)} predicates"
-            f" out of {len(new_candidates)} candidates:")
+        logging.info(f"\n[ite {self._online_learning_cycle}] Selected "
+                     f"{len(newly_selected)} predicates"
+                     f" out of {len(new_candidates)} candidates:")
         for pred in newly_selected:
             logging.info(f"\t{pred}")
         _score_predicates(kept_predicates)  # log useful numbers

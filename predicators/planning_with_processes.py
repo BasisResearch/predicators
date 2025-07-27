@@ -610,7 +610,8 @@ if __name__ == "__main__":
         compute_reachable_atoms=False)
 
     world_model = ProcessWorldModel(ground_processes=ground_processes,
-                                    state=utils.abstract(task.init, predicates),
+                                    state=utils.abstract(
+                                        task.init, predicates),
                                     state_history=[],
                                     action_history=[],
                                     scheduled_events={},
