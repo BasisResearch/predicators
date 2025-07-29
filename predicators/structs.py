@@ -513,11 +513,23 @@ class DerivedPredicate(Predicate):
 
     @cached_property
     def _hash(self) -> int:
-        # return hash(str(self))
-        return hash(self.name + str(self.types))
+        # Make the hash the same regardless types is a list or tuple.
+        return hash(self.name + " ".join(t.name for t in self.types))
 
     def __hash__(self) -> int:
         return self._hash
+
+    def __eq__(self, other: Predicate) -> bool:
+        # equal by name
+        assert isinstance(other, Predicate)
+        if self.name != other.name:
+            return False
+        if len(self.types) != len(other.types):
+            return False
+        for self_type, other_type in zip(self.types, other.types):
+            if self_type != other_type:
+                return False
+        return True
 
     def holds(self, state: Set[GroundAtom], objects: Sequence[Object]) -> bool:
         """Public method for calling the classifier.
