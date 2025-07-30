@@ -114,7 +114,8 @@ APPROACHES:
       learn_process_parameters: True
       cluster_and_search_process_learner_parallel_condition: True
       cluster_and_search_process_learner_parallel_pnad: True
-      cluster_and_search_process_learner_llm_select: False
+      cluster_and_search_process_learner_llm_select_condition: False
+      cluster_and_search_process_learner_llm_select_atom: False
       cluster_and_search_vi_steps: 500
       cluster_learning_one_effect_per_process: True
       process_param_learning_patience: 10000

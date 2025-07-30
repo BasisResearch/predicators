@@ -767,7 +767,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
         self._atom_change_segmented_trajs: List[List[Segment]] = []
 
-        if CFG.cluster_and_search_process_learner_llm_select:
+        if CFG.cluster_and_search_process_learner_llm_select_condition:
             self._llm = utils.create_llm_by_name(CFG.llm_model_name)
         else:
             self._llm = None
@@ -1071,8 +1071,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
         for i, pnad in indexed_pnads.items():
             if CFG.exogenous_process_learner_do_intersect:
-                initial_lift_atoms = self._induce_preconditions_via_intersection(
-                    pnad)
+                initial_lift_atoms = possible_atoms_per_pnad[i]
             else:
                 init_ground_atoms = pnad.datastore[0][0].init_atoms
                 var_to_obj = pnad.datastore[0][1]
@@ -1248,7 +1247,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
             # Use LLM to select if there are multiple with the same marginal
             # likelihood
-            if CFG.cluster_and_search_process_learner_llm_select and\
+            if CFG.cluster_and_search_process_learner_llm_select_condition and\
                 multiple_top_conditions:
                 # TODO: add preference for using atoms in action's effects
                 best_condition = self._prompt_llm_to_select_from_top_conditions(
