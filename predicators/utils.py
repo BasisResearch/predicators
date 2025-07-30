@@ -2332,12 +2332,13 @@ def run_hill_climbing(
         initial_state, 0, 0)
     last_heuristic = heuristic(cur_node.state)
     heuristics = [last_heuristic]
-    visited = {initial_state}
+    # visited = {initial_state} # <--- deleted for exhaustive_lookahead
     if verbose:
         logging.info(f"\n\nStarting hill climbing at state {cur_node.state} "
                      f"with heuristic {last_heuristic}")
     start_time = time.perf_counter()
     while True:
+        visited = {cur_node.state} # <--- added for exhaustive_lookahead
 
         # Stops when heuristic reaches specified value.
         if early_termination_heuristic_thresh is not None \
