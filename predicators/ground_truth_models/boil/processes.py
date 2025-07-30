@@ -611,8 +611,9 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
                 condition_at_start |= {
                     LiftedAtom(NoWaterSpilled, []),
                     LiftedAtom(WaterBoiled, [jug]),
-                    LiftedAtom(BurnerOff, [burner]),
                 }
+                if CFG.boil_goal_require_burner_off:
+                    condition_at_start.add(LiftedAtom(BurnerOff, [burner]))
             add_effects = {LiftedAtom(HumanHappy, [])}
             if CFG.boil_use_constant_delay:
                 delay_distribution = ConstantDelay(torch.tensor(3.0))

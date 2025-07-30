@@ -842,7 +842,11 @@ class PyBulletBoilEnv(PyBulletEnv):
         if CFG.boil_goal_simple_human_happy:
             return all_filled
         else:
-            return all([all_filled, no_spill, all_boiled, burner_off])
+            conditions = [all_filled, no_spill, all_boiled]
+            if CFG.boil_goal_require_burner_off:
+                conditions.append(burner_off)
+
+            return all(conditions)
 
     def _robot_at_init_pose(self, state: State) -> bool:
         """Completion is declared when it's at a particular pose (e.g. the
