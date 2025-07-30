@@ -95,7 +95,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         # Test to only generate proposals at cycle 0.
         if self._online_learning_cycle == 0:
             proposed_predicates = self._get_predicate_proposals(
-                "transition_modelling", all_trajs)
+                "subgoals", all_trajs)
         else:
             proposed_predicates = set()
         logging.info(f"Done: created {len(proposed_predicates)} predicates")
@@ -171,7 +171,10 @@ class OnlinePredicateInventionProcessPlanningApproach(
             if noisy_but_complete_proposal:
                 base_candidates |= set(
                     p for p in self._oracle_predicates if p.name in
-                    ["NoWaterSpilled", "JugNotAtFaucetOrAtFaucetAndFilled"])
+                    [
+                        # "NoWaterSpilled", 
+                        "JugNotAtFaucetOrAtFaucetAndFilled"
+                    ])
 
             for i in range(CFG.vlm_predicator_num_proposal_batches):
                 base_candidates |= self._get_predicate_proposals_from_fm(
@@ -189,15 +192,16 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
         # "transition_modelling", "discrimination", "unconditional"
         assert proposal_method in [
-            "transition_modelling", "discrimination", "unconditional"
+            "transition_modeling", "discrimination", "unconditional",
+            "subgoals"
         ]
 
         # transition modelling (2 fm calls): spec -> implementation
         # discrimination (3 fm calls): nl -> spec -> implementation
         # unconditional: (3 calls): spec -> primitive impl -> concept impl
-        if proposal_method == "transition_modelling":
+        if proposal_method in ["transition_modeling", "subgoals"]:
             # 1. Get template
-            prompt_template_f = "prompts/invent_transition_modeling.outline"
+            prompt_template_f = f"prompts/invent_{proposal_method}.outline"
             with open(prompt_template_f, "r") as f:
                 prompt_template = f.read()
 
@@ -216,7 +220,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                                             EXPERIENCE_IN_ENV=experience_str)
             with open(
                     f"{CFG.log_file}/ite{self._online_learning_cycle}_b{b_id}"
-                    f"_s1_tm.prompt", "w") as f:
+                    f"_s1.prompt", "w") as f:
                 f.write(prompt)
 
             # 3. Get spec proposals
@@ -240,7 +244,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                     seed=seed)[0]
             with open(
                     f"{CFG.log_file}/ite{self._online_learning_cycle}_b{b_id}"
-                    f"_s1_tm.response", "w") as f:
+                    f"_s1.response", "w") as f:
                 f.write(spec_response)
         elif proposal_method == "discrimination":
             # Method 1: Find each state, if it satisfies the condition of an
