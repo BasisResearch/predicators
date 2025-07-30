@@ -169,12 +169,11 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
             noisy_but_complete_proposal = True
             if noisy_but_complete_proposal:
-                base_candidates |= set(
-                    p for p in self._oracle_predicates if p.name in
-                    [
-                        # "NoWaterSpilled", 
-                        "JugNotAtFaucetOrAtFaucetAndFilled"
-                    ])
+                base_candidates |= set(p for p in self._oracle_predicates
+                                       if p.name in [
+                                           # "NoWaterSpilled",
+                                           "JugNotAtFaucetOrAtFaucetAndFilled"
+                                       ])
 
             for i in range(CFG.vlm_predicator_num_proposal_batches):
                 base_candidates |= self._get_predicate_proposals_from_fm(
