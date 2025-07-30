@@ -27,7 +27,7 @@ from predicators.predicate_search_score_functions import \
 from predicators.settings import CFG
 from predicators.structs import Dataset, GroundAtom, GroundAtomTrajectory, \
     Object, ParameterizedOption, Predicate, Segment, State, Task, Type, \
-    VLMPredicate
+    VLMPredicate, DerivedPredicate
 
 ################################################################################
 #                          Programmatic classifiers                            #
@@ -874,6 +874,9 @@ class _NegationPredicateGrammarWrapper(_PredicateGrammar):
     def enumerate(self) -> Iterator[Tuple[Predicate, float]]:
         for (predicate, cost) in self.base_grammar.enumerate():
             yield (predicate, cost)
+            if isinstance(predicate, DerivedPredicate):
+                # Don't negate derived predicates.
+                continue
             classifier = _NegationClassifier(predicate)
             negated_predicate = Predicate(str(classifier), predicate.types,
                                           classifier)
