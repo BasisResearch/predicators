@@ -345,4 +345,4 @@ FLAGS:
   timeout: 60
   log: 'logs/'
 START_SEED: 0
-NUM_SEEDS: 1
+NUM_SEEDS: 3
