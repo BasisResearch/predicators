@@ -311,7 +311,8 @@ def _skeleton_generator_with_processes(
         if task.goal.issubset(node.atoms):
             # If this skeleton satisfies the goal, yield it.
             metrics["num_skeletons_optimized"] += 1
-            logging.debug(f"\n[Task Planner] Found Plan:")
+            time_taken = time.perf_counter() - start_time
+            logging.debug(f"\n[Task Planner] Found Plan in {time_taken:.2f}s:")
             for process in node.skeleton:
                 logging.debug(process.name_and_objects_str())
             logging.debug("")
