@@ -95,7 +95,7 @@ APPROACHES:
       vlm_predicator_use_grammar: False
       grammar_search_grammar_use_single_feature: False
       grammar_search_grammar_use_skip_grammar: False
-      grammar_search_grammar_includes_negation: False
+      grammar_search_grammar_includes_negation: True
       grammar_search_grammar_includes_foralls: False
       grammar_search_prune_redundant_preds: False
       grammar_search_search_algorithm: "hill_climbing"
