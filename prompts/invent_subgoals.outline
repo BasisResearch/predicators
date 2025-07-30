@@ -19,7 +19,7 @@ The demonstrator performs a sequence of actions, ending with HumanHapp()=True. E
 {EXPERIENCE_IN_ENV}
 
 ### Your Task
-Invent new, **task-relevant** state abstraction predicates that can serve as useful *intermediate subgoals* or possible conditions for `HumanHappy()` to become True, or preconditions of those subgoals. And also conditions that must be maintained to prevent failure, even if failure is not shown in the demonstration.
+Invent new predicates that can serve as essential *subgoals* for `HumanHappy()` to become True in the final state, and any conditions that must be maintained to prevent failure, even if failure is not shown in the demonstration.
 
 ### Output Format
 
@@ -33,7 +33,7 @@ Provide your predicate proposals in the following format:
 
 ### Constraints
 - Do *not* propose any new predicates that are purely position-based.
-- Avoid composite predicates: Focus on proposing primitive predicates that capture a property or relation. Do *not* propose predicates that represent negation,  conjunctions (AND), disjunctions (OR), of existing or proposed predicates—these can be constructed later from primitives.
+- Avoid composite predicates: Focus on proposing primitive predicates that capture a property or relation. Do *not* propose predicates that represent conjunctions (AND), disjunctions (OR), of existing or proposed predicates—these can be constructed later from primitives.
 - The assertion should be clear, precise, and unambiguous, and about the relationship or properties of the variables `?<var1>`, `?<var2>`, etc., if applicable. The assertion should be detailed enough for an external observer to confidently and correctly determine its truth value based on the provided state information.
 - Replace placeholders like <predicate1_name>, <var1>, etc., with actual names; <type1>, and <obj1> with actual names and types from the state dictionary provided. *Do not* use types that are not present in the states (e.g., int or float).
 - Do not use bold or italic fonts in your response.
