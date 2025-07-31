@@ -66,8 +66,8 @@ APPROACHES:
     #   - "load_approach"
     #   - "restart_learning" # Add to restart learning after skipping cycles.
     FLAGS:
-      # skip_until_cycle: 3
-      excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,JugNotFilled,JugNotAtFaucetOrAtFaucetAndFilled"
+      # skip_until_cycle: 1
+      excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,JugNotAtFaucetOrAtFaucetAndFilled"
       demonstrator: "oracle_process_planning"
       explorer: "exploit_planning"
       online_nsrt_learning_requests_per_cycle: 1  # just 1 for now
