@@ -428,11 +428,11 @@ class PyBulletBoilEnv(PyBulletEnv):
                         return height * self.water_height_to_level_ratio
                 return 0.0
             if feature == "heat_level":
-                return getattr(obj, "heat_level", 0.0)
+                return obj.heat_level
 
         elif obj.type == self._human_type:
             if feature == "happiness_level":
-                return getattr(obj, "happiness_level", 0.0)
+                return obj.happiness_level
 
         # Otherwise, rely on defaults (like the base PyBulletEnv) for x,y,z,...
         raise ValueError(f"Unknown feature {feature} for object {obj}.")
