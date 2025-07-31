@@ -345,11 +345,9 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 all_trajs, online_learning_cycle=self._online_learning_cycle)
         else:
             self._candidate_predicates |= proposed_predicates
-            logging.info("Candidate predicates: "
-                         f"{pformat(self._candidate_predicates)}")
 
-            all_candidates: Dict[Predicate, float] = {
-                p: float(p.arity)
+            all_candidates: Dict[Predicate, int] = {
+                p: p.arity
                 for p in self._initial_predicates
             }
             if CFG.vlm_predicator_use_grammar:
@@ -364,6 +362,9 @@ class OnlinePredicateInventionProcessPlanningApproach(
             atom_dataset: List[GroundAtomTrajectory] =\
                         utils.create_ground_atom_dataset(all_trajs,
                                                         set(all_candidates))
+
+            new_preds = set(all_candidates) - self._initial_predicates
+            logging.info(f"Candidate predicates:\n{pformat(new_preds)}")
 
             self._learned_predicates = set(all_candidates)  # temp
             # TODO: we need to save the top ranking conditions here so it can be
@@ -534,10 +535,6 @@ class OnlinePredicateInventionProcessPlanningApproach(
         endogenous_processes = {
             p
             for p in all_processes if isinstance(p, EndogenousProcess)
-        }
-        exogenous_processes = {
-            p
-            for p in all_processes if isinstance(p, ExogenousProcess)
         }
 
         # Precompute stuff for scoring.
