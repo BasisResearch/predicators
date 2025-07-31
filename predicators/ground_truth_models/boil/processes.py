@@ -43,7 +43,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         NoJugAtFaucetOrJugAtFaucetAndFilled = predicates[
             "JugNotAtFaucetOrAtFaucetAndFilled"]
         JugFilled = predicates["JugFilled"]
-        JugNotFilled = predicates["JugNotFilled"]
+        # JugNotFilled = predicates["JugNotFilled"]
         # WaterSpilled = predicates["WaterSpilled"]
         NoWaterSpilled = predicates["NoWaterSpilled"]
         FaucetOn = predicates["FaucetOn"]
@@ -462,7 +462,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         condition_at_start = {
             LiftedAtom(JugAtFaucet, [jug, faucet]),
             LiftedAtom(FaucetOn, [faucet]),
-            LiftedAtom(JugNotFilled, [jug]),
+            # LiftedAtom(JugNotFilled, [jug]),
         }
         condition_overall = {
             LiftedAtom(JugAtFaucet, [jug, faucet]),
@@ -471,9 +471,10 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         add_effects = {
             LiftedAtom(JugFilled, [jug]),
         }
-        delete_effects = {
-            LiftedAtom(JugNotFilled, [jug]),
-        }
+        delete_effects = set()
+        # delete_effects = {
+        #     LiftedAtom(JugNotFilled, [jug]),
+        # }
         if CFG.boil_use_constant_delay:
             # Using the active value from original code for FillJug
             delay_distribution = ConstantDelay(torch.tensor(7.0))
