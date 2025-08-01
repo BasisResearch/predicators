@@ -425,6 +425,7 @@ class GlobalSettings:
     boil_use_derived_predicates = True
     boil_require_jug_full_to_heatup = False
     boil_goal_require_burner_off = True
+    boil_add_jug_reached_capacity_predicate = False
 
     # parameters for random options approach
     random_options_max_tries = 100
@@ -596,7 +597,7 @@ class GlobalSettings:
     cluster_and_search_process_learner_parallel_condition = True
     cluster_and_search_process_learner_parallel_pnad = False
     cluster_and_search_process_learner_llm_select_condition = False
-    cluster_and_search_process_learner_llm_select_atom = False
+    cluster_and_search_process_learner_llm_select_atoms = False
     cluster_and_search_vi_steps = 200
     cluster_search_max_workers = -1
     cluster_and_inverse_planning_candidates = "top_consistent"  # "all", "top_consistent"

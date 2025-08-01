@@ -165,6 +165,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         self._JugNotFilled = Predicate(
             "JugNotFilled", [self._jug_type],
             lambda s, o: not self._JugFilled_holds(s, o))
+        self._JugAtCapacity = Predicate("JugAtCapacity", [self._jug_type],
+                                        self._JugAtCapacity_holds)
         self._WaterBoiled = Predicate("WaterBoiled", [self._jug_type],
                                       self._WaterBoiled_holds)
         self._BurnerOn = Predicate("BurnerOn", [self._burner_type],
@@ -200,6 +202,13 @@ class PyBulletBoilEnv(PyBulletEnv):
         self._HumanHappy = Predicate("HumanHappy", [], self._HumanHappy_holds)
         self._TaskCompleted = Predicate("TaskCompleted", [],
                                         self._TaskCompleted_holds)
+        self._NoJugAtFaucetOrJugAtFaucetAndReachedCapcity = DerivedPredicate(
+            "NoJugAtFaucetOrAtFaucetAndReachedCapcity",
+            [self._jug_type, self._faucet_type],
+            self._NoJugAtFaucetOrJugAtFaucetAndReachedCapcity_holds,
+            auxiliary_predicates=[
+                self._JugAtFaucet, self._JugAtCapacity, self._NoJugAtFaucet
+            ])
         self._NoJugAtFaucetOrJugAtFaucetAndFilled = DerivedPredicate(
             "JugNotAtFaucetOrAtFaucetAndFilled",
             [self._jug_type, self._faucet_type],
@@ -233,12 +242,17 @@ class PyBulletBoilEnv(PyBulletEnv):
             self._NoJugAtFaucet,
             self._NoWaterSpilled,
         }
+        if CFG.boil_add_jug_reached_capacity_predicate:
+            predicates.add(self._JugAtCapacity)
         if CFG.boil_goal == "human_happy":
             predicates.add(self._HumanHappy)
         elif CFG.boil_goal == "task_completed":
             predicates.add(self._TaskCompleted)
         if CFG.boil_use_derived_predicates:
-            predicates.add(self._NoJugAtFaucetOrJugAtFaucetAndFilled)
+            if CFG.boil_add_jug_reached_capacity_predicate:
+                predicates.add(self._NoJugAtFaucetOrJugAtFaucetAndReachedCapcity)
+            else:
+                predicates.add(self._NoJugAtFaucetOrJugAtFaucetAndFilled)
         return predicates
 
     @property
@@ -728,6 +742,13 @@ class PyBulletBoilEnv(PyBulletEnv):
     def _JugFilled_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         (jug, ) = objects
         return state.get(jug, "water_volumn") >= cls.water_filled_height
+    
+    @classmethod
+    def _JugAtCapacity_holds(cls, state: State, objects: Sequence[Object]
+                             ) -> bool:
+        """Jug is at capacity if it has water_volumn >= max_jug_water_capacity."""
+        (jug, ) = objects
+        return state.get(jug, "water_volumn") >= cls.max_jug_water_capacity
 
     def _WaterSpilled_holds(self, state: State,
                             objects: Sequence[Object]) -> bool:
@@ -898,6 +919,27 @@ class PyBulletBoilEnv(PyBulletEnv):
                 jug_at_faucet = True
             elif atom.predicate.name in ["JugFilled", "JugIsFull", 
                                          "JugFull", "JugHasWater"] and\
+                atom.objects == [jug]:
+                jug_filled = True
+
+        return no_jug_at_faucet or (jug_at_faucet and jug_filled)
+
+    def _NoJugAtFaucetOrJugAtFaucetAndReachedCapacity_holds(
+            self, atoms: Set[GroundAtom], objects: Sequence[Object]) -> bool:
+        """A jug is not at the faucet, or if it is, it is filled."""
+        (jug, faucet) = objects
+
+        no_jug_at_faucet = False
+        jug_at_faucet = False
+        jug_filled = False
+
+        for atom in atoms:
+            if atom.predicate == self._NoJugAtFaucet:
+                no_jug_at_faucet = True
+            elif atom.predicate == self._JugAtFaucet and \
+                atom.objects == [jug, faucet]:
+                jug_at_faucet = True
+            elif atom.predicate.name in ["JugReachedCapcity"] and\
                 atom.objects == [jug]:
                 jug_filled = True
 

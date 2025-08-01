@@ -40,9 +40,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         JugAtFaucet = predicates["JugAtFaucet"]
         NoJugAtFaucet = predicates["NoJugAtFaucet"]
         JugNotAtBurnerOrFaucet = predicates["JugNotAtBurnerOrFaucet"]
+        NoJugAtFaucetOrAtFaucetAndReachedCapacity = predicates[
+            "NoJugAtFaucetOrAtFaucetAndReachedCapacity"]
         NoJugAtFaucetOrJugAtFaucetAndFilled = predicates[
-            "JugNotAtFaucetOrAtFaucetAndFilled"]
+            "NoJugAtFaucetOrAtFaucetAndFilled"]
         JugFilled = predicates["JugFilled"]
+        JugAtCapacity = predicates["JugAtCapacity"]
         # JugNotFilled = predicates["JugNotFilled"]
         # WaterSpilled = predicates["WaterSpilled"]
         NoWaterSpilled = predicates["NoWaterSpilled"]
@@ -496,6 +499,31 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
                                             torch.tensor(1.0))
         processes.add(fill_jug_process)
 
+        if CFG.boil_add_jug_reached_capacity_predicate:
+            # ReachCapacity
+            jug = Variable("?jug", jug_type)
+            faucet = Variable("?faucet", faucet_type)
+            parameters = [jug, faucet]
+            condition_at_start = {
+                LiftedAtom(JugFilled, [jug]),
+                LiftedAtom(JugAtFaucet, [jug, faucet]),
+                LiftedAtom(FaucetOn, [faucet]),
+            }
+            condition_overall = condition_at_start.copy()
+            add_effects = {
+                LiftedAtom(JugAtCapacity, [jug]),
+            }
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
+                                                    sigma=torch.tensor(0.1))
+            reach_capacity_process = ExogenousProcess("ReachJugCapacity", 
+                                                    parameters,
+                                                    condition_at_start,
+                                                    condition_overall, set(),
+                                                    add_effects, set(),
+                                                    delay_distribution,
+                                                    torch.tensor(1.0))
+            processes.add(reach_capacity_process)
+
         # OverfillJug
         jug = Variable("?jug", jug_type)
         faucet = Variable("?faucet", faucet_type)
@@ -504,8 +532,13 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(FaucetOn, [faucet]),
         }
         if CFG.boil_use_derived_predicates:
-            condition_at_start.add(
-                LiftedAtom(NoJugAtFaucetOrJugAtFaucetAndFilled, [jug, faucet]))
+            if CFG.boil_add_jug_reached_capacity_predicate:
+                condition_at_start.add(
+                    LiftedAtom(NoJugAtFaucetOrAtFaucetAndReachedCapacity, [jug, 
+                                                                      faucet]))
+            else:
+                condition_at_start.add(
+                    LiftedAtom(NoJugAtFaucetOrJugAtFaucetAndFilled, [jug, faucet]))
         else:
             condition_at_start.add(LiftedAtom(JugAtFaucet, [jug, faucet]))
             condition_at_start.add(LiftedAtom(JugFilled, [jug]))
