@@ -89,7 +89,17 @@ class PyBulletBoilEnv(PyBulletEnv):
     # how fast water_volumn increases per step
     water_fill_speed: ClassVar[float] = 0.002 * water_height_to_level_ratio
     water_filled_height: ClassVar[float] = 0.08 * water_height_to_level_ratio
-    max_jug_water_capacity: ClassVar[float] = 0.83 * water_height_to_level_ratio
+    # When capacity is 1, it is harder to learn the right process for 
+    # WaterSpilled process because for water to spill on the table is happens
+    # immediately (after a period t) while for overflow, it takes requires it
+    # to first reach the max capacity, then overflow (also after a period t).
+    # But when capacity is say 0.083, it wouldn't allow plans that waits after
+    # TurnerFaucetOn, which is not the most efficient, but also reasonable.
+    # Experiment with capacity at 0.83, if this doesn't allow it to learn
+    # the right process, then fallback to 0.95; -> it doesn't
+    # Another idea is to change the environment to be that water doesn't 
+    # over flow. (magic water like in grow)
+    max_jug_water_capacity: ClassVar[float] = 0.093 * water_height_to_level_ratio
     max_water_spill_width: ClassVar[float] = 0.3
     water_color = (0.0, 0.0, 1.0, 0.9)  # blue
     heating_speed: ClassVar[
@@ -1135,8 +1145,8 @@ if __name__ == "__main__":
                             pick.ground([robot, jug1], []),
                             place_under_faucet.ground([robot, faucet], []),
                             switch_faucet_on.ground([robot, faucet], []),
-                            # no_op.ground([robot], []),
-                            switch_burner_on.ground([robot, burner1], []),
+                            no_op.ground([robot], []),
+                            # switch_burner_on.ground([robot, burner1], []),
                             switch_faucet_off.ground([robot, faucet], []),
                             # pick.ground([robot, jug1], []),
                             # place_on_burner.ground([robot, burner2], []),
