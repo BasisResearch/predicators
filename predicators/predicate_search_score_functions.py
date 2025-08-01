@@ -353,6 +353,8 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
         assert self.metric_name in ("num_nodes_created", "num_nodes_expanded")
         score = 0.0
         seen_demos = 0
+        matching_plan_bonus =\
+                        CFG.grammar_search_additional_bonus_for_matching_plan
         assert len(low_level_trajs) == len(segmented_trajs)
         for ll_traj, seg_traj in zip(low_level_trajs, segmented_trajs):
             if seen_demos >= CFG.grammar_search_max_demos:
@@ -414,7 +416,7 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
             # considered.
             refinable_skeleton_not_found_prob = 1.0
             try:
-                for idx, (_, plan_atoms_sequence,
+                for idx, (plan, plan_atoms_sequence,
                           metrics) in enumerate(generator):
                     assert goal.issubset(plan_atoms_sequence[-1])
                     # Estimate the probability that this skeleton is refinable.
@@ -430,6 +432,12 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                     terminate_prob = refinable_skeleton_not_found_prob *\
                                         refinement_prob
                     expected_planning_time += terminate_prob * num_nodes
+                    if matching_plan_bonus != 0 and \
+                       (len(plan_atoms_sequence) == len(demo_atoms_sequence)
+                        ) and \
+                       ([seg.get_option().name for seg in seg_traj] == \
+                        [g_proc.option.name for g_proc in plan]):
+                        expected_planning_time -= matching_plan_bonus
                     # Apply a penalty to account for the time that we'd spend
                     # in backtracking if the last skeleton was not refinable.
                     if idx > 0:
