@@ -516,14 +516,14 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
                 LiftedAtom(JugAtCapacity, [jug]),
             }
             delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
-                                                    sigma=torch.tensor(0.1))
-            reach_capacity_process = ExogenousProcess("ReachJugCapacity", 
-                                                    parameters,
-                                                    condition_at_start,
-                                                    condition_overall, set(),
-                                                    add_effects, set(),
-                                                    delay_distribution,
-                                                    torch.tensor(1.0))
+                                                       sigma=torch.tensor(0.1))
+            reach_capacity_process = ExogenousProcess("ReachJugCapacity",
+                                                      parameters,
+                                                      condition_at_start,
+                                                      condition_overall, set(),
+                                                      add_effects, set(),
+                                                      delay_distribution,
+                                                      torch.tensor(1.0))
             processes.add(reach_capacity_process)
 
         # OverfillJug
@@ -536,11 +536,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_derived_predicates:
             if CFG.boil_add_jug_reached_capacity_predicate:
                 condition_at_start.add(
-                    LiftedAtom(NoJugAtFaucetOrAtFaucetAndReachedCapacity, [jug, 
-                                                                      faucet]))
+                    LiftedAtom(NoJugAtFaucetOrAtFaucetAndReachedCapacity,
+                               [jug, faucet]))
             else:
                 condition_at_start.add(
-                    LiftedAtom(NoJugAtFaucetOrJugAtFaucetAndFilled, [jug, faucet]))
+                    LiftedAtom(NoJugAtFaucetOrJugAtFaucetAndFilled,
+                               [jug, faucet]))
         else:
             condition_at_start.add(LiftedAtom(JugAtFaucet, [jug, faucet]))
             condition_at_start.add(LiftedAtom(JugFilled, [jug]))

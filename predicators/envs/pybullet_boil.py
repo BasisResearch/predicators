@@ -89,7 +89,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     # how fast water_volumn increases per step
     water_fill_speed: ClassVar[float] = 0.002 * water_height_to_level_ratio
     water_filled_height: ClassVar[float] = 0.08 * water_height_to_level_ratio
-    # When capacity is 1, it is harder to learn the right process for 
+    # When capacity is 1, it is harder to learn the right process for
     # WaterSpilled process because for water to spill on the table is happens
     # immediately (after a period t) while for overflow, it takes requires it
     # to first reach the max capacity, then overflow (also after a period t).
@@ -97,9 +97,10 @@ class PyBulletBoilEnv(PyBulletEnv):
     # TurnerFaucetOn, which is not the most efficient, but also reasonable.
     # Experiment with capacity at 0.83, if this doesn't allow it to learn
     # the right process, then fallback to 0.95; -> it doesn't
-    # Another idea is to change the environment to be that water doesn't 
+    # Another idea is to change the environment to be that water doesn't
     # over flow. (magic water like in grow)
-    max_jug_water_capacity: ClassVar[float] = 0.093 * water_height_to_level_ratio
+    max_jug_water_capacity: ClassVar[
+        float] = 0.093 * water_height_to_level_ratio
     max_water_spill_width: ClassVar[float] = 0.3
     water_color = (0.0, 0.0, 1.0, 0.9)  # blue
     heating_speed: ClassVar[
@@ -129,7 +130,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                         sim_features=["id", "switch_id"])
     _switch_type = Type("switch", ["x", "y", "z", "rot", "is_on"])
     # _spilled_level is initialized to be 0.04 smaller. This creates a delay
-    # for spill to occur while allows the WaterSpill predicate to have an 
+    # for spill to occur while allows the WaterSpill predicate to have an
     # intuitive >0.0 definition, instead of >0.04
     _faucet_type = Type("faucet",
                         ["x", "y", "z", "rot", "is_on", "spilled_level"],
@@ -260,7 +261,8 @@ class PyBulletBoilEnv(PyBulletEnv):
             predicates.add(self._TaskCompleted)
         if CFG.boil_use_derived_predicates:
             if CFG.boil_add_jug_reached_capacity_predicate:
-                predicates.add(self._NoJugAtFaucetOrJugAtFaucetAndReachedCapacity)
+                predicates.add(
+                    self._NoJugAtFaucetOrJugAtFaucetAndReachedCapacity)
             else:
                 predicates.add(self._NoJugAtFaucetOrJugAtFaucetAndFilled)
         return predicates
@@ -467,9 +469,10 @@ class PyBulletBoilEnv(PyBulletEnv):
 
     def _reset_custom_env_state(self, state: State) -> None:
         """Called in _reset_state to do any environment-specific resetting.
-        This environment only supports resetting the state at the beginning,
-        because the state dict doesn't include all features (e.g., faucet 
-        prev_is_on) to reset the simulator state exactly.
+
+        This environment only supports resetting the state at the
+        beginning, because the state dict doesn't include all features
+        (e.g., faucet prev_is_on) to reset the simulator state exactly.
         """
         # Programmatically set burner switches on/off
         for i, burner_obj in enumerate(self._burners):
@@ -750,11 +753,12 @@ class PyBulletBoilEnv(PyBulletEnv):
     def _JugFilled_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         (jug, ) = objects
         return state.get(jug, "water_volumn") >= cls.water_filled_height
-    
+
     @classmethod
-    def _JugAtCapacity_holds(cls, state: State, objects: Sequence[Object]
-                             ) -> bool:
-        """Jug is at capacity if it has water_volumn >= max_jug_water_capacity."""
+    def _JugAtCapacity_holds(cls, state: State,
+                             objects: Sequence[Object]) -> bool:
+        """Jug is at capacity if it has water_volumn >=
+        max_jug_water_capacity."""
         (jug, ) = objects
         return state.get(jug, "water_volumn") >= cls.max_jug_water_capacity
 
@@ -770,7 +774,7 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # A hack to achieve spill is 1 step after the faucet is on.
         return state.get(self._faucet,
-                     "spilled_level") > 0 # self.water_fill_speed * 20:
+                         "spilled_level") > 0  # self.water_fill_speed * 20:
         #     return True
         # return False
 
@@ -925,7 +929,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             elif atom.predicate == self._JugAtFaucet and \
                 atom.objects == [jug, faucet]:
                 jug_at_faucet = True
-            elif atom.predicate.name in ["JugFilled", "JugIsFull", 
+            elif atom.predicate.name in ["JugFilled", "JugIsFull",
                                          "JugFull", "JugHasWater"] and\
                 atom.objects == [jug]:
                 jug_filled = True
@@ -1126,7 +1130,8 @@ if __name__ == "__main__":
         env_options, "PlaceOnBurner")
     place_under_faucet = utils.get_parameterized_option_by_name(
         env_options, "PlaceUnderFaucet")
-    switch_faucet_on = utils.get_parameterized_option_by_name(env_options, "SwitchFaucetOn")
+    switch_faucet_on = utils.get_parameterized_option_by_name(
+        env_options, "SwitchFaucetOn")
     switch_faucet_off = utils.get_parameterized_option_by_name(
         env_options, "SwitchFaucetOff")
     switch_burner_on = utils.get_parameterized_option_by_name(
@@ -1134,39 +1139,39 @@ if __name__ == "__main__":
     no_op = utils.get_parameterized_option_by_name(env_options, "NoOp")
     # Objects
     robot = env._robot
-    jug1= env._jugs[0]
+    jug1 = env._jugs[0]
     # jug2= env._jugs[1]
     burner1 = env._burners[0]
     # burner2 = env._burners[1]
     faucet = env._faucet
 
     env_predicates = env.predicates
-    policy = utils.option_plan_to_policy([
-                            pick.ground([robot, jug1], []),
-                            place_under_faucet.ground([robot, faucet], []),
-                            switch_faucet_on.ground([robot, faucet], []),
-                            no_op.ground([robot], []),
-                            # switch_burner_on.ground([robot, burner1], []),
-                            switch_faucet_off.ground([robot, faucet], []),
-                            # pick.ground([robot, jug1], []),
-                            # place_on_burner.ground([robot, burner2], []),
-                            # switch_on.ground([robot, burner2], []),
-                            # pick.ground([robot, jug1], []),
-                            # place_under_faucet.ground([robot, faucet], []),
-                            # switch_on.ground([robot, faucet], []),
-                            # no_op.ground([robot], []),
-                            # switch_off.ground([robot, faucet], []),
-                            # pick.ground([robot, jug1], []),
-                            # place_on_burner.ground([robot, burner1], []),
-                            # switch_on.ground([robot, burner1], []),
-                            # no_op.ground([robot], []),
-                            # switch_off.ground([robot, burner2], []),
-                            # no_op.ground([robot], []),
-                            # switch_off.ground([robot, burner1], []),
-                            ],
-                            noop_option_terminate_on_atom_change=True,
-                            abstract_function=lambda s: utils.abstract(s,
-                                                            env_predicates))
+    policy = utils.option_plan_to_policy(
+        [
+            pick.ground([robot, jug1], []),
+            place_under_faucet.ground([robot, faucet], []),
+            switch_faucet_on.ground([robot, faucet], []),
+            no_op.ground([robot], []),
+            # switch_burner_on.ground([robot, burner1], []),
+            switch_faucet_off.ground([robot, faucet], []),
+            # pick.ground([robot, jug1], []),
+            # place_on_burner.ground([robot, burner2], []),
+            # switch_on.ground([robot, burner2], []),
+            # pick.ground([robot, jug1], []),
+            # place_under_faucet.ground([robot, faucet], []),
+            # switch_on.ground([robot, faucet], []),
+            # no_op.ground([robot], []),
+            # switch_off.ground([robot, faucet], []),
+            # pick.ground([robot, jug1], []),
+            # place_on_burner.ground([robot, burner1], []),
+            # switch_on.ground([robot, burner1], []),
+            # no_op.ground([robot], []),
+            # switch_off.ground([robot, burner2], []),
+            # no_op.ground([robot], []),
+            # switch_off.ground([robot, burner1], []),
+        ],
+        noop_option_terminate_on_atom_change=True,
+        abstract_function=lambda s: utils.abstract(s, env_predicates))
 
     constant_noop = False
     for task in tasks:

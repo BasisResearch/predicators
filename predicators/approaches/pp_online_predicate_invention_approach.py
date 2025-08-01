@@ -171,7 +171,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
             if noisy_but_complete_proposal:
                 base_candidates |= set(p for p in self._oracle_predicates
                                        if p.name in [
-                                        #    "NoWaterSpilled",
+                                           #    "NoWaterSpilled",
                                            "NoJugAtFaucetOrAtFaucetAndFilled"
                                        ])
 
