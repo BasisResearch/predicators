@@ -85,11 +85,11 @@ class PyBulletBoilEnv(PyBulletEnv):
     num_burners: ClassVar[int] = 1  # can be adjusted as needed
 
     # Speeds / rates
-    water_fill_speed: ClassVar[
-        float] = 0.002  # how fast water_volumn increases per step
     water_height_to_level_ratio: ClassVar[float] = 10
+    # how fast water_volumn increases per step
+    water_fill_speed: ClassVar[float] = 0.002 * water_height_to_level_ratio
     water_filled_height: ClassVar[float] = 0.08 * water_height_to_level_ratio
-    max_jug_water_capacity: ClassVar[float] = 0.1 * water_height_to_level_ratio
+    max_jug_water_capacity: ClassVar[float] = 0.85 * water_height_to_level_ratio
     max_water_spill_width: ClassVar[float] = 0.3
     water_color = (0.0, 0.0, 1.0, 0.9)  # blue
     heating_speed: ClassVar[
@@ -210,7 +210,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                 self._JugAtFaucet, self._JugAtCapacity, self._NoJugAtFaucet
             ])
         self._NoJugAtFaucetOrJugAtFaucetAndFilled = DerivedPredicate(
-            "JugNotAtFaucetOrAtFaucetAndFilled",
+            "NoJugAtFaucetOrAtFaucetAndFilled",
             [self._jug_type, self._faucet_type],
             self._NoJugAtFaucetOrJugAtFaucetAndFilled_holds,
             auxiliary_predicates=[
@@ -492,9 +492,9 @@ class PyBulletBoilEnv(PyBulletEnv):
                          physicsClientId=self._physics_client_id)
             self._spilled_water_id = None
 
-        # The faucet has a spilled_level feature as well
-        self._faucet._spilled_level = state.get(self._faucet, "spilled_level") -\
-                                              self.water_fill_speed * 20
+        logging.warning(f"reset called on state\n{state.pretty_str()}. ")
+        # Initialize to take 10 steps for spill to occur
+        self._faucet._spilled_level = -self.water_fill_speed * 10
         spilled_level = max(0.0, self._faucet._spilled_level)
         # If there's already some spillage in the state, recreate a block
         if spilled_level > 0.0:
@@ -591,8 +591,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                         state: State) -> None:
         """Increment the jug’s water level (up to max) and recreate the liquid
         block."""
-        new_level = old_level + self.water_fill_speed *\
-                                self.water_height_to_level_ratio
+        new_level = old_level + self.water_fill_speed
         if new_level > self.max_jug_water_capacity:
             new_level = self.max_jug_water_capacity
 

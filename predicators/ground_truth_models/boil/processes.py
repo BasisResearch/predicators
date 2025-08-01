@@ -40,12 +40,14 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         JugAtFaucet = predicates["JugAtFaucet"]
         NoJugAtFaucet = predicates["NoJugAtFaucet"]
         JugNotAtBurnerOrFaucet = predicates["JugNotAtBurnerOrFaucet"]
-        NoJugAtFaucetOrAtFaucetAndReachedCapacity = predicates[
-            "NoJugAtFaucetOrAtFaucetAndReachedCapacity"]
-        NoJugAtFaucetOrJugAtFaucetAndFilled = predicates[
-            "NoJugAtFaucetOrAtFaucetAndFilled"]
+        if CFG.boil_add_jug_reached_capacity_predicate:
+            NoJugAtFaucetOrAtFaucetAndReachedCapacity = predicates[
+                "NoJugAtFaucetOrAtFaucetAndReachedCapacity"]
+            JugAtCapacity = predicates["JugAtCapacity"]
+        else:
+            NoJugAtFaucetOrJugAtFaucetAndFilled = predicates[
+                "NoJugAtFaucetOrAtFaucetAndFilled"]
         JugFilled = predicates["JugFilled"]
-        JugAtCapacity = predicates["JugAtCapacity"]
         # JugNotFilled = predicates["JugNotFilled"]
         # WaterSpilled = predicates["WaterSpilled"]
         NoWaterSpilled = predicates["NoWaterSpilled"]

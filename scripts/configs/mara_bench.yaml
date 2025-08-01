@@ -67,7 +67,7 @@ APPROACHES:
     #   - "restart_learning" # Add to restart learning after skipping cycles.
     FLAGS:
       # skip_until_cycle: 1
-      excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,JugNotAtFaucetOrAtFaucetAndFilled"
+      excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,NoJugAtFaucetOrAtFaucetAndFilled"
       demonstrator: "oracle_process_planning"
       explorer: "exploit_planning"
       online_nsrt_learning_requests_per_cycle: 1  # just 1 for now
@@ -90,9 +90,9 @@ APPROACHES:
       num_online_learning_cycles: 10
       rgb_observation: False # for visual predicators
       # Testing predicate invention:
-      vlm_predicator_oracle_base_predicates: False
-      vlm_predicator_oracle_learned_predicates: False
-      vlm_predicator_use_grammar: True
+      vlm_predicator_oracle_base_predicates: True
+      vlm_predicator_oracle_learned_predicates: True
+      vlm_predicator_use_grammar: False
       grammar_search_grammar_use_single_feature: False
       grammar_search_grammar_use_skip_grammar: False
       grammar_search_grammar_includes_negation: True
