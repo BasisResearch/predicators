@@ -89,7 +89,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     # how fast water_volumn increases per step
     water_fill_speed: ClassVar[float] = 0.002 * water_height_to_level_ratio
     water_filled_height: ClassVar[float] = 0.08 * water_height_to_level_ratio
-    max_jug_water_capacity: ClassVar[float] = 0.85 * water_height_to_level_ratio
+    max_jug_water_capacity: ClassVar[float] = 0.83 * water_height_to_level_ratio
     max_water_spill_width: ClassVar[float] = 0.3
     water_color = (0.0, 0.0, 1.0, 0.9)  # blue
     heating_speed: ClassVar[
@@ -493,7 +493,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             self._spilled_water_id = None
 
         # Initialize to take 10 steps for spill to occur
-        self._faucet._spilled_level = -self.water_fill_speed * 10
+        self._faucet._spilled_level = -self.water_fill_speed * 20
         spilled_level = max(0.0, self._faucet._spilled_level)
         # If there's already some spillage in the state, recreate a block
         if spilled_level > 0.0:
@@ -1099,7 +1099,7 @@ if __name__ == "__main__":
     CFG.coffee_use_pixelated_jug = True
     # CFG.pybullet_sim_steps_per_action = 15
     # CFG.fan_fans_blow_opposite_direction = True
-    env = PyBulletBoilEnv(use_gui=True)
+    env = PyBulletBoilEnv(use_gui=False)
     rng = np.random.default_rng(CFG.seed)
     tasks = env._make_tasks(1, rng)
 
@@ -1117,53 +1117,49 @@ if __name__ == "__main__":
         env_options, "PlaceOnBurner")
     place_under_faucet = utils.get_parameterized_option_by_name(
         env_options, "PlaceUnderFaucet")
-    switch_on = utils.get_parameterized_option_by_name(env_options, "SwitchOn")
-    switch_off = utils.get_parameterized_option_by_name(
-        env_options, "SwitchOff")
+    switch_faucet_on = utils.get_parameterized_option_by_name(env_options, "SwitchFaucetOn")
+    switch_faucet_off = utils.get_parameterized_option_by_name(
+        env_options, "SwitchFaucetOff")
     no_op = utils.get_parameterized_option_by_name(env_options, "NoOp")
-    # # Objects
-    # robot = env._robot
-    # jug1= env._jugs[0]
+    # Objects
+    robot = env._robot
+    jug1= env._jugs[0]
     # jug2= env._jugs[1]
-    # burner_switch1 = env._burner_switches[0]
-    # burner_switch2 = env._burner_switches[1]
-    # faucet_switch = env._faucet_switch
-    # burner1 = env._burners[0]
+    burner1 = env._burners[0]
     # burner2 = env._burners[1]
-    # faucet = env._faucet
+    faucet = env._faucet
 
-    # env_predicates = env.predicates
-    # policy = utils.option_plan_to_policy([
-    #                         pick.ground([robot, jug2], []),
-    #                         place_under_faucet.ground([robot, faucet], []),
-    #                         switch_on.ground([robot, faucet_switch], []),
-    #                         no_op.ground([robot], []),
-    #                         switch_off.ground([robot, faucet_switch], []),
-    #                         pick.ground([robot, jug2], []),
-    #                         place_on_burner.ground([robot, burner2], []),
-    #                         switch_on.ground([robot, burner_switch2], []),
-    #                         pick.ground([robot, jug1], []),
-    #                         place_under_faucet.ground([robot, faucet], []),
-    #                         switch_on.ground([robot, faucet_switch], []),
-    #                         no_op.ground([robot], []),
-    #                         switch_off.ground([robot, faucet_switch], []),
-    #                         pick.ground([robot, jug1], []),
-    #                         place_on_burner.ground([robot, burner1], []),
-    #                         switch_on.ground([robot, burner_switch1], []),
-    #                         no_op.ground([robot], []),
-    #                         switch_off.ground([robot, burner_switch2], []),
-    #                         no_op.ground([robot], []),
-    #                         switch_off.ground([robot, burner_switch1], []),
-    #                         ],
-    #                         noop_option_terminate_on_atom_change=True,
-    #                         abstract_function=lambda s: utils.abstract(s,
-    #                                                         env_predicates))
+    env_predicates = env.predicates
+    policy = utils.option_plan_to_policy([
+                            pick.ground([robot, jug1], []),
+                            place_under_faucet.ground([robot, faucet], []),
+                            switch_faucet_on.ground([robot, faucet], []),
+                            no_op.ground([robot], []),
+                            switch_faucet_off.ground([robot, faucet], []),
+                            # pick.ground([robot, jug1], []),
+                            # place_on_burner.ground([robot, burner2], []),
+                            # switch_on.ground([robot, burner2], []),
+                            # pick.ground([robot, jug1], []),
+                            # place_under_faucet.ground([robot, faucet], []),
+                            # switch_on.ground([robot, faucet], []),
+                            # no_op.ground([robot], []),
+                            # switch_off.ground([robot, faucet], []),
+                            # pick.ground([robot, jug1], []),
+                            # place_on_burner.ground([robot, burner1], []),
+                            # switch_on.ground([robot, burner1], []),
+                            # no_op.ground([robot], []),
+                            # switch_off.ground([robot, burner2], []),
+                            # no_op.ground([robot], []),
+                            # switch_off.ground([robot, burner1], []),
+                            ],
+                            noop_option_terminate_on_atom_change=True,
+                            abstract_function=lambda s: utils.abstract(s,
+                                                            env_predicates))
 
     constant_noop = True
     for task in tasks:
         env._reset_state(task.init)
-        # breakpoint()
-        for _ in range(100000):
+        for _ in range(20000):
             if constant_noop:
                 action = Action(
                     np.array(env._pybullet_robot.initial_joint_positions))
@@ -1175,4 +1171,5 @@ if __name__ == "__main__":
                     action = Action(
                         np.array(env._current_observation.joint_positions))
             env.step(action)
-            time.sleep(0.01)
+            # time.sleep(0.01)
+        breakpoint()
