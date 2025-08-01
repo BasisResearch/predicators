@@ -202,10 +202,10 @@ class PyBulletBoilEnv(PyBulletEnv):
         self._HumanHappy = Predicate("HumanHappy", [], self._HumanHappy_holds)
         self._TaskCompleted = Predicate("TaskCompleted", [],
                                         self._TaskCompleted_holds)
-        self._NoJugAtFaucetOrJugAtFaucetAndReachedCapcity = DerivedPredicate(
-            "NoJugAtFaucetOrAtFaucetAndReachedCapcity",
+        self._NoJugAtFaucetOrJugAtFaucetAndReachedCapacity = DerivedPredicate(
+            "NoJugAtFaucetOrAtFaucetAndReachedCapacity",
             [self._jug_type, self._faucet_type],
-            self._NoJugAtFaucetOrJugAtFaucetAndReachedCapcity_holds,
+            self._NoJugAtFaucetOrJugAtFaucetAndReachedCapacity_holds,
             auxiliary_predicates=[
                 self._JugAtFaucet, self._JugAtCapacity, self._NoJugAtFaucet
             ])
@@ -250,7 +250,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             predicates.add(self._TaskCompleted)
         if CFG.boil_use_derived_predicates:
             if CFG.boil_add_jug_reached_capacity_predicate:
-                predicates.add(self._NoJugAtFaucetOrJugAtFaucetAndReachedCapcity)
+                predicates.add(self._NoJugAtFaucetOrJugAtFaucetAndReachedCapacity)
             else:
                 predicates.add(self._NoJugAtFaucetOrJugAtFaucetAndFilled)
         return predicates
@@ -939,7 +939,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             elif atom.predicate == self._JugAtFaucet and \
                 atom.objects == [jug, faucet]:
                 jug_at_faucet = True
-            elif atom.predicate.name in ["JugReachedCapcity"] and\
+            elif atom.predicate.name in ["JugReachedCapacity"] and\
                 atom.objects == [jug]:
                 jug_filled = True
 
