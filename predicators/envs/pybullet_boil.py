@@ -1097,7 +1097,6 @@ if __name__ == "__main__":
     CFG.seed = 0
     CFG.env = "pybullet_boil"
     CFG.coffee_use_pixelated_jug = True
-    # CFG.pybullet_sim_steps_per_action = 15
     # CFG.fan_fans_blow_opposite_direction = True
     env = PyBulletBoilEnv(use_gui=False)
     rng = np.random.default_rng(CFG.seed)
@@ -1120,6 +1119,8 @@ if __name__ == "__main__":
     switch_faucet_on = utils.get_parameterized_option_by_name(env_options, "SwitchFaucetOn")
     switch_faucet_off = utils.get_parameterized_option_by_name(
         env_options, "SwitchFaucetOff")
+    switch_burner_on = utils.get_parameterized_option_by_name(
+        env_options, "SwitchBurnerOn")
     no_op = utils.get_parameterized_option_by_name(env_options, "NoOp")
     # Objects
     robot = env._robot
@@ -1134,7 +1135,8 @@ if __name__ == "__main__":
                             pick.ground([robot, jug1], []),
                             place_under_faucet.ground([robot, faucet], []),
                             switch_faucet_on.ground([robot, faucet], []),
-                            no_op.ground([robot], []),
+                            # no_op.ground([robot], []),
+                            switch_burner_on.ground([robot, burner1], []),
                             switch_faucet_off.ground([robot, faucet], []),
                             # pick.ground([robot, jug1], []),
                             # place_on_burner.ground([robot, burner2], []),
@@ -1156,10 +1158,10 @@ if __name__ == "__main__":
                             abstract_function=lambda s: utils.abstract(s,
                                                             env_predicates))
 
-    constant_noop = True
+    constant_noop = False
     for task in tasks:
         env._reset_state(task.init)
-        for _ in range(20000):
+        for _ in range(200):
             if constant_noop:
                 action = Action(
                     np.array(env._pybullet_robot.initial_joint_positions))
@@ -1172,4 +1174,4 @@ if __name__ == "__main__":
                         np.array(env._current_observation.joint_positions))
             env.step(action)
             # time.sleep(0.01)
-        breakpoint()
+        print(f"Final state: {env._current_observation.pretty_str()}")
