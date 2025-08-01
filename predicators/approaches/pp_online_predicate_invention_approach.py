@@ -171,8 +171,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
             if noisy_but_complete_proposal:
                 base_candidates |= set(p for p in self._oracle_predicates
                                        if p.name in [
-                                           # "NoWaterSpilled",
-                                           "JugNotAtFaucetOrAtFaucetAndFilled"
+                                        #    "NoWaterSpilled",
+                                           "NoJugAtFaucetOrAtFaucetAndFilled"
                                        ])
 
             for i in range(CFG.vlm_predicator_num_proposal_batches):
@@ -333,13 +333,14 @@ class OnlinePredicateInventionProcessPlanningApproach(
         enumerate_processes: bool = False,
     ) -> None:
         if CFG.vlm_predicator_oracle_learned_predicates:
-            selected_preds = proposed_predicates
             if CFG.boil_goal_simple_human_happy:
                 selected_preds = {
                     p
                     for p in proposed_predicates if p.name in {"JugFilled"}
                 }
-            self._learned_predicates = selected_preds
+            else:
+                selected_preds = proposed_predicates
+            self._learned_predicates |= selected_preds
             # --- Learn processes & parameters ---
             self._learn_processes(
                 all_trajs, online_learning_cycle=self._online_learning_cycle)

@@ -492,7 +492,6 @@ class PyBulletBoilEnv(PyBulletEnv):
                          physicsClientId=self._physics_client_id)
             self._spilled_water_id = None
 
-        logging.warning(f"reset called on state\n{state.pretty_str()}. ")
         # Initialize to take 10 steps for spill to occur
         self._faucet._spilled_level = -self.water_fill_speed * 10
         spilled_level = max(0.0, self._faucet._spilled_level)

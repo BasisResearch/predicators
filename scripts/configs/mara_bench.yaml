@@ -90,9 +90,9 @@ APPROACHES:
       num_online_learning_cycles: 10
       rgb_observation: False # for visual predicators
       # Testing predicate invention:
-      vlm_predicator_oracle_base_predicates: True
-      vlm_predicator_oracle_learned_predicates: True
-      vlm_predicator_use_grammar: False
+      vlm_predicator_oracle_base_predicates: False
+      vlm_predicator_oracle_learned_predicates: False
+      vlm_predicator_use_grammar: True
       grammar_search_grammar_use_single_feature: False
       grammar_search_grammar_use_skip_grammar: False
       grammar_search_grammar_includes_negation: True
@@ -115,14 +115,14 @@ APPROACHES:
       cluster_and_search_process_learner_parallel_condition: True
       cluster_and_search_process_learner_parallel_pnad: True
       cluster_and_search_process_learner_llm_select_condition: False
-      cluster_and_search_process_learner_llm_select_atom: False
+      cluster_and_search_process_learner_llm_select_atoms: False
       cluster_and_search_vi_steps: 500
       cluster_learning_one_effect_per_process: True
       process_param_learning_patience: 10000
       process_condition_search_prune_with_fp_count: True
       grammar_search_expected_nodes_max_skeletons: 1
       grammar_search_operator_complexity_weight: 0.1
-      grammar_search_hill_climbing_depth: 2
+      grammar_search_hill_climbing_depth: 1
       vlm_predicator_num_proposal_batches: 1
       process_learning_process_per_physical_core: False
 
@@ -346,4 +346,4 @@ FLAGS:
   timeout: 60
   log: 'logs/'
 START_SEED: 0
-NUM_SEEDS: 3
+NUM_SEEDS: 1
