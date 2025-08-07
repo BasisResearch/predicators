@@ -340,6 +340,7 @@ FLAGS:
   pybullet_camera_height: 900
   pybullet_camera_width: 900
   # use_classification_problem_setting: False # This decides the entry point
+  # use_counterfactual_dataset_path_name: True  # for generating images or videos
   keep_failed_demos: True
   planning_filter_unreachable_nsrt: False
   planning_check_dr_reachable: False
