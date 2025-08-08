@@ -188,8 +188,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         robot = Variable("?robot", robot_type)
         jug = Variable("?jug", jug_type)
         burner = Variable("?burner", burner_type)
-        faucet = Variable("?faucet", faucet_type)
-        parameters = [robot, jug, burner, faucet]
+        parameters = [robot, jug, burner]
         option_vars = [robot, burner]
         option = PlaceOnBurner
         condition_at_start = {
@@ -227,6 +226,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         option = PlaceUnderFaucet
         condition_at_start = {
             LiftedAtom(Holding, [robot, jug]),
+            LiftedAtom(NoJugAtFaucet, [faucet]),
         }
         add_effects = {
             LiftedAtom(HandEmpty, [robot]),
@@ -546,9 +546,6 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             condition_at_start.add(LiftedAtom(JugAtFaucet, [jug, faucet]))
             condition_at_start.add(LiftedAtom(JugFilled, [jug]))
         condition_overall = condition_at_start.copy()
-        # add_effects = {
-        #     LiftedAtom(WaterSpilled, []),
-        # }
         add_effects = set()
         delete_effects = {
             LiftedAtom(NoWaterSpilled, []),
