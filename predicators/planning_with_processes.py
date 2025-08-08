@@ -312,7 +312,8 @@ def _skeleton_generator_with_processes(
             # If this skeleton satisfies the goal, yield it.
             metrics["num_skeletons_optimized"] += 1
             time_taken = time.perf_counter() - start_time
-            logging.debug(f"\n[Task Planner] Found Plan in {time_taken:.2f}s:")
+            logging.debug(f"\n[Task Planner] Found Plan of length "
+                          f"{len(node.skeleton)} in {time_taken:.2f}s:")
             for process in node.skeleton:
                 logging.debug(process.name_and_objects_str())
             logging.debug("")
@@ -353,14 +354,20 @@ def _skeleton_generator_with_processes(
                 #                        'PlaceUnderFaucet',
                 #                        'SwitchFaucetOn',
                 #                        'SwitchBurnerOn',
-                #                        'NoOp',
+                #                        'SwitchFaucetOff',
                 #                        'PickJugFromFaucet',
                 #                        'PlaceOnBurner',
-                #                        'SwitchFaucetOff',
-                #                     #    'NoOp'
+
+                #                        'PickJugFromOutsideFaucetAndBurner',
+                #                        'PlaceUnderFaucet',
+                #                        'SwitchFaucetOn',
+                #                        'SwitchBurnerOn',
+                #                     #    'SwitchFaucetOff',
+                #                     #    'PickJugFromFaucet',
+                #                     #    'PlaceOnBurner',
                 #                        ]
-                # if action_names == target_action_names and \
-                #     action_process.name == 'NoOp':
+                # if action_names == target_action_names: # and \
+                #     # action_process.name == 'SwitchBurnerOn':
                 #     breakpoint()
                 world_model.big_step(action_process)
                 child_atoms = world_model.state.copy()

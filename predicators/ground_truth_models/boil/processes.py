@@ -39,6 +39,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         JugAtBurner = predicates["JugAtBurner"]
         JugAtFaucet = predicates["JugAtFaucet"]
         NoJugAtFaucet = predicates["NoJugAtFaucet"]
+        NoJugAtBurner = predicates["NoJugAtBurner"]
         JugNotAtBurnerOrFaucet = predicates["JugNotAtBurnerOrFaucet"]
         if CFG.boil_add_jug_reached_capacity_predicate:
             NoJugAtFaucetOrAtFaucetAndReachedCapacity = predicates[
@@ -129,6 +130,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         add_effects = {
             LiftedAtom(Holding, [robot, jug]),
+            LiftedAtom(NoJugAtBurner, [burner]),
         }
         delete_effects = {
             LiftedAtom(HandEmpty, [robot]),
@@ -193,6 +195,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         option = PlaceOnBurner
         condition_at_start = {
             LiftedAtom(Holding, [robot, jug]),
+            LiftedAtom(NoJugAtBurner, [burner]),
         }
         add_effects = {
             LiftedAtom(HandEmpty, [robot]),
@@ -200,6 +203,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         delete_effects = {
             LiftedAtom(Holding, [robot, jug]),
+            LiftedAtom(NoJugAtBurner, [burner]),
         }
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(5.0))

@@ -88,7 +88,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         # SwitchFaucetOn
         option_type = [robot_type, faucet_type]
         params_space = Box(0, 1, (0, ))
-        behind_factor = 1.8
+        behind_factor = 1.9
         push_factor = 0.3
         push_above_factor = 1.3
         SwitchFaucetOn = utils.LinearChainParameterizedOption(
@@ -288,7 +288,9 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     option_types=option_types,
                     params_space=params_space,
                     under_faucet=True,
-                    move_to_initial_pos=True),
+                    # move_to_initial_pos=True,
+                    move_directly_up=True
+                    ),
                 # Move to above the burner on which we will stack.
                 cls._create_boil_move_to_above_placing_option(
                     name="MoveEndEffectorToPreStack",
@@ -490,7 +492,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             option_types: List[Type],
             params_space: Box,
             under_faucet: bool = False,
-            move_to_initial_pos: bool = False) -> ParameterizedOption:
+            move_to_initial_pos: bool = False,
+            move_directly_up: bool = False) -> ParameterizedOption:
         """Creates a ParameterizedOption for moving to a pose above that of the
         burner argument.
 
@@ -528,12 +531,16 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     [0, state.get(robot, "tilt"),
                      state.get(robot, "wrist")])
                 current_pose = Pose(current_position, ee_orn)
-                target_x = cls.env_cls.x_mid
-                target_y = cls.env_cls.y_mid
+                target_x = cls.env_cls.x_mid + 0.05
+                target_y = cls.env_cls.y_mid + 0.10
 
             if move_to_initial_pos:
                 target_position = (cls.env_cls.robot_init_x,
                                    cls.env_cls.robot_init_y,
+                                   cls.env_cls.robot_init_z - 0.1)
+            elif move_directly_up:
+                target_position = (current_position[0],
+                                   current_position[1],
                                    cls.env_cls.robot_init_z - 0.1)
             else:
                 if len(objects) == 2:

@@ -532,6 +532,13 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
                 total_num_execution_failures += 1
             caught_exception = True
 
+        # Debug final state
+        # abstract_state = utils.abstract(
+        #     env.get_observation(),
+        #     cogman._approach._get_current_predicates())
+        # logging.debug(f"Final state:\n{env.get_observation().pretty_str()}")
+        # logging.debug(f"Final abstract state:\n{abstract_state}")
+
         # if traj is defined
         if 'traj' not in locals():
             traj = ([], [])

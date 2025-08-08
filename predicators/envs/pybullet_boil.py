@@ -79,11 +79,19 @@ class PyBulletBoilEnv(PyBulletEnv):
     switch_y: ClassVar[float] = y_lb + small_gap
 
     # -------------------------------------------------------------------------
+    # Jug sampling boundaries
+    # -------------------------------------------------------------------------
+    jug_sample_x_margin: ClassVar[float] = 0.05
+    jug_sample_y_margin_bot: ClassVar[float] = 0.18  # margin from y_lb
+    jug_sample_y_margin_top: ClassVar[float] = 0.15  # margin from y_ub
+    jug_sample_x_min: ClassVar[float] = x_lb + jug_sample_x_margin
+    jug_sample_x_max: ClassVar[float] = x_ub - jug_sample_x_margin
+    jug_sample_y_min: ClassVar[float] = y_lb + jug_sample_y_margin_bot
+    jug_sample_y_max: ClassVar[float] = y_ub - jug_sample_y_margin_top
+
+    # -------------------------------------------------------------------------
     # Domain-specific config
     # -------------------------------------------------------------------------
-    num_jugs: ClassVar[int] = 1
-    num_burners: ClassVar[int] = 1  # can be adjusted as needed
-
     # Speeds / rates
     water_height_to_level_ratio: ClassVar[float] = 10
     # how fast water_volumn increases per step
@@ -144,7 +152,8 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # Create jugs
         self._jugs: List[Object] = []
-        for i in range(self.num_jugs):
+        max_jugs = max(max(CFG.boil_num_jugs_train), max(CFG.boil_num_jugs_test))
+        for i in range(max_jugs):
             jug_obj = Object(f"jug{i}", self._jug_type)
             self._jugs.append(jug_obj)
         self._jug_to_liquid_id: Dict[Object, Optional[int]] = {}
@@ -152,7 +161,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         # Create burners + a corresponding switch for each
         self._burners: List[Object] = []
         self._burner_switches: List[Object] = []
-        for i in range(self.num_burners):
+        max_burners = max(max(CFG.boil_num_burner_train), max(CFG.boil_num_burner_test))
+        for i in range(max_burners):
             burn_obj = Object(f"burner{i}", self._burner_type)
             self._burners.append(burn_obj)
 
@@ -204,6 +214,8 @@ class PyBulletBoilEnv(PyBulletEnv):
             self._JugNotAtBurnerOrFaucet_holds)
         self._NoJugAtFaucet = Predicate("NoJugAtFaucet", [self._faucet_type],
                                         self._NoJugAtFaucet_holds)
+        self._NoJugAtBurner = Predicate("NoJugAtBurner", [self._burner_type],
+                                        self._NoJugAtBurner_holds)
         self._HandEmpty = Predicate("HandEmpty", [self._robot_type],
                                     self._HandEmpty_holds)
         self._WaterSpilled = Predicate("WaterSpilled", [],
@@ -251,6 +263,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             self._HandEmpty,
             # self._WaterSpilled,
             self._NoJugAtFaucet,
+            self._NoJugAtBurner,
             self._NoWaterSpilled,
         }
         if CFG.boil_add_jug_reached_capacity_predicate:
@@ -317,7 +330,8 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # 2) Create jugs
         jug_ids = []
-        for _ in range(cls.num_jugs):
+        max_jugs = max(max(CFG.boil_num_jugs_train), max(CFG.boil_num_jugs_test))
+        for _ in range(max_jugs):
             # Example placeholder URDF for a jug
             jug_id = create_object(asset_path="urdf/jug-pixel.urdf",
                                    use_fixed_base=False,
@@ -327,7 +341,8 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # 3) Create burners
         burner_ids = []
-        for _ in range(cls.num_burners):
+        max_burners = max(max(CFG.boil_num_burner_train), max(CFG.boil_num_burner_test))
+        for _ in range(max_burners):
             burner_id = create_pybullet_block(
                 color=(.7, .7, .7, 1),
                 half_extents=(0.07, 0.07, 0.001),
@@ -339,7 +354,7 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # 4) Create burner switches
         burner_switch_ids = []
-        for _ in range(cls.num_burners):
+        for _ in range(max_burners):
             switch_id = create_object(
                 asset_path="urdf/partnet_mobility/switch/102812/switch.urdf",
                 scale=1.0,
@@ -394,6 +409,10 @@ class PyBulletBoilEnv(PyBulletEnv):
             elif isinstance(value, int):
                 max_id = max(max_id, value)
         self._human.id = max_id + 1
+
+        # Draw debug boundary lines if enabled
+        if CFG.pybullet_draw_debug:
+            self._draw_sampling_boundary_debug_lines()
 
     # -------------------------------------------------------------------------
     # State Creation / Feature Extraction
@@ -475,7 +494,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         (e.g., faucet prev_is_on) to reset the simulator state exactly.
         """
         # Programmatically set burner switches on/off
-        for i, burner_obj in enumerate(self._burners):
+        burners = state.get_objects(self._burner_type)
+        for i, burner_obj in enumerate(burners):
             on_val = state.get(burner_obj, "is_on")
             burner_obj.switch_id = self._burner_switches[i].id
             self._set_switch_on(self._burner_switches[i].id,
@@ -489,7 +509,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         self._jug_to_liquid_id.clear()
 
         # Recreate the liquid bodies as needed
-        for jug in self._jugs:
+        jugs = state.get_objects(self._jug_type)
+        for jug in jugs:
             jug.heat_level = state.get(jug, "heat_level")
             liquid_id = self._create_liquid_for_jug(jug, state)
             self._jug_to_liquid_id[jug] = liquid_id
@@ -584,11 +605,12 @@ class PyBulletBoilEnv(PyBulletEnv):
     def _increment_spillage(self, old_spill: float, state: State) -> None:
         """Increment the spilled water level and recreate the PyBullet
         block."""
-        new_spill = min(self.max_water_spill_width,
+        _new_spill = min(self.max_water_spill_width,
                         old_spill + self.water_fill_speed)
-        self._faucet._spilled_level = new_spill
+        self._faucet._spilled_level = _new_spill
         # state.set(self._faucet, "spilled_level", new_spill)
-        state.set(self._faucet, "spilled_level", max(0.0, new_spill))
+        new_spill = max(0.0, _new_spill)
+        state.set(self._faucet, "spilled_level", new_spill)
 
         # Remove any existing spill block
         if self._spilled_water_id is not None:
@@ -623,7 +645,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         """If a jug with water is on a turned-on burner, increment jug 'heat'
         up to 1.0."""
         # TODO: check the jug is not held by the robot
-        for i, burner_obj in enumerate(self._burners):
+        burners = state.get_objects(self._burner_type)
+        for i, burner_obj in enumerate(burners):
             burner_on = self._is_switch_on(self._burner_switches[i].id)
             if not burner_on:
                 continue
@@ -649,7 +672,8 @@ class PyBulletBoilEnv(PyBulletEnv):
     def _update_jug_colors(self, state: State) -> None:
         """Simple linear interpolation from blue (0.0) to red (1.0) based on
         jug.heat."""
-        for jug_obj in self._jugs:
+        jugs = state.get_objects(self._jug_type)
+        for jug_obj in jugs:
             jug_id = jug_obj.id
             water_id = self._jug_to_liquid_id[jug_obj]
             if jug_id is None or water_id is None:
@@ -746,6 +770,51 @@ class PyBulletBoilEnv(PyBulletEnv):
                 return j
         return -1
 
+    def _draw_sampling_boundary_debug_lines(self) -> None:
+        """Draw debug lines showing the boundaries where objects can be sampled in _sample_xy."""
+        # Use the class variables for sampling boundaries
+        x_min = self.jug_sample_x_min
+        x_max = self.jug_sample_x_max
+        y_min = self.jug_sample_y_min
+        y_max = self.jug_sample_y_max
+        z_height = self.table_height + 0.01  # Slightly above table surface
+        
+        # Draw a rectangle on the table showing the sampling boundaries
+        # Bottom edge (y_min)
+        p.addUserDebugLine(
+            lineFromXYZ=[x_min, y_min, z_height],
+            lineToXYZ=[x_max, y_min, z_height],
+            lineColorRGB=[1, 0, 0],  # Red color
+            lineWidth=3,
+            physicsClientId=self._physics_client_id
+        )
+        
+        # Top edge (y_max)
+        p.addUserDebugLine(
+            lineFromXYZ=[x_min, y_max, z_height],
+            lineToXYZ=[x_max, y_max, z_height],
+            lineColorRGB=[1, 0, 0],  # Red color
+            lineWidth=3,
+            physicsClientId=self._physics_client_id
+        )
+        
+        # Left edge (x_min)
+        p.addUserDebugLine(
+            lineFromXYZ=[x_min, y_min, z_height],
+            lineToXYZ=[x_min, y_max, z_height],
+            lineColorRGB=[1, 0, 0],  # Red color
+            lineWidth=3,
+            physicsClientId=self._physics_client_id
+        )
+        
+        # Right edge (x_max)
+        p.addUserDebugLine(
+            lineFromXYZ=[x_max, y_min, z_height],
+            lineToXYZ=[x_max, y_max, z_height],
+            lineColorRGB=[1, 0, 0],  # Red color
+            lineWidth=3,
+            physicsClientId=self._physics_client_id
+        )
     # -------------------------------------------------------------------------
     # Example Predicates
     # -------------------------------------------------------------------------
@@ -854,6 +923,15 @@ class PyBulletBoilEnv(PyBulletEnv):
             if self._JugAtFaucet_holds(state, [jug, faucet]):
                 return False
         return True
+    
+    def _NoJugAtBurner_holds(self, state: State,
+                             objects: Sequence[Object]) -> bool:
+        (burner, ) = objects
+        jugs = state.get_objects(self._jug_type)
+        for jug in jugs:
+            if self._JugOnBurner_holds(state, [jug, burner]):
+                return False
+        return True
 
     def _HandEmpty_holds(self, state: State,
                          objects: Sequence[Object]) -> bool:
@@ -874,13 +952,17 @@ class PyBulletBoilEnv(PyBulletEnv):
     def _task_objective_holds(self, state: State) -> bool:
         """A simple task objective: all jugs are filled, no water spilled, all
         jugs are boiled, and all burners are off."""
+        # Only check jugs and burners that are actually in the current state
+        jugs_in_state = state.get_objects(self._jug_type)
+        burners_in_state = state.get_objects(self._burner_type)
+        
         all_filled = all(
-            self._JugFilled_holds(state, [jug]) for jug in self._jugs)
+            self._JugFilled_holds(state, [jug]) for jug in jugs_in_state)
         no_spill = self._NoWaterSpilled_holds(state, [])
         all_boiled = all(
-            self._WaterBoiled_holds(state, [jug]) for jug in self._jugs)
+            self._WaterBoiled_holds(state, [jug]) for jug in jugs_in_state)
         burner_off = all(not self._BurnerOn_holds(state, [burner])
-                         for burner in self._burners)
+                         for burner in burners_in_state)
         # logging.debug(f"all_filled: {all_filled}, no_spill: {no_spill}, "
         #               f"all_boiled: {all_boiled}, burner_off: {burner_off}")
         if CFG.boil_goal_simple_human_happy:
@@ -962,13 +1044,19 @@ class PyBulletBoilEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     def _generate_train_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(num_tasks=CFG.num_train_tasks,
+                                possible_num_jugs=CFG.boil_num_jugs_train,
+                                possible_num_burners=CFG.boil_num_burner_train,
                                 rng=self._train_rng)
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(num_tasks=CFG.num_test_tasks,
+                                possible_num_jugs=CFG.boil_num_jugs_test,
+                                possible_num_burners=CFG.boil_num_burner_test,
                                 rng=self._test_rng)
 
     def _make_tasks(self, num_tasks: int,
+                    possible_num_jugs: List[int],
+                    possible_num_burners: List[int],
                     rng: np.random.Generator) -> List[EnvironmentTask]:
         """Randomly place jugs, burners, faucet, etc.
 
@@ -976,6 +1064,10 @@ class PyBulletBoilEnv(PyBulletEnv):
         """
         tasks = []
         for _ in range(num_tasks):
+            # Sample the number of jugs and burners for this task
+            num_jugs = rng.choice(possible_num_jugs)
+            num_burners = rng.choice(possible_num_burners)
+            
             init_dict = {}
 
             # Robot
@@ -992,8 +1084,9 @@ class PyBulletBoilEnv(PyBulletEnv):
             # For random placements
             used_xy = set()
 
-            # Jugs
-            for i, j_obj in enumerate(self._jugs):
+            # Jugs (only place the number needed for this task)
+            for i in range(num_jugs):
+                j_obj = self._jugs[i]
                 x, y = self._sample_xy(rng, used_xy)
                 init_dict[j_obj] = {
                     "x": x,
@@ -1004,10 +1097,13 @@ class PyBulletBoilEnv(PyBulletEnv):
                     "water_volumn": 0.0,
                     "heat_level": 0.0
                 }
+                used_xy.add((x, y))
 
-            # Burners
-            for i, b_obj in enumerate(self._burners):
-                burner_x = self.x_mid - (i + 0.5) * self.small_gap * 3
+            # Burners (only place the number needed for this task)
+            for i in range(num_burners):
+                b_obj = self._burners[i]
+                burner_x = self.x_mid - self.small_gap -\
+                            (i + 0.5) * self.small_gap * 3
                 init_dict[b_obj] = {
                     "x": burner_x,
                     "y": self.burner_y,
@@ -1055,10 +1151,13 @@ class PyBulletBoilEnv(PyBulletEnv):
                 goal_atoms.add(GroundAtom(self._TaskCompleted, []))
             elif CFG.boil_goal == "simple":
                 goal_atoms.add(GroundAtom(self._NoWaterSpilled, []))
-                for j_obj in self._jugs:
+                # Only add goals for the jugs and burners used in this task
+                for i in range(num_jugs):
+                    j_obj = self._jugs[i]
                     goal_atoms.add(GroundAtom(self._WaterBoiled, [j_obj]))
                     goal_atoms.add(GroundAtom(self._JugFilled, [j_obj]))
-                for b_obj in self._burners:
+                for i in range(num_burners):
+                    b_obj = self._burners[i]
                     goal_atoms.add(GroundAtom(self._BurnerOff, [b_obj]))
             else:
                 raise ValueError(f"Unknown goal type {CFG.boil_goal}.")
@@ -1072,8 +1171,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         """Sample a random (x,y) on the table that doesn't collide with
         existing objects."""
         for _ in range(1000):
-            x = rng.uniform(self.x_lb + 0.05, self.x_ub - 0.05)
-            y = rng.uniform(self.y_lb + 0.05, self.y_ub - 0.05)
+            x = rng.uniform(self.jug_sample_x_min, self.jug_sample_x_max)
+            y = rng.uniform(self.jug_sample_y_min, self.jug_sample_y_max)
             if all((np.hypot(x - ux, y - uy) > 0.10) for (ux, uy) in used_xy):
                 used_xy.add((x, y))
                 return x, y
@@ -1110,11 +1209,19 @@ if __name__ == "__main__":
     import time
     CFG.seed = 0
     CFG.env = "pybullet_boil"
+    CFG.pybullet_sim_steps_per_action = 1
+    CFG.pybullet_draw_debug = True
     CFG.coffee_use_pixelated_jug = True
+    CFG.boil_num_jugs_train = [1]
+    CFG.boil_num_jugs_test = [2]
+    CFG.boil_num_burner_train = [1]
+    CFG.boil_num_burner_test = [2]
     # CFG.fan_fans_blow_opposite_direction = True
-    env = PyBulletBoilEnv(use_gui=False)
+    env = PyBulletBoilEnv(use_gui=True)
     rng = np.random.default_rng(CFG.seed)
-    tasks = env._make_tasks(1, rng)
+    tasks = env._make_tasks(1, possible_num_jugs=[2], 
+                            possible_num_burners=[2], 
+                            rng=rng)
 
     # manually defined policy
     from predicators.ground_truth_models import get_gt_options
@@ -1173,10 +1280,10 @@ if __name__ == "__main__":
         noop_option_terminate_on_atom_change=True,
         abstract_function=lambda s: utils.abstract(s, env_predicates))
 
-    constant_noop = False
+    constant_noop = True
     for task in tasks:
         env._reset_state(task.init)
-        for _ in range(200):
+        for _ in range(20000):
             if constant_noop:
                 action = Action(
                     np.array(env._pybullet_robot.initial_joint_positions))

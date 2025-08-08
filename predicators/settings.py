@@ -98,7 +98,7 @@ class GlobalSettings:
 
     # laser env parameters
     laser_zero_reflection_angle = False
-    laser_use_debug_line_for_beams = True
+    laser_use_debug_line_for_beams = False
 
     # ants env params
     ants_ants_attracted_to_points = False
@@ -426,6 +426,10 @@ class GlobalSettings:
     boil_require_jug_full_to_heatup = False
     boil_goal_require_burner_off = True
     boil_add_jug_reached_capacity_predicate = False
+    boil_num_jugs_train = [1]
+    boil_num_jugs_test = [1, 2]
+    boil_num_burner_train = [1]
+    boil_num_burner_test = [1, 2]
 
     # parameters for random options approach
     random_options_max_tries = 100

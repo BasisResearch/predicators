@@ -6,7 +6,6 @@ APPROACHES:
   oracle:
     NAME: "oracle_process_planning"
     FLAGS:
-      boil_use_constant_delay: True
       # boil_use_normal_delay: True
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
@@ -136,11 +135,12 @@ ENVS:
       pybullet_ik_validate: False
       max_num_steps_option_rollout: 50
       bilevel_plan_without_sim: True
-      horizon: 300 # 300 should be enough, 50 is good during dev
+      horizon: 500 # 300 should be enough, 50 is good during dev
       # boil_goal: "task_completed" # This option isn't fully ready because
         # with the current only_learn_exogenous_processes setting, it won't try
         # to learn the precondition for the DeclareComplete option.
-      boil_goal: "human_happy" # Can also be "task_completed", "simple"
+      # boil_goal: "human_happy" # Can also be "task_completed", "simple"
+      boil_goal: "simple"
       boil_require_jug_full_to_heatup: True
   # boil_smpl:
   #   NAME: "pybullet_boil"
@@ -346,7 +346,7 @@ FLAGS:
   planning_filter_unreachable_nsrt: False
   planning_check_dr_reachable: False
   sesame_task_planning_heuristic: 'goal_count'
-  timeout: 60
+  timeout: 180
   log: 'logs/'
 START_SEED: 0
 NUM_SEEDS: 1
