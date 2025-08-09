@@ -535,8 +535,9 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
 
         # Debug final state
         if hasattr(cogman._approach, "_get_current_predicates"):
-            abstract_state = utils.abstract(env.get_observation(), 
-                                    cogman._approach._get_current_predicates())
+            abstract_state = utils.abstract(
+                env.get_observation(),
+                cogman._approach._get_current_predicates())
             logging.debug(f"Final abstract state:\n{abstract_state}")
         logging.debug(f"Final state:\n{env.get_observation().pretty_str()}")
 
