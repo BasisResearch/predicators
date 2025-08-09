@@ -427,9 +427,9 @@ class GlobalSettings:
     boil_goal_require_burner_off = True
     boil_add_jug_reached_capacity_predicate = False
     boil_num_jugs_train = [1]
-    boil_num_jugs_test = [2]
+    boil_num_jugs_test = [1, 2]
     boil_num_burner_train = [1]
-    boil_num_burner_test = [2]
+    boil_num_burner_test = [1, 2]
 
     # parameters for random options approach
     random_options_max_tries = 100

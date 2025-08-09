@@ -291,6 +291,18 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     # move_to_initial_pos=True,
                     move_directly_up=True
                     ),
+                # Move to center in the space in the air to avoid collision.
+                cls._create_boil_move_to_above_placing_option(
+                    name="MoveEndEffectorToAir",
+                    z_func=lambda _: cls._transport_z,
+                    finger_status="closed",
+                    pybullet_robot=pybullet_robot,
+                    option_types=option_types,
+                    params_space=params_space,
+                    under_faucet=True,
+                    move_to_initial_pos=True,
+                    # move_directly_up=True
+                    ),
                 # Move to above the burner on which we will stack.
                 cls._create_boil_move_to_above_placing_option(
                     name="MoveEndEffectorToPreStack",
@@ -342,6 +354,14 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     option_types=option_types,
                     params_space=params_space,
                     move_to_initial_pos=True),
+                # Move to directly above to avoid collision.
+                cls._create_boil_move_to_above_placing_option(
+                    name="MoveEndEffectorToStack",
+                    z_func=lambda _: cls._transport_z,
+                    finger_status="closed",
+                    pybullet_robot=pybullet_robot,
+                    option_types=option_types,
+                    params_space=params_space),
                 # Move down to place.
                 cls._create_boil_move_to_above_placing_option(
                     name="MoveEndEffectorToStack",

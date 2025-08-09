@@ -477,6 +477,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         """Try to solve the given env_task using cogman, returning the solve
         time."""
         solve_start = time.perf_counter()
+        logging.debug(f"Solving task w. goal: {env_task.goal}")
         cogman.reset(env_task)  # May raise ApproachTimeout or ApproachFailure
         return time.perf_counter() - solve_start
 
@@ -533,11 +534,11 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             caught_exception = True
 
         # Debug final state
-        # abstract_state = utils.abstract(
-        #     env.get_observation(),
-        #     cogman._approach._get_current_predicates())
-        # logging.debug(f"Final state:\n{env.get_observation().pretty_str()}")
-        # logging.debug(f"Final abstract state:\n{abstract_state}")
+        if hasattr(cogman._approach, "_get_current_predicates"):
+            abstract_state = utils.abstract(env.get_observation(), 
+                                    cogman._approach._get_current_predicates())
+            logging.debug(f"Final abstract state:\n{abstract_state}")
+        logging.debug(f"Final state:\n{env.get_observation().pretty_str()}")
 
         # if traj is defined
         if 'traj' not in locals():

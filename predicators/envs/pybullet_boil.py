@@ -553,6 +553,26 @@ class PyBulletBoilEnv(PyBulletEnv):
         humans = state.get_objects(self._human_type)
         for human_obj in humans:
             human_obj.happiness_level = state.get(human_obj, "happiness_level")
+        
+        # Move irrelevant jugs and burners out of the way
+        oov_x, oov_y = self._out_of_view_xy
+        jugs = state.get_objects(self._jug_type)
+        for i in range(len(jugs), len(self._jugs)):
+            update_object(
+                self._jugs[i].id,
+                position=(oov_x, oov_y, 0.0),
+                physics_client_id=self._physics_client_id)
+        burners = state.get_objects(self._burner_type)
+        for i in range(len(burners), len(self._burners)):
+            update_object(
+                self._burners[i].id,
+                position=(oov_x, oov_y, 0.0),
+                physics_client_id=self._physics_client_id)
+            # Also move the corresponding switch
+            update_object(
+                self._burner_switches[i].id,
+                position=(oov_x, oov_y, self.switch_height),
+                physics_client_id=self._physics_client_id)
 
     # -------------------------------------------------------------------------
     # Step Logic
