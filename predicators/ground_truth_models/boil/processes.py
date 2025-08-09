@@ -423,9 +423,6 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         option_vars = [robot]
         option = NoOp
         delay_distribution = ConstantDelay(1)
-        # if CFG.boil_use_normal_delay:
-        #     delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
-        #                                                sigma=torch.tensor(0.1))
         noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
                                          set(), set(),
                                          set(), delay_distribution,
