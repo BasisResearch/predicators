@@ -531,7 +531,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     [0, state.get(robot, "tilt"),
                      state.get(robot, "wrist")])
                 current_pose = Pose(current_position, ee_orn)
-                target_x = cls.env_cls.x_mid + 0.05
+                target_x = cls.env_cls.x_mid - 0.15
                 target_y = cls.env_cls.y_mid + 0.10
 
             if move_to_initial_pos:

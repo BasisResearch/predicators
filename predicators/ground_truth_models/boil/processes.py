@@ -32,6 +32,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         jug_type = types["jug"]
         burner_type = types["burner"]
         faucet_type = types["faucet"]
+        human_type = types["human"]
 
         # Predicates
         HandEmpty = predicates["HandEmpty"]
@@ -625,7 +626,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.boil_use_constant_delay:
             delay_distribution = ConstantDelay(torch.tensor(5.0))
         elif CFG.boil_use_normal_delay:
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(5.0),
+            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(10.0),
                                                        sigma=torch.tensor(0.1))
         elif CFG.boil_use_cmp_delay:
             delay_distribution = CMPDelay(100, 3)
@@ -642,6 +643,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             # HumanHappyProcess
             jug = Variable("?jug", jug_type)
             burner = Variable("?burner", burner_type)
+            human = Variable("?human", human_type)
+            parameters = [jug, burner, human]
             condition_at_start = {
                 LiftedAtom(JugFilled, [jug]),
             }
@@ -652,7 +655,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
                 }
                 if CFG.boil_goal_require_burner_off:
                     condition_at_start.add(LiftedAtom(BurnerOff, [burner]))
-            add_effects = {LiftedAtom(HumanHappy, [])}
+            add_effects = {LiftedAtom(HumanHappy, [human, jug, burner])}
             if CFG.boil_use_constant_delay:
                 delay_distribution = ConstantDelay(torch.tensor(3.0))
             elif CFG.boil_use_normal_delay:

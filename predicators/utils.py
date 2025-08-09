@@ -47,9 +47,7 @@ from PIL import ImageDraw, ImageFont
 from pyperplan.heuristics.heuristic_base import \
     Heuristic as _PyperplanBaseHeuristic
 from pyperplan.planner import HEURISTICS as _PYPERPLAN_HEURISTICS
-from scipy.special import gammaln
 from scipy.stats import beta as BetaRV
-from scipy.stats import norm
 
 from predicators.args import create_arg_parser
 from predicators.image_patch_wrapper import ImagePatch

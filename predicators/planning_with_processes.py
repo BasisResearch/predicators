@@ -13,7 +13,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from itertools import islice
 from typing import Any, Collection, Dict, FrozenSet, Iterator, List, \
-    Optional, Sequence, Set, Tuple
+    Optional, Sequence, Set, Tuple, Callable
 
 import numpy as np
 
@@ -438,9 +438,13 @@ def task_plan_from_task(
         processes,
         allow_noops=True,
         compute_reachable_atoms=False)
-    heuristic = utils.create_task_planning_heuristic(
-        CFG.sesame_task_planning_heuristic, init_atoms, goal, ground_processes,
-        all_predicates, objects)
+
+    # heuristic = utils.create_task_planning_heuristic(
+    #     CFG.sesame_task_planning_heuristic, init_atoms, goal, ground_processes,
+    #     all_predicates, objects)
+    # heuristic = create_lm_cut_heuristic(goal, ground_processes)
+    heuristic = create_ff_heuristic(goal, ground_processes)
+
     return task_plan(
         init_atoms,
         goal,
@@ -555,6 +559,200 @@ def run_task_plan_with_processes_once(
     necessary_atoms_seq: List[Set[GroundAtom]] = []
 
     return plan, necessary_atoms_seq, metrics
+
+def create_ff_heuristic(
+    goal: Set[GroundAtom],
+    ground_processes: List[_GroundCausalProcess],
+) -> Callable[[Set[GroundAtom]], float]:
+    """Creates a callable FF heuristic function."""
+
+    # --- Pre-computation ---
+    # The map now stores any causal process that can add an atom.
+    adds_map: Dict[GroundAtom, List[_GroundCausalProcess]] = {}
+    for process in ground_processes:
+        for atom in process.add_effects:
+            if atom not in adds_map:
+                adds_map[atom] = []
+            adds_map[atom].append(process)
+
+    def _ff_heuristic(atoms: Set[GroundAtom]) -> float:
+        """The FF heuristic including zero-cost exogenous processes."""
+        if goal.issubset(atoms):
+            return 0.0
+
+        # --- 1. Build the Relaxed Planning Graph (RPG) ---
+        fact_layers: List[Set[GroundAtom]] = [atoms.copy()]
+        # This now tracks all applicable processes, not just actions.
+        process_layers: List[Set[_GroundCausalProcess]] = []
+
+        while not goal.issubset(fact_layers[-1]):
+            current_facts = fact_layers[-1]
+            # Find all processes (endo- or exo-) whose preconditions are met.
+            applicable_processes: Set[_GroundCausalProcess] = set()
+            for process in ground_processes:
+                if process.condition_at_start.issubset(current_facts):
+                    applicable_processes.add(process)
+
+            process_layers.append(applicable_processes)
+            next_facts = current_facts.copy()
+            for process in applicable_processes:
+                next_facts.update(process.add_effects)
+
+            if next_facts == current_facts:
+                return float('inf')
+
+            fact_layers.append(next_facts)
+
+        # --- 2. Extract a Relaxed Plan (Backward Search through the RPG) ---
+        # This set will ONLY store the agent's actions (endogenous processes).
+        relaxed_plan_actions: Set[_GroundEndogenousProcess] = set()
+        subgoals_to_achieve = goal.copy()
+
+        for i in range(len(fact_layers) - 1, 0, -1):
+            unachieved_subgoals = subgoals_to_achieve.copy()
+            for subgoal in unachieved_subgoals:
+                if subgoal in fact_layers[i] and subgoal not in fact_layers[i - 1]:
+                    best_supporter = None
+                    for process in adds_map.get(subgoal, []):
+                        if process in process_layers[i - 1]:
+                            best_supporter = process
+                            break
+
+                    if best_supporter:
+                        # --- CHANGE 3: Only count endogenous processes for cost ---
+                        # If the supporter is a controllable action, add it to the plan.
+                        if isinstance(best_supporter, _GroundEndogenousProcess):
+                            relaxed_plan_actions.add(best_supporter)
+
+                        # ALWAYS add preconditions as new subgoals, regardless of
+                        # whether the supporter was an action or a free event.
+                        subgoals_to_achieve.update(best_supporter.condition_at_start)
+                        subgoals_to_achieve.discard(subgoal)
+
+        return float(len(relaxed_plan_actions))
+
+    return _ff_heuristic
+
+def create_lm_cut_heuristic(
+    goal: Set[GroundAtom],
+    ground_processes: List[_GroundCausalProcess],
+) -> Callable[[Set[GroundAtom]], float]:
+    """Creates a callable LM-cut heuristic function.
+
+    This heuristic iteratively finds landmarks by computing a relaxed plan,
+    calculating its cost, and then assuming its effects have been achieved
+    before solving for the next landmark. This is a practical implementation
+    of the LM-cut principle. It also correctly handles exogenous processes
+    and derived predicates (axioms) as zero-cost events.
+    """
+
+    # --- Pre-computation to speed up sub-problems ---
+    adds_map: Dict[GroundAtom, List[_GroundCausalProcess]] = defaultdict(list)
+    for process in ground_processes:
+        for atom in process.add_effects:
+            adds_map[atom].append(process)
+
+    def _calculate_relaxed_plan(
+        current_atoms: Set[GroundAtom],
+        current_goal: Set[GroundAtom]
+    ) -> Tuple[float, Set[_GroundCausalProcess]]:
+        """
+        Helper that computes one relaxed plan (our landmark) from a given
+        state. This is the core logic from the FF heuristic.
+        Returns the cost of the plan and the plan itself (as a set of processes).
+        """
+        if current_goal.issubset(current_atoms):
+            return 0.0, set()
+
+        # 1. Build RPG from the current state.
+        fact_layers: List[Set[GroundAtom]] = [current_atoms.copy()]
+        process_layers: List[Set[_GroundCausalProcess]] = []
+
+        while not current_goal.issubset(fact_layers[-1]):
+            # Find all applicable processes
+            applicable_processes: Set[_GroundCausalProcess] = set()
+            for process in ground_processes:
+                if process.condition_at_start.issubset(fact_layers[-1]):
+                    applicable_processes.add(process)
+            
+            process_layers.append(applicable_processes)
+            next_facts = fact_layers[-1].copy()
+            for process in applicable_processes:
+                next_facts.update(process.add_effects)
+
+            if next_facts == fact_layers[-1]: # No progress
+                return float('inf'), set()
+
+            fact_layers.append(next_facts)
+
+        # 2. Extract one relaxed plan via backward search.
+        relaxed_plan: Set[_GroundCausalProcess] = set()
+        subgoals_to_achieve = current_goal.copy()
+
+        for i in range(len(fact_layers) - 1, 0, -1):
+            for subgoal in subgoals_to_achieve.copy():
+                if subgoal in fact_layers[i] and subgoal not in fact_layers[i - 1]:
+                    best_supporter = None
+                    for process in adds_map.get(subgoal, []):
+                        if process in process_layers[i - 1]:
+                            best_supporter = process
+                            break
+                    
+                    if best_supporter:
+                        relaxed_plan.add(best_supporter)
+                        subgoals_to_achieve.update(best_supporter.condition_at_start)
+                        subgoals_to_achieve.discard(subgoal)
+
+        # 3. Calculate the cost of the relaxed plan.
+        cost = 0.0
+        for process in relaxed_plan:
+            # Endogenous processes (agent actions) have a cost.
+            if isinstance(process, _GroundEndogenousProcess):
+                # Use axiom_cost if it's a derived predicate axiom, otherwise default to 1.
+                cost += getattr(process, 'axiom_cost', 1.0)
+        
+        return cost, relaxed_plan
+
+    def _lm_cut_heuristic(atoms: Set[GroundAtom]) -> float:
+        """
+        The main heuristic function. It iteratively calls the relaxed plan
+        solver to find and sum the costs of landmarks.
+        """
+        total_cost = 0.0
+        current_atoms = atoms.copy()
+
+        # Loop until the goal is satisfied in our simulated state.
+        while not goal.issubset(current_atoms):
+            # Find the cost and plan for the next landmark.
+            landmark_cost, landmark_plan = _calculate_relaxed_plan(current_atoms, goal)
+
+            # If a landmark is infinitely costly, the goal is unreachable.
+            if landmark_cost == float('inf'):
+                return float('inf')
+            
+            # If we found a plan with no cost (e.g., only free events),
+            # but haven't reached the goal, we must force progress by adding
+            # at least one real action. A cost of 1 is the minimum.
+            if landmark_cost == 0.0:
+                 # This can happen if the goal is reachable only through a chain
+                 # of exogenous or axiom processes. To avoid an infinite loop
+                 # we must assign a minimum cost of 1 to escape.
+                total_cost += 1.0
+
+            total_cost += landmark_cost
+
+            # "Apply" the landmark by adding the effects of its plan to our state.
+            if not landmark_plan:
+                # Should not be reachable if cost is not inf, but as a safeguard...
+                return float('inf')
+
+            for process in landmark_plan:
+                current_atoms.update(process.add_effects)
+
+        return total_cost
+
+    return _lm_cut_heuristic
+
 
 
 if __name__ == "__main__":

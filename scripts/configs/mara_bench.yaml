@@ -139,8 +139,8 @@ ENVS:
       # boil_goal: "task_completed" # This option isn't fully ready because
         # with the current only_learn_exogenous_processes setting, it won't try
         # to learn the precondition for the DeclareComplete option.
-      # boil_goal: "human_happy" # Can also be "task_completed", "simple"
-      boil_goal: "simple"
+      boil_goal: "human_happy" # Can also be "task_completed", "simple"
+      # boil_goal: "simple"
       boil_require_jug_full_to_heatup: True
   # boil_smpl:
   #   NAME: "pybullet_boil"
@@ -346,7 +346,7 @@ FLAGS:
   planning_filter_unreachable_nsrt: False
   planning_check_dr_reachable: False
   sesame_task_planning_heuristic: 'goal_count'
-  timeout: 180
+  timeout: 60
   log: 'logs/'
 START_SEED: 0
 NUM_SEEDS: 1

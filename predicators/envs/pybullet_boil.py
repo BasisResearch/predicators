@@ -72,7 +72,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     jug_init_z: ClassVar[float] = table_height + jug_height / 2
     small_gap: ClassVar[float] = 0.05
     burner_x_gap: ClassVar[float] = 3 * small_gap
-    burner_y: ClassVar[float] = y_mid + small_gap
+    burner_y: ClassVar[float] = y_mid - small_gap
     faucet_x: ClassVar[float] = x_mid + 6 * small_gap
     faucet_y: ClassVar[float] = y_mid + 3 * small_gap
     faucet_x_len: ClassVar[float] = 0.15
@@ -82,10 +82,10 @@ class PyBulletBoilEnv(PyBulletEnv):
     # Jug sampling boundaries
     # -------------------------------------------------------------------------
     jug_sample_x_margin: ClassVar[float] = 0.05
-    jug_sample_y_margin_bot: ClassVar[float] = 0.18  # margin from y_lb
-    jug_sample_y_margin_top: ClassVar[float] = 0.15  # margin from y_ub
-    jug_sample_x_min: ClassVar[float] = x_lb + jug_sample_x_margin
-    jug_sample_x_max: ClassVar[float] = x_ub - jug_sample_x_margin
+    jug_sample_y_margin_bot: ClassVar[float] = 0.4   # margin from y_lb
+    jug_sample_y_margin_top: ClassVar[float] = 0.05  # margin from y_ub
+    jug_sample_x_min: ClassVar[float] = x_mid 
+    jug_sample_x_max: ClassVar[float] = x_mid + jug_sample_x_margin * 4
     jug_sample_y_min: ClassVar[float] = y_lb + jug_sample_y_margin_bot
     jug_sample_y_max: ClassVar[float] = y_ub - jug_sample_y_margin_top
 
@@ -173,7 +173,12 @@ class PyBulletBoilEnv(PyBulletEnv):
         self._faucet = Object("faucet", self._faucet_type)
         self._faucet_switch = Object("faucet_switch", self._switch_type)
 
-        self._human = Object("human", self._human_type)
+        # Create humans - one for each possible jug
+        self._humans: List[Object] = []
+        max_humans = max_jugs  # Same as max jugs
+        for i in range(max_humans):
+            human_obj = Object(f"human{i}", self._human_type)
+            self._humans.append(human_obj)
 
         # Keep track of the spilled water block (None if no spill yet)
         self._spilled_water_id: Optional[int] = None
@@ -222,7 +227,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                                        self._WaterSpilled_holds)
         self._NoWaterSpilled = Predicate("NoWaterSpilled", [],
                                          self._NoWaterSpilled_holds)
-        self._HumanHappy = Predicate("HumanHappy", [], self._HumanHappy_holds)
+        self._HumanHappy = Predicate("HumanHappy", [self._human_type, self._jug_type, self._burner_type], self._HumanHappy_holds)
         self._TaskCompleted = Predicate("TaskCompleted", [],
                                         self._TaskCompleted_holds)
         self._NoJugAtFaucetOrJugAtFaucetAndReachedCapacity = DerivedPredicate(
@@ -285,7 +290,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         """All custom types in this environment."""
         return {
             self._robot_type, self._jug_type, self._burner_type,
-            self._switch_type, self._faucet_type
+            self._switch_type, self._faucet_type, self._human_type
         }
 
     @property
@@ -399,7 +404,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         # Faucet switch
         self._faucet_switch.id = pybullet_bodies["faucet_switch_id"]
 
-        # Get a fresh id for human
+        # Get a fresh id for humans
         max_id = float('-inf')
         for key, value in pybullet_bodies.items():
             if isinstance(value, list):
@@ -408,7 +413,10 @@ class PyBulletBoilEnv(PyBulletEnv):
                         max_id = max(max_id, v)
             elif isinstance(value, int):
                 max_id = max(max_id, value)
-        self._human.id = max_id + 1
+        
+        # Assign IDs to humans
+        for i, human_obj in enumerate(self._humans):
+            human_obj.id = max_id + 1 + i
 
         # Draw debug boundary lines if enabled
         if CFG.pybullet_draw_debug:
@@ -535,7 +543,9 @@ class PyBulletBoilEnv(PyBulletEnv):
                 spilled_level, state)
 
         # Human
-        self._human.happiness_level = state.get(self._human, "happiness_level")
+        humans = state.get_objects(self._human_type)
+        for human_obj in humans:
+            human_obj.happiness_level = state.get(human_obj, "happiness_level")
 
     # -------------------------------------------------------------------------
     # Step Logic
@@ -576,8 +586,9 @@ class PyBulletBoilEnv(PyBulletEnv):
             return
 
         # Find jugs under the faucet
+        jugs = state.get_objects(self._jug_type)
         jugs_under = [
-            jug for jug in self._jugs
+            jug for jug in jugs
             if self._JugAtFaucet_holds(state, [jug, self._faucet])
         ]
 
@@ -646,13 +657,14 @@ class PyBulletBoilEnv(PyBulletEnv):
         up to 1.0."""
         # TODO: check the jug is not held by the robot
         burners = state.get_objects(self._burner_type)
+        jugs = state.get_objects(self._jug_type)
         for i, burner_obj in enumerate(burners):
             burner_on = self._is_switch_on(self._burner_switches[i].id)
             if not burner_on:
                 continue
             bx = state.get(burner_obj, "x")
             by = state.get(burner_obj, "y")
-            for jug_obj in self._jugs:
+            for jug_obj in jugs:
                 jug_x = state.get(jug_obj, "x")
                 jug_y = state.get(jug_obj, "y")
                 dist = np.hypot(bx - jug_x, by - jug_y)
@@ -689,14 +701,33 @@ class PyBulletBoilEnv(PyBulletEnv):
                           physics_client_id=self._physics_client_id)
 
     def _update_human_happiness(self, state: State) -> None:
-        """Update the human's happiness."""
-        happy_condition_holds = self._task_objective_holds(state)
-
-        if happy_condition_holds:
-            old_happiness_level = state.get(self._human, "happiness_level")
-            new_happiness_level = min(1.0,
-                                      old_happiness_level + self.happy_speed)
-            self._human.happiness_level = new_happiness_level
+        """Update each human's happiness based on their corresponding jug."""
+        humans = state.get_objects(self._human_type)
+        jugs = state.get_objects(self._jug_type)
+        burners = state.get_objects(self._burner_type)
+        
+        # Each human corresponds to a jug by index
+        for i, human_obj in enumerate(humans):
+            if i < len(jugs):
+                jug = jugs[i]
+                # Determine which burner this human cares about
+                # If more humans than burners, some share the same burner
+                burner_idx = i % len(burners) if burners else 0
+                burner = burners[burner_idx] if burners else None
+                
+                # Check if this human's conditions are met
+                jug_filled = self._JugFilled_holds(state, [jug])
+                no_water_spilled = self._NoWaterSpilled_holds(state, [])
+                burner_off = True  # Default if no burner
+                if burner is not None:
+                    burner_off = not self._BurnerOn_holds(state, [burner])
+                
+                happy_condition_holds = jug_filled and no_water_spilled and burner_off
+                
+                if happy_condition_holds:
+                    old_happiness_level = state.get(human_obj, "happiness_level")
+                    new_happiness_level = min(1.0, old_happiness_level + self.happy_speed)
+                    human_obj.happiness_level = new_happiness_level
 
     def _create_spilled_water_block(self, spilled_size: float,
                                     state: State) -> int:
@@ -946,8 +977,9 @@ class PyBulletBoilEnv(PyBulletEnv):
                           objects: Sequence[Object]) -> bool:
         """A predicate design mainly for experimenting with inventing predicate
         to describe the preimage of effects."""
-        # Check if all jugs are filled
-        return state.get(self._human, "happiness_level") >= 1.0
+        # Check if the specific human is happy about their jug and burner
+        (human, jug, burner) = objects
+        return state.get(human, "happiness_level") >= 1.0
 
     def _task_objective_holds(self, state: State) -> bool:
         """A simple task objective: all jugs are filled, no water spilled, all
@@ -1067,6 +1099,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             # Sample the number of jugs and burners for this task
             num_jugs = rng.choice(possible_num_jugs)
             num_burners = rng.choice(possible_num_burners)
+            num_burners = min(num_jugs, num_burners)  # Limit to num_jugs
             
             init_dict = {}
 
@@ -1083,11 +1116,15 @@ class PyBulletBoilEnv(PyBulletEnv):
 
             # For random placements
             used_xy = set()
+            burner_2_x = self.x_mid - self.small_gap * 6
 
             # Jugs (only place the number needed for this task)
             for i in range(num_jugs):
                 j_obj = self._jugs[i]
-                x, y = self._sample_xy(rng, used_xy)
+                if i == 0:
+                    x, y = self._sample_xy(rng, used_xy)
+                if i == 1:
+                    x, y = burner_2_x, self.burner_y
                 init_dict[j_obj] = {
                     "x": x,
                     "y": y,
@@ -1137,8 +1174,10 @@ class PyBulletBoilEnv(PyBulletEnv):
                 "rot": 0.0,
                 "is_on": 0.0
             }
-            # Human, for keep track of the human's happiness
-            init_dict[self._human] = {"happiness_level": 0.0}
+            # Humans - one for each jug used in this task
+            for i in range(num_jugs):
+                human_obj = self._humans[i]
+                init_dict[human_obj] = {"happiness_level": 0.0}
 
             init_state = utils.create_state_from_dict(init_dict)
 
@@ -1146,7 +1185,14 @@ class PyBulletBoilEnv(PyBulletEnv):
             goal_atoms = set()
 
             if CFG.boil_goal == "human_happy":
-                goal_atoms.add(GroundAtom(self._HumanHappy, []))
+                # Add goal for each human used in this task
+                for i in range(num_jugs):
+                    human_obj = self._humans[i]
+                    jug_obj = self._jugs[i]
+                    # Determine which burner this human cares about
+                    burner_idx = i % num_burners if num_burners > 0 else 0
+                    burner_obj = self._burners[burner_idx] if num_burners > 0 else self._burners[0]
+                    goal_atoms.add(GroundAtom(self._HumanHappy, [human_obj, jug_obj, burner_obj]))
             elif CFG.boil_goal == "task_completed":
                 goal_atoms.add(GroundAtom(self._TaskCompleted, []))
             elif CFG.boil_goal == "simple":
@@ -1191,7 +1237,7 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # Make a box that sits inside the jug
         liquid_height = current_liquid / self.water_height_to_level_ratio
-        half_extents = [0.03, 0.03, liquid_height / 2]
+        half_extents = (0.03, 0.03, liquid_height / 2)
         cx = state.get(jug, "x")
         cy = state.get(jug, "y")
         cz = self.z_lb + liquid_height / 2 + 0.02  # sits on table
