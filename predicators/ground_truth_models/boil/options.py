@@ -539,8 +539,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                                    cls.env_cls.robot_init_y,
                                    cls.env_cls.robot_init_z - 0.1)
             elif move_directly_up:
-                target_position = (current_position[0],
-                                   current_position[1],
+                target_position = (current_position[0], current_position[1],
                                    cls.env_cls.robot_init_z - 0.1)
             else:
                 if len(objects) == 2:

@@ -12,8 +12,8 @@ from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass
 from itertools import islice
-from typing import Any, Collection, Dict, FrozenSet, Iterator, List, \
-    Optional, Sequence, Set, Tuple, Callable
+from typing import Any, Callable, Collection, Dict, FrozenSet, Iterator, \
+    List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -560,6 +560,7 @@ def run_task_plan_with_processes_once(
 
     return plan, necessary_atoms_seq, metrics
 
+
 def create_ff_heuristic(
     goal: Set[GroundAtom],
     ground_processes: List[_GroundCausalProcess],
@@ -611,7 +612,8 @@ def create_ff_heuristic(
         for i in range(len(fact_layers) - 1, 0, -1):
             unachieved_subgoals = subgoals_to_achieve.copy()
             for subgoal in unachieved_subgoals:
-                if subgoal in fact_layers[i] and subgoal not in fact_layers[i - 1]:
+                if subgoal in fact_layers[i] and subgoal not in fact_layers[i -
+                                                                            1]:
                     best_supporter = None
                     for process in adds_map.get(subgoal, []):
                         if process in process_layers[i - 1]:
@@ -621,17 +623,20 @@ def create_ff_heuristic(
                     if best_supporter:
                         # --- CHANGE 3: Only count endogenous processes for cost ---
                         # If the supporter is a controllable action, add it to the plan.
-                        if isinstance(best_supporter, _GroundEndogenousProcess):
+                        if isinstance(best_supporter,
+                                      _GroundEndogenousProcess):
                             relaxed_plan_actions.add(best_supporter)
 
                         # ALWAYS add preconditions as new subgoals, regardless of
                         # whether the supporter was an action or a free event.
-                        subgoals_to_achieve.update(best_supporter.condition_at_start)
+                        subgoals_to_achieve.update(
+                            best_supporter.condition_at_start)
                         subgoals_to_achieve.discard(subgoal)
 
         return float(len(relaxed_plan_actions))
 
     return _ff_heuristic
+
 
 def create_lm_cut_heuristic(
     goal: Set[GroundAtom],
@@ -639,11 +644,12 @@ def create_lm_cut_heuristic(
 ) -> Callable[[Set[GroundAtom]], float]:
     """Creates a callable LM-cut heuristic function.
 
-    This heuristic iteratively finds landmarks by computing a relaxed plan,
-    calculating its cost, and then assuming its effects have been achieved
-    before solving for the next landmark. This is a practical implementation
-    of the LM-cut principle. It also correctly handles exogenous processes
-    and derived predicates (axioms) as zero-cost events.
+    This heuristic iteratively finds landmarks by computing a relaxed
+    plan, calculating its cost, and then assuming its effects have been
+    achieved before solving for the next landmark. This is a practical
+    implementation of the LM-cut principle. It also correctly handles
+    exogenous processes and derived predicates (axioms) as zero-cost
+    events.
     """
 
     # --- Pre-computation to speed up sub-problems ---
@@ -653,13 +659,13 @@ def create_lm_cut_heuristic(
             adds_map[atom].append(process)
 
     def _calculate_relaxed_plan(
-        current_atoms: Set[GroundAtom],
-        current_goal: Set[GroundAtom]
+        current_atoms: Set[GroundAtom], current_goal: Set[GroundAtom]
     ) -> Tuple[float, Set[_GroundCausalProcess]]:
-        """
-        Helper that computes one relaxed plan (our landmark) from a given
-        state. This is the core logic from the FF heuristic.
-        Returns the cost of the plan and the plan itself (as a set of processes).
+        """Helper that computes one relaxed plan (our landmark) from a given
+        state.
+
+        This is the core logic from the FF heuristic. Returns the cost
+        of the plan and the plan itself (as a set of processes).
         """
         if current_goal.issubset(current_atoms):
             return 0.0, set()
@@ -674,13 +680,13 @@ def create_lm_cut_heuristic(
             for process in ground_processes:
                 if process.condition_at_start.issubset(fact_layers[-1]):
                     applicable_processes.add(process)
-            
+
             process_layers.append(applicable_processes)
             next_facts = fact_layers[-1].copy()
             for process in applicable_processes:
                 next_facts.update(process.add_effects)
 
-            if next_facts == fact_layers[-1]: # No progress
+            if next_facts == fact_layers[-1]:  # No progress
                 return float('inf'), set()
 
             fact_layers.append(next_facts)
@@ -691,16 +697,18 @@ def create_lm_cut_heuristic(
 
         for i in range(len(fact_layers) - 1, 0, -1):
             for subgoal in subgoals_to_achieve.copy():
-                if subgoal in fact_layers[i] and subgoal not in fact_layers[i - 1]:
+                if subgoal in fact_layers[i] and subgoal not in fact_layers[i -
+                                                                            1]:
                     best_supporter = None
                     for process in adds_map.get(subgoal, []):
                         if process in process_layers[i - 1]:
                             best_supporter = process
                             break
-                    
+
                     if best_supporter:
                         relaxed_plan.add(best_supporter)
-                        subgoals_to_achieve.update(best_supporter.condition_at_start)
+                        subgoals_to_achieve.update(
+                            best_supporter.condition_at_start)
                         subgoals_to_achieve.discard(subgoal)
 
         # 3. Calculate the cost of the relaxed plan.
@@ -710,13 +718,14 @@ def create_lm_cut_heuristic(
             if isinstance(process, _GroundEndogenousProcess):
                 # Use axiom_cost if it's a derived predicate axiom, otherwise default to 1.
                 cost += getattr(process, 'axiom_cost', 1.0)
-        
+
         return cost, relaxed_plan
 
     def _lm_cut_heuristic(atoms: Set[GroundAtom]) -> float:
-        """
-        The main heuristic function. It iteratively calls the relaxed plan
-        solver to find and sum the costs of landmarks.
+        """The main heuristic function.
+
+        It iteratively calls the relaxed plan solver to find and sum the
+        costs of landmarks.
         """
         total_cost = 0.0
         current_atoms = atoms.copy()
@@ -724,19 +733,20 @@ def create_lm_cut_heuristic(
         # Loop until the goal is satisfied in our simulated state.
         while not goal.issubset(current_atoms):
             # Find the cost and plan for the next landmark.
-            landmark_cost, landmark_plan = _calculate_relaxed_plan(current_atoms, goal)
+            landmark_cost, landmark_plan = _calculate_relaxed_plan(
+                current_atoms, goal)
 
             # If a landmark is infinitely costly, the goal is unreachable.
             if landmark_cost == float('inf'):
                 return float('inf')
-            
+
             # If we found a plan with no cost (e.g., only free events),
             # but haven't reached the goal, we must force progress by adding
             # at least one real action. A cost of 1 is the minimum.
             if landmark_cost == 0.0:
-                 # This can happen if the goal is reachable only through a chain
-                 # of exogenous or axiom processes. To avoid an infinite loop
-                 # we must assign a minimum cost of 1 to escape.
+                # This can happen if the goal is reachable only through a chain
+                # of exogenous or axiom processes. To avoid an infinite loop
+                # we must assign a minimum cost of 1 to escape.
                 total_cost += 1.0
 
             total_cost += landmark_cost
@@ -752,7 +762,6 @@ def create_lm_cut_heuristic(
         return total_cost
 
     return _lm_cut_heuristic
-
 
 
 if __name__ == "__main__":
