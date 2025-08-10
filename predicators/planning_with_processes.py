@@ -496,6 +496,7 @@ def task_plan(
         raise PlanningFailure(f"Goal {goal} not dr-reachable")
     dummy_task = Task(DefaultState, goal)
     metrics: Metrics = defaultdict(float)
+    # logging.debug(f"init_atoms: {init_atoms}")
     generator = _skeleton_generator_with_processes(
         dummy_task,
         ground_processes,

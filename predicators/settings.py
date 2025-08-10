@@ -357,6 +357,7 @@ class GlobalSettings:
     coffee_machine_has_plug = False
     coffee_use_pixelated_jug = False
     coffee_plug_break_after_plugged_in = False
+    coffee_fill_jug_gradually = False
 
     # satellites env parameters
     satellites_num_sat_train = [2, 3]

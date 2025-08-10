@@ -128,20 +128,20 @@ APPROACHES:
   #     process_learning_process_per_physical_core: False
 
 ENVS:
-  boil:
-    NAME: "pybullet_boil"
-    FLAGS:
-      excluded_objects_in_state_str: "switch"
-      pybullet_ik_validate: False
-      max_num_steps_option_rollout: 50
-      bilevel_plan_without_sim: True
-      horizon: 500 # 300 should be enough, 50 is good during dev
-      # boil_goal: "task_completed" # This option isn't fully ready because
-        # with the current only_learn_exogenous_processes setting, it won't try
-        # to learn the precondition for the DeclareComplete option.
-      boil_goal: "human_happy" # Can also be "task_completed", "simple"
-      # boil_goal: "simple"
-      boil_require_jug_full_to_heatup: True
+  # boil:
+  #   NAME: "pybullet_boil"
+  #   FLAGS:
+  #     excluded_objects_in_state_str: "switch"
+  #     pybullet_ik_validate: False
+  #     max_num_steps_option_rollout: 50
+  #     bilevel_plan_without_sim: True
+  #     horizon: 500 # 300 should be enough, 50 is good during dev
+  #     # boil_goal: "task_completed" # This option isn't fully ready because
+  #       # with the current only_learn_exogenous_processes setting, it won't try
+  #       # to learn the precondition for the DeclareComplete option.
+  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
+  #     # boil_goal: "simple"
+  #     boil_require_jug_full_to_heatup: True
   # boil_smpl:
   #   NAME: "pybullet_boil"
   #   FLAGS:
@@ -164,19 +164,22 @@ ENVS:
   #   NAME: "pybullet_blocks"
   #   FLAGS:
   #     blocks_high_towers_are_unstable: True
-  # coffee:
-  #   NAME: "pybullet_coffee"
-  #   FLAGS:
-  #     coffee_rotated_jug_ratio: 0
-  #     sesame_check_expected_atoms: False
-  #     coffee_machine_have_light_bar: False
-  #     coffee_move_back_after_place_and_push: True
-  #     coffee_machine_has_plug: True
-  #     option_model_terminate_on_repeat: False
-  #     coffee_use_pixelated_jug: True
-  #     pybullet_ik_validate: False
-  #     sesame_max_skeletons_optimized: 1
-  #     max_num_steps_option_rollout: 100
+  coffee:
+    NAME: "pybullet_coffee"
+    FLAGS:
+      coffee_rotated_jug_ratio: 0
+      sesame_check_expected_atoms: False
+      coffee_machine_have_light_bar: False
+      coffee_move_back_after_place_and_push: True
+      coffee_machine_has_plug: False
+      coffee_combined_move_and_twist_policy: True
+      option_model_terminate_on_repeat: False
+      coffee_use_pixelated_jug: True
+      coffee_fill_jug_gradually: True
+      pybullet_ik_validate: False
+      sesame_max_skeletons_optimized: 1
+      max_num_steps_option_rollout: 100
+      bilevel_plan_without_sim: True
   # coffee_cf:
   #   NAME: "pybullet_coffee"
   #   FLAGS:

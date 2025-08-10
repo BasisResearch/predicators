@@ -3,8 +3,10 @@
 from .nsrts import CoffeeGroundTruthNSRTFactory
 from .options import CoffeeGroundTruthOptionFactory, \
     PyBulletCoffeeGroundTruthOptionFactory
+from .processes import PyBulletCoffeeGroundTruthProcessFactory
 
 __all__ = [
     "CoffeeGroundTruthNSRTFactory", "CoffeeGroundTruthOptionFactory",
-    "PyBulletCoffeeGroundTruthOptionFactory"
+    "PyBulletCoffeeGroundTruthOptionFactory",
+    "PyBulletCoffeeGroundTruthProcessFactory"
 ]
