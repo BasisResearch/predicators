@@ -1032,14 +1032,15 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
                 safe_y = robot_y - 0.05
                 safe_z = robot_z  # Keep current height
                 safe_robot_pos = (safe_x, safe_y, safe_z)
-                dwrist = cls.env_cls.robot_init_wrist - state.get(robot, "wrist")
+                dwrist = cls.env_cls.robot_init_wrist - state.get(
+                    robot, "wrist")
                 return cls._get_move_action(state,
                                             safe_robot_pos,
                                             robot_pos,
                                             dtilt=0.0,
                                             dwrist=dwrist,
                                             finger_status="closed")
-            
+
             # If we're close enough to the pour position, pour.
             sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
             if sq_dist_to_pour < cls.pour_policy_tol:

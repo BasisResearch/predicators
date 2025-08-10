@@ -196,8 +196,7 @@ class CoffeeEnv(BaseEnv):
         self._NotSameCup = Predicate("NotSameCup",
                                      [self._cup_type, self._cup_type],
                                      self._NotSameCup_holds)
-        self._HandTilted = Predicate("HandTilted",
-                                     [self._robot_type],
+        self._HandTilted = Predicate("HandTilted", [self._robot_type],
                                      self._HandTilted_holds)
         # yichao add
         self._JugPickable = Predicate("JugPickable", [self._jug_type],
@@ -362,21 +361,11 @@ class CoffeeEnv(BaseEnv):
     @property
     def predicates(self) -> Set[Predicate]:
         predicates = {
-            self._CupFilled,
-            self._JugInMachine,
-            self._Holding,
-            self._MachineOn,
-            self._OnTable,
-            self._HandEmpty,
-            self._JugFilled,
-            self._RobotAboveCup,
-            self._JugAboveCup,
-            self._NotAboveCup,
-            self._PressingButton,
-            self._Twisting,
-            self._NotSameCup,
-            self._PluggedIn,
-            self._HandTilted
+            self._CupFilled, self._JugInMachine, self._Holding,
+            self._MachineOn, self._OnTable, self._HandEmpty, self._JugFilled,
+            self._RobotAboveCup, self._JugAboveCup, self._NotAboveCup,
+            self._PressingButton, self._Twisting, self._NotSameCup,
+            self._PluggedIn, self._HandTilted
         }
         if CFG.coffee_jug_pickable_pred:
             predicates.add(self._JugPickable)
@@ -718,7 +707,7 @@ class CoffeeEnv(BaseEnv):
         if self._Twisting_holds(state, [robot, self._jug]):
             return False
         return not self._Holding_holds(state, [robot, self._jug])
-    
+
     def _HandTilted_holds(self, state: State,
                           objects: Sequence[Object]) -> bool:
         robot, = objects
