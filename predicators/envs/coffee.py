@@ -792,11 +792,12 @@ class CoffeeEnv(BaseEnv):
         target_z = cls.z_lb + cls.jug_handle_height()
         return (target_x, target_y, target_z)
 
-    def _get_pour_position(self, state: State,
+    @classmethod
+    def _get_pour_position(cls, state: State,
                            cup: Object) -> Tuple[float, float, float]:
-        target_x = state.get(cup, "x") + self.pour_x_offset
-        target_y = state.get(cup, "y") + self.pour_y_offset
-        target_z = self.pour_z_offset()
+        target_x = state.get(cup, "x") + cls.pour_x_offset
+        target_y = state.get(cup, "y") + cls.pour_y_offset
+        target_z = cls.pour_z_offset()
         return (target_x, target_y, target_z)
 
     def _get_cup_to_pour(self, state: State) -> Optional[Object]:

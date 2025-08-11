@@ -492,6 +492,8 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         self._handle_machine_on_and_jug_filling(state)
         self._handle_pouring(state)
         self._handle_twisting(state, current_ee_rpy, action)
+        # Refresh current observation
+        self._current_observation = self._get_state(render_obs=False)
         state = self._current_observation.copy()
 
         return state
@@ -583,8 +585,6 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                     if not self._jug_filled:
                         self._jug_liquid_id = self._create_liquid_for_jug()
                     self._jug_filled = True
-            # Refresh current observation
-            self._current_observation = self._get_state(render_obs=False)
 
     def _handle_pouring(self, state: State) -> None:
         """If the robot is tilted sufficiently to pour, increase liquid in the
@@ -616,8 +616,6 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
             # Create a new one with updated height
             self._cup_to_liquid_id[cup] = self._create_liquid_for_cup(
                 cup, state)
-            # Refresh current observation
-            self._current_observation = self._get_state(render_obs=False)
 
     def _handle_twisting(self, state: State,
                          current_ee_rpy: Tuple[float, float,
@@ -648,8 +646,6 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                 self._jug.id, [jx, jy, self.z_lb + self.jug_height() / 2],
                 new_jug_quat,
                 physicsClientId=self._physics_client_id)
-            # Refresh current observation
-            self._current_observation = self._get_state(render_obs=False)
 
     def _get_tasks(self,
                    num: int,
@@ -1248,11 +1244,12 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         target_z = cls.z_lb + cls.jug_handle_height()
         return (target_x, target_y, target_z)
 
-    def _get_pour_position(self, state: State,
+    @classmethod
+    def _get_pour_position(cls, state: State,
                            cup: Object) -> Tuple[float, float, float]:
-        target_x = state.get(cup, "x") + self.pour_x_offset
-        target_y = state.get(cup, "y") + self.pour_y_offset
-        target_z = self.z_lb + self.pour_z_offset()
+        target_x = state.get(cup, "x") + cls.pour_x_offset
+        target_y = state.get(cup, "y") + cls.pour_y_offset
+        target_z = cls.z_lb + cls.pour_z_offset()
         return (target_x, target_y, target_z)
 
 

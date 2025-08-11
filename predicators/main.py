@@ -477,7 +477,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         """Try to solve the given env_task using cogman, returning the solve
         time."""
         solve_start = time.perf_counter()
-        logging.debug(f"Solving task w. goal: {env_task.goal}")
+        logging.debug(f"[main.py] Solving task w. goal: {env_task.goal}")
         cogman.reset(env_task)  # May raise ApproachTimeout or ApproachFailure
         return time.perf_counter() - solve_start
 

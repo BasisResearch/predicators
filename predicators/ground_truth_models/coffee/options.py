@@ -562,7 +562,6 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         plug_type = types["plug"]
 
         PluggedIn = predicates["PluggedIn"]
-        JugInMachine = predicates["JugInMachine"]
 
         # TwistJug
         def _TwistJug_terminal(state: State, memory: Dict,

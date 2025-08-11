@@ -7,6 +7,7 @@ from typing import Type as TypingType
 import numpy as np
 from gym.spaces import Box
 
+from predicators.settings import CFG
 from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
 from predicators.envs.pybullet_grow import PyBulletGrowEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
@@ -40,6 +41,9 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
     def get_options(cls, env_name: str, types: Dict[str, Type],
                     predicates: Dict[str, Predicate],
                     action_space: Box) -> Set[ParameterizedOption]:
+        _, pybullet_robot, _ = \
+            PyBulletGrowEnv.initialize_pybullet(using_gui=False)
+            
         # Types
         robot_type = types["robot"]
         jug_type = types["jug"]
@@ -47,6 +51,8 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
         # Predicates
         Holding = predicates["Holding"]
         Grown = predicates["Grown"]
+        JugAboveCup = predicates["JugAboveCup"]
+        HandTilted = predicates["HandTilted"]
 
         # PickJug
         def _PickJug_terminal(state: State, memory: Dict,
@@ -70,9 +76,14 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
         # Pour
         def _Pour_terminal(state: State, memory: Dict,
                            objects: Sequence[Object], params: Array) -> bool:
-            del memory, params
-            _, _, cup = objects
-            return Grown.holds(state, [cup])
+            del memory, params  # unused
+            robot, jug, cup = objects
+            if CFG.grow_weak_pour_terminate_condition:
+                cond = JugAboveCup.holds(state, [jug, cup]) and \
+                    HandTilted.holds(state, [robot])
+            else:
+                cond = Grown.holds(state, [cup])
+            return cond
 
         Pour = ParameterizedOption(
             "Pour",
@@ -90,13 +101,66 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             robot, jug = objects
             return not Holding.holds(state, [robot, jug])
 
+        if CFG.grow_place_option_no_sampler:
+            params_space = Box(0, 1, (0, ))
+        else:
+            params_space = Box(0, 1, (2, ))
         Place = ParameterizedOption("Place", [robot_type, jug_type],
-                                    params_space=Box(0, 1, (2, )),
+                                    params_space=params_space,
                                     policy=cls._crete_place_policy(),
                                     initiable=lambda s, m, o, p: True,
                                     terminal=_Place_terminal)
 
-        return {PickJug, Pour, Place}
+        # Noop
+        params_space = Box(0, 1, (0, ))
+
+        def _create_no_op_policy() -> ParameterizedPolicy:
+            nonlocal action_space
+
+            def _policy(state: State, memory: Dict, objects: Sequence[Object],
+                        params: Array) -> Action:
+                del memory, params
+                robot = objects[0]
+                nonlocal action_space
+                # check finger open or closed
+                finger = state.get(robot, "fingers")
+                mid_point = (pybullet_robot.open_fingers +
+                             pybullet_robot.closed_fingers) / 2
+                if finger > mid_point:
+                    # currently open
+                    finger_delta = cls._finger_action_nudge_magnitude
+                else:
+                    finger_delta = -cls._finger_action_nudge_magnitude
+
+                # nudge finger to the direction of the current state to counter
+                joint_positions = state.joint_positions.copy()
+                finger_position = joint_positions[
+                    pybullet_robot.left_finger_joint_idx]
+                # The finger action is an absolute joint position for the fingers.
+                f_action = finger_position + finger_delta
+                # Override the meaningless finger values in joint_action.
+                joint_positions[
+                    pybullet_robot.left_finger_joint_idx] = f_action
+                joint_positions[
+                    pybullet_robot.right_finger_joint_idx] = f_action
+                # slide
+                action = np.array(joint_positions, dtype=np.float32)
+                action = action.clip(action_space.low,
+                                     action_space.high).astype(np.float32)
+                return Action(action)
+
+            return _policy
+
+        NoOp = ParameterizedOption(
+            "NoOp",
+            types=[robot_type],
+            params_space=params_space,
+            policy=_create_no_op_policy(),
+            initiable=lambda _1, _2, _3, _4: True,
+            terminal=lambda _1, _2, _3, _4: False,
+        )
+
+        return {PickJug, Pour, Place, NoOp}
 
     @classmethod
     def _crete_place_policy(cls) -> ParameterizedPolicy:
@@ -121,8 +185,11 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             jz = state.get(jug, "z")
             # jz = cls.env_cls.z_lb + cls.env_cls.jug_height()
             current_jug_pos = (jx, jy, jz)
-            x_norm, y_norm = params
-            target_jug_pos = (cls.env_cls.x_lb +
+            if CFG.grow_place_option_no_sampler:
+                target_jug_pos = (jug.init_x, jug.init_y, jug.init_z)
+            else:
+                x_norm, y_norm = params
+                target_jug_pos = (cls.env_cls.x_lb +
                               (cls.env_cls.x_ub - cls.env_cls.x_lb) * x_norm,
                               cls.env_cls.y_lb +
                               (cls.env_cls.y_ub - cls.env_cls.y_lb) * y_norm,
@@ -143,6 +210,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
 
             # only move down if it has arrived at target x, y
             if abs(dx) < 0.01 and abs(dy) < 0.01:
+                # print("Moving down to place jug")
                 return PyBulletCoffeeGroundTruthOptionFactory._get_move_action(  # pylint: disable=protected-access
                     state,
                     target_robot_pos,
@@ -153,6 +221,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
                 )
 
             target_robot_pos = (x + dx, y + dy, z)
+            # print("Moving to place jug")
             return PyBulletCoffeeGroundTruthOptionFactory._get_move_action(  # pylint: disable=protected-access
                 state,
                 target_robot_pos,

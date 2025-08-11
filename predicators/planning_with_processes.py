@@ -430,6 +430,7 @@ def task_plan_from_task(
     derived_predicates = utils.get_derived_predicates(all_predicates)
 
     init_atoms = utils.abstract(task.init, all_predicates)
+    # logging.debug(f"[Task Planner] Task init atoms: {init_atoms}")
     goal = task.goal
     objects = set(task.init)
     ground_processes, reachable_atoms = process_task_plan_grounding(

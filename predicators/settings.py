@@ -95,6 +95,8 @@ class GlobalSettings:
 
     # grow env parameters
     grow_plant_same_color_as_cup = False
+    grow_weak_pour_terminate_condition = False
+    grow_place_option_no_sampler = False
 
     # laser env parameters
     laser_zero_reflection_angle = False
