@@ -14,6 +14,7 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
+from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
 from predicators.envs.pybullet_env import PyBulletEnv, create_pybullet_block
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.objects import create_object, update_object
@@ -21,7 +22,6 @@ from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
     Predicate, State, Type
-from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
 
 
 class PyBulletGrowEnv(PyBulletEnv):
@@ -150,7 +150,6 @@ class PyBulletGrowEnv(PyBulletEnv):
         self._HandTilted = Predicate("HandTilted", [self._robot_type],
                                      self._HandTilted_holds)
 
-
     @classmethod
     def get_name(cls) -> str:
         return "pybullet_grow"
@@ -159,7 +158,7 @@ class PyBulletGrowEnv(PyBulletEnv):
     def predicates(self) -> Set[Predicate]:
         return {
             self._Grown, self._Holding, self._HandEmpty, self._JugOnTable,
-            self._SameColor, self._CupOnTable, self._JugAboveCup, 
+            self._SameColor, self._CupOnTable, self._JugAboveCup,
             self._HandTilted
         }
 
@@ -197,9 +196,11 @@ class PyBulletGrowEnv(PyBulletEnv):
         cup_ids = []
         for _ in range(cls.num_cups):
             # For now, just give a placeholder color; we'll update color below
-            cup_id = create_object(asset_path="urdf/pot-pixel.urdf",
-                                   physics_client_id=physics_client_id,
-                                   use_fixed_base= True,)
+            cup_id = create_object(
+                asset_path="urdf/pot-pixel.urdf",
+                physics_client_id=physics_client_id,
+                use_fixed_base=True,
+            )
             cup_ids.append(cup_id)
         bodies["cup_ids"] = cup_ids
 
@@ -298,7 +299,7 @@ class PyBulletGrowEnv(PyBulletEnv):
         final_state = self._get_state()
         self._current_observation = final_state.copy()
         return final_state
-    
+
     def _handle_pouring(self, state: State) -> None:
         if self._held_obj_id is None:
             return
@@ -308,17 +309,14 @@ class PyBulletGrowEnv(PyBulletEnv):
             cup = self._get_cup_to_pour(state)
             if cup is None:
                 return
-            current_growth = state.get(
-                cup, "growth")
-            new_growth = min(
-                1.0, current_growth + self.pour_rate)
+            current_growth = state.get(cup, "growth")
+            new_growth = min(1.0, current_growth + self.pour_rate)
 
             # Remove old liquid body, set new growth
             old_liquid_id = self._cup_to_liquid_id[cup]
             if old_liquid_id is not None:
                 p.removeBody(old_liquid_id,
-                                physicsClientId=self.
-                                _physics_client_id)
+                             physicsClientId=self._physics_client_id)
 
             state.set(cup, "growth", new_growth)
             self._cup_to_liquid_id[cup] = \
@@ -400,7 +398,8 @@ class PyBulletGrowEnv(PyBulletEnv):
             return False
         return True
 
-    def _JugAboveCup_holds(self, state: State, objects: Sequence[Object]) -> bool:
+    def _JugAboveCup_holds(self, state: State,
+                           objects: Sequence[Object]) -> bool:
         jug, cup = objects
         if not self._Holding_holds(state, [self._robot, jug]):
             return False
@@ -418,6 +417,7 @@ class PyBulletGrowEnv(PyBulletEnv):
         robot, = objects
         tilt = np.abs(state.get(robot, "tilt") - self.tilt_ub)
         return tilt < 0.1
+
     # -------------------------------------------------------------------------
     # Task Generation
 
@@ -448,9 +448,8 @@ class PyBulletGrowEnv(PyBulletEnv):
             init_dict[self._robot] = robot_dict
 
             # Generate all object positions at once, satisfying the constraints.
-            object_positions = self._sample_object_positions(rng, 
-                                                             self._jugs, 
-                                                             self._cups)
+            object_positions = self._sample_object_positions(
+                rng, self._jugs, self._cups)
 
             jug_colors = []
             # Sample positions and colors for jugs
@@ -516,25 +515,25 @@ class PyBulletGrowEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Sampling helpers
     def _sample_object_positions(
-        self, rng: np.random.Generator, 
-        jugs: List[Any], 
-        cups: List[Any], 
-        ) -> Dict[Any, Tuple[float, float]]:
-        """
-        Samples (x, y) positions for jugs and cups in separate y-regions.
+        self,
+        rng: np.random.Generator,
+        jugs: List[Any],
+        cups: List[Any],
+    ) -> Dict[Any, Tuple[float, float]]:
+        """Samples (x, y) positions for jugs and cups in separate y-regions.
 
         The x-positions are sampled first to be ordered from left-to-right
-        and guaranteed to be `collision_padding` apart. 
-        
+        and guaranteed to be `collision_padding` apart.
+
         - Jug y-positions are sampled from [y_lb, y_mid].
         - Cup y-positions are sampled from [y_mid, y_ub].
-        
+
         The generated (x, y) coordinates are then randomly assigned to the
         corresponding objects.
         """
         all_objects = jugs + cups
         num_objects = len(all_objects)
-        
+
         # 1. Generate spaced-out X coordinates for all objects
         total_x_range = self.x_ub - self.x_lb - self.small_padding
         required_padding_space = (num_objects - 1) * self.collision_padding
@@ -542,33 +541,39 @@ class PyBulletGrowEnv(PyBulletEnv):
         if required_padding_space > total_x_range:
             raise ValueError(
                 f"Cannot fit {num_objects} objects with padding "
-                f"{self.collision_padding} in x-range {total_x_range}."
-            )
-        
+                f"{self.collision_padding} in x-range {total_x_range}.")
+
         random_x_space = total_x_range - required_padding_space
         x_offsets = np.sort(rng.uniform(0, random_x_space, size=num_objects))
-        
-        x_coords = [self.x_lb + 0.5*self.small_padding + x_offsets[i] + i * self.collision_padding 
-                    for i in range(num_objects)]
-        
+
+        x_coords = [
+            self.x_lb + 0.5 * self.small_padding + x_offsets[i] +
+            i * self.collision_padding for i in range(num_objects)
+        ]
+
         # 2. Generate Y coordinates in separate regions for jugs and cups
-        jug_y_coords = rng.uniform(self.y_lb + 1.5 * self.small_padding, self.y_mid, size=len(jugs))
-        cup_y_coords = rng.uniform(self.y_mid, self.y_ub - 1.5 * self.small_padding, size=len(cups))
+        jug_y_coords = rng.uniform(self.y_lb + 1.5 * self.small_padding,
+                                   self.y_mid,
+                                   size=len(jugs))
+        cup_y_coords = rng.uniform(self.y_mid,
+                                   self.y_ub - 1.5 * self.small_padding,
+                                   size=len(cups))
 
         # 3. Randomly assign X and Y coordinates to objects
         # Shuffle the x-coordinates to assign them randomly to any object.
         rng.shuffle(x_coords)
-        
+
         positions = {}
         # Assign a random x and a jug-specific y to each jug
         for i, jug in enumerate(jugs):
             positions[jug] = (x_coords.pop(), jug_y_coords[i])
-            
+
         # Assign a random x and a cup-specific y to each cup
         for i, cup in enumerate(cups):
             positions[cup] = (x_coords.pop(), cup_y_coords[i])
-            
+
         return positions
+
     # -------------------------------------------------------------------------
     # Liquid creation
 

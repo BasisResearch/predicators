@@ -8,8 +8,7 @@ from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.structs import CausalProcess, EndogenousProcess, \
     ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
     Variable
-from predicators.utils import DiscreteGaussianDelay, \
-    null_sampler
+from predicators.utils import DiscreteGaussianDelay, null_sampler
 
 
 class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
@@ -116,10 +115,12 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects = set()
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
                                                    sigma=torch.tensor(0.1))
-        pour_process = EndogenousProcess(
-            "Pour", parameters, condition_at_start, set(),
-            set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+        pour_process = EndogenousProcess("Pour",
+                                         parameters, condition_at_start, set(),
+                                         set(), add_effects,
+                                         delete_effects, delay_distribution,
+                                         torch.tensor(1.0), option,
+                                         option_vars, null_sampler)
         processes.add(pour_process)
 
         # NoOp
@@ -137,7 +138,7 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         processes.add(noop_process)
 
         # --- Exogenous Processes ---
-        
+
         # GrowPlant (Exogenous) - similar to CupFilled in coffee
         jug = Variable("?jug", jug_type)
         cup = Variable("?cup", cup_type)

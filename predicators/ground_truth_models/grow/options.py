@@ -7,13 +7,13 @@ from typing import Type as TypingType
 import numpy as np
 from gym.spaces import Box
 
-from predicators.settings import CFG
 from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
 from predicators.envs.pybullet_grow import PyBulletGrowEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.coffee.options import \
     PyBulletCoffeeGroundTruthOptionFactory
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
+from predicators.settings import CFG
 from predicators.structs import Action, Array, Object, ParameterizedOption, \
     ParameterizedPolicy, Predicate, State, Type
 
@@ -43,7 +43,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
                     action_space: Box) -> Set[ParameterizedOption]:
         _, pybullet_robot, _ = \
             PyBulletGrowEnv.initialize_pybullet(using_gui=False)
-            
+
         # Types
         robot_type = types["robot"]
         jug_type = types["jug"]
@@ -189,11 +189,12 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
                 target_jug_pos = (jug.init_x, jug.init_y, jug.init_z)
             else:
                 x_norm, y_norm = params
-                target_jug_pos = (cls.env_cls.x_lb +
-                              (cls.env_cls.x_ub - cls.env_cls.x_lb) * x_norm,
-                              cls.env_cls.y_lb +
-                              (cls.env_cls.y_ub - cls.env_cls.y_lb) * y_norm,
-                              cls.env_cls.z_lb + cls.env_cls.jug_height / 2)
+                target_jug_pos = (
+                    cls.env_cls.x_lb +
+                    (cls.env_cls.x_ub - cls.env_cls.x_lb) * x_norm,
+                    cls.env_cls.y_lb +
+                    (cls.env_cls.y_ub - cls.env_cls.y_lb) * y_norm,
+                    cls.env_cls.z_lb + cls.env_cls.jug_height / 2)
 
             dtilt = cls.env_cls.robot_init_tilt - tilt
             dwrist = cls.env_cls.robot_init_wrist - wrist
