@@ -66,7 +66,9 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         add_effects = {
             LiftedAtom(BallAtPos, [ball, pos2]),
         }
-        delete_effects = {}
+        delete_effects = {
+            LiftedAtom(BallAtPos, [ball, pos1]),
+        }
         move_right_nsrt = NSRT("MoveRight", parameters, preconditions,
                                add_effects, delete_effects, set(), option,
                                option_vars, null_sampler)
@@ -92,7 +94,9 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         add_effects = {
             LiftedAtom(BallAtPos, [ball, pos2]),
         }
-        delete_effects = {}
+        delete_effects = {
+            LiftedAtom(BallAtPos, [ball, pos1]),
+        }
         move_left_nsrt = NSRT("MoveLeft", parameters, preconditions,
                               add_effects, delete_effects, set(), option,
                               option_vars, null_sampler)
@@ -118,7 +122,9 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         add_effects = {
             LiftedAtom(BallAtPos, [ball, pos2]),
         }
-        delete_effects = {}
+        delete_effects = {
+            LiftedAtom(BallAtPos, [ball, pos1]),
+        }
         move_down_nsrt = NSRT("MoveDown", parameters, preconditions,
                               add_effects, delete_effects, set(), option,
                               option_vars, null_sampler)
@@ -144,7 +150,9 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         add_effects = {
             LiftedAtom(BallAtPos, [ball, pos2]),
         }
-        delete_effects = {}
+        delete_effects = {
+            LiftedAtom(BallAtPos, [ball, pos1]),
+        }
         move_up_nsrt = NSRT("MoveUp", parameters, preconditions, add_effects,
                             delete_effects, set(), option, option_vars,
                             null_sampler)
