@@ -2,7 +2,10 @@
 
 from .nsrts import PyBulletFanGroundTruthNSRTFactory
 from .options import PyBulletFanGroundTruthOptionFactory
+from .processes import PyBulletFanGroundTruthProcessFactory
 
 __all__ = [
-    "PyBulletFanGroundTruthNSRTFactory", "PyBulletFanGroundTruthOptionFactory"
+    "PyBulletFanGroundTruthNSRTFactory",
+    "PyBulletFanGroundTruthOptionFactory",
+    "PyBulletFanGroundTruthProcessFactory",
 ]

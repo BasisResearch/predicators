@@ -418,6 +418,8 @@ class GlobalSettings:
 
     # fan env
     fan_fans_blow_opposite_direction = False
+    fan_known_controls_relation = True
+    fan_combine_switch_on_off = False
 
     # boil env
     boil_use_constant_delay = False

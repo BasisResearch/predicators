@@ -209,17 +209,17 @@ ENVS:
   #     sesame_task_planning_heuristic: "goal_count"
   #     sesame_check_expected_atoms: False
   #     pybullet_ik_validate: False
-  grow:
-    NAME: "pybullet_grow"
-    FLAGS:
-      pybullet_ik_validate: False
-      coffee_use_pixelated_jug: True
-      max_num_steps_option_rollout: 50
-      grow_weak_pour_terminate_condition: True
-      grow_place_option_no_sampler: True
-      bilevel_plan_without_sim: True
-      option_model_terminate_on_repeat: False
-      horizon: 300
+  # grow:
+  #   NAME: "pybullet_grow"
+  #   FLAGS:
+  #     pybullet_ik_validate: False
+  #     coffee_use_pixelated_jug: True
+  #     max_num_steps_option_rollout: 50
+  #     grow_weak_pour_terminate_condition: True
+  #     grow_place_option_no_sampler: True
+  #     bilevel_plan_without_sim: True
+  #     option_model_terminate_on_repeat: False
+  #     horizon: 300
   # grow_cf:
   #   NAME: "pybullet_grow"
   #   FLAGS:
@@ -307,13 +307,16 @@ ENVS:
   #     sesame_check_expected_atoms: False
   #     pybullet_ik_validate: False
   #     terminate_on_goal_reached: False
-  # fan:
-  #   NAME: "pybullet_fan"
-  #   FLAGS:
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     terminate_on_goal_reached: False
-  #     pybullet_ik_validate: False
+  fan:
+    NAME: "pybullet_fan"
+    FLAGS:
+      excluded_objects_in_state_str: "switch"
+      pybullet_ik_validate: False
+      sesame_check_expected_atoms: False
+      sesame_max_skeletons_optimized: 1
+      bilevel_plan_without_sim: True
+      option_model_terminate_on_repeat: False
+      # terminate_on_goal_reached: True # maybe required for successful eval
   # fan_cf:
   #   NAME: "pybullet_fan"
   #   FLAGS:
@@ -324,10 +327,10 @@ ENVS:
   #     pybullet_ik_validate: False
 ARGS:
   - "debug"
-  # - "use_gui"
+  - "use_gui"
   # - "make_demo_videos"
-  # - "make_failure_videos"
-  # - "make_test_videos"
+  - "make_failure_videos"
+  - "make_test_videos"
   # - "make_demo_images"  # support images
   # - "make_failure_images"  # query images
   # - "make_test_images"  # query images
