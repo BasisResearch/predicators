@@ -45,7 +45,7 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Grid Layout Configuration
     # -------------------------------------------------------------------------
-    num_pos_x, num_pos_y = 4, 4  # Grid dimensions (was 9, 4)
+    num_pos_x, num_pos_y = 3, 3  # Grid dimensions (was 9, 4)
     pos_gap: ClassVar[float] = 0.08  # Distance between grid positions
 
     # -------------------------------------------------------------------------
@@ -92,7 +92,7 @@ class PyBulletFanEnv(PyBulletEnv):
     # Fan Motor & Physics
     # -------------------------------------------------------------------------
     fan_spin_velocity: ClassVar[float] = 100.0  # Velocity for joint_0
-    wind_force_magnitude: ClassVar[float] = 0.8  # Force applied to ball
+    wind_force_magnitude: ClassVar[float] = 0.4  # Force applied to ball
     joint_motor_force: ClassVar[float] = 20.0  # Motor control force
 
     # -------------------------------------------------------------------------
@@ -143,10 +143,14 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Wall Properties
     # -------------------------------------------------------------------------
+    # Obstacle walls
     num_walls: ClassVar[int] = 4
-    wall_x_len: ClassVar[float] = 0.05
-    wall_y_len: ClassVar[float] = 0.04
-    wall_z_len: ClassVar[float] = 0.04
+    # wall_x_len: ClassVar[float] = 0.05
+    # wall_y_len: ClassVar[float] = 0.04
+    wall_x_len: ClassVar[float] = pos_gap - 0.02  
+    wall_y_len: ClassVar[float] = pos_gap - 0.02
+    wall_z_len: ClassVar[float] = 0.008
+    wall_rot: ClassVar[float] = 0.0 # can be np.py/2
     wall_mass: ClassVar[float] = 0.0
     wall_friction: ClassVar[float] = 0.5
 
@@ -174,7 +178,7 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Task Generation Parameters
     # -------------------------------------------------------------------------
-    num_walls_per_task: ClassVar[int] = 3
+    num_walls_per_task: ClassVar[int] = 1
     position_tolerance: ClassVar[float] = 0.01
 
     # =========================================================================
@@ -469,7 +473,7 @@ class PyBulletFanEnv(PyBulletEnv):
                               cls.wall_z_len / 2),
                 mass=cls.wall_mass,
                 friction=cls.wall_friction,
-                position=(0.75, 1.28, cls.table_height),
+                position=(0.75, 1.28, cls.table_height + cls.wall_z_len / 2),
                 orientation=p.getQuaternionFromEuler([0, 0, 0]),
                 physics_client_id=physics_client_id)
             wall_ids.append(wall_id)
@@ -1175,8 +1179,8 @@ class PyBulletFanEnv(PyBulletEnv):
                 init_dict[self._walls[i]] = {
                     "x": wall_pos[0],
                     "y": wall_pos[1],
-                    "z": self.table_height,
-                    "rot": rng.uniform(-np.pi / 2, np.pi / 2)
+                    "z": self.table_height + self.wall_z_len / 2,
+                    "rot": rng.uniform(-self.wall_rot, self.wall_rot)
                 }
 
             # Ball
@@ -1213,6 +1217,9 @@ class PyBulletFanEnv(PyBulletEnv):
                 GroundAtom(self._BallAtLoc, [self._ball, target_pos_obj]),
                 # GroundAtom(self._BallAtTarget, [self._ball, self._target])
             }
+            # all fans are off in the goal
+            for fan_obj in self._fans:
+                goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
             tasks.append(EnvironmentTask(init_state, goal_atoms))
         return self._add_pybullet_state_to_tasks(tasks)
 

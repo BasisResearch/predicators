@@ -12,24 +12,20 @@ from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass
 from itertools import islice
-from typing import Any, Callable, Collection, Dict, FrozenSet, Iterator, \
-    List, Optional, Sequence, Set, Tuple
+from typing import Callable, Collection, Dict, FrozenSet, Iterator, \
+    List, Optional, Set, Tuple
 
 import numpy as np
 
 from predicators import utils
-from predicators.option_model import _OptionModelBase
-from predicators.planning import PlanningFailure, PlanningTimeout, \
+from predicators.planning import PlanningFailure, \
     _MaxSkeletonsFailure, _SkeletonSearchTimeout
-from predicators.refinement_estimators import BaseRefinementEstimator
 from predicators.settings import CFG
-from predicators.structs import NSRT, AbstractPolicy, CausalProcess, \
+from predicators.structs import AbstractPolicy, CausalProcess, \
     DefaultState, DerivedPredicate, DummyOption, EndogenousProcess, \
-    ExogenousProcess, GroundAtom, Metrics, Object, OptionSpec, \
-    ParameterizedOption, Predicate, State, STRIPSOperator, Task, Type, \
-    _GroundCausalProcess, _GroundEndogenousProcess, _GroundExogenousProcess, \
-    _GroundNSRT, _GroundSTRIPSOperator, _Option
-from predicators.utils import EnvironmentFailure, _TaskPlanningHeuristic
+    GroundAtom, Metrics, Object, Predicate, Task, Type, \
+    _GroundCausalProcess, _GroundEndogenousProcess, _GroundExogenousProcess
+from predicators.utils import _TaskPlanningHeuristic
 
 
 def process_task_plan_grounding(
@@ -319,14 +315,22 @@ def _skeleton_generator_with_processes(
             logging.debug("")
 
             if log_sucessful_small_steps:
+                prev_state = None
                 for i, (state, action) in enumerate(
                         zip(node.state_history, node.action_history)):
-                    logging.debug(f"State {i}: {state}")
+                    if prev_state is None:
+                        logging.debug(f"State {i}: {sorted(state)}")
+                    else:
+                        logging.debug(f"State {i}: "
+                                    f"Add atoms: {sorted(state - prev_state)} "
+                                    f"Del atoms: {sorted(prev_state - state)}")
                     action_str = action.name_and_objects_str() \
                                     if action is not None else None
-                    logging.debug(f"Action {i}: {action_str}\n")
+                    logging.info(f"Action {i}: {action_str}\n")
+                    prev_state = state
                 logging.debug(f"State {len(node.state_history)}: "
-                              f"{node.state_history[-1]}")
+                    f"Add atoms: {sorted(node.state_history[-1] - prev_state)} "
+                    f"Del atoms: {sorted(prev_state - node.state_history[-1])}")
             yield node.skeleton, node.atoms_sequence
         else:
             # Generate successors.
@@ -430,7 +434,7 @@ def task_plan_from_task(
     derived_predicates = utils.get_derived_predicates(all_predicates)
 
     init_atoms = utils.abstract(task.init, all_predicates)
-    # logging.debug(f"[Task Planner] Task init atoms: {init_atoms}")
+    # logging.debug(f"[Task Planner] Task init atoms: {sorted(init_atoms)}")
     goal = task.goal
     objects = set(task.init)
     ground_processes, reachable_atoms = process_task_plan_grounding(

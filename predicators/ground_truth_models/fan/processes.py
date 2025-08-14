@@ -171,7 +171,7 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects = {
             LiftedAtom(BallAtLoc, [ball, pos1]),
         }
-        delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
+        delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
                                                    sigma=torch.tensor(0.1))
         move_to_side = ExogenousProcess("MoveToSide", parameters,
                                         condition_at_start, condition_overall,

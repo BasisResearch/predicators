@@ -1731,9 +1731,9 @@ def option_policy_to_policy(
             cur_atoms = abstract_function(state)
             prev_atoms = abstract_function(last_state)
             if cur_atoms != prev_atoms:
-                # logging.debug(f"Prev atoms: {prev_atoms}\n"
-                #              f"Add atoms: {cur_atoms-prev_atoms} "
-                #              f"Del atoms: {prev_atoms-cur_atoms}")
+                # logging.debug(f"Prev atoms: {sorted(prev_atoms)}")
+                # logging.info(f"Add atoms: {sorted(cur_atoms-prev_atoms)} "
+                #               f"Del atoms: {sorted(prev_atoms-cur_atoms)}")
                 noop_terminate = True
 
         last_state = state
