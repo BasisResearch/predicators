@@ -12,19 +12,19 @@ from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass
 from itertools import islice
-from typing import Callable, Collection, Dict, FrozenSet, Iterator, \
-    List, Optional, Set, Tuple
+from typing import Callable, Collection, Dict, FrozenSet, Iterator, List, \
+    Optional, Set, Tuple
 
 import numpy as np
 
 from predicators import utils
-from predicators.planning import PlanningFailure, \
-    _MaxSkeletonsFailure, _SkeletonSearchTimeout
+from predicators.planning import PlanningFailure, _MaxSkeletonsFailure, \
+    _SkeletonSearchTimeout
 from predicators.settings import CFG
-from predicators.structs import AbstractPolicy, CausalProcess, \
-    DefaultState, DerivedPredicate, DummyOption, EndogenousProcess, \
-    GroundAtom, Metrics, Object, Predicate, Task, Type, \
-    _GroundCausalProcess, _GroundEndogenousProcess, _GroundExogenousProcess
+from predicators.structs import AbstractPolicy, CausalProcess, DefaultState, \
+    DerivedPredicate, DummyOption, EndogenousProcess, GroundAtom, Metrics, \
+    Object, Predicate, Task, Type, _GroundCausalProcess, \
+    _GroundEndogenousProcess, _GroundExogenousProcess
 from predicators.utils import _TaskPlanningHeuristic
 
 
@@ -321,16 +321,19 @@ def _skeleton_generator_with_processes(
                     if prev_state is None:
                         logging.debug(f"State {i}: {sorted(state)}")
                     else:
-                        logging.debug(f"State {i}: "
-                                    f"Add atoms: {sorted(state - prev_state)} "
-                                    f"Del atoms: {sorted(prev_state - state)}")
+                        logging.debug(
+                            f"State {i}: "
+                            f"Add atoms: {sorted(state - prev_state)} "
+                            f"Del atoms: {sorted(prev_state - state)}")
                     action_str = action.name_and_objects_str() \
                                     if action is not None else None
                     logging.info(f"Action {i}: {action_str}\n")
                     prev_state = state
-                logging.debug(f"State {len(node.state_history)}: "
+                logging.debug(
+                    f"State {len(node.state_history)}: "
                     f"Add atoms: {sorted(node.state_history[-1] - prev_state)} "
-                    f"Del atoms: {sorted(prev_state - node.state_history[-1])}")
+                    f"Del atoms: {sorted(prev_state - node.state_history[-1])}"
+                )
             yield node.skeleton, node.atoms_sequence
         else:
             # Generate successors.
