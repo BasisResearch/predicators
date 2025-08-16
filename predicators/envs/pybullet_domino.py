@@ -7,6 +7,7 @@ python predicators/main.py --approach oracle --env pybullet_domino \
 --sesame_check_expected_atoms False --horizon 60 \
 --video_not_break_on_exception --pybullet_ik_validate False
 """
+import logging
 import time
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -23,9 +24,8 @@ from predicators.structs import Action, DerivedPredicate, EnvironmentTask, \
     GroundAtom, Object, Predicate, State, Type
 
 
-class PyBulletDominoHardEnv(PyBulletEnv):
-    """A PyBullet environment involving M dominoes and N targets.
-    This is a hard version where the dominoes are not placed in a discrete grid.
+class PyBulletDominoEnv(PyBulletEnv):
+    """A simple PyBullet environment involving M dominoes and N targets.
 
     Each target is considered 'toppled' if it is significantly tilted
     from its upright orientation. The overall goal is to topple all
@@ -72,6 +72,9 @@ class PyBulletDominoHardEnv(PyBulletEnv):
     _camera_pitch: ClassVar[float] = -40
     _camera_target: ClassVar[Pose3D] = (0.75, 1.25, 0.42)
 
+    # Debug line settings
+    debug_line_height: ClassVar[float] = 0.2
+
     robot_init_x: ClassVar[float] = (x_lb + x_ub) * 0.5
     robot_init_y: ClassVar[float] = (y_lb + y_ub) * 0.5
     robot_init_z: ClassVar[float] = z_ub
@@ -104,10 +107,13 @@ class PyBulletDominoHardEnv(PyBulletEnv):
     _pivot_type = Type("pivot", ["x", "y", "z", "rot"],
                        sim_features=["id", "joint_id"])
     _direction_type = Type("direction", ["dir"])
-    _position_type = Type("position", ["xx", "yy"])
-    _rotation_type = Type("rotation", ["angle"])
 
     def __init__(self, use_gui: bool = True) -> None:
+        # Conditionally create grid-related types
+        if CFG.domino_use_grid:
+            self._position_type = Type("position", ["xx", "yy"])
+            self._rotation_type = Type("rotation", ["angle"])
+        
         # Create 'dummy' Objects (they'll be assigned IDs on reset)
         self._robot = Object("robot", self._robot_type)
         # We'll hold references to all domino and target objects in lists
@@ -144,24 +150,31 @@ class PyBulletDominoHardEnv(PyBulletEnv):
             obj = Object(name, self._direction_type)
             self.directions.append(obj)
 
-        # Create position objects for grid
-        self.positions: List[Object] = []
-        x_coords, y_coords = self._generate_grid_coordinates()
-        self.grid_pos = [(x, y) for y in y_coords for x in x_coords]
-        self.pos_dict = dict()
-        for i, (x, y) in enumerate(self.grid_pos):
-            name = f"pos_y{i//self.num_pos_y}_x{i%self.num_pos_x}"
-            obj = Object(name, self._position_type)
-            self.positions.append(obj)
-            self.pos_dict[obj] = (x, y)
+        # Conditionally create position objects for grid
+        if CFG.domino_use_grid:
+            self.positions: List[Object] = []
+            x_coords, y_coords = self._generate_grid_coordinates()
+            self.grid_pos = [(x, y) for y in y_coords for x in x_coords]
+            self.pos_dict = dict()
+            for i, (x, y) in enumerate(self.grid_pos):
+                name = f"pos_y{i//self.num_pos_y}_x{i%self.num_pos_x}"
+                obj = Object(name, self._position_type)
+                self.positions.append(obj)
+                self.pos_dict[obj] = (x, y)
 
-        # Create rotation objects for 8 discrete angles
-        self.rotations: List[Object] = []
-        angle_values = [-135, -90, -45, 0, 45, 90, 135, 180]  # degrees
-        for angle in angle_values:
-            name = f"rot_{angle}"
-            obj = Object(name, self._rotation_type)
-            self.rotations.append(obj)
+            # Create rotation objects for 8 discrete angles
+            self.rotations: List[Object] = []
+            angle_values = [-135, -90, -45, 0, 45, 90, 135, 180]  # degrees
+            for angle in angle_values:
+                name = f"rot_{angle}"
+                obj = Object(name, self._rotation_type)
+                self.rotations.append(obj)
+        else:
+            # Initialize empty lists when grid is not used
+            self.positions: List[Object] = []
+            self.rotations: List[Object] = []
+            self.pos_dict = dict()
+            self.grid_pos = []
 
         self.block_constraints = []
 
@@ -192,21 +205,22 @@ class PyBulletDominoHardEnv(PyBulletEnv):
                                           [self._domino_type],
                                           self._NotInFrontOfAny_holds)
         
-        # Position-related predicates
-        self._DominoAtPos = Predicate("DominoAtPos",
-                                      [self._domino_type, self._position_type],
-                                      self._DominoAtPos_holds)
-        self._DominoAtRot = Predicate("DominoAtRot",
-                                      [self._domino_type, self._rotation_type],
-                                      self._DominoAtRot_holds)
+        # Conditionally create position-related predicates
+        if CFG.domino_use_grid:
+            self._DominoAtPos = Predicate("DominoAtPos",
+                                          [self._domino_type, self._position_type],
+                                          self._DominoAtPos_holds)
+            self._DominoAtRot = Predicate("DominoAtRot",
+                                          [self._domino_type, self._rotation_type],
+                                          self._DominoAtRot_holds)
 
     @classmethod
     def get_name(cls) -> str:
-        return "pybullet_domino_hard"
+        return "pybullet_domino"
 
     @property
     def predicates(self) -> Set[Predicate]:
-        return {
+        base_predicates = {
             self._Toppled,
             self._StartBlock,
             self._HandEmpty,
@@ -214,9 +228,17 @@ class PyBulletDominoHardEnv(PyBulletEnv):
             self._InFrontDirection,
             self._InFront,
             self._NotInFrontOfAny,
-            self._DominoAtPos,
-            self._DominoAtRot,
+            # self._Upright,
+            # self._NotUpright
         }
+        
+        if CFG.domino_use_grid:
+            base_predicates.update({
+                self._DominoAtPos,
+                self._DominoAtRot,
+            })
+        
+        return base_predicates
 
     @property
     def goal_predicates(self) -> Set[Predicate]:
@@ -225,11 +247,18 @@ class PyBulletDominoHardEnv(PyBulletEnv):
 
     @property
     def types(self) -> Set[Type]:
-        return {
+        base_types = {
             self._robot_type, self._domino_type, self._target_type,
-            self._pivot_type, self._direction_type, self._position_type,
-            self._rotation_type
+            self._pivot_type, self._direction_type
         }
+        
+        if CFG.domino_use_grid:
+            base_types.update({
+                self._position_type,
+                self._rotation_type
+            })
+            
+        return base_types
 
     # -------------------------------------------------------------------------
     # Grid Coordinate Generation
@@ -341,6 +370,17 @@ class PyBulletDominoHardEnv(PyBulletEnv):
             pivot.id = pid
             pivot.joint_id = self._get_joint_id(pid, "flap_hinge_joint")
 
+        # Draw debug lines at grid cell centers if grid is enabled
+        if CFG.domino_use_grid:
+            for pos_obj in self.positions:
+                x, y = self.pos_dict[pos_obj]
+                p.addUserDebugLine([x, y, self.table_height], [
+                    x, y,
+                    self.table_height + self.debug_line_height
+                ], [1, 0, 0],
+                                   parentObjectUniqueId=-1,
+                                   parentLinkIndex=-1)
+
     # -------------------------------------------------------------------------
     # State Management
 
@@ -373,12 +413,12 @@ class PyBulletDominoHardEnv(PyBulletEnv):
                     return 1.0
                 elif obj.name == "right":
                     return 2.0
-        elif obj.type == self._position_type:
+        elif CFG.domino_use_grid and obj.type == self._position_type:
             if feature == "xx":
                 return self.pos_dict[obj][0]
             elif feature == "yy":
                 return self.pos_dict[obj][1]
-        elif obj.type == self._rotation_type:
+        elif CFG.domino_use_grid and obj.type == self._rotation_type:
             if feature == "angle":
                 # Extract angle from object name (e.g., "rot_45" -> 45.0)
                 angle_str = obj.name.split("_")[1]
@@ -1228,8 +1268,8 @@ class PyBulletDominoHardEnv(PyBulletEnv):
 if __name__ == "__main__":
 
     CFG.seed = 1
-    CFG.env = "pybullet_domino_hard"
-    env = PyBulletDominoHardEnv(use_gui=True)
+    CFG.env = "pybullet_domino"
+    env = PyBulletDominoEnv(use_gui=True)
     tasks = env._make_tasks(10, env._train_rng)
     for task in tasks:
         env._reset_state(task.init)
