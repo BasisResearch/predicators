@@ -401,6 +401,8 @@ class GlobalSettings:
     # domino
     domino_debug_layout = False
     domino_some_dominoes_are_connected = False
+    domino_initialize_at_finished_state = True
+    domino_use_domino_blocks_as_target = False
 
     # burger env parameters
     burger_render_set_of_marks = True

@@ -256,15 +256,19 @@ ENVS:
   #     sesame_check_expected_atoms: False
   #     pybullet_ik_validate: False
   #     option_model_terminate_on_repeat: False
-  # domino:
-  #   NAME: "pybullet_domino"
-  #   ARGS:
-  #     - "video_not_break_on_exception"
-  #   FLAGS:
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     horizon: 60
-  #     pybullet_ik_validate: False
+  domino:
+    NAME: "pybullet_domino"
+    ARGS:
+      - "video_not_break_on_exception"
+    FLAGS:
+      sesame_max_skeletons_optimized: 1
+      sesame_check_expected_atoms: False
+      horizon: 60
+      pybullet_ik_validate: False
+      bilevel_plan_without_sim: True
+      option_model_terminate_on_repeat: False
+      domino_initialize_at_finished_state: False
+      domino_use_domino_blocks_as_target: True
   # domino_cf:
   #   NAME: "pybullet_domino"
   #   ARGS:
@@ -307,16 +311,16 @@ ENVS:
   #     sesame_check_expected_atoms: False
   #     pybullet_ik_validate: False
   #     terminate_on_goal_reached: False
-  fan:
-    NAME: "pybullet_fan"
-    FLAGS:
-      excluded_objects_in_state_str: "switch"
-      pybullet_ik_validate: False
-      sesame_check_expected_atoms: False
-      sesame_max_skeletons_optimized: 1
-      bilevel_plan_without_sim: True
-      option_model_terminate_on_repeat: False
-      # terminate_on_goal_reached: True # maybe required for successful eval
+  # fan:
+  #   NAME: "pybullet_fan"
+  #   FLAGS:
+  #     excluded_objects_in_state_str: "switch"
+  #     pybullet_ik_validate: False
+  #     sesame_check_expected_atoms: False
+  #     sesame_max_skeletons_optimized: 1
+  #     bilevel_plan_without_sim: True
+  #     option_model_terminate_on_repeat: False
+  #     # terminate_on_goal_reached: True # maybe required for successful eval
   # fan_cf:
   #   NAME: "pybullet_fan"
   #   FLAGS:
