@@ -94,8 +94,8 @@ class PyBulletDominoEnv(PyBulletEnv):
     turn_choices: ClassVar[List[str]] = ["straight", "turn90", "pivot180"]
 
     # Grid configuration
-    num_pos_x: ClassVar[int] = 8  # Grid dimensions
-    num_pos_y: ClassVar[int] = 4
+    num_pos_x: ClassVar[int] = 9  # Grid dimensions
+    num_pos_y: ClassVar[int] = 5
     pos_gap: ClassVar[
         float] = domino_width * 1.3  # Distance between grid positions
 
@@ -270,21 +270,17 @@ class PyBulletDominoEnv(PyBulletEnv):
         total_x_range = cls.x_ub - cls.x_lb
         total_y_range = cls.y_ub - cls.y_lb
 
-        # Calculate actual spacing to fit the grid within bounds
-        x_spacing = min(cls.pos_gap, total_x_range / (cls.num_pos_x + 1))
-        y_spacing = min(cls.pos_gap, total_y_range / (cls.num_pos_y + 1))
-
         # Center the grid within the workspace
         x_start = cls.x_lb + (total_x_range -
-                              (cls.num_pos_x - 1) * x_spacing) / 2
+                              (cls.num_pos_x - 1) * cls.pos_gap) / 2
         y_start = cls.y_lb + (total_y_range -
-                              (cls.num_pos_y - 1) * y_spacing) / 2
+                              (cls.num_pos_y - 1) * cls.pos_gap) / 2
 
         x_coords = [
-            round(x_start + i * x_spacing, 5) for i in range(cls.num_pos_x)
+            round(x_start + i * cls.pos_gap, 5) for i in range(cls.num_pos_x)
         ]
         y_coords = [
-            round(y_start + i * y_spacing, 5) for i in range(cls.num_pos_y)
+            round(y_start + i * cls.pos_gap, 5) for i in range(cls.num_pos_y)
         ]
 
         return x_coords, y_coords
@@ -903,97 +899,120 @@ class PyBulletDominoEnv(PyBulletEnv):
                                             n_targets: int) -> Optional[Dict]:
         """Grid-based sequence generator.
 
-        Differences from the default:
-        - Only uses "straight" and "turn90" moves (no pivots).
-        - Places *domino blocks only* at grid cell centers.
-        - When CFG.domino_use_domino_blocks_as_target is True, target dominoes
-          are also placed at grid centers.
+        This version implements straight moves and L-shaped 90-degree
+        turns, mimicking the logic of the non-grid-based generator. A
+        90-degree turn consumes two dominoes and forms an 'L' shape on
+        the grid.
         """
         obj_dict: Dict = {}
         domino_count = 0
         target_count = 0
         used_coords = set()
 
-        # Create a coordinate-to-index mapping for faster lookups
-        x_coords, y_coords = self._generate_grid_coordinates()
-        coord_to_idx = {(x, y): (ix, iy)
-                        for iy, y in enumerate(y_coords)
-                        for ix, x in enumerate(x_coords)}
+        # Use a set for efficient checking of valid grid coordinates.
+        grid_coords_set = set(self.grid_pos)
 
-        # Choose a random starting position and orientation
+        # Choose a random starting position and orientation (cardinal directions).
         start_idx = rng.choice(len(self.grid_pos))
         curr_x, curr_y = self.grid_pos[start_idx]
         curr_rot = rng.choice([0, np.pi / 2, np.pi, -np.pi / 2])
         used_coords.add((curr_x, curr_y))
 
-        # Place the first domino
-        print(f"Placing first domino at x={curr_x:.2f}, y={curr_y:.2f}, "
-              f"rot={curr_rot:.2f}")
+        # Place the first domino (start block).
         obj_dict[self.dominos[domino_count]] = self._place_domino(
             domino_count, curr_x, curr_y, curr_rot, is_start_block=True)
         domino_count += 1
 
-        # Determine total domino blocks to place
+        # Determine total domino blocks to place.
         if CFG.domino_use_domino_blocks_as_target:
             total_domino_blocks = n_dominos + n_targets
         else:
             total_domino_blocks = n_dominos
 
-        # Main placement loop
+        # Main placement loop.
         while domino_count < total_domino_blocks:
-            # Find all valid next moves (straight, turn left, turn right)
             possible_moves = []
-            for turn_angle in [0, -np.pi / 4,
-                               np.pi / 4]:  # Straight, Left, Right
-                next_rot = utils.wrap_angle(curr_rot + turn_angle)
-                dx = self.pos_gap * np.sin(next_rot)
-                dy = self.pos_gap * np.cos(next_rot)
-                next_x = round(curr_x + dx, 5)
-                next_y = round(curr_y + dy, 5)
+            # A move is defined by: (name, final_x, final_y, final_rot, placements)
+            # where placements is a list of (x, y, rot) for each domino in the move.
 
-                if (next_x, next_y) in coord_to_idx and (
-                        next_x, next_y) not in used_coords:
-                    possible_moves.append((next_x, next_y, next_rot))
+            # 1. Check for a "straight" move (1 domino).
+            dx = round(self.pos_gap * np.sin(curr_rot), 5)
+            dy = round(self.pos_gap * np.cos(curr_rot), 5)
+            next_x = round(curr_x + dx, 5)
+            next_y = round(curr_y + dy, 5)
+
+            if (next_x, next_y) in grid_coords_set and \
+            (next_x, next_y) not in used_coords:
+                placements = [(next_x, next_y, curr_rot)]
+                possible_moves.append(
+                    ("straight", next_x, next_y, curr_rot, placements))
+
+            # 2. Check for "turn" moves (2 dominoes).
+            if (total_domino_blocks - domino_count) >= 2:
+                # turn_dir: -1 for left, 1 for right.
+                for turn_dir, name in [(-1, "turn_left"), (1, "turn_right")]:
+                    # The first domino (d1) is one step straight.
+                    d1_x, d1_y, d1_rot = next_x, next_y, utils.wrap_angle(
+                        curr_rot - turn_dir * np.pi / 4)
+                    if (d1_x, d1_y) not in grid_coords_set or \
+                    (d1_x, d1_y) in used_coords:
+                        continue
+
+                    # The second domino (d2) is a step from d1 in the new direction.
+                    d2_rot = utils.wrap_angle(curr_rot + turn_dir * np.pi / 2)
+                    dx2 = round(self.pos_gap * np.sin(d2_rot), 5)
+                    dy2 = round(self.pos_gap * np.cos(d2_rot), 5)
+                    d2_x = round(d1_x + dx2, 5)
+                    d2_y = round(d1_y + dy2, 5)
+
+                    if (d2_x, d2_y) in grid_coords_set and \
+                    (d2_x, d2_y) not in used_coords:
+                        placements = [(d1_x, d1_y, d1_rot),
+                                      (d2_x, d2_y, d2_rot)]
+                        possible_moves.append(
+                            (name, d2_x, d2_y, d2_rot, placements))
 
             if not possible_moves:
-                print("No valid moves, generation failed")
-                return None  # No valid moves, generation failed
+                # No valid moves, generation failed for this attempt.
+                return None
 
-            # Choose a random valid move
-            curr_x, curr_y, curr_rot = possible_moves[rng.choice(
-                len(possible_moves))]
-            used_coords.add((curr_x, curr_y))
-            print(f"Placing domino at x={curr_x:.2f}, y={curr_y:.2f}, "
-                  f"rot={curr_rot:.2f}")
+            # Choose a random valid move and get its placement plan.
+            _move_name, final_x, final_y, final_rot, placements = \
+                possible_moves[rng.choice(len(possible_moves))]
 
-            # Decide if this block should be a target
-            is_target = False
-            if CFG.domino_use_domino_blocks_as_target and target_count < n_targets:
-                # Randomly decide to make this a target, ensuring we place all targets eventually
-                remaining_blocks = total_domino_blocks - domino_count
-                remaining_targets = n_targets - target_count
-                if rng.random() < remaining_targets / remaining_blocks:
-                    is_target = True
+            # Execute the placement plan for the chosen move.
+            for (x, y, rot) in placements:
+                if domino_count >= total_domino_blocks:
+                    break  # Should not be reached with correct logic.
 
-            # Place the domino block
-            obj_dict[self.dominos[domino_count]] = self._place_domino(
-                domino_count,
-                curr_x,
-                curr_y,
-                curr_rot,
-                is_target_block=is_target)
+                # Decide if this domino block should be a target.
+                is_target = False
+                if CFG.domino_use_domino_blocks_as_target and \
+                target_count < n_targets:
+                    remaining_blocks = total_domino_blocks - domino_count
+                    remaining_targets = n_targets - target_count
+                    # Force target if we must, otherwise decide randomly.
+                    if remaining_targets >= remaining_blocks or \
+                    rng.random() < remaining_targets / remaining_blocks:
+                        is_target = True
 
-            if is_target:
-                target_count += 1
-            domino_count += 1
+                # Place the domino block.
+                obj_dict[self.dominos[domino_count]] = self._place_domino(
+                    domino_count, x, y, rot, is_target_block=is_target)
 
-        # Place non-block targets if necessary (not on grid centers)
+                used_coords.add((x, y))
+                if is_target:
+                    target_count += 1
+                domino_count += 1
+
+            # Update state for the next iteration.
+            curr_x, curr_y, curr_rot = final_x, final_y, final_rot
+
+        # Place non-block targets if necessary (not on grid centers).
         if not CFG.domino_use_domino_blocks_as_target:
-            # This part is left as is, as the logic for placing separate targets
-            # is complex and not the focus of this grid-based generator.
-            # For now, we assume that if grid is used, targets are blocks.
-            raise NotImplementedError("Placing non-block targets is not "
-                                        "implemented")
+            raise NotImplementedError(
+                "Placing non-block targets with the grid generator is not "
+                "currently supported.")
 
         return obj_dict
 
@@ -1402,11 +1421,11 @@ if __name__ == "__main__":
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_use_grid = True
     env = PyBulletDominoEnv(use_gui=True)
-    tasks = env._make_tasks(1, env._train_rng)
+    tasks = env._make_tasks(10, env._train_rng)
     for task in tasks:
         env._reset_state(task.init)
 
-        for i in range(10000):
+        for i in range(200):
             action = Action(
                 np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)

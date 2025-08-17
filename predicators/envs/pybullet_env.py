@@ -357,8 +357,9 @@ class PyBulletEnv(BaseEnv):
 
         # 3) Reset all known objects (position, orientation, etc.)
         for obj in self._objects:
-            if obj.type.name in ["robot", "loc", "rot", "human", "side", 
-                                "direction"]:
+            if obj.type.name in [
+                    "robot", "loc", "rot", "human", "side", "direction"
+            ]:
                 continue
             self._reset_single_object(obj, state)
 
