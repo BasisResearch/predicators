@@ -896,14 +896,15 @@ class PyBulletDominoEnv(PyBulletEnv):
         return obj_dict if success else None
 
     def _generate_domino_sequence_with_grid(self, rng: np.random.Generator,
-                                                n_dominos: int,
-                                                n_targets: int) -> Optional[Dict]:
+                                            n_dominos: int,
+                                            n_targets: int) -> Optional[Dict]:
         """Grid-based sequence generator.
 
         This version implements straight moves and L-shaped 90-degree
         turns, mimicking the logic of the non-grid-based generator. A
         90-degree turn consumes two dominoes and forms an 'L' shape on
-        the grid. The turning domino is shifted inward for better stability.
+        the grid. The turning domino is shifted inward for better
+        stability.
         """
         obj_dict: Dict = {}
         domino_count = 0
@@ -957,12 +958,10 @@ class PyBulletDominoEnv(PyBulletEnv):
                     if (d1_x, d1_y) not in grid_coords_set or \
                     (d1_x, d1_y) in used_coords:
                         continue
-                    
-                    # Its orientation is 45 degrees towards the turn direction.
-                    d1_rot = utils.wrap_angle(
-                        curr_rot - turn_dir * np.pi / 4)
 
-                    # ** MODIFICATION START **
+                    # Its orientation is 45 degrees towards the turn direction.
+                    d1_rot = utils.wrap_angle(curr_rot - turn_dir * np.pi / 4)
+
                     # Calculate an inward shift for the first turning domino to
                     # create a more stable, natural corner.
                     shift_magnitude = self.domino_width * self.turn_shift_frac
@@ -971,11 +970,10 @@ class PyBulletDominoEnv(PyBulletEnv):
                         (turn_dir * np.cos(curr_rot) - np.sin(curr_rot))
                     shift_dy = shift_magnitude * \
                         (-turn_dir * np.sin(curr_rot) - np.cos(curr_rot))
-                    
+
                     # The final position is the grid position plus the shift.
                     d1_final_x = d1_x + shift_dx
                     d1_final_y = d1_y + shift_dy
-                    # ** MODIFICATION END **
 
                     # The second domino (d2) is a step from d1's GRID position
                     # in the new, fully turned direction.
@@ -989,7 +987,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                     (d2_x, d2_y) not in used_coords:
                         # Use the shifted position for d1 in the final placements.
                         placements = [(d1_final_x, d1_final_y, d1_rot),
-                                    (d2_x, d2_y, d2_rot)]
+                                      (d2_x, d2_y, d2_rot)]
                         possible_moves.append(
                             (name, d2_x, d2_y, d2_rot, placements))
 
