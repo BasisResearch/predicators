@@ -658,8 +658,8 @@ class PyBulletDominoEnv(PyBulletEnv):
 
     @classmethod
     def _check_single_direction(cls, x1_idx: int, y1_idx: int, x2_idx: int, y2_idx: int,
-                               rot1_rad: float, rot2_rad: float, dir_value: str, 
-                               tolerance: float = 1e-6) -> bool:
+                                rot1_rad: float, rot2_rad: float, dir_value: str, 
+                                tolerance: float = 1e-6) -> bool:
         """Helper function to check if domino1 is in front of domino2 with the given direction.
         
         This checks a single directional relationship: domino1 must be in the cell in 
@@ -676,6 +676,11 @@ class PyBulletDominoEnv(PyBulletEnv):
             True if domino1 is in front of domino2 with the correct rotation difference
         """
         # Check if domino1 is in the cell in front of domino2
+        # This check is only valid if domino2 has a cardinal rotation (0, 90, 180, etc.)
+        # We can check this by seeing if sin or cos of the angle is close to 0.
+        if not (abs(np.sin(rot2_rad)) < tolerance or abs(np.cos(rot2_rad)) < tolerance):
+            return False
+
         dx2_idx = round(np.sin(rot2_rad))
         dy2_idx = round(np.cos(rot2_rad))
         expected_x1 = x2_idx + dx2_idx
@@ -695,12 +700,13 @@ class PyBulletDominoEnv(PyBulletEnv):
             rot_diff += 2*np.pi
             
         # Define expected rotation difference based on direction
+        # FIX: Swapped expected rotation for "left" and "right"
         if dir_value == "left":
-            expected_rot_diff = -np.pi/4
+            expected_rot_diff = np.pi/4
         elif dir_value == "straight":
             expected_rot_diff = 0
         elif dir_value == "right":
-            expected_rot_diff = np.pi/4
+            expected_rot_diff = -np.pi/4
         else:
             return False
             
@@ -717,8 +723,8 @@ class PyBulletDominoEnv(PyBulletEnv):
         2. Swapped: domino2 is in front of domino1 with the opposite direction
         
         For example, InFrontDirection(d1, d2, "right") returns True if either:
-        - d1 is in the cell in front of d2 with rotation difference of π/4, OR
-        - d2 is in the cell in front of d1 with rotation difference of -π/4
+        - d1 is in the cell in front of d2 with rotation difference of -π/4, OR
+        - d2 is in the cell in front of d1 with rotation difference of π/4
           (equivalent to InFrontDirection(d2, d1, "left"))
         
         This symmetry ensures that both InFrontDirection(d1, d2, "left") and 
@@ -728,7 +734,7 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         if not CFG.domino_use_grid:
             raise ValueError("Grid is not used, this derived predicate cannot "
-                                "function")
+                             "function")
 
         # Find positions and rotations using auxiliary predicates
         domino1_pos = None
@@ -790,25 +796,21 @@ class PyBulletDominoEnv(PyBulletEnv):
         else:  # "straight"
             opposite_dir = "straight"
         
-        # Check both cases:
+        # FIX: The original implementation incorrectly used an if/else
+        # that only checked one of the two cases. The correct implementation
+        # checks both and returns True if either one holds.
+
         # Case 1: Original - domino1 is in front of domino2 with the given direction
-        # If rot2_rad is close to 0, pi/2, pi, -pi/2, or -pi
-        if abs(rot2_rad) < 1e-6 or abs(rot2_rad - np.pi/2) < 1e-6 or \
-            abs(rot2_rad - np.pi) < 1e-6 or abs(rot2_rad + np.pi/2) < 1e-6 or \
-            abs(rot2_rad + np.pi) < 1e-6:
-            case1 = cls._check_single_direction(
-                x1_idx, y1_idx, x2_idx, y2_idx,
-                rot1_rad, rot2_rad, dir_value
-            )
-            case2 = False
-        else:
-            # Case 2: Swapped - domino2 is in front of domino1 with the opposite direction
-            # This is equivalent to InFrontDirection(domino2, domino1, opposite_direction)
-            case2 = cls._check_single_direction(
-                x2_idx, y2_idx, x1_idx, y1_idx,
-                rot2_rad, rot1_rad, opposite_dir
-            )
-            case1 = False
+        case1 = cls._check_single_direction(
+            x1_idx, y1_idx, x2_idx, y2_idx,
+            rot1_rad, rot2_rad, dir_value
+        )
+        
+        # Case 2: Swapped - domino2 is in front of domino1 with the opposite direction
+        case2 = cls._check_single_direction(
+            x2_idx, y2_idx, x1_idx, y1_idx,
+            rot2_rad, rot1_rad, opposite_dir
+        )
         
         # Return True if either case holds
         return case1 or case2
@@ -1080,7 +1082,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                         continue
 
                     # Its orientation is 45 degrees towards the turn direction.
-                    d1_rot = utils.wrap_angle(curr_rot - turn_dir * np.pi / 4)
+                    d1_rot = curr_rot - turn_dir * np.pi / 4
 
                     # Calculate the components of a diagonal shift vector.
                     # This vector pulls the turning domino both inward (perpendicular to its original path)
@@ -1113,8 +1115,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                     # 1. Calculate d2's orientation relative to d1's orientation.
                     # A full 90-degree turn (pi/2) from the original orientation (curr_rot)
                     # is equivalent to a 135-degree turn (3*pi/4) from d1's 45-degree angle.
-                    d2_rot = utils.wrap_angle(d1_rot +
-                                              turn_dir * 3 * np.pi / 4)
+                    d2_rot = d1_rot - turn_dir * 1 * np.pi / 4
 
                     # 2. Calculate d2's position relative to d1's final, shifted position.
                     # This displacement vector is derived by expressing the original logic
@@ -1151,6 +1152,7 @@ class PyBulletDominoEnv(PyBulletEnv):
 
             # Execute the placement plan for the chosen move.
             for (x, y, rot) in placements:
+                print(f"Placing domino at {x}, {y}, {rot}")
                 if domino_count >= total_domino_blocks:
                     break  # Should not be reached with correct logic.
 
