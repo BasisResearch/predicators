@@ -923,7 +923,6 @@ class PyBulletDominoEnv(PyBulletEnv):
         obj_dict[self.dominos[domino_count]] = self._place_domino(
             domino_count, curr_x, curr_y, curr_rot, is_start_block=True)
         domino_count += 1
-        print(f"Placed start domino at x={curr_x:.2f}, y={curr_y:.2f}, rot={curr_rot:.2f}")
 
         # Determine total domino blocks to place.
         if CFG.domino_use_domino_blocks_as_target:
@@ -963,28 +962,18 @@ class PyBulletDominoEnv(PyBulletEnv):
                     d1_rot = utils.wrap_angle(
                         curr_rot - turn_dir * np.pi / 4)
 
-                    # ** CORRECTION START **
-                    # Calculate a diagonal inward shift for the turning domino.
-                    # This moves it closer to the turn's center along both the
-                    # parallel and perpendicular axes of the initial block.
+                    # ** MODIFICATION START **
+                    # Calculate an inward shift for the first turning domino to
+                    # create a more stable, natural corner.
                     shift_magnitude = self.domino_width * self.turn_shift_frac
-                    
-                    # Vector component parallel to the initial block (but backwards).
-                    back_dx = -shift_magnitude * np.sin(curr_rot)
-                    back_dy = -shift_magnitude * np.cos(curr_rot)
-
-                    # Vector component perpendicular to the initial block (inward).
-                    inward_dx = -shift_magnitude * turn_dir * np.cos(curr_rot)
-                    inward_dy = shift_magnitude * turn_dir * np.sin(curr_rot)
-                    
-                    # The total shift is the sum of both components.
-                    shift_dx = back_dx + inward_dx
-                    shift_dy = back_dy + inward_dy
+                    # The shift vector is perpendicular to the original direction of movement.
+                    shift_dx = shift_magnitude * turn_dir * np.cos(curr_rot)
+                    shift_dy = -shift_magnitude * turn_dir * np.sin(curr_rot)
                     
                     # The final position is the grid position plus the shift.
                     d1_final_x = d1_x + shift_dx
                     d1_final_y = d1_y + shift_dy
-                    # ** CORRECTION END **
+                    # ** MODIFICATION END **
 
                     # The second domino (d2) is a step from d1's GRID position
                     # in the new, fully turned direction.
@@ -1013,7 +1002,6 @@ class PyBulletDominoEnv(PyBulletEnv):
 
             # Execute the placement plan for the chosen move.
             for (x, y, rot) in placements:
-                print(f"Placing domino at x={x:.2f}, y={y:.2f}, rot={rot:.2f}")
                 if domino_count >= total_domino_blocks:
                     break  # Should not be reached with correct logic.
 
