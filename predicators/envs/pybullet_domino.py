@@ -49,6 +49,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     domino_width: ClassVar[float] = 0.07
     domino_depth: ClassVar[float] = 0.02
     domino_height: ClassVar[float] = 0.15
+    turn_shift_frac: ClassVar[float] = 0.5
     # domino_mass: ClassVar[float] = 0.3
     domino_mass: ClassVar[float] = 0.8
     start_domino_color: ClassVar[Tuple[float, float, float,
@@ -895,14 +896,14 @@ class PyBulletDominoEnv(PyBulletEnv):
         return obj_dict if success else None
 
     def _generate_domino_sequence_with_grid(self, rng: np.random.Generator,
-                                            n_dominos: int,
-                                            n_targets: int) -> Optional[Dict]:
+                                                n_dominos: int,
+                                                n_targets: int) -> Optional[Dict]:
         """Grid-based sequence generator.
 
         This version implements straight moves and L-shaped 90-degree
         turns, mimicking the logic of the non-grid-based generator. A
         90-degree turn consumes two dominoes and forms an 'L' shape on
-        the grid.
+        the grid. The turning domino is shifted inward for better stability.
         """
         obj_dict: Dict = {}
         domino_count = 0
@@ -922,6 +923,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         obj_dict[self.dominos[domino_count]] = self._place_domino(
             domino_count, curr_x, curr_y, curr_rot, is_start_block=True)
         domino_count += 1
+        print(f"Placed start domino at x={curr_x:.2f}, y={curr_y:.2f}, rot={curr_rot:.2f}")
 
         # Determine total domino blocks to place.
         if CFG.domino_use_domino_blocks_as_target:
@@ -951,14 +953,41 @@ class PyBulletDominoEnv(PyBulletEnv):
             if (total_domino_blocks - domino_count) >= 2:
                 # turn_dir: -1 for left, 1 for right.
                 for turn_dir, name in [(-1, "turn_left"), (1, "turn_right")]:
-                    # The first domino (d1) is one step straight.
-                    d1_x, d1_y, d1_rot = next_x, next_y, utils.wrap_angle(
-                        curr_rot - turn_dir * np.pi / 4)
+                    # The first domino (d1) is one step straight on the grid.
+                    d1_x, d1_y = next_x, next_y
                     if (d1_x, d1_y) not in grid_coords_set or \
                     (d1_x, d1_y) in used_coords:
                         continue
+                    
+                    # Its orientation is 45 degrees towards the turn direction.
+                    d1_rot = utils.wrap_angle(
+                        curr_rot - turn_dir * np.pi / 4)
 
-                    # The second domino (d2) is a step from d1 in the new direction.
+                    # ** CORRECTION START **
+                    # Calculate a diagonal inward shift for the turning domino.
+                    # This moves it closer to the turn's center along both the
+                    # parallel and perpendicular axes of the initial block.
+                    shift_magnitude = self.domino_width * self.turn_shift_frac
+                    
+                    # Vector component parallel to the initial block (but backwards).
+                    back_dx = -shift_magnitude * np.sin(curr_rot)
+                    back_dy = -shift_magnitude * np.cos(curr_rot)
+
+                    # Vector component perpendicular to the initial block (inward).
+                    inward_dx = -shift_magnitude * turn_dir * np.cos(curr_rot)
+                    inward_dy = shift_magnitude * turn_dir * np.sin(curr_rot)
+                    
+                    # The total shift is the sum of both components.
+                    shift_dx = back_dx + inward_dx
+                    shift_dy = back_dy + inward_dy
+                    
+                    # The final position is the grid position plus the shift.
+                    d1_final_x = d1_x + shift_dx
+                    d1_final_y = d1_y + shift_dy
+                    # ** CORRECTION END **
+
+                    # The second domino (d2) is a step from d1's GRID position
+                    # in the new, fully turned direction.
                     d2_rot = utils.wrap_angle(curr_rot + turn_dir * np.pi / 2)
                     dx2 = round(self.pos_gap * np.sin(d2_rot), 5)
                     dy2 = round(self.pos_gap * np.cos(d2_rot), 5)
@@ -967,8 +996,9 @@ class PyBulletDominoEnv(PyBulletEnv):
 
                     if (d2_x, d2_y) in grid_coords_set and \
                     (d2_x, d2_y) not in used_coords:
-                        placements = [(d1_x, d1_y, d1_rot),
-                                      (d2_x, d2_y, d2_rot)]
+                        # Use the shifted position for d1 in the final placements.
+                        placements = [(d1_final_x, d1_final_y, d1_rot),
+                                    (d2_x, d2_y, d2_rot)]
                         possible_moves.append(
                             (name, d2_x, d2_y, d2_rot, placements))
 
@@ -979,9 +1009,11 @@ class PyBulletDominoEnv(PyBulletEnv):
             # Choose a random valid move and get its placement plan.
             _move_name, final_x, final_y, final_rot, placements = \
                 possible_moves[rng.choice(len(possible_moves))]
+            print(f"Chose move: {_move_name}")
 
             # Execute the placement plan for the chosen move.
             for (x, y, rot) in placements:
+                print(f"Placing domino at x={x:.2f}, y={y:.2f}, rot={rot:.2f}")
                 if domino_count >= total_domino_blocks:
                     break  # Should not be reached with correct logic.
 
@@ -1000,7 +1032,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                 obj_dict[self.dominos[domino_count]] = self._place_domino(
                     domino_count, x, y, rot, is_target_block=is_target)
 
-                used_coords.add((x, y))
+                # Use the grid coordinates for tracking used spots.
+                used_coords.add((round(x, 5), round(y, 5)))
                 if is_target:
                     target_count += 1
                 domino_count += 1
@@ -1425,7 +1458,7 @@ if __name__ == "__main__":
     for task in tasks:
         env._reset_state(task.init)
 
-        for i in range(200):
+        for i in range(100):
             action = Action(
                 np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)
