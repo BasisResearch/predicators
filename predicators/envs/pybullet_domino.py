@@ -985,8 +985,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                         (-turn_dir * np.sin(curr_rot) - np.cos(curr_rot))
 
                     # The final position is the grid position plus the shift.
-                    d1_final_x = d1_x + shift_dx
-                    d1_final_y = d1_y + shift_dy
+                    d1_x += shift_dx
+                    d1_y += shift_dy
 
                     # The second domino (d2) is a step from d1's GRID position
                     # in the new, fully turned direction.
@@ -1003,19 +1003,19 @@ class PyBulletDominoEnv(PyBulletEnv):
                     sin_d1 = np.sin(d1_rot)
                     cos_d1 = np.cos(d1_rot)
 
-                    # Components of the displacement vector from (d1_final_x, d1_final_y) to (d2_x, d2_y)
+                    # Components of the displacement vector from (d1_x, d1_y) to (d2_x, d2_y)
                     disp_x = (gap * turn_dir * cos_d1 + (2 * shift_magnitude - 
                                 gap) * sin_d1) / np.sqrt(2)
                     disp_y = (-gap * turn_dir * sin_d1 + (2 * shift_magnitude - 
                                 gap) * cos_d1) / np.sqrt(2)
 
-                    d2_x = round(d1_final_x + disp_x, 5)
-                    d2_y = round(d1_final_y + disp_y, 5)
+                    d2_x = round(d1_x + disp_x, 5)
+                    d2_y = round(d1_y + disp_y, 5)
 
                     if (d2_x, d2_y) in grid_coords_set and \
                     (d2_x, d2_y) not in used_coords:
                         # Use the shifted position for d1 in the final placements.
-                        placements = [(d1_final_x, d1_final_y, d1_rot),
+                        placements = [(d1_x, d1_y, d1_rot),
                                       (d2_x, d2_y, d2_rot)]
                         possible_moves.append(
                             (name, d2_x, d2_y, d2_rot, placements))
