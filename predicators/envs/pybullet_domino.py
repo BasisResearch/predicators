@@ -990,11 +990,27 @@ class PyBulletDominoEnv(PyBulletEnv):
 
                     # The second domino (d2) is a step from d1's GRID position
                     # in the new, fully turned direction.
-                    d2_rot = utils.wrap_angle(curr_rot + turn_dir * np.pi / 2)
-                    dx2 = round(self.pos_gap * np.sin(d2_rot), 5)
-                    dy2 = round(self.pos_gap * np.cos(d2_rot), 5)
-                    d2_x = round(d1_x + dx2, 5)
-                    d2_y = round(d1_y + dy2, 5)
+                    # 1. Calculate d2's orientation relative to d1's orientation.
+                    # A full 90-degree turn (pi/2) from the original orientation (curr_rot)
+                    # is equivalent to a 135-degree turn (3*pi/4) from d1's 45-degree angle.
+                    d2_rot = utils.wrap_angle(d1_rot +
+                                              turn_dir * 3 * np.pi / 4)
+
+                    # 2. Calculate d2's position relative to d1's final, shifted position.
+                    # This displacement vector is derived by expressing the original logic
+                    # (V_displacement = V_step2 - V_shift) in terms of d1's rotation.
+                    gap = self.pos_gap
+                    sin_d1 = np.sin(d1_rot)
+                    cos_d1 = np.cos(d1_rot)
+
+                    # Components of the displacement vector from (d1_final_x, d1_final_y) to (d2_x, d2_y)
+                    disp_x = (gap * turn_dir * cos_d1 + (2 * shift_magnitude - 
+                                gap) * sin_d1) / np.sqrt(2)
+                    disp_y = (-gap * turn_dir * sin_d1 + (2 * shift_magnitude - 
+                                gap) * cos_d1) / np.sqrt(2)
+
+                    d2_x = round(d1_final_x + disp_x, 5)
+                    d2_y = round(d1_final_y + disp_y, 5)
 
                     if (d2_x, d2_y) in grid_coords_set and \
                     (d2_x, d2_y) not in used_coords:
