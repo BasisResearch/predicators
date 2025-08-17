@@ -967,8 +967,10 @@ class PyBulletDominoEnv(PyBulletEnv):
                     # create a more stable, natural corner.
                     shift_magnitude = self.domino_width * self.turn_shift_frac
                     # The shift vector is perpendicular to the original direction of movement.
-                    shift_dx = shift_magnitude * turn_dir * np.cos(curr_rot)
-                    shift_dy = -shift_magnitude * turn_dir * np.sin(curr_rot)
+                    shift_dx = shift_magnitude * \
+                        (turn_dir * np.cos(curr_rot) - np.sin(curr_rot))
+                    shift_dy = shift_magnitude * \
+                        (-turn_dir * np.sin(curr_rot) - np.cos(curr_rot))
                     
                     # The final position is the grid position plus the shift.
                     d1_final_x = d1_x + shift_dx
