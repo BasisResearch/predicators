@@ -962,8 +962,21 @@ class PyBulletDominoEnv(PyBulletEnv):
                     # Its orientation is 45 degrees towards the turn direction.
                     d1_rot = utils.wrap_angle(curr_rot - turn_dir * np.pi / 4)
 
-                    # Calculate an inward shift for the first turning domino to
-                    # create a more stable, natural corner.
+                    # Calculate the components of a diagonal shift vector.
+                    # This vector pulls the turning domino both inward (perpendicular to its original path)
+                    # and backward (parallel to its original path) to create a tighter, more stable corner.
+                    # It's constructed by summing two unit vectors:
+                    #
+                    # 1. Perpendicular component (pulls sideways into the turn):
+                    #    (turn_dir * np.cos(curr_rot), -turn_dir * np.sin(curr_rot))
+                    #
+                    # 2. Parallel component (pulls backward along the path):
+                    #    (-np.sin(curr_rot), -np.cos(curr_rot))
+                    #
+                    # The terms are combined below. Note that adding these two unit vectors results in a
+                    # direction vector with a magnitude of sqrt(2). The final shift distance will thus be
+                    # `shift_magnitude * sqrt(2)`. To get a final distance of exactly `shift_magnitude`,
+                    # you would need to normalize this vector by dividing each component by sqrt(2).
                     shift_magnitude = self.domino_width * self.turn_shift_frac
                     # The shift vector is perpendicular to the original direction of movement.
                     shift_dx = shift_magnitude * \
