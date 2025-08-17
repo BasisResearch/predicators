@@ -40,7 +40,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         InFront = predicates["InFront"]
         NotInFrontOfAny = predicates["NotInFrontOfAny"]
         StartBlock = predicates["StartBlock"]
-        Toppled = predicates["Toppled"] 
+        Toppled = predicates["Toppled"]
         # Note: Toppled predicate exists but represents the goal state
         # Note: The "Falling" predicate from the sketch is not implemented in the current environment
         # We would need to add it to the environment for the DominoFall exogenous process
@@ -208,12 +208,11 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         parameters = [domino1, domino2]
         condition_at_start = {
             LiftedAtom(InFront, [domino1, domino2]),
-            LiftedAtom(Toppled,
-                       [domino2]),  # This predicate doesn't exist yet
+            LiftedAtom(Toppled, [domino2]),  # This predicate doesn't exist yet
         }
         condition_overall = condition_at_start.copy()
         add_effects = {
-            LiftedAtom(Toppled, [domino1]), 
+            LiftedAtom(Toppled, [domino1]),
         }
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
                                                    sigma=torch.tensor(0.1))
