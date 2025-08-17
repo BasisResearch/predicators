@@ -8,6 +8,7 @@ python predicators/main.py --approach oracle --env pybullet_domino \
 --video_not_break_on_exception --pybullet_ik_validate False
 """
 import logging
+from re import A
 import time
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, \
     Set, Tuple
@@ -95,8 +96,10 @@ class PyBulletDominoEnv(PyBulletEnv):
     turn_choices: ClassVar[List[str]] = ["straight", "turn90", "pivot180"]
 
     # Grid configuration
-    num_pos_x: ClassVar[int] = 9  # Grid dimensions
-    num_pos_y: ClassVar[int] = 5
+    # num_pos_x: ClassVar[int] = 9
+    # num_pos_y: ClassVar[int] = 5
+    num_pos_x: ClassVar[int] = 2
+    num_pos_y: ClassVar[int] = 2
     pos_gap: ClassVar[
         float] = domino_width * 1.3  # Distance between grid positions
 
@@ -198,18 +201,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         self._Holding = Predicate("Holding",
                                   [self._robot_type, self._domino_type],
                                   self._Holding_holds)
-        self._InFrontDirection = Predicate(
-            "InFrontDirection",
-            [self._domino_type, self._domino_type, self._direction_type],
-            self._InFrontDirection_holds)
-        self._InFront = DerivedPredicate(
-            "InFront", [self._domino_type, self._domino_type],
-            self._InFront_holds)
-        self._NotInFrontOfAny = Predicate("NotInFrontOfAny",
-                                          [self._domino_type],
-                                          self._NotInFrontOfAny_holds)
-
-        # Conditionally create position-related predicates
+        # Define DominoAtPos and DominoAtRot first if using grid
         if CFG.domino_use_grid:
             self._DominoAtPos = Predicate(
                 "DominoAtPos", [self._domino_type, self._position_type],
@@ -217,6 +209,21 @@ class PyBulletDominoEnv(PyBulletEnv):
             self._DominoAtRot = Predicate(
                 "DominoAtRot", [self._domino_type, self._rotation_type],
                 self._DominoAtRot_holds)
+            
+            self._InFrontDirection = DerivedPredicate(
+                "InFrontDirection", [self._domino_type, self._domino_type, 
+                self._direction_type],
+                self._InFrontDirection_holds, 
+                auxiliary_predicates=[self._DominoAtPos, self._DominoAtRot] if 
+                CFG.domino_use_grid else [])
+            self._InFront = DerivedPredicate(
+                "InFront", [self._domino_type, self._domino_type],
+                self._InFront_holds, auxiliary_predicates=[self._InFrontDirection])
+            self._NotInFrontOfAny = DerivedPredicate("NotInFrontOfAny",
+                                            [self._domino_type],
+                                            self._NotInFrontOfAny_holds,
+                                auxiliary_predicates=[self._InFrontDirection])
+
 
     @classmethod
     def get_name(cls) -> str:
@@ -231,7 +238,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             self._Holding,
             self._InFrontDirection,
             self._InFront,
-            self._NotInFrontOfAny,
+            # self._NotInFrontOfAny,
             # self._Upright,
             # self._NotUpright
         }
@@ -650,47 +657,161 @@ class PyBulletDominoEnv(PyBulletEnv):
         return state.get(domino, "is_held") > 0.5
 
     @classmethod
-    def _InFrontDirection_holds(cls, state: State,
+    def _check_single_direction(cls, x1_idx: int, y1_idx: int, x2_idx: int, y2_idx: int,
+                               rot1_rad: float, rot2_rad: float, dir_value: str, 
+                               tolerance: float = 1e-6) -> bool:
+        """Helper function to check if domino1 is in front of domino2 with the given direction.
+        
+        This checks a single directional relationship: domino1 must be in the cell in 
+        front of domino2, and the rotation difference must match the expected direction.
+        
+        Args:
+            x1_idx, y1_idx: Grid coordinates of domino1
+            x2_idx, y2_idx: Grid coordinates of domino2  
+            rot1_rad, rot2_rad: Rotations of domino1 and domino2 in radians
+            dir_value: Direction string ("left", "straight", "right")
+            tolerance: Numerical tolerance for comparisons
+            
+        Returns:
+            True if domino1 is in front of domino2 with the correct rotation difference
+        """
+        # Check if domino1 is in the cell in front of domino2
+        dx2_idx = round(np.sin(rot2_rad))
+        dy2_idx = round(np.cos(rot2_rad))
+        expected_x1 = x2_idx + dx2_idx
+        expected_y1 = y2_idx + dy2_idx
+        
+        # domino1 must be at the expected position
+        if not (x1_idx == expected_x1 and y1_idx == expected_y1):
+            return False
+            
+        # Calculate rotation difference (domino1 - domino2)
+        rot_diff = rot1_rad - rot2_rad
+        
+        # Normalize rotation difference to [-π, π] range
+        while rot_diff > np.pi:
+            rot_diff -= 2*np.pi
+        while rot_diff < -np.pi:
+            rot_diff += 2*np.pi
+            
+        # Define expected rotation difference based on direction
+        if dir_value == "left":
+            expected_rot_diff = -np.pi/4
+        elif dir_value == "straight":
+            expected_rot_diff = 0
+        elif dir_value == "right":
+            expected_rot_diff = np.pi/4
+        else:
+            return False
+            
+        # Check if rotation difference matches expected value
+        return abs(rot_diff - expected_rot_diff) < tolerance
+
+    @classmethod
+    def _InFrontDirection_holds(cls, atoms: Set[GroundAtom],
                                 objects: Sequence[Object]) -> bool:
         """Check if domino1 is in front of domino2 in the given direction.
 
-        This predicate returns True if domino1 is positioned such that
-        when domino2 falls in the specified direction, domino1 would
-        fall afterwards.
+        This predicate is symmetric and checks two cases:
+        1. Original: domino1 is in front of domino2 with the given direction
+        2. Swapped: domino2 is in front of domino1 with the opposite direction
+        
+        For example, InFrontDirection(d1, d2, "right") returns True if either:
+        - d1 is in the cell in front of d2 with rotation difference of π/4, OR
+        - d2 is in the cell in front of d1 with rotation difference of -π/4
+          (equivalent to InFrontDirection(d2, d1, "left"))
+        
+        This symmetry ensures that both InFrontDirection(d1, d2, "left") and 
+        InFrontDirection(d2, d1, "right") can be true simultaneously.
         """
         domino1, domino2, direction = objects
 
-        # Get positions and orientations
-        x1, y1 = state.get(domino1, "x"), state.get(domino1, "y")
-        x2, y2 = state.get(domino2, "x"), state.get(domino2, "y")
-        rot2 = state.get(domino2, "rot")
-        dir_value = state.get(direction, "dir")
+        if not CFG.domino_use_grid:
+            raise ValueError("Grid is not used, this derived predicate cannot "
+                                "function")
 
-        # Calculate expected front position based on domino2's orientation and direction
-        gap = cls.domino_width * 1.3  # Same gap used in make_tasks
+        # Find positions and rotations using auxiliary predicates
+        domino1_pos = None
+        domino1_rot = None
+        domino2_pos = None
+        domino2_rot = None
 
-        if dir_value == 0.0:  # straight
-            # Domino1 should be directly in front of domino2
-            expected_x = x2 + gap * np.sin(rot2)
-            expected_y = y2 + gap * np.cos(rot2)
-        elif dir_value == 1.0:  # left
-            # Domino1 should be to the left of domino2's fall direction
-            turn_angle = rot2 - np.pi / 2  # 90 degrees to the left
-            expected_x = x2 + gap * np.sin(turn_angle)
-            expected_y = y2 + gap * np.cos(turn_angle)
-        elif dir_value == 2.0:  # right
-            # Domino1 should be to the right of domino2's fall direction
-            turn_angle = rot2 + np.pi / 2  # 90 degrees to the right
-            expected_x = x2 + gap * np.sin(turn_angle)
-            expected_y = y2 + gap * np.cos(turn_angle)
-        else:
+        # Extract positions and rotations from atoms
+        for atom in atoms:
+            try:
+                if atom.predicate.name == "DominoAtPos":
+                    if atom.objects[0] == domino1:
+                        domino1_pos = atom.objects[1]
+                    elif atom.objects[0] == domino2:
+                        domino2_pos = atom.objects[1]
+                elif atom.predicate.name == "DominoAtRot":
+                    if atom.objects[0] == domino1:
+                        domino1_rot = atom.objects[1]
+                    elif atom.objects[0] == domino2:
+                        domino2_rot = atom.objects[1]
+            except:
+                breakpoint()
+
+        # All required information must be available
+        if not all([domino1_pos, domino1_rot, domino2_pos, domino2_rot]):
             return False
 
-        # Check if domino1 is close enough to the expected position
-        position_tolerance = cls.domino_width * 0.5
-        distance = np.sqrt((x1 - expected_x)**2 + (y1 - expected_y)**2)
+        # Extract coordinates from position object names (e.g., "pos_y1_x2")
+        def extract_grid_coords(pos_obj):
+            # Position names follow pattern "pos_y{y_idx}_x{x_idx}"
+            name_parts = pos_obj.name.split("_")
+            y_idx = int(name_parts[1][1:])  # Remove 'y' prefix
+            x_idx = int(name_parts[2][1:])  # Remove 'x' prefix
+            return x_idx, y_idx
 
-        return distance <= position_tolerance
+        # Extract rotation from rotation object names (e.g., "rot_45")
+        def extract_rotation_angle(rot_obj):
+            # Rotation names follow pattern "rot_{angle}"
+            angle_str = rot_obj.name.split("_")[1]
+            return float(angle_str)
+
+        x1_idx, y1_idx = extract_grid_coords(domino1_pos)
+        x2_idx, y2_idx = extract_grid_coords(domino2_pos)
+        rot1_angle = extract_rotation_angle(domino1_rot)
+        rot2_angle = extract_rotation_angle(domino2_rot)
+
+        # Convert angles to radians
+        rot1_rad = utils.wrap_angle(np.radians(rot1_angle))
+        rot2_rad = utils.wrap_angle(np.radians(rot2_angle))
+        
+        # Get direction value
+        dir_value = direction.name
+        
+        # Determine the opposite direction for the swapped case
+        if dir_value == "left":
+            opposite_dir = "right"
+        elif dir_value == "right":
+            opposite_dir = "left"
+        else:  # "straight"
+            opposite_dir = "straight"
+        
+        # Check both cases:
+        # Case 1: Original - domino1 is in front of domino2 with the given direction
+        # If rot2_rad is close to 0, pi/2, pi, -pi/2, or -pi
+        if abs(rot2_rad) < 1e-6 or abs(rot2_rad - np.pi/2) < 1e-6 or \
+            abs(rot2_rad - np.pi) < 1e-6 or abs(rot2_rad + np.pi/2) < 1e-6 or \
+            abs(rot2_rad + np.pi) < 1e-6:
+            case1 = cls._check_single_direction(
+                x1_idx, y1_idx, x2_idx, y2_idx,
+                rot1_rad, rot2_rad, dir_value
+            )
+            case2 = False
+        else:
+            # Case 2: Swapped - domino2 is in front of domino1 with the opposite direction
+            # This is equivalent to InFrontDirection(domino2, domino1, opposite_direction)
+            case2 = cls._check_single_direction(
+                x2_idx, y2_idx, x1_idx, y1_idx,
+                rot2_rad, rot1_rad, opposite_dir
+            )
+            case1 = False
+        
+        # Return True if either case holds
+        return case1 or case2
 
     @classmethod
     def _InFront_holds(cls, atoms: Set[GroundAtom],
@@ -756,10 +877,9 @@ class PyBulletDominoEnv(PyBulletEnv):
         target_y = state.get(position, "yy")
 
         # Check if domino is close enough to the target position
-        position_tolerance = cls.domino_width * 0.5
-        distance = np.sqrt((domino_x - target_x)**2 + (domino_y - target_y)**2)
-
-        return distance <= position_tolerance
+        position_tolerance = cls.pos_gap * 0.5
+        return (abs(domino_x - target_x) <= position_tolerance and
+                abs(domino_y - target_y) <= position_tolerance)
 
     @classmethod
     def _DominoAtRot_holds(cls, state: State,
