@@ -437,7 +437,7 @@ def task_plan_from_task(
     derived_predicates = utils.get_derived_predicates(all_predicates)
 
     init_atoms = utils.abstract(task.init, all_predicates)
-    # logging.debug(f"[Task Planner] Task init atoms: {sorted(init_atoms)}")
+    logging.debug(f"[Task Planner] Task init atoms: {sorted(init_atoms)}")
     goal = task.goal
     objects = set(task.init)
     ground_processes, reachable_atoms = process_task_plan_grounding(
@@ -452,7 +452,7 @@ def task_plan_from_task(
     #     all_predicates, objects)
     # heuristic = create_lm_cut_heuristic(goal, ground_processes)
     heuristic = create_ff_heuristic(goal, ground_processes, derived_predicates,
-                                    objects, use_derived_predicates=False)
+                                    objects, use_derived_predicates=True)
 
     return task_plan(
         init_atoms,
@@ -578,28 +578,77 @@ def create_ff_heuristic(
     objects: Set[Object] = set(),
     use_derived_predicates: bool = True,
 ) -> Callable[[Set[GroundAtom]], float]:
-    """Creates a callable FF heuristic function."""
+    """Creates a callable FF heuristic function with efficient RPG generation.
 
-    # --- Pre-computation ---
-    # The map now stores any causal process that can add an atom.
-    adds_map: Dict[GroundAtom, List[_GroundCausalProcess]] = {}
+    This version uses an incremental, semi-naïve evaluation for derived
+    predicates to significantly speed up the construction of the Relaxed
+    Planning Graph (RPG).
+    """
+
+    # --- Pre-computation for the heuristic ---
+
+    # 1. Build a map from atoms to processes that add them.
+    adds_map: Dict[GroundAtom, List[_GroundCausalProcess]] = defaultdict(list)
     for process in ground_processes:
         for atom in process.add_effects:
-            if atom not in adds_map:
-                adds_map[atom] = []
             adds_map[atom].append(process)
 
+    # 2. Build a reverse dependency graph for incremental derivation.
+    # Maps an auxiliary predicate to all derived predicates that use it.
+    dep_to_derived_preds: Dict[Predicate, List[DerivedPredicate]] = defaultdict(list)
+    if use_derived_predicates:
+        for der_pred in derived_predicates:
+            for aux_pred in der_pred.auxiliary_predicates:
+                dep_to_derived_preds[aux_pred].append(der_pred)
+
+    # --- Helper function for incremental derivation ---
+    def _incremental_abstract_with_derived_predicates(
+        newly_added_facts: Set[GroundAtom],
+        existing_facts: Set[GroundAtom],
+    ) -> Set[GroundAtom]:
+        """Incrementally compute the fixed point of derived predicate atoms."""
+        all_newly_derived_facts: Set[GroundAtom] = set()
+        facts_for_next_iter = newly_added_facts.copy()
+
+        while facts_for_next_iter:
+            derived_preds_to_check: Set[DerivedPredicate] = set()
+            for fact in facts_for_next_iter:
+                if fact.predicate in dep_to_derived_preds:
+                    derived_preds_to_check.update(
+                        dep_to_derived_preds[fact.predicate])
+            
+            if not derived_preds_to_check:
+                break
+
+            current_state_for_eval = existing_facts | all_newly_derived_facts
+            
+            # Note: Assumes `utils._abstract_with_derived_predicates` exists
+            # and works as the original non-incremental version.
+            potential_new_atoms = utils._abstract_with_derived_predicates(
+                current_state_for_eval, derived_preds_to_check, objects
+            )
+
+            truly_new_atoms = potential_new_atoms - current_state_for_eval
+
+            if not truly_new_atoms:
+                break
+                
+            all_newly_derived_facts.update(truly_new_atoms)
+            facts_for_next_iter = truly_new_atoms
+
+        return all_newly_derived_facts
+
+
+    # --- The main heuristic function ---
     def _ff_heuristic(atoms: Set[GroundAtom]) -> float:
-        """The FF heuristic including zero-cost exogenous processes and derived
-        predicates."""
+        """The FF heuristic using incremental RPG generation."""
         if goal.issubset(atoms):
             return 0.0
 
         # --- 1. Build the Relaxed Planning Graph (RPG) ---
-
-        # Compute derived predicates for the initial state.
         initial_facts = atoms.copy()
         if use_derived_predicates:
+            # The first layer must be a full, non-incremental computation.
             initial_facts.update(utils.abstract_with_derived_predicates(
                 initial_facts, derived_predicates, objects))
         
@@ -608,52 +657,65 @@ def create_ff_heuristic(
 
         while not goal.issubset(fact_layers[-1]):
             current_facts = fact_layers[-1]
+            
+            # Find all processes whose preconditions are met in the current layer.
             applicable_processes: Set[_GroundCausalProcess] = set()
             for process in ground_processes:
                 if process.condition_at_start.issubset(current_facts):
                     applicable_processes.add(process)
 
             process_layers.append(applicable_processes)
-            next_facts = current_facts.copy()
+
+            # --- Incremental Fact Generation ---
+            # a) Collect all new primitive facts from applicable processes.
+            primitive_add_effects = set()
             for process in applicable_processes:
-                next_facts.update(process.add_effects)
+                primitive_add_effects.update(process.add_effects)
+            
+            newly_added_primitive_facts = primitive_add_effects - current_facts
 
-            # After adding new base atoms from actions,
-            # re-compute all derived predicates for the new fact layer.
+            # b) Incrementally compute new derived facts.
+            newly_derived_facts = set()
             if use_derived_predicates:
-                next_facts.update(utils.abstract_with_derived_predicates(
-                    next_facts, derived_predicates, objects))
+                # We pass both new primitive facts and all previously derived facts
+                # to the incremental checker.
+                newly_derived_facts = _incremental_abstract_with_derived_predicates(
+                    newly_added_primitive_facts,
+                    current_facts,
+                )
 
+            # c) The next layer is the union of the current layer and all new facts.
+            next_facts = current_facts | newly_added_primitive_facts | newly_derived_facts
+            # --- End of Incremental Section ---
+
+            # If the new layer is identical to the old one, we've stagnated.
             if next_facts == current_facts:
                 return float('inf')
 
             fact_layers.append(next_facts)
 
         # --- 2. Extract a Relaxed Plan (Backward Search through the RPG) ---
-        # This set will ONLY store the agent's actions (endogenous processes).
         relaxed_plan_actions: Set[_GroundEndogenousProcess] = set()
         subgoals_to_achieve = goal.copy()
 
         for i in range(len(fact_layers) - 1, 0, -1):
             unachieved_subgoals = subgoals_to_achieve.copy()
             for subgoal in unachieved_subgoals:
-                if subgoal in fact_layers[i] and subgoal not in fact_layers[i -
-                                                                            1]:
+                # If the subgoal appeared for the first time in this layer...
+                if subgoal in fact_layers[i] and subgoal not in fact_layers[i - 1]:
                     best_supporter = None
+                    # Find a process from the previous layer that achieves it.
                     for process in adds_map.get(subgoal, []):
                         if process in process_layers[i - 1]:
                             best_supporter = process
                             break
 
                     if best_supporter:
-                        # --- CHANGE 3: Only count endogenous processes for cost ---
-                        # If the supporter is a controllable action, add it to the plan.
-                        if isinstance(best_supporter,
-                                      _GroundEndogenousProcess):
+                        # Only agent actions (endogenous) contribute to the plan cost.
+                        if isinstance(best_supporter, _GroundEndogenousProcess):
                             relaxed_plan_actions.add(best_supporter)
 
-                        # ALWAYS add preconditions as new subgoals, regardless of
-                        # whether the supporter was an action or a free event.
+                        # Add the supporter's preconditions to our set of subgoals.
                         subgoals_to_achieve.update(
                             best_supporter.condition_at_start)
                         subgoals_to_achieve.discard(subgoal)
