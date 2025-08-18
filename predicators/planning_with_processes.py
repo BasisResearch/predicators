@@ -451,7 +451,8 @@ def task_plan_from_task(
     #     CFG.sesame_task_planning_heuristic, init_atoms, goal, ground_processes,
     #     all_predicates, objects)
     # heuristic = create_lm_cut_heuristic(goal, ground_processes)
-    heuristic = create_ff_heuristic(goal, ground_processes)
+    heuristic = create_ff_heuristic(goal, ground_processes, derived_predicates,
+                                    objects, use_derived_predicates=False)
 
     return task_plan(
         init_atoms,
@@ -573,6 +574,9 @@ def run_task_plan_with_processes_once(
 def create_ff_heuristic(
     goal: Set[GroundAtom],
     ground_processes: List[_GroundCausalProcess],
+    derived_predicates: Set[DerivedPredicate] = set(),
+    objects: Set[Object] = set(),
+    use_derived_predicates: bool = True,
 ) -> Callable[[Set[GroundAtom]], float]:
     """Creates a callable FF heuristic function."""
 
@@ -586,18 +590,24 @@ def create_ff_heuristic(
             adds_map[atom].append(process)
 
     def _ff_heuristic(atoms: Set[GroundAtom]) -> float:
-        """The FF heuristic including zero-cost exogenous processes."""
+        """The FF heuristic including zero-cost exogenous processes and derived
+        predicates."""
         if goal.issubset(atoms):
             return 0.0
 
         # --- 1. Build the Relaxed Planning Graph (RPG) ---
-        fact_layers: List[Set[GroundAtom]] = [atoms.copy()]
-        # This now tracks all applicable processes, not just actions.
+
+        # Compute derived predicates for the initial state.
+        initial_facts = atoms.copy()
+        if use_derived_predicates:
+            initial_facts.update(utils.abstract_with_derived_predicates(
+                initial_facts, derived_predicates, objects))
+        
+        fact_layers: List[Set[GroundAtom]] = [initial_facts]
         process_layers: List[Set[_GroundCausalProcess]] = []
 
         while not goal.issubset(fact_layers[-1]):
             current_facts = fact_layers[-1]
-            # Find all processes (endo- or exo-) whose preconditions are met.
             applicable_processes: Set[_GroundCausalProcess] = set()
             for process in ground_processes:
                 if process.condition_at_start.issubset(current_facts):
@@ -607,6 +617,12 @@ def create_ff_heuristic(
             next_facts = current_facts.copy()
             for process in applicable_processes:
                 next_facts.update(process.add_effects)
+
+            # After adding new base atoms from actions,
+            # re-compute all derived predicates for the new fact layer.
+            if use_derived_predicates:
+                next_facts.update(utils.abstract_with_derived_predicates(
+                    next_facts, derived_predicates, objects))
 
             if next_facts == current_facts:
                 return float('inf')
