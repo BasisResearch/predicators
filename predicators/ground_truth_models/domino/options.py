@@ -344,11 +344,11 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             rot2 = state.get(domino2, "rot")
             # Use domino1's current z for reference
             dz = state.get(domino1, "z")
-            
+
             # Compute dir_value based on rotation of domino2 and the rotation object
             target_angle = state.get(rotation, "angle")  # degrees
             target_rot_rad = np.radians(target_angle)  # convert to radians
-            
+
             # Calculate rotation difference (target - domino2)
             rot_diff = target_rot_rad - rot2
             # Normalize rotation difference to [-π, π] range
@@ -356,9 +356,10 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                 rot_diff -= 2 * np.pi
             while rot_diff < -np.pi:
                 rot_diff += 2 * np.pi
-            
+
             # Determine direction based on rotation difference
-            if abs(rot_diff) < np.pi / 8:  # ~22.5 degrees tolerance for straight
+            if abs(rot_diff
+                   ) < np.pi / 8:  # ~22.5 degrees tolerance for straight
                 dir_value = 0.0  # straight
             elif rot_diff > np.pi / 8:
                 dir_value = 1.0  # left (positive rotation difference)
@@ -427,8 +428,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                         f"Unexpected domino rotation {rot2} in place option. "
                         "Defaulting to cardinal turn logic.")
                     raise ValueError(
-                            f"Unexpected domino rotation {rot2} in place option. "
-                        )
+                        f"Unexpected domino rotation {rot2} in place option. ")
                     # target_rot = rot2 - turn_dir * np.pi / 4
                     # grid_x = x2 + gap * np.sin(rot2)
                     # grid_y = y2 + gap * np.cos(rot2)

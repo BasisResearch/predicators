@@ -209,7 +209,6 @@ class PyBulletDominoEnv(PyBulletEnv):
             self._DominoAtRot = Predicate(
                 "DominoAtRot", [self._domino_type, self._rotation_type],
                 self._DominoAtRot_holds)
-
             self._InFrontDirection = DerivedPredicate(
                 "InFrontDirection",
                 [self._domino_type, self._domino_type, self._direction_type],
@@ -219,10 +218,6 @@ class PyBulletDominoEnv(PyBulletEnv):
             self._InFront = DerivedPredicate(
                 "InFront", [self._domino_type, self._domino_type],
                 self._InFront_holds,
-                auxiliary_predicates=[self._InFrontDirection])
-            self._NotInFrontOfAny = DerivedPredicate(
-                "NotInFrontOfAny", [self._domino_type],
-                self._NotInFrontOfAny_holds,
                 auxiliary_predicates=[self._InFrontDirection])
 
     @classmethod
@@ -238,9 +233,6 @@ class PyBulletDominoEnv(PyBulletEnv):
             self._Holding,
             self._InFrontDirection,
             self._InFront,
-            # self._NotInFrontOfAny,
-            # self._Upright,
-            # self._NotUpright
         }
 
         if CFG.domino_use_grid:
@@ -281,8 +273,8 @@ class PyBulletDominoEnv(PyBulletEnv):
         # Center the grid within the workspace
         x_start = cls.x_lb + (total_x_range -
                               (cls.num_pos_x - 1) * cls.pos_gap) / 2
-        y_start = cls.y_lb + cls.pos_gap + (total_y_range -
-                              (cls.num_pos_y - 1) * cls.pos_gap) / 2
+        y_start = cls.y_lb + cls.pos_gap + (
+            total_y_range - (cls.num_pos_y - 1) * cls.pos_gap) / 2
 
         x_coords = [
             round(x_start + i * cls.pos_gap, 5) for i in range(cls.num_pos_x)
@@ -838,35 +830,6 @@ class PyBulletDominoEnv(PyBulletEnv):
                 return True
 
         return False
-
-    @classmethod
-    def _NotInFrontOfAny_holds(cls, state: State,
-                               objects: Sequence[Object]) -> bool:
-        """Check if domino1 is not in front of any other domino in any
-        direction.
-
-        This predicate returns True if domino1 is not positioned in
-        front of any other domino in any direction (straight, left, or
-        right).
-        """
-        domino1, = objects
-
-        # Get all dominos and direction objects in the state
-        dominos = state.get_objects(cls._domino_type)
-        directions = state.get_objects(cls._direction_type)
-
-        # Check if domino1 is in front of any other domino in any direction
-        for domino2 in dominos:
-            if domino1 == domino2:
-                continue  # Skip self-comparison
-
-            # Check all directions
-            for direction in directions:
-                if cls._InFrontDirection_holds(state,
-                                               [domino1, domino2, direction]):
-                    return False  # domino1 is in front of domino2 in this direction
-
-        return True  # domino1 is not in front of any other domino
 
     @classmethod
     def _DominoAtPos_holds(cls, state: State,

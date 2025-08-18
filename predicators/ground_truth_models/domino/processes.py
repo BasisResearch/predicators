@@ -31,7 +31,6 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         # Types
         robot_type = types["robot"]
         domino_type = types["domino"]
-        direction_type = types["direction"]
         position_type = types["loc"]
         rotation_type = types["rot"]
 
@@ -104,10 +103,13 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
                                                    sigma=torch.tensor(0.1))
-        pick_domino_process = EndogenousProcess(
-            "PickDomino", parameters, condition_at_start, set(),
-            set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+        pick_domino_process = EndogenousProcess("PickDomino",
+                                                parameters, condition_at_start,
+                                                set(), set(), add_effects,
+                                                delete_effects,
+                                                delay_distribution,
+                                                torch.tensor(1.0), option,
+                                                option_vars, null_sampler)
         processes.add(pick_domino_process)
 
         # PlaceDomino: Place domino at specific position and rotation
