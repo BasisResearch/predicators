@@ -37,6 +37,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
     _move_to_pose_tol: ClassVar[float] = 1e-4
     _finger_action_nudge_magnitude: ClassVar[float] = 1e-3
     _transport_z: ClassVar[float] = env_cls.z_ub - 0.22
+    _transport_z_push: ClassVar[float] = env_cls.z_ub - 0.3
     _offset_x: ClassVar[float] = 0.05
     _offset_z: ClassVar[float] = 0.08
 
@@ -58,6 +59,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
         robot_type = types["robot"]
         domino_type = types["domino"]
         rotation_type = types["rot"]
+        position_type = types["loc"]
 
         def get_current_fingers(state: State) -> float:
             robot, = state.get_objects(robot_type)
@@ -93,7 +95,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                     "MoveToAboveDomino",
                     lambda x, rot: x - np.sin(rot) * cls._offset_x,
                     lambda y, rot: y - np.cos(rot) * cls._offset_x,
-                    lambda _: cls._transport_z, "closed", option_type,
+                    lambda _: cls._transport_z_push, "closed", option_type,
                     params_space),
                 cls._create_domino_move_to_push_domino_option(
                     "MoveToBehindDomino",
@@ -165,7 +167,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         # Place
         place_option_types = [
-            robot_type, domino_type, domino_type, rotation_type
+            robot_type, domino_type, domino_type, position_type, rotation_type
         ]
         place_params_space = Box(0, 1, (0, ))
 
@@ -331,7 +333,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
             assert not params
-            robot, domino1, domino2, rotation = objects
+            robot, domino1, domino2, position, rotation = objects
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
             ee_orn = p.getQuaternionFromEuler(
@@ -372,8 +374,10 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
             # Case 1: Place straight ahead
             if dir_value == 0.0:  # straight
-                target_x = x2 + gap * np.sin(rot2)
-                target_y = y2 + gap * np.cos(rot2)
+                # target_x = x2 + gap * np.sin(rot2)
+                # target_y = y2 + gap * np.cos(rot2)
+                target_x = state.get(position, "xx")
+                target_y = state.get(position, "yy")
                 target_rot = rot2
             # Case 2: Place to the left or right (a turn)
             else:

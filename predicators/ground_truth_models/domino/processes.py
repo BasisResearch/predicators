@@ -44,6 +44,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         Toppled = predicates["Toppled"]
         DominoAtPos = predicates["DominoAtPos"]
         DominoAtRot = predicates["DominoAtRot"]
+        MovableBlock = predicates["MovableBlock"]
         # Note: Toppled predicate exists but represents the goal state
         # Note: The "Falling" predicate from the sketch is not implemented in the current environment
         # We would need to add it to the environment for the DominoFall exogenous process
@@ -92,6 +93,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(HandEmpty, [robot]),
             LiftedAtom(DominoAtPos, [domino, position]),
             LiftedAtom(DominoAtRot, [domino, rotation]),
+            LiftedAtom(MovableBlock, [domino]),
         }
         add_effects = {
             LiftedAtom(Holding, [robot, domino]),
@@ -120,7 +122,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         position = Variable("?pos", position_type)
         rotation = Variable("?rot", rotation_type)
         parameters = [robot, domino1, domino2, position, rotation]
-        option_vars = [robot, domino1, domino2, rotation]
+        option_vars = [robot, domino1, domino2, position,rotation]
         option = Place
         condition_at_start = {
             LiftedAtom(Holding, [robot, domino1]),

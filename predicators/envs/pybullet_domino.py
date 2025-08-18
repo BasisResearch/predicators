@@ -50,7 +50,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     domino_width: ClassVar[float] = 0.07
     domino_depth: ClassVar[float] = 0.02
     domino_height: ClassVar[float] = 0.15
-    turn_shift_frac: ClassVar[float] = 0.3
+    turn_shift_frac: ClassVar[float] = 0.4
     # domino_mass: ClassVar[float] = 0.3
     domino_mass: ClassVar[float] = 0.8
     start_domino_color: ClassVar[Tuple[float, float, float,
@@ -196,6 +196,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                                       self._Toppled_holds)
         self._StartBlock = Predicate("StartBlock", [self._domino_type],
                                      self._StartBlock_holds)
+        self._MovableBlock = Predicate("MovableBlock", [self._domino_type],
+                                       self._MovableBlock_holds)
         self._HandEmpty = Predicate("HandEmpty", [self._robot_type],
                                     self._HandEmpty_holds)
         self._Holding = Predicate("Holding",
@@ -229,6 +231,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         base_predicates = {
             self._Toppled,
             self._StartBlock,
+            self._MovableBlock,
             self._HandEmpty,
             self._Holding,
             self._InFrontDirection,
@@ -621,6 +624,20 @@ class PyBulletDominoEnv(PyBulletEnv):
         if abs(state.get(domino, "g") - cls.start_domino_color[1]) > eps:
             return False
         if abs(state.get(domino, "b") - cls.start_domino_color[2]) > eps:
+            return False
+        return True
+
+    @classmethod
+    def _MovableBlock_holds(cls, state: State,
+                            objects: Sequence[Object]) -> bool:
+        domino, = objects
+        # Check if the domino has the regular blue domino color (movable block)
+        eps = 1e-3
+        if abs(state.get(domino, "r") - cls.domino_color[0]) > eps:
+            return False
+        if abs(state.get(domino, "g") - cls.domino_color[1]) > eps:
+            return False
+        if abs(state.get(domino, "b") - cls.domino_color[2]) > eps:
             return False
         return True
 
