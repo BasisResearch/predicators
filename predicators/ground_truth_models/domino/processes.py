@@ -37,9 +37,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         # Predicates
         HandEmpty = predicates["HandEmpty"]
         Holding = predicates["Holding"]
-        InFrontDirection = predicates["InFrontDirection"]
         InFront = predicates["InFront"]
-        # NotInFrontOfAny = predicates["NotInFrontOfAny"]
+        Upright = predicates["Upright"]
         StartBlock = predicates["StartBlock"]
         Toppled = predicates["Toppled"]
         DominoAtPos = predicates["DominoAtPos"]
@@ -68,11 +67,14 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         condition_at_start = {
             LiftedAtom(HandEmpty, [robot]),
             LiftedAtom(StartBlock, [domino]),
+            LiftedAtom(Upright, [domino]),
         }
         add_effects = {
             LiftedAtom(Toppled, [domino]),
         }
-        delete_effects: Set[LiftedAtom] = set()
+        delete_effects: Set[LiftedAtom] = {
+            LiftedAtom(Upright, [domino]),
+        }
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
                                                    sigma=torch.tensor(0.1))
         push_start_block_process = EndogenousProcess(
@@ -170,7 +172,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         parameters = [domino1, domino2]
         condition_at_start = {
             LiftedAtom(InFront, [domino1, domino2]),
-            LiftedAtom(Toppled, [domino2]),  # This predicate doesn't exist yet
+            LiftedAtom(Toppled, [domino2]),
         }
         condition_overall = condition_at_start.copy()
         add_effects = {
@@ -178,12 +180,33 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
                                                    sigma=torch.tensor(0.1))
-        domino_fall_process = ExogenousProcess("DominoFall", parameters,
+        domino_fall_process = ExogenousProcess("DominoFallFromBeingInFrontOfToppled", parameters,
                                                condition_at_start,
                                                condition_overall, set(),
                                                add_effects, set(),
                                                delay_distribution,
                                                torch.tensor(1.0))
         processes.add(domino_fall_process)
+
+        # Individual Domino Fall from Toppled to Fallen
+        domino1 = Variable("?d1", domino_type)
+        parameters = [domino1]
+        condition_at_start = {
+            LiftedAtom(Toppled, [domino1]),
+        }
+        condition_overall = condition_at_start.copy()
+        add_effects = set()
+        delete_effects = {
+            LiftedAtom(Toppled, [domino1]),
+        }
+        delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
+                                                   sigma=torch.tensor(0.1))
+        domino_toppled_delete_process = ExogenousProcess("DominoToppledDelete", parameters,
+                                               condition_at_start,
+                                               condition_overall, set(),
+                                               add_effects, delete_effects,
+                                               delay_distribution,
+                                               torch.tensor(1.0))
+        processes.add(domino_toppled_delete_process)
 
         return processes
