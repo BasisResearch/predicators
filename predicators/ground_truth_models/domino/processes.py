@@ -115,11 +115,10 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         robot = Variable("?robot", robot_type)
         domino1 = Variable("?domino1", domino_type)
         domino2 = Variable("?domino2", domino_type)
-        direction = Variable("?dir", direction_type)
         position = Variable("?pos", position_type)
         rotation = Variable("?rot", rotation_type)
-        parameters = [robot, domino1, domino2, position, rotation, direction]
-        option_vars = [robot, domino1, domino2, direction]
+        parameters = [robot, domino1, domino2, position, rotation]
+        option_vars = [robot, domino1, domino2, rotation]
         option = Place
         condition_at_start = {
             LiftedAtom(Holding, [robot, domino1]),

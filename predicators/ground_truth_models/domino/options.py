@@ -57,7 +57,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
         # Types
         robot_type = types["robot"]
         domino_type = types["domino"]
-        direction_type = types["direction"]
+        rotation_type = types["rot"]
 
         def get_current_fingers(state: State) -> float:
             robot, = state.get_objects(robot_type)
@@ -165,7 +165,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         # Place
         place_option_types = [
-            robot_type, domino_type, domino_type, direction_type
+            robot_type, domino_type, domino_type, rotation_type
         ]
         place_params_space = Box(0, 1, (0, ))
 
@@ -331,7 +331,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
             assert not params
-            robot, domino1, domino2, direction = objects
+            robot, domino1, domino2, rotation = objects
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
             ee_orn = p.getQuaternionFromEuler(
@@ -344,7 +344,26 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             rot2 = state.get(domino2, "rot")
             # Use domino1's current z for reference
             dz = state.get(domino1, "z")
-            dir_value = state.get(direction, "dir")
+            
+            # Compute dir_value based on rotation of domino2 and the rotation object
+            target_angle = state.get(rotation, "angle")  # degrees
+            target_rot_rad = np.radians(target_angle)  # convert to radians
+            
+            # Calculate rotation difference (target - domino2)
+            rot_diff = target_rot_rad - rot2
+            # Normalize rotation difference to [-π, π] range
+            while rot_diff > np.pi:
+                rot_diff -= 2 * np.pi
+            while rot_diff < -np.pi:
+                rot_diff += 2 * np.pi
+            
+            # Determine direction based on rotation difference
+            if abs(rot_diff) < np.pi / 8:  # ~22.5 degrees tolerance for straight
+                dir_value = 0.0  # straight
+            elif rot_diff > np.pi / 8:
+                dir_value = 1.0  # left (positive rotation difference)
+            else:
+                dir_value = 2.0  # right (negative rotation difference)
 
             # Get constants from the environment class
             gap = cls.env_cls.pos_gap
