@@ -194,6 +194,8 @@ class PyBulletDominoEnv(PyBulletEnv):
         else:
             self._Toppled = Predicate("Toppled", [self._target_type],
                                       self._Toppled_holds)
+        self._Upright = Predicate("Upright", [self._domino_type],
+                        self._Upright_holds)
         self._StartBlock = Predicate("StartBlock", [self._domino_type],
                                      self._StartBlock_holds)
         self._MovableBlock = Predicate("MovableBlock", [self._domino_type],
@@ -230,6 +232,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     def predicates(self) -> Set[Predicate]:
         base_predicates = {
             self._Toppled,
+            self._Upright,
             self._StartBlock,
             self._MovableBlock,
             self._HandEmpty,
@@ -612,6 +615,13 @@ class PyBulletDominoEnv(PyBulletEnv):
             if abs(utils.wrap_angle(rot_z)) < 0.8:
                 return True
             return False
+
+    @classmethod
+    def _Upright_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        obj, = objects
+        tilt_angle = state.get(obj, "tilt")
+        tilt_threshold = 0.1  # radians
+        return abs(tilt_angle) < tilt_threshold
 
     @classmethod
     def _StartBlock_holds(cls, state: State,
