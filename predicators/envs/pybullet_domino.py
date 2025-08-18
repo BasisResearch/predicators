@@ -1088,17 +1088,13 @@ class PyBulletDominoEnv(PyBulletEnv):
                     # This vector pulls the turning domino both inward (perpendicular to its original path)
                     # and backward (parallel to its original path) to create a tighter, more stable corner.
                     # It's constructed by summing two unit vectors:
-                    #
                     # 1. Perpendicular component (pulls sideways into the turn):
                     #    (turn_dir * np.cos(curr_rot), -turn_dir * np.sin(curr_rot))
-                    #
                     # 2. Parallel component (pulls backward along the path):
                     #    (-np.sin(curr_rot), -np.cos(curr_rot))
-                    #
                     # The terms are combined below. Note that adding these two unit vectors results in a
                     # direction vector with a magnitude of sqrt(2). The final shift distance will thus be
-                    # `shift_magnitude * sqrt(2)`. To get a final distance of exactly `shift_magnitude`,
-                    # you would need to normalize this vector by dividing each component by sqrt(2).
+                    # `shift_magnitude * sqrt(2)`.
                     shift_magnitude = self.domino_width * self.turn_shift_frac
                     # The shift vector is perpendicular to the original direction of movement.
                     shift_dx = shift_magnitude * \
@@ -1107,8 +1103,10 @@ class PyBulletDominoEnv(PyBulletEnv):
                         (-turn_dir * np.sin(curr_rot) - np.cos(curr_rot))
 
                     # The final position is the grid position plus the shift.
-                    d1_x += shift_dx
-                    d1_y += shift_dy
+                    d1_x = curr_x + self.pos_gap * np.sin(curr_rot) + shift_dx
+                    d1_y = curr_y + self.pos_gap * np.cos(curr_rot) + shift_dy
+                    # d1_x += shift_dx
+                    # d1_y += shift_dy
 
                     # The second domino (d2) is a step from d1's GRID position
                     # in the new, fully turned direction.
