@@ -537,6 +537,7 @@ class GlobalSettings:
     bilevel_plan_without_sim = False
     planning_filter_unreachable_nsrt = True
     planning_check_dr_reachable = True
+    no_repeated_arguments_in_grounding = False
 
     # evaluation parameters
     log_dir = "logs"

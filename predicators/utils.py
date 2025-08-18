@@ -3129,7 +3129,12 @@ def all_ground_nsrts(nsrt: Union[NSRT, CausalProcess],
     """Get all possible groundings of the given NSRT with the given objects."""
     types = [p.type for p in nsrt.parameters]
     for choice in get_object_combinations(objects, types):
-        yield nsrt.ground(tuple(choice))
+        # only return if there are no repeated arguments
+        if CFG.no_repeated_arguments_in_grounding:
+            if len(choice) == len(set(choice)):
+                yield nsrt.ground(tuple(choice))
+        else:
+            yield nsrt.ground(tuple(choice))
 
 
 def all_ground_nsrts_fd_translator(

@@ -267,7 +267,7 @@ ENVS:
       pybullet_ik_validate: False
       bilevel_plan_without_sim: True
       option_model_terminate_on_repeat: False
-      domino_initialize_at_finished_state: True
+      domino_initialize_at_finished_state: False
       domino_use_domino_blocks_as_target: True
       domino_use_grid: True
   # domino_cf:
@@ -366,5 +366,6 @@ FLAGS:
   sesame_task_planning_heuristic: 'goal_count'
   timeout: 60
   log: 'logs/'
+  no_repeated_arguments_in_grounding: True
 START_SEED: 0
 NUM_SEEDS: 1
