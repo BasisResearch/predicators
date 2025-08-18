@@ -8,8 +8,8 @@ python predicators/main.py --approach oracle --env pybullet_domino \
 --video_not_break_on_exception --pybullet_ik_validate False
 """
 import logging
-from re import A
 import time
+from re import A
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, \
     Set, Tuple
 
@@ -209,21 +209,21 @@ class PyBulletDominoEnv(PyBulletEnv):
             self._DominoAtRot = Predicate(
                 "DominoAtRot", [self._domino_type, self._rotation_type],
                 self._DominoAtRot_holds)
-            
+
             self._InFrontDirection = DerivedPredicate(
-                "InFrontDirection", [self._domino_type, self._domino_type, 
-                self._direction_type],
-                self._InFrontDirection_holds, 
-                auxiliary_predicates=[self._DominoAtPos, self._DominoAtRot] if 
-                CFG.domino_use_grid else [])
+                "InFrontDirection",
+                [self._domino_type, self._domino_type, self._direction_type],
+                self._InFrontDirection_holds,
+                auxiliary_predicates=[self._DominoAtPos, self._DominoAtRot]
+                if CFG.domino_use_grid else [])
             self._InFront = DerivedPredicate(
                 "InFront", [self._domino_type, self._domino_type],
-                self._InFront_holds, auxiliary_predicates=[self._InFrontDirection])
-            self._NotInFrontOfAny = DerivedPredicate("NotInFrontOfAny",
-                                            [self._domino_type],
-                                            self._NotInFrontOfAny_holds,
-                                auxiliary_predicates=[self._InFrontDirection])
-
+                self._InFront_holds,
+                auxiliary_predicates=[self._InFrontDirection])
+            self._NotInFrontOfAny = DerivedPredicate(
+                "NotInFrontOfAny", [self._domino_type],
+                self._NotInFrontOfAny_holds,
+                auxiliary_predicates=[self._InFrontDirection])
 
     @classmethod
     def get_name(cls) -> str:
@@ -657,59 +657,67 @@ class PyBulletDominoEnv(PyBulletEnv):
         return state.get(domino, "is_held") > 0.5
 
     @classmethod
-    def _check_single_direction(cls, x1_idx: int, y1_idx: int, x2_idx: int, y2_idx: int,
-                                rot1_rad: float, rot2_rad: float, dir_value: str, 
+    def _check_single_direction(cls,
+                                x1_idx: int,
+                                y1_idx: int,
+                                x2_idx: int,
+                                y2_idx: int,
+                                rot1_rad: float,
+                                rot2_rad: float,
+                                dir_value: str,
                                 tolerance: float = 1e-6) -> bool:
-        """Helper function to check if domino1 is in front of domino2 with the given direction.
-        
-        This checks a single directional relationship: domino1 must be in the cell in 
+        """Helper function to check if domino1 is in front of domino2 with the
+        given direction.
+
+        This checks a single directional relationship: domino1 must be in the cell in
         front of domino2, and the rotation difference must match the expected direction.
-        
+
         Args:
             x1_idx, y1_idx: Grid coordinates of domino1
-            x2_idx, y2_idx: Grid coordinates of domino2  
+            x2_idx, y2_idx: Grid coordinates of domino2
             rot1_rad, rot2_rad: Rotations of domino1 and domino2 in radians
             dir_value: Direction string ("left", "straight", "right")
             tolerance: Numerical tolerance for comparisons
-            
+
         Returns:
             True if domino1 is in front of domino2 with the correct rotation difference
         """
         # Check if domino1 is in the cell in front of domino2
         # This check is only valid if domino2 has a cardinal rotation (0, 90, 180, etc.)
         # We can check this by seeing if sin or cos of the angle is close to 0.
-        if not (abs(np.sin(rot2_rad)) < tolerance or abs(np.cos(rot2_rad)) < tolerance):
+        if not (abs(np.sin(rot2_rad)) < tolerance
+                or abs(np.cos(rot2_rad)) < tolerance):
             return False
 
         dx2_idx = round(np.sin(rot2_rad))
         dy2_idx = round(np.cos(rot2_rad))
         expected_x1 = x2_idx + dx2_idx
         expected_y1 = y2_idx + dy2_idx
-        
+
         # domino1 must be at the expected position
         if not (x1_idx == expected_x1 and y1_idx == expected_y1):
             return False
-            
+
         # Calculate rotation difference (domino1 - domino2)
         rot_diff = rot1_rad - rot2_rad
-        
+
         # Normalize rotation difference to [-π, π] range
         while rot_diff > np.pi:
-            rot_diff -= 2*np.pi
+            rot_diff -= 2 * np.pi
         while rot_diff < -np.pi:
-            rot_diff += 2*np.pi
-            
+            rot_diff += 2 * np.pi
+
         # Define expected rotation difference based on direction
         # FIX: Swapped expected rotation for "left" and "right"
         if dir_value == "left":
-            expected_rot_diff = np.pi/4
+            expected_rot_diff = np.pi / 4
         elif dir_value == "straight":
             expected_rot_diff = 0
         elif dir_value == "right":
-            expected_rot_diff = -np.pi/4
+            expected_rot_diff = -np.pi / 4
         else:
             return False
-            
+
         # Check if rotation difference matches expected value
         return abs(rot_diff - expected_rot_diff) < tolerance
 
@@ -721,13 +729,13 @@ class PyBulletDominoEnv(PyBulletEnv):
         This predicate is symmetric and checks two cases:
         1. Original: domino1 is in front of domino2 with the given direction
         2. Swapped: domino2 is in front of domino1 with the opposite direction
-        
+
         For example, InFrontDirection(d1, d2, "right") returns True if either:
         - d1 is in the cell in front of d2 with rotation difference of -π/4, OR
         - d2 is in the cell in front of d1 with rotation difference of π/4
           (equivalent to InFrontDirection(d2, d1, "left"))
-        
-        This symmetry ensures that both InFrontDirection(d1, d2, "left") and 
+
+        This symmetry ensures that both InFrontDirection(d1, d2, "left") and
         InFrontDirection(d2, d1, "right") can be true simultaneously.
         """
         domino1, domino2, direction = objects
@@ -784,10 +792,10 @@ class PyBulletDominoEnv(PyBulletEnv):
         # Convert angles to radians
         rot1_rad = utils.wrap_angle(np.radians(rot1_angle))
         rot2_rad = utils.wrap_angle(np.radians(rot2_angle))
-        
+
         # Get direction value
         dir_value = direction.name
-        
+
         # Determine the opposite direction for the swapped case
         if dir_value == "left":
             opposite_dir = "right"
@@ -795,23 +803,19 @@ class PyBulletDominoEnv(PyBulletEnv):
             opposite_dir = "left"
         else:  # "straight"
             opposite_dir = "straight"
-        
+
         # FIX: The original implementation incorrectly used an if/else
         # that only checked one of the two cases. The correct implementation
         # checks both and returns True if either one holds.
 
         # Case 1: Original - domino1 is in front of domino2 with the given direction
-        case1 = cls._check_single_direction(
-            x1_idx, y1_idx, x2_idx, y2_idx,
-            rot1_rad, rot2_rad, dir_value
-        )
-        
+        case1 = cls._check_single_direction(x1_idx, y1_idx, x2_idx, y2_idx,
+                                            rot1_rad, rot2_rad, dir_value)
+
         # Case 2: Swapped - domino2 is in front of domino1 with the opposite direction
-        case2 = cls._check_single_direction(
-            x2_idx, y2_idx, x1_idx, y1_idx,
-            rot2_rad, rot1_rad, opposite_dir
-        )
-        
+        case2 = cls._check_single_direction(x2_idx, y2_idx, x1_idx, y1_idx,
+                                            rot2_rad, rot1_rad, opposite_dir)
+
         # Return True if either case holds
         return case1 or case2
 
@@ -880,8 +884,8 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         # Check if domino is close enough to the target position
         position_tolerance = cls.pos_gap * 0.5
-        return (abs(domino_x - target_x) <= position_tolerance and
-                abs(domino_y - target_y) <= position_tolerance)
+        return (abs(domino_x - target_x) <= position_tolerance
+                and abs(domino_y - target_y) <= position_tolerance)
 
     @classmethod
     def _DominoAtRot_holds(cls, state: State,
@@ -1123,10 +1127,12 @@ class PyBulletDominoEnv(PyBulletEnv):
                     cos_d1 = np.cos(d1_rot)
 
                     # Components of the displacement vector from (d1_x, d1_y) to (d2_x, d2_y)
-                    disp_x = (gap * turn_dir * cos_d1 + (2 * shift_magnitude - 
-                                gap) * sin_d1) / np.sqrt(2)
-                    disp_y = (-gap * turn_dir * sin_d1 + (2 * shift_magnitude - 
-                                gap) * cos_d1) / np.sqrt(2)
+                    disp_x = (
+                        gap * turn_dir * cos_d1 +
+                        (2 * shift_magnitude - gap) * sin_d1) / np.sqrt(2)
+                    disp_y = (
+                        -gap * turn_dir * sin_d1 +
+                        (2 * shift_magnitude - gap) * cos_d1) / np.sqrt(2)
 
                     d2_x = round(d1_x + disp_x, 5)
                     d2_y = round(d1_y + disp_y, 5)
@@ -1161,8 +1167,9 @@ class PyBulletDominoEnv(PyBulletEnv):
                     remaining_blocks = total_domino_blocks - domino_count
                     remaining_targets = n_targets - target_count
                     # Force target if we must, otherwise decide randomly.
-                    if remaining_targets >= remaining_blocks or \
-                    rng.random() < remaining_targets / remaining_blocks:
+                    if (remaining_targets >= remaining_blocks or \
+                        rng.random() < remaining_targets / remaining_blocks) and\
+                        domino_count >= 2:
                         is_target = True
 
                 # Place the domino block.
@@ -1502,6 +1509,10 @@ class PyBulletDominoEnv(PyBulletEnv):
         table in a row, keeping only the start domino and targets in their
         original positions.
 
+        When CFG.domino_use_grid=True, places intermediate objects on clear
+        grid positions, preferably on the bottom side starting from the
+        middle and extending to left and right.
+
         Args:
             domino_dict: Dictionary containing the original positions of all objects
 
@@ -1549,36 +1560,106 @@ class PyBulletDominoEnv(PyBulletEnv):
         if not intermediate_objects:
             return obj_dict
 
-        # Calculate positions for intermediate objects
-        # Place them in a row near x_lb with even spacing
-        start_x = self.x_lb + self.domino_width  # Start a bit inside the boundary
-        spacing = self.domino_width * 1.5  # Space between objects
-        y_position = (self.y_lb +
-                      self.y_ub) / 2  # Middle of the table in y direction
+        if CFG.domino_use_grid:
+            # Use grid positioning when grid is enabled
+            # First, identify which grid positions are already occupied
+            occupied_positions = set()
+            position_tolerance = self.pos_gap * 0.5
 
-        # Update positions for intermediate objects
-        for i, (obj, obj_type) in enumerate(intermediate_objects):
-            new_x = start_x + i * spacing
+            # Extract just the objects from the intermediate_objects tuples for easier checking
+            intermediate_obj_set = {
+                obj
+                for obj, obj_type in intermediate_objects
+            }
 
-            if obj_type == "domino":
-                obj_dict[obj] = {
-                    "x": new_x,
-                    "y": y_position,
-                    "z": self.z_lb + self.domino_height / 2,
-                    "rot": 0.0,  # Reset rotation to upright
-                    "tilt": 0.0,  # Reset tilt to upright
-                    "r": self.domino_color[0],
-                    "g": self.domino_color[1],
-                    "b": self.domino_color[2],
-                    "is_held": 0.0,
-                }
-            elif obj_type == "pivot":
-                obj_dict[obj] = {
-                    "x": new_x,
-                    "y": y_position,
-                    "z": self.z_lb,
-                    "rot": 0.0,  # Reset rotation
-                }
+            for obj, obj_data in obj_dict.items():
+                if obj not in intermediate_obj_set:  # Skip objects we're about to move
+                    obj_x = obj_data.get("x", 0.0)
+                    obj_y = obj_data.get("y", 0.0)
+
+                    # Check which grid position this object occupies
+                    for grid_x, grid_y in self.grid_pos:
+                        if (abs(obj_x - grid_x) <= position_tolerance
+                                and abs(obj_y - grid_y) <= position_tolerance):
+                            occupied_positions.add((grid_x, grid_y))
+                            break
+
+            # Find available positions on the bottom side, starting from middle
+            # Sort grid positions by y coordinate (ascending) then by distance from x center
+            x_coords, y_coords = self._generate_grid_coordinates()
+            x_center = (x_coords[0] + x_coords[-1]) / 2 if x_coords else 0
+
+            # Get bottom row positions first, then other rows if needed
+            available_positions = []
+            for y in sorted(y_coords):  # Start from bottom (smallest y)
+                row_positions = [(x, y) for x in x_coords
+                                 if (x, y) not in occupied_positions]
+                # Sort by distance from center
+                row_positions.sort(key=lambda pos: abs(pos[0] - x_center))
+                available_positions.extend(row_positions)
+
+            # Place intermediate objects on available grid positions
+            for i, (obj, obj_type) in enumerate(intermediate_objects):
+                if i < len(available_positions):
+                    new_x, new_y = available_positions[i]
+                else:
+                    # Fallback to non-grid positioning if we run out of grid positions
+                    start_x = self.x_lb + self.domino_width
+                    spacing = self.domino_width * 1.5
+                    new_x = start_x + i * spacing
+                    new_y = (self.y_lb + self.y_ub) / 2
+
+                if obj_type == "domino":
+                    obj_dict[obj] = {
+                        "x": new_x,
+                        "y": new_y,
+                        "z": self.z_lb + self.domino_height / 2,
+                        "rot": 0.0,  # Reset rotation to upright
+                        "tilt": 0.0,  # Reset tilt to upright
+                        "r": self.domino_color[0],
+                        "g": self.domino_color[1],
+                        "b": self.domino_color[2],
+                        "is_held": 0.0,
+                    }
+                elif obj_type == "pivot":
+                    obj_dict[obj] = {
+                        "x": new_x,
+                        "y": new_y,
+                        "z": self.z_lb,
+                        "rot": 0.0,  # Reset rotation
+                    }
+        else:
+            # Original non-grid positioning
+            # Calculate positions for intermediate objects
+            # Place them in a row near x_lb with even spacing
+            start_x = self.x_lb + self.domino_width  # Start a bit inside the boundary
+            spacing = self.domino_width * 1.5  # Space between objects
+            y_position = (self.y_lb +
+                          self.y_ub) / 2  # Middle of the table in y direction
+
+            # Update positions for intermediate objects
+            for i, (obj, obj_type) in enumerate(intermediate_objects):
+                new_x = start_x + i * spacing
+
+                if obj_type == "domino":
+                    obj_dict[obj] = {
+                        "x": new_x,
+                        "y": y_position,
+                        "z": self.z_lb + self.domino_height / 2,
+                        "rot": 0.0,  # Reset rotation to upright
+                        "tilt": 0.0,  # Reset tilt to upright
+                        "r": self.domino_color[0],
+                        "g": self.domino_color[1],
+                        "b": self.domino_color[2],
+                        "is_held": 0.0,
+                    }
+                elif obj_type == "pivot":
+                    obj_dict[obj] = {
+                        "x": new_x,
+                        "y": y_position,
+                        "z": self.z_lb,
+                        "rot": 0.0,  # Reset rotation
+                    }
 
         return obj_dict
 

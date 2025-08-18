@@ -38,7 +38,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
     _finger_action_nudge_magnitude: ClassVar[float] = 1e-3
     _transport_z: ClassVar[float] = env_cls.z_ub - 0.3
     _offset_x: ClassVar[float] = 0.05
-    _offset_z: ClassVar[float] = 0.1
+    _offset_z: ClassVar[float] = 0.08
 
     @classmethod
     def get_env_names(cls) -> Set[str]:
@@ -339,35 +339,85 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                  state.get(robot, "wrist")])
             current_pose = Pose(current_position, ee_orn)
 
-            # Calculate placement position based on domino2 and direction
+            # Get properties of the reference domino (domino2)
             x2, y2 = state.get(domino2, "x"), state.get(domino2, "y")
             rot2 = state.get(domino2, "rot")
+            # Use domino1's current z for reference
+            dz = state.get(domino1, "z")
             dir_value = state.get(direction, "dir")
-            dz = state.get(domino1,
-                           "z")  # Use domino1's current z for reference
 
-            # Use same gap and calculation logic as in _InFrontDirection_holds
-            gap = cls.env_cls.domino_width * 1.3
+            # Get constants from the environment class
+            gap = cls.env_cls.pos_gap
+            angle_tol = 1e-1  # Tolerance for checking cardinal/diagonal angles
 
+            # Case 1: Place straight ahead
             if dir_value == 0.0:  # straight
                 target_x = x2 + gap * np.sin(rot2)
                 target_y = y2 + gap * np.cos(rot2)
                 target_rot = rot2
-            elif dir_value == 1.0:  # left
-                turn_angle = -(rot2 - np.pi) / 4  # 45 degrees to the left
-                target_x = x2 - gap * np.sin(turn_angle)
-                target_y = y2 + gap * np.cos(turn_angle)
-                target_rot = turn_angle
-            elif dir_value == 2.0:  # right
-                turn_angle = -(rot2 + np.pi / 4)  # 45 degrees to the right
-                target_x = x2 - gap * np.sin(turn_angle)
-                target_y = y2 + gap * np.cos(turn_angle)
-                target_rot = turn_angle
+            # Case 2: Place to the left or right (a turn)
             else:
-                # Fallback to straight direction
-                target_x = x2 + gap * np.sin(rot2)
-                target_y = y2 + gap * np.cos(rot2)
-                target_rot = rot2
+                # Map dir_value to turn_dir from the generator code
+                # dir_value: 1.0 -> left, 2.0 -> right
+                # turn_dir: -1.0 -> left, 1.0 -> right
+                turn_dir = -1.0 if dir_value == 1.0 else 1.0
+
+                # If domino2 is in a cardinal direction (0, 90, 180 deg),
+                # we are initiating a turn. This logic mirrors placing d1.
+                if abs(np.sin(2 * rot2)) < angle_tol:
+                    # The target domino will be turned by 45 degrees.
+                    target_rot = rot2 - turn_dir * np.pi / 4
+
+                    # First, calculate the position on the grid, one step forward.
+                    grid_x = x2 + gap * np.sin(rot2)
+                    grid_y = y2 + gap * np.cos(rot2)
+
+                    # Then, apply the diagonal shift from the generator for stability.
+                    shift_magnitude = cls.env_cls.domino_width * cls.env_cls.turn_shift_frac
+                    shift_dx = shift_magnitude * (turn_dir * np.cos(rot2) -
+                                                  np.sin(rot2))
+                    shift_dy = shift_magnitude * (-turn_dir * np.sin(rot2) -
+                                                  np.cos(rot2))
+                    target_x = grid_x + shift_dx
+                    target_y = grid_y + shift_dy
+
+                # If domino2 is in a diagonal direction (45, 135 deg),
+                # we are completing a turn. This logic mirrors placing d2.
+                elif abs(np.cos(2 * rot2)) < angle_tol:
+                    # The target domino completes the 90-degree turn.
+                    target_rot = rot2 - turn_dir * np.pi / 4
+
+                    # Calculate position relative to domino2 using the generator's formula.
+                    shift_magnitude = cls.env_cls.domino_width * cls.env_cls.turn_shift_frac
+                    sin_rot2 = np.sin(rot2)
+                    cos_rot2 = np.cos(rot2)
+
+                    disp_x = (
+                        gap * turn_dir * cos_rot2 +
+                        (2 * shift_magnitude - gap) * sin_rot2) / np.sqrt(2)
+                    disp_y = (
+                        -gap * turn_dir * sin_rot2 +
+                        (2 * shift_magnitude - gap) * cos_rot2) / np.sqrt(2)
+
+                    target_x = x2 + disp_x
+                    target_y = y2 + disp_y
+
+                # Fallback for unexpected rotations: default to cardinal logic.
+                else:
+                    logging.warning(
+                        f"Unexpected domino rotation {rot2} in place option. "
+                        "Defaulting to cardinal turn logic.")
+                    raise ValueError(
+                            f"Unexpected domino rotation {rot2} in place option. "
+                        )
+                    # target_rot = rot2 - turn_dir * np.pi / 4
+                    # grid_x = x2 + gap * np.sin(rot2)
+                    # grid_y = y2 + gap * np.cos(rot2)
+                    # shift_magnitude = cls.env_cls.domino_width * cls.env_cls.turn_shift_frac
+                    # shift_dx = shift_magnitude * (turn_dir * np.cos(rot2) - np.sin(rot2))
+                    # shift_dy = shift_magnitude * (-turn_dir * np.sin(rot2) - np.cos(rot2))
+                    # target_x = grid_x + shift_dx
+                    # target_y = grid_y + shift_dy
 
             target_position = (target_x, target_y, z_func(dz))
             target_orn = p.getQuaternionFromEuler(

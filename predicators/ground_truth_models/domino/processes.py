@@ -32,15 +32,19 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         robot_type = types["robot"]
         domino_type = types["domino"]
         direction_type = types["direction"]
+        position_type = types["loc"]
+        rotation_type = types["rot"]
 
         # Predicates
         HandEmpty = predicates["HandEmpty"]
         Holding = predicates["Holding"]
         InFrontDirection = predicates["InFrontDirection"]
         InFront = predicates["InFront"]
-        NotInFrontOfAny = predicates["NotInFrontOfAny"]
+        # NotInFrontOfAny = predicates["NotInFrontOfAny"]
         StartBlock = predicates["StartBlock"]
         Toppled = predicates["Toppled"]
+        DominoAtPos = predicates["DominoAtPos"]
+        DominoAtRot = predicates["DominoAtRot"]
         # Note: Toppled predicate exists but represents the goal state
         # Note: The "Falling" predicate from the sketch is not implemented in the current environment
         # We would need to add it to the environment for the DominoFall exogenous process
@@ -77,98 +81,53 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             torch.tensor(1.0), option, option_vars, null_sampler)
         processes.add(push_start_block_process)
 
-        # PickDominoIsolated: Pick domino only when not in front of anything
+        # PickDomino: Position-based pick process
         robot = Variable("?robot", robot_type)
         domino = Variable("?domino", domino_type)
-        parameters = [robot, domino]
-        option_vars = [robot, domino]
-        option = Pick  # Using Push as the underlying action
-        condition_at_start = {
-            LiftedAtom(HandEmpty, [robot]),
-            LiftedAtom(NotInFrontOfAny, [domino]),
-        }
-        add_effects = {
-            LiftedAtom(Holding, [robot, domino]),
-        }
-        delete_effects = {
-            LiftedAtom(HandEmpty, [robot]),
-        }
-        delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
-                                                   sigma=torch.tensor(0.1))
-        pick_domino_isolated_process = EndogenousProcess(
-            "PickDominoIsolated", parameters, condition_at_start, set(),
-            set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
-        processes.add(pick_domino_isolated_process)
-
-        # PickDominoClearOut: Clear exactly one relation where domino is in front of other
-        robot = Variable("?robot", robot_type)
-        domino = Variable("?domino", domino_type)
-        other_domino = Variable("?other", domino_type)
-        direction = Variable("?dir", direction_type)
-        parameters = [robot, domino, other_domino, direction]
+        position = Variable("?pos", position_type)
+        rotation = Variable("?rot", rotation_type)
+        parameters = [robot, domino, position, rotation]
         option_vars = [robot, domino]
         option = Pick
         condition_at_start = {
             LiftedAtom(HandEmpty, [robot]),
-            LiftedAtom(InFrontDirection, [domino, other_domino, direction]),
+            LiftedAtom(DominoAtPos, [domino, position]),
+            LiftedAtom(DominoAtRot, [domino, rotation]),
         }
         add_effects = {
             LiftedAtom(Holding, [robot, domino]),
         }
         delete_effects = {
             LiftedAtom(HandEmpty, [robot]),
-            LiftedAtom(InFrontDirection, [domino, other_domino, direction]),
+            LiftedAtom(DominoAtPos, [domino, position]),
+            LiftedAtom(DominoAtRot, [domino, rotation]),
         }
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
                                                    sigma=torch.tensor(0.1))
-        pick_domino_clear_out_process = EndogenousProcess(
-            "PickDominoClearOut", parameters, condition_at_start, set(),
+        pick_domino_process = EndogenousProcess(
+            "PickDomino", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
             torch.tensor(1.0), option, option_vars, null_sampler)
-        processes.add(pick_domino_clear_out_process)
+        processes.add(pick_domino_process)
 
-        # PickDominoClearIn: Clear exactly one relation where other is in front of domino
-        robot = Variable("?robot", robot_type)
-        domino = Variable("?domino", domino_type)
-        other_domino = Variable("?other", domino_type)
-        direction = Variable("?dir", direction_type)
-        parameters = [robot, domino, other_domino, direction]
-        option_vars = [robot, domino]
-        option = Pick
-        condition_at_start = {
-            LiftedAtom(HandEmpty, [robot]),
-            LiftedAtom(InFrontDirection, [other_domino, domino, direction]),
-        }
-        add_effects = {
-            LiftedAtom(Holding, [robot, domino]),
-        }
-        delete_effects = {
-            LiftedAtom(HandEmpty, [robot]),
-            LiftedAtom(InFrontDirection, [other_domino, domino, direction]),
-        }
-        delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
-                                                   sigma=torch.tensor(0.1))
-        pick_domino_clear_in_process = EndogenousProcess(
-            "PickDominoClearIn", parameters, condition_at_start, set(),
-            set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
-        processes.add(pick_domino_clear_in_process)
-
-        # PlaceDomino: Place domino to create InFrontDirection relation
+        # PlaceDomino: Place domino at specific position and rotation
+        # Not in will still be in front to something
         robot = Variable("?robot", robot_type)
         domino1 = Variable("?domino1", domino_type)
         domino2 = Variable("?domino2", domino_type)
         direction = Variable("?dir", direction_type)
-        parameters = [robot, domino1, domino2, direction]
+        position = Variable("?pos", position_type)
+        rotation = Variable("?rot", rotation_type)
+        parameters = [robot, domino1, domino2, position, rotation, direction]
         option_vars = [robot, domino1, domino2, direction]
-        option = Place  # Using Push as the underlying action for placement
+        option = Place
         condition_at_start = {
             LiftedAtom(Holding, [robot, domino1]),
         }
         add_effects = {
             LiftedAtom(HandEmpty, [robot]),
-            LiftedAtom(InFrontDirection, [domino1, domino2, direction]),
+            LiftedAtom(DominoAtPos, [domino1, position]),
+            LiftedAtom(DominoAtRot, [domino1, rotation]),
         }
         delete_effects = {
             LiftedAtom(Holding, [robot, domino1]),
