@@ -1156,11 +1156,22 @@ class PyBulletDominoEnv(PyBulletEnv):
                 target_count < n_targets:
                     remaining_blocks = total_domino_blocks - domino_count
                     remaining_targets = n_targets - target_count
-                    # Force target if we must, otherwise decide randomly.
-                    if (remaining_targets >= remaining_blocks or \
-                        rng.random() < remaining_targets / remaining_blocks) and\
-                        domino_count >= 2:
+                    
+                    # Reserve one target for the very last domino in the sequence
+                    is_last_block = (domino_count == total_domino_blocks - 1)
+                    has_targets_left = remaining_targets > 0
+                    
+                    if is_last_block and has_targets_left:
+                        # Force the last domino to be a target if we still need targets
                         is_target = True
+                    elif not is_last_block and remaining_targets > 1:
+                        # For non-last dominoes, only consider making them targets if we have more than 1 target left
+                        # This ensures at least one target is reserved for the end
+                        targets_available_for_placement = remaining_targets - 1
+                        if (targets_available_for_placement >= remaining_blocks - 1 or \
+                            rng.random() < targets_available_for_placement / (remaining_blocks - 1)) and\
+                            domino_count >= 2:
+                            is_target = True
 
                 # Place the domino block.
                 obj_dict[self.dominos[domino_count]] = self._place_domino(
