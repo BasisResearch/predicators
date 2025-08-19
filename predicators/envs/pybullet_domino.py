@@ -195,7 +195,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             self._Toppled = Predicate("Toppled", [self._target_type],
                                       self._Toppled_holds)
         self._Upright = Predicate("Upright", [self._domino_type],
-                        self._Upright_holds)
+                                  self._Upright_holds)
         self._StartBlock = Predicate("StartBlock", [self._domino_type],
                                      self._StartBlock_holds)
         self._MovableBlock = Predicate("MovableBlock", [self._domino_type],
@@ -1156,11 +1156,11 @@ class PyBulletDominoEnv(PyBulletEnv):
                 target_count < n_targets:
                     remaining_blocks = total_domino_blocks - domino_count
                     remaining_targets = n_targets - target_count
-                    
+
                     # Reserve one target for the very last domino in the sequence
                     is_last_block = (domino_count == total_domino_blocks - 1)
                     has_targets_left = remaining_targets > 0
-                    
+
                     if is_last_block and has_targets_left:
                         # Force the last domino to be a target if we still need targets
                         is_target = True

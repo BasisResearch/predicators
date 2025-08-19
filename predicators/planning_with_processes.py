@@ -451,8 +451,11 @@ def task_plan_from_task(
     #     CFG.sesame_task_planning_heuristic, init_atoms, goal, ground_processes,
     #     all_predicates, objects)
     # heuristic = create_lm_cut_heuristic(goal, ground_processes)
-    heuristic = create_ff_heuristic(goal, ground_processes, derived_predicates,
-                                    objects, use_derived_predicates=True)
+    heuristic = create_ff_heuristic(goal,
+                                    ground_processes,
+                                    derived_predicates,
+                                    objects,
+                                    use_derived_predicates=True)
 
     return task_plan(
         init_atoms,
@@ -595,7 +598,8 @@ def create_ff_heuristic(
 
     # 2. Build a reverse dependency graph for incremental derivation.
     # Maps an auxiliary predicate to all derived predicates that use it.
-    dep_to_derived_preds: Dict[Predicate, List[DerivedPredicate]] = defaultdict(list)
+    dep_to_derived_preds: Dict[Predicate,
+                               List[DerivedPredicate]] = defaultdict(list)
     if use_derived_predicates:
         for der_pred in derived_predicates:
             for aux_pred in der_pred.auxiliary_predicates:
@@ -616,28 +620,26 @@ def create_ff_heuristic(
                 if fact.predicate in dep_to_derived_preds:
                     derived_preds_to_check.update(
                         dep_to_derived_preds[fact.predicate])
-            
+
             if not derived_preds_to_check:
                 break
 
             current_state_for_eval = existing_facts | all_newly_derived_facts
-            
+
             # Note: Assumes `utils._abstract_with_derived_predicates` exists
             # and works as the original non-incremental version.
             potential_new_atoms = utils._abstract_with_derived_predicates(
-                current_state_for_eval, derived_preds_to_check, objects
-            )
+                current_state_for_eval, derived_preds_to_check, objects)
 
             truly_new_atoms = potential_new_atoms - current_state_for_eval
 
             if not truly_new_atoms:
                 break
-                
+
             all_newly_derived_facts.update(truly_new_atoms)
             facts_for_next_iter = truly_new_atoms
 
         return all_newly_derived_facts
-
 
     # --- The main heuristic function ---
     def _ff_heuristic(atoms: Set[GroundAtom]) -> float:
@@ -649,15 +651,17 @@ def create_ff_heuristic(
         initial_facts = atoms.copy()
         if use_derived_predicates:
             # The first layer must be a full, non-incremental computation.
-            initial_facts.update(utils.abstract_with_derived_predicates(
-                initial_facts, derived_predicates, objects))
-        
+            initial_facts.update(
+                utils.abstract_with_derived_predicates(initial_facts,
+                                                       derived_predicates,
+                                                       objects))
+
         fact_layers: List[Set[GroundAtom]] = [initial_facts]
         process_layers: List[Set[_GroundCausalProcess]] = []
 
         while not goal.issubset(fact_layers[-1]):
             current_facts = fact_layers[-1]
-            
+
             # Find all processes whose preconditions are met in the current layer.
             applicable_processes: Set[_GroundCausalProcess] = set()
             for process in ground_processes:
@@ -671,7 +675,7 @@ def create_ff_heuristic(
             primitive_add_effects = set()
             for process in applicable_processes:
                 primitive_add_effects.update(process.add_effects)
-            
+
             newly_added_primitive_facts = primitive_add_effects - current_facts
 
             # b) Incrementally compute new derived facts.
@@ -702,7 +706,8 @@ def create_ff_heuristic(
             unachieved_subgoals = subgoals_to_achieve.copy()
             for subgoal in unachieved_subgoals:
                 # If the subgoal appeared for the first time in this layer...
-                if subgoal in fact_layers[i] and subgoal not in fact_layers[i - 1]:
+                if subgoal in fact_layers[i] and subgoal not in fact_layers[i -
+                                                                            1]:
                     best_supporter = None
                     # Find a process from the previous layer that achieves it.
                     for process in adds_map.get(subgoal, []):
@@ -712,7 +717,8 @@ def create_ff_heuristic(
 
                     if best_supporter:
                         # Only agent actions (endogenous) contribute to the plan cost.
-                        if isinstance(best_supporter, _GroundEndogenousProcess):
+                        if isinstance(best_supporter,
+                                      _GroundEndogenousProcess):
                             relaxed_plan_actions.add(best_supporter)
 
                         # Add the supporter's preconditions to our set of subgoals.
