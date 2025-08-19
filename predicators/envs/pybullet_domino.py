@@ -1054,6 +1054,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         obj_dict[self.dominos[domino_count]] = self._place_domino(
             domino_count, curr_x, curr_y, curr_rot, is_start_block=True)
         domino_count += 1
+        print(f"Placed first domino at {curr_x}, {curr_y}, {curr_rot}")
 
         # Determine total domino blocks to place.
         if CFG.domino_use_domino_blocks_as_target:
@@ -1084,70 +1085,61 @@ class PyBulletDominoEnv(PyBulletEnv):
                 # turn_dir: -1 for left, 1 for right.
                 for turn_dir, name in [(-1, "turn_left"), (1, "turn_right")]:
                     # The first domino (d1) is one step straight on the grid.
-                    d1_x, d1_y = next_x, next_y
-                    if (d1_x, d1_y) not in grid_coords_set or \
-                    (d1_x, d1_y) in used_coords:
+                    d1_grid_x, d1_grid_y = next_x, next_y
+                    if (d1_grid_x, d1_grid_y) not in grid_coords_set or \
+                       (d1_grid_x, d1_grid_y) in used_coords:
                         continue
 
                     # Its orientation is 45 degrees towards the turn direction.
                     d1_rot = curr_rot - turn_dir * np.pi / 4
 
-                    # Calculate the components of a diagonal shift vector.
-                    # This vector pulls the turning domino both inward (perpendicular to its original path)
-                    # and backward (parallel to its original path) to create a tighter, more stable corner.
-                    # It's constructed by summing two unit vectors:
-                    # 1. Perpendicular component (pulls sideways into the turn):
-                    #    (turn_dir * np.cos(curr_rot), -turn_dir * np.sin(curr_rot))
-                    # 2. Parallel component (pulls backward along the path):
-                    #    (-np.sin(curr_rot), -np.cos(curr_rot))
-                    # The terms are combined below. Note that adding these two unit vectors results in a
-                    # direction vector with a magnitude of sqrt(2). The final shift distance will thus be
-                    # `shift_magnitude * sqrt(2)`.
+                    # Calculate the shift vector to pull the turning domino inward.
                     shift_magnitude = self.domino_width * self.turn_shift_frac
-                    # The shift vector is perpendicular to the original direction of movement.
                     shift_dx = shift_magnitude * \
                         (turn_dir * np.cos(curr_rot) - np.sin(curr_rot))
                     shift_dy = shift_magnitude * \
                         (-turn_dir * np.sin(curr_rot) - np.cos(curr_rot))
 
-                    # The final position is the grid position plus the shift.
-                    d1_x = curr_x + self.pos_gap * np.sin(curr_rot) + shift_dx
-                    d1_y = curr_y + self.pos_gap * np.cos(curr_rot) + shift_dy
-                    # d1_x += shift_dx
-                    # d1_y += shift_dy
+                    # The physical position is the grid position plus the shift.
+                    d1_x = d1_grid_x + shift_dx
+                    d1_y = d1_grid_y + shift_dy
 
-                    # The second domino (d2) is a step from d1's GRID position
-                    # in the new, fully turned direction.
-                    # 1. Calculate d2's orientation relative to d1's orientation.
-                    # A full 90-degree turn (pi/2) from the original orientation (curr_rot)
-                    # is equivalent to a 135-degree turn (3*pi/4) from d1's 45-degree angle.
+                    # The second domino (d2) completes the turn.
                     d2_rot = d1_rot - turn_dir * 1 * np.pi / 4
 
-                    # 2. Calculate d2's position relative to d1's final, shifted position.
-                    # This displacement vector is derived by expressing the original logic
-                    # (V_displacement = V_step2 - V_shift) in terms of d1's rotation.
+                    # Calculate d2's physical position relative to d1's.
                     gap = self.pos_gap
                     sin_d1 = np.sin(d1_rot)
                     cos_d1 = np.cos(d1_rot)
-
-                    # Components of the displacement vector from (d1_x, d1_y) to (d2_x, d2_y)
                     disp_x = (
                         gap * turn_dir * cos_d1 +
                         (2 * shift_magnitude - gap) * sin_d1) / np.sqrt(2)
                     disp_y = (
                         -gap * turn_dir * sin_d1 +
                         (2 * shift_magnitude - gap) * cos_d1) / np.sqrt(2)
-
                     d2_x = round(d1_x + disp_x, 5)
                     d2_y = round(d1_y + disp_y, 5)
 
-                    if (d2_x, d2_y) in grid_coords_set and \
-                    (d2_x, d2_y) not in used_coords:
-                        # Use the shifted position for d1 in the final placements.
+                    # Check if the grid position of the second domino is valid.
+                    # We need to determine where the grid position *would* be.
+                    # A left turn from rot=pi should result in rot=pi/2.
+                    # This is equivalent to rot + turn_dir * pi/2
+                    expected_final_rot = curr_rot + turn_dir * np.pi / 2
+                    d2_grid_dx = round(
+                        self.pos_gap * np.sin(expected_final_rot), 5)
+                    d2_grid_dy = round(
+                        self.pos_gap * np.cos(expected_final_rot), 5)
+                    d2_grid_x = round(d1_grid_x + d2_grid_dx, 5)
+                    d2_grid_y = round(d1_grid_y + d2_grid_dy, 5)
+
+                    if (d2_grid_x, d2_grid_y) in grid_coords_set and \
+                       (d2_grid_x, d2_grid_y) not in used_coords:
+
                         placements = [(d1_x, d1_y, d1_rot),
                                       (d2_x, d2_y, d2_rot)]
-                        possible_moves.append(
-                            (name, d2_x, d2_y, d2_rot, placements))
+
+                        possible_moves.append((name, d2_grid_x, d2_grid_y,
+                                               d2_rot, placements))
 
             if not possible_moves:
                 # No valid moves, generation failed for this attempt.
@@ -1156,7 +1148,9 @@ class PyBulletDominoEnv(PyBulletEnv):
             # Choose a random valid move and get its placement plan.
             _move_name, final_x, final_y, final_rot, placements = \
                 possible_moves[rng.choice(len(possible_moves))]
-            print(f"Chose move: {_move_name}")
+            print(
+                f"Chose move: {_move_name}, final_x: {final_x}, final_y: {final_y}, final_rot: {final_rot}"
+            )
 
             # Execute the placement plan for the chosen move.
             for (x, y, rot) in placements:
@@ -1192,7 +1186,12 @@ class PyBulletDominoEnv(PyBulletEnv):
                     domino_count, x, y, rot, is_target_block=is_target)
 
                 # Use the grid coordinates for tracking used spots.
-                used_coords.add((round(x, 5), round(y, 5)))
+                # Find the closest grid coordinate to the physical placement
+                closest_grid_coord = min(self.grid_pos,
+                                         key=lambda p: (p[0] - x)**2 +
+                                         (p[1] - y)**2)
+                used_coords.add(closest_grid_coord)
+
                 if is_target:
                     target_count += 1
                 domino_count += 1
