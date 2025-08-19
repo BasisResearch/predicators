@@ -142,12 +142,9 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             })
         add_effects = {
             LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(DominoAtPos, [domino1, target_pos]),
             LiftedAtom(DominoAtRot, [domino1, rotation]),
         }
-        if CFG.domino_include_connected_predicate:
-            add_effects.update({
-                LiftedAtom(DominoAtPos, [domino1, target_pos]),
-            })
         delete_effects = {
             LiftedAtom(Holding, [robot, domino1]),
         }
