@@ -310,6 +310,20 @@ class PyBulletDominoEnv(PyBulletEnv):
                                  use_fixed_base=True,
                                  physics_client_id=physics_client_id)
         bodies["table_id"] = table_id
+        # add another table for more space to play dominoes
+        create_object(asset_path="urdf/table.urdf",
+                                 position=[cls.table_pos[0], cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2, cls.table_pos[2]],
+                                 orientation=cls.table_orn,
+                                 scale=1.0,
+                                 use_fixed_base=True,
+                                 physics_client_id=physics_client_id)
+        # add a debug line at the end of the first table
+        p.addUserDebugLine(
+            [cls.table_pos[0] + (cls.x_ub - cls.x_lb)/2, cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2, cls.table_height+0.001],
+            [cls.table_pos[0] - (cls.x_ub - cls.x_lb)/2, cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2, cls.table_height+0.001],
+            [1, 0, 0],
+            parentObjectUniqueId=-1,
+            parentLinkIndex=-1)
 
         # Create a fixed number of dominoes and targets here
         domino_ids = []
