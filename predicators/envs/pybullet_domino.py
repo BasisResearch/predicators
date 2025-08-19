@@ -87,8 +87,8 @@ class PyBulletDominoEnv(PyBulletEnv):
     robot_init_tilt: ClassVar[float] = np.pi / 2
     robot_init_wrist: ClassVar[float] = -np.pi / 2
 
-    num_dominos_max: ClassVar[int] = min(9, 3)
-    num_dominos_min: ClassVar[int] = 3
+    num_dominos_max: ClassVar[int] = min(9, 2)
+    num_dominos_min: ClassVar[int] = 2
     num_targets_max: ClassVar[int] = min(3, 1)
     num_targets_min: ClassVar[int] = 1
     num_pivots_max: ClassVar[int] = min(2, 0)
@@ -98,8 +98,8 @@ class PyBulletDominoEnv(PyBulletEnv):
     # Grid configuration
     # num_pos_x: ClassVar[int] = 9
     # num_pos_y: ClassVar[int] = 5
-    num_pos_x: ClassVar[int] = 4
-    num_pos_y: ClassVar[int] = 4
+    num_pos_x: ClassVar[int] = 2
+    num_pos_y: ClassVar[int] = 2
     pos_gap: ClassVar[
         float] = domino_width * 1.3  # Distance between grid positions
 
@@ -1725,15 +1725,15 @@ if __name__ == "__main__":
 
     CFG.seed = 0
     CFG.env = "pybullet_domino"
-    CFG.domino_initialize_at_finished_state = True
+    CFG.domino_initialize_at_finished_state = False
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_use_grid = True
     env = PyBulletDominoEnv(use_gui=True)
-    tasks = env._make_tasks(10, env._train_rng)
+    tasks = env._make_tasks(1, env._test_rng)
     for task in tasks:
         env._reset_state(task.init)
 
-        for i in range(100):
+        for i in range(10000):
             action = Action(
                 np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)
