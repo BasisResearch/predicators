@@ -77,7 +77,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                                params: Array) -> Tuple[float, float]:
             del objects, params  # unused
             current = get_current_fingers(state)
-            target = pybullet_robot.closed_fingers
+            target = pybullet_robot.closed_fingers - 0.01
             return current, target
 
         options: Set[ParameterizedOption] = set()
@@ -306,7 +306,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             drot = state.get(domino, "rot")
             target_position = (x_func(dx), y_func(dy), z_func(dz))
             target_orn = p.getQuaternionFromEuler(
-                [0, cls.env_cls.robot_init_tilt, drot + np.pi / 2])
+                [0, cls.env_cls.robot_init_tilt, drot])
             target_pose = Pose(target_position, target_orn)
             return current_pose, target_pose, finger_status
 
@@ -444,7 +444,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
             target_position = (target_x, target_y, z_func(dz))
             target_orn = p.getQuaternionFromEuler(
-                [0, cls.env_cls.robot_init_tilt, target_rot + np.pi / 2])
+                [0, cls.env_cls.robot_init_tilt, target_rot])
             target_pose = Pose(target_position, target_orn)
             return current_pose, target_pose, finger_status
 
