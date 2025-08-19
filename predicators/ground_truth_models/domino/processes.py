@@ -44,6 +44,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         DominoAtPos = predicates["DominoAtPos"]
         DominoAtRot = predicates["DominoAtRot"]
         MovableBlock = predicates["MovableBlock"]
+        if CFG.domino_include_connected_predicate:
+            Connected = predicates["Connected"]
         # Note: Toppled predicate exists but represents the goal state
         # Note: The "Falling" predicate from the sketch is not implemented in the current environment
         # We would need to add it to the environment for the DominoFall exogenous process
@@ -121,19 +123,31 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         robot = Variable("?robot", robot_type)
         domino1 = Variable("?domino1", domino_type)
         domino2 = Variable("?domino2", domino_type)
-        position = Variable("?pos", position_type)
+        target_pos = Variable("?pos1", position_type)
         rotation = Variable("?rot", rotation_type)
-        parameters = [robot, domino1, domino2, position, rotation]
-        option_vars = [robot, domino1, domino2, position, rotation]
+        if CFG.domino_include_connected_predicate:
+            d2_pos = Variable("?pos2", position_type)
+            parameters = [robot, domino1, domino2, target_pos, d2_pos, rotation]
+        else:
+            parameters = [robot, domino1, domino2, target_pos, rotation]
+        option_vars = [robot, domino1, domino2, target_pos, rotation]
         option = Place
         condition_at_start = {
             LiftedAtom(Holding, [robot, domino1]),
         }
+        if CFG.domino_include_connected_predicate:
+            condition_at_start.update({
+                LiftedAtom(DominoAtPos, [domino2, d2_pos]),
+                LiftedAtom(Connected, [target_pos, d2_pos]),
+            })
         add_effects = {
             LiftedAtom(HandEmpty, [robot]),
-            LiftedAtom(DominoAtPos, [domino1, position]),
             LiftedAtom(DominoAtRot, [domino1, rotation]),
         }
+        if CFG.domino_include_connected_predicate:
+            add_effects.update({
+                LiftedAtom(DominoAtPos, [domino1, target_pos]),
+            })
         delete_effects = {
             LiftedAtom(Holding, [robot, domino1]),
         }

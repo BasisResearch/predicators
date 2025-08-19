@@ -404,6 +404,7 @@ class GlobalSettings:
     domino_initialize_at_finished_state = True
     domino_use_domino_blocks_as_target = False
     domino_use_grid = False
+    domino_include_connected_predicate = False
 
     # burger env parameters
     burger_render_set_of_marks = True

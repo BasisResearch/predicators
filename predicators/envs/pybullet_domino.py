@@ -87,8 +87,8 @@ class PyBulletDominoEnv(PyBulletEnv):
     robot_init_tilt: ClassVar[float] = np.pi / 2
     robot_init_wrist: ClassVar[float] = -np.pi / 2
 
-    num_dominos_max: ClassVar[int] = min(9, 2)
-    num_dominos_min: ClassVar[int] = 2
+    num_dominos_max: ClassVar[int] = min(9, 3)
+    num_dominos_min: ClassVar[int] = 3
     num_targets_max: ClassVar[int] = min(3, 1)
     num_targets_min: ClassVar[int] = 1
     num_pivots_max: ClassVar[int] = min(2, 0)
@@ -213,6 +213,9 @@ class PyBulletDominoEnv(PyBulletEnv):
             self._DominoAtRot = Predicate(
                 "DominoAtRot", [self._domino_type, self._rotation_type],
                 self._DominoAtRot_holds)
+            self._Connected = Predicate("Connected", 
+                                      [self._position_type, self._position_type],
+                                      self._Connected_holds)
             self._InFrontDirection = DerivedPredicate(
                 "InFrontDirection",
                 [self._domino_type, self._domino_type, self._direction_type],
@@ -246,6 +249,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                 self._DominoAtPos,
                 self._DominoAtRot,
             })
+        if CFG.domino_include_connected_predicate:
+            base_predicates.update({self._Connected})
 
         return base_predicates
 
@@ -344,6 +349,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                 friction=0.5,
                 orientation=[0.0, 0.0, 0.0],
                 physics_client_id=physics_client_id,
+                add_top_triangle=True,
             )
             domino_ids.append(domino_id)
         for _ in range(num_targets_to_create):  # e.g. 2 targets
@@ -909,6 +915,40 @@ class PyBulletDominoEnv(PyBulletEnv):
         angle_diff = abs(utils.wrap_angle(domino_rot - target_rot_radians))
 
         return angle_diff <= rotation_tolerance
+
+    @classmethod
+    def _Connected_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if two positions are adjacent in cardinal directions only.
+        
+        Returns True if positions are adjacent up/down or left/right,
+        but False for diagonal adjacencies.
+        """
+        pos1, pos2 = objects
+        if pos1.name == pos2.name:
+            return False
+
+        # Get coordinates of both positions
+        x1 = state.get(pos1, "xx")
+        y1 = state.get(pos1, "yy")
+        x2 = state.get(pos2, "xx")
+        y2 = state.get(pos2, "yy")
+        
+        # Calculate differences
+        dx = abs(x1 - x2)
+        dy = abs(y1 - y2)
+        
+        # Positions are connected if they are exactly one grid step apart
+        # in only one direction (either x or y, but not both)
+        grid_step = cls.pos_gap
+        tolerance = grid_step * 0.1  # Small tolerance for floating point comparison
+        
+        # Check if adjacent in x-direction only (same row)
+        x_adjacent = abs(dx - grid_step) < tolerance and dy < tolerance
+        
+        # Check if adjacent in y-direction only (same column)  
+        y_adjacent = abs(dy - grid_step) < tolerance and dx < tolerance
+        
+        return x_adjacent or y_adjacent
 
     # -------------------------------------------------------------------------
     # Task Generation
