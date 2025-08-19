@@ -1377,9 +1377,10 @@ class PyBulletDominoEnv(PyBulletEnv):
     def _make_tasks(self, num_tasks: int,
                     rng: np.random.Generator) -> List[EnvironmentTask]:
         tasks = []
+        total_attempts = 0
         # Suppose we want to create M = 3 dominoes, N = 2 targets for each task
 
-        for _ in range(num_tasks):
+        for i_task in range(num_tasks):
             # 1) Robot initial
             robot_dict = {
                 "x": self.robot_init_x,
@@ -1428,8 +1429,8 @@ class PyBulletDominoEnv(PyBulletEnv):
             # Generate sequence using helper function
             obj_dict = None
             max_attempts = 1000
-            for _ in range(max_attempts):
-                print("\nSample again:")
+            for i in range(max_attempts):
+                print(f"\nAttempt {i} for task {i_task}")
                 if CFG.domino_use_grid:
                     obj_dict = self._generate_domino_sequence_with_grid(
                         rng, n_dominos, n_targets)
@@ -1474,6 +1475,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                 goal_atoms = {GroundAtom(self._Toppled, [self.targets[0]])}
 
             tasks.append(EnvironmentTask(init_state, goal_atoms))
+            total_attempts += i + 1
+        print(f"Total attempts: {total_attempts}")
 
         return self._add_pybullet_state_to_tasks(tasks)
 
