@@ -89,8 +89,8 @@ class PyBulletDominoEnv(PyBulletEnv):
 
     num_dominos_max: ClassVar[int] = min(9, 2)
     num_dominos_min: ClassVar[int] = 2
-    num_targets_max: ClassVar[int] = min(3, 1)
-    num_targets_min: ClassVar[int] = 1
+    num_targets_max: ClassVar[int] = min(3, 2)
+    num_targets_min: ClassVar[int] = 2
     num_pivots_max: ClassVar[int] = min(2, 0)
     num_pivots_min: ClassVar[int] = 0
     turn_choices: ClassVar[List[str]] = ["straight", "turn90", "pivot180"]
@@ -98,8 +98,8 @@ class PyBulletDominoEnv(PyBulletEnv):
     # Grid configuration
     # num_pos_x: ClassVar[int] = 9
     # num_pos_y: ClassVar[int] = 5
-    num_pos_x: ClassVar[int] = 2
-    num_pos_y: ClassVar[int] = 2
+    num_pos_x: ClassVar[int] = 3
+    num_pos_y: ClassVar[int] = 3
     pos_gap: ClassVar[
         float] = domino_width * 1.3  # Distance between grid positions
 
@@ -1729,7 +1729,7 @@ if __name__ == "__main__":
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_use_grid = True
     env = PyBulletDominoEnv(use_gui=True)
-    tasks = env._make_tasks(1, env._test_rng)
+    tasks = env._make_tasks(3, env._test_rng)[2:]
     for task in tasks:
         env._reset_state(task.init)
 
