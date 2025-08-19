@@ -164,7 +164,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             self.grid_pos = [(x, y) for y in y_coords for x in x_coords]
             self.pos_dict = dict()
             for i, (x, y) in enumerate(self.grid_pos):
-                name = f"pos_y{i//self.num_pos_y}_x{i%self.num_pos_x}"
+                name = f"pos_y{i//self.num_pos_x}_x{i%self.num_pos_x}"
                 obj = Object(name, self._position_type)
                 self.positions.append(obj)
                 self.pos_dict[obj] = (x, y)
