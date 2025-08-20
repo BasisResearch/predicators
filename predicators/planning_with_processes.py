@@ -1113,7 +1113,8 @@ def _run_incremental_derived_predicate_logic(
         if not derived_preds_to_check:
             break
 
-        current_state_for_eval = existing_facts | all_newly_derived_facts | newly_added_facts
+        current_state_for_eval = existing_facts | all_newly_derived_facts |\
+                                    newly_added_facts
         potential_new_atoms = utils._abstract_with_derived_predicates(
             current_state_for_eval, derived_preds_to_check, objects)
 
