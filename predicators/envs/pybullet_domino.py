@@ -87,8 +87,8 @@ class PyBulletDominoEnv(PyBulletEnv):
     robot_init_tilt: ClassVar[float] = np.pi / 2
     robot_init_wrist: ClassVar[float] = -np.pi / 2
 
-    num_dominos_max: ClassVar[int] = min(9, 2)
-    num_dominos_min: ClassVar[int] = 2
+    num_dominos_max: ClassVar[int] = min(9, 3)
+    num_dominos_min: ClassVar[int] = 3
     num_targets_max: ClassVar[int] = min(3, 1)
     num_targets_min: ClassVar[int] = 1
     num_pivots_max: ClassVar[int] = min(2, 0)
@@ -1431,7 +1431,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                                 rng=self._test_rng)
 
     def _make_tasks(self, num_tasks: int,
-                    rng: np.random.Generator) -> List[EnvironmentTask]:
+                    rng: np.random.Generator,
+                    log_debug: bool = False) -> List[EnvironmentTask]:
         tasks = []
         total_attempts = 0
         # Suppose we want to create M = 3 dominoes, N = 2 targets for each task
@@ -1486,7 +1487,8 @@ class PyBulletDominoEnv(PyBulletEnv):
             obj_dict = None
             max_attempts = 1000
             for i in range(max_attempts):
-                print(f"\nAttempt {i} for task {i_task}")
+                if log_debug:
+                    print(f"\nAttempt {i} for task {i_task}")
                 if CFG.domino_use_grid:
                     obj_dict = self._generate_domino_sequence_with_grid(
                         rng, n_dominos, n_targets)
@@ -1494,12 +1496,14 @@ class PyBulletDominoEnv(PyBulletEnv):
                     obj_dict = self._generate_domino_sequence(
                         rng, n_dominos, n_targets, n_pivots)
                 if obj_dict is not None:
-                    print("Found satisfying a task")
+                    if log_debug:
+                        print("Found satisfying a task")
                     break
 
             if obj_dict is None:
                 raise RuntimeError("Failed to generate valid domino sequence")
-            print(f"Found a task")
+            if log_debug:
+                print(f"Found a task")
 
             # If we want to initialize at finished state, move intermediate objects
             if not CFG.domino_initialize_at_finished_state:
@@ -1532,7 +1536,8 @@ class PyBulletDominoEnv(PyBulletEnv):
 
             tasks.append(EnvironmentTask(init_state, goal_atoms))
             total_attempts += i + 1
-        print(f"Total attempts: {total_attempts}")
+        if log_debug:
+            print(f"Total attempts: {total_attempts}")
 
         return self._add_pybullet_state_to_tasks(tasks)
 
@@ -1745,7 +1750,7 @@ if __name__ == "__main__":
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_use_grid = True
     env = PyBulletDominoEnv(use_gui=True)
-    tasks = env._make_tasks(3, env._test_rng)[2:]
+    tasks = env._make_tasks(1, env._test_rng)
     for task in tasks:
         env._reset_state(task.init)
 
