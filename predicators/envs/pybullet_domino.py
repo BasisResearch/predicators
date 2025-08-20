@@ -87,10 +87,10 @@ class PyBulletDominoEnv(PyBulletEnv):
     robot_init_tilt: ClassVar[float] = np.pi / 2
     robot_init_wrist: ClassVar[float] = -np.pi / 2
 
-    num_dominos_max: ClassVar[int] = min(9, 2)
-    num_dominos_min: ClassVar[int] = 2
-    num_targets_max: ClassVar[int] = min(3, 2)
-    num_targets_min: ClassVar[int] = 2
+    num_dominos_max: ClassVar[int] = min(9, 3)
+    num_dominos_min: ClassVar[int] = 3
+    num_targets_max: ClassVar[int] = min(3, 1)
+    num_targets_min: ClassVar[int] = 1
     num_pivots_max: ClassVar[int] = min(2, 0)
     num_pivots_min: ClassVar[int] = 0
     turn_choices: ClassVar[List[str]] = ["straight", "turn90", "pivot180"]
