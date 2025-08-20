@@ -98,6 +98,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(DominoAtPos, [domino, position]),
             LiftedAtom(DominoAtRot, [domino, rotation]),
             LiftedAtom(MovableBlock, [domino]),
+            LiftedAtom(Upright, [domino]),
         }
         add_effects = {
             LiftedAtom(Holding, [robot, domino]),

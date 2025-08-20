@@ -587,6 +587,7 @@ def create_ff_heuristic(
     derived_predicates: Set[DerivedPredicate] = set(),
     objects: Set[Object] = set(),
     use_derived_predicates: bool = True,
+    debug_log: bool = False,
 ) -> Callable[[Set[GroundAtom]], float]:
     """Creates a callable FF heuristic function with efficient RPG generation.
 
@@ -631,14 +632,14 @@ def create_ff_heuristic(
             if not derived_preds_to_check:
                 break
 
-            current_state_for_eval = existing_facts | all_newly_derived_facts
+            # CORRECTED: Include all new facts in the state for evaluation.
+            current_state_for_eval = existing_facts | all_newly_derived_facts | newly_added_facts
 
-            # Note: Assumes `utils._abstract_with_derived_predicates` exists
-            # and works as the original non-incremental version.
             potential_new_atoms = utils._abstract_with_derived_predicates(
                 current_state_for_eval, derived_preds_to_check, objects)
-
-            truly_new_atoms = potential_new_atoms - current_state_for_eval
+            
+            # We must subtract all previously known facts to find what's new.
+            truly_new_atoms = potential_new_atoms - (existing_facts | all_newly_derived_facts)
 
             if not truly_new_atoms:
                 break
@@ -666,7 +667,12 @@ def create_ff_heuristic(
         fact_layers: List[Set[GroundAtom]] = [initial_facts]
         process_layers: List[Set[_GroundCausalProcess]] = []
 
+        if debug_log:
+            count = 0
         while not goal.issubset(fact_layers[-1]):
+            if debug_log:
+                logging.debug(f"Calculating heuristic layer {count}...")
+                count += 1
             current_facts = fact_layers[-1]
 
             # Find all processes whose preconditions are met in the current layer.
@@ -677,18 +683,6 @@ def create_ff_heuristic(
 
             process_layers.append(applicable_processes)
 
-            # Old
-            # next_facts = current_facts.copy()
-            # for process in applicable_processes:
-            #     next_facts.update(process.add_effects)
-
-            # # After adding new base atoms from actions,
-            # # re-compute all derived predicates for the new fact layer.
-            # if use_derived_predicates:
-            #     next_facts.update(utils.abstract_with_derived_predicates(
-            #         next_facts, derived_predicates, objects))
-            # Old end
-
             # --- Incremental Fact Generation ---
             # a) Collect all new primitive facts from applicable processes.
             primitive_add_effects = set()
@@ -696,6 +690,8 @@ def create_ff_heuristic(
                 primitive_add_effects.update(process.add_effects)
 
             newly_added_primitive_facts = primitive_add_effects - current_facts
+            if debug_log:
+                logging.debug(f"Newly added primitive facts: {sorted(newly_added_primitive_facts)}")
 
             # b) Incrementally compute new derived facts.
             newly_derived_facts = set()
@@ -706,6 +702,12 @@ def create_ff_heuristic(
                     newly_added_primitive_facts,
                     current_facts,
                 )
+                # # Old
+                # newly_derived_facts = utils.abstract_with_derived_predicates(
+                #     current_facts | primitive_add_effects, derived_predicates, objects)
+                # # Old end
+                if debug_log:
+                    logging.debug(f"Newly derived facts: {sorted(newly_derived_facts)}\n")
 
             # c) The next layer is the union of the current layer and all new facts.
             next_facts = current_facts | newly_added_primitive_facts | newly_derived_facts
