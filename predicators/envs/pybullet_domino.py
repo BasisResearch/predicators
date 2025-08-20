@@ -696,167 +696,151 @@ class PyBulletDominoEnv(PyBulletEnv):
         return state.get(domino, "is_held") > 0.5
 
     @classmethod
-    def _check_single_direction(cls,
-                                x1_idx: int,
-                                y1_idx: int,
-                                x2_idx: int,
-                                y2_idx: int,
-                                rot1_rad: float,
-                                rot2_rad: float,
-                                dir_value: str,
-                                tolerance: float = 1e-6) -> bool:
-        """Helper function to check if domino1 is in front of domino2 with the
-        given direction.
-
-        This checks a single directional relationship: domino1 must be in the cell in
-        front of domino2, and the rotation difference must match the expected direction.
-
-        Args:
-            x1_idx, y1_idx: Grid coordinates of domino1
-            x2_idx, y2_idx: Grid coordinates of domino2
-            rot1_rad, rot2_rad: Rotations of domino1 and domino2 in radians
-            dir_value: Direction string ("left", "straight", "right")
-            tolerance: Numerical tolerance for comparisons
-
-        Returns:
-            True if domino1 is in front of domino2 with the correct rotation difference
-        """
-        # Check if domino1 is in the cell in front of domino2
-        # This check is only valid if domino2 has a cardinal rotation (0, 90, 180, etc.)
-        # We can check this by seeing if sin or cos of the angle is close to 0.
-        if not (abs(np.sin(rot2_rad)) < tolerance
-                or abs(np.cos(rot2_rad)) < tolerance):
-            return False
-
-        dx2_idx = round(np.sin(rot2_rad))
-        dy2_idx = round(np.cos(rot2_rad))
-        expected_x1 = x2_idx + dx2_idx
-        expected_y1 = y2_idx + dy2_idx
-
-        # domino1 must be at the expected position
-        if not (x1_idx == expected_x1 and y1_idx == expected_y1):
-            return False
-
-        # Calculate rotation difference (domino1 - domino2)
-        rot_diff = rot1_rad - rot2_rad
-
-        # Normalize rotation difference to [-π, π] range
-        while rot_diff > np.pi:
-            rot_diff -= 2 * np.pi
-        while rot_diff < -np.pi:
-            rot_diff += 2 * np.pi
-
-        # Define expected rotation difference based on direction
-        # FIX: Swapped expected rotation for "left" and "right"
-        if dir_value == "left":
-            expected_rot_diff = np.pi / 4
-        elif dir_value == "straight":
-            expected_rot_diff = 0
-        elif dir_value == "right":
-            expected_rot_diff = -np.pi / 4
-        else:
-            return False
-
-        # Check if rotation difference matches expected value
-        return abs(rot_diff - expected_rot_diff) < tolerance
-
-    @classmethod
     def _InFrontDirection_holds(cls, atoms: Set[GroundAtom],
                                 objects: Sequence[Object]) -> bool:
         """Check if domino1 is in front of domino2 in the given direction.
 
-        This predicate is symmetric and checks two cases:
-        1. Original: domino1 is in front of domino2 with the given direction
-        2. Swapped: domino2 is in front of domino1 with the opposite direction
+        This predicate is evaluated in the context of a relaxed plan graph,
+        so a domino may have multiple possible positions and rotations. The
+        predicate holds if THERE EXISTS any valid combination of positions
+        and rotations for the two dominoes that satisfies the geometric
+        relationship.
 
-        For example, InFrontDirection(d1, d2, "right") returns True if either:
-        - d1 is in the cell in front of d2 with rotation difference of -π/4, OR
-        - d2 is in the cell in front of d1 with rotation difference of π/4
-          (equivalent to InFrontDirection(d2, d1, "left"))
-
-        This symmetry ensures that both InFrontDirection(d1, d2, "left") and
-        InFrontDirection(d2, d1, "right") can be true simultaneously.
+        The relationship is symmetric: InFrontDirection(d1, d2, "right") is
+        true if either:
+        - d1 is in the cell in front of d2 with a rotation difference of -π/4, OR
+        - d2 is in the cell in front of d1 with a rotation difference of +π/4
+          (equivalent to InFrontDirection(d2, d1, "left")).
         """
-        domino1, domino2, direction = objects
+        domino1, domino2, direction_obj = objects
 
         if not CFG.domino_use_grid:
             raise ValueError("Grid is not used, this derived predicate cannot "
                              "function")
 
-        # Find positions and rotations using auxiliary predicates
-        domino1_pos = None
-        domino1_rot = None
-        domino2_pos = None
-        domino2_rot = None
+        # Helper functions to parse object names and cache results
+        _pos_coord_cache = {}
+        _rot_rad_cache = {}
 
-        # Extract positions and rotations from atoms
-        for atom in atoms:
-            try:
-                if atom.predicate.name == "DominoAtPos":
-                    if atom.objects[0] == domino1:
-                        domino1_pos = atom.objects[1]
-                    elif atom.objects[0] == domino2:
-                        domino2_pos = atom.objects[1]
-                elif atom.predicate.name == "DominoAtRot":
-                    if atom.objects[0] == domino1:
-                        domino1_rot = atom.objects[1]
-                    elif atom.objects[0] == domino2:
-                        domino2_rot = atom.objects[1]
-            except:
-                breakpoint()
-
-        # All required information must be available
-        if not all([domino1_pos, domino1_rot, domino2_pos, domino2_rot]):
-            return False
-
-        # Extract coordinates from position object names (e.g., "pos_y1_x2")
         def extract_grid_coords(pos_obj):
-            # Position names follow pattern "pos_y{y_idx}_x{x_idx}"
+            if pos_obj in _pos_coord_cache:
+                return _pos_coord_cache[pos_obj]
             name_parts = pos_obj.name.split("_")
-            y_idx = int(name_parts[1][1:])  # Remove 'y' prefix
-            x_idx = int(name_parts[2][1:])  # Remove 'x' prefix
-            return x_idx, y_idx
+            y_idx = int(name_parts[1][1:])
+            x_idx = int(name_parts[2][1:])
+            result = (x_idx, y_idx)
+            _pos_coord_cache[pos_obj] = result
+            return result
 
-        # Extract rotation from rotation object names (e.g., "rot_45")
-        def extract_rotation_angle(rot_obj):
-            # Rotation names follow pattern "rot_{angle}"
+        def extract_rotation_angle_rad(rot_obj):
+            if rot_obj in _rot_rad_cache:
+                return _rot_rad_cache[rot_obj]
             angle_str = rot_obj.name.split("_")[1]
-            return float(angle_str)
+            result = np.radians(float(angle_str))
+            _rot_rad_cache[rot_obj] = result
+            return result
 
-        x1_idx, y1_idx = extract_grid_coords(domino1_pos)
-        x2_idx, y2_idx = extract_grid_coords(domino2_pos)
-        rot1_angle = extract_rotation_angle(domino1_rot)
-        rot2_angle = extract_rotation_angle(domino2_rot)
+        # Step 1: Gather all possible states (positions and rotations) for each domino.
+        # Store the actual coordinate tuples and radian values for efficient lookups.
+        d1_positions_coords = {
+            extract_grid_coords(atom.objects[1])
+            for atom in atoms if atom.predicate.name == "DominoAtPos"
+            and atom.objects[0] == domino1
+        }
+        d1_rotations_rad = {
+            extract_rotation_angle_rad(atom.objects[1])
+            for atom in atoms if atom.predicate.name == "DominoAtRot"
+            and atom.objects[0] == domino1
+        }
+        d2_positions_coords = {
+            extract_grid_coords(atom.objects[1])
+            for atom in atoms if atom.predicate.name == "DominoAtPos"
+            and atom.objects[0] == domino2
+        }
+        d2_rotations_rad = {
+            extract_rotation_angle_rad(atom.objects[1])
+            for atom in atoms if atom.predicate.name == "DominoAtRot"
+            and atom.objects[0] == domino2
+        }
 
-        # Convert angles to radians
-        rot1_rad = utils.wrap_angle(np.radians(rot1_angle))
-        rot2_rad = utils.wrap_angle(np.radians(rot2_angle))
+        # Step 2: Define a function to check one directional case.
+        def _check_case(front_domino_positions: Set[Tuple[int, int]],
+                        front_domino_rotations: Set[float],
+                        back_domino_positions: Set[Tuple[int, int]],
+                        back_domino_rotations: Set[float],
+                        direction_name: str,
+                        tolerance: float = 1e-6) -> bool:
+            """Check if any state of the back domino implies an existing state
+            for the front domino."""
+            # Iterate through every possible state of the back domino
+            for (x_back_idx, y_back_idx) in back_domino_positions:
+                for rot_back_rad in back_domino_rotations:
 
-        # Get direction value
-        dir_value = direction.name
+                    # The geometric relationship requires the back domino to
+                    # have a cardinal rotation (0, 90, 180, etc.).
+                    if not (abs(np.sin(rot_back_rad)) < tolerance or \
+                            abs(np.cos(rot_back_rad)) < tolerance):
+                        continue
 
-        # Determine the opposite direction for the swapped case
-        if dir_value == "left":
-            opposite_dir = "right"
-        elif dir_value == "right":
-            opposite_dir = "left"
+                    # Calculate the EXPECTED position of the front domino
+                    dx_idx = round(np.sin(rot_back_rad))
+                    dy_idx = round(np.cos(rot_back_rad))
+                    expected_front_coords = (x_back_idx + dx_idx,
+                                             y_back_idx + dy_idx)
+
+                    # Calculate the EXPECTED rotation of the front domino
+                    if direction_name == "left":
+                        expected_rot_diff = np.pi / 4
+                    elif direction_name == "straight":
+                        expected_rot_diff = 0
+                    elif direction_name == "right":
+                        expected_rot_diff = -np.pi / 4
+                    else:
+                        continue  # Should not happen
+
+                    expected_rot_front_rad = utils.wrap_angle(rot_back_rad +
+                                                              expected_rot_diff)
+
+                    # Check if the expected state for the front domino exists
+                    # in its set of possible states.
+                    pos_exists = expected_front_coords in front_domino_positions
+
+                    # For rotation, compare with a tolerance.
+                    rot_exists = any(
+                        abs(utils.wrap_angle(r - expected_rot_front_rad)) <
+                        tolerance for r in front_domino_rotations)
+
+                    if pos_exists and rot_exists:
+                        return True  # Found a valid configuration
+
+            return False  # No valid configuration found for this case
+
+        # Step 3: Check both symmetric cases for the relationship.
+        dir_name = direction_obj.name
+        if dir_name == "left":
+            opposite_dir_name = "right"
+        elif dir_name == "right":
+            opposite_dir_name = "left"
         else:  # "straight"
-            opposite_dir = "straight"
+            opposite_dir_name = "straight"
 
-        # FIX: The original implementation incorrectly used an if/else
-        # that only checked one of the two cases. The correct implementation
-        # checks both and returns True if either one holds.
+        # Case 1: Is domino1 in front of domino2 in `dir_name`?
+        if _check_case(front_domino_positions=d1_positions_coords,
+                       front_domino_rotations=d1_rotations_rad,
+                       back_domino_positions=d2_positions_coords,
+                       back_domino_rotations=d2_rotations_rad,
+                       direction_name=dir_name):
+            return True
 
-        # Case 1: Original - domino1 is in front of domino2 with the given direction
-        case1 = cls._check_single_direction(x1_idx, y1_idx, x2_idx, y2_idx,
-                                            rot1_rad, rot2_rad, dir_value)
+        # Case 2: Is domino2 in front of domino1 in `opposite_dir_name`?
+        if _check_case(front_domino_positions=d2_positions_coords,
+                       front_domino_rotations=d2_rotations_rad,
+                       back_domino_positions=d1_positions_coords,
+                       back_domino_rotations=d1_rotations_rad,
+                       direction_name=opposite_dir_name):
+            return True
 
-        # Case 2: Swapped - domino2 is in front of domino1 with the opposite direction
-        case2 = cls._check_single_direction(x2_idx, y2_idx, x1_idx, y1_idx,
-                                            rot2_rad, rot1_rad, opposite_dir)
-
-        # Return True if either case holds
-        return case1 or case2
+        return False
 
     @classmethod
     def _InFront_holds(cls, atoms: Set[GroundAtom],
