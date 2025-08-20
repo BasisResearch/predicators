@@ -44,6 +44,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         DominoAtPos = predicates["DominoAtPos"]
         DominoAtRot = predicates["DominoAtRot"]
         MovableBlock = predicates["MovableBlock"]
+        PosClear = predicates["PosClear"]
         if CFG.domino_include_connected_predicate:
             Connected = predicates["Connected"]
         # Note: Toppled predicate exists but represents the goal state
@@ -102,6 +103,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         add_effects = {
             LiftedAtom(Holding, [robot, domino]),
+            LiftedAtom(PosClear, [position]),
         }
         delete_effects = {
             LiftedAtom(HandEmpty, [robot]),
@@ -135,6 +137,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         option = Place
         condition_at_start = {
             LiftedAtom(Holding, [robot, domino1]),
+            LiftedAtom(PosClear, [target_pos]),
         }
         if CFG.domino_include_connected_predicate:
             condition_at_start.update({
@@ -148,6 +151,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         delete_effects = {
             LiftedAtom(Holding, [robot, domino1]),
+            LiftedAtom(PosClear, [target_pos]),
         }
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
                                                    sigma=torch.tensor(0.1))

@@ -216,6 +216,8 @@ class PyBulletDominoEnv(PyBulletEnv):
             self._Connected = Predicate("Connected", 
                                       [self._position_type, self._position_type],
                                       self._Connected_holds)
+            self._PosClear = Predicate("PosClear", [self._position_type],
+                                     self._PosClear_holds)
             self._InFrontDirection = DerivedPredicate(
                 "InFrontDirection",
                 [self._domino_type, self._domino_type, self._direction_type],
@@ -248,6 +250,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             base_predicates.update({
                 self._DominoAtPos,
                 self._DominoAtRot,
+                self._PosClear,
             })
         if CFG.domino_include_connected_predicate:
             base_predicates.update({self._Connected})
@@ -937,6 +940,31 @@ class PyBulletDominoEnv(PyBulletEnv):
         y_adjacent = abs(dy - grid_step) < tolerance and dx < tolerance
         
         return x_adjacent or y_adjacent
+
+    @classmethod
+    def _PosClear_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if a position is clear (not occupied by any domino).
+        
+        A position is considered clear if no domino is currently at that position.
+        """
+        position, = objects
+        
+        # Get the position coordinates
+        target_x = state.get(position, "xx")
+        target_y = state.get(position, "yy")
+        
+        # Check if any domino is at this position
+        position_tolerance = cls.pos_gap * 0.5
+        for domino in state.get_objects(cls._domino_type):
+            domino_x = state.get(domino, "x")
+            domino_y = state.get(domino, "y")
+            
+            # If domino is close enough to this position, position is not clear
+            if (abs(domino_x - target_x) <= position_tolerance
+                and abs(domino_y - target_y) <= position_tolerance):
+                return False
+        
+        return True
 
     # -------------------------------------------------------------------------
     # Task Generation
