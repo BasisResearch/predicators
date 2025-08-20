@@ -364,8 +364,8 @@ FLAGS:
   keep_failed_demos: True
   planning_filter_unreachable_nsrt: False
   planning_check_dr_reachable: False
-  sesame_task_planning_heuristic: 'goal_count'
-  timeout: 300
+  sesame_task_planning_heuristic: 'h_ff' # goal_count, lm_cut, h_max, h_ff
+  timeout: 600
   log: 'logs/'
   no_repeated_arguments_in_grounding: True
 START_SEED: 0

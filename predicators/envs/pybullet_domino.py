@@ -87,10 +87,10 @@ class PyBulletDominoEnv(PyBulletEnv):
     robot_init_tilt: ClassVar[float] = np.pi / 2
     robot_init_wrist: ClassVar[float] = -np.pi / 2
 
-    num_dominos_max: ClassVar[int] = min(9, 3)
-    num_dominos_min: ClassVar[int] = 3
-    num_targets_max: ClassVar[int] = min(3, 1)
-    num_targets_min: ClassVar[int] = 1
+    num_dominos_max: ClassVar[int] = min(9, 2)
+    num_dominos_min: ClassVar[int] = 2
+    num_targets_max: ClassVar[int] = min(3, 2)
+    num_targets_min: ClassVar[int] = 2
     num_pivots_max: ClassVar[int] = min(2, 0)
     num_pivots_min: ClassVar[int] = 0
     turn_choices: ClassVar[List[str]] = ["straight", "turn90", "pivot180"]
@@ -971,7 +971,8 @@ class PyBulletDominoEnv(PyBulletEnv):
 
     def _generate_domino_sequence(self, rng: np.random.Generator,
                                   n_dominos: int, n_targets: int,
-                                  n_pivots: int) -> Optional[Dict]:
+                                  n_pivots: int,
+                                  log_debug: bool = False) -> Optional[Dict]:
         """Generate a sequence of dominoes, targets, and pivots.
 
         Returns:
@@ -1049,7 +1050,8 @@ class PyBulletDominoEnv(PyBulletEnv):
 
             else:
                 # Place target
-                print("Placing target")
+                if log_debug:
+                    print("Placing target")
                 result = self._place_next_target(rng, obj_dict, x, y, rot, gap,
                                                  domino_count, target_count,
                                                  _in_bounds)
@@ -1083,7 +1085,8 @@ class PyBulletDominoEnv(PyBulletEnv):
 
     def _generate_domino_sequence_with_grid(self, rng: np.random.Generator,
                                             n_dominos: int,
-                                            n_targets: int) -> Optional[Dict]:
+                                            n_targets: int,
+                                            log_debug: bool = False) -> Optional[Dict]:
         """Grid-based sequence generator.
 
         This version implements straight moves and L-shaped 90-degree
@@ -1110,7 +1113,8 @@ class PyBulletDominoEnv(PyBulletEnv):
         obj_dict[self.dominos[domino_count]] = self._place_domino(
             domino_count, curr_x, curr_y, curr_rot, is_start_block=True)
         domino_count += 1
-        print(f"Placed first domino at {curr_x}, {curr_y}, {curr_rot}")
+        if log_debug:
+            print(f"Placed first domino at {curr_x}, {curr_y}, {curr_rot}")
 
         # Determine total domino blocks to place.
         if CFG.domino_use_domino_blocks_as_target:
@@ -1204,13 +1208,15 @@ class PyBulletDominoEnv(PyBulletEnv):
             # Choose a random valid move and get its placement plan.
             _move_name, final_x, final_y, final_rot, placements = \
                 possible_moves[rng.choice(len(possible_moves))]
-            print(
-                f"Chose move: {_move_name}, final_x: {final_x}, final_y: {final_y}, final_rot: {final_rot}"
-            )
+            if log_debug:
+                print(
+                    f"Chose move: {_move_name}, final_x: {final_x}, final_y: {final_y}, final_rot: {final_rot}"
+                )
 
             # Execute the placement plan for the chosen move.
             for (x, y, rot) in placements:
-                print(f"Placing domino at {x}, {y}, {rot}")
+                if log_debug:
+                    print(f"Placing domino at {x}, {y}, {rot}")
                 if domino_count >= total_domino_blocks:
                     break  # Should not be reached with correct logic.
 
@@ -1491,10 +1497,10 @@ class PyBulletDominoEnv(PyBulletEnv):
                     print(f"\nAttempt {i} for task {i_task}")
                 if CFG.domino_use_grid:
                     obj_dict = self._generate_domino_sequence_with_grid(
-                        rng, n_dominos, n_targets)
+                        rng, n_dominos, n_targets, log_debug=log_debug)
                 else:
                     obj_dict = self._generate_domino_sequence(
-                        rng, n_dominos, n_targets, n_pivots)
+                        rng, n_dominos, n_targets, n_pivots, log_debug=log_debug)
                 if obj_dict is not None:
                     if log_debug:
                         print("Found satisfying a task")

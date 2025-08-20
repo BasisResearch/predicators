@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from itertools import islice
 from typing import Callable, Collection, Dict, FrozenSet, Iterator, List, \
     Optional, Set, Tuple
+from pprint import pformat
 
 import numpy as np
 
@@ -479,7 +480,8 @@ def task_plan_from_task(
     derived_predicates = utils.get_derived_predicates(all_predicates)
 
     init_atoms = utils.abstract(task.init, all_predicates)
-    logging.debug(f"[Task Planner] Task init atoms: {sorted(init_atoms)}")
+    logging.debug("[Task Planner] Task init atoms: "
+                    f"{pformat(sorted(init_atoms))}")
     goal = task.goal
     objects = set(task.init)
     ground_processes, reachable_atoms = process_task_plan_grounding(
