@@ -255,7 +255,7 @@ def _skeleton_generator_with_processes(
     sesame_max_policy_guided_rollout: int = 0,
     use_visited_state_set: bool = False,
     log_sucessful_small_steps: bool = False,
-    log_heuristic: bool = True,
+    log_heuristic: bool = False,
     derived_predicates: Set[DerivedPredicate] = set(),
     objects: Set[Object] = set(),
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]]]]:
@@ -669,6 +669,7 @@ def create_ff_heuristic(
 
         if debug_log:
             count = 0
+            logging.debug(f"Initial facts: {sorted(initial_facts)}")
         while not goal.issubset(fact_layers[-1]):
             if debug_log:
                 logging.debug(f"Calculating heuristic layer {count}...")
