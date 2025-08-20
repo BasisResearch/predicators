@@ -96,8 +96,6 @@ class ProcessWorldModel:
 
         self.ground_processes = ground_processes
         self.state = state
-        # if len(state_history) == 0:
-        #     state_history.append(state)
         self.state_history = state_history
         self.current_action: Optional[_GroundEndogenousProcess] = None
         self.action_history = action_history
@@ -107,13 +105,36 @@ class ProcessWorldModel:
         self.derived_predicates = derived_predicates
         self.objects = objects
 
+        # --- NEW: Index for efficient scheduling of exogenous processes ---
+        # This maps a primitive predicate to a list of all ground exogenous
+        # processes that have that predicate in their start condition.
+        self._precondition_to_exogenous_processes: Dict[
+            Predicate, List[_GroundExogenousProcess]] = defaultdict(list)
+        for p in self.ground_processes:
+            if isinstance(p, _GroundExogenousProcess):
+                for atom in p.condition_at_start:
+                    if not isinstance(atom.predicate, DerivedPredicate):
+                        self._precondition_to_exogenous_processes[
+                            atom.predicate].append(p)
+        # --- END NEW ---
+
     def small_step(
             self,
             small_step_action: Optional[_GroundEndogenousProcess] = None
     ) -> None:
         """Will keep the current action as a class variable for now, as opposed
         to a part of the state variable as in the demo code."""
-        initial_state = self.state.copy()
+        # --- MODIFIED: Capture previous primitive facts for optimization ---
+        # Get the set of primitive facts from the previous state.
+        if self.state_history:
+            previous_primitive_facts = {
+                atom
+                for atom in self.state_history[-1]
+                if not isinstance(atom.predicate, DerivedPredicate)
+            }
+        else:
+            previous_primitive_facts = set()
+        # --- END MODIFIED ---
 
         # 1. self.current_action is set to an action when this small_step is
         # first called. And is set back to None when `duration` timesteps
@@ -122,90 +143,76 @@ class ProcessWorldModel:
         # subsequent calls.
         if small_step_action is not None:
             self.current_action = small_step_action.copy()
-            # logging.debug(f"At time {self.t}, start performing "
-            #               f"{self.current_action.name}")
         self.action_history.append(self.current_action.copy() if self.
                                    current_action is not None else None)
 
         # 2. Process effects scheduled for this timestep.
         if self.t in self.scheduled_events:
             for g_process, start_time in self.scheduled_events[self.t]:
-                # If it's the end of an endogenous process (an action), then
-                # change self.current_action back to None.
                 if (all(
                         g_process.condition_overall.issubset(s)
                         for s in self.state_history[start_time + 1:])
                         and g_process.condition_at_end.issubset(self.state)):
-                    # logging.debug(f"At time {self.t}:")
                     for atom in g_process.delete_effects:
                         self.state.discard(atom)
-                        # logging.debug(f"Deleting {atom}")
                     for atom in g_process.add_effects:
                         self.state.add(atom)
-                        # logging.debug(f"Adding   {atom}")
-                    # The second clause seems redundant because small_step_action
-                    # is always None in the subsequent steps of small_step, i.e.,
-                    # which is at least 1 timestep after the process is scheduled.
                     if isinstance(g_process, _GroundEndogenousProcess) and\
                         small_step_action is None:
                         self.current_action = None
             del self.scheduled_events[self.t]
 
-            # Remove all the previous derived predicates before adding new
-            # ones.
+            # Re-evaluate derived predicates if the state has changed.
             if len(self.derived_predicates) > 0:
                 self.state = {
                     atom
                     for atom in self.state
                     if not isinstance(atom.predicate, DerivedPredicate)
                 }
-                # for atom in self.state:
-                #     if atom.predicate.name == "JugFilled":
-                #         # it has a tuple of types instead of a list..
-                #         breakpoint()
-                #         break
                 self.state |= utils.abstract_with_derived_predicates(
                     self.state, self.derived_predicates, self.objects)
 
-        # 3. Schedule new events whose condition are met
-        for g_process in self.ground_processes:
-            satisfy_condition_at_start = g_process.condition_at_start.issubset(
-                self.state)
-            # Only schedule when it's previously unsatisfied to avoid repeated
-            # scheduling.
-            first_state_or_prev_state_doesnt_satisfy = (
-                len(self.state_history) == 0
-                or not g_process.condition_at_start.issubset(
-                    self.state_history[-1]))
-            is_exogenous = isinstance(g_process, _GroundExogenousProcess)
-            # if is_exogenous:
-            #     logging.debug(f"process {g_process} ")
-            #     breakpoint()
-            # Action. Here we shouldn't require it was previous unsatisfied.
-            is_endogenous = isinstance(g_process, _GroundEndogenousProcess)
-            first_step_running_action = small_step_action is not None and \
-                                        g_process == small_step_action
-            if is_endogenous:
-                not_noop = g_process.parent.option.name != 'NoOp'
-            # logging.debug(f"Condition at start: {satisfy_condition_at_start} "
-            #               f"no prev state or prev doesnt satisfy: {no_prev_state_or_prev_doesnt_satisfy} "
-            #               f"Is endogenous: {is_endogenous} "
-            #               f"Is exogenous: {is_exogenous} "
-            #               f"First step running action: {first_step_running_action}")
-            if (satisfy_condition_at_start and
-                ((is_exogenous and first_state_or_prev_state_doesnt_satisfy) or
-                 (is_endogenous and first_step_running_action and not_noop))):
+        # 3. Schedule new events whose conditions are met.
+        # --- MODIFIED: Optimized scheduling logic ---
+        
+        # 3a. Handle the endogenous process (action) passed to this step.
+        # This is for starting a new action.
+        if small_step_action is not None and small_step_action.parent.option.name != 'NoOp':
+            if small_step_action.condition_at_start.issubset(self.state):
+                delay = small_step_action.delay_distribution.sample()
+                delay = max(1, delay)
+                scheduled_time = self.t + delay
+                if scheduled_time not in self.scheduled_events:
+                    self.scheduled_events[scheduled_time] = []
+                self.scheduled_events[scheduled_time].append(
+                    (small_step_action, self.t))
+
+        # 3b. Handle exogenous processes using the index for efficiency.
+        # Find newly true primitive facts by comparing current vs. previous.
+        current_primitive_facts = {
+            atom
+            for atom in self.state
+            if not isinstance(atom.predicate, DerivedPredicate)
+        }
+        newly_added_primitive_facts = current_primitive_facts - previous_primitive_facts
+
+        # Gather all candidate processes touched by these new facts.
+        candidate_processes_to_check: Set[_GroundExogenousProcess] = set()
+        for fact in newly_added_primitive_facts:
+            candidate_processes_to_check.update(
+                self._precondition_to_exogenous_processes[fact.predicate])
+
+        # Check the full preconditions for only the candidate processes.
+        for g_process in candidate_processes_to_check:
+            if g_process.condition_at_start.issubset(self.state):
                 delay = g_process.delay_distribution.sample()
-                delay = max(1, delay)  # Ensure delay is at least 1.
-                schedued_time = self.t + delay
-                # logging.debug(f"At time {self.t}, scheduling "
-                #               f"{g_process.name_and_objects_str()} "
-                #               f"for time {schedued_time}")
-                if schedued_time not in self.scheduled_events:
-                    self.scheduled_events[schedued_time] = []
-                self.scheduled_events[schedued_time].append(
-                    (g_process, self.t))
-                # logging.debug(f"current scheduled_events: {self.scheduled_events.keys()}")
+                delay = max(1, delay)
+                scheduled_time = self.t + delay
+                if scheduled_time not in self.scheduled_events:
+                    self.scheduled_events[scheduled_time] = []
+                self.scheduled_events[scheduled_time].append((g_process, self.t))
+
+        # --- END MODIFIED ---
 
         self.state_history.append(self.state.copy())
 
