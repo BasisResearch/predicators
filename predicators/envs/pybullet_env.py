@@ -912,20 +912,22 @@ def create_pybullet_block(
         # 1. Create the triangle's visual shape
         triangle_size = min(half_extents[0], half_extents[1])
         triangle_vertices = [
-            [triangle_size, 0, 0],          # Tip pointing in +X
-            [-triangle_size, triangle_size, 0], # Back left
-            [-triangle_size, -triangle_size, 0] # Back right
+            [triangle_size, 0, 0],  # Tip pointing in +X
+            [-triangle_size, triangle_size, 0],  # Back left
+            [-triangle_size, -triangle_size, 0]  # Back right
         ]
         triangle_visual_id = p.createVisualShape(
             p.GEOM_MESH,
             vertices=triangle_vertices,
-            indices=[0, 1, 2],         # <-- FIX: Added this line
-            rgbaColor=[1, 1, 0, 1],    # <-- CHANGE: Set to yellow (R=1, G=1, B=0, A=1)
-            physicsClientId=physics_client_id
-        )
+            indices=[0, 1, 2],  # <-- FIX: Added this line
+            rgbaColor=[1, 1, 0,
+                       1],  # <-- CHANGE: Set to yellow (R=1, G=1, B=0, A=1)
+            physicsClientId=physics_client_id)
 
         # 2. Re-create the body, but this time WITH a link for the triangle
-        p.removeBody(block_id, physicsClientId=physics_client_id) # Remove the old simple block
+        p.removeBody(
+            block_id,
+            physicsClientId=physics_client_id)  # Remove the old simple block
 
         block_id = p.createMultiBody(
             baseMass=mass,
@@ -936,17 +938,18 @@ def create_pybullet_block(
             # --- Link Parameters for the Triangle ---
             linkMasses=[0],  # Massless link
             linkCollisionShapeIndices=[-1],  # No collision for the link
-            linkVisualShapeIndices=[triangle_visual_id],  # Visual shape for the link
+            linkVisualShapeIndices=[triangle_visual_id
+                                    ],  # Visual shape for the link
             # Position the link's origin on top of the block's base
             linkPositions=[[0, 0, half_extents[2] + 0.001]],
-            linkOrientations=[[0, 0, 0, 1]], # No relative rotation
+            linkOrientations=[[0, 0, 0, 1]],  # No relative rotation
             linkInertialFramePositions=[[0, 0, 0]],
             linkInertialFrameOrientations=[[0, 0, 0, 1]],
             linkParentIndices=[0],  # Link is attached to the base (index 0)
-            linkJointTypes=[p.JOINT_FIXED], # Link is fixed to the base
-            linkJointAxis=[[0, 0, 1]], # Axis for the joint (not relevant for fixed)
-            physicsClientId=physics_client_id
-        )
+            linkJointTypes=[p.JOINT_FIXED],  # Link is fixed to the base
+            linkJointAxis=[[0, 0,
+                            1]],  # Axis for the joint (not relevant for fixed)
+            physicsClientId=physics_client_id)
 
         # Re-apply dynamics to the new multi-body object
         p.changeDynamics(
@@ -954,8 +957,7 @@ def create_pybullet_block(
             linkIndex=-1,  # -1 for the base
             lateralFriction=friction,
             spinningFriction=friction,
-            physicsClientId=physics_client_id
-        )
+            physicsClientId=physics_client_id)
 
     return block_id
 

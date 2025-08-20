@@ -12,9 +12,9 @@ from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass
 from itertools import islice
+from pprint import pformat
 from typing import Callable, Collection, Dict, FrozenSet, Iterator, List, \
     Optional, Set, Tuple
-from pprint import pformat
 
 import numpy as np
 
@@ -348,40 +348,44 @@ def _skeleton_generator_with_processes(
                     f"Add atoms: {sorted(node.state_history[-1] - prev_state)} "
                     f"Del atoms: {sorted(prev_state - node.state_history[-1])}"
                 )
-            
+
             # Log heuristic timing stats when a solution is found
             if time_heuristic:
                 average_heuristic_time = total_heuristic_time / heuristic_call_count if heuristic_call_count > 0 else 0.0
-                logging.info(f"Heuristic timing stats - Calls: {heuristic_call_count}, Total time: {total_heuristic_time:.4f}s, Average time: {average_heuristic_time:.4f}s")
-            
+                logging.info(
+                    f"Heuristic timing stats - Calls: {heuristic_call_count}, Total time: {total_heuristic_time:.4f}s, Average time: {average_heuristic_time:.4f}s"
+                )
+
             yield node.skeleton, node.atoms_sequence
         else:
             # Generate successors.
             metrics["num_nodes_expanded"] += 1
             # Skip abstract policy support...
-            applicable_actions = list(utils.get_applicable_operators(
-                    ground_action_processes, node.atoms))
-            
+            applicable_actions = list(
+                utils.get_applicable_operators(ground_action_processes,
+                                               node.atoms))
+
             # Domain-specific pruning for domino environment
             if CFG.env == "pybullet_domino" and CFG.domino_prune_actions:
                 # Filter out backwards placements and redundant picks
                 filtered_actions = []
                 placed_dominos = set()  # Track which dominos have been placed
-                
+
                 # First pass: identify already placed dominos
                 for prev_action in node.skeleton:
                     if prev_action.parent.name == "PlaceDomino":
                         # The domino being placed is the second argument
                         if len(prev_action.objects) > 1:
                             placed_dominos.add(prev_action.objects[1])
-                
+
                 for action in applicable_actions:
                     # Always keep NoOp and Push actions
                     if action.parent.name in ["NoOp", "PushStartBlock"]:
                         filtered_actions.append(action)
                     # For Pick, only pick dominos that haven't been placed yet
                     elif action.parent.name == "PickDomino":
-                        domino_to_pick = action.objects[1] if len(action.objects) > 1 else None
+                        domino_to_pick = action.objects[1] if len(
+                            action.objects) > 1 else None
                         if domino_to_pick and domino_to_pick not in placed_dominos:
                             filtered_actions.append(action)
                     # For Place, apply heuristics
@@ -391,11 +395,11 @@ def _skeleton_generator_with_processes(
                         filtered_actions.append(action)
                     else:
                         filtered_actions.append(action)
-                
+
                 # If pruning removed all actions, fall back to unpruned
                 if filtered_actions:
                     applicable_actions = filtered_actions
-            
+
             for action_process in applicable_actions:
 
                 # --- Run the action process on the world model
@@ -478,24 +482,26 @@ def _skeleton_generator_with_processes(
                     h = heuristic(child_node.atoms)
                     heuristic_end_time = time.perf_counter()
                     heuristic_call_count += 1
-                    total_heuristic_time += (heuristic_end_time - heuristic_start_time)
+                    total_heuristic_time += (heuristic_end_time -
+                                             heuristic_start_time)
                 else:
                     h = heuristic(child_node.atoms)
                 priority = (child_node.cumulative_cost + h)
                 if log_heuristic:
-                    logging.debug(f"Heuristic: {h}, g: {child_node.cumulative_cost}")
+                    logging.debug(
+                        f"Heuristic: {h}, g: {child_node.cumulative_cost}")
                 hq.heappush(queue, (priority, rng_prio.uniform(), child_node))
                 if time.perf_counter() - start_time >= timeout:
                     break
     if time_heuristic:
         average_heuristic_time = total_heuristic_time / heuristic_call_count if heuristic_call_count > 0 else 0.0
-        logging.info(f"Heuristic timing stats - Calls: {heuristic_call_count}, "
-                     f"Total time: {total_heuristic_time:.4f}s, "
-                     f"Average time: {average_heuristic_time:.4f}s, "
-                     f"Num_nodes_created: {metrics['num_nodes_created']}, "
-                     f"Num_nodes_expanded: {metrics['num_nodes_expanded']}"
-                     )
-    
+        logging.info(
+            f"Heuristic timing stats - Calls: {heuristic_call_count}, "
+            f"Total time: {total_heuristic_time:.4f}s, "
+            f"Average time: {average_heuristic_time:.4f}s, "
+            f"Num_nodes_created: {metrics['num_nodes_created']}, "
+            f"Num_nodes_expanded: {metrics['num_nodes_expanded']}")
+
     if not queue:
         raise _MaxSkeletonsFailure("Planning ran out of skeletons!")
     assert time.perf_counter() - start_time >= timeout
@@ -522,7 +528,7 @@ def task_plan_from_task(
 
     init_atoms = utils.abstract(task.init, all_predicates)
     logging.debug("[Task Planner] Task init atoms: "
-                    f"{pformat(sorted(init_atoms))}")
+                  f"{pformat(sorted(init_atoms))}")
     goal = task.goal
     objects = set(task.init)
     ground_processes, reachable_atoms = process_task_plan_grounding(
@@ -535,27 +541,34 @@ def task_plan_from_task(
     use_derived_predicates = True
     if CFG.sesame_task_planning_heuristic == "goal_count":
         heuristic = utils.create_task_planning_heuristic(
-            CFG.sesame_task_planning_heuristic, init_atoms, goal, ground_processes,
-            all_predicates, objects)
+            CFG.sesame_task_planning_heuristic, init_atoms, goal,
+            ground_processes, all_predicates, objects)
     elif CFG.sesame_task_planning_heuristic == "lm_cut":
-        heuristic = create_lm_cut_heuristic(goal, ground_processes,
-                                            derived_predicates,
-                                            objects,
-                                            use_derived_predicates=use_derived_predicates)
+        heuristic = create_lm_cut_heuristic(
+            goal,
+            ground_processes,
+            derived_predicates,
+            objects,
+            use_derived_predicates=use_derived_predicates)
     elif CFG.sesame_task_planning_heuristic == "h_max":
-        heuristic = create_h_max_heuristic(goal, ground_processes,
-                                            derived_predicates,
-                                            objects,
-                                            use_derived_predicates=use_derived_predicates)
+        heuristic = create_h_max_heuristic(
+            goal,
+            ground_processes,
+            derived_predicates,
+            objects,
+            use_derived_predicates=use_derived_predicates)
 
     elif CFG.sesame_task_planning_heuristic == "h_ff":
-        heuristic = create_ff_heuristic(goal,
-                                    ground_processes,
-                                    derived_predicates,
-                                    objects,
-                                    use_derived_predicates=use_derived_predicates)
+        heuristic = create_ff_heuristic(
+            goal,
+            ground_processes,
+            derived_predicates,
+            objects,
+            use_derived_predicates=use_derived_predicates)
     else:
-        raise ValueError(f"Unrecognized sesame_task_planning_heuristic: {CFG.sesame_task_planning_heuristic}")
+        raise ValueError(
+            f"Unrecognized sesame_task_planning_heuristic: {CFG.sesame_task_planning_heuristic}"
+        )
 
     return task_plan(
         init_atoms,
@@ -674,7 +687,6 @@ def run_task_plan_with_processes_once(
     return plan, necessary_atoms_seq, metrics
 
 
-
 def create_ff_heuristic(
     goal: Set[GroundAtom],
     ground_processes: List[_GroundCausalProcess],
@@ -683,7 +695,8 @@ def create_ff_heuristic(
     use_derived_predicates: bool = True,
     debug_log: bool = False,
 ) -> Callable[[Set[GroundAtom]], float]:
-    """Creates a callable FF heuristic function with efficient RPG generation."""
+    """Creates a callable FF heuristic function with efficient RPG
+    generation."""
 
     adds_map: Dict[GroundAtom, List[_GroundCausalProcess]] = defaultdict(list)
     for process in ground_processes:
@@ -741,7 +754,9 @@ def create_ff_heuristic(
 
             newly_added_primitive_facts = primitive_add_effects - current_facts
             if debug_log:
-                logging.debug(f"Newly added primitive facts: {sorted(newly_added_primitive_facts)}")
+                logging.debug(
+                    f"Newly added primitive facts: {sorted(newly_added_primitive_facts)}"
+                )
 
             # b) Incrementally compute new derived facts.
             newly_derived_facts = set()
@@ -755,7 +770,9 @@ def create_ff_heuristic(
                 )
                 # --- CHANGE END ---
                 if debug_log:
-                    logging.debug(f"Newly derived facts: {sorted(newly_derived_facts)}\n")
+                    logging.debug(
+                        f"Newly derived facts: {sorted(newly_derived_facts)}\n"
+                    )
 
             next_facts = current_facts | newly_added_primitive_facts | newly_derived_facts
 
@@ -834,8 +851,7 @@ def create_lm_cut_heuristic(
         current_atoms: Set[GroundAtom], current_goal: Set[GroundAtom]
     ) -> Tuple[float, Set[_GroundCausalProcess]]:
         """Helper that computes one relaxed plan (our landmark) from a given
-        state.
-        """
+        state."""
         initial_facts = current_atoms.copy()
         if use_derived_predicates:
             initial_facts.update(
@@ -851,12 +867,12 @@ def create_lm_cut_heuristic(
 
         while not current_goal.issubset(fact_layers[-1]):
             current_facts = fact_layers[-1]
-            
+
             applicable_processes: Set[_GroundCausalProcess] = set()
             for process in ground_processes:
                 if process.condition_at_start.issubset(current_facts):
                     applicable_processes.add(process)
-            
+
             process_layers.append(applicable_processes)
 
             primitive_add_effects = set()
@@ -876,7 +892,7 @@ def create_lm_cut_heuristic(
                 # --- CHANGE END ---
 
             next_facts = current_facts | newly_added_primitive_facts | newly_derived_facts
-            
+
             if next_facts == current_facts:
                 return float('inf'), set()
 
@@ -888,7 +904,8 @@ def create_lm_cut_heuristic(
 
         for i in range(len(fact_layers) - 1, 0, -1):
             for subgoal in subgoals_to_achieve.copy():
-                if subgoal in fact_layers[i] and subgoal not in fact_layers[i - 1]:
+                if subgoal in fact_layers[i] and subgoal not in fact_layers[i -
+                                                                            1]:
                     best_supporter = None
                     for process in adds_map.get(subgoal, []):
                         if process in process_layers[i - 1]:
@@ -950,6 +967,7 @@ def create_lm_cut_heuristic(
 
     return _lm_cut_heuristic
 
+
 def create_h_max_heuristic(
     goal: Set[GroundAtom],
     ground_processes: List[_GroundCausalProcess],
@@ -959,12 +977,13 @@ def create_h_max_heuristic(
 ) -> Callable[[Set[GroundAtom]], float]:
     """Creates a callable h_max heuristic function.
 
-    This heuristic is compatible with exogenous processes (zero-cost) and
-    derived predicates (zero-cost). It works by building a Relaxed Planning
-    Graph (RPG) and finding the maximum cost to achieve any single atom in
-    the goal set. The cost of an atom is the cost of the cheapest process
-    that achieves it, where the cost of a process is the maximum cost of
-    any of its preconditions plus its own cost (1 for actions, 0 otherwise).
+    This heuristic is compatible with exogenous processes (zero-cost)
+    and derived predicates (zero-cost). It works by building a Relaxed
+    Planning Graph (RPG) and finding the maximum cost to achieve any
+    single atom in the goal set. The cost of an atom is the cost of the
+    cheapest process that achieves it, where the cost of a process is
+    the maximum cost of any of its preconditions plus its own cost (1
+    for actions, 0 otherwise).
     """
 
     # Pre-computation for derived predicate dependencies.
@@ -988,17 +1007,20 @@ def create_h_max_heuristic(
         # Iteratively relax costs until a fixed point is reached.
         while True:
             costs_changed = False
-            
+
             # --- 1. Propagate costs through primitive processes ---
             for process in ground_processes:
                 # Cost of preconditions is the max cost of any single precond.
-                precond_cost = max([atom_costs[p] for p in process.condition_at_start] or [0.0])
-                
+                precond_cost = max(
+                    [atom_costs[p] for p in process.condition_at_start]
+                    or [0.0])
+
                 if precond_cost == float('inf'):
                     continue
 
                 # Actions (endogenous) have cost 1, others (exogenous) have cost 0.
-                process_cost = 1.0 if isinstance(process, _GroundEndogenousProcess) else 0.0
+                process_cost = 1.0 if isinstance(
+                    process, _GroundEndogenousProcess) else 0.0
                 total_cost = precond_cost + process_cost
 
                 # Update costs of effects if we found a cheaper way to achieve them.
@@ -1014,8 +1036,11 @@ def create_h_max_heuristic(
                     derived_costs_changed = False
                     # This logic is a simplified version of the incremental approach,
                     # adapted for h_max's cost propagation.
-                    current_facts_for_eval = {a for a, c in atom_costs.items() if c != float('inf')}
-                    
+                    current_facts_for_eval = {
+                        a
+                        for a, c in atom_costs.items() if c != float('inf')
+                    }
+
                     # Check all derived predicates whose inputs might have changed.
                     derived_atoms = utils._abstract_with_derived_predicates(
                         current_facts_for_eval, derived_predicates, objects)
@@ -1035,35 +1060,39 @@ def create_h_max_heuristic(
                         # checking the auxiliary predicates.
                         supporter_atoms = set()
                         for p in derived_atom.predicate.auxiliary_predicates:
-                            supporter_atoms.update(a for a in current_facts_for_eval if a.predicate == p)
-                        
+                            supporter_atoms.update(
+                                a for a in current_facts_for_eval
+                                if a.predicate == p)
+
                         if not supporter_atoms: continue
 
-                        derived_cost = max([atom_costs[a] for a in supporter_atoms] or [0.0])
+                        derived_cost = max(
+                            [atom_costs[a] for a in supporter_atoms] or [0.0])
 
                         if derived_cost < atom_costs[derived_atom]:
                             atom_costs[derived_atom] = derived_cost
                             derived_costs_changed = True
                             costs_changed = True
-                    
+
                     if not derived_costs_changed:
                         break
 
             # If no costs were updated in a full pass, we've reached a fixed point.
             if not costs_changed:
                 break
-        
+
         # The heuristic value is the max cost of any goal atom.
         goal_costs = [atom_costs[g] for g in goal]
-        
+
         # If any goal atom is infinitely costly, the goal is unreachable.
         if not goal_costs or max(goal_costs) == float('inf'):
             return float('inf')
-            
+
         return max(goal_costs)
 
     return _h_max_heuristic
-    
+
+
 def _run_incremental_derived_predicate_logic(
     newly_added_facts: Set[GroundAtom],
     existing_facts: Set[GroundAtom],
@@ -1087,8 +1116,9 @@ def _run_incremental_derived_predicate_logic(
         current_state_for_eval = existing_facts | all_newly_derived_facts | newly_added_facts
         potential_new_atoms = utils._abstract_with_derived_predicates(
             current_state_for_eval, derived_preds_to_check, objects)
-        
-        truly_new_atoms = potential_new_atoms - (existing_facts | all_newly_derived_facts)
+
+        truly_new_atoms = potential_new_atoms - (existing_facts
+                                                 | all_newly_derived_facts)
 
         if not truly_new_atoms:
             break

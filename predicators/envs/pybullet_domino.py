@@ -213,11 +213,11 @@ class PyBulletDominoEnv(PyBulletEnv):
             self._DominoAtRot = Predicate(
                 "DominoAtRot", [self._domino_type, self._rotation_type],
                 self._DominoAtRot_holds)
-            self._Connected = Predicate("Connected", 
-                                      [self._position_type, self._position_type],
-                                      self._Connected_holds)
+            self._Connected = Predicate(
+                "Connected", [self._position_type, self._position_type],
+                self._Connected_holds)
             self._PosClear = Predicate("PosClear", [self._position_type],
-                                     self._PosClear_holds)
+                                       self._PosClear_holds)
             self._InFrontDirection = DerivedPredicate(
                 "InFrontDirection",
                 [self._domino_type, self._domino_type, self._direction_type],
@@ -320,18 +320,25 @@ class PyBulletDominoEnv(PyBulletEnv):
         bodies["table_id"] = table_id
         # add another table for more space to play dominoes
         create_object(asset_path="urdf/table.urdf",
-                                 position=[cls.table_pos[0], cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2, cls.table_pos[2]],
-                                 orientation=cls.table_orn,
-                                 scale=1.0,
-                                 use_fixed_base=True,
-                                 physics_client_id=physics_client_id)
+                      position=[
+                          cls.table_pos[0],
+                          cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2,
+                          cls.table_pos[2]
+                      ],
+                      orientation=cls.table_orn,
+                      scale=1.0,
+                      use_fixed_base=True,
+                      physics_client_id=physics_client_id)
         # add a debug line at the end of the first table
-        p.addUserDebugLine(
-            [cls.table_pos[0] + (cls.x_ub - cls.x_lb)/2, cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2, cls.table_height+0.001],
-            [cls.table_pos[0] - (cls.x_ub - cls.x_lb)/2, cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2, cls.table_height+0.001],
-            [1, 0, 0],
-            parentObjectUniqueId=-1,
-            parentLinkIndex=-1)
+        p.addUserDebugLine([
+            cls.table_pos[0] + (cls.x_ub - cls.x_lb) / 2, cls.table_pos[1] +
+            (cls.y_ub - cls.y_lb) / 2, cls.table_height + 0.001
+        ], [
+            cls.table_pos[0] - (cls.x_ub - cls.x_lb) / 2, cls.table_pos[1] +
+            (cls.y_ub - cls.y_lb) / 2, cls.table_height + 0.001
+        ], [1, 0, 0],
+                           parentObjectUniqueId=-1,
+                           parentLinkIndex=-1)
 
         # Create a fixed number of dominoes and targets here
         domino_ids = []
@@ -765,14 +772,14 @@ class PyBulletDominoEnv(PyBulletEnv):
         }
 
         # Step 2: Define the optimized function to check one directional case.
-        def _check_case(
-            front_domino_positions: Set[Tuple[int, int]],
-            front_domino_rotations: Set[float],
-            back_domino_positions: Set[Tuple[int, int]],
-            back_domino_rotations: Set[float],
-            direction_name: str,
-            tolerance: float = 1e-6) -> bool:
-            """Perform decoupled checks for positional and rotational possibility."""
+        def _check_case(front_domino_positions: Set[Tuple[int, int]],
+                        front_domino_rotations: Set[float],
+                        back_domino_positions: Set[Tuple[int, int]],
+                        back_domino_rotations: Set[float],
+                        direction_name: str,
+                        tolerance: float = 1e-6) -> bool:
+            """Perform decoupled checks for positional and rotational
+            possibility."""
             # Fail fast if any required sets of states are empty.
             if not all([
                     front_domino_positions, front_domino_rotations,
@@ -798,7 +805,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                         break
                 if position_possible:
                     break
-            
+
             # If it's not positionally possible, no need to check rotation.
             if not position_possible:
                 return False
@@ -811,7 +818,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             elif direction_name == "right":
                 expected_rot_diff = -np.pi / 4
             else:
-                return False # Should not happen
+                return False  # Should not happen
 
             for rot_back_rad in back_domino_rotations:
                 for rot_front_rad in front_domino_rotations:
@@ -819,7 +826,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                     if abs(diff - expected_rot_diff) < tolerance:
                         # Position is possible and rotation is possible, so we're done.
                         return True
-            
+
             return False
 
         # Step 3: Check both symmetric cases for the relationship.
@@ -833,18 +840,18 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         # Case 1: Is domino1 in front of domino2 in `dir_name`?
         if _check_case(front_domino_positions=d1_positions_coords,
-                                front_domino_rotations=d1_rotations_rad,
-                                back_domino_positions=d2_positions_coords,
-                                back_domino_rotations=d2_rotations_rad,
-                                direction_name=dir_name):
+                       front_domino_rotations=d1_rotations_rad,
+                       back_domino_positions=d2_positions_coords,
+                       back_domino_rotations=d2_rotations_rad,
+                       direction_name=dir_name):
             return True
 
         # Case 2: Is domino2 in front of domino1 in `opposite_dir_name`?
         if _check_case(front_domino_positions=d2_positions_coords,
-                                front_domino_rotations=d2_rotations_rad,
-                                back_domino_positions=d1_positions_coords,
-                                back_domino_rotations=d1_rotations_rad,
-                                direction_name=opposite_dir_name):
+                       front_domino_rotations=d2_rotations_rad,
+                       back_domino_positions=d1_positions_coords,
+                       back_domino_rotations=d1_rotations_rad,
+                       direction_name=opposite_dir_name):
             return True
 
         return False
@@ -910,7 +917,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     @classmethod
     def _Connected_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if two positions are adjacent in cardinal directions only.
-        
+
         Returns True if positions are adjacent up/down or left/right,
         but False for diagonal adjacencies.
         """
@@ -923,54 +930,57 @@ class PyBulletDominoEnv(PyBulletEnv):
         y1 = state.get(pos1, "yy")
         x2 = state.get(pos2, "xx")
         y2 = state.get(pos2, "yy")
-        
+
         # Calculate differences
         dx = abs(x1 - x2)
         dy = abs(y1 - y2)
-        
+
         # Positions are connected if they are exactly one grid step apart
         # in only one direction (either x or y, but not both)
         grid_step = cls.pos_gap
         tolerance = grid_step * 0.1  # Small tolerance for floating point comparison
-        
+
         # Check if adjacent in x-direction only (same row)
         x_adjacent = abs(dx - grid_step) < tolerance and dy < tolerance
-        
-        # Check if adjacent in y-direction only (same column)  
+
+        # Check if adjacent in y-direction only (same column)
         y_adjacent = abs(dy - grid_step) < tolerance and dx < tolerance
-        
+
         return x_adjacent or y_adjacent
 
     @classmethod
     def _PosClear_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         """Check if a position is clear (not occupied by any domino).
-        
-        A position is considered clear if no domino is currently at that position.
+
+        A position is considered clear if no domino is currently at that
+        position.
         """
         position, = objects
-        
+
         # Get the position coordinates
         target_x = state.get(position, "xx")
         target_y = state.get(position, "yy")
-        
+
         # Check if any domino is at this position
         position_tolerance = cls.pos_gap * 0.5
         for domino in state.get_objects(cls._domino_type):
             domino_x = state.get(domino, "x")
             domino_y = state.get(domino, "y")
-            
+
             # If domino is close enough to this position, position is not clear
             if (abs(domino_x - target_x) <= position_tolerance
-                and abs(domino_y - target_y) <= position_tolerance):
+                    and abs(domino_y - target_y) <= position_tolerance):
                 return False
-        
+
         return True
 
     # -------------------------------------------------------------------------
     # Task Generation
 
-    def _generate_domino_sequence(self, rng: np.random.Generator,
-                                  n_dominos: int, n_targets: int,
+    def _generate_domino_sequence(self,
+                                  rng: np.random.Generator,
+                                  n_dominos: int,
+                                  n_targets: int,
                                   n_pivots: int,
                                   log_debug: bool = False) -> Optional[Dict]:
         """Generate a sequence of dominoes, targets, and pivots.
@@ -1083,10 +1093,12 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         return obj_dict if success else None
 
-    def _generate_domino_sequence_with_grid(self, rng: np.random.Generator,
-                                            n_dominos: int,
-                                            n_targets: int,
-                                            log_debug: bool = False) -> Optional[Dict]:
+    def _generate_domino_sequence_with_grid(
+            self,
+            rng: np.random.Generator,
+            n_dominos: int,
+            n_targets: int,
+            log_debug: bool = False) -> Optional[Dict]:
         """Grid-based sequence generator.
 
         This version implements straight moves and L-shaped 90-degree
@@ -1198,8 +1210,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                         placements = [(d1_x, d1_y, d1_rot),
                                       (d2_x, d2_y, d2_rot)]
 
-                        possible_moves.append((name, d2_grid_x, d2_grid_y,
-                                               d2_rot, placements))
+                        possible_moves.append(
+                            (name, d2_grid_x, d2_grid_y, d2_rot, placements))
 
             if not possible_moves:
                 # No valid moves, generation failed for this attempt.
@@ -1436,7 +1448,8 @@ class PyBulletDominoEnv(PyBulletEnv):
         return self._make_tasks(num_tasks=CFG.num_test_tasks,
                                 rng=self._test_rng)
 
-    def _make_tasks(self, num_tasks: int,
+    def _make_tasks(self,
+                    num_tasks: int,
                     rng: np.random.Generator,
                     log_debug: bool = False) -> List[EnvironmentTask]:
         tasks = []
@@ -1500,7 +1513,11 @@ class PyBulletDominoEnv(PyBulletEnv):
                         rng, n_dominos, n_targets, log_debug=log_debug)
                 else:
                     obj_dict = self._generate_domino_sequence(
-                        rng, n_dominos, n_targets, n_pivots, log_debug=log_debug)
+                        rng,
+                        n_dominos,
+                        n_targets,
+                        n_pivots,
+                        log_debug=log_debug)
                 if obj_dict is not None:
                     if log_debug:
                         print("Found satisfying a task")

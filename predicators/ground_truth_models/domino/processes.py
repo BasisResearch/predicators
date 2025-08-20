@@ -130,7 +130,9 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         rotation = Variable("?rot", rotation_type)
         if CFG.domino_include_connected_predicate:
             d2_pos = Variable("?pos2", position_type)
-            parameters = [robot, domino1, domino2, target_pos, d2_pos, rotation]
+            parameters = [
+                robot, domino1, domino2, target_pos, d2_pos, rotation
+            ]
         else:
             parameters = [robot, domino1, domino2, target_pos, rotation]
         option_vars = [robot, domino1, domino2, target_pos, rotation]
