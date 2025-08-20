@@ -256,6 +256,7 @@ def _skeleton_generator_with_processes(
     use_visited_state_set: bool = False,
     log_sucessful_small_steps: bool = False,
     log_heuristic: bool = False,
+    time_heuristic: bool = True,
     derived_predicates: Set[DerivedPredicate] = set(),
     objects: Set[Object] = set(),
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]]]]:
@@ -280,7 +281,16 @@ def _skeleton_generator_with_processes(
     )
     metrics["num_nodes_created"] += 1
     rng_prio = np.random.default_rng(seed)
-    h = heuristic(root_node.atoms)
+    if time_heuristic:
+        heuristic_call_count = 0
+        total_heuristic_time = 0.0
+        heuristic_start_time = time.perf_counter()
+        h = heuristic(root_node.atoms)
+        heuristic_end_time = time.perf_counter()
+        heuristic_call_count += 1
+        total_heuristic_time += (heuristic_end_time - heuristic_start_time)
+    else:
+        h = heuristic(root_node.atoms)
     if log_heuristic:
         logging.debug(f"Root heuristic: {h}")
     hq.heappush(queue, (h, rng_prio.uniform(), root_node))
@@ -337,6 +347,12 @@ def _skeleton_generator_with_processes(
                     f"Add atoms: {sorted(node.state_history[-1] - prev_state)} "
                     f"Del atoms: {sorted(prev_state - node.state_history[-1])}"
                 )
+            
+            # Log heuristic timing stats when a solution is found
+            if time_heuristic:
+                average_heuristic_time = total_heuristic_time / heuristic_call_count if heuristic_call_count > 0 else 0.0
+                logging.info(f"Heuristic timing stats - Calls: {heuristic_call_count}, Total time: {total_heuristic_time:.4f}s, Average time: {average_heuristic_time:.4f}s")
+            
             yield node.skeleton, node.atoms_sequence
         else:
             # Generate successors.
@@ -412,13 +428,24 @@ def _skeleton_generator_with_processes(
                     scheduled_events=deepcopy(world_model.scheduled_events))
                 metrics["num_nodes_created"] += 1
                 # priority is g [cost] plus h [heuristic]
-                h = heuristic(child_node.atoms)
+                if time_heuristic:
+                    heuristic_start_time = time.perf_counter()
+                    h = heuristic(child_node.atoms)
+                    heuristic_end_time = time.perf_counter()
+                    heuristic_call_count += 1
+                    total_heuristic_time += (heuristic_end_time - heuristic_start_time)
+                else:
+                    h = heuristic(child_node.atoms)
                 priority = (child_node.cumulative_cost + h)
                 if log_heuristic:
                     logging.debug(f"Heuristic: {h}, g: {child_node.cumulative_cost}")
                 hq.heappush(queue, (priority, rng_prio.uniform(), child_node))
                 if time.perf_counter() - start_time >= timeout:
                     break
+    if time_heuristic:
+        average_heuristic_time = total_heuristic_time / heuristic_call_count if heuristic_call_count > 0 else 0.0
+        logging.info(f"Heuristic timing stats - Calls: {heuristic_call_count}, Total time: {total_heuristic_time:.4f}s, Average time: {average_heuristic_time:.4f}s")
+    
     if not queue:
         raise _MaxSkeletonsFailure("Planning ran out of skeletons!")
     assert time.perf_counter() - start_time >= timeout
