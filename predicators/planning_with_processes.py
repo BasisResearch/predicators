@@ -489,6 +489,7 @@ def task_plan_from_task(
         allow_noops=True,
         compute_reachable_atoms=False)
 
+    use_derived_predicates = True
     if CFG.sesame_task_planning_heuristic == "goal_count":
         heuristic = utils.create_task_planning_heuristic(
             CFG.sesame_task_planning_heuristic, init_atoms, goal, ground_processes,
@@ -497,13 +498,19 @@ def task_plan_from_task(
         heuristic = create_lm_cut_heuristic(goal, ground_processes,
                                             derived_predicates,
                                             objects,
-                                            use_derived_predicates=True)
+                                            use_derived_predicates=use_derived_predicates)
+    elif CFG.sesame_task_planning_heuristic == "h_max":
+        heuristic = create_h_max_heuristic(goal, ground_processes,
+                                            derived_predicates,
+                                            objects,
+                                            use_derived_predicates=use_derived_predicates)
+
     elif CFG.sesame_task_planning_heuristic == "ff":
         heuristic = create_ff_heuristic(goal,
                                     ground_processes,
                                     derived_predicates,
                                     objects,
-                                    use_derived_predicates=True)
+                                    use_derived_predicates=use_derived_predicates)
     else:
         raise ValueError(f"Unrecognized sesame_task_planning_heuristic: {CFG.sesame_task_planning_heuristic}")
 
@@ -624,40 +631,6 @@ def run_task_plan_with_processes_once(
     return plan, necessary_atoms_seq, metrics
 
 
-def _run_incremental_derived_predicate_logic(
-    newly_added_facts: Set[GroundAtom],
-    existing_facts: Set[GroundAtom],
-    objects: Set[Object],
-    dep_to_derived_preds: Dict[Predicate, List[DerivedPredicate]],
-) -> Set[GroundAtom]:
-    """Incrementally compute the fixed point of derived predicate atoms."""
-    all_newly_derived_facts: Set[GroundAtom] = set()
-    facts_for_next_iter = newly_added_facts.copy()
-
-    while facts_for_next_iter:
-        derived_preds_to_check: Set[DerivedPredicate] = set()
-        for fact in facts_for_next_iter:
-            if fact.predicate in dep_to_derived_preds:
-                derived_preds_to_check.update(
-                    dep_to_derived_preds[fact.predicate])
-
-        if not derived_preds_to_check:
-            break
-
-        current_state_for_eval = existing_facts | all_newly_derived_facts | newly_added_facts
-        potential_new_atoms = utils._abstract_with_derived_predicates(
-            current_state_for_eval, derived_preds_to_check, objects)
-        
-        truly_new_atoms = potential_new_atoms - (existing_facts | all_newly_derived_facts)
-
-        if not truly_new_atoms:
-            break
-
-        all_newly_derived_facts.update(truly_new_atoms)
-        facts_for_next_iter = truly_new_atoms
-
-    return all_newly_derived_facts
-# --- CHANGE END ---
 
 def create_ff_heuristic(
     goal: Set[GroundAtom],
@@ -933,6 +906,154 @@ def create_lm_cut_heuristic(
         return total_cost
 
     return _lm_cut_heuristic
+
+def create_h_max_heuristic(
+    goal: Set[GroundAtom],
+    ground_processes: List[_GroundCausalProcess],
+    derived_predicates: Set[DerivedPredicate] = set(),
+    objects: Set[Object] = set(),
+    use_derived_predicates: bool = True,
+) -> Callable[[Set[GroundAtom]], float]:
+    """Creates a callable h_max heuristic function.
+
+    This heuristic is compatible with exogenous processes (zero-cost) and
+    derived predicates (zero-cost). It works by building a Relaxed Planning
+    Graph (RPG) and finding the maximum cost to achieve any single atom in
+    the goal set. The cost of an atom is the cost of the cheapest process
+    that achieves it, where the cost of a process is the maximum cost of
+    any of its preconditions plus its own cost (1 for actions, 0 otherwise).
+    """
+
+    # Pre-computation for derived predicate dependencies.
+    dep_to_derived_preds: Dict[Predicate,
+                               List[DerivedPredicate]] = defaultdict(list)
+    if use_derived_predicates:
+        for der_pred in derived_predicates:
+            for aux_pred in der_pred.auxiliary_predicates:
+                dep_to_derived_preds[aux_pred].append(der_pred)
+
+    def _h_max_heuristic(atoms: Set[GroundAtom]) -> float:
+        """The h_max heuristic function."""
+        if goal.issubset(atoms):
+            return 0.0
+
+        # Initialize costs: 0 for initial atoms, infinity otherwise.
+        atom_costs = defaultdict(lambda: float('inf'))
+        for atom in atoms:
+            atom_costs[atom] = 0.0
+
+        # Iteratively relax costs until a fixed point is reached.
+        while True:
+            costs_changed = False
+            
+            # --- 1. Propagate costs through primitive processes ---
+            for process in ground_processes:
+                # Cost of preconditions is the max cost of any single precond.
+                precond_cost = max([atom_costs[p] for p in process.condition_at_start] or [0.0])
+                
+                if precond_cost == float('inf'):
+                    continue
+
+                # Actions (endogenous) have cost 1, others (exogenous) have cost 0.
+                process_cost = 1.0 if isinstance(process, _GroundEndogenousProcess) else 0.0
+                total_cost = precond_cost + process_cost
+
+                # Update costs of effects if we found a cheaper way to achieve them.
+                for effect in process.add_effects:
+                    if total_cost < atom_costs[effect]:
+                        atom_costs[effect] = total_cost
+                        costs_changed = True
+
+            # --- 2. Propagate costs through derived predicates (zero-cost) ---
+            if use_derived_predicates:
+                # We need to loop here to handle chains of derived predicates.
+                while True:
+                    derived_costs_changed = False
+                    # This logic is a simplified version of the incremental approach,
+                    # adapted for h_max's cost propagation.
+                    current_facts_for_eval = {a for a, c in atom_costs.items() if c != float('inf')}
+                    
+                    # Check all derived predicates whose inputs might have changed.
+                    derived_atoms = utils._abstract_with_derived_predicates(
+                        current_facts_for_eval, derived_predicates, objects)
+
+                    for derived_atom in derived_atoms:
+                        # To determine the cost, we need to find the specific
+                        # atoms that make this derived predicate true. This is
+                        # complex, so we approximate by taking the max cost
+                        # of any atom in the current state. This is a safe
+                        # over-approximation for the preconditions. A more
+                        # precise implementation would require inspecting the
+                        # logic inside the 'holds' function. For now, we
+                        # find the cost of the supporter atoms.
+                        # NOTE: This is a simplification. A fully correct h_max
+                        # would need to know the specific atoms that satisfy
+                        # the 'holds' condition. We find the supporters by
+                        # checking the auxiliary predicates.
+                        supporter_atoms = set()
+                        for p in derived_atom.predicate.auxiliary_predicates:
+                            supporter_atoms.update(a for a in current_facts_for_eval if a.predicate == p)
+                        
+                        if not supporter_atoms: continue
+
+                        derived_cost = max([atom_costs[a] for a in supporter_atoms] or [0.0])
+
+                        if derived_cost < atom_costs[derived_atom]:
+                            atom_costs[derived_atom] = derived_cost
+                            derived_costs_changed = True
+                            costs_changed = True
+                    
+                    if not derived_costs_changed:
+                        break
+
+            # If no costs were updated in a full pass, we've reached a fixed point.
+            if not costs_changed:
+                break
+        
+        # The heuristic value is the max cost of any goal atom.
+        goal_costs = [atom_costs[g] for g in goal]
+        
+        # If any goal atom is infinitely costly, the goal is unreachable.
+        if not goal_costs or max(goal_costs) == float('inf'):
+            return float('inf')
+            
+        return max(goal_costs)
+
+    return _h_max_heuristic
+    
+def _run_incremental_derived_predicate_logic(
+    newly_added_facts: Set[GroundAtom],
+    existing_facts: Set[GroundAtom],
+    objects: Set[Object],
+    dep_to_derived_preds: Dict[Predicate, List[DerivedPredicate]],
+) -> Set[GroundAtom]:
+    """Incrementally compute the fixed point of derived predicate atoms."""
+    all_newly_derived_facts: Set[GroundAtom] = set()
+    facts_for_next_iter = newly_added_facts.copy()
+
+    while facts_for_next_iter:
+        derived_preds_to_check: Set[DerivedPredicate] = set()
+        for fact in facts_for_next_iter:
+            if fact.predicate in dep_to_derived_preds:
+                derived_preds_to_check.update(
+                    dep_to_derived_preds[fact.predicate])
+
+        if not derived_preds_to_check:
+            break
+
+        current_state_for_eval = existing_facts | all_newly_derived_facts | newly_added_facts
+        potential_new_atoms = utils._abstract_with_derived_predicates(
+            current_state_for_eval, derived_preds_to_check, objects)
+        
+        truly_new_atoms = potential_new_atoms - (existing_facts | all_newly_derived_facts)
+
+        if not truly_new_atoms:
+            break
+
+        all_newly_derived_facts.update(truly_new_atoms)
+        facts_for_next_iter = truly_new_atoms
+
+    return all_newly_derived_facts
 
 
 if __name__ == "__main__":
