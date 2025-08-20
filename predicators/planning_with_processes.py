@@ -255,6 +255,7 @@ def _skeleton_generator_with_processes(
     sesame_max_policy_guided_rollout: int = 0,
     use_visited_state_set: bool = False,
     log_sucessful_small_steps: bool = False,
+    log_heuristic: bool = True,
     derived_predicates: Set[DerivedPredicate] = set(),
     objects: Set[Object] = set(),
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]]]]:
@@ -279,8 +280,10 @@ def _skeleton_generator_with_processes(
     )
     metrics["num_nodes_created"] += 1
     rng_prio = np.random.default_rng(seed)
-    hq.heappush(queue,
-                (heuristic(root_node.atoms), rng_prio.uniform(), root_node))
+    h = heuristic(root_node.atoms)
+    if log_heuristic:
+        logging.debug(f"Root heuristic: {h}")
+    hq.heappush(queue, (h, rng_prio.uniform(), root_node))
     # Initialize with empty skeleton for root.
     # We want to keep track of the visited skeletons so that we avoid
     # repeatedly outputting the same faulty skeletons.
@@ -356,25 +359,27 @@ def _skeleton_generator_with_processes(
                 assert isinstance(action_process, _GroundEndogenousProcess)
                 # plan_so_far = [p.name for p in node.skeleton]
                 # logging.debug(f"Expand after plan {plan_so_far}:")
+                # applicable_actions = list(utils.get_applicable_operators(
+                #     ground_action_processes, node.atoms))
+                # num_applicable_actions = len(applicable_actions)
+                # logging.debug(f"Num applicable actions: {num_applicable_actions}")
+                # logging.debug(f"Taking action: {action_process.name_and_objects_str()}")
                 # action_names = [p.name for p in node.skeleton]
-                # target_action_names = ['PickJugFromOutsideFaucetAndBurner',
-                #                        'PlaceUnderFaucet',
-                #                        'SwitchFaucetOn',
-                #                        'SwitchBurnerOn',
-                #                        'SwitchFaucetOff',
-                #                        'PickJugFromFaucet',
-                #                        'PlaceOnBurner',
-
-                #                        'PickJugFromOutsideFaucetAndBurner',
-                #                        'PlaceUnderFaucet',
-                #                        'SwitchFaucetOn',
-                #                        'SwitchBurnerOn',
-                #                     #    'SwitchFaucetOff',
-                #                     #    'PickJugFromFaucet',
-                #                     #    'PlaceOnBurner',
-                #                        ]
+                # # target_action_names = ['PickJugFromOutsideFaucetAndBurner',
+                # #                        'PlaceUnderFaucet',
+                # #                        'SwitchFaucetOn',
+                # #                        'SwitchBurnerOn',
+                # #                        'SwitchFaucetOff',
+                # #                        'PickJugFromFaucet',
+                # #                        'PlaceOnBurner',
+                # #                        'PickJugFromOutsideFaucetAndBurner',
+                # #                        'PlaceUnderFaucet',
+                # #                        'SwitchFaucetOn',
+                # #                        'SwitchBurnerOn',
+                # #                        ]
+                # target_action_names = ['PickDomino']
                 # if action_names == target_action_names: # and \
-                #     # action_process.name == 'SwitchBurnerOn':
+                # #     # action_process.name == 'SwitchBurnerOn':
                 #     breakpoint()
                 world_model.big_step(action_process)
                 child_atoms = world_model.state.copy()
@@ -407,8 +412,10 @@ def _skeleton_generator_with_processes(
                     scheduled_events=deepcopy(world_model.scheduled_events))
                 metrics["num_nodes_created"] += 1
                 # priority is g [cost] plus h [heuristic]
-                priority = (child_node.cumulative_cost +
-                            heuristic(child_node.atoms))
+                h = heuristic(child_node.atoms)
+                priority = (child_node.cumulative_cost + h)
+                if log_heuristic:
+                    logging.debug(f"Heuristic: {h}, g: {child_node.cumulative_cost}")
                 hq.heappush(queue, (priority, rng_prio.uniform(), child_node))
                 if time.perf_counter() - start_time >= timeout:
                     break
@@ -669,6 +676,18 @@ def create_ff_heuristic(
                     applicable_processes.add(process)
 
             process_layers.append(applicable_processes)
+
+            # Old
+            # next_facts = current_facts.copy()
+            # for process in applicable_processes:
+            #     next_facts.update(process.add_effects)
+
+            # # After adding new base atoms from actions,
+            # # re-compute all derived predicates for the new fact layer.
+            # if use_derived_predicates:
+            #     next_facts.update(utils.abstract_with_derived_predicates(
+            #         next_facts, derived_predicates, objects))
+            # Old end
 
             # --- Incremental Fact Generation ---
             # a) Collect all new primitive facts from applicable processes.
