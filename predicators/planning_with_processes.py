@@ -505,7 +505,7 @@ def task_plan_from_task(
                                             objects,
                                             use_derived_predicates=use_derived_predicates)
 
-    elif CFG.sesame_task_planning_heuristic == "ff":
+    elif CFG.sesame_task_planning_heuristic == "h_ff":
         heuristic = create_ff_heuristic(goal,
                                     ground_processes,
                                     derived_predicates,

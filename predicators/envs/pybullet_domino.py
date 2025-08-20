@@ -1518,18 +1518,9 @@ class PyBulletDominoEnv(PyBulletEnv):
                 # Find target dominoes (pink dominoes) and set them as goals
                 goal_atoms = set()
                 for domino_obj in init_state.get_objects(self._domino_type):
-                    if self._TargetDomino_holds(init_state, [domino_obj]):
-                        goal_atoms.add(GroundAtom(self._Toppled, [domino_obj]))
-                # Fallback to first target domino if none found
-                if not goal_atoms:
-                    target_dominos = [
-                        d for d in init_state.get_objects(self._domino_type)
-                        if self._TargetDomino_holds(init_state, [d])
-                    ]
-                    if target_dominos:
-                        goal_atoms = {
-                            GroundAtom(self._Toppled, [target_dominos[0]])
-                        }
+                    goal_atoms.add(GroundAtom(self._Toppled, [domino_obj]))
+                    # if self._TargetDomino_holds(init_state, [domino_obj]):
+                    #     goal_atoms.add(GroundAtom(self._Toppled, [domino_obj]))
             else:
                 # Use regular targets
                 goal_atoms = {GroundAtom(self._Toppled, [self.targets[0]])}
