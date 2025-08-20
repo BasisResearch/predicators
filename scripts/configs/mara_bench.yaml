@@ -270,7 +270,7 @@ ENVS:
       domino_initialize_at_finished_state: False
       domino_use_domino_blocks_as_target: True
       domino_use_grid: True
-      domino_include_connected_predicate: False
+      domino_include_connected_predicate: True
   # domino_cf:
   #   NAME: "pybullet_domino"
   #   ARGS:
@@ -355,7 +355,7 @@ FLAGS:
   llm_openai_max_response_tokens: 1e6
   terminate_on_goal_reached: False
   num_train_tasks: 1
-  num_test_tasks: 1
+  num_test_tasks: 10
   video_fps: 20
   pybullet_camera_height: 900
   pybullet_camera_width: 900
@@ -365,7 +365,7 @@ FLAGS:
   planning_filter_unreachable_nsrt: False
   planning_check_dr_reachable: False
   sesame_task_planning_heuristic: 'goal_count'
-  timeout: 60
+  timeout: 300
   log: 'logs/'
   no_repeated_arguments_in_grounding: True
 START_SEED: 0
