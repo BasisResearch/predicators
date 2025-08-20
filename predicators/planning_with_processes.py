@@ -359,8 +359,44 @@ def _skeleton_generator_with_processes(
             # Generate successors.
             metrics["num_nodes_expanded"] += 1
             # Skip abstract policy support...
-            for action_process in utils.get_applicable_operators(
-                    ground_action_processes, node.atoms):
+            applicable_actions = list(utils.get_applicable_operators(
+                    ground_action_processes, node.atoms))
+            
+            # Domain-specific pruning for domino environment
+            if CFG.env == "pybullet_domino" and CFG.domino_prune_actions:
+                # Filter out backwards placements and redundant picks
+                filtered_actions = []
+                placed_dominos = set()  # Track which dominos have been placed
+                
+                # First pass: identify already placed dominos
+                for prev_action in node.skeleton:
+                    if prev_action.parent.name == "PlaceDomino":
+                        # The domino being placed is the second argument
+                        if len(prev_action.objects) > 1:
+                            placed_dominos.add(prev_action.objects[1])
+                
+                for action in applicable_actions:
+                    # Always keep NoOp and Push actions
+                    if action.parent.name in ["NoOp", "PushStartBlock"]:
+                        filtered_actions.append(action)
+                    # For Pick, only pick dominos that haven't been placed yet
+                    elif action.parent.name == "PickDomino":
+                        domino_to_pick = action.objects[1] if len(action.objects) > 1 else None
+                        if domino_to_pick and domino_to_pick not in placed_dominos:
+                            filtered_actions.append(action)
+                    # For Place, apply heuristics
+                    elif action.parent.name == "PlaceDomino":
+                        # Keep all place actions for now, but could add more pruning
+                        # E.g., only place in forward direction, avoid cycles, etc.
+                        filtered_actions.append(action)
+                    else:
+                        filtered_actions.append(action)
+                
+                # If pruning removed all actions, fall back to unpruned
+                if filtered_actions:
+                    applicable_actions = filtered_actions
+            
+            for action_process in applicable_actions:
 
                 # --- Run the action process on the world model
                 world_model = ProcessWorldModel(
@@ -453,7 +489,12 @@ def _skeleton_generator_with_processes(
                     break
     if time_heuristic:
         average_heuristic_time = total_heuristic_time / heuristic_call_count if heuristic_call_count > 0 else 0.0
-        logging.info(f"Heuristic timing stats - Calls: {heuristic_call_count}, Total time: {total_heuristic_time:.4f}s, Average time: {average_heuristic_time:.4f}s")
+        logging.info(f"Heuristic timing stats - Calls: {heuristic_call_count}, "
+                     f"Total time: {total_heuristic_time:.4f}s, "
+                     f"Average time: {average_heuristic_time:.4f}s, "
+                     f"Num_nodes_created: {metrics['num_nodes_created']}, "
+                     f"Num_nodes_expanded: {metrics['num_nodes_expanded']}"
+                     )
     
     if not queue:
         raise _MaxSkeletonsFailure("Planning ran out of skeletons!")

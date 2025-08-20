@@ -405,6 +405,7 @@ class GlobalSettings:
     domino_use_domino_blocks_as_target = False
     domino_use_grid = False
     domino_include_connected_predicate = False
+    domino_prune_actions = False  # Set to True to enable action pruning
 
     # burger env parameters
     burger_render_set_of_marks = True
