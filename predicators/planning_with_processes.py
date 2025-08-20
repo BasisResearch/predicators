@@ -374,13 +374,15 @@ def _skeleton_generator_with_processes(
 
                 assert isinstance(action_process, _GroundEndogenousProcess)
                 # plan_so_far = [p.name for p in node.skeleton]
+                # plan_so_far = [p.name_and_objects_str() for p in node.skeleton]
                 # logging.debug(f"Expand after plan {plan_so_far}:")
                 # applicable_actions = list(utils.get_applicable_operators(
                 #     ground_action_processes, node.atoms))
                 # num_applicable_actions = len(applicable_actions)
                 # logging.debug(f"Num applicable actions: {num_applicable_actions}")
                 # logging.debug(f"Taking action: {action_process.name_and_objects_str()}")
-                # action_names = [p.name for p in node.skeleton]
+                # action_names = [p.name_and_objects_str() for p in node.skeleton]
+                # # action_names = [p.name for p in node.skeleton]
                 # # target_action_names = ['PickJugFromOutsideFaucetAndBurner',
                 # #                        'PlaceUnderFaucet',
                 # #                        'SwitchFaucetOn',
@@ -393,9 +395,15 @@ def _skeleton_generator_with_processes(
                 # #                        'SwitchFaucetOn',
                 # #                        'SwitchBurnerOn',
                 # #                        ]
-                # target_action_names = ['PickDomino']
-                # if action_names == target_action_names: # and \
-                # #     # action_process.name == 'SwitchBurnerOn':
+                # target_action_names = [
+                #                     'PickDomino(robot:robot, domino_2:domino, pos_y0_x2:loc, rot_0:rot)',
+                #                     # 'PlaceDomino(robot:robot, domino_2:domino, domino_3:domino, pos_y0_x2:loc, rot_135:rot)',
+                #                     # 'PickDomino(robot:robot, domino_1:domino, pos_y0_x0:loc, rot_0:rot)',
+                #                     # 'PlaceDomino(robot:robot, domino_1:domino, domino_0:domino, pos_y1_x2:loc, rot_180:rot',
+                #                     ]
+                # if action_names == target_action_names and \
+                #     action_process.name_and_objects_str() == 'PlaceDomino(robot:robot, domino_2:domino, domino_3:domino, pos_y0_x2:loc, rot_135:rot)':
+                # # if action_names == target_action_names:
                 #     breakpoint()
                 world_model.big_step(action_process)
                 child_atoms = world_model.state.copy()
@@ -481,15 +489,23 @@ def task_plan_from_task(
         allow_noops=True,
         compute_reachable_atoms=False)
 
-    # heuristic = utils.create_task_planning_heuristic(
-    #     CFG.sesame_task_planning_heuristic, init_atoms, goal, ground_processes,
-    #     all_predicates, objects)
-    # heuristic = create_lm_cut_heuristic(goal, ground_processes)
-    heuristic = create_ff_heuristic(goal,
+    if CFG.sesame_task_planning_heuristic == "goal_count":
+        heuristic = utils.create_task_planning_heuristic(
+            CFG.sesame_task_planning_heuristic, init_atoms, goal, ground_processes,
+            all_predicates, objects)
+    elif CFG.sesame_task_planning_heuristic == "lm_cut":
+        heuristic = create_lm_cut_heuristic(goal, ground_processes,
+                                            derived_predicates,
+                                            objects,
+                                            use_derived_predicates=True)
+    elif CFG.sesame_task_planning_heuristic == "ff":
+        heuristic = create_ff_heuristic(goal,
                                     ground_processes,
                                     derived_predicates,
                                     objects,
                                     use_derived_predicates=True)
+    else:
+        raise ValueError(f"Unrecognized sesame_task_planning_heuristic: {CFG.sesame_task_planning_heuristic}")
 
     return task_plan(
         init_atoms,
@@ -608,6 +624,41 @@ def run_task_plan_with_processes_once(
     return plan, necessary_atoms_seq, metrics
 
 
+def _run_incremental_derived_predicate_logic(
+    newly_added_facts: Set[GroundAtom],
+    existing_facts: Set[GroundAtom],
+    objects: Set[Object],
+    dep_to_derived_preds: Dict[Predicate, List[DerivedPredicate]],
+) -> Set[GroundAtom]:
+    """Incrementally compute the fixed point of derived predicate atoms."""
+    all_newly_derived_facts: Set[GroundAtom] = set()
+    facts_for_next_iter = newly_added_facts.copy()
+
+    while facts_for_next_iter:
+        derived_preds_to_check: Set[DerivedPredicate] = set()
+        for fact in facts_for_next_iter:
+            if fact.predicate in dep_to_derived_preds:
+                derived_preds_to_check.update(
+                    dep_to_derived_preds[fact.predicate])
+
+        if not derived_preds_to_check:
+            break
+
+        current_state_for_eval = existing_facts | all_newly_derived_facts | newly_added_facts
+        potential_new_atoms = utils._abstract_with_derived_predicates(
+            current_state_for_eval, derived_preds_to_check, objects)
+        
+        truly_new_atoms = potential_new_atoms - (existing_facts | all_newly_derived_facts)
+
+        if not truly_new_atoms:
+            break
+
+        all_newly_derived_facts.update(truly_new_atoms)
+        facts_for_next_iter = truly_new_atoms
+
+    return all_newly_derived_facts
+# --- CHANGE END ---
+
 def create_ff_heuristic(
     goal: Set[GroundAtom],
     ground_processes: List[_GroundCausalProcess],
@@ -616,67 +667,22 @@ def create_ff_heuristic(
     use_derived_predicates: bool = True,
     debug_log: bool = False,
 ) -> Callable[[Set[GroundAtom]], float]:
-    """Creates a callable FF heuristic function with efficient RPG generation.
+    """Creates a callable FF heuristic function with efficient RPG generation."""
 
-    This version uses an incremental, semi-naïve evaluation for derived
-    predicates to significantly speed up the construction of the Relaxed
-    Planning Graph (RPG).
-    """
-
-    # --- Pre-computation for the heuristic ---
-
-    # 1. Build a map from atoms to processes that add them.
     adds_map: Dict[GroundAtom, List[_GroundCausalProcess]] = defaultdict(list)
     for process in ground_processes:
         for atom in process.add_effects:
             adds_map[atom].append(process)
 
-    # 2. Build a reverse dependency graph for incremental derivation.
-    # Maps an auxiliary predicate to all derived predicates that use it.
+    # --- CHANGE START: Use pre-computation for the shared function ---
     dep_to_derived_preds: Dict[Predicate,
                                List[DerivedPredicate]] = defaultdict(list)
     if use_derived_predicates:
         for der_pred in derived_predicates:
             for aux_pred in der_pred.auxiliary_predicates:
                 dep_to_derived_preds[aux_pred].append(der_pred)
+    # --- CHANGE END ---
 
-    # --- Helper function for incremental derivation ---
-    def _incremental_abstract_with_derived_predicates(
-        newly_added_facts: Set[GroundAtom],
-        existing_facts: Set[GroundAtom],
-    ) -> Set[GroundAtom]:
-        """Incrementally compute the fixed point of derived predicate atoms."""
-        all_newly_derived_facts: Set[GroundAtom] = set()
-        facts_for_next_iter = newly_added_facts.copy()
-
-        while facts_for_next_iter:
-            derived_preds_to_check: Set[DerivedPredicate] = set()
-            for fact in facts_for_next_iter:
-                if fact.predicate in dep_to_derived_preds:
-                    derived_preds_to_check.update(
-                        dep_to_derived_preds[fact.predicate])
-
-            if not derived_preds_to_check:
-                break
-
-            # CORRECTED: Include all new facts in the state for evaluation.
-            current_state_for_eval = existing_facts | all_newly_derived_facts | newly_added_facts
-
-            potential_new_atoms = utils._abstract_with_derived_predicates(
-                current_state_for_eval, derived_preds_to_check, objects)
-            
-            # We must subtract all previously known facts to find what's new.
-            truly_new_atoms = potential_new_atoms - (existing_facts | all_newly_derived_facts)
-
-            if not truly_new_atoms:
-                break
-
-            all_newly_derived_facts.update(truly_new_atoms)
-            facts_for_next_iter = truly_new_atoms
-
-        return all_newly_derived_facts
-
-    # --- The main heuristic function ---
     def _ff_heuristic(atoms: Set[GroundAtom]) -> float:
         """The FF heuristic using incremental RPG generation."""
         if goal.issubset(atoms):
@@ -724,22 +730,18 @@ def create_ff_heuristic(
             # b) Incrementally compute new derived facts.
             newly_derived_facts = set()
             if use_derived_predicates:
-                # We pass both new primitive facts and all previously derived facts
-                # to the incremental checker.
-                newly_derived_facts = _incremental_abstract_with_derived_predicates(
+                # --- CHANGE START: Call the shared function ---
+                newly_derived_facts = _run_incremental_derived_predicate_logic(
                     newly_added_primitive_facts,
                     current_facts,
+                    objects,
+                    dep_to_derived_preds,
                 )
-                # # Old
-                # newly_derived_facts = utils.abstract_with_derived_predicates(
-                #     current_facts | primitive_add_effects, derived_predicates, objects)
-                # # Old end
+                # --- CHANGE END ---
                 if debug_log:
                     logging.debug(f"Newly derived facts: {sorted(newly_derived_facts)}\n")
 
-            # c) The next layer is the union of the current layer and all new facts.
             next_facts = current_facts | newly_added_primitive_facts | newly_derived_facts
-            # --- End of Incremental Section ---
 
             # If the new layer is identical to the old one, we've stagnated.
             if next_facts == current_facts:
@@ -783,6 +785,9 @@ def create_ff_heuristic(
 def create_lm_cut_heuristic(
     goal: Set[GroundAtom],
     ground_processes: List[_GroundCausalProcess],
+    derived_predicates: Set[DerivedPredicate] = set(),
+    objects: Set[Object] = set(),
+    use_derived_predicates: bool = True,
 ) -> Callable[[Set[GroundAtom]], float]:
     """Creates a callable LM-cut heuristic function.
 
@@ -800,35 +805,63 @@ def create_lm_cut_heuristic(
         for atom in process.add_effects:
             adds_map[atom].append(process)
 
+    # --- CHANGE START: Use pre-computation for the shared function ---
+    dep_to_derived_preds: Dict[Predicate,
+                               List[DerivedPredicate]] = defaultdict(list)
+    if use_derived_predicates:
+        for der_pred in derived_predicates:
+            for aux_pred in der_pred.auxiliary_predicates:
+                dep_to_derived_preds[aux_pred].append(der_pred)
+    # --- CHANGE END ---
+
     def _calculate_relaxed_plan(
         current_atoms: Set[GroundAtom], current_goal: Set[GroundAtom]
     ) -> Tuple[float, Set[_GroundCausalProcess]]:
         """Helper that computes one relaxed plan (our landmark) from a given
         state.
-
-        This is the core logic from the FF heuristic. Returns the cost
-        of the plan and the plan itself (as a set of processes).
         """
-        if current_goal.issubset(current_atoms):
+        initial_facts = current_atoms.copy()
+        if use_derived_predicates:
+            initial_facts.update(
+                utils.abstract_with_derived_predicates(initial_facts,
+                                                       derived_predicates,
+                                                       objects))
+
+        if current_goal.issubset(initial_facts):
             return 0.0, set()
 
-        # 1. Build RPG from the current state.
-        fact_layers: List[Set[GroundAtom]] = [current_atoms.copy()]
+        fact_layers: List[Set[GroundAtom]] = [initial_facts]
         process_layers: List[Set[_GroundCausalProcess]] = []
 
         while not current_goal.issubset(fact_layers[-1]):
-            # Find all applicable processes
+            current_facts = fact_layers[-1]
+            
             applicable_processes: Set[_GroundCausalProcess] = set()
             for process in ground_processes:
-                if process.condition_at_start.issubset(fact_layers[-1]):
+                if process.condition_at_start.issubset(current_facts):
                     applicable_processes.add(process)
-
+            
             process_layers.append(applicable_processes)
-            next_facts = fact_layers[-1].copy()
-            for process in applicable_processes:
-                next_facts.update(process.add_effects)
 
-            if next_facts == fact_layers[-1]:  # No progress
+            primitive_add_effects = set()
+            for process in applicable_processes:
+                primitive_add_effects.update(process.add_effects)
+            newly_added_primitive_facts = primitive_add_effects - current_facts
+
+            newly_derived_facts = set()
+            if use_derived_predicates:
+                # --- CHANGE START: Call the shared function ---
+                newly_derived_facts = _run_incremental_derived_predicate_logic(
+                    newly_added_primitive_facts,
+                    current_facts,
+                    objects,
+                    dep_to_derived_preds,
+                )
+                # --- CHANGE END ---
+
+            next_facts = current_facts | newly_added_primitive_facts | newly_derived_facts
+            
+            if next_facts == current_facts:
                 return float('inf'), set()
 
             fact_layers.append(next_facts)
@@ -839,8 +872,7 @@ def create_lm_cut_heuristic(
 
         for i in range(len(fact_layers) - 1, 0, -1):
             for subgoal in subgoals_to_achieve.copy():
-                if subgoal in fact_layers[i] and subgoal not in fact_layers[i -
-                                                                            1]:
+                if subgoal in fact_layers[i] and subgoal not in fact_layers[i - 1]:
                     best_supporter = None
                     for process in adds_map.get(subgoal, []):
                         if process in process_layers[i - 1]:
@@ -886,9 +918,6 @@ def create_lm_cut_heuristic(
             # but haven't reached the goal, we must force progress by adding
             # at least one real action. A cost of 1 is the minimum.
             if landmark_cost == 0.0:
-                # This can happen if the goal is reachable only through a chain
-                # of exogenous or axiom processes. To avoid an infinite loop
-                # we must assign a minimum cost of 1 to escape.
                 total_cost += 1.0
 
             total_cost += landmark_cost
