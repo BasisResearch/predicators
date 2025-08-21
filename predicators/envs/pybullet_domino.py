@@ -1144,7 +1144,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         y = rng.uniform(self.y_lb + self.domino_width,
                         self.y_ub - 3 * self.domino_width)
         rot = rng.choice([0, np.pi / 2, -np.pi / 2])
-        gap = self.domino_width * 1.3
+        gap = self.pos_gap
 
         # Place first domino (start block)
         obj_dict[self.dominos[domino_count]] = self._place_domino(
@@ -1898,7 +1898,7 @@ if __name__ == "__main__":
 
     CFG.seed = 0
     CFG.env = "pybullet_domino"
-    CFG.domino_initialize_at_finished_state = False
+    CFG.domino_initialize_at_finished_state = True
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_use_grid = True
     env = PyBulletDominoEnv(use_gui=True)
