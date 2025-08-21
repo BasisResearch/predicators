@@ -270,7 +270,7 @@ ENVS:
       domino_initialize_at_finished_state: False
       domino_use_domino_blocks_as_target: True
       domino_use_grid: True
-      domino_include_connected_predicate: True # necessary to generate valid plan
+      domino_include_connected_predicate: False # necessary to generate valid plan
       domino_prune_actions: False
   # domino_cf:
   #   NAME: "pybullet_domino"
