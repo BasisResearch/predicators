@@ -616,7 +616,6 @@ def task_plan_from_task(
         allow_noops=True,
         compute_reachable_atoms=False)
 
-    use_derived_predicates = True
     if CFG.sesame_task_planning_heuristic == "goal_count":
         heuristic = utils.create_task_planning_heuristic(
             CFG.sesame_task_planning_heuristic, init_atoms, goal,
@@ -627,14 +626,14 @@ def task_plan_from_task(
             ground_processes,
             derived_predicates,
             objects,
-            use_derived_predicates=use_derived_predicates)
+            use_derived_predicates=CFG.use_derived_predicate_in_heuristic)
     elif CFG.sesame_task_planning_heuristic == "h_max":
         heuristic = create_h_max_heuristic(
             goal,
             ground_processes,
             derived_predicates,
             objects,
-            use_derived_predicates=use_derived_predicates)
+            use_derived_predicates=CFG.use_derived_predicate_in_heuristic)
 
     elif CFG.sesame_task_planning_heuristic == "h_ff":
         heuristic = create_ff_heuristic(
@@ -642,7 +641,7 @@ def task_plan_from_task(
             ground_processes,
             derived_predicates,
             objects,
-            use_derived_predicates=use_derived_predicates)
+            use_derived_predicates=CFG.use_derived_predicate_in_heuristic)
     else:
         raise ValueError(
             f"Unrecognized sesame_task_planning_heuristic: {CFG.sesame_task_planning_heuristic}"
