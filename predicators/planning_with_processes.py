@@ -118,6 +118,15 @@ class ProcessWorldModel:
                             atom.predicate].append(p)
         # --- END NEW ---
 
+        # --- NEW: Pre-compute dependencies for incremental derived predicates ---
+        self._dep_to_derived_preds: Dict[Predicate,
+                                       List[DerivedPredicate]] = defaultdict(
+                                           list)
+        for der_pred in self.derived_predicates:
+            for aux_pred in der_pred.auxiliary_predicates:
+                self._dep_to_derived_preds[aux_pred].append(der_pred)
+        # --- END NEW ---
+
     def small_step(
             self,
             small_step_action: Optional[_GroundEndogenousProcess] = None
@@ -148,6 +157,14 @@ class ProcessWorldModel:
 
         # 2. Process effects scheduled for this timestep.
         if self.t in self.scheduled_events:
+            # --- MODIFIED: Logic for incremental derived predicate updates ---
+            primitive_facts_before = {
+                a
+                for a in self.state
+                if not isinstance(a.predicate, DerivedPredicate)
+            }
+            # --- END MODIFIED ---
+
             for g_process, start_time in self.scheduled_events[self.t]:
                 if (all(
                         g_process.condition_overall.issubset(s)
@@ -162,15 +179,42 @@ class ProcessWorldModel:
                         self.current_action = None
             del self.scheduled_events[self.t]
 
-            # Re-evaluate derived predicates if the state has changed.
+            # --- MODIFIED: Incremental derived predicate update logic ---
             if len(self.derived_predicates) > 0:
-                self.state = {
-                    atom
-                    for atom in self.state
-                    if not isinstance(atom.predicate, DerivedPredicate)
+                primitive_facts_after = {
+                    a
+                    for a in self.state
+                    if not isinstance(a.predicate, DerivedPredicate)
                 }
-                self.state |= utils.abstract_with_derived_predicates(
-                    self.state, self.derived_predicates, self.objects)
+
+                # Only update if the primitive facts have changed.
+                if primitive_facts_before != primitive_facts_after:
+                    deleted_facts = primitive_facts_before - primitive_facts_after
+
+                    # If any primitive fact was deleted, a full re-computation
+                    # is the safest way to ensure correctness.
+                    if deleted_facts:
+                        # Remove all old derived facts.
+                        self.state = {
+                            atom
+                            for atom in self.state
+                            if not isinstance(atom.predicate, DerivedPredicate)
+                        }
+                        # Re-compute all derived facts from the new state.
+                        self.state |= utils.abstract_with_derived_predicates(
+                            self.state, self.derived_predicates, self.objects)
+
+                    # Otherwise, only additions occurred; we can be incremental.
+                    else:
+                        added_facts = primitive_facts_after - primitive_facts_before
+                        # `existing_facts` includes primitive and derived facts
+                        # before the new additions.
+                        existing_facts_before_increment = self.state - added_facts
+                        newly_derived_facts = _run_incremental_derived_predicate_logic(
+                            added_facts, existing_facts_before_increment,
+                            self.objects, self._dep_to_derived_preds)
+                        self.state.update(newly_derived_facts)
+            # --- END MODIFIED ---
 
         # 3. Schedule new events whose conditions are met.
         # --- MODIFIED: Optimized scheduling logic ---
