@@ -1625,13 +1625,6 @@ class PyBulletDominoEnv(PyBulletEnv):
 
             # Place dominoes (D) and targets (T) in order: D D T D T
             # at fixed positions along the x-axis
-            gap = self.domino_width * 1.3
-
-            def _in_bounds(nx: float, ny: float) -> bool:
-                """Check if (nx, ny) is within table boundaries."""
-                return self.x_lb < nx < self.x_ub and \
-                    self.y_lb < ny < self.y_ub
-
             n_dominos = rng.integers(low=self.num_dominos_min,
                                      high=self.num_dominos_max + 1)
             # n_dominos = len(self.dominos)
