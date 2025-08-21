@@ -228,6 +228,12 @@ class PyBulletDominoEnv(PyBulletEnv):
                 "InFront", [self._domino_type, self._domino_type],
                 self._InFront_holds,
                 auxiliary_predicates=[self._InFrontDirection])
+            
+            if CFG.domino_use_grid:
+                self._AdjacentTo = DerivedPredicate(
+                    "AdjacentTo", [self._position_type, self._domino_type],
+                    self._AdjacentTo_holds,
+                    auxiliary_predicates=[self._DominoAtPos])
 
     @classmethod
     def get_name(cls) -> str:
@@ -252,8 +258,10 @@ class PyBulletDominoEnv(PyBulletEnv):
                 self._DominoAtRot,
                 self._PosClear,
             })
-        if CFG.domino_include_connected_predicate:
-            base_predicates.update({self._Connected})
+            if CFG.domino_include_connected_predicate:
+                base_predicates.update({self._Connected})
+            else:
+                base_predicates.update({self._AdjacentTo})
 
         return base_predicates
 
@@ -1111,6 +1119,62 @@ class PyBulletDominoEnv(PyBulletEnv):
                 return False
 
         return True
+
+    @classmethod
+    def _AdjacentTo_holds(cls, atoms: Set[GroundAtom],
+                          objects: Sequence[Object]) -> bool:
+        """Check if a position is adjacent to a domino in cardinal directions.
+        
+        This is similar to _InFrontDirection_holds but checks if a position
+        is adjacent to any position where the domino could be placed, considering
+        that the domino can be in multiple positions during heuristic computation.
+        
+        Adjacent positions are those that are exactly one grid step away in
+        cardinal directions (up, down, left, right) but not diagonal.
+        """
+        position, domino = objects
+
+        if not CFG.domino_use_grid:
+            raise ValueError("Grid is not used, this derived predicate cannot "
+                             "function")
+
+        # Helper functions to parse object names and cache results
+        _pos_coord_cache = {}
+
+        def extract_grid_coords(pos_obj):
+            if pos_obj in _pos_coord_cache:
+                return _pos_coord_cache[pos_obj]
+            name_parts = pos_obj.name.split("_")
+            y_idx = int(name_parts[1][1:])
+            x_idx = int(name_parts[2][1:])
+            result = (x_idx, y_idx)
+            _pos_coord_cache[pos_obj] = result
+            return result
+
+        # Get coordinates of the target position
+        target_coords = extract_grid_coords(position)
+        target_x_idx, target_y_idx = target_coords
+
+        # Get all possible positions where the domino could be
+        domino_positions_coords = {
+            extract_grid_coords(atom.objects[1])
+            for atom in atoms if atom.predicate.name == "DominoAtPos"
+            and atom.objects[0] == domino
+        }
+
+        # Check if the target position is adjacent to any domino position
+        # Adjacent means exactly one grid step away in cardinal directions
+        for domino_x_idx, domino_y_idx in domino_positions_coords:
+            # Calculate the difference in grid coordinates
+            dx = abs(target_x_idx - domino_x_idx)
+            dy = abs(target_y_idx - domino_y_idx)
+
+            # Adjacent in cardinal directions means:
+            # - Exactly 1 step away in one direction AND 0 steps in the other
+            if (dx == 1 and dy == 0) or (dx == 0 and dy == 1):
+                return True
+
+        return False
 
     # -------------------------------------------------------------------------
     # Task Generation

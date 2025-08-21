@@ -47,6 +47,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         PosClear = predicates["PosClear"]
         if CFG.domino_include_connected_predicate:
             Connected = predicates["Connected"]
+        else:
+            AdjacentTo = predicates["AdjacentTo"]
         # Note: Toppled predicate exists but represents the goal state
         # Note: The "Falling" predicate from the sketch is not implemented in the current environment
         # We would need to add it to the environment for the DominoFall exogenous process
@@ -145,6 +147,10 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             condition_at_start.update({
                 LiftedAtom(DominoAtPos, [domino2, d2_pos]),
                 LiftedAtom(Connected, [target_pos, d2_pos]),
+            })
+        else:
+            condition_at_start.update({
+                LiftedAtom(AdjacentTo, [target_pos, domino2]),
             })
         add_effects = {
             LiftedAtom(HandEmpty, [robot]),
