@@ -812,7 +812,7 @@ def create_ff_heuristic(
             logging.debug(f"Initial facts: {sorted(initial_facts)}")
         while not goal.issubset(fact_layers[-1]):
             if debug_log:
-                logging.debug(f"Calculating heuristic layer {count}...")
+                logging.debug(f"Applying actions {count}...")
                 count += 1
             current_facts = fact_layers[-1]
 
@@ -865,6 +865,8 @@ def create_ff_heuristic(
         subgoals_to_achieve = goal.copy()
 
         for i in range(len(fact_layers) - 1, 0, -1):
+            if debug_log:
+                logging.debug(f"Subgoals to achieve: {sorted(subgoals_to_achieve)}")
             unachieved_subgoals = subgoals_to_achieve.copy()
             for subgoal in unachieved_subgoals:
                 # If the subgoal appeared for the first time in this layer...
@@ -874,6 +876,8 @@ def create_ff_heuristic(
                     # Find a process from the previous layer that achieves it.
                     for process in adds_map.get(subgoal, []):
                         if process in process_layers[i - 1]:
+                            if debug_log:
+                                logging.debug(f"Found supporter for {subgoal}: {process.name_and_objects_str()}")
                             best_supporter = process
                             break
 
