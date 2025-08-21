@@ -110,11 +110,13 @@ class PyBulletDominoEnv(PyBulletEnv):
 
     def __init__(self, use_gui: bool = True) -> None:
         # Initialize domino count variables from CFG
-        self.num_dominos_max = min(9, CFG.domino_num_dominos_max)
+        assert CFG.domino_num_dominos_max <= 9
+        assert CFG.domino_num_targets_max <= 3
+        self.num_dominos_max = CFG.domino_num_dominos_max
         self.num_dominos_min = CFG.domino_num_dominos_min
-        self.num_targets_max = min(3, CFG.domino_num_targets_max)
+        self.num_targets_max = CFG.domino_num_targets_max
         self.num_targets_min = CFG.domino_num_targets_min
-        self.num_pivots_max = min(2, CFG.domino_num_pivots_max)
+        self.num_pivots_max = CFG.domino_num_pivots_max
         self.num_pivots_min = CFG.domino_num_pivots_min
         
         # Conditionally create grid-related types
@@ -355,11 +357,11 @@ class PyBulletDominoEnv(PyBulletEnv):
         target_ids = []
         if CFG.domino_use_domino_blocks_as_target:
             # If using domino blocks as targets, we create more dominoes
-            num_dominos_to_create = cls.num_dominos_max + cls.num_targets_max
+            num_dominos_to_create = CFG.domino_num_dominos_max + CFG.domino_num_targets_max
             num_targets_to_create = 0
         else:
-            num_dominos_to_create = cls.num_dominos_max
-            num_targets_to_create = cls.num_targets_max
+            num_dominos_to_create = CFG.domino_num_dominos_max
+            num_targets_to_create = CFG.domino_num_targets_max
         for i in range(num_dominos_to_create):  # e.g. 3 dominoes
             domino_id = create_pybullet_block(
                 color=cls.start_domino_color if i == 0 else cls.domino_color,
@@ -382,7 +384,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                                 physics_client_id=physics_client_id)
             target_ids.append(tid)
         pivot_ids = []
-        for _ in range(cls.num_pivots_max):
+        for _ in range(CFG.domino_num_pivots_max):
             pid = create_object("urdf/domino_pivot.urdf",
                                 position=(cls.x_lb, cls.y_lb, cls.z_lb),
                                 orientation=p.getQuaternionFromEuler(

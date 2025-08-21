@@ -316,6 +316,7 @@ def _skeleton_generator_with_processes(
     log_sucessful_small_steps: bool = False,
     log_heuristic: bool = False,
     time_heuristic: bool = True,
+    heuristic_weight: float = 10,
     derived_predicates: Set[DerivedPredicate] = set(),
     objects: Set[Object] = set(),
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]]]]:
@@ -363,12 +364,12 @@ def _skeleton_generator_with_processes(
         heuristic_call_count = 0
         total_heuristic_time = 0.0
         heuristic_start_time = time.perf_counter()
-        h = heuristic(root_node.atoms)
+        h = heuristic(root_node.atoms) * heuristic_weight
         heuristic_end_time = time.perf_counter()
         heuristic_call_count += 1
         total_heuristic_time += (heuristic_end_time - heuristic_start_time)
     else:
-        h = heuristic(root_node.atoms)
+        h = heuristic(root_node.atoms) * heuristic_weight
     if log_heuristic:
         logging.debug(f"Root heuristic: {h}")
     hq.heappush(queue, (h, rng_prio.uniform(), root_node))
@@ -399,7 +400,7 @@ def _skeleton_generator_with_processes(
             # If this skeleton satisfies the goal, yield it.
             metrics["num_skeletons_optimized"] += 1
             time_taken = time.perf_counter() - start_time
-            logging.debug(f"\n[Task Planner] Found Plan of length "
+            logging.info(f"\n[Task Planner] Found Plan of length "
                           f"{len(node.skeleton)} in {time_taken:.2f}s:")
             for process in node.skeleton:
                 logging.debug(process.name_and_objects_str())
@@ -539,7 +540,7 @@ def _skeleton_generator_with_processes(
                 visited_skeletons.add(child_skeleton_tup)
                 # Action costs are unitary.
                 if action_process.option.name == 'NoOp':
-                    action_cost = 0.5
+                    action_cost = 0.6
                 else:
                     action_cost = 1.0
                 child_cost = node.cumulative_cost + action_cost
@@ -556,13 +557,13 @@ def _skeleton_generator_with_processes(
                 # priority is g [cost] plus h [heuristic]
                 if time_heuristic:
                     heuristic_start_time = time.perf_counter()
-                    h = heuristic(child_node.atoms)
+                    h = heuristic(child_node.atoms) * heuristic_weight
                     heuristic_end_time = time.perf_counter()
                     heuristic_call_count += 1
                     total_heuristic_time += (heuristic_end_time -
                                              heuristic_start_time)
                 else:
-                    h = heuristic(child_node.atoms)
+                    h = heuristic(child_node.atoms) * heuristic_weight
                 priority = (child_node.cumulative_cost + h)
                 if log_heuristic:
                     logging.debug(
@@ -572,7 +573,7 @@ def _skeleton_generator_with_processes(
                     break
     if time_heuristic:
         average_heuristic_time = total_heuristic_time / heuristic_call_count if heuristic_call_count > 0 else 0.0
-        logging.info(
+        logging.debug(
             f"Heuristic timing stats - Calls: {heuristic_call_count}, "
             f"Total time: {total_heuristic_time:.4f}s, "
             f"Average time: {average_heuristic_time:.4f}s, "
