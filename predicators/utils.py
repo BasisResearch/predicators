@@ -5161,8 +5161,8 @@ def _abstract_with_derived_predicates(
 
 def get_base_supporter_predicates(
         root_predicate: DerivedPredicate) -> Set[Predicate]:
-    """Finds all primitive (non-derived) supporter predicates for a given
-    root derived predicate by traversing its dependency graph."""
+    """Finds all primitive (non-derived) supporter predicates for a given root
+    derived predicate by traversing its dependency graph."""
     base_predicates: Set[Predicate] = set()
 
     # Use a worklist to process predicates in a breadth-first manner.
@@ -5185,7 +5185,6 @@ def get_base_supporter_predicates(
             base_predicates.add(pred)
 
     return base_predicates
-
 
 
 class PredicateEvaluationError(Exception):

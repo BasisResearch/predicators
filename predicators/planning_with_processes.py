@@ -888,7 +888,7 @@ def create_ff_heuristic(
                         subgoals_to_achieve.discard(subgoal)
             if debug_log:
                 logging.debug(f"\nLayer {i} Subgoals to achieve: "
-                                f"{sorted(subgoals_to_achieve)}")
+                              f"{sorted(subgoals_to_achieve)}")
 
             unachieved_subgoals = subgoals_to_achieve.copy()
             for subgoal in unachieved_subgoals:
@@ -905,8 +905,9 @@ def create_ff_heuristic(
                     for process in adds_map.get(subgoal, []):
                         if process in process_layers[i - 1]:
                             if debug_log:
-                                logging.debug(f"Found supporter for {subgoal}: "
-                                            f"{process.name_and_objects_str()}")
+                                logging.debug(
+                                    f"Found supporter for {subgoal}: "
+                                    f"{process.name_and_objects_str()}")
                             best_supporter = process
                             break
 
