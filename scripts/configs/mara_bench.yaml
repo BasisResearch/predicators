@@ -12,6 +12,7 @@ APPROACHES:
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
       use_derived_predicate_in_heuristic: True
+      process_planning_heuristic_weight: 10.0
   # param_learning:
   #   NAME: "param_learning_process_planning"
   #   ARGS:

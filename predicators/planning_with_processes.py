@@ -112,8 +112,8 @@ class ProcessWorldModel:
         # --- Use provided indexes or build them if not provided ---
         if precondition_to_exogenous_processes is not None:
             self._precondition_to_exogenous_processes = precondition_to_exogenous_processes
-        else:
-            # Fallback: build the index if not provided
+        elif CFG.build_exogenous_process_index:
+            # Fallback: build the index if not provided and CFG allows it
             self._precondition_to_exogenous_processes: Dict[
                 Predicate, List[_GroundExogenousProcess]] = defaultdict(list)
             for p in self.ground_processes:
@@ -122,6 +122,10 @@ class ProcessWorldModel:
                         if not isinstance(atom.predicate, DerivedPredicate):
                             self._precondition_to_exogenous_processes[
                                 atom.predicate].append(p)
+        else:
+            # Don't build the index
+            self._precondition_to_exogenous_processes: Dict[
+                Predicate, List[_GroundExogenousProcess]] = defaultdict(list)
 
         if dep_to_derived_preds is not None:
             self._dep_to_derived_preds = dep_to_derived_preds
@@ -237,31 +241,45 @@ class ProcessWorldModel:
                 self.scheduled_events[scheduled_time].append(
                     (small_step_action, self.t))
 
-        # 3b. Handle exogenous processes using the index for efficiency.
-        # Find newly true primitive facts by comparing current vs. previous.
-        current_primitive_facts = {
-            atom
-            for atom in self.state
-            if not isinstance(atom.predicate, DerivedPredicate)
-        }
-        newly_added_primitive_facts = current_primitive_facts - previous_primitive_facts
+        # 3b. Handle exogenous processes.
+        if CFG.build_exogenous_process_index:
+            # Use the index for efficiency.
+            # Find newly true primitive facts by comparing current vs. previous.
+            current_primitive_facts = {
+                atom
+                for atom in self.state
+                if not isinstance(atom.predicate, DerivedPredicate)
+            }
+            newly_added_primitive_facts = current_primitive_facts - previous_primitive_facts
 
-        # Gather all candidate processes touched by these new facts.
-        candidate_processes_to_check: Set[_GroundExogenousProcess] = set()
-        for fact in newly_added_primitive_facts:
-            candidate_processes_to_check.update(
-                self._precondition_to_exogenous_processes[fact.predicate])
+            # Gather all candidate processes touched by these new facts.
+            candidate_processes_to_check: Set[_GroundExogenousProcess] = set()
+            for fact in newly_added_primitive_facts:
+                candidate_processes_to_check.update(
+                    self._precondition_to_exogenous_processes[fact.predicate])
 
-        # Check the full preconditions for only the candidate processes.
-        for g_process in candidate_processes_to_check:
-            if g_process.condition_at_start.issubset(self.state):
-                delay = g_process.delay_distribution.sample()
-                delay = max(1, delay)
-                scheduled_time = self.t + delay
-                if scheduled_time not in self.scheduled_events:
-                    self.scheduled_events[scheduled_time] = []
-                self.scheduled_events[scheduled_time].append(
-                    (g_process, self.t))
+            # Check the full preconditions for only the candidate processes.
+            for g_process in candidate_processes_to_check:
+                if g_process.condition_at_start.issubset(self.state):
+                    delay = g_process.delay_distribution.sample()
+                    delay = max(1, delay)
+                    scheduled_time = self.t + delay
+                    if scheduled_time not in self.scheduled_events:
+                        self.scheduled_events[scheduled_time] = []
+                    self.scheduled_events[scheduled_time].append(
+                        (g_process, self.t))
+        else:
+            # Fallback: check all exogenous processes (less efficient)
+            for g_process in self.ground_processes:
+                if isinstance(g_process, _GroundExogenousProcess):
+                    if g_process.condition_at_start.issubset(self.state):
+                        delay = g_process.delay_distribution.sample()
+                        delay = max(1, delay)
+                        scheduled_time = self.t + delay
+                        if scheduled_time not in self.scheduled_events:
+                            self.scheduled_events[scheduled_time] = []
+                        self.scheduled_events[scheduled_time].append(
+                            (g_process, self.t))
 
         # --- END MODIFIED ---
 
@@ -327,14 +345,16 @@ def _skeleton_generator_with_processes(
 
     # --- Build indexes once for all ProcessWorldModel instances ---
     # Index for efficient scheduling of exogenous processes
-    precondition_to_exogenous_processes: Dict[
-        Predicate, List[_GroundExogenousProcess]] = defaultdict(list)
-    for p in ground_processes:
-        if isinstance(p, _GroundExogenousProcess):
-            for atom in p.condition_at_start:
-                if not isinstance(atom.predicate, DerivedPredicate):
-                    precondition_to_exogenous_processes[atom.predicate].append(
-                        p)
+    precondition_to_exogenous_processes: Optional[Dict[
+        Predicate, List[_GroundExogenousProcess]]] = None
+    if CFG.build_exogenous_process_index:
+        precondition_to_exogenous_processes = defaultdict(list)
+        for p in ground_processes:
+            if isinstance(p, _GroundExogenousProcess):
+                for atom in p.condition_at_start:
+                    if not isinstance(atom.predicate, DerivedPredicate):
+                        precondition_to_exogenous_processes[
+                            atom.predicate].append(p)
 
     # Pre-compute dependencies for incremental derived predicates
     dep_to_derived_preds: Dict[Predicate,
@@ -489,7 +509,10 @@ def _skeleton_generator_with_processes(
                     scheduled_events=deepcopy(node.scheduled_events),
                     t=len(node.state_history),
                     derived_predicates=derived_predicates,
-                    objects=objects)
+                    objects=objects,
+                    precondition_to_exogenous_processes=
+                    precondition_to_exogenous_processes,
+                    dep_to_derived_preds=dep_to_derived_preds)
 
                 assert isinstance(action_process, _GroundEndogenousProcess)
                 # plan_so_far = [p.name for p in node.skeleton]

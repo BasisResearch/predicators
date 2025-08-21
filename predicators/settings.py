@@ -639,6 +639,7 @@ class GlobalSettings:
     predicate_invent_neural_symbolic_predicates = False
     cluster_learning_one_effect_per_process = False
     use_derived_predicate_in_heuristic = True
+    process_planning_heuristic_weight = 10.0
 
     # torch GPU usage setting
     use_torch_gpu = False
