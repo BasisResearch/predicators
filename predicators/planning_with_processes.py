@@ -91,7 +91,11 @@ class ProcessWorldModel:
                                                int]]] = {},
         t: int = 0,
         derived_predicates: Set[DerivedPredicate] = set(),
-        objects: Set[Object] = set()
+        objects: Set[Object] = set(),
+        precondition_to_exogenous_processes: Optional[Dict[
+            Predicate, List[_GroundExogenousProcess]]] = None,
+        dep_to_derived_preds: Optional[Dict[Predicate,
+                                           List[DerivedPredicate]]] = None
     ) -> None:
 
         self.ground_processes = ground_processes
@@ -105,27 +109,29 @@ class ProcessWorldModel:
         self.derived_predicates = derived_predicates
         self.objects = objects
 
-        # --- NEW: Index for efficient scheduling of exogenous processes ---
-        # This maps a primitive predicate to a list of all ground exogenous
-        # processes that have that predicate in their start condition.
-        self._precondition_to_exogenous_processes: Dict[
-            Predicate, List[_GroundExogenousProcess]] = defaultdict(list)
-        for p in self.ground_processes:
-            if isinstance(p, _GroundExogenousProcess):
-                for atom in p.condition_at_start:
-                    if not isinstance(atom.predicate, DerivedPredicate):
-                        self._precondition_to_exogenous_processes[
-                            atom.predicate].append(p)
-        # --- END NEW ---
+        # --- Use provided indexes or build them if not provided ---
+        if precondition_to_exogenous_processes is not None:
+            self._precondition_to_exogenous_processes = precondition_to_exogenous_processes
+        else:
+            # Fallback: build the index if not provided
+            self._precondition_to_exogenous_processes: Dict[
+                Predicate, List[_GroundExogenousProcess]] = defaultdict(list)
+            for p in self.ground_processes:
+                if isinstance(p, _GroundExogenousProcess):
+                    for atom in p.condition_at_start:
+                        if not isinstance(atom.predicate, DerivedPredicate):
+                            self._precondition_to_exogenous_processes[
+                                atom.predicate].append(p)
 
-        # --- NEW: Pre-compute dependencies for incremental derived predicates ---
-        self._dep_to_derived_preds: Dict[Predicate,
-                                       List[DerivedPredicate]] = defaultdict(
-                                           list)
-        for der_pred in self.derived_predicates:
-            for aux_pred in der_pred.auxiliary_predicates:
-                self._dep_to_derived_preds[aux_pred].append(der_pred)
-        # --- END NEW ---
+        if dep_to_derived_preds is not None:
+            self._dep_to_derived_preds = dep_to_derived_preds
+        else:
+            # Fallback: build the index if not provided
+            self._dep_to_derived_preds: Dict[Predicate,
+                                           List[DerivedPredicate]] = defaultdict(list)
+            for der_pred in self.derived_predicates:
+                for aux_pred in der_pred.auxiliary_predicates:
+                    self._dep_to_derived_preds[aux_pred].append(der_pred)
 
     def small_step(
             self,
@@ -316,6 +322,25 @@ def _skeleton_generator_with_processes(
     # Filter out all the action from processes
     # zero heuristic
     objects = objects.copy()
+    
+    # --- Build indexes once for all ProcessWorldModel instances ---
+    # Index for efficient scheduling of exogenous processes
+    precondition_to_exogenous_processes: Dict[
+        Predicate, List[_GroundExogenousProcess]] = defaultdict(list)
+    for p in ground_processes:
+        if isinstance(p, _GroundExogenousProcess):
+            for atom in p.condition_at_start:
+                if not isinstance(atom.predicate, DerivedPredicate):
+                    precondition_to_exogenous_processes[
+                        atom.predicate].append(p)
+    
+    # Pre-compute dependencies for incremental derived predicates
+    dep_to_derived_preds: Dict[Predicate,
+                               List[DerivedPredicate]] = defaultdict(list)
+    for der_pred in derived_predicates:
+        for aux_pred in der_pred.auxiliary_predicates:
+            dep_to_derived_preds[aux_pred].append(der_pred)
+    # --- End index building ---
     ground_action_processes = [
         p for p in ground_processes if isinstance(p, _GroundEndogenousProcess)
     ]
