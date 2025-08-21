@@ -118,7 +118,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         self.num_targets_min = CFG.domino_num_targets_min
         self.num_pivots_max = CFG.domino_num_pivots_max
         self.num_pivots_min = CFG.domino_num_pivots_min
-        
+
         # Conditionally create grid-related types
         if CFG.domino_use_grid:
             self._position_type = Type("loc", ["xx", "yy"])
@@ -232,7 +232,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                 "InFront", [self._domino_type, self._domino_type],
                 self._InFront_holds,
                 auxiliary_predicates=[self._InFrontDirection])
-            
+
             if CFG.domino_use_grid:
                 self._AdjacentTo = DerivedPredicate(
                     "AdjacentTo", [self._position_type, self._domino_type],
@@ -1186,7 +1186,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         # Choose a random starting position and orientation (cardinal directions).
         start_idx = rng.choice(len(self.grid_pos))
         curr_x, curr_y = self.grid_pos[start_idx]
-        # If in the top row, can't face down because it's unreachable for the 
+        # If in the top row, can't face down because it's unreachable for the
         # robot
         top_row_y = np.max([y for _, y in self.grid_pos])
         if np.abs(curr_y - top_row_y) < 1e-3:

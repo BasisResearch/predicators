@@ -401,7 +401,7 @@ def _skeleton_generator_with_processes(
             metrics["num_skeletons_optimized"] += 1
             time_taken = time.perf_counter() - start_time
             logging.info(f"\n[Task Planner] Found Plan of length "
-                          f"{len(node.skeleton)} in {time_taken:.2f}s:")
+                         f"{len(node.skeleton)} in {time_taken:.2f}s:")
             for process in node.skeleton:
                 logging.debug(process.name_and_objects_str())
             logging.debug("")
@@ -771,6 +771,7 @@ def create_ff_heuristic(
     derived_predicates: Set[DerivedPredicate] = set(),
     objects: Set[Object] = set(),
     use_derived_predicates: bool = True,
+    treat_derived_predicates_in_backward_search: bool = True,
     debug_log: bool = False,
 ) -> Callable[[Set[GroundAtom]], float]:
     """Creates a callable FF heuristic function with efficient RPG
@@ -808,7 +809,7 @@ def create_ff_heuristic(
         process_layers: List[Set[_GroundCausalProcess]] = []
 
         if debug_log:
-            count = 0
+            count = 1
             logging.debug(f"Initial facts: {sorted(initial_facts)}")
         while not goal.issubset(fact_layers[-1]):
             if debug_log:
@@ -865,19 +866,47 @@ def create_ff_heuristic(
         subgoals_to_achieve = goal.copy()
 
         for i in range(len(fact_layers) - 1, 0, -1):
+
+            if treat_derived_predicates_in_backward_search:
+                for subgoal in subgoals_to_achieve.copy():
+                    # Case 1: The subgoal is a DERIVED predicate.
+                    # It is achieved 'for free' by its supporting auxiliary predicates.
+                    if isinstance(subgoal.predicate, DerivedPredicate):
+                        # The new subgoals are the auxiliary predicates that support it.
+                        # In a relaxed plan, we conservatively add all atoms from the
+                        # previous layer that could be supporters.
+                        supporter_predicates =\
+                            utils.get_base_supporter_predicates(
+                                subgoal.predicate)
+                        new_subgoals = {
+                            atom
+                            for atom in fact_layers[i - 1]
+                            if atom.predicate in supporter_predicates
+                        }
+
+                        subgoals_to_achieve.update(new_subgoals)
+                        subgoals_to_achieve.discard(subgoal)
             if debug_log:
-                logging.debug(f"Subgoals to achieve: {sorted(subgoals_to_achieve)}")
+                logging.debug(f"\nLayer {i} Subgoals to achieve: "
+                                f"{sorted(subgoals_to_achieve)}")
+
             unachieved_subgoals = subgoals_to_achieve.copy()
             for subgoal in unachieved_subgoals:
                 # If the subgoal appeared for the first time in this layer...
                 if subgoal in fact_layers[i] and subgoal not in fact_layers[i -
                                                                             1]:
+
+                    if debug_log:
+                        logging.debug(f"Considering subgoal: {subgoal}")
+
+                    # Case 2: The subgoal is a PRIMITIVE predicate (original logic).
                     best_supporter = None
                     # Find a process from the previous layer that achieves it.
                     for process in adds_map.get(subgoal, []):
                         if process in process_layers[i - 1]:
                             if debug_log:
-                                logging.debug(f"Found supporter for {subgoal}: {process.name_and_objects_str()}")
+                                logging.debug(f"Found supporter for {subgoal}: "
+                                            f"{process.name_and_objects_str()}")
                             best_supporter = process
                             break
 

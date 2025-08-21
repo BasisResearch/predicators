@@ -5159,6 +5159,35 @@ def _abstract_with_derived_predicates(
     return atoms
 
 
+def get_base_supporter_predicates(
+        root_predicate: DerivedPredicate) -> Set[Predicate]:
+    """Finds all primitive (non-derived) supporter predicates for a given
+    root derived predicate by traversing its dependency graph."""
+    base_predicates: Set[Predicate] = set()
+
+    # Use a worklist to process predicates in a breadth-first manner.
+    predicates_to_process: List[Predicate] = list(
+        root_predicate.auxiliary_predicates)
+    processed_predicates: Set[Predicate] = {root_predicate}
+
+    while predicates_to_process:
+        pred = predicates_to_process.pop(0)
+
+        if pred in processed_predicates:
+            continue
+        processed_predicates.add(pred)
+
+        # If the predicate is derived, add its auxiliaries to the worklist.
+        if isinstance(pred, DerivedPredicate):
+            predicates_to_process.extend(pred.auxiliary_predicates)
+        # If it's a primitive predicate, we've found a base supporter.
+        else:
+            base_predicates.add(pred)
+
+    return base_predicates
+
+
+
 class PredicateEvaluationError(Exception):
 
     def __init__(self, message, pred):
