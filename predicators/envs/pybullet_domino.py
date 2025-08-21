@@ -1322,8 +1322,9 @@ class PyBulletDominoEnv(PyBulletEnv):
         curr_x, curr_y = self.grid_pos[start_idx]
         # If in the top row, can't face down because it's unreachable for the 
         # robot
-        if curr_y == self.num_pos_y - 1:
-            curr_rot = rng.choice([np.pi / 2, np.pi])
+        top_row_y = np.max([y for _, y in self.grid_pos])
+        if np.abs(curr_y - top_row_y) < 1e-3:
+            curr_rot = rng.choice([np.pi / 2, np.pi / 2])
         else:
             curr_rot = rng.choice([0, np.pi / 2, np.pi, -np.pi / 2])
         used_coords.add((curr_x, curr_y))
@@ -1658,7 +1659,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     def _make_tasks(self,
                     num_tasks: int,
                     rng: np.random.Generator,
-                    log_debug: bool = False) -> List[EnvironmentTask]:
+                    log_debug: bool = True) -> List[EnvironmentTask]:
         tasks = []
         total_attempts = 0
         # Suppose we want to create M = 3 dominoes, N = 2 targets for each task
@@ -1964,11 +1965,11 @@ if __name__ == "__main__":
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_use_grid = True
     env = PyBulletDominoEnv(use_gui=True)
-    tasks = env._make_tasks(1, env._test_rng)
+    tasks = env._make_tasks(10, env._test_rng)
     for task in tasks:
         env._reset_state(task.init)
 
-        for i in range(10000):
+        for i in range(100):
             action = Action(
                 np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)
