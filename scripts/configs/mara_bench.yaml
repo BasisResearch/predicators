@@ -263,7 +263,7 @@ ENVS:
     FLAGS:
       sesame_max_skeletons_optimized: 1
       sesame_check_expected_atoms: False
-      # horizon: 60
+      horizon: 100
       pybullet_ik_validate: False
       bilevel_plan_without_sim: True
       # option_model_terminate_on_repeat: False
