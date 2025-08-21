@@ -771,7 +771,6 @@ def create_ff_heuristic(
     derived_predicates: Set[DerivedPredicate] = set(),
     objects: Set[Object] = set(),
     use_derived_predicates: bool = True,
-    treat_derived_predicates_in_backward_search: bool = True,
     debug_log: bool = False,
 ) -> Callable[[Set[GroundAtom]], float]:
     """Creates a callable FF heuristic function with efficient RPG
@@ -867,7 +866,7 @@ def create_ff_heuristic(
 
         for i in range(len(fact_layers) - 1, 0, -1):
 
-            if treat_derived_predicates_in_backward_search:
+            if use_derived_predicates:
                 for subgoal in subgoals_to_achieve.copy():
                     # Case 1: The subgoal is a DERIVED predicate.
                     # It is achieved 'for free' by its supporting auxiliary predicates.
