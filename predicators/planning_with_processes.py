@@ -112,7 +112,7 @@ class ProcessWorldModel:
         # --- Use provided indexes or build them if not provided ---
         if precondition_to_exogenous_processes is not None:
             self._precondition_to_exogenous_processes = precondition_to_exogenous_processes
-        elif CFG.build_exogenous_process_index:
+        elif CFG.build_exogenous_process_index_for_planning:
             # Fallback: build the index if not provided and CFG allows it
             self._precondition_to_exogenous_processes: Dict[
                 Predicate, List[_GroundExogenousProcess]] = defaultdict(list)
@@ -242,7 +242,7 @@ class ProcessWorldModel:
                     (small_step_action, self.t))
 
         # 3b. Handle exogenous processes.
-        if CFG.build_exogenous_process_index:
+        if CFG.build_exogenous_process_index_for_planning:
             # Use the index for efficiency.
             # Find newly true primitive facts by comparing current vs. previous.
             current_primitive_facts = {
@@ -347,7 +347,7 @@ def _skeleton_generator_with_processes(
     # Index for efficient scheduling of exogenous processes
     precondition_to_exogenous_processes: Optional[Dict[
         Predicate, List[_GroundExogenousProcess]]] = None
-    if CFG.build_exogenous_process_index:
+    if CFG.build_exogenous_process_index_for_planning:
         precondition_to_exogenous_processes = defaultdict(list)
         for p in ground_processes:
             if isinstance(p, _GroundExogenousProcess):
