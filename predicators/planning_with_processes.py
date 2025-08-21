@@ -95,7 +95,7 @@ class ProcessWorldModel:
         precondition_to_exogenous_processes: Optional[Dict[
             Predicate, List[_GroundExogenousProcess]]] = None,
         dep_to_derived_preds: Optional[Dict[Predicate,
-                                           List[DerivedPredicate]]] = None
+                                            List[DerivedPredicate]]] = None
     ) -> None:
 
         self.ground_processes = ground_processes
@@ -127,8 +127,8 @@ class ProcessWorldModel:
             self._dep_to_derived_preds = dep_to_derived_preds
         else:
             # Fallback: build the index if not provided
-            self._dep_to_derived_preds: Dict[Predicate,
-                                           List[DerivedPredicate]] = defaultdict(list)
+            self._dep_to_derived_preds: Dict[
+                Predicate, List[DerivedPredicate]] = defaultdict(list)
             for der_pred in self.derived_predicates:
                 for aux_pred in der_pred.auxiliary_predicates:
                     self._dep_to_derived_preds[aux_pred].append(der_pred)
@@ -224,7 +224,7 @@ class ProcessWorldModel:
 
         # 3. Schedule new events whose conditions are met.
         # --- MODIFIED: Optimized scheduling logic ---
-        
+
         # 3a. Handle the endogenous process (action) passed to this step.
         # This is for starting a new action.
         if small_step_action is not None and small_step_action.parent.option.name != 'NoOp':
@@ -260,7 +260,8 @@ class ProcessWorldModel:
                 scheduled_time = self.t + delay
                 if scheduled_time not in self.scheduled_events:
                     self.scheduled_events[scheduled_time] = []
-                self.scheduled_events[scheduled_time].append((g_process, self.t))
+                self.scheduled_events[scheduled_time].append(
+                    (g_process, self.t))
 
         # --- END MODIFIED ---
 
@@ -322,7 +323,7 @@ def _skeleton_generator_with_processes(
     # Filter out all the action from processes
     # zero heuristic
     objects = objects.copy()
-    
+
     # --- Build indexes once for all ProcessWorldModel instances ---
     # Index for efficient scheduling of exogenous processes
     precondition_to_exogenous_processes: Dict[
@@ -331,9 +332,9 @@ def _skeleton_generator_with_processes(
         if isinstance(p, _GroundExogenousProcess):
             for atom in p.condition_at_start:
                 if not isinstance(atom.predicate, DerivedPredicate):
-                    precondition_to_exogenous_processes[
-                        atom.predicate].append(p)
-    
+                    precondition_to_exogenous_processes[atom.predicate].append(
+                        p)
+
     # Pre-compute dependencies for incremental derived predicates
     dep_to_derived_preds: Dict[Predicate,
                                List[DerivedPredicate]] = defaultdict(list)

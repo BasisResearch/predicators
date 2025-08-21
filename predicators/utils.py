@@ -5067,6 +5067,7 @@ def get_derived_predicates(
     """Get all derived predicates from a set of predicates."""
     return {pred for pred in predicates if isinstance(pred, DerivedPredicate)}
 
+
 # def abstract_with_derived_predicates(atoms, derived_preds, objects):
 #     """Compute all derived atoms via layered evaluation (fewer passes).
 #        Potentially faster than the current implementation."""
@@ -5112,6 +5113,7 @@ def get_derived_predicates(
 #         state |= derived_all  # grow state for next layer
 
 #     return derived_all
+
 
 def abstract_with_derived_predicates(
         atoms: Set[GroundAtom], derived_preds: Collection[DerivedPredicate],
