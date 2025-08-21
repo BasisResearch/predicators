@@ -856,6 +856,144 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         return False
 
+    # @classmethod
+    # def _InFrontDirection_holds(cls, atoms: Set[GroundAtom],
+    #                             objects: Sequence[Object]) -> bool:
+    #     """Check if domino1 is in front of domino2 in the given direction.
+
+    #     This is an optimized, non-symmetric implementation that uses a direct,
+    #     rule-based approach to determine the expected position of the front
+    #     domino based on the back domino's pose and the given direction.
+
+    #     - If the back domino has a **cardinal** orientation, the front domino
+    #       is expected to be one grid cell directly in front.
+    #     - If the back domino has a **diagonal** orientation, the front
+    #       domino's expected position is determined by a fixed set of geometric
+    #       rules provided for turns.
+    #     """
+    #     domino1, domino2, direction_obj = objects
+
+    #     if not CFG.domino_use_grid:
+    #         raise ValueError("Grid is not used, this derived predicate cannot "
+    #                          "function")
+
+    #     # Helper functions to parse object names and cache results
+    #     _pos_coord_cache = {}
+    #     _rot_rad_cache = {}
+
+    #     def extract_grid_coords(pos_obj):
+    #         if pos_obj in _pos_coord_cache:
+    #             return _pos_coord_cache[pos_obj]
+    #         name_parts = pos_obj.name.split("_")
+    #         y_idx = int(name_parts[1][1:])
+    #         x_idx = int(name_parts[2][1:])
+    #         result = (x_idx, y_idx)
+    #         _pos_coord_cache[pos_obj] = result
+    #         return result
+
+    #     def extract_rotation_angle_rad(rot_obj):
+    #         if rot_obj in _rot_rad_cache:
+    #             return _rot_rad_cache[rot_obj]
+    #         angle_str = rot_obj.name.split("_")[1]
+    #         result = np.radians(float(angle_str))
+    #         _rot_rad_cache[rot_obj] = result
+    #         return result
+
+    #     # Step 1: Gather all possible states for each domino.
+    #     d1_positions_coords = {
+    #         extract_grid_coords(atom.objects[1])
+    #         for atom in atoms if atom.predicate.name == "DominoAtPos"
+    #         and atom.objects[0] == domino1
+    #     }
+    #     d1_rotations_rad = {
+    #         extract_rotation_angle_rad(atom.objects[1])
+    #         for atom in atoms if atom.predicate.name == "DominoAtRot"
+    #         and atom.objects[0] == domino1
+    #     }
+    #     d2_positions_coords = {
+    #         extract_grid_coords(atom.objects[1])
+    #         for atom in atoms if atom.predicate.name == "DominoAtPos"
+    #         and atom.objects[0] == domino2
+    #     }
+    #     d2_rotations_rad = {
+    #         extract_rotation_angle_rad(atom.objects[1])
+    #         for atom in atoms if atom.predicate.name == "DominoAtRot"
+    #         and atom.objects[0] == domino2
+    #     }
+
+    #     # if domino1.name == "domino_2" and domino2.name == "domino_1" and direction_obj.name == "left":
+    #     #     breakpoint()
+    #     # Step 2: Define turn direction based on name
+    #     direction_name = direction_obj.name
+    #     if direction_name == "left":
+    #         expected_rot_diff = np.pi / 4
+    #         turn_dir = 1
+    #     elif direction_name == "right":
+    #         expected_rot_diff = -np.pi / 4
+    #         turn_dir = -1
+    #     elif direction_name == "straight":
+    #         expected_rot_diff = 0.0
+    #         turn_dir = 0  # Not used for straight moves
+    #     else:
+    #         return False
+
+    #     tolerance = 1e-6
+
+    #     # Step 3: For each possible back domino pose, predict the front one.
+    #     for x2_idx, y2_idx in d2_positions_coords:
+    #         for rot2_rad in d2_rotations_rad:
+    #             is_rot2_cardinal = (abs(np.sin(rot2_rad)) < tolerance
+    #                                 or abs(np.cos(rot2_rad)) < tolerance)
+    #             expected_rot1_rad = utils.wrap_angle(rot2_rad +
+    #                                                  expected_rot_diff)
+
+    #             dx_idx, dy_idx = None, None
+
+    #             if is_rot2_cardinal:
+    #                 dx_idx = int(round(np.sin(rot2_rad)))
+    #                 dy_idx = int(round(np.cos(rot2_rad)))
+    #             else:  # Diagonal case
+    #                 if direction_name == 'straight':
+    #                     continue
+
+    #                 # flipper = -1.0 if turn_dir * np.sin(2 *
+    #                 #                                     rot2_rad) > 0 else 1.0
+    #                 # dx_idx = int(round(flipper * np.sin(expected_rot1_rad)))
+    #                 # dy_idx = int(round(flipper * np.cos(expected_rot1_rad)))
+    #                                 # Implement the exact rules for completing a turn.
+    #                 rot2_deg = round(np.degrees(rot2_rad))
+
+    #                 if rot2_deg == 45:
+    #                     if direction_name == 'left':   dx_idx, dy_idx = -1, 0
+    #                     elif direction_name == 'right': dx_idx, dy_idx = 0, 1
+    #                 elif rot2_deg == -45:
+    #                     if direction_name == 'left':   dx_idx, dy_idx = 0, 1
+    #                     elif direction_name == 'right': dx_idx, dy_idx = 1, 0
+    #                 elif rot2_deg == 135:
+    #                     if direction_name == 'left':   dx_idx, dy_idx = 0, -1
+    #                     elif direction_name == 'right': dx_idx, dy_idx = -1, 0
+    #                 elif rot2_deg == -135:
+    #                     if direction_name == 'left':   dx_idx, dy_idx = 1, 0
+    #                     elif direction_name == 'right': dx_idx, dy_idx = 0, -1
+
+    #             if dx_idx is None:
+    #                 continue
+
+    #             # Check if the predicted position and rotation exist for domino1
+    #             # expected_pos1_idx = (x2_idx + dx_idx, y2_idx + dy_idx)
+    #             expected_pos1_idx = [(x2_idx + dx_idx, y2_idx + dy_idx),
+    #                                  (x2_idx - dx_idx, y2_idx - dy_idx)]
+
+    #             for expected_pos1_idx in expected_pos1_idx:
+    #                 if expected_pos1_idx in d1_positions_coords:
+    #                     # Now check if any of domino1's rotations match the expected one
+    #                     for rot1_rad in d1_rotations_rad:
+    #                         if abs(utils.wrap_angle(
+    #                                 rot1_rad - expected_rot1_rad)) < tolerance:
+    #                             return True  # Found a valid configuration
+
+    #     return False
+
     @classmethod
     def _InFront_holds(cls, atoms: Set[GroundAtom],
                        objects: Sequence[Object]) -> bool:
