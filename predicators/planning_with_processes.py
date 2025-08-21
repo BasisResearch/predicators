@@ -2,11 +2,7 @@ from __future__ import annotations
 
 import heapq as hq
 import logging
-import os
-import re
-import subprocess
 import sys
-import tempfile
 import time
 from collections import defaultdict
 from copy import deepcopy
@@ -23,9 +19,9 @@ from predicators.planning import PlanningFailure, _MaxSkeletonsFailure, \
     _SkeletonSearchTimeout
 from predicators.settings import CFG
 from predicators.structs import AbstractPolicy, CausalProcess, DefaultState, \
-    DerivedPredicate, DummyOption, EndogenousProcess, GroundAtom, Metrics, \
-    Object, Predicate, Task, Type, _GroundCausalProcess, \
-    _GroundEndogenousProcess, _GroundExogenousProcess
+    DerivedPredicate, EndogenousProcess, GroundAtom, Metrics, Object, \
+    Predicate, Task, Type, _GroundCausalProcess, _GroundEndogenousProcess, \
+    _GroundExogenousProcess
 from predicators.utils import _TaskPlanningHeuristic
 
 
