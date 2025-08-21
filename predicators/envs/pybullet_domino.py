@@ -1320,7 +1320,12 @@ class PyBulletDominoEnv(PyBulletEnv):
         # Choose a random starting position and orientation (cardinal directions).
         start_idx = rng.choice(len(self.grid_pos))
         curr_x, curr_y = self.grid_pos[start_idx]
-        curr_rot = rng.choice([0, np.pi / 2, np.pi, -np.pi / 2])
+        # If in the top row, can't face down because it's unreachable for the 
+        # robot
+        if curr_y == self.num_pos_y - 1:
+            curr_rot = rng.choice([np.pi / 2, np.pi])
+        else:
+            curr_rot = rng.choice([0, np.pi / 2, np.pi, -np.pi / 2])
         used_coords.add((curr_x, curr_y))
 
         # Place the first domino (start block).
