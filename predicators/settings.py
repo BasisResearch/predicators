@@ -640,7 +640,7 @@ class GlobalSettings:
     cluster_learning_one_effect_per_process = False
     use_derived_predicate_in_heuristic = True
     process_planning_heuristic_weight = 10.0
-    build_exogenous_process_index_for_planning_for_planning = True
+    build_exogenous_process_index_for_planning = True
 
     # torch GPU usage setting
     use_torch_gpu = False
