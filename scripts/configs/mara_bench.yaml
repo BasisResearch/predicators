@@ -11,8 +11,6 @@ APPROACHES:
       # boil_use_normal_delay: True
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
-      use_derived_predicate_in_heuristic: True
-      build_exogenous_process_index_for_planning: True
   # param_learning:
   #   NAME: "param_learning_process_planning"
   #   ARGS:
