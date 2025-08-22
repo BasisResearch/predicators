@@ -961,7 +961,7 @@ def _get_transition_str(
                               "with additional info:")
         # Append final state
         state = segment.states[-1]
-        state_str = state.dict_str(indent=2, use_object_id=True)
+        state_str = state.dict_str(indent=2, use_object_id=CFG.rgb_observation)
         result_str.append(f"{state_str}")
         str_for_this_state = [f"  {obs_name} with additional info:"]
         str_for_this_state.append(f"{state_str}")
