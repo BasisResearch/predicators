@@ -27,7 +27,7 @@ X_LIM = (-5, 110)
 GROUPS = [
     "ENV",
     "APPROACH",
-    "EXCLUDED_PREDICATES",
+    # "EXCLUDED_PREDICATES",
     "EXPERIMENT_ID",
 ]
 
@@ -49,7 +49,7 @@ env_names = [
 COLUMN_NAMES_AND_KEYS = [
     ("ENV", "env"),
     ("APPROACH", "approach"),
-    ("EXCLUDED_PREDICATES", "excluded_predicates"),
+    # ("EXCLUDED_PREDICATES", "excluded_predicates"),
     ("EXPERIMENT_ID", "experiment_id"),
     ("SEED", "seed"),
     ("OVERALL_ACCURACY", "perc_overall_accuracy"),
@@ -85,6 +85,8 @@ PLOT_GROUPS = [
 # See PLOT_GROUPS comment.
 BAR_GROUPS = [
     # ("Ours", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "nsp-nl" in v)),
+    ("Human",
+     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "human" in v)),
     ("VLM", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "vlm_clf" in v)),
     ("DINO-dtw",
      lambda df: df["EXPERIMENT_ID"].apply(lambda v: "dino_sim_dtw" in v)),
