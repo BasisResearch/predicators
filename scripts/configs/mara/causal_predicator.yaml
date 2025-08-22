@@ -151,7 +151,7 @@ ENVS:
     FLAGS:
       excluded_objects_in_state_str: "switch"
       max_num_steps_option_rollout: 50
-      horizon: 1000 # 300 should be enough, 50 is good during dev
+      horizon: 1300 # 300 should be enough, 50 is good during dev
       # boil_goal: "task_completed" # This option isn't fully ready because
         # with the current only_learn_exogenous_processes setting, it won't try
         # to learn the precondition for the DeclareComplete option.
@@ -162,6 +162,7 @@ ENVS:
     NAME: "pybullet_coffee"
     FLAGS:
       coffee_rotated_jug_ratio: 0
+      coffee_num_cups_train: [1]
       coffee_machine_have_light_bar: False
       coffee_move_back_after_place_and_push: True
       coffee_machine_has_plug: False
@@ -234,4 +235,4 @@ FLAGS:
   log: 'logs/'
   no_repeated_arguments_in_grounding: True
 START_SEED: 0
-NUM_SEEDS: 3
+NUM_SEEDS: 1
