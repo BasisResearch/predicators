@@ -65,7 +65,7 @@ PLOT_GROUPS = [
 
 # See PLOT_GROUPS comment.
 BAR_GROUPS = [
-    ("Oracle",
+    ("Plan\nw/\ntrue\nmodel",
      lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle" in v)),
     # ("oracle invent",
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle_invention" in v)),
