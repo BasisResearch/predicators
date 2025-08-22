@@ -39,8 +39,7 @@ def _build_exogenous_process_index(
     for p in ground_processes:
         if isinstance(p, _GroundExogenousProcess):
             for atom in p.condition_at_start:
-                if not isinstance(atom.predicate, DerivedPredicate):
-                    precondition_to_exogenous_processes[atom.predicate].append(p)
+                precondition_to_exogenous_processes[atom.predicate].append(p)
     return precondition_to_exogenous_processes
 
 
@@ -152,16 +151,6 @@ class ProcessWorldModel:
     ) -> None:
         """Will keep the current action as a class variable for now, as opposed
         to a part of the state variable as in the demo code."""
-        # Get the set of primitive facts from the previous state.
-        if self.state_history:
-            previous_primitive_facts = {
-                atom
-                for atom in self.state_history[-1]
-                if not isinstance(atom.predicate, DerivedPredicate)
-            }
-        else:
-            previous_primitive_facts = set()
-
         # 1. self.current_action is set to an action when this small_step is
         # first called. And is set back to None when `duration` timesteps
         # sampled from its distribution passes.
@@ -232,30 +221,28 @@ class ProcessWorldModel:
         # 3. Schedule new events whose conditions are met.
         # 3a. Handle the endogenous process (action) passed to this step.
         # This is for starting a new action.
-        if small_step_action is not None and small_step_action.parent.option.name != 'NoOp':
-            if small_step_action.condition_at_start.issubset(self.state):
-                delay = small_step_action.delay_distribution.sample()
-                delay = max(1, delay)
-                scheduled_time = self.t + delay
-                if scheduled_time not in self.scheduled_events:
-                    self.scheduled_events[scheduled_time] = []
-                self.scheduled_events[scheduled_time].append(
-                    (small_step_action, self.t))
+        if small_step_action is not None and \
+           small_step_action.parent.option.name != 'NoOp' and \
+           small_step_action.condition_at_start.issubset(self.state):
+            delay = small_step_action.delay_distribution.sample()
+            delay = max(1, delay)
+            scheduled_time = self.t + delay
+            if scheduled_time not in self.scheduled_events:
+                self.scheduled_events[scheduled_time] = []
+            self.scheduled_events[scheduled_time].append(
+                (small_step_action, self.t))
 
         # 3b. Handle exogenous processes.
         if CFG.build_exogenous_process_index_for_planning:
             # Use the index for efficiency.
             # Find newly true primitive facts by comparing current vs. previous.
-            current_primitive_facts = {
-                atom
-                for atom in self.state
-                if not isinstance(atom.predicate, DerivedPredicate)
-            }
-            newly_added_primitive_facts = current_primitive_facts - previous_primitive_facts
+            previous_facts = self.state_history[-1] if self.state_history \
+                                else set()
+            newly_added_facts = self.state - previous_facts
 
             # Gather all candidate processes touched by these new facts.
             candidate_processes_to_check: Set[_GroundExogenousProcess] = set()
-            for fact in newly_added_primitive_facts:
+            for fact in newly_added_facts:
                 candidate_processes_to_check.update(
                     self._precondition_to_exogenous_processes[fact.predicate])
 
@@ -273,7 +260,12 @@ class ProcessWorldModel:
             # Fallback: check all exogenous processes (less efficient)
             for g_process in self.ground_processes:
                 if isinstance(g_process, _GroundExogenousProcess):
-                    if g_process.condition_at_start.issubset(self.state):
+                    first_state_or_prev_state_doesnt_satisfy = (
+                    len(self.state_history) == 0
+                    or not g_process.condition_at_start.issubset(
+                        self.state_history[-1]))
+                    if g_process.condition_at_start.issubset(self.state) and\
+                        first_state_or_prev_state_doesnt_satisfy:
                         delay = g_process.delay_distribution.sample()
                         delay = max(1, delay)
                         scheduled_time = self.t + delay
@@ -446,7 +438,7 @@ def _skeleton_generator_with_processes(
             # Log heuristic timing stats when a solution is found
             if time_heuristic:
                 average_heuristic_time = total_heuristic_time / heuristic_call_count if heuristic_call_count > 0 else 0.0
-                logging.info(
+                logging.debug(
                     f"Heuristic timing stats - Calls: {heuristic_call_count}, Total time: {total_heuristic_time:.4f}s, Average time: {average_heuristic_time:.4f}s"
                 )
 
