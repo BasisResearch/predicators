@@ -72,7 +72,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     jug_init_z: ClassVar[float] = table_height + jug_height / 2
     small_gap: ClassVar[float] = 0.05
     burner_x_gap: ClassVar[float] = 3 * small_gap
-    burner_y: ClassVar[float] = y_mid - small_gap
+    burner_y: ClassVar[float] = y_mid - small_gap * 1.1
     faucet_x: ClassVar[float] = x_mid + 6 * small_gap
     faucet_y: ClassVar[float] = y_mid + 3 * small_gap
     faucet_x_len: ClassVar[float] = 0.15
@@ -85,7 +85,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     jug_sample_y_margin_bot: ClassVar[float] = 0.4  # margin from y_lb
     jug_sample_y_margin_top: ClassVar[float] = 0.05  # margin from y_ub
     jug_sample_x_min: ClassVar[float] = x_mid
-    jug_sample_x_max: ClassVar[float] = x_mid + jug_sample_x_margin * 4
+    jug_sample_x_max: ClassVar[float] = x_mid + jug_sample_x_margin * 3.5
     jug_sample_y_min: ClassVar[float] = y_lb + jug_sample_y_margin_bot
     jug_sample_y_max: ClassVar[float] = y_ub - jug_sample_y_margin_top
 
