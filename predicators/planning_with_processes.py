@@ -139,7 +139,6 @@ class ProcessWorldModel:
     ) -> None:
         """Will keep the current action as a class variable for now, as opposed
         to a part of the state variable as in the demo code."""
-        # --- MODIFIED: Capture previous primitive facts for optimization ---
         # Get the set of primitive facts from the previous state.
         if self.state_history:
             previous_primitive_facts = {
@@ -149,7 +148,6 @@ class ProcessWorldModel:
             }
         else:
             previous_primitive_facts = set()
-        # --- END MODIFIED ---
 
         # 1. self.current_action is set to an action when this small_step is
         # first called. And is set back to None when `duration` timesteps
@@ -163,13 +161,11 @@ class ProcessWorldModel:
 
         # 2. Process effects scheduled for this timestep.
         if self.t in self.scheduled_events:
-            # --- MODIFIED: Logic for incremental derived predicate updates ---
             primitive_facts_before = {
                 a
                 for a in self.state
                 if not isinstance(a.predicate, DerivedPredicate)
             }
-            # --- END MODIFIED ---
 
             for g_process, start_time in self.scheduled_events[self.t]:
                 if (all(
@@ -185,7 +181,6 @@ class ProcessWorldModel:
                         self.current_action = None
             del self.scheduled_events[self.t]
 
-            # --- MODIFIED: Incremental derived predicate update logic ---
             if len(self.derived_predicates) > 0:
                 primitive_facts_after = {
                     a
@@ -220,11 +215,8 @@ class ProcessWorldModel:
                             added_facts, existing_facts_before_increment,
                             self.objects, self._dep_to_derived_preds)
                         self.state.update(newly_derived_facts)
-            # --- END MODIFIED ---
 
         # 3. Schedule new events whose conditions are met.
-        # --- MODIFIED: Optimized scheduling logic ---
-
         # 3a. Handle the endogenous process (action) passed to this step.
         # This is for starting a new action.
         if small_step_action is not None and small_step_action.parent.option.name != 'NoOp':
