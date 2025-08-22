@@ -98,7 +98,7 @@ class GlobalSettings:
     grow_weak_pour_terminate_condition = False
     grow_place_option_no_sampler = False
     grow_num_cups_train = [2]
-    grow_num_cups_test = [1, 2, 3]
+    grow_num_cups_test = [2, 3]
     grow_num_jugs_train = [2]
     grow_num_jugs_test = [2]
 

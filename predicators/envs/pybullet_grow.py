@@ -290,6 +290,16 @@ class PyBulletGrowEnv(PyBulletEnv):
                 jug.init_x = state.get(jug, "x")
                 jug.init_y = state.get(jug, "y")
                 jug.init_z = state.get(jug, "z")
+        
+        oov_x, oov_y = self._out_of_view_xy
+        for i in range(len(cups), len(self._cups)):
+            update_object(self._cups[i].id,
+                          position=(oov_x, oov_y, 0.0),
+                          physics_client_id=self._physics_client_id)
+        for i in range(len(jugs), len(self._jugs)):
+            update_object(self._jugs[i].id,
+                          position=(oov_x, oov_y, 0.0),
+                          physics_client_id=self._physics_client_id)
 
     # -------------------------------------------------------------------------
     # Pouring logic
