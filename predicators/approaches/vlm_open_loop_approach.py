@@ -48,12 +48,20 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
         super().__init__(initial_predicates, initial_options, types,
                          action_space, train_tasks)
         # Set up the vlm and base prompt.
-        self._vlm = utils.create_vlm_by_name(CFG.vlm_model_name)
+        if CFG.vlm_open_loop_no_image:
+            self._vlm = utils.create_llm_by_name(CFG.llm_model_name)
+        else:
+            self._vlm = utils.create_vlm_by_name(CFG.vlm_model_name)
+        prompt_suffix = ""
+        if CFG.vlm_open_loop_no_image:
+            prompt_suffix = "_oc"
         filepath_to_vlm_prompt = utils.get_path_to_predicators_root() + \
-        "/predicators/approaches/vlm_planning_prompts/no_few_shot.txt"
+        "/predicators/approaches/vlm_planning_prompts/no_few_shot" +\
+        f"{prompt_suffix}.txt"
         if CFG.vlm_open_loop_use_training_demos:
             filepath_to_vlm_prompt = utils.get_path_to_predicators_root() + \
-        "/predicators/approaches/vlm_planning_prompts/few_shot.txt"
+        "/predicators/approaches/vlm_planning_prompts/few_shot" +\
+        f"{prompt_suffix}.txt"
         with open(filepath_to_vlm_prompt, "r", encoding="utf-8") as f:
             self.base_prompt = f.read()
         self._prompt_state_imgs_list: List[PIL.Image.Image] = []
@@ -158,24 +166,26 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
     def _query_vlm_for_option_plan(self, task: Task) -> Sequence[_Option]:
         init_state = task.init
         assert init_state.simulator_state is not None
-        assert isinstance(init_state.simulator_state["images"], List)
+        if not CFG.vlm_open_loop_no_image:
+            assert isinstance(init_state.simulator_state["images"], List)
+            imgs = init_state.simulator_state["images"]
+            pil_imgs = [
+                PIL.Image.fromarray(img_arr)  # type: ignore
+                for img_arr in imgs
+            ]
+            imgs_for_vlm = []
+            for img_num, pil_img in enumerate(pil_imgs):
+                draw = ImageDraw.Draw(pil_img)
+                img_font = utils.get_scaled_default_font(draw, 10)
+                img_with_txt = utils.add_text_to_draw_img(
+                    draw, (50, 50), 
+                    f"Initial state to plan from, Image {img_num}",
+                    img_font)
+                # pylint:disable=protected-access
+                imgs_for_vlm.append(
+                    img_with_txt._image)  # type: ignore[attr-defined]
+                # pylint: enable=protected-access
         curr_options = sorted(self._initial_options)
-        imgs = init_state.simulator_state["images"]
-        pil_imgs = [
-            PIL.Image.fromarray(img_arr)  # type: ignore
-            for img_arr in imgs
-        ]
-        imgs_for_vlm = []
-        for img_num, pil_img in enumerate(pil_imgs):
-            draw = ImageDraw.Draw(pil_img)
-            img_font = utils.get_scaled_default_font(draw, 10)
-            img_with_txt = utils.add_text_to_draw_img(
-                draw, (50, 50), f"Initial state to plan from, Image {img_num}",
-                img_font)
-            # pylint:disable=protected-access
-            imgs_for_vlm.append(
-                img_with_txt._image)  # type: ignore[attr-defined]
-            # pylint: enable=protected-access
         options_str = "\n".join(
             str(opt) + ", params_space=" + str(opt.params_space)
             for opt in curr_options)
@@ -185,13 +195,22 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
         type_hierarchy_str = utils.create_pddl_types_str(self._types)
         goal_str = "\n".join(str(obj) for obj in goal_expr_list)
         if not CFG.vlm_open_loop_use_training_demos:
-            prompt = self.base_prompt.format(options=options_str,
+            if CFG.vlm_open_loop_no_image:
+                prompt = self.base_prompt.format(
+                    init_state_str=init_state.dict_str(indent=2,
+                        use_object_id=CFG.rgb_observation),
+                    options=options_str,
+                    typed_objects=objects_str,
+                    type_hierarchy=type_hierarchy_str,
+                    goal_str=goal_str)
+            else:
+                prompt = self.base_prompt.format(options=options_str,
                                              typed_objects=objects_str,
                                              type_hierarchy=type_hierarchy_str,
                                              goal_str=goal_str)
             vlm_output = self._vlm.sample_completions(
                 prompt,
-                imgs_for_vlm,
+                imgs_for_vlm if not CFG.vlm_open_loop_no_image else None,
                 temperature=CFG.vlm_temperature,
                 seed=CFG.seed,
                 num_completions=1)
@@ -204,7 +223,8 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
                 goal_str=goal_str)
             vlm_output = self._vlm.sample_completions(
                 prompt,
-                self._prompt_state_imgs_list + imgs_for_vlm,
+                self._prompt_state_imgs_list + imgs_for_vlm if \
+                    not CFG.vlm_open_loop_no_image else None,
                 temperature=CFG.vlm_temperature,
                 seed=CFG.seed,
                 num_completions=1)
