@@ -19,7 +19,7 @@ The demonstrator performs a sequence of actions, ending with HumanHapp()=True. E
 {EXPERIENCE_IN_ENV}
 
 ### Your Task
-Invent new predicates that can serve as essential *subgoals* for `HumanHappy()` to become True in the final state, and any conditions that must be maintained to prevent failure, even if failure is not shown in the demonstration.
+Invent new predicates that can serve as essential *subgoals* or *conditions* for `HumanHappy()` to become True in the final state, and any conditions that must be maintained to prevent failure, even if failure is not shown in the demonstration.
 
 ### Output Format
 
