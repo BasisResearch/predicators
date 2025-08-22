@@ -147,6 +147,9 @@ class PyBulletGrowEnv(PyBulletEnv):
         self._JugAboveCup = Predicate("JugAboveCup",
                                       [self._jug_type, self._cup_type],
                                       self._JugAboveCup_holds)
+        self._NotAboveCup = Predicate("NotAboveCup",
+                                      [self._robot_type, self._jug_type],
+                                      self._NotAboveCup_holds)
         self._HandTilted = Predicate("HandTilted", [self._robot_type],
                                      self._HandTilted_holds)
 
@@ -159,7 +162,7 @@ class PyBulletGrowEnv(PyBulletEnv):
         return {
             self._Grown, self._Holding, self._HandEmpty, self._JugOnTable,
             self._SameColor, self._CupOnTable, self._JugAboveCup,
-            self._HandTilted
+            self._NotAboveCup, self._HandTilted
         }
 
     @property
@@ -324,6 +327,14 @@ class PyBulletGrowEnv(PyBulletEnv):
             cup = self._get_cup_to_pour(state)
             if cup is None:
                 return
+            
+            # Get the jug being held
+            jug = self.get_object_by_id(self._held_obj_id)
+            
+            # Check if jug and cup colors match
+            if not self._SameColor_holds(state, [cup, jug]):
+                return  # No growth if colors don't match
+                
             current_growth = state.get(cup, "growth")
             new_growth = min(1.0, current_growth + self.pour_rate)
 
@@ -426,6 +437,14 @@ class PyBulletGrowEnv(PyBulletEnv):
         pour_pos = PyBulletCoffeeEnv._get_pour_position(state, cup)
         sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
         return sq_dist_to_pour < PyBulletCoffeeEnv.pour_pos_tol
+
+    def _NotAboveCup_holds(self, state: State,
+                           objects: Sequence[Object]) -> bool:
+        _, jug = objects
+        for cup in state.get_objects(self._cup_type):
+            if self._JugAboveCup_holds(state, [jug, cup]):
+                return False
+        return True
 
     def _HandTilted_holds(self, state: State,
                           objects: Sequence[Object]) -> bool:

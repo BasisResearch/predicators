@@ -273,7 +273,7 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
             torch.tensor(1.0), option, option_vars, null_sampler)
         processes.add(pick_jug_from_machine_process)
 
-        # Pour from not-above-cup (Endogenous - from your sketch)
+        # Pour from not-above-cup
         robot = Variable("?robot", robot_type)
         jug = Variable("?jug", jug_type)
         cup = Variable("?cup", cup_type)
@@ -294,12 +294,12 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
                                                    sigma=torch.tensor(0.1))
         pourFromNotAboveCup_process = EndogenousProcess(
-            "Pour", parameters, condition_at_start, set(),
+            "PourFromNotAboveCup", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
             torch.tensor(1.0), option, option_vars, null_sampler)
         processes.add(pourFromNotAboveCup_process)
 
-        # Pour from above-cup (Endogenous - from your sketch)
+        # Pour from above-cup
         robot = Variable("?robot", robot_type)
         jug = Variable("?jug", jug_type)
         from_cup = Variable("?from_cup", cup_type)
@@ -321,7 +321,7 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
                                                    sigma=torch.tensor(0.1))
         pourFromNotAboveCup_process = EndogenousProcess(
-            "Pour", parameters, condition_at_start, set(),
+            "PourFromCup", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
             torch.tensor(1.0), option, option_vars, null_sampler)
         processes.add(pourFromNotAboveCup_process)

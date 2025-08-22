@@ -36,6 +36,7 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         JugOnTable = predicates["JugOnTable"]
         SameColor = predicates["SameColor"]
         JugAboveCup = predicates["JugAboveCup"]
+        NotAboveCup = predicates["NotAboveCup"]
 
         # Options
         PickJug = options["PickJug"]
@@ -99,7 +100,7 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
             torch.tensor(1.0), option, option_vars, null_sampler)
         processes.add(place_jug_on_table_process)
 
-        # Pour (positions jug above cup)
+        # Pour from not-above-cup
         robot = Variable("?robot", robot_type)
         jug = Variable("?jug", jug_type)
         cup = Variable("?cup", cup_type)
@@ -108,20 +109,53 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         option = Pour
         condition_at_start = {
             LiftedAtom(Holding, [robot, jug]),
+            LiftedAtom(NotAboveCup, [robot, jug]),
         }
         add_effects = {
             LiftedAtom(JugAboveCup, [jug, cup]),
         }
-        delete_effects = set()
+        delete_effects = {
+            LiftedAtom(NotAboveCup, [robot, jug]),
+        }
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
                                                    sigma=torch.tensor(0.1))
-        pour_process = EndogenousProcess("Pour",
+        pour_from_not_above_cup_process = EndogenousProcess(
+                                        "PourFromNotAboveCup",
                                          parameters, condition_at_start, set(),
                                          set(), add_effects,
                                          delete_effects, delay_distribution,
                                          torch.tensor(1.0), option,
                                          option_vars, null_sampler)
-        processes.add(pour_process)
+        processes.add(pour_from_not_above_cup_process)
+
+        # Pour from above-cup
+        robot = Variable("?robot", robot_type)
+        jug = Variable("?jug", jug_type)
+        from_cup = Variable("?from_cup", cup_type)
+        to_cup = Variable("?to_cup", cup_type)
+        parameters = [robot, jug, from_cup, to_cup]
+        option_vars = [robot, jug, to_cup]
+        option = Pour
+        condition_at_start = {
+            LiftedAtom(Holding, [robot, jug]),
+            LiftedAtom(JugAboveCup, [jug, from_cup]),
+        }
+        add_effects = {
+            LiftedAtom(JugAboveCup, [jug, to_cup]),
+        }
+        delete_effects = {
+            LiftedAtom(JugAboveCup, [jug, from_cup]),
+        }
+        delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
+                                                   sigma=torch.tensor(0.1))
+        pour_from_not_above_cup_process = EndogenousProcess(
+                                        "PourFromAboveCup",
+                                         parameters, condition_at_start, set(),
+                                         set(), add_effects,
+                                         delete_effects, delay_distribution,
+                                         torch.tensor(1.0), option,
+                                         option_vars, null_sampler)
+        processes.add(pour_from_not_above_cup_process)
 
         # NoOp
         robot = Variable("?robot", robot_type)
