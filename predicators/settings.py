@@ -805,7 +805,7 @@ class GlobalSettings:
     grammar_search_expected_nodes_optimal_demo_prob = 1 - 1e-5
     grammar_search_expected_nodes_backtracking_cost = 1e3
     grammar_search_expected_nodes_allow_noops = True
-    grammar_search_classifier_pretty_str_names = ["?x", "?y", "?z"]
+    grammar_search_classifier_pretty_str_names = ["?x", "?y", "?z", "?w"]
     grammar_search_vlm_atom_proposal_prompt_type = \
         "options_labels_whole_traj_diverse"
     grammar_search_vlm_atom_label_prompt_type = "per_scene_naive"
