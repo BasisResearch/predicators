@@ -25,6 +25,25 @@ from predicators.structs import AbstractPolicy, CausalProcess, DefaultState, \
 from predicators.utils import _TaskPlanningHeuristic
 
 
+def _build_exogenous_process_index(
+    ground_processes: List[_GroundCausalProcess],
+) -> Dict[Predicate, List[_GroundExogenousProcess]]:
+    """Build index mapping predicates to exogenous processes that have those
+    predicates in their condition_at_start.
+    
+    This helps efficiently find which exogenous processes might be triggered
+    when new facts become true.
+    """
+    precondition_to_exogenous_processes: Dict[
+        Predicate, List[_GroundExogenousProcess]] = defaultdict(list)
+    for p in ground_processes:
+        if isinstance(p, _GroundExogenousProcess):
+            for atom in p.condition_at_start:
+                if not isinstance(atom.predicate, DerivedPredicate):
+                    precondition_to_exogenous_processes[atom.predicate].append(p)
+    return precondition_to_exogenous_processes
+
+
 def process_task_plan_grounding(
     init_atoms: Set[GroundAtom],
     objects: Set[Object],
@@ -110,14 +129,8 @@ class ProcessWorldModel:
             self._precondition_to_exogenous_processes = precondition_to_exogenous_processes
         elif CFG.build_exogenous_process_index_for_planning:
             # Fallback: build the index if not provided and CFG allows it
-            self._precondition_to_exogenous_processes: Dict[
-                Predicate, List[_GroundExogenousProcess]] = defaultdict(list)
-            for p in self.ground_processes:
-                if isinstance(p, _GroundExogenousProcess):
-                    for atom in p.condition_at_start:
-                        if not isinstance(atom.predicate, DerivedPredicate):
-                            self._precondition_to_exogenous_processes[
-                                atom.predicate].append(p)
+            self._precondition_to_exogenous_processes = _build_exogenous_process_index(
+                self.ground_processes)
         else:
             # Don't build the index
             self._precondition_to_exogenous_processes: Dict[
@@ -336,13 +349,8 @@ def _skeleton_generator_with_processes(
     precondition_to_exogenous_processes: Optional[Dict[
         Predicate, List[_GroundExogenousProcess]]] = None
     if CFG.build_exogenous_process_index_for_planning:
-        precondition_to_exogenous_processes = defaultdict(list)
-        for p in ground_processes:
-            if isinstance(p, _GroundExogenousProcess):
-                for atom in p.condition_at_start:
-                    if not isinstance(atom.predicate, DerivedPredicate):
-                        precondition_to_exogenous_processes[
-                            atom.predicate].append(p)
+        precondition_to_exogenous_processes = _build_exogenous_process_index(
+            ground_processes)
 
     # Pre-compute dependencies for incremental derived predicates
     dep_to_derived_preds: Dict[Predicate,
