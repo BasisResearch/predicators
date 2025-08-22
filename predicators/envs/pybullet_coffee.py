@@ -101,13 +101,13 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     tilt_ub: ClassVar[float] = tilt_lb - np.pi / 4
     # Machine settings.
     machine_x_len: ClassVar[float] = 0.2 * (x_ub - x_lb)
-    machine_y_len: ClassVar[float] = 0.15 * (y_ub - y_lb)
+    machine_y_len: ClassVar[float] = 0.15 * (y_ub - y_lb) # 0.15 * 0.5 = 0.075
     machine_z_len: ClassVar[float] = 0.5 * (z_ub - z_lb)
     machine_top_y_len: ClassVar[float] = 1.3 * machine_y_len
     machine_x: ClassVar[float] = x_ub - machine_x_len / 2 - init_padding
     machine_y: ClassVar[float] = y_ub - machine_y_len / 2 - init_padding
-    button_radius: ClassVar[float] = 0.6 * machine_y_len
-    button_height = button_radius / 4
+    button_radius: ClassVar[float] = 0.6 * machine_y_len # 0.6 * 0.075 = 0.045
+    button_height = button_radius / 10 # 0.045 / 10 = 0.0045
     button_x: ClassVar[float] = machine_x
     button_y: ClassVar[float] =\
         machine_y - machine_y_len / 2 - machine_top_y_len - button_height/2
@@ -559,13 +559,15 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         """If the robot is pressing the machine button, turn on the machine and
         fill the jug if it's placed in the machine and (optionally) plugged
         in."""
-        if self._PressingButton_holds(state, [self._robot, self._machine]) or \
-            CFG.coffee_fill_jug_gradually:
+        machine_on = state.get(self._machine, "is_on")
+        if self._PressingButton_holds(state, [self._robot, self._machine]):
             # Change the machine button color to "on"
             p.changeVisualShape(self._button_id,
                                 -1,
                                 rgbaColor=self.button_color_on,
                                 physicsClientId=self._physics_client_id)
+            machine_on = True
+        if machine_on:
             # Fill jug if in machine & (plugged in if required)
             if (self._JugInMachine_holds(state, [self._jug, self._machine])
                     and (not CFG.coffee_machine_has_plug
