@@ -67,7 +67,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     dispense_tol: ClassVar[float] = 1e-2
     plugged_in_tol: ClassVar[float] = 1e-2
     pour_angle_tol: ClassVar[float] = 1e-1
-    pour_pos_tol: ClassVar[float] = 1.0
+    pour_pos_tol: ClassVar[float] = 0.005
     init_padding: ClassVar[float] = 0.05
     pick_jug_y_padding: ClassVar[float] = 0.05
     pick_jug_rot_tol: ClassVar[float] = 0.1
@@ -173,8 +173,8 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     cup_init_x_lb: ClassVar[float] = x_lb + cup_radius + init_padding
     cup_init_x_ub: ClassVar[
         float] = machine_x - machine_x_len / 2 - cup_radius - init_padding
-    cup_init_y_lb: ClassVar[float] = jug_init_y_lb + init_padding
-    cup_init_y_ub: ClassVar[float] = jug_init_y_ub_og
+    cup_init_y_lb: ClassVar[float] = jug_init_y_lb
+    cup_init_y_ub: ClassVar[float] = cup_init_y_lb + init_padding
     cup_capacity_lb: ClassVar[float] = 0.075 * (z_ub - z_lb)
     cup_capacity_ub: ClassVar[float] = 0.15 * (z_ub - z_lb)
     cup_target_frac: ClassVar[float] = 0.75  # fraction of the capacity
@@ -248,6 +248,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         self._cup_to_capacity: Dict[Object, float] = {}
         # The status of the jug is not modeled inside PyBullet.
         self._jug_filled = False
+        self._jug_current_liquid = 0.0
         self._jug_liquid_id: Optional[int] = None
 
         self._cord_ids: Optional[List[int]] = None
@@ -362,7 +363,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
 
         cup_objs = state.get_objects(self._cup_type)
         for cup in cup_objs:
-            new_liquid_id = self._create_pybullet_liquid_for_cup(cup, state)
+            new_liquid_id = self._create_liquid_for_cup(cup, state)
             self._cup_to_liquid_id[cup] = new_liquid_id
 
     def _remake_jug_liquid(self, state: State) -> None:
@@ -370,13 +371,18 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
 
         Remove old jug liquid if jug is now empty.
         """
-        self._jug_filled = bool(state.get(self._jug, "is_filled") > 0.5)
+        if CFG.coffee_fill_jug_gradually:
+            self._jug_current_liquid = state.get(self._jug, "current_liquid")
+            self._jug_filled = bool(
+                self._jug_current_liquid > self.coffee_filled_threshold)
+        else:
+            self._jug_filled = bool(state.get(self._jug, "is_filled") > 0.5)
         if self._jug_liquid_id is not None:
             p.removeBody(self._jug_liquid_id,
                          physicsClientId=self._physics_client_id)
             self._jug_liquid_id = None
         if self._jug_filled:
-            self._jug_liquid_id = self._create_pybullet_liquid_for_jug()
+            self._jug_liquid_id = self._create_liquid_for_jug()
 
     def _remake_cord(self) -> None:
         """If the machine uses a plug, rebuild the cord bodies and
@@ -437,6 +443,9 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         if obj.type == self._jug_type:
             if feature == "is_filled":
                 return float(self._jug_filled)
+            elif feature == "current_liquid":
+                return self._jug_current_liquid if hasattr(
+                    self, '_jug_current_liquid') else 0.0
         elif obj.type == self._machine_type:
             if feature == "is_on":
                 button_color = p.getVisualShapeData(
@@ -462,7 +471,11 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                 else:
                     return 0.0
             elif feature == "target_liquid":
-                return self._cup_to_capacity[obj] * self.cup_target_frac
+                if CFG.coffee_use_pixelated_jug:
+                    # For pixelated jug, the target is always 0.5 * capacity
+                    return self._cup_to_capacity[obj] * self.cup_target_frac * 2
+                else:
+                    return self._cup_to_capacity[obj] * self.cup_target_frac
         elif obj.type == self._plug_type:
             if feature == "plugged_in":
                 return float(self._machine_plugged_in_id is not None)
@@ -473,21 +486,43 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         current_ee_rpy = self._pybullet_robot.forward_kinematics(
             self._pybullet_robot.get_joints()).rpy
         state = super().step(action, render_obs=render_obs)
-        self._update_jug_liquid_position()
+        # self._update_jug_liquid_position()
         if CFG.coffee_machine_has_plug:
             self._check_and_apply_plug_in_constraint(state)
         self._handle_machine_on_and_jug_filling(state)
         self._handle_pouring(state)
         self._handle_twisting(state, current_ee_rpy, action)
+        # Refresh current observation
+        self._current_observation = self._get_state(render_obs=False)
         state = self._current_observation.copy()
 
         return state
 
     def _update_jug_liquid_position(self) -> None:
-        """If the jug is filled, move its liquid to match the jug's pose."""
+        """If the jug is filled, move its liquid to match the jug's pose.
+
+        For gradual filling, also recreate liquid if level changed.
+        """
         if self._jug_filled and self._jug_liquid_id is not None:
             pos, quat = p.getBasePositionAndOrientation(
                 self._jug.id, physicsClientId=self._physics_client_id)
+
+            # For gradual filling, check if we need to update liquid visual
+            if CFG.coffee_fill_jug_gradually:
+                # Store the last liquid level to detect changes
+                if not hasattr(self, '_last_jug_liquid_level'):
+                    self._last_jug_liquid_level = self._jug_current_liquid
+
+                # If liquid level changed significantly, recreate the liquid
+                if abs(self._jug_current_liquid -
+                       self._last_jug_liquid_level) > 0.01:
+                    p.removeBody(self._jug_liquid_id,
+                                 physicsClientId=self._physics_client_id)
+                    self._jug_liquid_id = self._create_liquid_for_jug()
+                    self._last_jug_liquid_level = self._jug_current_liquid
+                    pos, quat = p.getBasePositionAndOrientation(
+                        self._jug.id, physicsClientId=self._physics_client_id)
+
             p.resetBasePositionAndOrientation(
                 self._jug_liquid_id,
                 pos,
@@ -524,7 +559,8 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         """If the robot is pressing the machine button, turn on the machine and
         fill the jug if it's placed in the machine and (optionally) plugged
         in."""
-        if self._PressingButton_holds(state, [self._robot, self._machine]):
+        if self._PressingButton_holds(state, [self._robot, self._machine]) or \
+            CFG.coffee_fill_jug_gradually:
             # Change the machine button color to "on"
             p.changeVisualShape(self._button_id,
                                 -1,
@@ -534,12 +570,21 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
             if (self._JugInMachine_holds(state, [self._jug, self._machine])
                     and (not CFG.coffee_machine_has_plug
                          or self._machine_plugged_in_id is not None)):
-                if not self._jug_filled:
-                    self._jug_liquid_id = self._create_pybullet_liquid_for_jug(
-                    )
-                self._jug_filled = True
-            # Refresh current observation
-            self._current_observation = self._get_state(render_obs=False)
+                if CFG.coffee_fill_jug_gradually:
+                    # Gradual filling
+                    self._jug_current_liquid = min(
+                        self.max_jug_coffee_capacity,
+                        self._jug_current_liquid +
+                        self.coffee_machine_fill_speed)
+                    self._jug_liquid_id = self._create_liquid_for_jug()
+                    if (not self._jug_filled and self._jug_current_liquid >
+                            self.coffee_filled_threshold):
+                        self._jug_filled = True
+                else:
+                    # Instant filling
+                    if not self._jug_filled:
+                        self._jug_liquid_id = self._create_liquid_for_jug()
+                    self._jug_filled = True
 
     def _handle_pouring(self, state: State) -> None:
         """If the robot is tilted sufficiently to pour, increase liquid in the
@@ -569,10 +614,8 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                              physicsClientId=self._physics_client_id)
 
             # Create a new one with updated height
-            self._cup_to_liquid_id[cup] = self._create_pybullet_liquid_for_cup(
+            self._cup_to_liquid_id[cup] = self._create_liquid_for_cup(
                 cup, state)
-            # Refresh current observation
-            self._current_observation = self._get_state(render_obs=False)
 
     def _handle_twisting(self, state: State,
                          current_ee_rpy: Tuple[float, float,
@@ -603,8 +646,6 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                 self._jug.id, [jx, jy, self.z_lb + self.jug_height() / 2],
                 new_jug_quat,
                 physicsClientId=self._physics_client_id)
-            # Refresh current observation
-            self._current_observation = self._get_state(render_obs=False)
 
     def _get_tasks(self,
                    num: int,
@@ -654,8 +695,8 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         scale = 1.5 * np.sqrt(capacity / self.cup_capacity_ub)
         return self.cup_radius * scale
 
-    def _create_pybullet_liquid_for_cup(self, cup: Object,
-                                        state: State) -> Optional[int]:
+    def _create_liquid_for_cup(self, cup: Object,
+                               state: State) -> Optional[int]:
         current_liquid = state.get(cup, "current_liquid")
         cup_cap = state.get(cup, "capacity_liquid")
         liquid_height = self._cup_liquid_to_liquid_height(
@@ -689,13 +730,32 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                                  baseOrientation=orientation,
                                  physicsClientId=self._physics_client_id)
 
-    def _create_pybullet_liquid_for_jug(self) -> int:
+    def _create_liquid_for_jug(self) -> int:
         if CFG.coffee_use_pixelated_jug:
-            liquid_height = self.jug_height() * 0.8
             liquid_radius = self.jug_radius * 1.3
         else:
-            liquid_height = self.jug_height() * 0.6
             liquid_radius = self.jug_radius
+
+        # Always base liquid height on current liquid level, similar to cups
+        if CFG.coffee_fill_jug_gradually:
+            # Scale liquid height based on current liquid ratio
+            liquid_fill_ratio = self._jug_current_liquid / self.max_jug_coffee_capacity
+            if CFG.coffee_use_pixelated_jug:
+                liquid_height = (self.jug_height() * 0.8) * liquid_fill_ratio
+            else:
+                liquid_height = (self.jug_height() * 0.6) * liquid_fill_ratio
+        else:
+            # For instant filling, use full height when filled
+            if CFG.coffee_use_pixelated_jug:
+                liquid_height = self.jug_height() * 0.8
+            else:
+                liquid_height = self.jug_height() * 0.6
+
+        # Remove old liquid if it exists
+        if self._jug_liquid_id is not None:
+            p.removeBody(self._jug_liquid_id,
+                         physicsClientId=self._physics_client_id)
+            self._jug_liquid_id = None
 
         collision_id = p.createCollisionShape(
             p.GEOM_BOX,
@@ -708,13 +768,19 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
             rgbaColor=(0.35, 0.1, 0.0, 1.0),
             physicsClientId=self._physics_client_id)
 
-        pose, orientation = p.getBasePositionAndOrientation(
+        # Get jug position and adjust liquid position based on height
+        jug_pos, jug_orientation = p.getBasePositionAndOrientation(
             self._jug.id, physicsClientId=self._physics_client_id)
+
+        # Position liquid at the bottom of the jug, adjusted for current level
+        liquid_pos = (jug_pos[0], jug_pos[1],
+                      self.z_lb + liquid_height / 2 + 0.02)
+
         return p.createMultiBody(baseMass=0.001,
                                  baseCollisionShapeIndex=collision_id,
                                  baseVisualShapeIndex=visual_id,
-                                 basePosition=pose,
-                                 baseOrientation=orientation,
+                                 basePosition=liquid_pos,
+                                 baseOrientation=jug_orientation,
                                  physicsClientId=self._physics_client_id)
 
     @classmethod
@@ -1175,10 +1241,15 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                              "y") + np.sin(rot) * cls.jug_handle_offset - 0.02
         if not CFG.coffee_use_pixelated_jug:
             target_y += 0.02
-        else:
-            # towards the robot
-            target_y -= 0.01
         target_z = cls.z_lb + cls.jug_handle_height()
+        return (target_x, target_y, target_z)
+
+    @classmethod
+    def _get_pour_position(cls, state: State,
+                           cup: Object) -> Tuple[float, float, float]:
+        target_x = state.get(cup, "x") + cls.pour_x_offset
+        target_y = state.get(cup, "y") + cls.pour_y_offset
+        target_z = cls.z_lb + cls.pour_z_offset()
         return (target_x, target_y, target_z)
 
 

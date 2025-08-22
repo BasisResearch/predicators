@@ -1731,6 +1731,9 @@ def option_policy_to_policy(
             cur_atoms = abstract_function(state)
             prev_atoms = abstract_function(last_state)
             if cur_atoms != prev_atoms:
+                # logging.debug(f"Prev atoms: {sorted(prev_atoms)}")
+                # logging.info(f"Add atoms: {sorted(cur_atoms-prev_atoms)} "
+                #               f"Del atoms: {sorted(prev_atoms-cur_atoms)}")
                 noop_terminate = True
 
         last_state = state
@@ -3126,7 +3129,12 @@ def all_ground_nsrts(nsrt: Union[NSRT, CausalProcess],
     """Get all possible groundings of the given NSRT with the given objects."""
     types = [p.type for p in nsrt.parameters]
     for choice in get_object_combinations(objects, types):
-        yield nsrt.ground(tuple(choice))
+        # only return if there are no repeated arguments
+        if CFG.no_repeated_arguments_in_grounding:
+            if len(choice) == len(set(choice)):
+                yield nsrt.ground(tuple(choice))
+        else:
+            yield nsrt.ground(tuple(choice))
 
 
 def all_ground_nsrts_fd_translator(
@@ -5060,6 +5068,53 @@ def get_derived_predicates(
     return {pred for pred in predicates if isinstance(pred, DerivedPredicate)}
 
 
+# def abstract_with_derived_predicates(atoms, derived_preds, objects):
+#     """Compute all derived atoms via layered evaluation (fewer passes).
+#        Potentially faster than the current implementation."""
+#     # Build dependency graph over derived preds
+#     is_derived = {p for p in derived_preds}
+#     indeg = {p: 0 for p in derived_preds}
+#     edges = {p: set() for p in derived_preds}
+#     for p in derived_preds:
+#         for aux in getattr(p, "auxiliary_predicates", []):
+#             # only count deps on other derived preds
+#             q = next((dp for dp in derived_preds if dp.name == aux.name), None)
+#             if q:
+#                 edges[q].add(p); indeg[p] += 1
+
+#     # Kahn’s algorithm => layers
+#     frontier = [p for p in derived_preds if indeg[p] == 0]
+#     layers: list[list] = []
+#     while frontier:
+#         layer = list(frontier); layers.append(layer); frontier = []
+#         for u in layer:
+#             for v in edges[u]:
+#                 indeg[v] -= 1
+#                 if indeg[v] == 0:
+#                     frontier.append(v)
+
+#     # Evaluate per layer; state grows monotonically
+#     state = set(atoms)
+#     derived_all = set()
+#     # (Optional) cache object choices per predicate once
+#     by_type = {}
+#     for o in objects:
+#         by_type.setdefault(o.type, []).append(o)
+#     choices_cache = {
+#         p: list(itertools.product(*(by_type[t] for t in p.types)))
+#         for p in derived_preds
+#     }
+
+#     for layer in layers:
+#         for p in layer:
+#             for choice in choices_cache[p]:
+#                 if p.holds(state, choice):
+#                     derived_all.add(GroundAtom(p, choice))
+#         state |= derived_all  # grow state for next layer
+
+#     return derived_all
+
+
 def abstract_with_derived_predicates(
         atoms: Set[GroundAtom], derived_preds: Collection[DerivedPredicate],
         objects: Collection[Object]) -> Set[GroundAtom]:
@@ -5102,6 +5157,34 @@ def _abstract_with_derived_predicates(
                 raise PredicateEvaluationError(
                     f"Error in evaluating concept predicate {pred}: {e}", pred)
     return atoms
+
+
+def get_base_supporter_predicates(
+        root_predicate: DerivedPredicate) -> Set[Predicate]:
+    """Finds all primitive (non-derived) supporter predicates for a given root
+    derived predicate by traversing its dependency graph."""
+    base_predicates: Set[Predicate] = set()
+
+    # Use a worklist to process predicates in a breadth-first manner.
+    predicates_to_process: List[Predicate] = list(
+        root_predicate.auxiliary_predicates)
+    processed_predicates: Set[Predicate] = {root_predicate}
+
+    while predicates_to_process:
+        pred = predicates_to_process.pop(0)
+
+        if pred in processed_predicates:
+            continue
+        processed_predicates.add(pred)
+
+        # If the predicate is derived, add its auxiliaries to the worklist.
+        if isinstance(pred, DerivedPredicate):
+            predicates_to_process.extend(pred.auxiliary_predicates)
+        # If it's a primitive predicate, we've found a base supporter.
+        else:
+            base_predicates.add(pred)
+
+    return base_predicates
 
 
 class PredicateEvaluationError(Exception):

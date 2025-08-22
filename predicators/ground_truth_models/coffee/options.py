@@ -51,7 +51,10 @@ class CoffeeGroundTruthOptionFactory(GroundTruthOptionFactory):
         JugInMachine = predicates["JugInMachine"]
         MachineOn = predicates["MachineOn"]
         CupFilled = predicates["CupFilled"]
-        JugPickable = predicates["JugPickable"]
+        if CFG.coffee_jug_pickable_pred:
+            JugPickable = predicates["JugPickable"]
+        JugAboveCup = predicates["JugAboveCup"]
+        HandTilted = predicates["HandTilted"]
 
         # PluggedIn = predicates["PluggedIn"]
 
@@ -104,8 +107,11 @@ class CoffeeGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _PickJug_initial(state: State, memory: Dict,
                              objects: Sequence[Object], params: Array) -> bool:
             del memory, params
-            _, jug = objects
-            return JugPickable.holds(state, [jug])
+            robot, jug = objects
+            if CFG.coffee_jug_pickable_pred:
+                return JugPickable.holds(state, [jug])
+            else:
+                return HandEmpty.holds(state, [robot])
 
         def _PickJug_terminal(state: State, memory: Dict,
                               objects: Sequence[Object],
@@ -172,8 +178,13 @@ class CoffeeGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _Pour_terminal(state: State, memory: Dict,
                            objects: Sequence[Object], params: Array) -> bool:
             del memory, params  # unused
-            _, _, cup = objects
-            return CupFilled.holds(state, [cup])
+            robot, jug, cup = objects
+            if CFG.coffee_fill_jug_gradually:
+                cond = JugAboveCup.holds(state, [jug, cup]) and \
+                    HandTilted.holds(state, [robot])
+            else:
+                cond = CupFilled.holds(state, [cup])
+            return cond
 
         Pour = ParameterizedOption("Pour",
                                    types=[robot_type, jug_type, cup_type],
@@ -542,6 +553,9 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         options = super().get_options(env_name, types, predicates,
                                       action_space)
 
+        _, pybullet_robot, _ = \
+            PyBulletCoffeeEnv.initialize_pybullet(using_gui=False)
+
         robot_type = types["robot"]
         jug_type = types["jug"]
         machine_type = types["coffee_machine"]
@@ -705,6 +719,56 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             PlugIn = utils.LinearChainParameterizedOption(
                 "PlugIn", [RestoreForPlugIn, _PlugIn, RestoreForPlugIn])
             options.add(PlugIn)
+
+        # Noop
+        params_space = Box(0, 1, (0, ))
+
+        def _create_no_op_policy() -> ParameterizedPolicy:
+            nonlocal action_space
+
+            def _policy(state: State, memory: Dict, objects: Sequence[Object],
+                        params: Array) -> Action:
+                del memory, params
+                robot = objects[0]
+                nonlocal action_space
+                # check finger open or closed
+                finger = state.get(robot, "fingers")
+                mid_point = (pybullet_robot.open_fingers +
+                             pybullet_robot.closed_fingers) / 2
+                if finger > mid_point:
+                    # currently open
+                    finger_delta = cls._finger_action_nudge_magnitude
+                else:
+                    finger_delta = -cls._finger_action_nudge_magnitude
+
+                # nudge finger to the direction of the current state to counter
+                joint_positions = state.joint_positions.copy()
+                finger_position = joint_positions[
+                    pybullet_robot.left_finger_joint_idx]
+                # The finger action is an absolute joint position for the fingers.
+                f_action = finger_position + finger_delta
+                # Override the meaningless finger values in joint_action.
+                joint_positions[
+                    pybullet_robot.left_finger_joint_idx] = f_action
+                joint_positions[
+                    pybullet_robot.right_finger_joint_idx] = f_action
+                # slide
+                action = np.array(joint_positions, dtype=np.float32)
+                action = action.clip(action_space.low,
+                                     action_space.high).astype(np.float32)
+                return Action(action)
+
+            return _policy
+
+        NoOp = ParameterizedOption(
+            "NoOp",
+            types=[robot_type],
+            params_space=params_space,
+            policy=_create_no_op_policy(),
+            initiable=lambda _1, _2, _3, _4: True,
+            terminal=lambda _1, _2, _3, _4: False,
+        )
+        options.add(NoOp)
 
         return options
 
@@ -956,6 +1020,26 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             dx, dy, dz = np.subtract(pour_pos, jug_pos)
             # Get the target robot position.
             robot_pour_pos = (robot_x + dx, robot_y + dy, robot_z + dz)
+            # If the jug is still inside the coffee machine, then move back to
+            # outside the coffee machine.
+            if np.sum(np.subtract([jug_x, jug_y],
+                                  [cls.env_cls.dispense_area_x,
+                                   cls.env_cls.dispense_area_y])**2) < \
+                    cls.env_cls.dispense_tol:
+                # Move the jug out of the machine to a safe location
+                safe_x = robot_x
+                safe_y = robot_y - 0.05
+                safe_z = robot_z  # Keep current height
+                safe_robot_pos = (safe_x, safe_y, safe_z)
+                dwrist = cls.env_cls.robot_init_wrist - state.get(
+                    robot, "wrist")
+                return cls._get_move_action(state,
+                                            safe_robot_pos,
+                                            robot_pos,
+                                            dtilt=0.0,
+                                            dwrist=dwrist,
+                                            finger_status="closed")
+
             # If we're close enough to the pour position, pour.
             sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
             if sq_dist_to_pour < cls.pour_policy_tol:
@@ -964,7 +1048,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
                     # make pouring more stable
                     dtilt = 0
                 new_joint_pos = cls._get_move_action(state,
-                                                     robot_pos,
+                                                     robot_pour_pos,
                                                      robot_pos,
                                                      dtilt=dtilt,
                                                      finger_status="closed")
@@ -991,6 +1075,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
                     finger_status="closed")
 
             # Move backward and to a safe moving height.
+            # print(f"moving to safe height")
             dwrist = cls.env_cls.robot_init_wrist - state.get(robot, "wrist")
             return cls._get_move_action(
                 state, (robot_x, robot_y - 1e-1, cls.env_cls.robot_init_z),

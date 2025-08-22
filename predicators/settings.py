@@ -95,6 +95,8 @@ class GlobalSettings:
 
     # grow env parameters
     grow_plant_same_color_as_cup = False
+    grow_weak_pour_terminate_condition = False
+    grow_place_option_no_sampler = False
 
     # laser env parameters
     laser_zero_reflection_angle = False
@@ -357,6 +359,7 @@ class GlobalSettings:
     coffee_machine_has_plug = False
     coffee_use_pixelated_jug = False
     coffee_plug_break_after_plugged_in = False
+    coffee_fill_jug_gradually = False
 
     # satellites env parameters
     satellites_num_sat_train = [2, 3]
@@ -398,6 +401,17 @@ class GlobalSettings:
     # domino
     domino_debug_layout = False
     domino_some_dominoes_are_connected = False
+    domino_initialize_at_finished_state = True
+    domino_use_domino_blocks_as_target = False
+    domino_use_grid = False
+    domino_include_connected_predicate = False
+    domino_prune_actions = False  # Set to True to enable action pruning
+    domino_num_dominos_max = 3
+    domino_num_dominos_min = 3
+    domino_num_targets_max = 1
+    domino_num_targets_min = 1
+    domino_num_pivots_max = 0
+    domino_num_pivots_min = 0
 
     # burger env parameters
     burger_render_set_of_marks = True
@@ -415,6 +429,8 @@ class GlobalSettings:
 
     # fan env
     fan_fans_blow_opposite_direction = False
+    fan_known_controls_relation = True
+    fan_combine_switch_on_off = False
 
     # boil env
     boil_use_constant_delay = False
@@ -529,6 +545,7 @@ class GlobalSettings:
     bilevel_plan_without_sim = False
     planning_filter_unreachable_nsrt = True
     planning_check_dr_reachable = True
+    no_repeated_arguments_in_grounding = False
 
     # evaluation parameters
     log_dir = "logs"
@@ -621,6 +638,9 @@ class GlobalSettings:
     process_learning_init_at_previous_results = False  # Loading hasn't been very helpful
     predicate_invent_neural_symbolic_predicates = False
     cluster_learning_one_effect_per_process = False
+    use_derived_predicate_in_heuristic = True
+    process_planning_heuristic_weight = 1.0
+    build_exogenous_process_index_for_planning = True
 
     # torch GPU usage setting
     use_torch_gpu = False

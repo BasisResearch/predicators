@@ -3,12 +3,14 @@
 #    python scripts/local/launch_simp.py -c mara_bench.yaml
 ---
 APPROACHES:
+  # oracle_nsrt:
+  #   NAME: "oracle"
   oracle:
     NAME: "oracle_process_planning"
     FLAGS:
-      # boil_use_normal_delay: True
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
+      bilevel_plan_without_sim: True
   # param_learning:
   #   NAME: "param_learning_process_planning"
   #   ARGS:
@@ -128,13 +130,19 @@ APPROACHES:
   #     process_learning_process_per_physical_core: False
 
 ENVS:
+  # boil_smpl:
+  #   NAME: "pybullet_boil"
+  #   FLAGS:
+  #     excluded_objects_in_state_str: "switch"
+  #     max_num_steps_option_rollout: 50
+  #     horizon: 150
+  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
+  #     boil_goal_simple_human_happy: True
   boil:
     NAME: "pybullet_boil"
     FLAGS:
       excluded_objects_in_state_str: "switch"
-      pybullet_ik_validate: False
       max_num_steps_option_rollout: 50
-      bilevel_plan_without_sim: True
       horizon: 500 # 300 should be enough, 50 is good during dev
       # boil_goal: "task_completed" # This option isn't fully ready because
         # with the current only_learn_exogenous_processes setting, it won't try
@@ -142,176 +150,43 @@ ENVS:
       boil_goal: "human_happy" # Can also be "task_completed", "simple"
       # boil_goal: "simple"
       boil_require_jug_full_to_heatup: True
-  # boil_smpl:
-  #   NAME: "pybullet_boil"
-  #   FLAGS:
-  #     excluded_objects_in_state_str: "switch"
-  #     pybullet_ik_validate: False
-  #     max_num_steps_option_rollout: 50
-  #     bilevel_plan_without_sim: True
-  #     horizon: 150
-  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
-  #     boil_goal_simple_human_happy: True
-  # cover:
-  #   NAME: "pybullet_cover"
-  # cover_cf:c
-  #   NAME: "pybullet_cover"
-  #   FLAGS:
-  #     cover_blocks_change_color_when_cover: True
-  # blocks:
-  #   NAME: "pybullet_blocks"
-  # blocks_cf:
-  #   NAME: "pybullet_blocks"
-  #   FLAGS:
-  #     blocks_high_towers_are_unstable: True
   # coffee:
   #   NAME: "pybullet_coffee"
   #   FLAGS:
   #     coffee_rotated_jug_ratio: 0
-  #     sesame_check_expected_atoms: False
   #     coffee_machine_have_light_bar: False
   #     coffee_move_back_after_place_and_push: True
-  #     coffee_machine_has_plug: True
-  #     option_model_terminate_on_repeat: False
+  #     coffee_machine_has_plug: False
+  #     coffee_combined_move_and_twist_policy: True
   #     coffee_use_pixelated_jug: True
-  #     pybullet_ik_validate: False
-  #     sesame_max_skeletons_optimized: 1
+  #     coffee_fill_jug_gradually: True
   #     max_num_steps_option_rollout: 100
-  # coffee_cf:
-  #   NAME: "pybullet_coffee"
-  #   FLAGS:
-  #     coffee_plug_break_after_plugged_in: True
-  #     coffee_rotated_jug_ratio: 0
-  #     sesame_check_expected_atoms: False
-  #     coffee_machine_have_light_bar: False
-  #     coffee_move_back_after_place_and_push: True
-  #     coffee_machine_has_plug: True
-  #     option_model_terminate_on_repeat: False
-  #     coffee_use_pixelated_jug: True
-  #     pybullet_ik_validate: False
-  #     sesame_max_skeletons_optimized: 1
-  #     max_num_steps_option_rollout: 100
-  # balance:
-  #   NAME: "pybullet_balance"
-  #   FLAGS:
-  #     sesame_task_planning_heuristic: "goal_count"
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  # balance_cf:
-  #   NAME: "pybullet_balance"
-  #   FLAGS:
-  #     balance_wierd_balance: True
-  #     sesame_task_planning_heuristic: "goal_count"
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
   # grow:
   #   NAME: "pybullet_grow"
   #   FLAGS:
-  #     pybullet_ik_validate: False
   #     coffee_use_pixelated_jug: True
   #     max_num_steps_option_rollout: 50
-  # grow_cf:
-  #   NAME: "pybullet_grow"
-  #   FLAGS:
-  #     grow_plant_same_color_as_cup: True
-  #     pybullet_ik_validate: False
-  #     coffee_use_pixelated_jug: True
-  #     max_num_steps_option_rollout: 50
-  # circuit:
-  #   NAME: "pybullet_circuit"
-  #   FLAGS:
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     terminate_on_goal_reached: False
-  #     pybullet_ik_validate: False
-  # circuit_cf:
-  #   NAME: "pybullet_circuit"
-  #   FLAGS:
-  #     circuit_light_doesnt_need_battery: True
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     terminate_on_goal_reached: False
-  # float:
-  #   NAME: "pybullet_float"
-  #   FLAGS:
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  #     option_model_terminate_on_repeat: False
-  # float_cf:
-  #   NAME: "pybullet_float"
-  #   FLAGS:
-  #     float_water_level_doesnt_raise: True
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  #     option_model_terminate_on_repeat: False
+  #     grow_weak_pour_terminate_condition: True
+  #     grow_place_option_no_sampler: True
+  #     horizon: 300
   # domino:
   #   NAME: "pybullet_domino"
-  #   ARGS:
-  #     - "video_not_break_on_exception"
   #   FLAGS:
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     horizon: 60
-  #     pybullet_ik_validate: False
-  # domino_cf:
-  #   NAME: "pybullet_domino"
-  #   ARGS:
-  #     - "video_not_break_on_exception"
-  #   FLAGS:
-  #     domino_some_dominoes_are_connected: True
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     horizon: 60
-  #     pybullet_ik_validate: False
-  # laser:
-  #   NAME: "pybullet_laser"
-  #   FLAGS:
-  #     bilevel_plan_without_sim: True
-  #     laser_use_debug_line_for_beams: False
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  # laser_cf:
-  #   NAME: "pybullet_laser"
-  #   FLAGS:
-  #     laser_zero_reflection_angle: True
-  #     bilevel_plan_without_sim: True
-  #     laser_use_debug_line_for_beams: False
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  # ants:
-  #   NAME: "pybullet_ants"
-  #   FLAGS:
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  #     terminate_on_goal_reached: False
-  # ants_cf:
-  #   NAME: "pybullet_ants"
-  #   FLAGS:
-  #     ants_ants_attracted_to_points: True
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     pybullet_ik_validate: False
-  #     terminate_on_goal_reached: False
+  #     horizon: 100
+  #     domino_initialize_at_finished_state: False
+  #     domino_use_domino_blocks_as_target: True
+  #     domino_use_grid: True
+  #     domino_include_connected_predicate: False # necessary to generate valid plan
+  #     domino_prune_actions: False
+  #     domino_num_dominos_max: 3
+  #     domino_num_dominos_min: 3
+  #     domino_num_targets_max: 1
+  #     domino_num_targets_min: 1
   # fan:
   #   NAME: "pybullet_fan"
   #   FLAGS:
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     terminate_on_goal_reached: False
-  #     pybullet_ik_validate: False
-  # fan_cf:
-  #   NAME: "pybullet_fan"
-  #   FLAGS:
-  #     fan_fans_blow_opposite_direction: True
-  #     sesame_max_skeletons_optimized: 1
-  #     sesame_check_expected_atoms: False
-  #     terminate_on_goal_reached: False
-  #     pybullet_ik_validate: False
+  #     excluded_objects_in_state_str: "switch"
+  #     # terminate_on_goal_reached: True # maybe required for successful eval
 ARGS:
   - "debug"
   # - "use_gui"
@@ -335,6 +210,7 @@ FLAGS:
   llm_model_name: "google/gemini-2.5-pro" # "openai/gpt-4o", "gpt-4.1", "gpt-4o"
   llm_openai_max_response_tokens: 1e6
   terminate_on_goal_reached: False
+  pybullet_ik_validate: False
   num_train_tasks: 1
   num_test_tasks: 1
   video_fps: 20
@@ -345,8 +221,9 @@ FLAGS:
   keep_failed_demos: True
   planning_filter_unreachable_nsrt: False
   planning_check_dr_reachable: False
-  sesame_task_planning_heuristic: 'goal_count'
-  timeout: 60
+  sesame_task_planning_heuristic: 'h_ff' # goal_count, lm_cut, h_max, h_ff
+  timeout: 600
   log: 'logs/'
+  no_repeated_arguments_in_grounding: True
 START_SEED: 0
 NUM_SEEDS: 1

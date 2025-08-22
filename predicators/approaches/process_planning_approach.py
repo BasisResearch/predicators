@@ -73,7 +73,9 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
             for process in process_plan:
                 logging.debug(process.name)
         else:
-            ...
+            raise NotImplementedError(
+                "BilevelProcessPlanningApproach does not support full "
+                "bilevel planning with simulation.")
 
         self._save_metrics(metrics, processes, preds)
 

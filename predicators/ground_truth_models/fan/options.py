@@ -2,7 +2,8 @@
 
 import logging
 from functools import lru_cache
-from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
+from typing import Callable, ClassVar, Dict, List, Optional, Sequence, Set, \
+    Tuple
 from typing import Type as TypingType
 
 import numpy as np
@@ -51,7 +52,7 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
                     predicates: Dict[str, Predicate],
                     action_space: Box) -> Set[ParameterizedOption]:
         """Get the ground-truth options for the grow environment."""
-        del env_name, predicates, action_space  # unused
+        del env_name, predicates  # unused
 
         _, pybullet_robot, _ = \
             PyBulletFanEnv.initialize_pybullet(using_gui=False)
@@ -59,6 +60,7 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
         # Types
         robot_type = types["robot"]
         switch_type = types["switch"]
+        fan_type = types["fan"]
 
         def get_current_fingers(state: State) -> float:
             robot, = state.get_objects(robot_type)
@@ -81,52 +83,174 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         options = set()
 
-        # SwitchOnAndOff
-        option_type = [robot_type, switch_type]
+        # Common parameters for switch options
+        if CFG.fan_known_controls_relation:
+            control_obj_type = fan_type
+        else:
+            control_obj_type = switch_type
+        option_type = [robot_type, control_obj_type]
         params_space = Box(0, 1, (0, ))
         behind_factor = 1.8
         push_factor = 0
         push_above_factor = 1.3
-        SwitchOn = utils.LinearChainParameterizedOption(
-            "SwitchOnOff", [
-                create_change_fingers_option(
-                    pybullet_robot, "CloseFingers", option_type, params_space,
-                    close_fingers_func, CFG.pybullet_max_vel_norm,
-                    PyBulletFanEnv.grasp_tol_small),
-                cls._create_fan_move_to_push_switch_option(
-                    "MoveToAboveAndBehindSwitch",
-                    lambda y: y - cls._y_offset * behind_factor,
-                    lambda _: cls._hand_empty_move_z, "closed", option_type,
-                    params_space),
-                cls._create_fan_move_to_push_switch_option(
-                    "MoveToBehindSwitch",
-                    lambda y: y - cls._y_offset * behind_factor, lambda z: z +
-                    cls.env_cls.switch_height * push_above_factor, "closed",
-                    option_type, params_space),
-                cls._create_fan_move_to_push_switch_option(
-                    "PushSwitchOn", lambda y: y - cls._y_offset * push_factor,
-                    lambda z: z + cls.env_cls.switch_height *
-                    push_above_factor, "closed", option_type, params_space),
-                cls._create_fan_move_to_push_switch_option(
-                    "MoveToAboveAndInFrontOfSwitch",
-                    lambda y: y - cls._y_offset * push_factor,
-                    lambda _: cls._hand_empty_move_z, "closed", option_type,
-                    params_space),
-                cls._create_fan_move_to_push_switch_option(
-                    "MoveToInFrontOfSwitch",
-                    lambda y: y + cls._y_offset * behind_factor, lambda z: z +
-                    cls.env_cls.switch_height * push_above_factor, "closed",
-                    option_type, params_space),
-                cls._create_fan_move_to_push_switch_option(
-                    "PushSwitchOff", lambda y: y + cls._y_offset * push_factor,
-                    lambda z: z + cls.env_cls.switch_height *
-                    push_above_factor, "closed", option_type, params_space),
-                cls._create_fan_move_to_push_switch_option(
-                    "MoveBack", lambda y: y + cls._y_offset * behind_factor,
-                    lambda _: cls._hand_empty_move_z, "closed", option_type,
-                    params_space),
-            ])
-        options.add(SwitchOn)
+
+        if CFG.fan_combine_switch_on_off:
+            # Combined SwitchOnOff option (original implementation)
+            SwitchOnOff = utils.LinearChainParameterizedOption(
+                "SwitchOnOff", [
+                    create_change_fingers_option(
+                        pybullet_robot, "CloseFingers", option_type,
+                        params_space, close_fingers_func,
+                        CFG.pybullet_max_vel_norm,
+                        PyBulletFanEnv.grasp_tol_small),
+                    cls._create_fan_move_to_push_switch_option(
+                        "MoveToAboveAndBehindSwitch",
+                        lambda y: y - cls._y_offset * behind_factor,
+                        lambda _: cls._hand_empty_move_z, "closed",
+                        option_type, params_space, switch_type),
+                    cls._create_fan_move_to_push_switch_option(
+                        "MoveToBehindSwitch",
+                        lambda y: y - cls._y_offset * behind_factor, lambda z:
+                        z + cls.env_cls.switch_height * push_above_factor,
+                        "closed", option_type, params_space, switch_type),
+                    cls._create_fan_move_to_push_switch_option(
+                        "PushSwitchOn",
+                        lambda y: y - cls._y_offset * push_factor, lambda z: z
+                        + cls.env_cls.switch_height * push_above_factor,
+                        "closed", option_type, params_space, switch_type),
+                    cls._create_fan_move_to_push_switch_option(
+                        "MoveToAboveAndInFrontOfSwitch",
+                        lambda y: y - cls._y_offset * push_factor,
+                        lambda _: cls._hand_empty_move_z, "closed",
+                        option_type, params_space, switch_type),
+                    cls._create_fan_move_to_push_switch_option(
+                        "MoveToInFrontOfSwitch",
+                        lambda y: y + cls._y_offset * behind_factor, lambda z:
+                        z + cls.env_cls.switch_height * push_above_factor,
+                        "closed", option_type, params_space, switch_type),
+                    cls._create_fan_move_to_push_switch_option(
+                        "PushSwitchOff",
+                        lambda y: y + cls._y_offset * push_factor, lambda z: z
+                        + cls.env_cls.switch_height * push_above_factor,
+                        "closed", option_type, params_space, switch_type),
+                    cls._create_fan_move_to_push_switch_option(
+                        "MoveBack",
+                        lambda y: y + cls._y_offset * behind_factor,
+                        lambda _: cls._hand_empty_move_z, "closed",
+                        option_type, params_space, switch_type),
+                ])
+            options.add(SwitchOnOff)
+        else:
+            # Separate SwitchOn and SwitchOff options
+            SwitchOn = utils.LinearChainParameterizedOption(
+                "SwitchOn",
+                [
+                    create_change_fingers_option(
+                        pybullet_robot, "CloseFingers", option_type,
+                        params_space, close_fingers_func,
+                        CFG.pybullet_max_vel_norm,
+                        PyBulletFanEnv.grasp_tol_small),
+                    cls._create_fan_move_to_push_switch_option(
+                        "MoveToAboveAndBehindSwitch",
+                        lambda y: y - cls._y_offset * behind_factor,
+                        lambda _: cls._hand_empty_move_z, "closed",
+                        option_type, params_space, switch_type),
+                    cls._create_fan_move_to_push_switch_option(
+                        "MoveToBehindSwitch",
+                        lambda y: y - cls._y_offset * behind_factor, lambda z:
+                        z + cls.env_cls.switch_height * push_above_factor,
+                        "closed", option_type, params_space, switch_type),
+                    cls._create_fan_move_to_push_switch_option(
+                        "PushSwitchOn",
+                        lambda y: y - cls._y_offset * push_factor, lambda z: z
+                        + cls.env_cls.switch_height * push_above_factor,
+                        "closed", option_type, params_space, switch_type),
+                    # cls._create_fan_move_to_push_switch_option(
+                    #     "MoveBack", lambda y: y + cls._y_offset * behind_factor,
+                    #     lambda _: cls._hand_empty_move_z, "closed", option_type,
+                    #     params_space, switch_type),
+                ])
+            options.add(SwitchOn)
+
+            SwitchOff = utils.LinearChainParameterizedOption(
+                "SwitchOff",
+                [
+                    create_change_fingers_option(
+                        pybullet_robot, "CloseFingers", option_type,
+                        params_space, close_fingers_func,
+                        CFG.pybullet_max_vel_norm,
+                        PyBulletFanEnv.grasp_tol_small),
+                    cls._create_fan_move_to_push_switch_option(
+                        "MoveToAboveAndInFrontOfSwitch",
+                        lambda y: y - cls._y_offset * push_factor,
+                        lambda _: cls._hand_empty_move_z, "closed",
+                        option_type, params_space, switch_type),
+                    cls._create_fan_move_to_push_switch_option(
+                        "MoveToInFrontOfSwitch",
+                        lambda y: y + cls._y_offset * behind_factor, lambda z:
+                        z + cls.env_cls.switch_height * push_above_factor,
+                        "closed", option_type, params_space, switch_type),
+                    cls._create_fan_move_to_push_switch_option(
+                        "PushSwitchOff",
+                        lambda y: y + cls._y_offset * push_factor, lambda z: z
+                        + cls.env_cls.switch_height * push_above_factor,
+                        "closed", option_type, params_space, switch_type),
+                    # cls._create_fan_move_to_push_switch_option(
+                    #     "MoveBack", lambda y: y + cls._y_offset * behind_factor,
+                    #     lambda _: cls._hand_empty_move_z, "closed", option_type,
+                    #     params_space, switch_type),
+                ])
+            options.add(SwitchOff)
+
+        # Noop
+        params_space = Box(0, 1, (0, ))
+
+        def _create_no_op_policy() -> ParameterizedPolicy:
+            nonlocal action_space
+
+            def _policy(state: State, memory: Dict, objects: Sequence[Object],
+                        params: Array) -> Action:
+                del memory, params
+                robot = objects[0]
+                nonlocal action_space
+                # check finger open or closed
+                finger = state.get(robot, "fingers")
+                mid_point = (pybullet_robot.open_fingers +
+                             pybullet_robot.closed_fingers) / 2
+                if finger > mid_point:
+                    # currently open
+                    finger_delta = cls._finger_action_nudge_magnitude
+                else:
+                    finger_delta = -cls._finger_action_nudge_magnitude
+
+                # nudge finger to the direction of the current state to counter
+                joint_positions = state.joint_positions.copy()
+                finger_position = joint_positions[
+                    pybullet_robot.left_finger_joint_idx]
+                # The finger action is an absolute joint position for the fingers.
+                f_action = finger_position + finger_delta
+                # Override the meaningless finger values in joint_action.
+                joint_positions[
+                    pybullet_robot.left_finger_joint_idx] = f_action
+                joint_positions[
+                    pybullet_robot.right_finger_joint_idx] = f_action
+                # slide
+                action = np.array(joint_positions, dtype=np.float32)
+                action = action.clip(action_space.low,
+                                     action_space.high).astype(np.float32)
+                return Action(action)
+
+            return _policy
+
+        NoOp = ParameterizedOption(
+            "NoOp",
+            types=[robot_type],
+            params_space=params_space,
+            policy=_create_no_op_policy(),
+            initiable=lambda _1, _2, _3, _4: True,
+            terminal=lambda _1, _2, _3, _4: False,
+        )
+        options.add(NoOp)
 
         return options
 
@@ -135,15 +259,21 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
             cls, name: str, y_func: Callable[[float],
                                              float], z_func: Callable[[float],
                                                                       float],
-            finger_status: str, option_types: List[Type],
-            params_space: Box) -> ParameterizedOption:
+            finger_status: str, option_types: List[Type], params_space: Box,
+            switch_type: Type) -> ParameterizedOption:
         """Create a move-to-pose option for the switch environment."""
 
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
             assert not params
-            robot, switch = objects
+            if CFG.fan_known_controls_relation:
+                robot, fan = objects
+                switch = [switch for switch in state.get_objects(switch_type)
+                          if state.get(switch, "side") ==\
+                                state.get(fan, "side")][0]
+            else:
+                robot, switch = objects
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
             ee_orn = p.getQuaternionFromEuler(
