@@ -138,18 +138,18 @@ ENVS:
   #     horizon: 150
   #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
   #     boil_goal_simple_human_happy: True
-  # boil:
-  #   NAME: "pybullet_boil"
-  #   FLAGS:
-  #     excluded_objects_in_state_str: "switch"
-  #     max_num_steps_option_rollout: 50
-  #     horizon: 500 # 300 should be enough, 50 is good during dev
-  #     # boil_goal: "task_completed" # This option isn't fully ready because
-  #       # with the current only_learn_exogenous_processes setting, it won't try
-  #       # to learn the precondition for the DeclareComplete option.
-  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
-  #     # boil_goal: "simple"
-  #     boil_require_jug_full_to_heatup: True
+  boil:
+    NAME: "pybullet_boil"
+    FLAGS:
+      excluded_objects_in_state_str: "switch"
+      max_num_steps_option_rollout: 50
+      horizon: 500 # 300 should be enough, 50 is good during dev
+      # boil_goal: "task_completed" # This option isn't fully ready because
+        # with the current only_learn_exogenous_processes setting, it won't try
+        # to learn the precondition for the DeclareComplete option.
+      boil_goal: "human_happy" # Can also be "task_completed", "simple"
+      # boil_goal: "simple"
+      boil_require_jug_full_to_heatup: True
   # coffee:
   #   NAME: "pybullet_coffee"
   #   FLAGS:
@@ -160,7 +160,6 @@ ENVS:
   #     coffee_combined_move_and_twist_policy: True
   #     coffee_use_pixelated_jug: True
   #     coffee_fill_jug_gradually: True
-  #     sesame_max_skeletons_optimized: 1
   #     max_num_steps_option_rollout: 100
   # grow:
   #   NAME: "pybullet_grow"
@@ -170,32 +169,30 @@ ENVS:
   #     grow_weak_pour_terminate_condition: True
   #     grow_place_option_no_sampler: True
   #     horizon: 300
-  domino:
-    NAME: "pybullet_domino"
-    FLAGS:
-      sesame_max_skeletons_optimized: 1
-      horizon: 100
-      domino_initialize_at_finished_state: False
-      domino_use_domino_blocks_as_target: True
-      domino_use_grid: True
-      domino_include_connected_predicate: False # necessary to generate valid plan
-      domino_prune_actions: False
-      domino_num_dominos_max: 3
-      domino_num_dominos_min: 3
-      domino_num_targets_max: 1
-      domino_num_targets_min: 1
+  # domino:
+  #   NAME: "pybullet_domino"
+  #   FLAGS:
+  #     horizon: 100
+  #     domino_initialize_at_finished_state: False
+  #     domino_use_domino_blocks_as_target: True
+  #     domino_use_grid: True
+  #     domino_include_connected_predicate: False # necessary to generate valid plan
+  #     domino_prune_actions: False
+  #     domino_num_dominos_max: 3
+  #     domino_num_dominos_min: 3
+  #     domino_num_targets_max: 1
+  #     domino_num_targets_min: 1
   # fan:
   #   NAME: "pybullet_fan"
   #   FLAGS:
   #     excluded_objects_in_state_str: "switch"
-  #     sesame_max_skeletons_optimized: 1
   #     # terminate_on_goal_reached: True # maybe required for successful eval
 ARGS:
   - "debug"
-  - "use_gui"
+  # - "use_gui"
   # - "make_demo_videos"
   # - "make_failure_videos"
-  - "make_test_videos"
+  # - "make_test_videos"
   # - "make_demo_images"  # support images
   # - "make_failure_images"  # query images
   # - "make_test_images"  # query images
@@ -215,7 +212,7 @@ FLAGS:
   terminate_on_goal_reached: False
   pybullet_ik_validate: False
   num_train_tasks: 1
-  num_test_tasks: 5
+  num_test_tasks: 1
   video_fps: 20
   pybullet_camera_height: 900
   pybullet_camera_width: 900
