@@ -410,12 +410,12 @@ class GlobalSettings:
     domino_use_grid = False
     domino_include_connected_predicate = False
     domino_prune_actions = False  # Set to True to enable action pruning
-    domino_num_dominos_max = 3
-    domino_num_dominos_min = 3
-    domino_num_targets_max = 1
-    domino_num_targets_min = 1
-    domino_num_pivots_max = 0
-    domino_num_pivots_min = 0
+    domino_train_num_dominos = [2]
+    domino_test_num_dominos = [3]
+    domino_train_num_targets = [1]
+    domino_test_num_targets = [1, 2]
+    domino_train_num_pivots = [0]
+    domino_test_num_pivots = [0]
 
     # burger env parameters
     burger_render_set_of_marks = True

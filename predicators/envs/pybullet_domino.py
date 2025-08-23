@@ -92,7 +92,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     # Grid configuration
     # num_pos_x: ClassVar[int] = 9
     # num_pos_y: ClassVar[int] = 5
-    num_pos_x: ClassVar[int] = 3
+    num_pos_x: ClassVar[int] = 5
     num_pos_y: ClassVar[int] = 3
     pos_gap: ClassVar[
         float] = domino_width * 1.3  # Distance between grid positions
@@ -110,14 +110,17 @@ class PyBulletDominoEnv(PyBulletEnv):
 
     def __init__(self, use_gui: bool = True) -> None:
         # Initialize domino count variables from CFG
-        assert CFG.domino_num_dominos_max <= 9
-        assert CFG.domino_num_targets_max <= 3
-        self.num_dominos_max = CFG.domino_num_dominos_max
-        self.num_dominos_min = CFG.domino_num_dominos_min
-        self.num_targets_max = CFG.domino_num_targets_max
-        self.num_targets_min = CFG.domino_num_targets_min
-        self.num_pivots_max = CFG.domino_num_pivots_max
-        self.num_pivots_min = CFG.domino_num_pivots_min
+        # Calculate maximums from train and test configurations
+        max_dominos = max(max(CFG.domino_train_num_dominos), max(CFG.domino_test_num_dominos))
+        max_targets = max(max(CFG.domino_train_num_targets), max(CFG.domino_test_num_targets))  
+        max_pivots = max(max(CFG.domino_train_num_pivots), max(CFG.domino_test_num_pivots))
+        
+        assert max_dominos <= 9
+        assert max_targets <= 3
+        
+        self.num_dominos_max = max_dominos
+        self.num_targets_max = max_targets
+        self.num_pivots_max = max_pivots
 
         # Conditionally create grid-related types
         if CFG.domino_use_grid:
@@ -355,13 +358,19 @@ class PyBulletDominoEnv(PyBulletEnv):
         # Create a fixed number of dominoes and targets here
         domino_ids = []
         target_ids = []
+        
+        # Calculate maximums from train and test configurations
+        max_dominos = max(max(CFG.domino_train_num_dominos), max(CFG.domino_test_num_dominos))
+        max_targets = max(max(CFG.domino_train_num_targets), max(CFG.domino_test_num_targets))
+        max_pivots = max(max(CFG.domino_train_num_pivots), max(CFG.domino_test_num_pivots))
+        
         if CFG.domino_use_domino_blocks_as_target:
             # If using domino blocks as targets, we create more dominoes
-            num_dominos_to_create = CFG.domino_num_dominos_max + CFG.domino_num_targets_max
+            num_dominos_to_create = max_dominos + max_targets
             num_targets_to_create = 0
         else:
-            num_dominos_to_create = CFG.domino_num_dominos_max
-            num_targets_to_create = CFG.domino_num_targets_max
+            num_dominos_to_create = max_dominos
+            num_targets_to_create = max_targets
         for i in range(num_dominos_to_create):  # e.g. 3 dominoes
             domino_id = create_pybullet_block(
                 color=cls.start_domino_color if i == 0 else cls.domino_color,
@@ -384,7 +393,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                                 physics_client_id=physics_client_id)
             target_ids.append(tid)
         pivot_ids = []
-        for _ in range(CFG.domino_num_pivots_max):
+        for _ in range(max_pivots):
             pid = create_object("urdf/domino_pivot.urdf",
                                 position=(cls.x_lb, cls.y_lb, cls.z_lb),
                                 orientation=p.getQuaternionFromEuler(
@@ -1516,14 +1525,23 @@ class PyBulletDominoEnv(PyBulletEnv):
 
     def _generate_train_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(num_tasks=CFG.num_train_tasks,
+                                possible_num_dominos=CFG.domino_train_num_dominos,
+                                possible_num_targets=CFG.domino_train_num_targets,
+                                possible_num_pivots=CFG.domino_train_num_pivots,
                                 rng=self._train_rng)
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(num_tasks=CFG.num_test_tasks,
+                                possible_num_dominos=CFG.domino_test_num_dominos,
+                                possible_num_targets=CFG.domino_test_num_targets,
+                                possible_num_pivots=CFG.domino_test_num_pivots,
                                 rng=self._test_rng)
 
     def _make_tasks(self,
                     num_tasks: int,
+                    possible_num_dominos: List[int],
+                    possible_num_targets: List[int],
+                    possible_num_pivots: List[int],
                     rng: np.random.Generator,
                     log_debug: bool = True) -> List[EnvironmentTask]:
         tasks = []
@@ -1561,13 +1579,9 @@ class PyBulletDominoEnv(PyBulletEnv):
 
             # Place dominoes (D) and targets (T) in order: D D T D T
             # at fixed positions along the x-axis
-            n_dominos = rng.integers(low=self.num_dominos_min,
-                                     high=self.num_dominos_max + 1)
-            # n_dominos = len(self.dominos)
-            n_targets = rng.integers(low=self.num_targets_min,
-                                     high=self.num_targets_max + 1)
-            n_pivots = rng.integers(low=self.num_pivots_min,
-                                    high=self.num_pivots_max + 1)
+            n_dominos = rng.choice(possible_num_dominos)
+            n_targets = rng.choice(possible_num_targets)
+            n_pivots = rng.choice(possible_num_pivots)
 
             # Generate sequence using helper function
             obj_dict = None
@@ -1831,7 +1845,16 @@ if __name__ == "__main__":
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_use_grid = True
     env = PyBulletDominoEnv(use_gui=True)
-    tasks = env._make_tasks(10, env._test_rng)
+    # # Set up test configurations for the example
+    # CFG.domino_test_num_dominos = [3]
+    # CFG.domino_test_num_targets = [1] 
+    # CFG.domino_test_num_pivots = [1]
+    
+    tasks = env._make_tasks(10, 
+                            CFG.domino_test_num_dominos,
+                            CFG.domino_test_num_targets, 
+                            CFG.domino_test_num_pivots,
+                            env._test_rng)
     for task in tasks:
         env._reset_state(task.init)
 
