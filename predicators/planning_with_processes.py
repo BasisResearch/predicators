@@ -722,6 +722,7 @@ def task_plan(
         use_visited_state_set=use_visited_state_set,
         derived_predicates=derived_predicates,
         objects=objects,
+        heuristic_weight=CFG.process_planning_heuristic_weight,
     )
 
     # Note that we use this pattern to avoid having to catch an exception
