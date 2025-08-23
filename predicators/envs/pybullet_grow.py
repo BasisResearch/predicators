@@ -606,7 +606,7 @@ class PyBulletGrowEnv(PyBulletEnv):
         jug_y_coords = rng.uniform(self.y_lb + 1.5 * self.small_padding,
                                    self.y_mid,
                                    size=len(jugs))
-        cup_y_coords = rng.uniform(self.y_mid,
+        cup_y_coords = rng.uniform(self.y_mid + 0.2 * self.small_padding,
                                    self.y_ub - 1.5 * self.small_padding,
                                    size=len(cups))
 
