@@ -18,7 +18,8 @@ from predicators import utils
 from predicators.planning import PlanningFailure, _MaxSkeletonsFailure, \
     _SkeletonSearchTimeout
 from predicators.settings import CFG
-from predicators.structs import AbstractPolicy, CausalProcess, DefaultState, \
+from predicators.structs import AbstractProcessPolicy, CausalProcess, \
+    DefaultState, \
     DerivedPredicate, EndogenousProcess, GroundAtom, Metrics, Object, \
     Predicate, Task, Type, _GroundCausalProcess, _GroundEndogenousProcess, \
     _GroundExogenousProcess
@@ -321,7 +322,7 @@ def _skeleton_generator_with_processes(
     timeout: float,
     metrics: Metrics,
     max_skeletons_optimized: int,
-    abstract_policy: Optional[AbstractPolicy] = None,
+    abstract_policy: Optional[AbstractProcessPolicy] = None,
     sesame_max_policy_guided_rollout: int = 0,
     use_visited_state_set: bool = False,
     log_sucessful_small_steps: bool = False,
@@ -446,7 +447,82 @@ def _skeleton_generator_with_processes(
         else:
             # Generate successors.
             metrics["num_nodes_expanded"] += 1
-            # Skip abstract policy support...
+            # If an abstract policy is provided, generate policy-based
+            # successors first.
+            if abstract_policy is not None:
+                current_node = node
+                for _ in range(sesame_max_policy_guided_rollout):
+                    if task.goal.issubset(current_node.atoms):
+                        yield current_node.skeleton, current_node.atoms_sequence
+                        break
+                    ground_process = abstract_policy(current_node.atoms,
+                                                    objects, task.goal)
+                    if ground_process is None:
+                        break
+                    # Make sure ground_process is applicable and is an endogenous process
+                    if not isinstance(ground_process, _GroundEndogenousProcess):
+                        break
+                    if not ground_process.condition_at_start.issubset(
+                            current_node.atoms):
+                        break
+                    
+                    # Run the process through the world model to get the resulting state
+                    world_model = ProcessWorldModel(
+                        ground_processes=ground_processes.copy(),
+                        state=current_node.atoms.copy(),
+                        state_history=current_node.state_history.copy(),
+                        action_history=current_node.action_history.copy(),
+                        scheduled_events=deepcopy(current_node.scheduled_events),
+                        t=len(current_node.state_history),
+                        derived_predicates=derived_predicates,
+                        objects=objects,
+                        precondition_to_exogenous_processes=
+                            precondition_to_exogenous_processes,
+                        dep_to_derived_preds=dep_to_derived_preds)
+                    
+                    world_model.big_step(ground_process)
+                    child_atoms = world_model.state.copy()
+                    
+                    child_skeleton = current_node.skeleton + [ground_process]
+                    child_skeleton_tup = tuple(child_skeleton)
+                    if child_skeleton_tup in visited_skeletons:
+                        continue
+                    visited_skeletons.add(child_skeleton_tup)
+                    # Note: the cost of taking a policy-generated action is 1,
+                    # but the policy-generated skeleton is immediately yielded
+                    # once it reaches a goal. This allows the planner to always
+                    # trust the policy first, but it also allows us to yield a
+                    # policy-generated plan without waiting to exhaustively
+                    # rule out the possibility that some other primitive plans
+                    # are actually lower cost.
+                    child_cost = 1 + current_node.cumulative_cost
+                    child_node = _ProcessPlanningNode(
+                        atoms=child_atoms,
+                        skeleton=child_skeleton,
+                        atoms_sequence=current_node.atoms_sequence +
+                        [child_atoms],
+                        parent=current_node,
+                        cumulative_cost=child_cost,
+                        state_history=world_model.state_history.copy(),
+                        action_history=world_model.action_history.copy(),
+                        scheduled_events=deepcopy(world_model.scheduled_events))
+                    metrics["num_nodes_created"] += 1
+                    # priority is g [cost] plus h [heuristic]
+                    if time_heuristic:
+                        heuristic_start_time = time.perf_counter()
+                        h = heuristic(child_node.atoms) * heuristic_weight
+                        heuristic_end_time = time.perf_counter()
+                        heuristic_call_count += 1
+                        total_heuristic_time += (heuristic_end_time - 
+                                                 heuristic_start_time)
+                    else:
+                        h = heuristic(child_node.atoms) * heuristic_weight
+                    priority = (child_node.cumulative_cost + h)
+                    hq.heappush(queue,
+                                (priority, rng_prio.uniform(), child_node))
+                    current_node = child_node
+                    if time.perf_counter() - start_time >= timeout:
+                        break
             applicable_actions = list(
                 utils.get_applicable_operators(ground_action_processes,
                                                node.atoms))
@@ -605,6 +681,8 @@ def task_plan_from_task(
     timeout: float,
     max_skeletons_optimized: int,
     use_visited_state_set: bool = True,
+    abstract_policy: Optional[AbstractProcessPolicy] = None,
+    max_policy_guided_rollout: int = 0,
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]],
                     Metrics]]:
     # TODO: Expand the concept predicates to include all dependencies
@@ -670,6 +748,8 @@ def task_plan_from_task(
         use_visited_state_set=use_visited_state_set,
         derived_predicates=derived_predicates,
         objects=objects,
+        abstract_policy=abstract_policy,
+        max_policy_guided_rollout=max_policy_guided_rollout,
     )
 
 
@@ -685,6 +765,8 @@ def task_plan(
     use_visited_state_set: bool = True,
     derived_predicates: Set[DerivedPredicate] = set(),
     objects: Set[Object] = set(),
+    abstract_policy: Optional[AbstractProcessPolicy] = None,
+    max_policy_guided_rollout: int = 0,
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]],
                     Metrics]]:
     """Run only the task planning portion of SeSamE. A* search is run, and
@@ -719,6 +801,8 @@ def task_plan(
         timeout,
         metrics,
         max_skeletons_optimized,
+        abstract_policy=abstract_policy,
+        sesame_max_policy_guided_rollout=max_policy_guided_rollout,
         use_visited_state_set=use_visited_state_set,
         derived_predicates=derived_predicates,
         objects=objects,
@@ -741,6 +825,8 @@ def run_task_plan_with_processes_once(
     task_planning_heuristic: str,
     max_horizon: float = np.inf,
     compute_reachable_atoms: bool = False,
+    abstract_policy: Optional[AbstractProcessPolicy] = None,
+    max_policy_guided_rollout: int = 0,
 ) -> Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]], Metrics]:
     """Get a single abstract plan for a task.
 
@@ -760,6 +846,8 @@ def run_task_plan_with_processes_once(
                 seed,
                 timeout,
                 max_skeletons_optimized=1,
+                abstract_policy=abstract_policy,
+                max_policy_guided_rollout=max_policy_guided_rollout,
             ))
         if len(plan) > max_horizon:
             raise PlanningFailure(
