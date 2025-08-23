@@ -449,7 +449,7 @@ class GlobalSettings:
     boil_num_jugs_train = [1]
     boil_num_jugs_test = [1, 2]
     boil_num_burner_train = [1]
-    boil_num_burner_test = [1, 2]
+    boil_num_burner_test = [1]
 
     # parameters for random options approach
     random_options_max_tries = 100
