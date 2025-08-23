@@ -435,6 +435,12 @@ class GlobalSettings:
     fan_fans_blow_opposite_direction = False
     fan_known_controls_relation = True
     fan_combine_switch_on_off = False
+    fan_train_num_pos_x = 3
+    fan_train_num_pos_y = 3
+    fan_test_num_pos_x = 9
+    fan_test_num_pos_y = 4
+    fan_train_num_walls_per_task = [1]
+    fan_test_num_walls_per_task = [3, 4]
 
     # boil env
     boil_use_constant_delay = False

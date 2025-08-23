@@ -266,8 +266,8 @@ class PyBulletFanEnv(PyBulletEnv):
             self._sides.append(side_obj)
 
         # Maze walls - create enough for the maximum walls per task
-        max_walls_per_task = max(CFG.fan_train_num_walls_per_task, 
-                                CFG.fan_test_num_walls_per_task)
+        max_walls_per_task = max(max(CFG.fan_train_num_walls_per_task), 
+                                max(CFG.fan_test_num_walls_per_task))
         self._walls = [
                 Object(f"wall{i}", self._wall_type) for i in 
             range(max_walls_per_task)]
@@ -470,7 +470,8 @@ class PyBulletFanEnv(PyBulletEnv):
         # ---------------------------------------------------------------------
         # Maze walls
         # ---------------------------------------------------------------------
-        max_walls_per_task = max(CFG.fan_train_num_walls_per_task, CFG.fan_test_num_walls_per_task)
+        max_walls_per_task = max(max(CFG.fan_train_num_walls_per_task), 
+                                max(CFG.fan_test_num_walls_per_task))
         wall_ids = []
         for _ in range(max_walls_per_task):
             wall_id = create_pybullet_block(
@@ -1098,18 +1099,18 @@ class PyBulletFanEnv(PyBulletEnv):
         return self._make_tasks(num_tasks=CFG.num_train_tasks,
                                 num_pos_x=CFG.fan_train_num_pos_x,
                                 num_pos_y=CFG.fan_train_num_pos_y,
-                                num_walls_per_task=CFG.fan_train_num_walls_per_task,
+                                possible_num_walls_per_task=CFG.fan_train_num_walls_per_task,
                                 rng=self._train_rng)
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(num_tasks=CFG.num_test_tasks,
                                 num_pos_x=CFG.fan_test_num_pos_x,
                                 num_pos_y=CFG.fan_test_num_pos_y,
-                                num_walls_per_task=CFG.fan_test_num_walls_per_task,
+                                possible_num_walls_per_task=CFG.fan_test_num_walls_per_task,
                                 rng=self._test_rng)
 
     def _make_tasks(self, num_tasks: int, num_pos_x: int, num_pos_y: int, 
-                    num_walls_per_task: int, rng: np.random.Generator) -> List[EnvironmentTask]:
+                    possible_num_walls_per_task: List[int], rng: np.random.Generator) -> List[EnvironmentTask]:
         # Generate grid coordinates for this specific configuration
         x_coords, y_coords = self._generate_grid_coordinates(num_pos_x, num_pos_y)
         grid_pos = [(x, y) for y in y_coords for x in x_coords]
@@ -1136,6 +1137,8 @@ class PyBulletFanEnv(PyBulletEnv):
 
         tasks = []
         for _ in range(num_tasks):
+            # Sample the number of walls for this task
+            num_walls_per_task = rng.choice(possible_num_walls_per_task)
             available_pos = grid_pos.copy()
             # Robot
             robot_dict = {
