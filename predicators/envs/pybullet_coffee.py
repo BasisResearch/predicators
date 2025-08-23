@@ -103,7 +103,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     machine_x_len: ClassVar[float] = 0.2 * (x_ub - x_lb)
     machine_y_len: ClassVar[float] = 0.15 * (y_ub - y_lb) # 0.15 * 0.5 = 0.075
     machine_z_len: ClassVar[float] = 0.5 * (z_ub - z_lb)
-    machine_top_y_len: ClassVar[float] = 1.3 * machine_y_len
+    machine_top_y_len: ClassVar[float] = machine_y_len
     machine_x: ClassVar[float] = x_ub - machine_x_len / 2 - init_padding
     machine_y: ClassVar[float] = y_ub - machine_y_len / 2 - init_padding
     button_radius: ClassVar[float] = 0.6 * machine_y_len # 0.6 * 0.075 = 0.045
