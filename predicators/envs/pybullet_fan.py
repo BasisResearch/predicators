@@ -157,6 +157,7 @@ class PyBulletFanEnv(PyBulletEnv):
     # Boundary walls around grid
     boundary_wall_height: ClassVar[float] = 0.01
     boundary_wall_thickness: ClassVar[float] = 0.002
+    boundary_wall_color: ClassVar[Tuple[float, float, float, float]] = (0.5, 0.3, 0.3, 1)
 
     # -------------------------------------------------------------------------
     # Target Properties
@@ -246,21 +247,21 @@ class PyBulletFanEnv(PyBulletEnv):
         # Fans - create one fan object per side instead of multiple
         self._fans: List[Object] = []
         self._switch_sides = ["left", "right", "down", "up"]
-        for i, side_str in enumerate(self._switch_sides):
+        for side_str in self._switch_sides:
             # Create one fan object per side (left=0, right=1, down=2, up=3)
             fan_obj = Object(f"fan_{side_str}", self._fan_type)
             self._fans.append(fan_obj)
 
         # Switches: now each is a distinct object of _switch_type
         self._switches: List[Object] = []
-        for i, side_str in enumerate(self._switch_sides):
+        for side_str in self._switch_sides:
             # Create a switch object using the new _switch_type
             switch_obj = Object(f"switch_{side_str}", self._switch_type)
             self._switches.append(switch_obj)
 
         # Sides: representing the four directional sides
         self._sides: List[Object] = []
-        for i, side_str in enumerate(self._switch_sides):
+        for side_str in self._switch_sides:
             side_obj = Object(f"{side_str}", self._side_type)
             self._sides.append(side_obj)
 
@@ -516,79 +517,6 @@ class PyBulletFanEnv(PyBulletEnv):
             physics_client_id=physics_client_id)
         bodies["target_id"] = target_id
 
-        # ---------------------------------------------------------------------
-        # Create 4 boundary walls around the position grid
-        # Use maximum grid dimensions for boundary walls
-        # ---------------------------------------------------------------------
-        max_num_pos_x = max(CFG.fan_train_num_pos_x, CFG.fan_test_num_pos_x)
-        max_num_pos_y = max(CFG.fan_train_num_pos_y, CFG.fan_test_num_pos_y)
-        x_coords, y_coords = cls._generate_grid_coordinates(max_num_pos_x, max_num_pos_y)
-
-        # Calculate actual bounds of grid positions
-        grid_x_min, grid_x_max = min(x_coords), max(x_coords)
-        grid_y_min, grid_y_max = min(y_coords), max(y_coords)
-
-        # Left boundary wall (pos_gap to the left of leftmost grid positions)
-        left_wall_x = grid_x_min - cls.pos_gap / 2
-        left_wall_y = (grid_y_min + grid_y_max) / 2
-        left_wall_id = create_pybullet_block(
-            color=(0.5, 0.3, 0.3, 1),
-            half_extents=(cls.boundary_wall_thickness / 2,
-                          (grid_y_max - grid_y_min + cls.pos_gap) / 2,
-                          cls.boundary_wall_height / 2),
-            mass=cls.wall_mass,
-            friction=cls.wall_friction,
-            position=(left_wall_x, left_wall_y,
-                      cls.table_height + cls.boundary_wall_height / 2),
-            orientation=p.getQuaternionFromEuler([0, 0, 0]),
-            physics_client_id=physics_client_id)
-
-        # Right boundary wall (pos_gap to the right of rightmost grid positions)
-        right_wall_x = grid_x_max + cls.pos_gap / 2
-        right_wall_y = (grid_y_min + grid_y_max) / 2
-        right_wall_id = create_pybullet_block(
-            color=(0.5, 0.3, 0.3, 1),
-            half_extents=(cls.boundary_wall_thickness / 2,
-                          (grid_y_max - grid_y_min + cls.pos_gap) / 2,
-                          cls.boundary_wall_height / 2),
-            mass=cls.wall_mass,
-            friction=cls.wall_friction,
-            position=(right_wall_x, right_wall_y,
-                      cls.table_height + cls.boundary_wall_height / 2),
-            orientation=p.getQuaternionFromEuler([0, 0, 0]),
-            physics_client_id=physics_client_id)
-
-        # Front boundary wall (pos_gap in front of front grid positions)
-        front_wall_x = (grid_x_min + grid_x_max) / 2
-        front_wall_y = grid_y_min - cls.pos_gap / 2
-        front_wall_id = create_pybullet_block(
-            color=(0.5, 0.3, 0.3, 1),
-            half_extents=((grid_x_max - grid_x_min + cls.pos_gap) / 2,
-                          cls.boundary_wall_thickness / 2,
-                          cls.boundary_wall_height / 2),
-            mass=cls.wall_mass,
-            friction=cls.wall_friction,
-            position=(front_wall_x, front_wall_y,
-                      cls.table_height + cls.boundary_wall_height / 2),
-            orientation=p.getQuaternionFromEuler([0, 0, 0]),
-            physics_client_id=physics_client_id)
-
-        # Back boundary wall (pos_gap behind back grid positions)
-        back_wall_x = (grid_x_min + grid_x_max) / 2
-        back_wall_y = grid_y_max + cls.pos_gap / 2
-        back_wall_id = create_pybullet_block(
-            color=(0.5, 0.3, 0.3, 1),
-            half_extents=((grid_x_max - grid_x_min + cls.pos_gap) / 2,
-                          cls.boundary_wall_thickness / 2,
-                          cls.boundary_wall_height / 2),
-            mass=cls.wall_mass,
-            friction=cls.wall_friction,
-            position=(back_wall_x, back_wall_y,
-                      cls.table_height + cls.boundary_wall_height / 2),
-            orientation=p.getQuaternionFromEuler([0, 0, 0]),
-            physics_client_id=physics_client_id)
-
-        bodies["boundary_wall_ids"] = [left_wall_id, right_wall_id, front_wall_id, back_wall_id]
 
         return physics_client_id, pybullet_robot, bodies
 
@@ -639,8 +567,8 @@ class PyBulletFanEnv(PyBulletEnv):
         self._ball.id = pybullet_bodies["ball_id"]
         self._target.id = pybullet_bodies["target_id"]
         
-        # Store boundary wall IDs
-        self._boundary_wall_ids = pybullet_bodies["boundary_wall_ids"]
+        # Initialize boundary wall IDs list (will be populated in _reset_custom_env_state)
+        self._boundary_wall_ids = []
 
     # -------------------------------------------------------------------------
     # Read state from PyBullet
@@ -671,11 +599,18 @@ class PyBulletFanEnv(PyBulletEnv):
                           physics_client_id=self._physics_client_id)
 
     def _reposition_boundary_walls(self, state: State) -> None:
-        """Reposition boundary walls based on the actual grid positions used in this task."""
+        """Recreate boundary walls with correct dimensions based on the actual grid positions used in this task."""
+        # Remove existing boundary walls
+        for wall_id in self._boundary_wall_ids:
+            if wall_id >= 0:
+                p.removeBody(wall_id, physicsClientId=self._physics_client_id)
+        self._boundary_wall_ids = []
+        
         # Get all position objects that are in the state
         position_objects = state.get_objects(self._location_type)
         if not position_objects:
             return
+            
         # Set the xx, yy sim features
         for pos_obj in position_objects:
             pos_obj.xx = state.get(pos_obj, "xx")
@@ -688,38 +623,69 @@ class PyBulletFanEnv(PyBulletEnv):
         grid_x_min, grid_x_max = min(x_coords), max(x_coords)
         grid_y_min, grid_y_max = min(y_coords), max(y_coords)
 
-        # Update positions of boundary walls
+        # Create boundary walls with correct dimensions for this grid
         # Left boundary wall (pos_gap to the left of leftmost grid positions)
         left_wall_x = grid_x_min - self.pos_gap / 2
         left_wall_y = (grid_y_min + grid_y_max) / 2
-        update_object(self._boundary_wall_ids[0],
-                      position=(left_wall_x, left_wall_y,
-                                self.table_height + self.boundary_wall_height / 2),
-                      physics_client_id=self._physics_client_id)
+        left_wall_id = create_pybullet_block(
+            color=self.boundary_wall_color,
+            half_extents=(self.boundary_wall_thickness / 2,
+                          (grid_y_max - grid_y_min + self.pos_gap) / 2,
+                          self.boundary_wall_height / 2),
+            mass=self.wall_mass,
+            friction=self.wall_friction,
+            position=(left_wall_x, left_wall_y,
+                      self.table_height + self.boundary_wall_height / 2),
+            orientation=p.getQuaternionFromEuler([0, 0, 0]),
+            physics_client_id=self._physics_client_id)
 
         # Right boundary wall (pos_gap to the right of rightmost grid positions)
         right_wall_x = grid_x_max + self.pos_gap / 2
         right_wall_y = (grid_y_min + grid_y_max) / 2
-        update_object(self._boundary_wall_ids[1],
-                      position=(right_wall_x, right_wall_y,
-                                self.table_height + self.boundary_wall_height / 2),
-                      physics_client_id=self._physics_client_id)
+        right_wall_id = create_pybullet_block(
+            color=self.boundary_wall_color,
+            half_extents=(self.boundary_wall_thickness / 2,
+                          (grid_y_max - grid_y_min + self.pos_gap) / 2,
+                          self.boundary_wall_height / 2),
+            mass=self.wall_mass,
+            friction=self.wall_friction,
+            position=(right_wall_x, right_wall_y,
+                      self.table_height + self.boundary_wall_height / 2),
+            orientation=p.getQuaternionFromEuler([0, 0, 0]),
+            physics_client_id=self._physics_client_id)
 
         # Front boundary wall (pos_gap in front of front grid positions)
         front_wall_x = (grid_x_min + grid_x_max) / 2
         front_wall_y = grid_y_min - self.pos_gap / 2
-        update_object(self._boundary_wall_ids[2],
-                      position=(front_wall_x, front_wall_y,
-                                self.table_height + self.boundary_wall_height / 2),
-                      physics_client_id=self._physics_client_id)
+        front_wall_id = create_pybullet_block(
+            color=self.boundary_wall_color,
+            half_extents=((grid_x_max - grid_x_min + self.pos_gap) / 2,
+                          self.boundary_wall_thickness / 2,
+                          self.boundary_wall_height / 2),
+            mass=self.wall_mass,
+            friction=self.wall_friction,
+            position=(front_wall_x, front_wall_y,
+                      self.table_height + self.boundary_wall_height / 2),
+            orientation=p.getQuaternionFromEuler([0, 0, 0]),
+            physics_client_id=self._physics_client_id)
 
         # Back boundary wall (pos_gap behind back grid positions)
         back_wall_x = (grid_x_min + grid_x_max) / 2
         back_wall_y = grid_y_max + self.pos_gap / 2
-        update_object(self._boundary_wall_ids[3],
-                      position=(back_wall_x, back_wall_y,
-                                self.table_height + self.boundary_wall_height / 2),
-                      physics_client_id=self._physics_client_id)
+        back_wall_id = create_pybullet_block(
+            color=self.boundary_wall_color,
+            half_extents=((grid_x_max - grid_x_min + self.pos_gap) / 2,
+                          self.boundary_wall_thickness / 2,
+                          self.boundary_wall_height / 2),
+            mass=self.wall_mass,
+            friction=self.wall_friction,
+            position=(back_wall_x, back_wall_y,
+                      self.table_height + self.boundary_wall_height / 2),
+            orientation=p.getQuaternionFromEuler([0, 0, 0]),
+            physics_client_id=self._physics_client_id)
+
+        # Store the new boundary wall IDs
+        self._boundary_wall_ids = [left_wall_id, right_wall_id, front_wall_id, back_wall_id]
 
     @classmethod
     def _generate_grid_coordinates(cls, num_pos_x: int, num_pos_y: int) -> Tuple[List[float], List[float]]:
@@ -1308,18 +1274,18 @@ if __name__ == "__main__":
     import time
     CFG.seed = 0
     CFG.env = "pybullet_fan"
-    CFG.pybullet_sim_steps_per_action = 20
+    # CFG.pybullet_sim_steps_per_action = 20
     # CFG.fan_fans_blow_opposite_direction = True
     env = PyBulletFanEnv(use_gui=True)
     rng = np.random.default_rng(CFG.seed)
-    tasks = env._make_tasks(1, 
-                            CFG.fan_test_num_pos_x, 
-                            CFG.fan_test_num_pos_y, 
-                            CFG.fan_test_num_walls_per_task, rng)
+    tasks = env._make_tasks(10, 
+                            CFG.fan_train_num_pos_x, 
+                            CFG.fan_train_num_pos_y, 
+                            CFG.fan_train_num_walls_per_task, rng)
 
     for task in tasks:
         env._reset_state(task.init)
-        for _ in range(10000):
+        for _ in range(100):
             action = Action(
                 np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)
