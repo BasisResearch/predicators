@@ -741,14 +741,17 @@ class PyBulletBoilEnv(PyBulletEnv):
 
                 # Check if this human's conditions are met
                 jug_filled = self._JugFilled_holds(state, [jug])
+                water_boiled = self._WaterBoiled_holds(state, [jug])
                 no_water_spilled = self._NoWaterSpilled_holds(state, [])
-                burner_off = True  # Default if no burner
-                if burner is not None:
-                    burner_off = not self._BurnerOn_holds(state, [burner])
 
-                happy_condition_holds = jug_filled and no_water_spilled and burner_off
+                conditions = [jug_filled, water_boiled, no_water_spilled]
+                if CFG.boil_goal_require_burner_off:
+                    burner_off = True  # Default if no burner
+                    if burner is not None:
+                        burner_off = not self._BurnerOn_holds(state, [burner])
+                    conditions.append(burner_off)
 
-                if happy_condition_holds:
+                if all(conditions):
                     old_happiness_level = state.get(human_obj,
                                                     "happiness_level")
                     new_happiness_level = min(
