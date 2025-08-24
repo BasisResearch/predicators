@@ -5,12 +5,12 @@
 APPROACHES:
   # oracle_nsrt:
   #   NAME: "oracle"
-  oracle:
-    NAME: "oracle_process_planning"
-    FLAGS:
-      demonstrator: "oracle_process_planning"
-      terminate_on_goal_reached_and_option_terminated: True
-      bilevel_plan_without_sim: True
+  # oracle:
+  #   NAME: "oracle_process_planning"
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     bilevel_plan_without_sim: True
   # vlm_plan: # ViLa baseline
   #   NAME: "vlm_open_loop"
   #   FLAGS:
@@ -69,73 +69,74 @@ APPROACHES:
   #     only_learn_exogenous_processes: True
   #     online_learning_early_stopping: True
   #     num_online_learning_cycles: 1
-  # predicate_invention:
-  #   NAME: "online_predicate_invention_and_process_planning"
-  #   # ARGS:
-  #   #   - "load_data"
-  #   #   - "load_approach"
-  #   #   - "restart_learning" # Add to restart learning after skipping cycles.
-  #   FLAGS:
-  #     # skip_until_cycle: 1
-  #     excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,NoJugAtFaucetOrAtFaucetAndFilled"
-  #     demonstrator: "oracle_process_planning"
-  #     explorer: "exploit_planning"
-  #     online_nsrt_learning_requests_per_cycle: 1  # just 1 for now
-  #     max_num_steps_interaction_request: 300 # 300 should be enough
-  #     # This following is needed to generate a successful demo trajectory, or 
-  #     # else the demo collection will fail with an option plan exhausted error.
-  #     find_best_matching_pnad_skip_if_effect_not_subset: False
-  #     # exogenous_process_learner: "cluster_and_llm_select"
-  #     exogenous_process_learner: "cluster_and_search_process_learner"
-  #     # exogenous_process_learner: "cluster_and_inverse_planning"
-  #     # process_scoring_method: "count_fp"
-  #     exogenous_process_learner_do_intersect: True
-  #     process_learner_check_false_positives: False
-  #     # To have demos to stop when option terminates.
-  #     terminate_on_goal_reached: False
-  #     terminate_on_goal_reached_and_option_terminated: True
-  #     only_learn_exogenous_processes: True
-  #     online_learning_early_stopping: True
-  #     # pause_after_process_learning_for_inspection: True
-  #     num_online_learning_cycles: 10
-  #     rgb_observation: False # for visual predicators
-  #     # Testing predicate invention:
-  #     vlm_predicator_oracle_base_predicates: False
-  #     vlm_predicator_oracle_learned_predicates: False
-  #     vlm_predicator_use_grammar: True
-  #     grammar_search_grammar_use_single_feature: False
-  #     grammar_search_grammar_use_skip_grammar: False
-  #     grammar_search_grammar_includes_negation: True
-  #     grammar_search_grammar_includes_foralls: False
-  #     grammar_search_additional_bonus_for_matching_plan: 20
-  #     grammar_search_prune_redundant_preds: False
-  #     grammar_search_search_algorithm: "hill_climbing"
-  #     grammar_search_task_planning_timeout: 3
-  #     learnable_delay_distribution: "constant" # "constant", "cmp", "normal"
-  #     bilevel_planning_explorer_enumerate_plans: True
-  #     online_nsrt_learning_requests_per_task: 8 # 8 2
-  #     grammar_search_expected_nodes_optimal_demo_prob: 0.5
-  #     cluster_and_inverse_planning_candidates: "top_consistent"
-  #     # cluster_and_inverse_planning_top_consistent_method: "top_n"
-  #     cluster_and_inverse_planning_top_consistent_method: "top_p_percent"
-  #     # cluster_and_inverse_planning_top_consistent_method: "threshold"
-  #     cluster_and_inverse_planning_top_p_percent: 4
-  #     cluster_process_learner_top_n_conditions: 32
-  #     exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
-  #     learn_process_parameters: True
-  #     cluster_and_search_process_learner_parallel_condition: True
-  #     cluster_and_search_process_learner_parallel_pnad: True
-  #     cluster_and_search_process_learner_llm_select_condition: False
-  #     cluster_and_search_process_learner_llm_select_atoms: False
-  #     cluster_and_search_vi_steps: 500
-  #     cluster_learning_one_effect_per_process: True
-  #     process_param_learning_patience: 10000
-  #     process_condition_search_prune_with_fp_count: True
-  #     grammar_search_expected_nodes_max_skeletons: 1
-  #     grammar_search_operator_complexity_weight: 0.1
-  #     grammar_search_hill_climbing_depth: 1
-  #     vlm_predicator_num_proposal_batches: 1
-  #     process_learning_process_per_physical_core: False
+  predicate_invention:
+    NAME: "online_predicate_invention_and_process_planning"
+    # ARGS:
+    #   - "load_data"
+    #   - "load_approach"
+    #   - "restart_learning" # Add to restart learning after skipping cycles.
+    FLAGS:
+      # skip_until_cycle: 1
+      excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,NoJugAtFaucetOrAtFaucetAndFilled"
+      demonstrator: "oracle_process_planning"
+      explorer: "exploit_planning"
+      online_nsrt_learning_requests_per_cycle: 1  # just 1 for now
+      max_num_steps_interaction_request: 300 # 300 should be enough
+      # This following is needed to generate a successful demo trajectory, or 
+      # else the demo collection will fail with an option plan exhausted error.
+      find_best_matching_pnad_skip_if_effect_not_subset: False
+      # exogenous_process_learner: "cluster_and_llm_select"
+      exogenous_process_learner: "cluster_and_search_process_learner"
+      # exogenous_process_learner: "cluster_and_inverse_planning"
+      # process_scoring_method: "count_fp"
+      exogenous_process_learner_do_intersect: True
+      process_learner_check_false_positives: False
+      # To have demos to stop when option terminates.
+      terminate_on_goal_reached: False
+      terminate_on_goal_reached_and_option_terminated: True
+      only_learn_exogenous_processes: True
+      online_learning_early_stopping: True
+      # pause_after_process_learning_for_inspection: True
+      num_online_learning_cycles: 10
+      rgb_observation: False # for visual predicators
+      # Testing predicate invention:
+      vlm_predicator_oracle_base_predicates: False
+      vlm_predicator_oracle_learned_predicates: False
+      vlm_predicator_use_grammar: True
+      grammar_search_grammar_use_single_feature: False
+      grammar_search_grammar_use_skip_grammar: False
+      grammar_search_grammar_includes_negation: True
+      grammar_search_grammar_includes_foralls: False
+      grammar_search_additional_bonus_for_matching_plan: 20
+      grammar_search_prune_redundant_preds: False
+      grammar_search_search_algorithm: "hill_climbing"
+      grammar_search_task_planning_timeout: 3
+      learnable_delay_distribution: "constant" # "constant", "cmp", "normal"
+      bilevel_planning_explorer_enumerate_plans: True
+      online_nsrt_learning_requests_per_task: 8 # 8 2
+      grammar_search_expected_nodes_optimal_demo_prob: 0.5
+      cluster_and_inverse_planning_candidates: "top_consistent"
+      # cluster_and_inverse_planning_top_consistent_method: "top_n"
+      cluster_and_inverse_planning_top_consistent_method: "top_p_percent"
+      # cluster_and_inverse_planning_top_consistent_method: "threshold"
+      cluster_and_inverse_planning_top_p_percent: 4
+      cluster_process_learner_top_n_conditions: 32
+      exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
+      learn_process_parameters: True
+      cluster_and_search_process_learner_parallel_condition: True
+      cluster_and_search_process_learner_parallel_pnad: True
+      cluster_and_search_process_learner_llm_select_condition: False
+      cluster_and_search_process_learner_llm_select_atoms: False
+      cluster_and_search_vi_steps: 500
+      cluster_learning_one_effect_per_process: True
+      process_param_learning_patience: 10000
+      process_condition_search_prune_with_fp_count: True
+      grammar_search_expected_nodes_max_skeletons: 1
+      grammar_search_operator_complexity_weight: 0.1
+      grammar_search_hill_climbing_depth: 1
+      vlm_predicator_num_proposal_batches: 1
+      process_learning_process_per_physical_core: False
+      skip_test_until_last_ite_or_early_stopping: True
 
 ENVS:
   # boil_smpl:
@@ -238,4 +239,4 @@ FLAGS:
   log: 'logs/'
   no_repeated_arguments_in_grounding: True
 START_SEED: 0
-NUM_SEEDS: 3
+NUM_SEEDS: 1

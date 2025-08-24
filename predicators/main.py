@@ -281,13 +281,34 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
                 "Did not receive any interaction requests, terminating")
             break
 
-        interaction_results, query_cost = _generate_interaction_results(
+        interaction_results, query_cost, task_solved_status = _generate_interaction_results(
             cogman, env, teacher, interaction_requests, i)
+
+        # Track first solve attempt per task for solve rate calculation
+        task_first_solve_attempts = {
+        }  # task_idx -> bool (solved on first attempt)
+        task_attempted = set()  # track which tasks have been attempted
+        # Track first solve attempts for each task
+        for request, solved in zip(interaction_requests, task_solved_status):
+            task_idx = request.train_task_idx
+            if task_idx not in task_attempted:
+                task_first_solve_attempts[task_idx] = solved
+                task_attempted.add(task_idx)
 
         num_online_transitions += sum(
             len(result.actions) for result in interaction_results)
         total_query_cost += query_cost
         logging.info(f"Query cost incurred this cycle: {query_cost}")
+
+        # Calculate train task solve rate
+        if task_first_solve_attempts:
+            train_task_solve_rate = sum(task_first_solve_attempts.values()
+                                        ) / len(task_first_solve_attempts)
+            logging.info(f"Train task solve rate: {train_task_solve_rate:.3f} "
+                            f"({sum(task_first_solve_attempts.values())}/"
+                            f"{len(task_first_solve_attempts)})")
+        else:
+            train_task_solve_rate = 0.0
 
         # Learn from results if appropriate
         if not CFG.load_approach or CFG.restart_learning:
@@ -296,36 +317,54 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
             cogman.learn_from_interaction_results(interaction_results)
             learning_time += time.perf_counter() - learning_start
 
-        # Evaluate
-        results = _run_testing(env, cogman)
-        results.update({
-            "num_offline_transitions": num_offline_transitions,
-            "num_online_transitions": num_online_transitions,
-            "query_cost": total_query_cost,
-            "learning_time": learning_time,
-            **offline_learning_metrics
-        })
-        _save_test_results(results, online_learning_cycle=i)
-
-        # if early stopping and the tasks are all solved, break
+        # Determine if we should run testing
+        is_last_iteration = (i == CFG.num_online_learning_cycles - 1)
+        should_run_testing = (is_last_iteration or
+                            not CFG.skip_test_until_last_ite_or_early_stopping)
+        # Check for early stopping based on train task solve rate
+        early_stopping = False
         if CFG.online_learning_early_stopping and \
-            results["num_solved"] == len(train_tasks):
-            logging.info("All tasks solved, terminating early.")
+           len(task_first_solve_attempts) == len(train_tasks) and \
+           all(task_first_solve_attempts.values()):
+            logging.info(
+                "All training tasks solved on first attempt, "
+                "triggering early stopping.")
+            early_stopping = True
+            should_run_testing = True  # Run testing when early stopping
+
+        # Evaluate if needed
+        if should_run_testing:
+            results = _run_testing(env, cogman)
+            results.update({
+                "num_offline_transitions": num_offline_transitions,
+                "num_online_transitions": num_online_transitions,
+                "query_cost": total_query_cost,
+                "learning_time": learning_time,
+                **offline_learning_metrics
+            })
+            _save_test_results(results, online_learning_cycle=i)
+        else:
+            logging.info(
+                f"Skipping testing for cycle {i} due to skip_test_until_last_ite_or_early_stopping flag"
+            )
+
+        if early_stopping:
             break
 
 
 def _generate_interaction_results(
-        cogman: CogMan,
-        env: BaseEnv,
-        teacher: Optional[Teacher],
-        requests: Sequence[InteractionRequest],
-        cycle_num: Optional[int] = None
-) -> Tuple[List[InteractionResult], float]:
+    cogman: CogMan,
+    env: BaseEnv,
+    teacher: Optional[Teacher],
+    requests: Sequence[InteractionRequest],
+    cycle_num: Optional[int] = None
+) -> Tuple[List[InteractionResult], float, List[bool]]:
     """Given a sequence of InteractionRequest objects, handle the requests and
     return a list of InteractionResult objects."""
     logging.info("Generating interaction results...")
     results = []
     query_cost = 0.0
+    task_solved_status = []
     if CFG.make_interaction_videos:
         video: Video = []
     for request in requests:
@@ -343,7 +382,7 @@ def _generate_interaction_results(
         cogman.set_termination_function(request.termination_function)
         env_task = env.get_train_tasks()[request.train_task_idx]
         cogman.reset(env_task)
-        observed_traj, _, _ = run_episode_and_get_observations(
+        observed_traj, solved, _ = run_episode_and_get_observations(
             cogman,
             env,
             "train",
@@ -356,6 +395,7 @@ def _generate_interaction_results(
                 utils.RequestActPolicyFailure,
             },
             monitor=monitor)
+        task_solved_status.append(solved)
         cogman.unset_override_policy()
         cogman.unset_termination_function()
         traj = cogman.get_current_history()
@@ -377,7 +417,7 @@ def _generate_interaction_results(
         save_prefix = utils.get_config_path_str()
         outfile = f"{save_prefix}__cycle{cycle_num}.mp4"
         utils.save_video(outfile, video)
-    return results, query_cost
+    return results, query_cost, task_solved_status
 
 
 def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
