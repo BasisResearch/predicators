@@ -135,14 +135,14 @@ class PyBulletBoilEnv(PyBulletEnv):
         "jug", ["x", "y", "z", "rot", "is_held", "water_volumn", "heat_level"],
         sim_features=["id", "heat_level", "water_id"])
     _burner_type = Type("burner", ["x", "y", "z", "is_on"],
-                        sim_features=["id", "switch_id"])
+                        sim_features=["id", "switch_id", "prev_on"])
     _switch_type = Type("switch", ["x", "y", "z", "rot", "is_on"])
     # _spilled_level is initialized to be 0.04 smaller. This creates a delay
     # for spill to occur while allows the WaterSpill predicate to have an
     # intuitive >0.0 definition, instead of >0.04
     _faucet_type = Type("faucet",
                         ["x", "y", "z", "rot", "is_on", "spilled_level"],
-                        sim_features=["id", "switch_id", "_spilled_level"])
+                        sim_features=["id", "switch_id", "_spilled_level", "prev_on"])
     _human_type = Type("human", ["happiness_level"],
                        sim_features=["id", "happiness_level"])
 
@@ -513,6 +513,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         for i, burner_obj in enumerate(burners):
             on_val = state.get(burner_obj, "is_on")
             burner_obj.switch_id = self._burner_switches[i].id
+            burner_obj.prev_on = 0.0  # Initialize prev_on to 0
             self._set_switch_on(self._burner_switches[i].id,
                                 bool(on_val > 0.5))
 
@@ -532,6 +533,7 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # Faucet on/off
         self._faucet.switch_id = self._faucet_switch.id
+        self._faucet.prev_on = 0.0  # Initialize prev_on to 0
         f_on = state.get(self._faucet, "is_on")
         self._set_switch_on(self._faucet_switch.id, bool(f_on > 0.5))
 
@@ -592,6 +594,9 @@ class PyBulletBoilEnv(PyBulletEnv):
         # 4) Update the human's happiness level
         self._update_human_happiness(next_state)
 
+        # 5) Update prev_on states for next step
+        self._update_prev_on_states(next_state)
+
         # Re-read final state
         final_state = self.get_observation(render=render_obs)
         self._current_observation = final_state
@@ -606,7 +611,10 @@ class PyBulletBoilEnv(PyBulletEnv):
         spills.
         """
         faucet_on = self._is_switch_on(self._faucet_switch.id)
-        if not faucet_on:
+        faucet_prev_on = self._faucet.prev_on > 0.5
+        
+        # Only process if faucet is on AND it wasn't on in the previous step (transition from off to on)
+        if not faucet_on or faucet_prev_on:
             return
 
         # Find jugs under the faucet
@@ -684,7 +692,10 @@ class PyBulletBoilEnv(PyBulletEnv):
         jugs = state.get_objects(self._jug_type)
         for i, burner_obj in enumerate(burners):
             burner_on = self._is_switch_on(self._burner_switches[i].id)
-            if not burner_on:
+            burner_prev_on = burner_obj.prev_on > 0.5
+            
+            # Only process if burner is on AND it wasn't on in the previous step (transition from off to on)
+            if not burner_on or burner_prev_on:
                 continue
             bx = state.get(burner_obj, "x")
             by = state.get(burner_obj, "y")
@@ -757,6 +768,19 @@ class PyBulletBoilEnv(PyBulletEnv):
                     new_happiness_level = min(
                         1.0, old_happiness_level + self.happy_speed)
                     human_obj.happiness_level = new_happiness_level
+
+    def _update_prev_on_states(self, state: State) -> None:
+        """Update the prev_on sim_features for burners and faucet to track 
+        their current on/off state for the next step."""
+        # Update burner prev_on states
+        burners = state.get_objects(self._burner_type)
+        for i, burner_obj in enumerate(burners):
+            burner_on = self._is_switch_on(self._burner_switches[i].id)
+            burner_obj.prev_on = float(burner_on)
+        
+        # Update faucet prev_on state
+        faucet_on = self._is_switch_on(self._faucet_switch.id)
+        self._faucet.prev_on = float(faucet_on)
 
     def _create_spilled_water_block(self, spilled_size: float,
                                     state: State) -> int:
