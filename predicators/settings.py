@@ -416,6 +416,10 @@ class GlobalSettings:
     domino_test_num_targets = [1, 2]
     domino_train_num_pivots = [0]
     domino_test_num_pivots = [0]
+    domino_train_num_pos_x = 3
+    domino_train_num_pos_y = 3
+    domino_test_num_pos_x = 5
+    domino_test_num_pos_y = 3
 
     # burger env parameters
     burger_render_set_of_marks = True
