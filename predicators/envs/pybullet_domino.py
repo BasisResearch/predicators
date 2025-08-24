@@ -108,20 +108,24 @@ class PyBulletDominoEnv(PyBulletEnv):
     def __init__(self, use_gui: bool = True) -> None:
         # Initialize domino count variables from CFG
         # Calculate maximums from train and test configurations
-        max_dominos = max(max(CFG.domino_train_num_dominos), max(CFG.domino_test_num_dominos))
-        max_targets = max(max(CFG.domino_train_num_targets), max(CFG.domino_test_num_targets))  
-        max_pivots = max(max(CFG.domino_train_num_pivots), max(CFG.domino_test_num_pivots))
-        
+        max_dominos = max(max(CFG.domino_train_num_dominos),
+                          max(CFG.domino_test_num_dominos))
+        max_targets = max(max(CFG.domino_train_num_targets),
+                          max(CFG.domino_test_num_targets))
+        max_pivots = max(max(CFG.domino_train_num_pivots),
+                         max(CFG.domino_test_num_pivots))
+
         assert max_dominos <= 9
         assert max_targets <= 3
-        
+
         self.num_dominos_max = max_dominos
         self.num_targets_max = max_targets
         self.num_pivots_max = max_pivots
 
         # Conditionally create grid-related types
         if CFG.domino_use_grid:
-            self._position_type = Type("loc", ["xx", "yy"], sim_features=["id", "xx", "yy"])
+            self._position_type = Type("loc", ["xx", "yy"],
+                                       sim_features=["id", "xx", "yy"])
             self._rotation_type = Type("rot", ["angle"])
 
         # Create 'dummy' Objects (they'll be assigned IDs on reset)
@@ -165,11 +169,14 @@ class PyBulletDominoEnv(PyBulletEnv):
         if CFG.domino_use_grid:
             self.positions: List[Object] = []
             # Create position objects based on maximum grid size to support both train and test
-            max_num_pos_x = max(CFG.domino_train_num_pos_x, CFG.domino_test_num_pos_x)
-            max_num_pos_y = max(CFG.domino_train_num_pos_y, CFG.domino_test_num_pos_y)
-            
+            max_num_pos_x = max(CFG.domino_train_num_pos_x,
+                                CFG.domino_test_num_pos_x)
+            max_num_pos_y = max(CFG.domino_train_num_pos_y,
+                                CFG.domino_test_num_pos_y)
+
             # Generate maximum grid coordinates
-            x_coords, y_coords = self._generate_grid_coordinates(max_num_pos_x, max_num_pos_y)
+            x_coords, y_coords = self._generate_grid_coordinates(
+                max_num_pos_x, max_num_pos_y)
             self.grid_pos = [(x, y) for y in y_coords for x in x_coords]
             self.pos_dict = dict()
             for i, (x, y) in enumerate(self.grid_pos):
@@ -296,8 +303,11 @@ class PyBulletDominoEnv(PyBulletEnv):
     # Grid Coordinate Generation
 
     @classmethod
-    def _generate_grid_coordinates(cls, num_pos_x: int, num_pos_y: int) -> Tuple[List[float], List[float]]:
-        """Generate grid coordinates for position objects with specified dimensions."""
+    def _generate_grid_coordinates(
+            cls, num_pos_x: int,
+            num_pos_y: int) -> Tuple[List[float], List[float]]:
+        """Generate grid coordinates for position objects with specified
+        dimensions."""
         # Calculate grid extents based on workspace bounds
         total_x_range = cls.x_ub - cls.x_lb
         total_y_range = cls.y_ub - cls.y_lb
@@ -305,8 +315,8 @@ class PyBulletDominoEnv(PyBulletEnv):
         # Center the grid within the workspace
         x_start = cls.x_lb + (total_x_range -
                               (num_pos_x - 1) * cls.pos_gap) / 2
-        y_start = cls.y_lb + cls.pos_gap + (
-            total_y_range - (num_pos_y - 1) * cls.pos_gap) / 2
+        y_start = cls.y_lb + cls.pos_gap + (total_y_range -
+                                            (num_pos_y - 1) * cls.pos_gap) / 2
 
         x_coords = [
             round(x_start + i * cls.pos_gap, 5) for i in range(num_pos_x)
@@ -361,12 +371,15 @@ class PyBulletDominoEnv(PyBulletEnv):
         # Create a fixed number of dominoes and targets here
         domino_ids = []
         target_ids = []
-        
+
         # Calculate maximums from train and test configurations
-        max_dominos = max(max(CFG.domino_train_num_dominos), max(CFG.domino_test_num_dominos))
-        max_targets = max(max(CFG.domino_train_num_targets), max(CFG.domino_test_num_targets))
-        max_pivots = max(max(CFG.domino_train_num_pivots), max(CFG.domino_test_num_pivots))
-        
+        max_dominos = max(max(CFG.domino_train_num_dominos),
+                          max(CFG.domino_test_num_dominos))
+        max_targets = max(max(CFG.domino_train_num_targets),
+                          max(CFG.domino_test_num_targets))
+        max_pivots = max(max(CFG.domino_train_num_pivots),
+                         max(CFG.domino_test_num_pivots))
+
         if CFG.domino_use_domino_blocks_as_target:
             # If using domino blocks as targets, we create more dominoes
             num_dominos_to_create = max_dominos + max_targets
@@ -431,7 +444,6 @@ class PyBulletDominoEnv(PyBulletEnv):
         for pivot, pid in zip(self.pivots, pybullet_bodies["pivot_ids"]):
             pivot.id = pid
             pivot.joint_id = self._get_joint_id(pid, "flap_hinge_joint")
-
 
     # -------------------------------------------------------------------------
     # State Management
@@ -616,14 +628,14 @@ class PyBulletDominoEnv(PyBulletEnv):
             update_object(self.pivots[i].id,
                           position=(oov_x, oov_y, self.domino_height / 2),
                           physics_client_id=self._physics_client_id)
-        
+
         # Draw debug lines at grid cell centers based on current task configuration
         if CFG.domino_use_grid:
             # Clear existing debug lines
             for line_id in self._debug_line_ids:
                 p.removeUserDebugItem(line_id)
             self._debug_line_ids = []
-            
+
             # Draw debug lines based on position objects' xx, yy features
             position_objs = state.get_objects(self._position_type)
             for pos_obj in position_objs:
@@ -1205,9 +1217,10 @@ class PyBulletDominoEnv(PyBulletEnv):
         used_coords = set()
 
         # Generate grid coordinates for this specific configuration
-        x_coords, y_coords = self._generate_grid_coordinates(num_pos_x, num_pos_y)
+        x_coords, y_coords = self._generate_grid_coordinates(
+            num_pos_x, num_pos_y)
         grid_pos = [(x, y) for y in y_coords for x in x_coords]
-        
+
         # Use a set for efficient checking of valid grid coordinates.
         grid_coords_set = set(grid_pos)
 
@@ -1543,22 +1556,24 @@ class PyBulletDominoEnv(PyBulletEnv):
         return (True, nx, ny, rot, domino_count, target_count + 1)
 
     def _generate_train_tasks(self) -> List[EnvironmentTask]:
-        return self._make_tasks(num_tasks=CFG.num_train_tasks,
-                                possible_num_dominos=CFG.domino_train_num_dominos,
-                                possible_num_targets=CFG.domino_train_num_targets,
-                                possible_num_pivots=CFG.domino_train_num_pivots,
-                                num_pos_x=CFG.domino_train_num_pos_x,
-                                num_pos_y=CFG.domino_train_num_pos_y,
-                                rng=self._train_rng)
+        return self._make_tasks(
+            num_tasks=CFG.num_train_tasks,
+            possible_num_dominos=CFG.domino_train_num_dominos,
+            possible_num_targets=CFG.domino_train_num_targets,
+            possible_num_pivots=CFG.domino_train_num_pivots,
+            num_pos_x=CFG.domino_train_num_pos_x,
+            num_pos_y=CFG.domino_train_num_pos_y,
+            rng=self._train_rng)
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
-        return self._make_tasks(num_tasks=CFG.num_test_tasks,
-                                possible_num_dominos=CFG.domino_test_num_dominos,
-                                possible_num_targets=CFG.domino_test_num_targets,
-                                possible_num_pivots=CFG.domino_test_num_pivots,
-                                num_pos_x=CFG.domino_test_num_pos_x,
-                                num_pos_y=CFG.domino_test_num_pos_y,
-                                rng=self._test_rng)
+        return self._make_tasks(
+            num_tasks=CFG.num_test_tasks,
+            possible_num_dominos=CFG.domino_test_num_dominos,
+            possible_num_targets=CFG.domino_test_num_targets,
+            possible_num_pivots=CFG.domino_test_num_pivots,
+            num_pos_x=CFG.domino_test_num_pos_x,
+            num_pos_y=CFG.domino_test_num_pos_y,
+            rng=self._test_rng)
 
     def _make_tasks(self,
                     num_tasks: int,
@@ -1594,9 +1609,10 @@ class PyBulletDominoEnv(PyBulletEnv):
             # Add position objects to initial state based on current grid configuration
             if CFG.domino_use_grid:
                 # Generate grid coordinates for this specific configuration
-                x_coords, y_coords = self._generate_grid_coordinates(num_pos_x, num_pos_y)
+                x_coords, y_coords = self._generate_grid_coordinates(
+                    num_pos_x, num_pos_y)
                 grid_pos = [(x, y) for y in y_coords for x in x_coords]
-                
+
                 # Create position dictionary for this task configuration
                 pos_dict = {}
                 pos_index = 0
@@ -1604,12 +1620,15 @@ class PyBulletDominoEnv(PyBulletEnv):
                     for j in range(num_pos_x):
                         if pos_index < len(self.positions):
                             pos_obj = self.positions[pos_index]
-                            pos_dict[pos_obj] = {"xx": x_coords[j], "yy": y_coords[i]}
+                            pos_dict[pos_obj] = {
+                                "xx": x_coords[j],
+                                "yy": y_coords[i]
+                            }
                             # Set sim features for position objects
                             pos_obj.xx = x_coords[j]
                             pos_obj.yy = y_coords[i]
                             pos_index += 1
-                
+
                 # Add position objects to initial state
                 init_dict.update(pos_dict)
 
@@ -1632,7 +1651,12 @@ class PyBulletDominoEnv(PyBulletEnv):
                     print(f"\nAttempt {i} for task {i_task}")
                 if CFG.domino_use_grid:
                     obj_dict = self._generate_domino_sequence_with_grid(
-                        rng, n_dominos, n_targets, num_pos_x, num_pos_y, log_debug=log_debug)
+                        rng,
+                        n_dominos,
+                        n_targets,
+                        num_pos_x,
+                        num_pos_y,
+                        log_debug=log_debug)
                 else:
                     obj_dict = self._generate_domino_sequence(
                         rng,
@@ -1717,10 +1741,11 @@ class PyBulletDominoEnv(PyBulletEnv):
             "rot": rot,
         }
 
-    def _move_intermediate_objects_to_finished_state(self,
-                                                     obj_dict: Dict,
-                                                     num_pos_x: int = None,
-                                                     num_pos_y: int = None) -> Dict:
+    def _move_intermediate_objects_to_finished_state(
+            self,
+            obj_dict: Dict,
+            num_pos_x: int = None,
+            num_pos_y: int = None) -> Dict:
         """Move all intermediate dominoes and pivots to the lower end of the
         table in a row, keeping only the start domino and targets in their
         original positions.
@@ -1803,13 +1828,17 @@ class PyBulletDominoEnv(PyBulletEnv):
             # Find available positions on the bottom side, starting from middle
             # Sort grid positions by y coordinate (ascending) then by distance from x center
             if num_pos_x is not None and num_pos_y is not None:
-                x_coords, y_coords = self._generate_grid_coordinates(num_pos_x, num_pos_y)
+                x_coords, y_coords = self._generate_grid_coordinates(
+                    num_pos_x, num_pos_y)
             else:
                 # Fallback to maximum grid size
-                max_num_pos_x = max(CFG.domino_train_num_pos_x, CFG.domino_test_num_pos_x)
-                max_num_pos_y = max(CFG.domino_train_num_pos_y, CFG.domino_test_num_pos_y)
-                x_coords, y_coords = self._generate_grid_coordinates(max_num_pos_x, max_num_pos_y)
-                
+                max_num_pos_x = max(CFG.domino_train_num_pos_x,
+                                    CFG.domino_test_num_pos_x)
+                max_num_pos_y = max(CFG.domino_train_num_pos_y,
+                                    CFG.domino_test_num_pos_y)
+                x_coords, y_coords = self._generate_grid_coordinates(
+                    max_num_pos_x, max_num_pos_y)
+
             x_center = (x_coords[0] + x_coords[-1]) / 2 if x_coords else 0
 
             # Get bottom row positions first, then other rows if needed
@@ -1897,16 +1926,14 @@ if __name__ == "__main__":
     env = PyBulletDominoEnv(use_gui=True)
     # # Set up test configurations for the example
     # CFG.domino_test_num_dominos = [3]
-    # CFG.domino_test_num_targets = [1] 
+    # CFG.domino_test_num_targets = [1]
     # CFG.domino_test_num_pivots = [1]
-    
-    tasks = env._make_tasks(10, 
-                            CFG.domino_train_num_dominos,
-                            CFG.domino_train_num_targets, 
+
+    tasks = env._make_tasks(10, CFG.domino_train_num_dominos,
+                            CFG.domino_train_num_targets,
                             CFG.domino_train_num_pivots,
                             CFG.domino_train_num_pos_x,
-                            CFG.domino_train_num_pos_y,
-                            env._test_rng)
+                            CFG.domino_train_num_pos_y, env._test_rng)
     for task in tasks:
         env._reset_state(task.init)
 

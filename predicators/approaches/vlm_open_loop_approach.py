@@ -178,9 +178,8 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
                 draw = ImageDraw.Draw(pil_img)
                 img_font = utils.get_scaled_default_font(draw, 10)
                 img_with_txt = utils.add_text_to_draw_img(
-                    draw, (50, 50), 
-                    f"Initial state to plan from, Image {img_num}",
-                    img_font)
+                    draw, (50, 50),
+                    f"Initial state to plan from, Image {img_num}", img_font)
                 # pylint:disable=protected-access
                 imgs_for_vlm.append(
                     img_with_txt._image)  # type: ignore[attr-defined]
@@ -197,17 +196,18 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
         if not CFG.vlm_open_loop_use_training_demos:
             if CFG.vlm_open_loop_no_image:
                 prompt = self.base_prompt.format(
-                    init_state_str=init_state.dict_str(indent=2,
-                        use_object_id=CFG.rgb_observation),
+                    init_state_str=init_state.dict_str(
+                        indent=2, use_object_id=CFG.rgb_observation),
                     options=options_str,
                     typed_objects=objects_str,
                     type_hierarchy=type_hierarchy_str,
                     goal_str=goal_str)
             else:
-                prompt = self.base_prompt.format(options=options_str,
-                                             typed_objects=objects_str,
-                                             type_hierarchy=type_hierarchy_str,
-                                             goal_str=goal_str)
+                prompt = self.base_prompt.format(
+                    options=options_str,
+                    typed_objects=objects_str,
+                    type_hierarchy=type_hierarchy_str,
+                    goal_str=goal_str)
             vlm_output = self._vlm.sample_completions(
                 prompt,
                 imgs_for_vlm if not CFG.vlm_open_loop_no_image else None,

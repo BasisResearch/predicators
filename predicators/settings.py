@@ -530,7 +530,7 @@ class GlobalSettings:
 
     # parameters for the vlm_open_loop planning approach
     vlm_open_loop_use_training_demos = False
-    vlm_open_loop_no_image = False # Use object-centric state
+    vlm_open_loop_no_image = False  # Use object-centric state
 
     # SeSamE parameters
     sesame_task_planner = "astar"  # "astar" or "fdopt" or "fdsat"

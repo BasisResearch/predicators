@@ -10,14 +10,12 @@ from predicators.approaches.bilevel_planning_approach import \
     BilevelPlanningApproach
 from predicators.option_model import _OptionModelBase
 from predicators.planning import PlanningFailure, PlanningTimeout
-from predicators.planning_with_processes import (ProcessWorldModel,
-                                            process_task_plan_grounding,
-                                            run_task_plan_with_processes_once)
+from predicators.planning_with_processes import ProcessWorldModel, \
+    process_task_plan_grounding, run_task_plan_with_processes_once
 from predicators.settings import CFG
-from predicators.structs import (AbstractProcessPolicy, Action, CausalProcess,
-                                 EndogenousProcess, GroundAtom, Metrics, Object,
-                                 ParameterizedOption, Predicate, State, Task,
-                                 Type, _GroundEndogenousProcess, _Option)
+from predicators.structs import AbstractProcessPolicy, Action, CausalProcess, \
+    EndogenousProcess, GroundAtom, Metrics, Object, ParameterizedOption, \
+    Predicate, State, Task, Type, _GroundEndogenousProcess, _Option
 
 
 class BilevelProcessPlanningApproach(BilevelPlanningApproach):
@@ -86,8 +84,8 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
                 timeout,
                 seed,
                 abstract_policy=abstract_policy,
-                max_policy_guided_rollout=
-                CFG.process_planning_max_policy_guided_rollout)
+                max_policy_guided_rollout=CFG.
+                process_planning_max_policy_guided_rollout)
             self._last_process_plan = process_plan
             self._last_atoms_seq = atoms_seq
             policy = utils.process_plan_to_greedy_policy(
@@ -147,28 +145,32 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
         all_processes = self._get_current_processes()
         endogenous_processes = sorted(
             [p for p in all_processes if isinstance(p, EndogenousProcess)])
-        vlm_process_plan = self._get_vlm_plan(task, init_atoms, objects, 
-                                endogenous_processes)
+        vlm_process_plan = self._get_vlm_plan(task, init_atoms, objects,
+                                              endogenous_processes)
 
         # 3. Build the partial policy dictionary by simulating the plan.
         partial_policy_dict: Dict[FrozenSet[GroundAtom],
                                   _GroundEndogenousProcess] = {}
         current_atoms = init_atoms.copy()
-        all_ground_processes, _ = process_task_plan_grounding(
-            init_atoms, objects, all_processes, allow_noops=True)
+        all_ground_processes, _ = process_task_plan_grounding(init_atoms,
+                                                              objects,
+                                                              all_processes,
+                                                              allow_noops=True)
         all_predicates = utils.add_in_auxiliary_predicates(
             self._get_current_predicates())
         derived_predicates = utils.get_derived_predicates(all_predicates)
 
         # Build indexes for efficient world model execution (do this once outside the loop)
-        from predicators.planning_with_processes import _build_exogenous_process_index
         from collections import defaultdict
-        
+
+        from predicators.planning_with_processes import \
+            _build_exogenous_process_index
+
         precondition_to_exogenous_processes = None
         if CFG.build_exogenous_process_index_for_planning:
             precondition_to_exogenous_processes = _build_exogenous_process_index(
                 all_ground_processes)
-        
+
         # Pre-compute dependencies for incremental derived predicates
         dep_to_derived_preds = defaultdict(list)
         for der_pred in derived_predicates:
@@ -177,9 +179,8 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
 
         for ground_process in vlm_process_plan:
             if not ground_process.condition_at_start.issubset(current_atoms):
-                logging.warning(
-                    f"VLM plan deviates, precondition not met for "
-                    f"{ground_process.name_and_objects_str()}")
+                logging.warning(f"VLM plan deviates, precondition not met for "
+                                f"{ground_process.name_and_objects_str()}")
                 break
 
             frozen_atoms = frozenset(current_atoms)
@@ -195,9 +196,10 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
                 t=0,
                 derived_predicates=derived_predicates,
                 objects=objects,
-                precondition_to_exogenous_processes=precondition_to_exogenous_processes,
+                precondition_to_exogenous_processes=
+                precondition_to_exogenous_processes,
                 dep_to_derived_preds=dep_to_derived_preds)
-            
+
             world_model.big_step(ground_process)
             current_atoms = world_model.state
 
@@ -207,11 +209,10 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
 
         return abstract_policy
 
-    def _get_vlm_plan(self, task: Task, 
-                      init_atoms: Set[GroundAtom],
-                      objects: Set[Object],
-                      endogenous_processes: List[EndogenousProcess]
-                      ) -> List[_GroundEndogenousProcess]:
+    def _get_vlm_plan(
+        self, task: Task, init_atoms: Set[GroundAtom], objects: Set[Object],
+        endogenous_processes: List[EndogenousProcess]
+    ) -> List[_GroundEndogenousProcess]:
 
         # 2. Query VLM for a process plan.
         processes_str = "\n".join(str(p) for p in endogenous_processes)
@@ -221,12 +222,11 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
         type_hierarchy_str = utils.create_pddl_types_str(self._types)
         init_state_str = "\n".join(map(str, sorted(init_atoms)))
 
-        prompt = self.base_prompt.format(
-            processes=processes_str,
-            typed_objects=objects_str,
-            type_hierarchy=type_hierarchy_str,
-            init_state_str=init_state_str,
-            goal_str=goal_str)
+        prompt = self.base_prompt.format(processes=processes_str,
+                                         typed_objects=objects_str,
+                                         type_hierarchy=type_hierarchy_str,
+                                         init_state_str=init_state_str,
+                                         goal_str=goal_str)
 
         try:
             assert self._vlm is not None
@@ -252,7 +252,9 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
             parsed_process_plan = utils.parse_model_output_into_process_plan(
                 parsable_plan_prediction, objects_list, self._types,
                 endogenous_processes)
-            vlm_process_plan = [p.ground(objs) for p, objs in parsed_process_plan]
+            vlm_process_plan = [
+                p.ground(objs) for p, objs in parsed_process_plan
+            ]
         except Exception as e:
             logging.warning(f"Failed to parse/ground VLM process plan: {e}")
             vlm_process_plan = []

@@ -157,7 +157,8 @@ class PyBulletFanEnv(PyBulletEnv):
     # Boundary walls around grid
     boundary_wall_height: ClassVar[float] = 0.01
     boundary_wall_thickness: ClassVar[float] = 0.002
-    boundary_wall_color: ClassVar[Tuple[float, float, float, float]] = (0.5, 0.3, 0.3, 1)
+    boundary_wall_color: ClassVar[Tuple[float, float, float,
+                                        float]] = (0.5, 0.3, 0.3, 1)
 
     # -------------------------------------------------------------------------
     # Target Properties
@@ -266,21 +267,22 @@ class PyBulletFanEnv(PyBulletEnv):
             self._sides.append(side_obj)
 
         # Maze walls - create enough for the maximum walls per task
-        max_walls_per_task = max(max(CFG.fan_train_num_walls_per_task), 
-                                max(CFG.fan_test_num_walls_per_task))
+        max_walls_per_task = max(max(CFG.fan_train_num_walls_per_task),
+                                 max(CFG.fan_test_num_walls_per_task))
         self._walls = [
-                Object(f"wall{i}", self._wall_type) for i in 
-            range(max_walls_per_task)]
+            Object(f"wall{i}", self._wall_type)
+            for i in range(max_walls_per_task)
+        ]
         # Create positions based on maximum grid size to support both train and test
         max_num_pos_x = max(CFG.fan_train_num_pos_x, CFG.fan_test_num_pos_x)
         max_num_pos_y = max(CFG.fan_train_num_pos_y, CFG.fan_test_num_pos_y)
-        
+
         self._positions = [
             Object(f"loc_y{i}_x{j}", self._location_type)
             for i in range(max_num_pos_y) for j in range(max_num_pos_x)
         ]
         self.pos_dict = dict()
-        
+
         # Grid positions will be set dynamically in task generation
 
         # Ball
@@ -470,8 +472,8 @@ class PyBulletFanEnv(PyBulletEnv):
         # ---------------------------------------------------------------------
         # Maze walls
         # ---------------------------------------------------------------------
-        max_walls_per_task = max(max(CFG.fan_train_num_walls_per_task), 
-                                max(CFG.fan_test_num_walls_per_task))
+        max_walls_per_task = max(max(CFG.fan_train_num_walls_per_task),
+                                 max(CFG.fan_test_num_walls_per_task))
         wall_ids = []
         for _ in range(max_walls_per_task):
             wall_id = create_pybullet_block(
@@ -517,7 +519,6 @@ class PyBulletFanEnv(PyBulletEnv):
             orientation=p.getQuaternionFromEuler([0, 0, 0]),
             physics_client_id=physics_client_id)
         bodies["target_id"] = target_id
-
 
         return physics_client_id, pybullet_robot, bodies
 
@@ -567,7 +568,7 @@ class PyBulletFanEnv(PyBulletEnv):
             wall.id = id
         self._ball.id = pybullet_bodies["ball_id"]
         self._target.id = pybullet_bodies["target_id"]
-        
+
         # Initialize boundary wall IDs list (will be populated in _reset_custom_env_state)
         self._boundary_wall_ids = []
 
@@ -600,27 +601,28 @@ class PyBulletFanEnv(PyBulletEnv):
                           physics_client_id=self._physics_client_id)
 
     def _reposition_boundary_walls(self, state: State) -> None:
-        """Recreate boundary walls with correct dimensions based on the actual grid positions used in this task."""
+        """Recreate boundary walls with correct dimensions based on the actual
+        grid positions used in this task."""
         # Remove existing boundary walls
         for wall_id in self._boundary_wall_ids:
             if wall_id >= 0:
                 p.removeBody(wall_id, physicsClientId=self._physics_client_id)
         self._boundary_wall_ids = []
-        
+
         # Get all position objects that are in the state
         position_objects = state.get_objects(self._location_type)
         if not position_objects:
             return
-            
+
         # Set the xx, yy sim features
         for pos_obj in position_objects:
             pos_obj.xx = state.get(pos_obj, "xx")
             pos_obj.yy = state.get(pos_obj, "yy")
-            
+
         # Find the bounds of the actual grid positions used in this task
         x_coords = [state.get(pos_obj, "xx") for pos_obj in position_objects]
         y_coords = [state.get(pos_obj, "yy") for pos_obj in position_objects]
-        
+
         grid_x_min, grid_x_max = min(x_coords), max(x_coords)
         grid_y_min, grid_y_max = min(y_coords), max(y_coords)
 
@@ -686,10 +688,14 @@ class PyBulletFanEnv(PyBulletEnv):
             physics_client_id=self._physics_client_id)
 
         # Store the new boundary wall IDs
-        self._boundary_wall_ids = [left_wall_id, right_wall_id, front_wall_id, back_wall_id]
+        self._boundary_wall_ids = [
+            left_wall_id, right_wall_id, front_wall_id, back_wall_id
+        ]
 
     @classmethod
-    def _generate_grid_coordinates(cls, num_pos_x: int, num_pos_y: int) -> Tuple[List[float], List[float]]:
+    def _generate_grid_coordinates(
+            cls, num_pos_x: int,
+            num_pos_y: int) -> Tuple[List[float], List[float]]:
         """Generate grid coordinates for the maze with specified dimensions."""
         if num_pos_x % 2 == 1:
             x_start = cls.loc_x_mid - (num_pos_x - 1) * cls.pos_gap / 2
@@ -887,8 +893,8 @@ class PyBulletFanEnv(PyBulletEnv):
     def _apply_fan_force_to_ball(self, fan_id: int, ball_id: int) -> None:
         """Compute the direction the fan blows (+X in fan local frame) and
         apply force."""
-        _, orn_fan = p.getBasePositionAndOrientation(
-            fan_id, self._physics_client_id)
+        _, orn_fan = p.getBasePositionAndOrientation(fan_id,
+                                                     self._physics_client_id)
 
         if CFG.fan_fans_blow_opposite_direction:
             local_dir = np.array([-1.0, 0.0, 0.0])
@@ -1096,25 +1102,29 @@ class PyBulletFanEnv(PyBulletEnv):
     # Task Generation
     # -------------------------------------------------------------------------
     def _generate_train_tasks(self) -> List[EnvironmentTask]:
-        return self._make_tasks(num_tasks=CFG.num_train_tasks,
-                                num_pos_x=CFG.fan_train_num_pos_x,
-                                num_pos_y=CFG.fan_train_num_pos_y,
-                                possible_num_walls_per_task=CFG.fan_train_num_walls_per_task,
-                                rng=self._train_rng)
+        return self._make_tasks(
+            num_tasks=CFG.num_train_tasks,
+            num_pos_x=CFG.fan_train_num_pos_x,
+            num_pos_y=CFG.fan_train_num_pos_y,
+            possible_num_walls_per_task=CFG.fan_train_num_walls_per_task,
+            rng=self._train_rng)
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
-        return self._make_tasks(num_tasks=CFG.num_test_tasks,
-                                num_pos_x=CFG.fan_test_num_pos_x,
-                                num_pos_y=CFG.fan_test_num_pos_y,
-                                possible_num_walls_per_task=CFG.fan_test_num_walls_per_task,
-                                rng=self._test_rng)
+        return self._make_tasks(
+            num_tasks=CFG.num_test_tasks,
+            num_pos_x=CFG.fan_test_num_pos_x,
+            num_pos_y=CFG.fan_test_num_pos_y,
+            possible_num_walls_per_task=CFG.fan_test_num_walls_per_task,
+            rng=self._test_rng)
 
-    def _make_tasks(self, num_tasks: int, num_pos_x: int, num_pos_y: int, 
-                    possible_num_walls_per_task: List[int], rng: np.random.Generator) -> List[EnvironmentTask]:
+    def _make_tasks(self, num_tasks: int, num_pos_x: int, num_pos_y: int,
+                    possible_num_walls_per_task: List[int],
+                    rng: np.random.Generator) -> List[EnvironmentTask]:
         # Generate grid coordinates for this specific configuration
-        x_coords, y_coords = self._generate_grid_coordinates(num_pos_x, num_pos_y)
+        x_coords, y_coords = self._generate_grid_coordinates(
+            num_pos_x, num_pos_y)
         grid_pos = [(x, y) for y in y_coords for x in x_coords]
-        
+
         # Create position dictionary for this task configuration
         pos_dict = {}
         pos_index = 0
@@ -1281,9 +1291,8 @@ if __name__ == "__main__":
     # CFG.fan_fans_blow_opposite_direction = True
     env = PyBulletFanEnv(use_gui=True)
     rng = np.random.default_rng(CFG.seed)
-    tasks = env._make_tasks(10, 
-                            CFG.fan_train_num_pos_x, 
-                            CFG.fan_train_num_pos_y, 
+    tasks = env._make_tasks(10, CFG.fan_train_num_pos_x,
+                            CFG.fan_train_num_pos_y,
                             CFG.fan_train_num_walls_per_task, rng)
 
     for task in tasks:

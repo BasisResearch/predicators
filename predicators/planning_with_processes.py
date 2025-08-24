@@ -19,10 +19,9 @@ from predicators.planning import PlanningFailure, _MaxSkeletonsFailure, \
     _SkeletonSearchTimeout
 from predicators.settings import CFG
 from predicators.structs import AbstractProcessPolicy, CausalProcess, \
-    DefaultState, \
-    DerivedPredicate, EndogenousProcess, GroundAtom, Metrics, Object, \
-    Predicate, Task, Type, _GroundCausalProcess, _GroundEndogenousProcess, \
-    _GroundExogenousProcess
+    DefaultState, DerivedPredicate, EndogenousProcess, GroundAtom, Metrics, \
+    Object, Predicate, Task, Type, _GroundCausalProcess, \
+    _GroundEndogenousProcess, _GroundExogenousProcess
 from predicators.utils import _TaskPlanningHeuristic
 
 
@@ -31,9 +30,9 @@ def _build_exogenous_process_index(
 ) -> Dict[Predicate, List[_GroundExogenousProcess]]:
     """Build index mapping predicates to exogenous processes that have those
     predicates in their condition_at_start.
-    
-    This helps efficiently find which exogenous processes might be triggered
-    when new facts become true.
+
+    This helps efficiently find which exogenous processes might be
+    triggered when new facts become true.
     """
     precondition_to_exogenous_processes: Dict[
         Predicate, List[_GroundExogenousProcess]] = defaultdict(list)
@@ -262,9 +261,9 @@ class ProcessWorldModel:
             for g_process in self.ground_processes:
                 if isinstance(g_process, _GroundExogenousProcess):
                     first_state_or_prev_state_doesnt_satisfy = (
-                    len(self.state_history) == 0
-                    or not g_process.condition_at_start.issubset(
-                        self.state_history[-1]))
+                        len(self.state_history) == 0
+                        or not g_process.condition_at_start.issubset(
+                            self.state_history[-1]))
                     if g_process.condition_at_start.issubset(self.state) and\
                         first_state_or_prev_state_doesnt_satisfy:
                         delay = g_process.delay_distribution.sample()
@@ -456,33 +455,35 @@ def _skeleton_generator_with_processes(
                         yield current_node.skeleton, current_node.atoms_sequence
                         break
                     ground_process = abstract_policy(current_node.atoms,
-                                                    objects, task.goal)
+                                                     objects, task.goal)
                     if ground_process is None:
                         break
                     # Make sure ground_process is applicable and is an endogenous process
-                    if not isinstance(ground_process, _GroundEndogenousProcess):
+                    if not isinstance(ground_process,
+                                      _GroundEndogenousProcess):
                         break
                     if not ground_process.condition_at_start.issubset(
                             current_node.atoms):
                         break
-                    
+
                     # Run the process through the world model to get the resulting state
                     world_model = ProcessWorldModel(
                         ground_processes=ground_processes.copy(),
                         state=current_node.atoms.copy(),
                         state_history=current_node.state_history.copy(),
                         action_history=current_node.action_history.copy(),
-                        scheduled_events=deepcopy(current_node.scheduled_events),
+                        scheduled_events=deepcopy(
+                            current_node.scheduled_events),
                         t=len(current_node.state_history),
                         derived_predicates=derived_predicates,
                         objects=objects,
                         precondition_to_exogenous_processes=
-                            precondition_to_exogenous_processes,
+                        precondition_to_exogenous_processes,
                         dep_to_derived_preds=dep_to_derived_preds)
-                    
+
                     world_model.big_step(ground_process)
                     child_atoms = world_model.state.copy()
-                    
+
                     child_skeleton = current_node.skeleton + [ground_process]
                     child_skeleton_tup = tuple(child_skeleton)
                     if child_skeleton_tup in visited_skeletons:
@@ -505,7 +506,8 @@ def _skeleton_generator_with_processes(
                         cumulative_cost=child_cost,
                         state_history=world_model.state_history.copy(),
                         action_history=world_model.action_history.copy(),
-                        scheduled_events=deepcopy(world_model.scheduled_events))
+                        scheduled_events=deepcopy(
+                            world_model.scheduled_events))
                     metrics["num_nodes_created"] += 1
                     # priority is g [cost] plus h [heuristic]
                     if time_heuristic:
@@ -513,7 +515,7 @@ def _skeleton_generator_with_processes(
                         h = heuristic(child_node.atoms) * heuristic_weight
                         heuristic_end_time = time.perf_counter()
                         heuristic_call_count += 1
-                        total_heuristic_time += (heuristic_end_time - 
+                        total_heuristic_time += (heuristic_end_time -
                                                  heuristic_start_time)
                     else:
                         h = heuristic(child_node.atoms) * heuristic_weight

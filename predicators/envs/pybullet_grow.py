@@ -38,7 +38,6 @@ class PyBulletGrowEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Global configuration / geometry
 
-
     # Table / workspace config
     table_height: ClassVar[float] = 0.4
     table_pos: ClassVar[Pose3D] = (0.75, 1.35, table_height / 2)
@@ -112,9 +111,11 @@ class PyBulletGrowEnv(PyBulletEnv):
         self._robot = Object("robot", self._robot_type)
 
         # Create containers for cups and jugs (create enough for max needed)
-        max_cups = max(max(CFG.grow_num_cups_train), max(CFG.grow_num_cups_test))
-        max_jugs = max(max(CFG.grow_num_jugs_train), max(CFG.grow_num_jugs_test))
-        
+        max_cups = max(max(CFG.grow_num_cups_train),
+                       max(CFG.grow_num_cups_test))
+        max_jugs = max(max(CFG.grow_num_jugs_train),
+                       max(CFG.grow_num_jugs_test))
+
         self._cups: List[Object] = []
         for i in range(max_cups):
             cup_name = f"cup{i}"
@@ -196,9 +197,11 @@ class PyBulletGrowEnv(PyBulletEnv):
         bodies["table_id"] = table_id
 
         # Create the cups (create enough for max needed)
-        max_cups = max(max(CFG.grow_num_cups_train), max(CFG.grow_num_cups_test))
-        max_jugs = max(max(CFG.grow_num_jugs_train), max(CFG.grow_num_jugs_test))
-        
+        max_cups = max(max(CFG.grow_num_cups_train),
+                       max(CFG.grow_num_cups_test))
+        max_jugs = max(max(CFG.grow_num_jugs_train),
+                       max(CFG.grow_num_jugs_test))
+
         cup_ids = []
         for _ in range(max_cups):
             # For now, just give a placeholder color; we'll update color below
@@ -293,7 +296,7 @@ class PyBulletGrowEnv(PyBulletEnv):
                 jug.init_x = state.get(jug, "x")
                 jug.init_y = state.get(jug, "y")
                 jug.init_z = state.get(jug, "z")
-        
+
         oov_x, oov_y = self._out_of_view_xy
         for i in range(len(cups), len(self._cups)):
             update_object(self._cups[i].id,
@@ -327,14 +330,14 @@ class PyBulletGrowEnv(PyBulletEnv):
             cup = self._get_cup_to_pour(state)
             if cup is None:
                 return
-            
+
             # Get the jug being held
             jug = self.get_object_by_id(self._held_obj_id)
-            
+
             # Check if jug and cup colors match
             if not self._SameColor_holds(state, [cup, jug]):
                 return  # No growth if colors don't match
-                
+
             current_growth = state.get(cup, "growth")
             new_growth = min(1.0, current_growth + self.pour_rate)
 
@@ -480,7 +483,7 @@ class PyBulletGrowEnv(PyBulletEnv):
             # Determine number of cups for this task
             num_cups = num_cups_lst[rng.choice(len(num_cups_lst))]
             num_jugs = num_jugs_lst[rng.choice(len(num_jugs_lst))]
-            
+
             # Use only the subset of cups/jugs needed for this task
             cups = self._cups[:num_cups]
             jugs = self._jugs[:num_jugs]
@@ -499,8 +502,7 @@ class PyBulletGrowEnv(PyBulletEnv):
             init_dict[self._robot] = robot_dict
 
             # Generate all object positions at once, satisfying the constraints.
-            object_positions = self._sample_object_positions(
-                rng, jugs, cups)
+            object_positions = self._sample_object_positions(rng, jugs, cups)
 
             jug_colors = []
             # Sample positions and colors for jugs

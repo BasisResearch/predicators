@@ -120,12 +120,9 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
                                                    sigma=torch.tensor(0.1))
         pour_from_not_above_cup_process = EndogenousProcess(
-                                        "PourFromNotAboveCup",
-                                         parameters, condition_at_start, set(),
-                                         set(), add_effects,
-                                         delete_effects, delay_distribution,
-                                         torch.tensor(1.0), option,
-                                         option_vars, null_sampler)
+            "PourFromNotAboveCup", parameters, condition_at_start, set(),
+            set(), add_effects, delete_effects, delay_distribution,
+            torch.tensor(1.0), option, option_vars, null_sampler)
         processes.add(pour_from_not_above_cup_process)
 
         # Pour from above-cup
@@ -149,12 +146,9 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
                                                    sigma=torch.tensor(0.1))
         pour_from_not_above_cup_process = EndogenousProcess(
-                                        "PourFromAboveCup",
-                                         parameters, condition_at_start, set(),
-                                         set(), add_effects,
-                                         delete_effects, delay_distribution,
-                                         torch.tensor(1.0), option,
-                                         option_vars, null_sampler)
+            "PourFromAboveCup", parameters, condition_at_start, set(),
+            set(), add_effects, delete_effects, delay_distribution,
+            torch.tensor(1.0), option, option_vars, null_sampler)
         processes.add(pour_from_not_above_cup_process)
 
         # NoOp
