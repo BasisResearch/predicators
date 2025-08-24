@@ -1411,6 +1411,11 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             logging.debug(
                 f"Scored conditions for Process sketch {pnad_idx}:\n"
                 f"{indexed_pnads[pnad_idx].make_exogenous_process()}")
+            if CFG.use_wandb:
+                wandb.log({
+                    f"process_sketch_{pnad_idx}": 
+                    str(indexed_pnads[pnad_idx].make_exogenous_process())
+                })
             # Logging the sorted results.
             for rank, result in enumerate(scored_conditions):
                 cost, condition_candidate, scores, process = result
@@ -1423,6 +1428,20 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                               f"Exp_delay_prob: {scores[2]:.4f}, "
                               f"Entropy: {scores[3]:.4f}, "
                               f"Process params: {process_param_str}")
+                if CFG.use_wandb:
+                    wandb.log({
+                        f"pnad_{pnad_idx}_condition_{rank}_cost": cost,
+                        f"pnad_{pnad_idx}_condition_{rank}_condition": 
+                            str(condition_candidate),
+                        f"pnad_{pnad_idx}_condition_{rank}_elbo": scores[0],
+                        f"pnad_{pnad_idx}_condition_{rank}_exp_state_prob": 
+                            scores[1],
+                        f"pnad_{pnad_idx}_condition_{rank}_exp_delay_prob": 
+                            scores[2],
+                        f"pnad_{pnad_idx}_condition_{rank}_entropy": scores[3],
+                        f"pnad_{pnad_idx}_condition_{rank}_process_params": 
+                            process_param_str
+                    })
 
             # Get the conditions with the top marginal likelihood
             multiple_top_conditions = False
