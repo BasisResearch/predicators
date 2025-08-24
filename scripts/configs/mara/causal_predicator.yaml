@@ -190,6 +190,8 @@ ENVS:
       domino_prune_actions: False
       process_planning_heuristic_weight: 10.0
       process_planning_use_abstract_policy: False
+      domino_test_num_targets: [1] # temp for experiment
+      domino_test_num_pos_x: 3 # temp for experiment
   fan:
     NAME: "pybullet_fan"
     FLAGS:
