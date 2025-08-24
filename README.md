@@ -36,6 +36,12 @@ A simple implementation of search-then-sample bilevel planning is provided in `p
 Our code assumes that python hashing is deterministic between processes, which is [not true by default](https://stackoverflow.com/questions/30585108/disable-hash-randomization-from-within-python-program).
 Please make sure to `export PYTHONHASHSEED=0` when running the code. You can add this line to your bash profile, or prepend `export PYTHONHASHSEED=0` to any command line call, e.g., `export PYTHONHASHSEED=0 python predicators/main.py --env ...`.
 
+### Weights & Biases (wandb) Setup
+If you want to use wandb for experiment tracking:
+* Set `use_wandb = True` in your config or pass `--use_wandb` as a command line argument
+* Set your wandb API key: `export WANDB_API_KEY=your_api_key_here`
+* Or run `wandb login` to authenticate interactively
+
 ### Locally
 * (recommended) Make a new virtual env or conda env.
 * Run, e.g., `python predicators/main.py --env cover --approach oracle --seed 0` to run the system.

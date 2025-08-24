@@ -663,6 +663,9 @@ class GlobalSettings:
     # torch GPU usage setting
     use_torch_gpu = False
 
+    # wandb logging setting
+    use_wandb = False
+
     # torch model parameters
     learning_rate = 1e-3
     weight_decay = 0

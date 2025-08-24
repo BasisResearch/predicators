@@ -12,6 +12,7 @@ import dill as pkl
 import PIL
 from gym.spaces import Box
 from PIL import ImageDraw, ImageFont
+import wandb
 
 from predicators import utils
 from predicators.approaches.grammar_search_invention_approach import \
@@ -736,6 +737,25 @@ class OnlinePredicateInventionProcessPlanningApproach(
         self._processes = endogenous_processes |\
                             _get_best_compatible_exo_processes(kept_predicates)
 
+        # Log processes and predicates to wandb if enabled
+        if CFG.use_wandb:
+            # Log each process as a separate entry
+            for i, process in enumerate(self._processes):
+                wandb.log({
+                    f"process_{i}_cycle_{self._online_learning_cycle}": str(process),
+                    "online_learning_cycle": self._online_learning_cycle,
+                    "process_index": i,
+                    "process_type": type(process).__name__
+                })
+            
+            # Log each predicate as a separate entry
+            for i, pred in enumerate(kept_predicates):
+                wandb.log({
+                    f"predicate_{i}_cycle_{self._online_learning_cycle}": str(pred),
+                    "online_learning_cycle": self._online_learning_cycle,
+                    "predicate_index": i,
+                    "predicate_name": pred.name,
+                })
         return set(kept_predicates)
 
 
