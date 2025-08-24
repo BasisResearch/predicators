@@ -157,11 +157,9 @@ def main() -> None:
 
     # Initialize wandb if enabled
     if CFG.use_wandb:
-        wandb.init(
-            project="predicators",
-            config=vars(CFG),
-            name=f"{CFG.env}_{CFG.approach}_{CFG.seed}"
-        )
+        wandb.init(project="predicators",
+                   config=vars(CFG),
+                   name=f"{CFG.env}_{CFG.approach}_{CFG.seed}")
 
     # Log initial info
     utils.log_initial_info(str_args)
@@ -314,32 +312,36 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
             train_task_solve_rate = sum(task_first_solve_attempts.values()
                                         ) / len(task_first_solve_attempts)
             logging.info(f"Train task solve rate: {train_task_solve_rate:.3f} "
-                            f"({sum(task_first_solve_attempts.values())}/"
-                            f"{len(task_first_solve_attempts)})")
-            
+                         f"({sum(task_first_solve_attempts.values())}/"
+                         f"{len(task_first_solve_attempts)})")
+
             # Log to wandb if enabled
             if CFG.use_wandb:
                 wandb.log({
-                    "train_task_solve_rate": train_task_solve_rate,
-                    "online_learning_cycle": i,
-                    "num_tasks_attempted": len(task_first_solve_attempts),
-                    "num_tasks_solved": sum(task_first_solve_attempts.values())
+                    "train_task_solve_rate":
+                    train_task_solve_rate,
+                    "online_learning_cycle":
+                    i,
+                    "num_tasks_attempted":
+                    len(task_first_solve_attempts),
+                    "num_tasks_solved":
+                    sum(task_first_solve_attempts.values())
                 })
         else:
             train_task_solve_rate = 0.0
 
         # Determine if we should run testing
         is_last_iteration = (i == CFG.num_online_learning_cycles - 1)
-        should_run_testing = (is_last_iteration or
-                            not CFG.skip_test_until_last_ite_or_early_stopping)
+        should_run_testing = (
+            is_last_iteration
+            or not CFG.skip_test_until_last_ite_or_early_stopping)
         # Check for early stopping based on train task solve rate
         early_stopping = False
         if CFG.online_learning_early_stopping and \
            len(task_first_solve_attempts) == len(train_tasks) and \
            all(task_first_solve_attempts.values()):
-            logging.info(
-                "All training tasks solved on first attempt, "
-                "triggering early stopping.")
+            logging.info("All training tasks solved on first attempt, "
+                         "triggering early stopping.")
             early_stopping = True
             should_run_testing = True  # Run testing when early stopping
 
