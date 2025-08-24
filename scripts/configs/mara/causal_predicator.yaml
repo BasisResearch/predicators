@@ -188,11 +188,8 @@ ENVS:
       domino_use_grid: True
       domino_include_connected_predicate: False # necessary to generate valid plan
       domino_prune_actions: False
-      domino_num_dominos_max: 3
-      domino_num_dominos_min: 3
-      domino_num_targets_max: 1
-      domino_num_targets_min: 1
       process_planning_heuristic_weight: 10.0
+      process_planning_use_abstract_policy: False
   fan:
     NAME: "pybullet_fan"
     FLAGS:

@@ -652,6 +652,8 @@ class GlobalSettings:
     use_derived_predicate_in_heuristic = True
     process_planning_heuristic_weight = 1.0
     build_exogenous_process_index_for_planning = True
+    process_planning_use_abstract_policy = False
+    process_planning_max_policy_guided_rollout = 10
 
     # torch GPU usage setting
     use_torch_gpu = False
