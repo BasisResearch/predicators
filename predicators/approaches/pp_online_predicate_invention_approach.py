@@ -367,6 +367,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
             new_preds = set(all_candidates) - self._initial_predicates
             logging.info(f"Candidate predicates:\n{pformat(new_preds)}")
+            if CFG.use_wandb:
+                wandb.log({"candidate_predicates": pformat(new_preds)})
 
             self._learned_predicates = set(all_candidates)  # temp
             # TODO: we need to save the top ranking conditions here so it can be
