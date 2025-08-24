@@ -76,6 +76,7 @@ APPROACHES:
     #   - "load_approach"
     #   - "restart_learning" # Add to restart learning after skipping cycles.
     FLAGS:
+      bilevel_plan_without_sim: True
       # skip_until_cycle: 1
       excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,NoJugAtFaucetOrAtFaucetAndFilled"
       demonstrator: "oracle_process_planning"

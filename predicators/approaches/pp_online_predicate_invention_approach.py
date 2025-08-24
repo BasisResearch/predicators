@@ -698,7 +698,6 @@ class OnlinePredicateInventionProcessPlanningApproach(
         # However, since 'path' always has length one more than the
         # number of selected candidates (since it evaluates the empty
         # predicate set first), we can just compute it as below.
-        assert self._metrics.get("total_num_predicate_evaluations") is None
         self._metrics["total_num_predicate_evaluations"] = len(path) * len(
             candidates)
 
