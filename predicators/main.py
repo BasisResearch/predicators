@@ -310,13 +310,6 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
         else:
             train_task_solve_rate = 0.0
 
-        # Learn from results if appropriate
-        if not CFG.load_approach or CFG.restart_learning:
-            learning_start = time.perf_counter()
-            logging.info("Learning from interaction results...")
-            cogman.learn_from_interaction_results(interaction_results)
-            learning_time += time.perf_counter() - learning_start
-
         # Determine if we should run testing
         is_last_iteration = (i == CFG.num_online_learning_cycles - 1)
         should_run_testing = (is_last_iteration or
@@ -331,6 +324,14 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
                 "triggering early stopping.")
             early_stopping = True
             should_run_testing = True  # Run testing when early stopping
+
+        # Learn from results if appropriate
+        if (not CFG.load_approach or CFG.restart_learning) and \
+            not early_stopping:
+            learning_start = time.perf_counter()
+            logging.info("Learning from interaction results...")
+            cogman.learn_from_interaction_results(interaction_results)
+            learning_time += time.perf_counter() - learning_start
 
         # Evaluate if needed
         if should_run_testing:
