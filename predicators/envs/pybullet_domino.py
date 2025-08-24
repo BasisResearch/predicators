@@ -92,7 +92,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     # Grid configuration
     # num_pos_x: ClassVar[int] = 9
     # num_pos_y: ClassVar[int] = 5
-    num_pos_x: ClassVar[int] = 5
+    num_pos_x: ClassVar[int] = 4
     num_pos_y: ClassVar[int] = 3
     pos_gap: ClassVar[
         float] = domino_width * 1.3  # Distance between grid positions
