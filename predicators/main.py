@@ -341,7 +341,7 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
            len(task_first_solve_attempts) == len(train_tasks) and \
            all(task_first_solve_attempts.values()):
             logging.info("All training tasks solved on first attempt, "
-                         "triggering early stopping.")
+                         "triggering early stopping.\n")
             early_stopping = True
             should_run_testing = True  # Run testing when early stopping
 
