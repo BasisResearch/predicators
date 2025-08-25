@@ -154,7 +154,7 @@ ENVS:
     FLAGS:
       excluded_objects_in_state_str: "switch"
       max_num_steps_option_rollout: 50
-      horizon: 1300 # 300 should be enough, 50 is good during dev
+      horizon: 500 # 300 should be enough, 50 is good during dev
       # boil_goal: "task_completed" # This option isn't fully ready because
         # with the current only_learn_exogenous_processes setting, it won't try
         # to learn the precondition for the DeclareComplete option.
@@ -206,7 +206,7 @@ ARGS:
   - "debug"
   # - "use_gui"
   # - "make_demo_videos"
-  - "make_failure_videos"
+  # - "make_failure_videos"
   # - "make_test_videos"
   # - "make_demo_images"  # support images
   # - "make_failure_images"  # query images
