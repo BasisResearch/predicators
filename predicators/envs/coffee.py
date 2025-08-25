@@ -365,10 +365,12 @@ class CoffeeEnv(BaseEnv):
             self._MachineOn, self._OnTable, self._HandEmpty, self._JugFilled,
             self._RobotAboveCup, self._JugAboveCup, self._NotAboveCup,
             self._PressingButton, self._Twisting, self._NotSameCup,
-            self._PluggedIn, self._HandTilted
+            self._HandTilted
         }
         if CFG.coffee_jug_pickable_pred:
             predicates.add(self._JugPickable)
+        if CFG.coffee_machine_has_plug:
+            predicates.add(self._PluggedIn)
         return predicates
 
     @property

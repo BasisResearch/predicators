@@ -42,13 +42,13 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
         OnTable = predicates["OnTable"]
         HandEmpty = predicates["HandEmpty"]
         JugFilled = predicates["JugFilled"]
-        RobotAboveCup = predicates["RobotAboveCup"]
         JugAboveCup = predicates["JugAboveCup"]
         NotAboveCup = predicates["NotAboveCup"]
         Twisting = predicates["Twisting"]
         if CFG.coffee_jug_pickable_pred:
             JugPickable = predicates["JugPickable"]
-        PluggedIn = predicates["PluggedIn"]
+        if CFG.coffee_machine_has_plug:
+            PluggedIn = predicates["PluggedIn"]
 
         # Options
         PickJug = options["PickJug"]
@@ -286,7 +286,6 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         add_effects = {
             LiftedAtom(JugAboveCup, [jug, cup]),
-            LiftedAtom(RobotAboveCup, [robot, cup]),
         }
         delete_effects = {
             LiftedAtom(NotAboveCup, [robot, jug]),
