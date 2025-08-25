@@ -122,6 +122,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         with open(f"{save_path}_{online_learning_cycle}.PROCes", "wb") as f:
             save_dict = {
                 "processes": self._processes,
+                "learned_predicates": self._learned_predicates,
                 "candidate_predicates": self._candidate_predicates,
                 "offline_dataset": self._offline_dataset,
                 "online_dataset": self._online_dataset
@@ -143,12 +144,15 @@ class OnlinePredicateInventionProcessPlanningApproach(
         assert "online_dataset" in save_dict, \
             "Online dataset not found in save_dict"
         self._processes = save_dict["processes"]
+        self._learned_predicates = save_dict["learned_predicates"]
         self._candidate_predicates = save_dict["candidate_predicates"]
         self._offline_dataset = save_dict["offline_dataset"]
         self._online_dataset = save_dict["online_dataset"]
         logging.info(f"\n\nLoaded Processes:")
         for process in sorted(self._processes):
             logging.info(process)
+        logging.info(f"Loaded {len(self._learned_predicates)} learned predicates")
+        logging.info(f"{sorted(self._learned_predicates)}")
         logging.info(
             f"Loaded {len(self._processes)} processes, "
             f"{len(self._candidate_predicates)} candidate predicates, "
