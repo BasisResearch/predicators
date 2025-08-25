@@ -109,7 +109,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     # over flow. (magic water like in grow)
     max_jug_water_capacity: ClassVar[
         float] = 0.13 * water_height_to_level_ratio
-        # float] = 0.093 * water_height_to_level_ratio # the value it get if it wait then TurnOff
+    # float] = 0.093 * water_height_to_level_ratio # the value it get if it wait then TurnOff
     max_water_spill_width: ClassVar[float] = 0.3
     water_color = (0.0, 0.0, 1.0, 0.9)  # blue
     heating_speed: ClassVar[
@@ -141,9 +141,9 @@ class PyBulletBoilEnv(PyBulletEnv):
     # _spilled_level is initialized to be 0.04 smaller. This creates a delay
     # for spill to occur while allows the WaterSpill predicate to have an
     # intuitive >0.0 definition, instead of >0.04
-    _faucet_type = Type("faucet",
-                        ["x", "y", "z", "rot", "is_on", "spilled_level"],
-                        sim_features=["id", "switch_id", "_spilled_level", "prev_on"])
+    _faucet_type = Type(
+        "faucet", ["x", "y", "z", "rot", "is_on", "spilled_level"],
+        sim_features=["id", "switch_id", "_spilled_level", "prev_on"])
     _human_type = Type("human", ["happiness_level"],
                        sim_features=["id", "happiness_level"])
 
@@ -613,7 +613,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         """
         faucet_on = self._is_switch_on(self._faucet_switch.id)
         faucet_prev_on = self._faucet.prev_on > 0.5
-        
+
         # Only process if faucet is on AND it was on in the previous step (transition from off to on)
         if not (faucet_on and faucet_prev_on):
             return
@@ -694,7 +694,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         for i, burner_obj in enumerate(burners):
             burner_on = self._is_switch_on(self._burner_switches[i].id)
             burner_prev_on = burner_obj.prev_on > 0.5
-            
+
             # Only process if burner is on AND it wasn't on in the previous step (transition from off to on)
             if not (burner_on and burner_prev_on):
                 continue
@@ -771,14 +771,14 @@ class PyBulletBoilEnv(PyBulletEnv):
                     human_obj.happiness_level = new_happiness_level
 
     def _update_prev_on_states(self, state: State) -> None:
-        """Update the prev_on sim_features for burners and faucet to track 
+        """Update the prev_on sim_features for burners and faucet to track
         their current on/off state for the next step."""
         # Update burner prev_on states
         burners = state.get_objects(self._burner_type)
         for i, burner_obj in enumerate(burners):
             burner_on = self._is_switch_on(self._burner_switches[i].id)
             burner_obj.prev_on = float(burner_on)
-        
+
         # Update faucet prev_on state
         faucet_on = self._is_switch_on(self._faucet_switch.id)
         self._faucet.prev_on = float(faucet_on)

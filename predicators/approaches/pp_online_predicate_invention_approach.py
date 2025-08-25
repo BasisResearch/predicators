@@ -151,7 +151,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
         logging.info(f"\n\nLoaded Processes:")
         for process in sorted(self._processes):
             logging.info(process)
-        logging.info(f"Loaded {len(self._learned_predicates)} learned predicates")
+        logging.info(
+            f"Loaded {len(self._learned_predicates)} learned predicates")
         logging.info(f"{sorted(self._learned_predicates)}")
         logging.info(
             f"Loaded {len(self._processes)} processes, "

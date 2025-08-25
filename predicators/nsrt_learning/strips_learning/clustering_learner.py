@@ -16,8 +16,8 @@ from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Set, \
 
 import multiprocess as mp
 import psutil
-from pathos.multiprocessing import ProcessingPool as Pool
 import wandb
+from pathos.multiprocessing import ProcessingPool as Pool
 
 from predicators import utils
 from predicators.nsrt_learning.segmentation import segment_trajectory
@@ -1272,7 +1272,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                               f"PNAD {i}:\n{base_process}")
                 if CFG.use_wandb:
                     wandb.log({
-                        "pruning_info": f"Pruning {len(all_candidates)} candidates for PNAD {i}",
+                        "pruning_info":
+                        f"Pruning {len(all_candidates)} candidates for PNAD {i}",
                         "base_process": str(base_process)
                     })
                 candidates_with_approx_scores = []
@@ -1413,7 +1414,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 f"{indexed_pnads[pnad_idx].make_exogenous_process()}")
             if CFG.use_wandb:
                 wandb.log({
-                    f"process_sketch_{pnad_idx}": 
+                    f"process_sketch_{pnad_idx}":
                     str(indexed_pnads[pnad_idx].make_exogenous_process())
                 })
             # Logging the sorted results.
@@ -1430,17 +1431,20 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                               f"Process params: {process_param_str}")
                 if CFG.use_wandb:
                     wandb.log({
-                        f"pnad_{pnad_idx}_condition_{rank}_cost": cost,
-                        f"pnad_{pnad_idx}_condition_{rank}_condition": 
-                            str(condition_candidate),
-                        f"pnad_{pnad_idx}_condition_{rank}_elbo": scores[0],
-                        f"pnad_{pnad_idx}_condition_{rank}_exp_state_prob": 
-                            scores[1],
-                        f"pnad_{pnad_idx}_condition_{rank}_exp_delay_prob": 
-                            scores[2],
-                        f"pnad_{pnad_idx}_condition_{rank}_entropy": scores[3],
-                        f"pnad_{pnad_idx}_condition_{rank}_process_params": 
-                            process_param_str
+                        f"pnad_{pnad_idx}_condition_{rank}_cost":
+                        cost,
+                        f"pnad_{pnad_idx}_condition_{rank}_condition":
+                        str(condition_candidate),
+                        f"pnad_{pnad_idx}_condition_{rank}_elbo":
+                        scores[0],
+                        f"pnad_{pnad_idx}_condition_{rank}_exp_state_prob":
+                        scores[1],
+                        f"pnad_{pnad_idx}_condition_{rank}_exp_delay_prob":
+                        scores[2],
+                        f"pnad_{pnad_idx}_condition_{rank}_entropy":
+                        scores[3],
+                        f"pnad_{pnad_idx}_condition_{rank}_process_params":
+                        process_param_str
                     })
 
             # Get the conditions with the top marginal likelihood
