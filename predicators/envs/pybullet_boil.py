@@ -613,8 +613,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         faucet_on = self._is_switch_on(self._faucet_switch.id)
         faucet_prev_on = self._faucet.prev_on > 0.5
         
-        # Only process if faucet is on AND it wasn't on in the previous step (transition from off to on)
-        if not faucet_on or faucet_prev_on:
+        # Only process if faucet is on AND it was on in the previous step (transition from off to on)
+        if not (faucet_on and faucet_prev_on):
             return
 
         # Find jugs under the faucet
@@ -695,7 +695,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             burner_prev_on = burner_obj.prev_on > 0.5
             
             # Only process if burner is on AND it wasn't on in the previous step (transition from off to on)
-            if not burner_on or burner_prev_on:
+            if not (burner_on and burner_prev_on):
                 continue
             bx = state.get(burner_obj, "x")
             by = state.get(burner_obj, "y")
