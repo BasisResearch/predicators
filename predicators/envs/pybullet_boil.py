@@ -108,7 +108,8 @@ class PyBulletBoilEnv(PyBulletEnv):
     # Another idea is to change the environment to be that water doesn't
     # over flow. (magic water like in grow)
     max_jug_water_capacity: ClassVar[
-        float] = 0.093 * water_height_to_level_ratio
+        float] = 0.13 * water_height_to_level_ratio
+        # float] = 0.093 * water_height_to_level_ratio # the value it get if it wait then TurnOff
     max_water_spill_width: ClassVar[float] = 0.3
     water_color = (0.0, 0.0, 1.0, 0.9)  # blue
     heating_speed: ClassVar[
