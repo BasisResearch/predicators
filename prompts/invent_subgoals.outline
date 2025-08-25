@@ -14,7 +14,7 @@ Each object type in the environment has the following features:
 The robot's ultimate goal is to make the predicate `HumanHappy()` true.
 
 ### Demonstration Trajectory
-The demonstrator performs a sequence of actions, ending with HumanHapp()=True. Each state's structured features and actions are provided below.
+The demonstrator performs a sequence of actions, ending with HumanHappy()=True. Each state's structured features and actions are provided below.
 
 {EXPERIENCE_IN_ENV}
 
