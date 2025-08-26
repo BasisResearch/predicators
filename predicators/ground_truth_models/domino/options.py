@@ -36,10 +36,11 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
     env_cls: ClassVar[TypingType[PyBulletDominoEnv]] = PyBulletDominoEnv
     _move_to_pose_tol: ClassVar[float] = 1e-4
     _finger_action_nudge_magnitude: ClassVar[float] = 1e-3
-    _transport_z: ClassVar[float] = env_cls.z_ub - 0.21
-    _transport_z_push: ClassVar[float] = env_cls.z_ub - 0.3
+    _transport_z: ClassVar[float] = env_cls.z_ub - 0.21 # 0.95 - 0.21 = 0.74
+    _transport_z_push: ClassVar[float] = env_cls.z_ub - 0.32
     _offset_x: ClassVar[float] = 0.05
     _offset_z: ClassVar[float] = 0.08
+    _place_z: ClassVar[float] = 0.57
 
     @classmethod
     def get_env_names(cls) -> Set[str]:
@@ -176,8 +177,8 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                 "MoveToAbovePlacement", lambda _: cls._transport_z, "closed",
                 place_option_types, place_params_space),
             cls._create_domino_place_option(
-                "MoveToPlacement", lambda dz: dz + cls._offset_z, "closed",
-                place_option_types, place_params_space),
+                "MoveToPlacement", lambda _: cls._place_z, 
+                "closed", place_option_types, place_params_space),
             create_change_fingers_option(
                 pybullet_robot, "OpenFingers", place_option_types,
                 place_params_space, open_fingers_func,
@@ -333,7 +334,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
             assert not params
-            robot, domino1, domino2, position, rotation = objects
+            robot, domino_f, domino_b, tgt_pos, rotation = objects
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
             ee_orn = p.getQuaternionFromEuler(
@@ -342,10 +343,10 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             current_pose = Pose(current_position, ee_orn)
 
             # Get properties of the reference domino (domino2)
-            x2, y2 = state.get(domino2, "x"), state.get(domino2, "y")
-            rot2 = state.get(domino2, "rot")
+            x2, y2 = state.get(domino_b, "x"), state.get(domino_b, "y")
+            rot2 = state.get(domino_b, "rot")
             # Use domino1's current z for reference
-            dz = state.get(domino1, "z")
+            dz = state.get(domino_f, "z")
 
             # Compute dir_value based on rotation of domino2 and the rotation object
             target_angle = state.get(rotation, "angle")  # degrees
@@ -354,15 +355,14 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Calculate rotation difference (target - domino2)
             rot_diff = target_rot_rad - rot2
             # Normalize rotation difference to [-π, π] range
-            while rot_diff > np.pi:
-                rot_diff -= 2 * np.pi
-            while rot_diff < -np.pi:
-                rot_diff += 2 * np.pi
+            rot_diff = utils.wrap_angle(rot_diff)
 
             # Determine direction based on rotation difference
-            if abs(rot_diff
-                   ) < np.pi / 8:  # ~22.5 degrees tolerance for straight
-                dir_value = 0.0  # straight
+            angle_tol = 1e-1  # Tolerance for checking cardinal/diagonal angles
+            # ~22.5 degrees tolerance
+            if abs(rot_diff) < np.pi / 8 or abs(
+                abs(rot_diff) - np.pi/2) < angle_tol:
+                dir_value = 0.0  # straight or perpendicular
             elif rot_diff > np.pi / 8:
                 dir_value = 1.0  # left (positive rotation difference)
             else:
@@ -370,15 +370,19 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
             # Get constants from the environment class
             gap = cls.env_cls.pos_gap
-            angle_tol = 1e-1  # Tolerance for checking cardinal/diagonal angles
+
+            target_angle_is_cardinal = abs(np.sin(2 * target_rot_rad)) < angle_tol
 
             # Case 1: Place straight ahead
-            if dir_value == 0.0:  # straight
+            if dir_value == 0.0 or target_angle_is_cardinal:  # straight
                 # target_x = x2 + gap * np.sin(rot2)
                 # target_y = y2 + gap * np.cos(rot2)
-                target_x = state.get(position, "xx")
-                target_y = state.get(position, "yy")
-                target_rot = rot2
+                target_x = state.get(tgt_pos, "xx")
+                target_y = state.get(tgt_pos, "yy")
+                if abs(rot_diff) < np.pi / 8:
+                    target_rot = rot2
+                else:
+                    target_rot = target_rot_rad
             # Case 2: Place to the left or right (a turn)
             else:
                 # Map dir_value to turn_dir from the generator code
