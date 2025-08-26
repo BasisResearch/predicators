@@ -51,9 +51,9 @@ class PyBulletDominoEnv(PyBulletEnv):
     domino_width: ClassVar[float] = 0.07
     domino_depth: ClassVar[float] = 0.02
     domino_height: ClassVar[float] = 0.15
-    turn_shift_frac: ClassVar[float] = 0.4
+    turn_shift_frac: ClassVar[float] = 0.44
     # domino_mass: ClassVar[float] = 0.3
-    domino_mass: ClassVar[float] = 0.8
+    domino_mass: ClassVar[float] = 0.4
     start_domino_color: ClassVar[Tuple[float, float, float,
                                        float]] = (0.56, 0.93, 0.56, 1.)
     target_domino_color: ClassVar[Tuple[float, float, float,
@@ -93,7 +93,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     # Grid configuration
     # num_pos_x and num_pos_y will be set dynamically based on train/test mode
     pos_gap: ClassVar[
-        float] = domino_width * 1.3  # Distance between grid positions
+        float] = domino_width * 1.4  # Distance between grid positions
 
     _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
     _domino_type = Type(
@@ -317,7 +317,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         x_start = cls.x_lb + (total_x_range -
                               (num_pos_x - 1) * cls.pos_gap) / 2
         y_start = cls.y_lb + cls.pos_gap + (total_y_range -
-                                            (num_pos_y - 1) * cls.pos_gap) / 2
+                                            (num_pos_y - 1) * cls.pos_gap) / 3
 
         x_coords = [
             round(x_start + i * cls.pos_gap, 5) for i in range(num_pos_x)
@@ -394,7 +394,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                 half_extents=(cls.domino_width / 2, cls.domino_depth / 2,
                               cls.domino_height / 2),
                 mass=cls.domino_mass,
-                friction=0.5,
+                friction=1,
                 orientation=[0.0, 0.0, 0.0],
                 physics_client_id=physics_client_id,
                 add_top_triangle=True,

@@ -140,12 +140,12 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         Pick = utils.LinearChainParameterizedOption("Pick", [
             create_change_fingers_option(
-                pybullet_robot, "OpenFingers", pick_option_types,
-                pick_params_space, open_fingers_func,
+                pybullet_robot, "CloseFingers", pick_option_types,
+                pick_params_space, close_fingers_func,
                 CFG.pybullet_max_vel_norm, PyBulletEnv.grasp_tol),
             cls._create_domino_move_to_domino_option(
                 "MoveToAboveDomino", lambda dx: dx, lambda dy: dy,
-                lambda _: cls._transport_z, "open", pick_option_types,
+                lambda _: cls._transport_z, "closed", pick_option_types,
                 pick_params_space),
             cls._create_domino_move_to_domino_option(
                 "MoveToGraspDomino", lambda dx: dx, lambda dy: dy,
