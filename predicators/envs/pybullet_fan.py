@@ -165,7 +165,7 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     target_thickness: ClassVar[float] = 0.0001
     target_mass: ClassVar[float] = 0.0
-    target_friction: ClassVar[float] = 0.5
+    target_friction: ClassVar[float] = 5
 
     # =========================================================================
     # SIMULATION & DEBUG CONFIGURATION
