@@ -49,7 +49,7 @@ class PyBulletDominoEnv(PyBulletEnv):
 
     # Domino shape
     domino_width: ClassVar[float] = 0.07
-    domino_depth: ClassVar[float] = 0.02
+    domino_depth: ClassVar[float] = 0.015
     domino_height: ClassVar[float] = 0.15
     turn_shift_frac: ClassVar[float] = 0.5
     # domino_mass: ClassVar[float] = 0.3
