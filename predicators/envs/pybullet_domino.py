@@ -53,7 +53,8 @@ class PyBulletDominoEnv(PyBulletEnv):
     domino_height: ClassVar[float] = 0.15
     turn_shift_frac: ClassVar[float] = 0.5
     # domino_mass: ClassVar[float] = 0.3
-    domino_mass: ClassVar[float] = 0.3
+    domino_mass: ClassVar[float] = 0.1
+    domino_friction: ClassVar[float] = 0.5
     start_domino_color: ClassVar[Tuple[float, float, float,
                                        float]] = (0.56, 0.93, 0.56, 1.)
     target_domino_color: ClassVar[Tuple[float, float, float,
@@ -389,12 +390,12 @@ class PyBulletDominoEnv(PyBulletEnv):
             num_dominos_to_create = max_dominos
             num_targets_to_create = max_targets
         for i in range(num_dominos_to_create):  # e.g. 3 dominoes
-            domino_id = create_pybullet_block(
+            domino_id = create_domino_block(
                 color=cls.start_domino_color if i == 0 else cls.domino_color,
                 half_extents=(cls.domino_width / 2, cls.domino_depth / 2,
                               cls.domino_height / 2),
                 mass=cls.domino_mass,
-                friction=0.5,
+                friction=cls.domino_friction,
                 orientation=[0.0, 0.0, 0.0],
                 physics_client_id=physics_client_id,
                 add_top_triangle=True,
@@ -1916,6 +1917,80 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         return obj_dict
 
+def create_domino_block(
+    color: Tuple[float, float, float, float],
+    half_extents: Tuple[float, float, float],
+    mass: float,
+    # This is the *lateral* friction you already pass to create_pybullet_block
+    friction: float,
+    position: Sequence[Pose3D] = (0, 0, 0),
+    orientation: Sequence[Quaternion] = (0, 0, 0, 1),
+    physics_client_id: int = 0,
+    add_top_triangle: bool = False,
+    *,
+    # --- Domino-friendly extras (all optional) ---
+    restitution: float = 0.02,
+    rolling_friction: float = 0.006,
+    spinning_friction: Optional[float] = None,  # default: reuse `friction` if None
+    linear_damping: float = 0.0,
+    angular_damping: float = 0.03,
+    friction_anchor: bool = True,
+    ccd: bool = True,
+    ccd_swept_radius: Optional[float] = None,     # defaults to 0.5 * min(half_extents)
+    ccd_motion_threshold: Optional[float] = None, # defaults to 0.5 * min(half_extents)
+) -> int:
+    """
+    Create a 'domino-tuned' block by calling your original create_pybullet_block
+    and then applying additional dynamics (rolling/spinning friction, damping, CCD).
+
+    Returns:
+        PyBullet body unique ID (int).
+    """
+    import pybullet as p
+
+    # 1) Create the base block using your original function (kept intact).
+    block_id = create_pybullet_block(
+        color=color,
+        half_extents=half_extents,
+        mass=mass,
+        friction=friction,
+        position=position,
+        orientation=orientation,
+        physics_client_id=physics_client_id,
+        add_top_triangle=add_top_triangle,
+    )
+
+    # 2) Domino-friendly dynamics.
+    if spinning_friction is None:
+        spinning_friction = friction  # reuse user's lateral friction unless specified
+
+    p.changeDynamics(
+        block_id,
+        linkIndex=-1,
+        lateralFriction=friction,
+        rollingFriction=rolling_friction,
+        spinningFriction=spinning_friction,
+        restitution=restitution,
+        linearDamping=linear_damping,
+        angularDamping=angular_damping,
+        frictionAnchor=friction_anchor,
+        physicsClientId=physics_client_id,
+    )
+
+    # 3) Continuous Collision Detection to prevent tunneling at speed.
+    if ccd:
+        m = min(half_extents)
+        swept = ccd_swept_radius if ccd_swept_radius is not None else 0.5 * m
+        thresh = ccd_motion_threshold if ccd_motion_threshold is not None else 0.5 * m
+        p.changeDynamics(
+            block_id,
+            linkIndex=-1,
+            ccdSweptSphereRadius=swept,
+            # ccdMotionThreshold=thresh,
+            physicsClientId=physics_client_id,
+        )
+
+    return block_id
 
 if __name__ == "__main__":
 
