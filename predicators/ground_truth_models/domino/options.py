@@ -358,7 +358,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             rot_diff = utils.wrap_angle(rot_diff)
 
             # Determine direction based on rotation difference
-            angle_tol = 1e-1  # Tolerance for checking cardinal/diagonal angles
+            angle_tol = 2e-1  # Tolerance for checking cardinal/diagonal angles
             # ~22.5 degrees tolerance
             if abs(rot_diff) < np.pi / 8 or abs(
                 abs(rot_diff) - np.pi/2) < angle_tol:
@@ -397,8 +397,10 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                     target_rot = rot2 - turn_dir * np.pi / 4
 
                     # First, calculate the position on the grid, one step forward.
-                    grid_x = x2 + gap * np.sin(rot2)
-                    grid_y = y2 + gap * np.cos(rot2)
+                    # grid_x = x2 + gap * np.sin(rot2)
+                    # grid_y = y2 + gap * np.cos(rot2)
+                    grid_x = state.get(tgt_pos, "xx")
+                    grid_y = state.get(tgt_pos, "yy")
 
                     # Then, apply the diagonal shift from the generator for stability.
                     shift_magnitude = cls.env_cls.domino_width * cls.env_cls.turn_shift_frac
