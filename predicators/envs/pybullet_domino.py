@@ -7,6 +7,7 @@ python predicators/main.py --approach oracle --env pybullet_domino \
 --sesame_check_expected_atoms False --horizon 60 \
 --video_not_break_on_exception --pybullet_ik_validate False
 """
+from pprint import pformat
 import logging
 import time
 from re import A
@@ -1920,22 +1921,21 @@ if __name__ == "__main__":
 
     CFG.seed = 0
     CFG.env = "pybullet_domino"
-    CFG.domino_initialize_at_finished_state = True
+    CFG.domino_initialize_at_finished_state = False
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_use_grid = True
+    CFG.num_test_tasks = 2
     env = PyBulletDominoEnv(use_gui=True)
     # # Set up test configurations for the example
     # CFG.domino_test_num_dominos = [3]
     # CFG.domino_test_num_targets = [1]
     # CFG.domino_test_num_pivots = [1]
 
-    tasks = env._make_tasks(10, CFG.domino_train_num_dominos,
-                            CFG.domino_train_num_targets,
-                            CFG.domino_train_num_pivots,
-                            CFG.domino_train_num_pos_x,
-                            CFG.domino_train_num_pos_y, env._test_rng)
+    tasks = env._generate_test_tasks()
+
     for task in tasks:
         env._reset_state(task.init)
+        print(pformat(utils.abstract(task.init, env.predicates)), '\n')
 
         for i in range(100):
             action = Action(
