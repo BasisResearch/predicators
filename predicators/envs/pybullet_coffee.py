@@ -317,9 +317,9 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     def _create_task_specific_objects(self, state: State) -> None:
         """Remove/rebuild cups, liquids, and cords so each new task can have
         different cups and states."""
-        self._remake_cups(state)
-        self._remake_cup_liquids(state)
         self._remake_jug_liquid(state)
+        self._remake_cup_liquids(state)
+        self._remake_cups(state)
         self._remake_cord()
 
     def _remake_cups(self, state: State) -> None:
