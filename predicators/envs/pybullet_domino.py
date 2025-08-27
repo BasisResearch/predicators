@@ -45,13 +45,13 @@ class PyBulletDominoEnv(PyBulletEnv):
     y_lb: ClassVar[float] = 1.1
     y_ub: ClassVar[float] = 1.6
     z_lb: ClassVar[float] = table_height
-    z_ub: ClassVar[float] = 0.75 + table_height / 2
+    z_ub: ClassVar[float] = 0.75 + table_height / 2 # 0.95
 
     # Domino shape
     domino_width: ClassVar[float] = 0.07
     domino_depth: ClassVar[float] = 0.015
     domino_height: ClassVar[float] = 0.15
-    turn_shift_frac: ClassVar[float] = 0.5
+    turn_shift_frac: ClassVar[float] = 0.6
     # domino_mass: ClassVar[float] = 0.3
     domino_mass: ClassVar[float] = 0.1
     domino_friction: ClassVar[float] = 0.5

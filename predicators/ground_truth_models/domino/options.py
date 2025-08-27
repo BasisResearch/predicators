@@ -36,11 +36,14 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
     env_cls: ClassVar[TypingType[PyBulletDominoEnv]] = PyBulletDominoEnv
     _move_to_pose_tol: ClassVar[float] = 1e-4
     _finger_action_nudge_magnitude: ClassVar[float] = 1e-3
-    _transport_z: ClassVar[float] = env_cls.z_ub - 0.21 # 0.95 - 0.21 = 0.74
-    _transport_z_push: ClassVar[float] = env_cls.z_ub - 0.32
-    _offset_x: ClassVar[float] = 0.05
-    _offset_z: ClassVar[float] = 0.08
-    _place_z: ClassVar[float] = 0.57
+    _transport_z: ClassVar[float] = env_cls.table_height +\
+            env_cls.domino_height * 2.26
+    _transport_z_push: ClassVar[float] = env_cls.table_height +\
+            env_cls.domino_height * 1.5
+    _offset_x: ClassVar[float] = env_cls.domino_depth * 3
+    _offset_z: ClassVar[float] = env_cls.domino_height * 0.55
+    _place_drop_z: ClassVar[float] = env_cls.table_height +\
+            env_cls.domino_height * 1.13
 
     @classmethod
     def get_env_names(cls) -> Set[str]:
@@ -71,7 +74,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                               params: Array) -> Tuple[float, float]:
             del objects, params  # unused
             current = get_current_fingers(state)
-            target = pybullet_robot.open_fingers
+            target = pybullet_robot.open_fingers - 0.01
             return current, target
 
         def close_fingers_func(state: State, objects: Sequence[Object],
@@ -177,7 +180,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                 "MoveToAbovePlacement", lambda _: cls._transport_z, "closed",
                 place_option_types, place_params_space),
             cls._create_domino_place_option(
-                "MoveToPlacement", lambda _: cls._place_z, 
+                "MoveToPlacement", lambda _: cls._place_drop_z, 
                 "closed", place_option_types, place_params_space),
             create_change_fingers_option(
                 pybullet_robot, "OpenFingers", place_option_types,
