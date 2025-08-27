@@ -696,6 +696,8 @@ def task_plan_from_task(
     derived_predicates = utils.get_derived_predicates(all_predicates)
 
     init_atoms = utils.abstract(task.init, all_predicates)
+    logging.debug("[Task Planner] Task goal atoms: "
+                  f"{pformat(sorted(task.goal))}")
     logging.debug("[Task Planner] Task init atoms: "
                   f"{pformat(sorted(init_atoms))}")
     goal = task.goal

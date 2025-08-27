@@ -169,24 +169,6 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         # Conditionally create position objects for grid
         if CFG.domino_use_grid:
-            self.positions: List[Object] = []
-            # Create position objects based on maximum grid size to support both train and test
-            max_num_pos_x = max(CFG.domino_train_num_pos_x,
-                                CFG.domino_test_num_pos_x)
-            max_num_pos_y = max(CFG.domino_train_num_pos_y,
-                                CFG.domino_test_num_pos_y)
-
-            # Generate maximum grid coordinates
-            x_coords, y_coords = self._generate_grid_coordinates(
-                max_num_pos_x, max_num_pos_y)
-            self.grid_pos = [(x, y) for y in y_coords for x in x_coords]
-            self.pos_dict = dict()
-            for i, (x, y) in enumerate(self.grid_pos):
-                name = f"pos_y{i//max_num_pos_x}_x{i%max_num_pos_x}"
-                obj = Object(name, self._position_type)
-                self.positions.append(obj)
-                self.pos_dict[obj] = (x, y)
-
             # Create rotation objects for 8 discrete angles
             self.rotations: List[Object] = []
             angle_values = [-135, -90, -45, 0, 45, 90, 135, 180]  # degrees
@@ -196,10 +178,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                 self.rotations.append(obj)
         else:
             # Initialize empty lists when grid is not used
-            self.positions: List[Object] = []
             self.rotations: List[Object] = []
-            self.pos_dict = dict()
-            self.grid_pos = []
+        self.grid_pos = []
 
         self.block_constraints = []
         self._debug_line_ids = []
@@ -1608,20 +1588,26 @@ class PyBulletDominoEnv(PyBulletEnv):
             for i, direction_obj in enumerate(self.directions):
                 init_dict[direction_obj] = {"dir": float(i)}
 
-            # Add position objects to initial state based on current grid configuration
+            # Add position objects to initial state based on current grid
             if CFG.domino_use_grid:
                 # Generate grid coordinates for this specific configuration
                 x_coords, y_coords = self._generate_grid_coordinates(
                     num_pos_x, num_pos_y)
-                grid_pos = [(x, y) for y in y_coords for x in x_coords]
+                self.grid_pos = [(x, y) for y in y_coords for x in x_coords]
+
+                positions: List[Object] = []
+                for i in range(num_pos_x * num_pos_y):
+                    name = f"pos_y{i//num_pos_x}_x{i%num_pos_x}"
+                    obj = Object(name, self._position_type)
+                    positions.append(obj)
 
                 # Create position dictionary for this task configuration
                 pos_dict = {}
                 pos_index = 0
                 for i in range(num_pos_y):
                     for j in range(num_pos_x):
-                        if pos_index < len(self.positions):
-                            pos_obj = self.positions[pos_index]
+                        if pos_index < len(positions):
+                            pos_obj = positions[pos_index]
                             pos_dict[pos_obj] = {
                                 "xx": x_coords[j],
                                 "yy": y_coords[i]
@@ -2004,6 +1990,7 @@ if __name__ == "__main__":
     CFG.domino_initialize_at_finished_state = False
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_use_grid = True
+    CFG.num_train_tasks = 1
     CFG.num_test_tasks = 2
     env = PyBulletDominoEnv(use_gui=True)
     # # Set up test configurations for the example
@@ -2011,13 +1998,13 @@ if __name__ == "__main__":
     # CFG.domino_test_num_targets = [1]
     # CFG.domino_test_num_pivots = [1]
 
-    tasks = env._generate_test_tasks()
+    tasks = env._generate_train_tasks()
 
     for task in tasks:
         env._reset_state(task.init)
         print(pformat(utils.abstract(task.init, env.predicates)), '\n')
 
-        for i in range(100):
+        for i in range(10000):
             action = Action(
                 np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)
