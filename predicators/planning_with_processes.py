@@ -887,6 +887,9 @@ def create_ff_heuristic(
                                List[DerivedPredicate]] = defaultdict(list)
     if use_derived_predicates:
         for der_pred in derived_predicates:
+            assert der_pred.auxiliary_predicates is not None, \
+                f"Can't find auxiliary predicates for derived predicate " +\
+                f"{der_pred.name}"
             for aux_pred in der_pred.auxiliary_predicates:
                 dep_to_derived_preds[aux_pred].append(der_pred)
     # --- CHANGE END ---
