@@ -418,7 +418,7 @@ class GlobalSettings:
     domino_train_num_pivots = [0]
     domino_test_num_pivots = [0]
     domino_train_num_pos_x = 3
-    domino_train_num_pos_y = 3
+    domino_train_num_pos_y = 2
     domino_test_num_pos_x = 4  # 5 is too large for robot to reach sometimes
     domino_test_num_pos_y = 3
 
