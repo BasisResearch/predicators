@@ -338,7 +338,6 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             CFG.segmenter = initial_segmenter_method
         # Learn the preconditions of the operators in the PNADs. This part
         # is flexible; subclasses choose how to implement it.
-        breakpoint()
         pnads = self._learn_pnad_preconditions(pnads)
 
         # Handle optional postprocessing to learn ignore effects.
