@@ -125,7 +125,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 "learned_predicates": self._learned_predicates,
                 "candidate_predicates": self._candidate_predicates,
                 "offline_dataset": self._offline_dataset,
-                "online_dataset": self._online_dataset
+                "online_dataset": self._online_dataset,
+                "online_learning_cycle": self._online_learning_cycle
             }
             pkl.dump(save_dict, f)
             logging.info(f"Saved approach to {save_path}_"
@@ -148,6 +149,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         self._candidate_predicates = save_dict["candidate_predicates"]
         self._offline_dataset = save_dict["offline_dataset"]
         self._online_dataset = save_dict["online_dataset"]
+        self._online_learning_cycle = save_dict["online_learning_cycle"] + 1
         logging.info(f"\n\nLoaded Processes:")
         for process in sorted(self._processes):
             logging.info(process)

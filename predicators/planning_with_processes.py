@@ -629,7 +629,7 @@ def _skeleton_generator_with_processes(
                 visited_skeletons.add(child_skeleton_tup)
                 # Action costs are unitary.
                 if action_process.option.name == 'NoOp':
-                    action_cost = 0.6
+                    action_cost = 0.5
                 else:
                     action_cost = 1.0
                 child_cost = node.cumulative_cost + action_cost
