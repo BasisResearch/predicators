@@ -251,7 +251,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                             neg_atom = atom.get_negated_atom()
                             if atom in grd_add_effects:
                                 add_effect_set = frozenset({atom})
-                                # Check if the negated atom is in the delete 
+                                # Check if the negated atom is in the delete
                                 # effects
                                 if neg_atom in grd_delete_effects:
                                     del_effect_set = frozenset({neg_atom})

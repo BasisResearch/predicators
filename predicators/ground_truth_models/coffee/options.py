@@ -561,7 +561,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         machine_type = types["coffee_machine"]
         plug_type = types["plug"]
 
-        if CFG.coffee_machine_has_plug: 
+        if CFG.coffee_machine_has_plug:
             PluggedIn = predicates["PluggedIn"]
 
         # TwistJug

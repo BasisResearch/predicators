@@ -7,9 +7,9 @@ python predicators/main.py --approach oracle --env pybullet_domino \
 --sesame_check_expected_atoms False --horizon 60 \
 --video_not_break_on_exception --pybullet_ik_validate False
 """
-from pprint import pformat
 import logging
 import time
+from pprint import pformat
 from re import A
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, \
     Set, Tuple
@@ -45,7 +45,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     y_lb: ClassVar[float] = 1.1
     y_ub: ClassVar[float] = 1.6
     z_lb: ClassVar[float] = table_height
-    z_ub: ClassVar[float] = 0.75 + table_height / 2 # 0.95
+    z_ub: ClassVar[float] = 0.75 + table_height / 2  # 0.95
 
     # Domino shape
     domino_width: ClassVar[float] = 0.07
@@ -1917,31 +1917,35 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         return obj_dict
 
+
 def create_domino_block(
-    color: Tuple[float, float, float, float],
-    half_extents: Tuple[float, float, float],
-    mass: float,
-    # This is the *lateral* friction you already pass to create_pybullet_block
-    friction: float,
-    position: Sequence[Pose3D] = (0, 0, 0),
-    orientation: Sequence[Quaternion] = (0, 0, 0, 1),
-    physics_client_id: int = 0,
-    add_top_triangle: bool = False,
-    *,
-    # --- Domino-friendly extras (all optional) ---
-    restitution: float = 0.02,
-    rolling_friction: float = 0.006,
-    spinning_friction: Optional[float] = None,  # default: reuse `friction` if None
-    linear_damping: float = 0.0,
-    angular_damping: float = 0.03,
-    friction_anchor: bool = True,
-    ccd: bool = True,
-    ccd_swept_radius: Optional[float] = None,     # defaults to 0.5 * min(half_extents)
-    ccd_motion_threshold: Optional[float] = None, # defaults to 0.5 * min(half_extents)
+        color: Tuple[float, float, float, float],
+        half_extents: Tuple[float, float, float],
+        mass: float,
+        # This is the *lateral* friction you already pass to create_pybullet_block
+        friction: float,
+        position: Sequence[Pose3D] = (0, 0, 0),
+        orientation: Sequence[Quaternion] = (0, 0, 0, 1),
+        physics_client_id: int = 0,
+        add_top_triangle: bool = False,
+        *,
+        # --- Domino-friendly extras (all optional) ---
+        restitution: float = 0.02,
+        rolling_friction: float = 0.006,
+        spinning_friction: Optional[
+            float] = None,  # default: reuse `friction` if None
+        linear_damping: float = 0.0,
+        angular_damping: float = 0.03,
+        friction_anchor: bool = True,
+        ccd: bool = True,
+        ccd_swept_radius: Optional[
+            float] = None,  # defaults to 0.5 * min(half_extents)
+        ccd_motion_threshold: Optional[
+            float] = None,  # defaults to 0.5 * min(half_extents)
 ) -> int:
-    """
-    Create a 'domino-tuned' block by calling your original create_pybullet_block
-    and then applying additional dynamics (rolling/spinning friction, damping, CCD).
+    """Create a 'domino-tuned' block by calling your original
+    create_pybullet_block and then applying additional dynamics
+    (rolling/spinning friction, damping, CCD).
 
     Returns:
         PyBullet body unique ID (int).
@@ -1991,6 +1995,7 @@ def create_domino_block(
         )
 
     return block_id
+
 
 if __name__ == "__main__":
 

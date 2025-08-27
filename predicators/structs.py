@@ -798,7 +798,7 @@ class GroundAtom(_Atom):
         string that will be used to query the VLM."""
         assert isinstance(self.predicate, VLMPredicate)
         return self.predicate.get_vlm_query_str(self.objects)  # pylint:disable=no-member
-    
+
     def get_negated_atom(self) -> GroundAtom:
         """Get the negated atom of this GroundAtom."""
         from predicators.approaches.grammar_search_invention_approach import \
@@ -811,6 +811,7 @@ class GroundAtom(_Atom):
             #     classifier)
             # return GroundAtom(negated_predicate, self.objects)
             return GroundAtom(self.predicate.get_negation(), self.objects)
+
 
 @dataclass(frozen=True, eq=False)
 class Task:
