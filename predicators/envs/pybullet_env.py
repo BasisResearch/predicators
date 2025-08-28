@@ -906,6 +906,7 @@ def create_pybullet_block(
         linkIndex=-1,  # -1 for the base
         lateralFriction=friction,
         spinningFriction=friction,
+        rollingFriction=friction,
         physicsClientId=physics_client_id)
 
     if add_top_triangle:
