@@ -100,6 +100,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         else:
             proposed_predicates = set()
         logging.info(f"Done: created {len(proposed_predicates)} predicates")
+        breakpoint()
 
         # --- Select the predicates to keep ---
         self._select_predicates_and_learn_processes(
