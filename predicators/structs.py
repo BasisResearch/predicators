@@ -310,14 +310,19 @@ class State:
     def dict_str(self,
                  indent: int = 0,
                  object_features: bool = True,
-                 num_decimal_points: int = 2) -> str:
+                 num_decimal_points: int = 2,
+                 ignored_features: List[str] = [
+                    "capacity_liquid",
+                    "target_liquid"
+                    ]) -> str:
         """Return a dictionary representation of the state."""
         state_dict = {}
         for obj in self:
             obj_dict = {}
             if obj.type.name == "robot" or object_features:
                 for attribute, value in zip(obj.type.feature_names, self[obj]):
-                    obj_dict[attribute] = value
+                    if attribute not in ignored_features:
+                        obj_dict[attribute] = value
             obj_name = obj.name
             state_dict[f"{obj_name}:{obj.type.name}"] = obj_dict
 
