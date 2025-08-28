@@ -606,7 +606,8 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
 
             # Increase the liquid in the cup
             current_liquid = state.get(cup, "current_liquid")
-            new_liquid = current_liquid + self.pour_velocity
+            target_liquid = state.get(cup, "target_liquid")
+            new_liquid = min(current_liquid + self.pour_velocity, target_liquid)
             state.set(cup, "current_liquid", new_liquid)
 
             # Remove the old liquid body in PyBullet

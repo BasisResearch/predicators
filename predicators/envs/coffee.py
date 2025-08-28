@@ -584,6 +584,7 @@ class CoffeeEnv(BaseEnv):
                 cap = rng.uniform(self.cup_capacity_lb, self.cup_capacity_ub)
                 if CFG.coffee_use_pixelated_jug:
                     target_liquid = cap * self.cup_target_frac * 2
+                    cap = target_liquid
                 else:
                     target_liquid = cap * self.cup_target_frac
                 cup_state_dict[cup] = {
@@ -642,7 +643,7 @@ class CoffeeEnv(BaseEnv):
         cup, = objects
         current = state.get(cup, "current_liquid")
         target = state.get(cup, "target_liquid")
-        return current > target
+        return current >= target
 
     @staticmethod
     def _Holding_holds(state: State, objects: Sequence[Object]) -> bool:
