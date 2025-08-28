@@ -140,7 +140,8 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
         fan = Variable("?fan", fan_type)
         op_fan = Variable("?op_fan", fan_type)
         switch = Variable("?switch", switch_type)
-        op_switch = Variable("?op_switch", switch_type)
+        if not CFG.fan_known_controls_relation:
+            op_switch = Variable("?op_switch", switch_type)
         ball = Variable("?ball", ball_type)
         pos1 = Variable("?pos1", location_type)
         pos2 = Variable("?pos2", location_type)
