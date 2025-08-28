@@ -311,20 +311,31 @@ class State:
                  indent: int = 0,
                  object_features: bool = True,
                  num_decimal_points: int = 2,
+                 use_object_id: bool = False,
                  ignored_features: List[str] = [
                     "capacity_liquid",
                     "target_liquid"
                     ]) -> str:
         """Return a dictionary representation of the state."""
+        excluded_objects = []
+        if CFG.excluded_objects_in_state_str:
+            excluded_objects = CFG.excluded_objects_in_state_str.split(",")
         state_dict = {}
         for obj in self:
             obj_dict = {}
-            if obj.type.name == "robot" or object_features:
-                for attribute, value in zip(obj.type.feature_names, self[obj]):
-                    if attribute not in ignored_features:
-                        obj_dict[attribute] = value
-            obj_name = obj.name
-            state_dict[f"{obj_name}:{obj.type.name}"] = obj_dict
+
+            obj_type_name = obj.type.name
+            if not obj_type_name in excluded_objects:
+                if obj_type_name == "robot" or object_features:
+                    for attribute, value in zip(obj.type.feature_names,
+                                                self[obj]):
+                        if attribute not in ignored_features:
+                            obj_dict[attribute] = value
+                if use_object_id:
+                    obj_name = obj.id_name
+                else:
+                    obj_name = obj.name
+                state_dict[f"{obj_name}:{obj.type.name}"] = obj_dict
 
         # Create a string of n_space spaces
         spaces = " " * indent
