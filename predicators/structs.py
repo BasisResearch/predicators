@@ -321,21 +321,32 @@ class State:
         if CFG.excluded_objects_in_state_str:
             excluded_objects = CFG.excluded_objects_in_state_str.split(",")
         state_dict = {}
+        
+        # Collect all unique types from objects in the state
+        object_types = set()
         for obj in self:
-            obj_dict = {}
-
-            obj_type_name = obj.type.name
-            if not obj_type_name in excluded_objects:
-                if obj_type_name == "robot" or object_features:
-                    for attribute, value in zip(obj.type.feature_names,
-                                                self[obj]):
-                        if attribute not in ignored_features:
-                            obj_dict[attribute] = value
-                if use_object_id:
-                    obj_name = obj.id_name
-                else:
-                    obj_name = obj.name
-                state_dict[f"{obj_name}:{obj.type.name}"] = obj_dict
+            object_types.add(obj.type)
+        
+        # Iterate through types and add all objects of each type
+        for obj_type in sorted(object_types, key=lambda t: t.name):
+            obj_type_name = obj_type.name
+            if obj_type_name not in excluded_objects:
+                # Get all objects of this type
+                objects_of_type = self.get_objects(obj_type)
+                
+                # Process each object of this type
+                for obj in objects_of_type:
+                    obj_dict = {}
+                    if obj_type_name == "robot" or object_features:
+                        for attribute, value in zip(obj.type.feature_names,
+                                                    self[obj]):
+                            if attribute not in ignored_features:
+                                obj_dict[attribute] = value
+                    if use_object_id:
+                        obj_name = obj.id_name
+                    else:
+                        obj_name = obj.name
+                    state_dict[f"{obj_name}:{obj.type.name}"] = obj_dict
 
         # Create a string of n_space spaces
         spaces = " " * indent
