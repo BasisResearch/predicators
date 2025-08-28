@@ -150,12 +150,12 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
         condition_at_start = {
             LiftedAtom(BallAtLoc, [ball, pos1]),
             LiftedAtom(ClearPos, [pos2]),
-            LiftedAtom(SideOf, [pos1, pos2, dir]),
-            LiftedAtom(FanFacingSide, [fan, dir]),
+            LiftedAtom(SideOf, [pos1, pos2, dir]), # could be invented
+            LiftedAtom(FanFacingSide, [fan, dir]), # could be invented
         }
         if CFG.fan_known_controls_relation:
             parameters.extend([fan, op_fan])
-            condition_at_start.add(LiftedAtom(OppositeFan, [fan, op_fan]))
+            condition_at_start.add(LiftedAtom(OppositeFan, [fan, op_fan])) # could be invented
             condition_at_start.add(LiftedAtom(FanOn, [fan]))
             condition_at_start.add(LiftedAtom(FanOff, [op_fan]))
         else:
