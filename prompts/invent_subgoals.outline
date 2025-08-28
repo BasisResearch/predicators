@@ -22,7 +22,7 @@ The demonstrator performs a sequence of actions, ending with the goal being achi
 Invent a small set of the *most essential* new predicates. These should be simple, primitive concepts that represent critical **subgoals**, **conditions for success**, or any conditions that must be maintained to prevent failure, even if failure is not shown in the demonstration.
 
 ### Constraints
-- Do *not* propose any new predicates that are purely pose-based (i.e., based on raw x, y, z coordinates or rot, tilt angles).
+- Do *not* propose any new predicates that are purely pose-based (i.e., based on raw x, y, z coordinates or 'rot', 'tilt' angles).
 - Avoid composite predicates: Focus on proposing primitive predicates that capture a property or relation, instead of negations, conjunctions (AND) or disjunctions (OR) of existing or proposed predicates—these can be constructed later from primitives.
 - The assertion should be clear, precise, unambiguous, and describe the relationship or properties of the variables `?<var1>`, `?<var2>`, etc., if applicable. The assertion should be detailed enough for an external observer to confidently and correctly determine its truth value based on the provided state information.
 - Replace placeholders like <predicate1_name>, <var1>, etc., with actual names; <type1> and <obj1> with actual names and types from the state dictionary provided. *Do not* use types that are not present in the states (e.g., int or float).
