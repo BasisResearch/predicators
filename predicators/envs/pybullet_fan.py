@@ -385,7 +385,7 @@ class PyBulletFanEnv(PyBulletEnv):
 
     @property
     def goal_predicates(self) -> Set[Predicate]:
-        return {self._BallAtTarget}
+        return {self._BallAtLoc}
 
     # -------------------------------------------------------------------------
     # PyBullet Initialization
