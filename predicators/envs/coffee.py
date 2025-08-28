@@ -583,8 +583,8 @@ class CoffeeEnv(BaseEnv):
             for cup, (x, y) in zip(self._cups, cup_positions):
                 cap = rng.uniform(self.cup_capacity_lb, self.cup_capacity_ub)
                 if CFG.coffee_use_pixelated_jug:
-                    target_liquid = cap * self.cup_target_frac * 2
-                    cap = target_liquid
+                    # target_liquid = cap * self.cup_target_frac * 2
+                    target_liquid = cap
                 else:
                     target_liquid = cap * self.cup_target_frac
                 cup_state_dict[cup] = {
