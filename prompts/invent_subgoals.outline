@@ -33,8 +33,8 @@ Provide your predicate proposals in the following format:
 
 ### Constraints
 - Do *not* propose any new predicates that are purely position-based.
-- Avoid composite predicates: Focus on proposing primitive predicates that capture a property or relation. Do *not* propose predicates that represent conjunctions (AND), disjunctions (OR), of existing or proposed predicates—these can be constructed later from primitives.
+- Avoid composite predicates: Focus on proposing primitive predicates that capture a property or relation. Do *not* propose predicates that represent conjunctions (AND) or disjunctions (OR) of existing or proposed predicates—these can be constructed later from primitives.
 - The assertion should be clear, precise, and unambiguous, and about the relationship or properties of the variables `?<var1>`, `?<var2>`, etc., if applicable. The assertion should be detailed enough for an external observer to confidently and correctly determine its truth value based on the provided state information.
-- Replace placeholders like <predicate1_name>, <var1>, etc., with actual names; <type1>, and <obj1> with actual names and types from the state dictionary provided. *Do not* use types that are not present in the states (e.g., int or float).
+- Replace placeholders like <predicate1_name>, <var1>, etc., with actual names; <type1> and <obj1> with actual names and types from the state dictionary provided. *Do not* use types that are not present in the states (e.g., int or float).
 - Do not use bold or italic fonts in your response.
 - Respond only with the output section outlined above.
