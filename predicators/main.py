@@ -340,7 +340,8 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
         early_stopping = False
         if CFG.online_learning_early_stopping and \
            len(task_first_solve_attempts) == len(train_tasks) and \
-           all(task_first_solve_attempts.values()):
+           all(task_first_solve_attempts.values()) and \
+           i > 0:
             logging.info("All training tasks solved on first attempt, "
                          "triggering early stopping.\n")
             early_stopping = True
