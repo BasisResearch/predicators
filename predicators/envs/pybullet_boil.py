@@ -94,7 +94,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Speeds / rates
     water_height_to_level_ratio: ClassVar[float] = 10
-    # how fast water_volumn increases per step
+    # how fast water_volume increases per step
     water_fill_speed: ClassVar[float] = 0.002 * water_height_to_level_ratio
     water_filled_height: ClassVar[float] = 0.08 * water_height_to_level_ratio
     # When capacity is 1, it is harder to learn the right process for
@@ -133,7 +133,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
 
     _jug_type = Type(
-        "jug", ["x", "y", "z", "rot", "is_held", "water_volumn", "heat_level"],
+        "jug", ["x", "y", "z", "rot", "is_held", "water_volume", "heat_level"],
         sim_features=["id", "heat_level", "water_id"])
     _burner_type = Type("burner", ["x", "y", "z", "is_on"],
                         sim_features=["id", "switch_id", "prev_on"])
@@ -482,7 +482,7 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # Jug
         elif obj.type == self._jug_type:
-            if feature == "water_volumn":
+            if feature == "water_volume":
                 liquid_id = self._jug_to_liquid_id.get(obj, None)
                 if liquid_id is not None:
                     shape_data = p.getVisualShapeData(
@@ -607,7 +607,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         """If faucet is on, fill any jug that is properly aligned; otherwise,
         grow the spill block on the table.
 
-        Additionally, if a jug is already full (water_volumn >=
+        Additionally, if a jug is already full (water_volume >=
         self.max_jug_water_capacity) but stays under the faucet, water
         spills.
         """
@@ -637,7 +637,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         # ----------------------------------------------------------------------
         else:
             for jug_obj in jugs_under:
-                old_level = state.get(jug_obj, "water_volumn")
+                old_level = state.get(jug_obj, "water_volume")
                 if old_level < self.max_jug_water_capacity:
                     # If jug is NOT yet full => fill the jug
                     self._fill_jug_water(jug_obj, old_level, state)
@@ -673,7 +673,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         if new_level > self.max_jug_water_capacity:
             new_level = self.max_jug_water_capacity
 
-        state.set(jug_obj, "water_volumn", new_level)
+        state.set(jug_obj, "water_volume", new_level)
 
         # Remove old liquid block
         old_liquid_id = self._jug_to_liquid_id.get(jug_obj, None)
@@ -712,7 +712,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                     else:
                         required_vol = 0.0
 
-                    if state.get(jug_obj, "water_volumn") > required_vol and\
+                    if state.get(jug_obj, "water_volume") > required_vol and\
                         not self._Holding_holds(state, [self._robot, jug_obj]):
                         new_heat = min(1.0, old_heat + self.heating_speed)
                         jug_obj.heat_level = new_heat
@@ -904,15 +904,15 @@ class PyBulletBoilEnv(PyBulletEnv):
     @classmethod
     def _JugFilled_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         (jug, ) = objects
-        return state.get(jug, "water_volumn") >= cls.water_filled_height
+        return state.get(jug, "water_volume") >= cls.water_filled_height
 
     @classmethod
     def _JugAtCapacity_holds(cls, state: State,
                              objects: Sequence[Object]) -> bool:
-        """Jug is at capacity if it has water_volumn >=
+        """Jug is at capacity if it has water_volume >=
         max_jug_water_capacity."""
         (jug, ) = objects
-        return state.get(jug, "water_volumn") >= cls.max_jug_water_capacity
+        return state.get(jug, "water_volume") >= cls.max_jug_water_capacity
 
     def _WaterSpilled_holds(self, state: State,
                             objects: Sequence[Object]) -> bool:
@@ -1182,7 +1182,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                     "z": self.jug_init_z,
                     "rot": -np.pi / 2,
                     "is_held": 0.0,
-                    "water_volumn": 0.0,
+                    "water_volume": 0.0,
                     "heat_level": 0.0
                 }
                 used_xy.add((x, y))
@@ -1283,9 +1283,9 @@ class PyBulletBoilEnv(PyBulletEnv):
         jug: Object,
         state: State,
     ) -> Optional[int]:
-        """Given the jug's water_volumn, create (or None) a small PyBullet body
+        """Given the jug's water_volume, create (or None) a small PyBullet body
         to represent the liquid."""
-        current_liquid = state.get(jug, "water_volumn")
+        current_liquid = state.get(jug, "water_volume")
         if current_liquid <= 0:
             return None
 
