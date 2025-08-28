@@ -157,7 +157,7 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
             condition_at_start.add(LiftedAtom(OppositeFan, [fan, op_fan]))
             condition_at_start.add(LiftedAtom(FanOn, [fan]))
             condition_at_start.add(LiftedAtom(FanOff, [op_fan]))
-        if not CFG.fan_known_controls_relation:
+        else:
             raise NotImplementedError
             # if not known, we add it here and let the agent to potentially
             # learn this
