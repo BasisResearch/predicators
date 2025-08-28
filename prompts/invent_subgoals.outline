@@ -1,35 +1,35 @@
-Context: You are an expert AI planning researcher. Your task is to design *task-specific state abstraction predicates* that facilitate effective and efficient robotic planning in a PDDL-like representation.
+Context: You are an expert AI planning researcher. Your task is to design *task-specific state abstraction predicates* that can be used in a PDDL-like model to facilitate effective and efficient robot planning.
+### Types and Features
+The environment has the following types, each with some features:
+
+{TYPES_IN_ENV}
 
 ### Existing Predicates
 You should consider the following existing predicates:
 
 {PREDICATES_IN_ENV}
 
-### Types and Features
-Each object type in the environment has the following features:
-
-{TYPES_IN_ENV}
 
 ### Robot’s Goal
-The robot's ultimate goal is to make the predicate `HumanHappy()` true.
+The robot's ultimate goal in this environment is to make the predicate `HumanHappy()` true.
 
 ### Demonstration Trajectory
-The demonstrator performs a sequence of actions, ending with HumanHappy()=True. Each state's structured features and actions are provided below.
+The demonstrator performs a sequence of actions, ending with HumanHappy()=True. The state-feature-action trajectory is provided below.
 
 {EXPERIENCE_IN_ENV}
 
 ### Your Task
-Invent new predicates that can serve as essential *subgoals* or *conditions* for `HumanHappy()` to become true in the final state, and any conditions that must be maintained to prevent failure, even if failure is not shown in the demonstration.
+Invent new predicates that can serve as essential *subgoals* or *conditions* for the goal to become true in the final state, and any conditions that must be maintained to prevent failure, even if failure is not shown in the demonstration.
 
 ### Output Format
 
 Provide your predicate proposals in the following format:
 
-    ```plaintext
-    # Predicate Proposals
-    * <predicate1_name>(?<var1>:<type1>, ?<var2>:<type2>, ...): <The assertion this predicate is making>.
-    * ...
-    ```
+```plaintext
+# Predicate Proposals
+* <predicate1_name>(?<var1>:<type1>, ?<var2>:<type2>, ...): <The assertion this predicate is making>.
+* ...
+```
 
 ### Constraints
 - Do *not* propose any new predicates that are purely position-based.
