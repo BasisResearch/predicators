@@ -9,7 +9,6 @@ You should consider the following existing predicates:
 
 {PREDICATES_IN_ENV}
 
-
 ### Robot’s Goal
 The robot's ultimate goal in this environment is to make the predicate `HumanHappy()` true.
 
