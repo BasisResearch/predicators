@@ -204,7 +204,8 @@ def _run_pipeline(env: BaseEnv,
             _handle_offline_learning(cogman, offline_dataset)
 
         # Run initial evaluation if needed
-        if CFG.skip_until_cycle < 0:
+        if CFG.skip_until_cycle < 0 and \
+           not CFG.skip_test_until_last_ite_or_early_stopping:
             results = _run_testing(env, cogman)
             results.update({
                 "num_offline_transitions": num_offline_trans,
