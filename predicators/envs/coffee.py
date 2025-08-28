@@ -69,8 +69,7 @@ class CoffeeEnv(BaseEnv):
     coffee_machine_fill_speed: ClassVar[
         float] = 0.03  # how fast current_liquid increases per step
     max_jug_coffee_capacity: ClassVar[float] = 1.0  # maximum coffee in jug
-    coffee_filled_threshold: ClassVar[
-        float] = 0.6  # threshold for JugFilled predicate
+    coffee_filled_threshold: ClassVar[float] = 1.0  # threshold for JugFilled
 
     # Powercord / Plug settings.
     num_cord_links = 10
