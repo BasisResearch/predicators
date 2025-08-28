@@ -224,8 +224,9 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 ite=self._online_learning_cycle,
             )
             prompt = prompt_template.format(PREDICATES_IN_ENV=pred_str,
-                                            TYPES_IN_ENV=_get_types_str(types),
-                                            EXPERIENCE_IN_ENV=experience_str)
+                            TYPES_IN_ENV=_get_types_str(types),
+                            EXPERIENCE_IN_ENV=experience_str,
+                            GOAL_PREDICATE=self._train_tasks[0].goal)
             with open(
                     f"{CFG.log_file}/ite{self._online_learning_cycle}_b{b_id}"
                     f"_s1.prompt", "w") as f:
