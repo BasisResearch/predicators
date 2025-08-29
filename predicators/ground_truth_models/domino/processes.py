@@ -32,7 +32,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         robot_type = types["robot"]
         domino_type = types["domino"]
         position_type = types["loc"]
-        rotation_type = types["rot"]
+        rotation_type = types["angle"]
 
         # Predicates
         HandEmpty = predicates["HandEmpty"]

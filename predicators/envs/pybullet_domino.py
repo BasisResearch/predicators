@@ -10,7 +10,6 @@ python predicators/main.py --approach oracle --env pybullet_domino \
 import logging
 import time
 from pprint import pformat
-from re import A
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, \
     Set, Tuple
 
@@ -67,7 +66,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     target_height: ClassVar[float] = 0.2
     pivot_width: ClassVar[float] = 0.2
 
-    # For deciding if a target is toppled: if absolute tilt in x or y
+    # For deciding if a target is toppled: if absolute roll in x or y
     # is bigger than some threshold (e.g. 0.4 rad ~ 23 deg), treat as toppled.
     topple_angle_threshold: ClassVar[float] = 0.4
 
@@ -99,11 +98,11 @@ class PyBulletDominoEnv(PyBulletEnv):
     _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
     _domino_type = Type(
         "domino",
-        ["x", "y", "z", "rot", "tilt", "r", "g", "b", "is_held"],
+        ["x", "y", "z", "yaw", "roll", "r", "g", "b", "is_held"],
     )
-    _target_type = Type("target", ["x", "y", "z", "rot"],
+    _target_type = Type("target", ["x", "y", "z", "yaw"],
                         sim_features=["id", "joint_id"])
-    _pivot_type = Type("pivot", ["x", "y", "z", "rot"],
+    _pivot_type = Type("pivot", ["x", "y", "z", "yaw"],
                        sim_features=["id", "joint_id"])
     _direction_type = Type("direction", ["dir"])
 
@@ -128,7 +127,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         if CFG.domino_use_grid:
             self._position_type = Type("loc", ["xx", "yy"],
                                        sim_features=["id", "xx", "yy"])
-            self._rotation_type = Type("rot", ["angle"])
+            self._angle_type = Type("angle", ["angle"])
 
         # Create 'dummy' Objects (they'll be assigned IDs on reset)
         self._robot = Object("robot", self._robot_type)
@@ -173,8 +172,8 @@ class PyBulletDominoEnv(PyBulletEnv):
             self.rotations: List[Object] = []
             angle_values = [-135, -90, -45, 0, 45, 90, 135, 180]  # degrees
             for angle in angle_values:
-                name = f"rot_{angle}"
-                obj = Object(name, self._rotation_type)
+                name = f"ang_{angle}"
+                obj = Object(name, self._angle_type)
                 self.rotations.append(obj)
         else:
             # Initialize empty lists when grid is not used
@@ -210,7 +209,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                 "DominoAtPos", [self._domino_type, self._position_type],
                 self._DominoAtPos_holds)
             self._DominoAtRot = Predicate(
-                "DominoAtRot", [self._domino_type, self._rotation_type],
+                "DominoAtRot", [self._domino_type, self._angle_type],
                 self._DominoAtRot_holds)
             self._Connected = Predicate(
                 "Connected", [self._position_type, self._position_type],
@@ -277,7 +276,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         }
 
         if CFG.domino_use_grid:
-            base_types.update({self._position_type, self._rotation_type})
+            base_types.update({self._position_type, self._angle_type})
 
         return base_types
 
@@ -441,14 +440,14 @@ class PyBulletDominoEnv(PyBulletEnv):
     def _extract_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
         if obj.type == self._domino_type:
-            if feature == "tilt":
+            if feature == "roll":
                 (_, _, _), orn = p.getBasePositionAndOrientation(
                     obj.id, physicsClientId=self._physics_client_id)
 
                 # Convert quaternion to Euler angles
                 roll, _, _ = p.getEulerFromQuaternion(orn)
 
-                # The tilt w.r.t. the domino width axis is the roll angle
+                # The roll w.r.t. the domino width axis is the roll angle
                 # (rotation around the x-axis in the domino's local frame)
                 return roll
         elif obj.type == self._direction_type:
@@ -464,9 +463,9 @@ class PyBulletDominoEnv(PyBulletEnv):
                 return obj.xx
             elif feature == "yy":
                 return obj.yy
-        elif CFG.domino_use_grid and obj.type == self._rotation_type:
+        elif CFG.domino_use_grid and obj.type == self._angle_type:
             if feature == "angle":
-                # Extract angle from object name (e.g., "rot_45" -> 45.0)
+                # Extract angle from object name (e.g., "ang_45" -> 45.0)
                 angle_str = obj.name.split("_")[1]
                 return float(angle_str)
 
@@ -564,8 +563,8 @@ class PyBulletDominoEnv(PyBulletEnv):
             for i in range(len(domino_objs) - 1):
                 domino1 = domino_objs[i]
                 domino2 = domino_objs[i + 1]
-                rot1 = state.get(domino1, "rot")
-                rot2 = state.get(domino2, "rot")
+                rot1 = state.get(domino1, "yaw")
+                rot2 = state.get(domino2, "yaw")
 
                 if abs(rot1 - rot2) < 1e-5 and self._no_target_in_between(
                         state, domino1, domino2):
@@ -656,20 +655,20 @@ class PyBulletDominoEnv(PyBulletEnv):
         """Target is toppled if it's significantly tilted from upright in pitch
         or roll.
 
-        For domino targets, we use the tilt feature. For regular
+        For domino targets, we use the roll feature. For regular
         targets, we use rotation threshold.
         """
         obj, = objects
 
         if CFG.domino_use_domino_blocks_as_target:
-            # For domino targets, check tilt angle
-            tilt_angle = state.get(obj, "tilt")
+            # For domino targets, check roll angle
+            tilt_angle = state.get(obj, "roll")
             # Use the same threshold as NotUpright but inverted logic
             tilt_threshold = 0.1  # radians
             return abs(tilt_angle) >= tilt_threshold
         else:
             # For regular targets, use rotation-based check (currently disabled)
-            rot_z = state.get(obj, "rot")
+            rot_z = state.get(obj, "yaw")
             if abs(utils.wrap_angle(rot_z)) < 0.8:
                 return True
             return False
@@ -677,7 +676,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     @classmethod
     def _Upright_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         obj, = objects
-        tilt_angle = state.get(obj, "tilt")
+        tilt_angle = state.get(obj, "roll")
         tilt_threshold = 0.1  # radians
         return abs(tilt_angle) < tilt_threshold
 
@@ -930,7 +929,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         domino, rotation = objects
 
         # Get domino's actual rotation (in radians)
-        domino_rot = state.get(domino, "rot")
+        domino_rot = state.get(domino, "yaw")
 
         # Get the target rotation (convert from degrees to radians)
         target_rot_degrees = state.get(rotation, "angle")
@@ -1709,8 +1708,8 @@ class PyBulletDominoEnv(PyBulletEnv):
             "x": x,
             "y": y,
             "z": self.z_lb + self.domino_height / 2,
-            "rot": rot,
-            "tilt": 0.0,  # All dominos start upright
+            "yaw": rot,
+            "roll": 0.0,  # All dominos start upright
             "r": color[0],
             "g": color[1],
             "b": color[2],
@@ -1726,7 +1725,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             "x": x,
             "y": y,
             "z": self.z_lb,
-            "rot": rot,
+            "yaw": rot,
         }
 
     def _move_intermediate_objects_to_finished_state(
@@ -1854,8 +1853,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                         "x": new_x,
                         "y": new_y,
                         "z": self.z_lb + self.domino_height / 2,
-                        "rot": 0.0,  # Reset rotation to upright
-                        "tilt": 0.0,  # Reset tilt to upright
+                        "yaw": 0.0,  # Reset rotation to upright
+                        "roll": 0.0,  # Reset tilt to upright
                         "r": self.domino_color[0],
                         "g": self.domino_color[1],
                         "b": self.domino_color[2],
@@ -1866,7 +1865,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                         "x": new_x,
                         "y": new_y,
                         "z": self.z_lb,
-                        "rot": 0.0,  # Reset rotation
+                        "yaw": 0.0,  # Reset rotation
                     }
         else:
             # Original non-grid positioning
@@ -1886,8 +1885,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                         "x": new_x,
                         "y": y_position,
                         "z": self.z_lb + self.domino_height / 2,
-                        "rot": 0.0,  # Reset rotation to upright
-                        "tilt": 0.0,  # Reset tilt to upright
+                        "yaw": 0.0,  # Reset rotation to upright
+                        "roll": 0.0,  # Reset tilt to upright
                         "r": self.domino_color[0],
                         "g": self.domino_color[1],
                         "b": self.domino_color[2],
@@ -1898,7 +1897,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                         "x": new_x,
                         "y": y_position,
                         "z": self.z_lb,
-                        "rot": 0.0,  # Reset rotation
+                        "yaw": 0.0,  # Reset rotation
                     }
 
         return obj_dict
