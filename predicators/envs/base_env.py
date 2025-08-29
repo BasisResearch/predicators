@@ -85,6 +85,11 @@ class BaseEnv(abc.ABC):
         these are the same as the original goal predicates.
         """
         return self.goal_predicates
+    
+    @property
+    def target_predicates(self) -> Set[Predicate]:
+        """Get the subset of self.predicates that we want to invent."""
+        return self.predicates
 
     @property
     @abc.abstractmethod

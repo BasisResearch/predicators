@@ -165,6 +165,12 @@ class PyBulletGrowEnv(PyBulletEnv):
             self._SameColor, self._CupOnTable, self._JugAboveCup,
             self._NotAboveCup, self._HandTilted
         }
+    
+    @property
+    def target_predicates(self) -> Set[Predicate]:
+        target_predicates = self.predicates.copy()
+        target_predicates.remove(self._HandTilted)
+        return target_predicates
 
     @property
     def goal_predicates(self) -> Set[Predicate]:
