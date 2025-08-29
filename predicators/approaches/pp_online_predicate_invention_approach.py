@@ -100,7 +100,6 @@ class OnlinePredicateInventionProcessPlanningApproach(
         else:
             proposed_predicates = set()
         logging.info(f"Done: created {len(proposed_predicates)} predicates")
-        breakpoint()
 
         # --- Select the predicates to keep ---
         self._select_predicates_and_learn_processes(
@@ -188,6 +187,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 base_candidates |= self._get_predicate_proposals_from_fm(
                     proposal_method, trajectories, i)
             # TODO: filter semantically equivalent predicate by evaluation
+            breakpoint()
         return base_candidates
 
     def _get_predicate_proposals_from_fm(
