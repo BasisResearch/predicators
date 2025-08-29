@@ -54,7 +54,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                  option_model: Optional[_OptionModelBase] = None):
         # just used for oracle predicate proposal or learned predicate
         self._oracle_predicates = create_new_env(CFG.env,
-                                                 use_gui=False).predicates
+                                                use_gui=False).target_predicates
         self._candidate_predicates: Set[Predicate] = set()
         self._llm = utils.create_llm_by_name(CFG.llm_model_name)
         self._vlm = utils.create_vlm_by_name(CFG.llm_model_name)

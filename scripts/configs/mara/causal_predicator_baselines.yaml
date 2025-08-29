@@ -91,41 +91,41 @@ ENVS:
   #     # boil_goal: "simple"
   #     boil_require_jug_full_to_heatup: True
   #     process_planning_heuristic_weight: 1.0
-  # coffee:
-  #   NAME: "pybullet_coffee"
-  #   FLAGS:
-  #     excluded_predicates: "Twisting,HandTilted,PressingButton,NotSameCup,RobotAboveCup"
-  #     coffee_rotated_jug_ratio: 0
-  #     coffee_num_cups_train: [1]
-  #     coffee_machine_have_light_bar: False
-  #     coffee_move_back_after_place_and_push: True
-  #     coffee_machine_has_plug: False
-  #     coffee_combined_move_and_twist_policy: True
-  #     coffee_use_pixelated_jug: True
-  #     coffee_fill_jug_gradually: True
-  #     max_num_steps_option_rollout: 100
-  # grow:
-  #   NAME: "pybullet_grow"
-  #   FLAGS:
-  #     excluded_predicates: "HandTilted"
-  #     coffee_use_pixelated_jug: True
-  #     max_num_steps_option_rollout: 50
-  #     grow_weak_pour_terminate_condition: True
-  #     grow_place_option_no_sampler: True
-  #     horizon: 300
-  domino:
-    NAME: "pybullet_domino"
+  coffee:
+    NAME: "pybullet_coffee"
     FLAGS:
-      horizon: 200
-      domino_initialize_at_finished_state: False
-      domino_use_domino_blocks_as_target: True
-      domino_use_grid: True
-      domino_include_connected_predicate: False # necessary to generate valid plan
-      domino_prune_actions: False
-      process_planning_heuristic_weight: 2 # too large will generate suboptimal plans in some cases (e.g. w 2 moveble and 2 targets)
-      process_planning_use_abstract_policy: False
-      # domino_test_num_targets: [1] # temp for experiment
-      # domino_test_num_pos_x: 3 # temp for experiment
+      excluded_predicates: "Twisting,HandTilted,PressingButton,NotSameCup,RobotAboveCup"
+      coffee_rotated_jug_ratio: 0
+      coffee_num_cups_train: [1]
+      coffee_machine_have_light_bar: False
+      coffee_move_back_after_place_and_push: True
+      coffee_machine_has_plug: False
+      coffee_combined_move_and_twist_policy: True
+      coffee_use_pixelated_jug: True
+      coffee_fill_jug_gradually: True
+      max_num_steps_option_rollout: 100
+  grow:
+    NAME: "pybullet_grow"
+    FLAGS:
+      excluded_predicates: "HandTilted"
+      coffee_use_pixelated_jug: True
+      max_num_steps_option_rollout: 50
+      grow_weak_pour_terminate_condition: True
+      grow_place_option_no_sampler: True
+      horizon: 300
+  # domino:
+  #   NAME: "pybullet_domino"
+  #   FLAGS:
+  #     horizon: 200
+  #     domino_initialize_at_finished_state: False
+  #     domino_use_domino_blocks_as_target: True
+  #     domino_use_grid: True
+  #     domino_include_connected_predicate: False # necessary to generate valid plan
+  #     domino_prune_actions: False
+  #     process_planning_heuristic_weight: 2 # too large will generate suboptimal plans in some cases (e.g. w 2 moveble and 2 targets)
+  #     process_planning_use_abstract_policy: False
+  #     # domino_test_num_targets: [1] # temp for experiment
+  #     # domino_test_num_pos_x: 3 # temp for experiment
   # fan:
   #   NAME: "pybullet_fan"
   #   FLAGS:
