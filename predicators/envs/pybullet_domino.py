@@ -439,18 +439,7 @@ class PyBulletDominoEnv(PyBulletEnv):
 
     def _extract_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
-        if obj.type == self._domino_type:
-            if feature == "roll":
-                (_, _, _), orn = p.getBasePositionAndOrientation(
-                    obj.id, physicsClientId=self._physics_client_id)
-
-                # Convert quaternion to Euler angles
-                roll, _, _ = p.getEulerFromQuaternion(orn)
-
-                # The roll w.r.t. the domino width axis is the roll angle
-                # (rotation around the x-axis in the domino's local frame)
-                return roll
-        elif obj.type == self._direction_type:
+        if obj.type == self._direction_type:
             if feature == "dir":
                 if obj.name == "straight":
                     return 0.0
@@ -1596,7 +1585,7 @@ class PyBulletDominoEnv(PyBulletEnv):
 
                 positions: List[Object] = []
                 for i in range(num_pos_x * num_pos_y):
-                    name = f"pos_y{i//num_pos_x}_x{i%num_pos_x}"
+                    name = f"loc_y{i//num_pos_x}_x{i%num_pos_x}"
                     obj = Object(name, self._position_type)
                     positions.append(obj)
 
