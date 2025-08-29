@@ -62,6 +62,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                                  float]] = (0.6, 0.8, 1.0, 1.0)
     start_domino_x: ClassVar[float] = x_lb + domino_width
     start_domino_y: ClassVar[float] = y_lb + domino_width
+    domino_roll_threshold: ClassVar[float] = 0.1
+    fallen_threshold: ClassVar[float] = np.pi * 2 / 5  # 60 degrees in radians
 
     target_height: ClassVar[float] = 0.2
     pivot_width: ClassVar[float] = 0.2
@@ -194,6 +196,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                                       self._Toppled_holds)
         self._Upright = Predicate("Upright", [self._domino_type],
                                   self._Upright_holds)
+        self._Tilting = Predicate("Tilting", [self._domino_type],
+                                  self._Tilting_holds)
         self._StartBlock = Predicate("StartBlock", [self._domino_type],
                                      self._StartBlock_holds)
         self._MovableBlock = Predicate("MovableBlock", [self._domino_type],
@@ -242,6 +246,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         base_predicates = {
             self._Toppled,
             self._Upright,
+            self._Tilting,
             self._StartBlock,
             self._MovableBlock,
             self._HandEmpty,
@@ -650,11 +655,8 @@ class PyBulletDominoEnv(PyBulletEnv):
         obj, = objects
 
         if CFG.domino_use_domino_blocks_as_target:
-            # For domino targets, check roll angle
-            tilt_angle = state.get(obj, "roll")
-            # Use the same threshold as NotUpright but inverted logic
-            tilt_threshold = 0.1  # radians
-            return abs(tilt_angle) >= tilt_threshold
+            roll_angle = abs(state.get(obj, "roll"))
+            return roll_angle >= cls.fallen_threshold
         else:
             # For regular targets, use rotation-based check (currently disabled)
             rot_z = state.get(obj, "yaw")
@@ -666,8 +668,15 @@ class PyBulletDominoEnv(PyBulletEnv):
     def _Upright_holds(cls, state: State, objects: Sequence[Object]) -> bool:
         obj, = objects
         tilt_angle = state.get(obj, "roll")
-        tilt_threshold = 0.1  # radians
-        return abs(tilt_angle) < tilt_threshold
+        return abs(tilt_angle) < cls.domino_roll_threshold
+
+    @classmethod
+    def _Tilting_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Domino is tilting (in transition, leaning) - roll angle between 
+        domino_roll_threshold and tilting_threshold (60°)."""
+        obj, = objects
+        roll_angle = abs(state.get(obj, "roll"))
+        return cls.domino_roll_threshold <= roll_angle < cls.fallen_threshold
 
     @classmethod
     def _StartBlock_holds(cls, state: State,

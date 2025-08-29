@@ -441,16 +441,19 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                     logging.warning(
                         f"Unexpected domino rotation {rot2} in place option. "
                         "Defaulting to cardinal turn logic.")
-                    raise ValueError(
-                        f"Unexpected domino rotation {rot2} in place option. ")
-                    # target_rot = rot2 - turn_dir * np.pi / 4
-                    # grid_x = x2 + gap * np.sin(rot2)
-                    # grid_y = y2 + gap * np.cos(rot2)
-                    # shift_magnitude = cls.env_cls.domino_width * cls.env_cls.turn_shift_frac
-                    # shift_dx = shift_magnitude * (turn_dir * np.cos(rot2) - np.sin(rot2))
-                    # shift_dy = shift_magnitude * (-turn_dir * np.sin(rot2) - np.cos(rot2))
-                    # target_x = grid_x + shift_dx
-                    # target_y = grid_y + shift_dy
+                    # raise ValueError(
+                    #     f"Unexpected domino rotation {rot2} in place option. ")
+                    # The target domino will be turned by 45 degrees.
+                    target_rot = rot2 - turn_dir * np.pi / 4
+                    grid_x = state.get(tgt_pos, "xx")
+                    grid_y = state.get(tgt_pos, "yy")
+                    shift_magnitude = cls.env_cls.domino_width * cls.env_cls.turn_shift_frac
+                    shift_dx = shift_magnitude * (turn_dir * np.cos(rot2) -
+                                                  np.sin(rot2))
+                    shift_dy = shift_magnitude * (-turn_dir * np.sin(rot2) -
+                                                  np.cos(rot2))
+                    target_x = grid_x + shift_dx
+                    target_y = grid_y + shift_dy
 
             target_position = (target_x, target_y, z_func(dz))
             target_orn = p.getQuaternionFromEuler(
