@@ -307,33 +307,32 @@ class State:
         suffix = "\n" + "#" * ll + "\n"
         return prefix + "\n\n".join(table_strs) + suffix
 
-    def dict_str(self,
-                 indent: int = 0,
-                 object_features: bool = True,
-                 num_decimal_points: int = 2,
-                 use_object_id: bool = False,
-                 ignored_features: List[str] = [
-                    "capacity_liquid",
-                    "target_liquid"
-                    ]) -> str:
+    def dict_str(
+        self,
+        indent: int = 0,
+        object_features: bool = True,
+        num_decimal_points: int = 2,
+        use_object_id: bool = False,
+        ignored_features: List[str] = ["capacity_liquid",
+                                       "target_liquid"]) -> str:
         """Return a dictionary representation of the state."""
         excluded_objects = []
         if CFG.excluded_objects_in_state_str:
             excluded_objects = CFG.excluded_objects_in_state_str.split(",")
         state_dict = {}
-        
+
         # Collect all unique types from objects in the state
         object_types = set()
         for obj in self:
             object_types.add(obj.type)
-        
+
         # Iterate through types and add all objects of each type
         for obj_type in sorted(object_types, key=lambda t: t.name):
             obj_type_name = obj_type.name
             if obj_type_name not in excluded_objects:
                 # Get all objects of this type
                 objects_of_type = self.get_objects(obj_type)
-                
+
                 # Process each object of this type
                 for obj in objects_of_type:
                     obj_dict = {}
