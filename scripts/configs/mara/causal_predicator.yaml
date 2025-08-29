@@ -93,7 +93,7 @@ APPROACHES:
       num_online_learning_cycles: 10
       rgb_observation: False # for visual predicators
       # Testing predicate invention:
-      vlm_predicator_oracle_base_predicates: False
+      vlm_predicator_oracle_base_predicates: True # temp: if learn with oracle proposal work
       vlm_predicator_oracle_learned_predicates: False
       vlm_predicator_use_grammar: True
       grammar_search_grammar_use_single_feature: False
