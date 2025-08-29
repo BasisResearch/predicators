@@ -204,7 +204,8 @@ def _run_pipeline(env: BaseEnv,
             _handle_offline_learning(cogman, offline_dataset)
 
         # Run initial evaluation if needed
-        if CFG.skip_until_cycle < 0:
+        if CFG.skip_until_cycle < 0 and \
+           not CFG.skip_test_until_last_ite_or_early_stopping:
             results = _run_testing(env, cogman)
             results.update({
                 "num_offline_transitions": num_offline_trans,
@@ -339,7 +340,8 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
         early_stopping = False
         if CFG.online_learning_early_stopping and \
            len(task_first_solve_attempts) == len(train_tasks) and \
-           all(task_first_solve_attempts.values()):
+           all(task_first_solve_attempts.values()) and \
+           i > 0:
             logging.info("All training tasks solved on first attempt, "
                          "triggering early stopping.\n")
             early_stopping = True

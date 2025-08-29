@@ -317,9 +317,9 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     def _create_task_specific_objects(self, state: State) -> None:
         """Remove/rebuild cups, liquids, and cords so each new task can have
         different cups and states."""
-        self._remake_cups(state)
-        self._remake_cup_liquids(state)
         self._remake_jug_liquid(state)
+        self._remake_cup_liquids(state)
+        self._remake_cups(state)
         self._remake_cord()
 
     def _remake_cups(self, state: State) -> None:
@@ -374,7 +374,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         if CFG.coffee_fill_jug_gradually:
             self._jug_current_liquid = state.get(self._jug, "current_liquid")
             self._jug_filled = bool(
-                self._jug_current_liquid > self.coffee_filled_threshold)
+                self._jug_current_liquid >= self.coffee_filled_threshold)
         else:
             self._jug_filled = bool(state.get(self._jug, "is_filled") > 0.5)
         if self._jug_liquid_id is not None:
@@ -473,7 +473,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
             elif feature == "target_liquid":
                 if CFG.coffee_use_pixelated_jug:
                     # For pixelated jug, the target is always 0.5 * capacity
-                    return self._cup_to_capacity[obj] * self.cup_target_frac * 2
+                    return self._cup_to_capacity[obj]
                 else:
                     return self._cup_to_capacity[obj] * self.cup_target_frac
         elif obj.type == self._plug_type:
@@ -597,7 +597,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         if abs(state.get(self._robot, "tilt") -
                self.tilt_ub) < self.pour_angle_tol:
             # If the jug is empty, do nothing
-            if not self._jug_filled:
+            if not self._JugFilled_holds(state, [self._jug]):
                 return
             # Identify which cup (if any) is being poured into
             cup = self._get_cup_to_pour(state)
@@ -606,7 +606,8 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
 
             # Increase the liquid in the cup
             current_liquid = state.get(cup, "current_liquid")
-            new_liquid = current_liquid + self.pour_velocity
+            cup_cap = state.get(cup, "capacity_liquid")
+            new_liquid = min(current_liquid + self.pour_velocity, cup_cap)
             state.set(cup, "current_liquid", new_liquid)
 
             # Remove the old liquid body in PyBullet

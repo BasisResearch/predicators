@@ -140,7 +140,8 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
         fan = Variable("?fan", fan_type)
         op_fan = Variable("?op_fan", fan_type)
         switch = Variable("?switch", switch_type)
-        op_switch = Variable("?op_switch", switch_type)
+        if not CFG.fan_known_controls_relation:
+            op_switch = Variable("?op_switch", switch_type)
         ball = Variable("?ball", ball_type)
         pos1 = Variable("?pos1", location_type)
         pos2 = Variable("?pos2", location_type)
@@ -149,15 +150,15 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
         condition_at_start = {
             LiftedAtom(BallAtLoc, [ball, pos1]),
             LiftedAtom(ClearPos, [pos2]),
-            LiftedAtom(SideOf, [pos1, pos2, dir]),
-            LiftedAtom(FanFacingSide, [fan, dir]),
+            LiftedAtom(SideOf, [pos1, pos2, dir]), # could be invented
+            LiftedAtom(FanFacingSide, [fan, dir]), # could be invented
         }
         if CFG.fan_known_controls_relation:
             parameters.extend([fan, op_fan])
-            condition_at_start.add(LiftedAtom(OppositeFan, [fan, op_fan]))
+            condition_at_start.add(LiftedAtom(OppositeFan, [fan, op_fan])) # could be invented
             condition_at_start.add(LiftedAtom(FanOn, [fan]))
             condition_at_start.add(LiftedAtom(FanOff, [op_fan]))
-        if not CFG.fan_known_controls_relation:
+        else:
             raise NotImplementedError
             # if not known, we add it here and let the agent to potentially
             # learn this

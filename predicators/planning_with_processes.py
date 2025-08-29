@@ -696,6 +696,8 @@ def task_plan_from_task(
     derived_predicates = utils.get_derived_predicates(all_predicates)
 
     init_atoms = utils.abstract(task.init, all_predicates)
+    logging.debug("[Task Planner] Task goal atoms: "
+                  f"{pformat(sorted(task.goal))}")
     logging.debug("[Task Planner] Task init atoms: "
                   f"{pformat(sorted(init_atoms))}")
     goal = task.goal
@@ -887,6 +889,9 @@ def create_ff_heuristic(
                                List[DerivedPredicate]] = defaultdict(list)
     if use_derived_predicates:
         for der_pred in derived_predicates:
+            assert der_pred.auxiliary_predicates is not None, \
+                f"Can't find auxiliary predicates for derived predicate " +\
+                f"{der_pred.name}"
             for aux_pred in der_pred.auxiliary_predicates:
                 dep_to_derived_preds[aux_pred].append(der_pred)
     # --- CHANGE END ---

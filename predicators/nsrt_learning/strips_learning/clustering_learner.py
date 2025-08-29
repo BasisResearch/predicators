@@ -248,12 +248,21 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                         #   add multiple PNAD here; after checking such pnad don't
                         #   already exists.
                         for atom in grd_add_effects | grd_delete_effects:
+                            neg_atom = atom.get_negated_atom()
                             if atom in grd_add_effects:
                                 add_effect_set = frozenset({atom})
-                                del_effect_set = frozenset()
+                                # Check if the negated atom is in the delete
+                                # effects
+                                if neg_atom in grd_delete_effects:
+                                    del_effect_set = frozenset({neg_atom})
+                                else:
+                                    del_effect_set = frozenset()
                             else:
-                                add_effect_set = frozenset()
                                 del_effect_set = frozenset({atom})
+                                if neg_atom in grd_add_effects:
+                                    add_effect_set = frozenset({neg_atom})
+                                else:
+                                    add_effect_set = frozenset()
                             # Check if the pnad already exists
                             suc, ent_to_ent_sub, pnad =\
                                 self._unify_segment_with_pnads(

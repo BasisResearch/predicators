@@ -70,7 +70,7 @@ APPROACHES:
     FLAGS:
       use_wandb: False
       bilevel_plan_without_sim: True
-      # skip_until_cycle: 1
+      # skip_until_cycle: 4
       demonstrator: "oracle_process_planning"
       explorer: "exploit_planning"
       online_nsrt_learning_requests_per_cycle: 1  # just 1 for now
@@ -140,46 +140,48 @@ ENVS:
   #     horizon: 150
   #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
   #     boil_goal_simple_human_happy: True
-  boil:
-    NAME: "pybullet_boil"
-    FLAGS:
-      excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,NoJugAtFaucetOrAtFaucetAndFilled"
-      excluded_objects_in_state_str: "switch"
-      max_num_steps_option_rollout: 50
-      horizon: 500 # 300 should be enough, 50 is good during dev
-      # boil_goal: "task_completed" # This option isn't fully ready because
-        # with the current only_learn_exogenous_processes setting, it won't try
-        # to learn the precondition for the DeclareComplete option.
-      boil_goal: "human_happy" # Can also be "task_completed", "simple"
-      # boil_goal: "simple"
-      boil_require_jug_full_to_heatup: True
-      process_planning_heuristic_weight: 1.0
-  coffee:
-    NAME: "pybullet_coffee"
-    FLAGS:
-      excluded_predicates: "JugFilled,Twisting,HandTilted,PressingButton,NotSameCup,RobotAboveCup"
-      coffee_rotated_jug_ratio: 0
-      coffee_num_cups_train: [1]
-      coffee_machine_have_light_bar: False
-      coffee_move_back_after_place_and_push: True
-      coffee_machine_has_plug: False
-      coffee_combined_move_and_twist_policy: True
-      coffee_use_pixelated_jug: True
-      coffee_fill_jug_gradually: True
-      max_num_steps_option_rollout: 100
-  grow:
-    NAME: "pybullet_grow"
-    FLAGS:
-      excluded_predicates: "SameColor,HandTilted"
-      coffee_use_pixelated_jug: True
-      max_num_steps_option_rollout: 50
-      grow_weak_pour_terminate_condition: True
-      grow_place_option_no_sampler: True
-      horizon: 300
+  # boil:
+  #   NAME: "pybullet_boil"
+  #   FLAGS:
+  #     excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,NoJugAtFaucetOrAtFaucetAndFilled"
+  #     excluded_objects_in_state_str: "switch"
+  #     max_num_steps_option_rollout: 50
+  #     horizon: 500 # 300 should be enough, 50 is good during dev
+  #     # boil_goal: "task_completed" # This option isn't fully ready because
+  #       # with the current only_learn_exogenous_processes setting, it won't try
+  #       # to learn the precondition for the DeclareComplete option.
+  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
+  #     # boil_goal: "simple"
+  #     boil_require_jug_full_to_heatup: True
+  #     process_planning_heuristic_weight: 1.0
+  # coffee:
+  #   NAME: "pybullet_coffee"
+  #   FLAGS:
+  #     excluded_predicates: "JugFilled,Twisting,HandTilted,PressingButton,NotSameCup,RobotAboveCup"
+  #     coffee_rotated_jug_ratio: 0
+  #     coffee_num_cups_train: [1]
+  #     coffee_machine_have_light_bar: False
+  #     coffee_move_back_after_place_and_push: True
+  #     coffee_machine_has_plug: False
+  #     coffee_combined_move_and_twist_policy: True
+  #     coffee_use_pixelated_jug: True
+  #     coffee_fill_jug_gradually: True
+  #     max_num_steps_option_rollout: 100
+  # grow:
+  #   NAME: "pybullet_grow"
+  #   FLAGS:
+  #     excluded_predicates: "SameColor,HandTilted"
+  #     coffee_use_pixelated_jug: True
+  #     max_num_steps_option_rollout: 50
+  #     grow_weak_pour_terminate_condition: True
+  #     grow_place_option_no_sampler: True
+  #     horizon: 300
   domino:
     NAME: "pybullet_domino"
     FLAGS:
-      horizon: 100
+      excluded_predicates: "InFront"
+      excluded_objects_in_state_str: "loc,rot"
+      horizon: 200
       domino_initialize_at_finished_state: False
       domino_use_domino_blocks_as_target: True
       domino_use_grid: True
@@ -190,8 +192,8 @@ ENVS:
   fan:
     NAME: "pybullet_fan"
     FLAGS:
-      excluded_objects_in_state_str: "switch"
-      terminate_on_goal_reached: True # maybe required for successful eval
+      excluded_predicates: "FanOnSide,OppositeFan,BallAtTarget"
+      excluded_objects_in_state_str: "switch,loc"
       process_planning_heuristic_weight: 10.0
       terminate_on_goal_reached: True # maybe required for successful eval
 ARGS:
@@ -233,4 +235,4 @@ FLAGS:
   log: 'logs/'
   no_repeated_arguments_in_grounding: True
 START_SEED: 0
-NUM_SEEDS: 1
+NUM_SEEDS: 3

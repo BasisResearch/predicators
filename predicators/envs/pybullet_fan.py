@@ -163,9 +163,9 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Target Properties
     # -------------------------------------------------------------------------
-    target_thickness: ClassVar[float] = 0.0001
+    target_thickness: ClassVar[float] = 0.00001
     target_mass: ClassVar[float] = 0.0
-    target_friction: ClassVar[float] = 5
+    target_friction: ClassVar[float] = 0.04
 
     # =========================================================================
     # SIMULATION & DEBUG CONFIGURATION
@@ -223,7 +223,7 @@ class PyBulletFanEnv(PyBulletEnv):
     _ball_type = Type("ball", ["x", "y", "z"])
     _target_type = Type("target", ["x", "y", "z", "rot", "is_hit"])
     _location_type = Type("loc", ["xx", "yy"], sim_features=["id", "xx", "yy"])
-    _side_type = Type("side", ["side"], sim_features=["id", "side_idx"])
+    _side_type = Type("side", ["side_idx"], sim_features=["id", "side_idx"])
 
     @classmethod
     def get_configuration_dict(cls) -> Dict[str, Any]:
@@ -385,7 +385,7 @@ class PyBulletFanEnv(PyBulletEnv):
 
     @property
     def goal_predicates(self) -> Set[Predicate]:
-        return {self._BallAtTarget}
+        return {self._BallAtLoc}
 
     # -------------------------------------------------------------------------
     # PyBullet Initialization
@@ -819,7 +819,7 @@ class PyBulletFanEnv(PyBulletEnv):
             elif feature == "yy":
                 return obj.yy
         elif obj.type == self._side_type:
-            if feature == "side":
+            if feature == "side_idx":
                 return float(obj.side_idx)
 
         raise ValueError(f"Unknown feature {feature} for object {obj}")
@@ -1047,7 +1047,7 @@ class PyBulletFanEnv(PyBulletEnv):
         True if the fan's side matches the side object's side.
         """
         fan, side = objects
-        return state.get(fan, "side") == state.get(side, "side")
+        return state.get(fan, "side") == state.get(side, "side_idx")
 
     def _OppositeFan_holds(self, state: State,
                            objects: Sequence[Object]) -> bool:
@@ -1070,7 +1070,7 @@ class PyBulletFanEnv(PyBulletEnv):
         side=3 (front): pos1 is below pos2
         """
         pos1, pos2, side = objects
-        side_val = state.get(side, "side")
+        side_val = state.get(side, "side_idx")
 
         if side_val == 0:  # left
             return self._is_ball_close_to_position(
@@ -1222,10 +1222,10 @@ class PyBulletFanEnv(PyBulletEnv):
                 }
 
             # Sides - add them to the state dictionary
-            init_dict[self._sides[0]] = {"side": 0.0}
-            init_dict[self._sides[1]] = {"side": 1.0}
-            init_dict[self._sides[2]] = {"side": 3.0}
-            init_dict[self._sides[3]] = {"side": 2.0}
+            init_dict[self._sides[0]] = {"side_idx": 0.0}
+            init_dict[self._sides[1]] = {"side_idx": 1.0}
+            init_dict[self._sides[2]] = {"side_idx": 3.0}
+            init_dict[self._sides[3]] = {"side_idx": 2.0}
             # for i, side_obj in enumerate(self._sides):
             #     init_dict[side_obj] = {
             #         "side": float(i),

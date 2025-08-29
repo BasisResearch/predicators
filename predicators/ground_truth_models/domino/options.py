@@ -180,8 +180,8 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                 "MoveToAbovePlacement", lambda _: cls._transport_z, "closed",
                 place_option_types, place_params_space),
             cls._create_domino_place_option(
-                "MoveToPlacement", lambda _: cls._place_drop_z, 
-                "closed", place_option_types, place_params_space),
+                "MoveToPlacement", lambda _: cls._place_drop_z, "closed",
+                place_option_types, place_params_space),
             create_change_fingers_option(
                 pybullet_robot, "OpenFingers", place_option_types,
                 place_params_space, open_fingers_func,
@@ -363,8 +363,8 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Determine direction based on rotation difference
             angle_tol = 2e-1  # Tolerance for checking cardinal/diagonal angles
             # ~22.5 degrees tolerance
-            if abs(rot_diff) < np.pi / 8 or abs(
-                abs(rot_diff) - np.pi/2) < angle_tol:
+            if abs(rot_diff) < np.pi / 8 or abs(abs(rot_diff) -
+                                                np.pi / 2) < angle_tol:
                 dir_value = 0.0  # straight or perpendicular
             elif rot_diff > np.pi / 8:
                 dir_value = 1.0  # left (positive rotation difference)
@@ -374,7 +374,8 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Get constants from the environment class
             gap = cls.env_cls.pos_gap
 
-            target_angle_is_cardinal = abs(np.sin(2 * target_rot_rad)) < angle_tol
+            target_angle_is_cardinal = abs(np.sin(
+                2 * target_rot_rad)) < angle_tol
 
             # Case 1: Place straight ahead
             if dir_value == 0.0 or target_angle_is_cardinal:  # straight

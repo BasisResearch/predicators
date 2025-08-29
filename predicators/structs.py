@@ -310,16 +310,43 @@ class State:
     def dict_str(self,
                  indent: int = 0,
                  object_features: bool = True,
-                 num_decimal_points: int = 2) -> str:
+                 num_decimal_points: int = 2,
+                 use_object_id: bool = False,
+                 ignored_features: List[str] = [
+                    "capacity_liquid",
+                    "target_liquid"
+                    ]) -> str:
         """Return a dictionary representation of the state."""
+        excluded_objects = []
+        if CFG.excluded_objects_in_state_str:
+            excluded_objects = CFG.excluded_objects_in_state_str.split(",")
         state_dict = {}
+        
+        # Collect all unique types from objects in the state
+        object_types = set()
         for obj in self:
-            obj_dict = {}
-            if obj.type.name == "robot" or object_features:
-                for attribute, value in zip(obj.type.feature_names, self[obj]):
-                    obj_dict[attribute] = value
-            obj_name = obj.name
-            state_dict[f"{obj_name}:{obj.type.name}"] = obj_dict
+            object_types.add(obj.type)
+        
+        # Iterate through types and add all objects of each type
+        for obj_type in sorted(object_types, key=lambda t: t.name):
+            obj_type_name = obj_type.name
+            if obj_type_name not in excluded_objects:
+                # Get all objects of this type
+                objects_of_type = self.get_objects(obj_type)
+                
+                # Process each object of this type
+                for obj in objects_of_type:
+                    obj_dict = {}
+                    if obj_type_name == "robot" or object_features:
+                        for attribute, value in zip(obj.type.feature_names,
+                                                    self[obj]):
+                            if attribute not in ignored_features:
+                                obj_dict[attribute] = value
+                    if use_object_id:
+                        obj_name = obj.id_name
+                    else:
+                        obj_name = obj.name
+                    state_dict[f"{obj_name}:{obj.type.name}"] = obj_dict
 
         # Create a string of n_space spaces
         spaces = " " * indent
@@ -798,6 +825,19 @@ class GroundAtom(_Atom):
         string that will be used to query the VLM."""
         assert isinstance(self.predicate, VLMPredicate)
         return self.predicate.get_vlm_query_str(self.objects)  # pylint:disable=no-member
+
+    def get_negated_atom(self) -> GroundAtom:
+        """Get the negated atom of this GroundAtom."""
+        from predicators.approaches.grammar_search_invention_approach import \
+            _NegationClassifier
+        if isinstance(self.predicate._classifier, _NegationClassifier):
+            return GroundAtom(self.predicate._classifier.body, self.objects)
+        else:
+            # classifier = _NegationClassifier(self.predicate)
+            # negated_predicate = Predicate(str(classifier), self.predicate.types,
+            #     classifier)
+            # return GroundAtom(negated_predicate, self.objects)
+            return GroundAtom(self.predicate.get_negation(), self.objects)
 
 
 @dataclass(frozen=True, eq=False)

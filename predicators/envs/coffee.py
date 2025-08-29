@@ -69,8 +69,7 @@ class CoffeeEnv(BaseEnv):
     coffee_machine_fill_speed: ClassVar[
         float] = 0.03  # how fast current_liquid increases per step
     max_jug_coffee_capacity: ClassVar[float] = 1.0  # maximum coffee in jug
-    coffee_filled_threshold: ClassVar[
-        float] = 0.6  # threshold for JugFilled predicate
+    coffee_filled_threshold: ClassVar[float] = 1.0  # threshold for JugFilled
 
     # Powercord / Plug settings.
     num_cord_links = 10
@@ -584,7 +583,8 @@ class CoffeeEnv(BaseEnv):
             for cup, (x, y) in zip(self._cups, cup_positions):
                 cap = rng.uniform(self.cup_capacity_lb, self.cup_capacity_ub)
                 if CFG.coffee_use_pixelated_jug:
-                    target_liquid = cap * self.cup_target_frac * 2
+                    # target_liquid = cap * self.cup_target_frac * 2
+                    target_liquid = cap
                 else:
                     target_liquid = cap * self.cup_target_frac
                 cup_state_dict[cup] = {
@@ -643,7 +643,7 @@ class CoffeeEnv(BaseEnv):
         cup, = objects
         current = state.get(cup, "current_liquid")
         target = state.get(cup, "target_liquid")
-        return current > target
+        return current >= target
 
     @staticmethod
     def _Holding_holds(state: State, objects: Sequence[Object]) -> bool:
