@@ -1209,7 +1209,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         else:
             cpu_cnt = max(1, mp.cpu_count() - 1)
         use_parallel = (CFG.cluster_and_search_process_learner_parallel_pnad
-                        and len(pnads) > 1 and cpu_cnt > 1)
+                        and cpu_cnt > 1)
 
         if not use_parallel:
             logging.info("Learning PNAD preconditions sequentially.")

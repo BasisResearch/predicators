@@ -211,12 +211,21 @@ def filter_explained_segment(
             # if not explained by any; consider explained if atom change is
             # a subset of the add_effects and delete_effects of any
             # ground process.
-            if not any([
-                    add_atoms.issubset(g_proc.add_effects)
-                    and delete_atoms.issubset(g_proc.delete_effects)
-                    for proc in relevant_procs
-                    for g_proc in utils.all_ground_operators(proc, objects)
-            ]):
+            not_explained_by_any = True
+            for proc in relevant_procs:
+                for g_proc in utils.all_ground_operators(proc, objects):
+                    _add_atoms = add_atoms.copy()
+                    _delete_atoms = delete_atoms.copy()
+                    if proc.ignore_effects:
+                        _add_atoms = {a for a in add_atoms if a.predicate 
+                                        not in proc.ignore_effects}
+                        _delete_atoms = {a for a in delete_atoms if a.predicate
+                                        not in proc.ignore_effects}
+                    if _add_atoms.issubset(g_proc.add_effects) and \
+                        _delete_atoms.issubset(g_proc.delete_effects):
+                        not_explained_by_any = False
+                        break
+            if not_explained_by_any:
                 if remove_options:
                     segment.set_option(DummyOption)
                 remaining_segments.append(segment)
@@ -226,5 +235,10 @@ def filter_explained_segment(
     logging.debug(f"Num of leftover segments: {num_remaining_segments}")
     if log_remaining_trajs:
         for j, seg_traj in enumerate(remaining_trajs):
-            logging.debug(f"Trajectory {j}:\n{pformat(seg_traj)}")
+            logging.debug(f"Trajectory {j}:")
+            for i, segment in enumerate(seg_traj):
+                logging.debug(f"Segment {i}. Init atoms: "
+                              f"{sorted(segment.init_atoms)}")
+                logging.debug(f"Add effects: {sorted(segment.add_effects)}")
+                logging.debug(f"Delete effects: {sorted(segment.delete_effects)}")
     return remaining_trajs

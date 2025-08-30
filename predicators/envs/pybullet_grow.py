@@ -83,6 +83,7 @@ class PyBulletGrowEnv(PyBulletEnv):
 
     # Growth logic
     growth_height: ClassVar[float] = 0.3
+    max_growth_height: ClassVar[float] = 0.3
     growth_color: ClassVar[Tuple[float]] = (0.35, 1, 0.3, 0.8)
 
     pour_rate: ClassVar[float] = 0.1
@@ -345,17 +346,18 @@ class PyBulletGrowEnv(PyBulletEnv):
                 return  # No growth if colors don't match
 
             current_growth = state.get(cup, "growth")
-            new_growth = min(1.0, current_growth + self.pour_rate)
+            new_growth = min(self.max_growth_height, 
+                                current_growth + self.pour_rate)
 
             # Remove old liquid body, set new growth
             old_liquid_id = self._cup_to_liquid_id[cup]
             if old_liquid_id is not None:
                 p.removeBody(old_liquid_id,
-                             physicsClientId=self._physics_client_id)
+                            physicsClientId=self._physics_client_id)
 
             state.set(cup, "growth", new_growth)
             self._cup_to_liquid_id[cup] = \
-                self._create_pybullet_liquid_for_cup(cup, state)
+                    self._create_pybullet_liquid_for_cup(cup, state)
 
     def _get_cup_to_pour(self, state: State) -> Optional[Object]:
         # Which jug is being held?
@@ -389,17 +391,22 @@ class PyBulletGrowEnv(PyBulletEnv):
     def _Grown_holds(state: State, objects: Sequence[Object]) -> bool:
         """A cup is "grown" if growth > growth_height."""
         (cup, ) = objects
-        return state.get(cup, "growth") > PyBulletGrowEnv.growth_height
+        return state.get(cup, "growth") >= PyBulletGrowEnv.growth_height
 
     @staticmethod
     def _Holding_holds(state: State, objects: Sequence[Object]) -> bool:
         _, jug = objects
         return state.get(jug, "is_held") > 0.5
 
-    @staticmethod
-    def _HandEmpty_holds(state: State, objects: Sequence[Object]) -> bool:
-        (robot, ) = objects
-        return state.get(robot, "fingers") > 0.02
+    def _HandEmpty_holds(self, state: State, objects: Sequence[Object]) -> bool:
+        # (robot, ) = objects
+        # return state.get(robot, "fingers") > 0.02
+        # using a more robust check
+        jugs = state.get_objects(self._jug_type)
+        for jug in jugs:
+            if self._Holding_holds(state, [self._robot, jug]):
+                return False
+        return True
 
     def _InTableBoundry(self, state: State, objects: Sequence[Object]) -> bool:
         obj, = objects
@@ -445,7 +452,7 @@ class PyBulletGrowEnv(PyBulletEnv):
         jug_pos = (jug_x, jug_y, jug_z)
         pour_pos = PyBulletCoffeeEnv._get_pour_position(state, cup)
         sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
-        return sq_dist_to_pour < PyBulletCoffeeEnv.pour_pos_tol
+        return sq_dist_to_pour < PyBulletCoffeeEnv.pour_pos_tol * 2
 
     def _NotAboveCup_holds(self, state: State,
                            objects: Sequence[Object]) -> bool:
