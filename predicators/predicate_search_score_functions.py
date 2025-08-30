@@ -379,7 +379,7 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                     self._train_tasks[ll_traj.train_task_idx],
                     candidate_predicates | self._initial_predicates,
                     strips_ops,
-                    CFG.seed,
+                    CFG.seed+1,
                     CFG.grammar_search_task_planning_timeout,
                     max_skeletons_optimized=max_skeletons,
                     use_visited_state_set=True)
