@@ -371,13 +371,19 @@ class CoffeeEnv(BaseEnv):
         if CFG.coffee_machine_has_plug:
             predicates.add(self._PluggedIn)
         return predicates
-    
+
     @property
     def target_predicates(self) -> Set[Predicate]:
         predicates = {
-            self._CupFilled, self._JugInMachine, self._Holding,
-            self._MachineOn, self._OnTable, self._HandEmpty, self._JugFilled,
-            self._JugAboveCup, self._NotAboveCup,
+            self._CupFilled,
+            self._JugInMachine,
+            self._Holding,
+            self._MachineOn,
+            self._OnTable,
+            self._HandEmpty,
+            self._JugFilled,
+            self._JugAboveCup,
+            self._NotAboveCup,
         }
         if CFG.coffee_jug_pickable_pred:
             predicates.add(self._JugPickable)

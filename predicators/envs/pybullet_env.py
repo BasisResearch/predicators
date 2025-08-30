@@ -500,8 +500,8 @@ class PyBulletEnv(BaseEnv):
             # Additional features
             for feature in obj_features:
                 if feature not in [
-                        "x", "y", "z", "rot", "yaw", "roll", "is_held", 
-                        "r", "g", "b"
+                        "x", "y", "z", "rot", "yaw", "roll", "is_held", "r",
+                        "g", "b"
                 ]:
                     obj_dict[feature] = self._extract_feature(obj, feature)
 

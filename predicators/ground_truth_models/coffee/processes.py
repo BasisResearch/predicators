@@ -104,15 +104,15 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
                 delete_effects_twist: Set[LiftedAtom] = set()
                 if CFG.coffee_jug_pickable_pred:
                     add_effects_twist.add(LiftedAtom(JugPickable, [jug]))
-                delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
-                                                        sigma=torch.tensor(0.1))
-                twist_process = EndogenousProcess("Twist",
-                                                parameters, condition_at_start,
-                                                set(), set(), add_effects_twist,
-                                                delete_effects_twist,
-                                                delay_distribution,
-                                                torch.tensor(1.0), option,
-                                                option_vars, null_sampler)
+                delay_distribution = DiscreteGaussianDelay(
+                    mu=torch.tensor(4.0), sigma=torch.tensor(0.1))
+                twist_process = EndogenousProcess("Twist", parameters,
+                                                  condition_at_start, set(),
+                                                  set(), add_effects_twist,
+                                                  delete_effects_twist,
+                                                  delay_distribution,
+                                                  torch.tensor(1.0), option,
+                                                  option_vars, null_sampler)
                 processes.add(twist_process)
             else:
                 # MoveToTwistJug
@@ -131,11 +131,11 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
                 delete_effects = {
                     LiftedAtom(HandEmpty, [robot]),
                 }
-                delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
-                                                        sigma=torch.tensor(0.1))
+                delay_distribution = DiscreteGaussianDelay(
+                    mu=torch.tensor(2.0), sigma=torch.tensor(0.1))
                 move_to_twist_jug_process = EndogenousProcess(
-                    "MoveToTwistJug", parameters, condition_at_start, set(), set(),
-                    add_effects, delete_effects, delay_distribution,
+                    "MoveToTwistJug", parameters, condition_at_start, set(),
+                    set(), add_effects, delete_effects, delay_distribution,
                     torch.tensor(1.0), option, option_vars, null_sampler)
                 processes.add(move_to_twist_jug_process)
 
@@ -157,15 +157,12 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
                 delete_effects = {
                     LiftedAtom(Twisting, [robot, jug]),
                 }
-                delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
-                                                        sigma=torch.tensor(0.1))
-                twist_jug_process = EndogenousProcess("TwistJug", parameters,
-                                                    condition_at_start, set(),
-                                                    set(), add_effects,
-                                                    delete_effects,
-                                                    delay_distribution,
-                                                    torch.tensor(1.0), option,
-                                                    option_vars, null_sampler)
+                delay_distribution = DiscreteGaussianDelay(
+                    mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
+                twist_jug_process = EndogenousProcess(
+                    "TwistJug", parameters, condition_at_start, set(), set(),
+                    add_effects, delete_effects, delay_distribution,
+                    torch.tensor(1.0), option, option_vars, null_sampler)
                 processes.add(twist_jug_process)
 
         # PickJugFromTable

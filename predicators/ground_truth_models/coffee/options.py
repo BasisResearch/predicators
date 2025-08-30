@@ -567,8 +567,8 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         if not CFG.coffee_use_pixelated_jug:
             # TwistJug
             def _TwistJug_terminal(state: State, memory: Dict,
-                                objects: Sequence[Object],
-                                params: Array) -> bool:
+                                   objects: Sequence[Object],
+                                   params: Array) -> bool:
                 del memory, params  # unused
                 robot, _ = objects
                 # return HandEmpty.holds(state, [robot])
@@ -596,7 +596,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
                 types=[robot_type, jug_type],
                 # The parameter is a normalized amount to twist by.
                 params_space=Box(-1, 1, (1 if CFG.coffee_twist_sampler else
-                                        0, )),  # temp; originally 1
+                                         0, )),  # temp; originally 1
                 policy=cls._create_twist_jug_policy(),
                 initiable=lambda s, m, o, p: True,
                 terminal=_TwistJug_terminal,

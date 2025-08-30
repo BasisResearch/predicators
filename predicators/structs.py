@@ -2655,7 +2655,8 @@ class CausalProcess(abc.ABC):
     @cached_property
     def _str(self) -> str:
         ignore_effects_str = ""
-        if hasattr(self, 'ignore_effects') and isinstance(self.ignore_effects, set):
+        if hasattr(self, 'ignore_effects') and isinstance(
+                self.ignore_effects, set):
             ignore_effects_str = f"\n    Ignore Effects: {sorted(self.ignore_effects, key=str)}"
         return f"""    Parameters: {self.parameters}
     Conditions at start: {sorted(self.condition_at_start, key=str)}
@@ -2788,7 +2789,7 @@ class EndogenousProcess(CausalProcess):
             option_vars=self.option_vars.copy(),
             _sampler=self._sampler.copy(),
             ignore_effects=self.ignore_effects.copy(),
-            )
+        )
 
     def filter_predicates(self,
                           kept: Collection[Predicate]) -> EndogenousProcess:
@@ -2815,8 +2816,8 @@ class EndogenousProcess(CausalProcess):
                                  condition_at_start, condition_overall,
                                  condition_at_env, add_effects, delete_effects,
                                  self.delay_distribution, self.strength,
-                                 self.option, self.option_vars, 
-                                 self._sampler, ignore_effects)
+                                 self.option, self.option_vars, self._sampler,
+                                 ignore_effects)
 
     def ground(self, objects: Sequence[Object]) -> _GroundEndogenousProcess:
         assert len(objects) == len(self.parameters)

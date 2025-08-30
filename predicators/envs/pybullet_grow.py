@@ -166,7 +166,7 @@ class PyBulletGrowEnv(PyBulletEnv):
             self._SameColor, self._CupOnTable, self._JugAboveCup,
             self._NotAboveCup, self._HandTilted
         }
-    
+
     @property
     def target_predicates(self) -> Set[Predicate]:
         target_predicates = self.predicates.copy()
@@ -346,14 +346,14 @@ class PyBulletGrowEnv(PyBulletEnv):
                 return  # No growth if colors don't match
 
             current_growth = state.get(cup, "growth")
-            new_growth = min(self.max_growth_height, 
-                                current_growth + self.pour_rate)
+            new_growth = min(self.max_growth_height,
+                             current_growth + self.pour_rate)
 
             # Remove old liquid body, set new growth
             old_liquid_id = self._cup_to_liquid_id[cup]
             if old_liquid_id is not None:
                 p.removeBody(old_liquid_id,
-                            physicsClientId=self._physics_client_id)
+                             physicsClientId=self._physics_client_id)
 
             state.set(cup, "growth", new_growth)
             self._cup_to_liquid_id[cup] = \
@@ -398,7 +398,8 @@ class PyBulletGrowEnv(PyBulletEnv):
         _, jug = objects
         return state.get(jug, "is_held") > 0.5
 
-    def _HandEmpty_holds(self, state: State, objects: Sequence[Object]) -> bool:
+    def _HandEmpty_holds(self, state: State,
+                         objects: Sequence[Object]) -> bool:
         # (robot, ) = objects
         # return state.get(robot, "fingers") > 0.02
         # using a more robust check

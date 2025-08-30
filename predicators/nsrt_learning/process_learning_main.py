@@ -217,10 +217,16 @@ def filter_explained_segment(
                     _add_atoms = add_atoms.copy()
                     _delete_atoms = delete_atoms.copy()
                     if proc.ignore_effects:
-                        _add_atoms = {a for a in add_atoms if a.predicate 
-                                        not in proc.ignore_effects}
-                        _delete_atoms = {a for a in delete_atoms if a.predicate
-                                        not in proc.ignore_effects}
+                        _add_atoms = {
+                            a
+                            for a in add_atoms
+                            if a.predicate not in proc.ignore_effects
+                        }
+                        _delete_atoms = {
+                            a
+                            for a in delete_atoms
+                            if a.predicate not in proc.ignore_effects
+                        }
                     if _add_atoms.issubset(g_proc.add_effects) and \
                         _delete_atoms.issubset(g_proc.delete_effects):
                         not_explained_by_any = False
@@ -240,5 +246,6 @@ def filter_explained_segment(
                 logging.debug(f"Segment {i}. Init atoms: "
                               f"{sorted(segment.init_atoms)}")
                 logging.debug(f"Add effects: {sorted(segment.add_effects)}")
-                logging.debug(f"Delete effects: {sorted(segment.delete_effects)}")
+                logging.debug(
+                    f"Delete effects: {sorted(segment.delete_effects)}")
     return remaining_trajs
