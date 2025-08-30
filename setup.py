@@ -6,6 +6,7 @@ setup(
     version="0.1.0",
     packages=find_packages(include=["predicators", "predicators.*"]),
     install_requires=[
+        "psutil",
         "numpy==1.23.5",
         "pytest==7.1.3",
         "mypy==1.8.0",
