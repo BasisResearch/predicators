@@ -453,7 +453,7 @@ class PyBulletGrowEnv(PyBulletEnv):
         jug_pos = (jug_x, jug_y, jug_z)
         pour_pos = PyBulletCoffeeEnv._get_pour_position(state, cup)
         sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
-        return sq_dist_to_pour < PyBulletCoffeeEnv.pour_pos_tol * 2
+        return sq_dist_to_pour < PyBulletCoffeeEnv.pour_pos_tol
 
     def _NotAboveCup_holds(self, state: State,
                            objects: Sequence[Object]) -> bool:
