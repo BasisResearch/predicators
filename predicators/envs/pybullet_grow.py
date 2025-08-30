@@ -86,7 +86,7 @@ class PyBulletGrowEnv(PyBulletEnv):
     max_growth_height: ClassVar[float] = 0.3
     growth_color: ClassVar[Tuple[float]] = (0.35, 1, 0.3, 0.8)
 
-    pour_rate: ClassVar[float] = 0.01
+    pour_rate: ClassVar[float] = 0.005
     pour_x_offset: ClassVar[float] = cup_radius
     pour_y_offset: ClassVar[float] = -3 * (cup_radius + jug_radius)
     pour_z_offset: ClassVar[float] = 2.5 * (cup_capacity_ub + jug_height -\
