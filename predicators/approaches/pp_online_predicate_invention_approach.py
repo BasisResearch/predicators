@@ -588,6 +588,14 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 for atom in proc_copy.delete_effects
                 if atom.predicate in candidate_predicates
             }
+            # Make sure the parameter only include variables that appear in the 
+            # conditions and effects
+            remaining_variables = set()
+            for atom in proc_copy.condition_at_start | proc_copy.add_effects |\
+                        proc_copy.delete_effects:
+                remaining_variables |= set(atom.variables)
+            proc_copy.parameters = [v for v in proc_copy.parameters if v in 
+                                    remaining_variables]
             return proc_copy
 
         def _get_best_compatible_exo_processes(
