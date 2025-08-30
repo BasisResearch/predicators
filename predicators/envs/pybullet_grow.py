@@ -55,7 +55,7 @@ class PyBulletGrowEnv(PyBulletEnv):
     # robot config
     # this smaller value is needed for grasping jugs
     grasp_tol_small: ClassVar[float] = 5e-2
-    pour_pos_tol: ClassVar[float] = 0.005
+    pour_pos_tol: ClassVar[float] = 0.005 * 2
     _finger_action_tol: ClassVar[float] = 5e-3
     robot_init_x: ClassVar[float] = (x_lb + x_ub) * 0.5
     robot_init_y: ClassVar[float] = (y_lb + y_ub) * 0.5
@@ -453,7 +453,7 @@ class PyBulletGrowEnv(PyBulletEnv):
         jug_pos = (jug_x, jug_y, jug_z)
         pour_pos = PyBulletCoffeeEnv._get_pour_position(state, cup)
         sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
-        return sq_dist_to_pour < PyBulletCoffeeEnv.pour_pos_tol
+        return sq_dist_to_pour < self.pour_pos_tol
 
     def _NotAboveCup_holds(self, state: State,
                            objects: Sequence[Object]) -> bool:
