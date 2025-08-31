@@ -1052,6 +1052,12 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
     def get_name(cls) -> str:
         return "cluster_and_search_process_learner"
 
+    def _determine_worker_count(self) -> int:
+        """Return number of worker processes to use based on config."""
+        if CFG.process_learning_process_per_physical_core:
+            return max(1, psutil.cpu_count(logical=False) - 1)
+        return max(1, mp.cpu_count() - 1)
+
     def _llm_rank_atoms(
             self,
             possible_atoms_per_pnad: List[Set[LiftedAtom]],
@@ -1129,7 +1135,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             with open(f"{CFG.log_file}/atom_ranking_response.txt", "w") as f:
                 f.write(f"{prompt}\n=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*"
                         f"\n{response}")
-            breakpoint()
+            
 
             # Parse the response
             answer_match = re.search(r'<answer>(.*?)</answer>', response,
@@ -1178,7 +1184,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                             # But limit to top N atoms to avoid combinatorial explosion
                             max_atoms = min(
                                 len(valid_indices),
-                                CFG.get("llm_atom_ranking_max_atoms", 5))
+                                CFG.llm_atom_ranking_max_atoms, 5)
                             selected_atoms = [
                                 sorted_atoms[idx]
                                 for idx in valid_indices[:max_atoms]
@@ -1224,10 +1230,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         expensive data-likelihood metric.
         """
         # Check if parallelization is enabled and beneficial.
-        if CFG.process_learning_process_per_physical_core:
-            cpu_cnt = max(1, psutil.cpu_count(logical=False) - 1)
-        else:
-            cpu_cnt = max(1, mp.cpu_count() - 1)
+        cpu_cnt = self._determine_worker_count()
         use_parallel = (CFG.cluster_and_search_process_learner_parallel_pnad
                         and cpu_cnt > 1)
 
@@ -1295,23 +1298,22 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 [min(num, i) for num in num_candidates_per_pnad])
             if total_candidates <= cpu_cnt:
                 logging.info(
-                    f"Setting candidate cap per PNAD to "
-                    f"{num_candidates_to_keep} to utilize {cpu_cnt} CPUs (total "
-                    f"candidates: {total_candidates}).")
+                    f"Setting candidate cap per PNAD to {i} to utilize {cpu_cnt} CPUs "
+                    f"(total candidates: {total_candidates}).")
                 num_candidates_to_keep = i
                 break
+        
+        # Helper: get initial lifted atoms for a PNAD index
+        def _initial_lifted_atoms_for_index(idx: int, p: PNAD) -> Set[LiftedAtom]:
+            if CFG.exogenous_process_learner_do_intersect:
+                return possible_atoms_per_pnad[idx]
+            init_ground_atoms = p.datastore[0][0].init_atoms
+            var_to_obj = p.datastore[0][1]
+            obj_to_var = {v: k for k, v in var_to_obj.items()}
+            return {atom.lift(obj_to_var) for atom in init_ground_atoms}
 
         for i, pnad in indexed_pnads.items():
-            if CFG.exogenous_process_learner_do_intersect:
-                initial_lift_atoms = possible_atoms_per_pnad[i]
-            else:
-                init_ground_atoms = pnad.datastore[0][0].init_atoms
-                var_to_obj = pnad.datastore[0][1]
-                obj_to_var = {v: k for k, v in var_to_obj.items()}
-                initial_lift_atoms = {
-                    atom.lift(obj_to_var)
-                    for atom in init_ground_atoms
-                }
+            initial_lift_atoms = _initial_lifted_atoms_for_index(i, pnad)
 
             all_candidates = list(utils.all_subsets(initial_lift_atoms))
 
@@ -1384,51 +1386,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                         CFG.process_param_learning_patience)
                 work_items.append(item)
 
-        # ----- Debug start -----
-        def debug_func(work_item):
-            (pnad_idx, base_process, condition_candidate, trajectories,
-             predicates, seed, num_it, complexity_weight, load_dir, save_dir,
-             early_stopping_patience) = work_item
-            logging.info(f"Debugging condition {condition_candidate} for "
-                         f"PNAD index {pnad_idx}")
-            # Set the conditions on the process object.
-            base_process.condition_at_start = condition_candidate
-            base_process.condition_overall = condition_candidate
-
-            from predicators.approaches.pp_param_learning_approach import \
-                learn_process_parameters
-
-            # Perform the expensive part: learning and scoring.
-            process, scores = learn_process_parameters(
-                trajectories,
-                predicates,
-                [base_process
-                 ],  # The list now contains just the one process to score.
-                use_lbfgs=False,
-                plot_training_curve=False,
-                lbfgs_max_iter=num_it,
-                adam_num_steps=num_it,
-                seed=seed,
-                display_progress=True,
-                early_stopping_patience=early_stopping_patience,
-                debug_log=True)
-            process_param_str = ", ".join(
-                [f"{v:.4f}" for v in process[0]._get_parameters()])
-            logging.info(f"ELBO: {scores[0]:.4f}, "
-                         f"Exp_state_prob: {scores[1]:.4f}, "
-                         f"Exp_delay_prob: {scores[2]:.4f}, "
-                         f"Entropy: {scores[3]:.4f}, "
-                         f"Process params: {process_param_str}\n")
-
-        # with mu=5; work_item 2: FaucetOn
-        #            work_item 5: BrunerOn
-        # # ------ For FaucetOn
-        # debug_func(work_items[2])
-
-        # # ------ For BurnerOn
-        # debug_func(work_items[5])
-        # breakpoint()
-        # ----- Debug end -----
+        # Debug code removed for clarity.
         if not work_items:
             return []
 
@@ -1482,23 +1440,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                               f"Exp_delay_prob: {scores[2]:.4f}, "
                               f"Entropy: {scores[3]:.4f}, "
                               f"Process params: {process_param_str}")
-                if CFG.use_wandb:
-                    wandb.log({
-                        f"pnad_{pnad_idx}_condition_{rank}_cost":
-                        cost,
-                        f"pnad_{pnad_idx}_condition_{rank}_condition":
-                        str(condition_candidate),
-                        f"pnad_{pnad_idx}_condition_{rank}_elbo":
-                        scores[0],
-                        f"pnad_{pnad_idx}_condition_{rank}_exp_state_prob":
-                        scores[1],
-                        f"pnad_{pnad_idx}_condition_{rank}_exp_delay_prob":
-                        scores[2],
-                        f"pnad_{pnad_idx}_condition_{rank}_entropy":
-                        scores[3],
-                        f"pnad_{pnad_idx}_condition_{rank}_process_params":
-                        process_param_str
-                    })
 
             # Get the conditions with the top marginal likelihood
             multiple_top_conditions = False

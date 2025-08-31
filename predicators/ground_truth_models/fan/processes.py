@@ -45,11 +45,11 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
         FanOff = predicates["FanOff"]
         BallAtLoc = predicates["BallAtLoc"]
         ClearPos = predicates["ClearPos"]
-        FanFacingSide = predicates["FanOnSide"]
+        FanFacingSide = predicates["FanFacingSide"]
         SideOf = predicates["SideOf"]
-        Controls = predicates["Controls"]
         OppositeFan = predicates["OppositeFan"]
         if not CFG.fan_known_controls_relation:
+            Controls = predicates["Controls"]
             SwitchOn = predicates["SwitchOn"]
             SwitchOff = predicates["SwitchOff"]
 
