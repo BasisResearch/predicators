@@ -390,15 +390,35 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             pnad_param_option: ParameterizedOption,
             segment_option_objs: Tuple[Object],
             pnad_option_vars: Tuple[Variable]) -> VarToObjSub:
-        """Try to unify and find the largest conditions that unify the init
-        atoms of the segment and the last segment in the pnad datastore.
+        """Try to unify and find the *largest* set of matching init atoms
+        between the given segment and the *last* segment in the PNAD's
+        datastore, then return the resulting Var->Obj substitution.
 
-        Returns an updated VarToObjSub.
+        The method searches over decreasing sizes of candidate subsets from the
+        two initial-atom sets and picks the first successful unification at the
+        largest cardinality (thus preferring richer intersections). Ties at the
+        same cardinality break deterministically via the sorted order of atoms.
+
+        Notes
+        -----
+        • Complexity is combinatorial in the number of candidate init atoms on
+          each side (O(\sum_k C(n,k)C(m,k))). In practice, earlier pruning by
+          predicate type and sorting provides determinism and some efficiency.
+        • Only atoms whose objects are present in the PNAD's last segment are
+          considered on the PNAD side; this avoids accidental lifting across
+          unseen objects.
+        • We explicitly filter out DerivedPredicate effects prior to unifying
+          effect sets.
         """
+        # Build lifted view of the *last* segment stored in this PNAD so we can
+        # compare its initial atoms against the current segment's init atoms.
         seg_init_atoms_full = set(segment.init_atoms)
 
+        # The last segment in the PNAD's datastore and its variable mapping.
         last_seg, last_var_to_obj = pnad.datastore[-1]
+        # Invert to Object->Variable mapping for the PNAD's last segment.
         last_obj_to_var = {o: v for v, o in last_var_to_obj.items()}
+        # Consider only atoms whose objects appear in the PNAD's last segment.
         objects = set(last_obj_to_var)
         lifted_last_init_atoms = {
             atom.lift(last_obj_to_var)
@@ -406,23 +426,29 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             if all(o in objects for o in atom.objects)
         }
 
-        # Candidate atoms that possibly match
+        # Restrict to predicates that are shared to reduce the search space.
         common_preds = {a.predicate for a in seg_init_atoms_full} & \
-                    {b.predicate for b in lifted_last_init_atoms}
+                       {b.predicate for b in lifted_last_init_atoms}
 
-        s_init_atoms_list = sorted([
-            atom
-            for atom in seg_init_atoms_full if atom.predicate in common_preds
-        ],
-                                   key=str)
-        ds_lifted_init_atoms_list = sorted([
-            atom for atom in lifted_last_init_atoms
-            if atom.predicate in common_preds
-        ],
-                                           key=str)
+        # Deterministic ordering ensures deterministic tie-breaking.
+        s_init_atoms_list = sorted(
+            [
+                atom for atom in seg_init_atoms_full
+                if atom.predicate in common_preds
+            ],
+            key=str,
+        )
+        ds_lifted_init_atoms_list = sorted(
+            [
+                atom for atom in lifted_last_init_atoms
+                if atom.predicate in common_preds
+            ],
+            key=str,
+        )
         max_len1 = len(s_init_atoms_list)
         max_len2 = len(ds_lifted_init_atoms_list)
 
+        # Ignore derived predicates in the effects before unification checks.
         seg_add_eff = frozenset(
             a for a in seg_add_eff
             if not isinstance(a.predicate, DerivedPredicate))
@@ -432,33 +458,48 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
         pnad_add_eff = frozenset(pnad.op.add_effects)
         pnad_del_eff = frozenset(pnad.op.delete_effects)
 
-        unify_args = (seg_add_eff, pnad_add_eff, seg_del_eff, pnad_del_eff,
-                      segment_param_option, pnad_param_option,
-                      segment_option_objs, tuple(pnad_option_vars))
+        # Bundle static unify args to keep the loop below clean.
+        unify_args = (
+            seg_add_eff,
+            pnad_add_eff,
+            seg_del_eff,
+            pnad_del_eff,
+            segment_param_option,
+            pnad_param_option,
+            segment_option_objs,
+            tuple(pnad_option_vars),
+        )
 
+        # We keep the best (largest) Object->Variable mapping seen so far and
+        # return its inverse (Var->Obj) at the end.
         best_obj_to_var = obj_to_var
         found_best_unification = False
         k_limit = min(max_len1, max_len2)
 
+        # Search from largest possible intersection size down to 0.
         for k_common in range(k_limit, -1, -1):
+            # Try all k-sized subsets from the segment's init atoms...
             for p1_subset_tuple in itertools.combinations(
                     s_init_atoms_list, k_common):
                 p1_candidate = frozenset(p1_subset_tuple)
+                # ...against all k-sized subsets from the PNAD's lifted init atoms.
                 for p2_subset_tuple in itertools.combinations(
                         ds_lifted_init_atoms_list, k_common):
                     p2_candidate = frozenset(p2_subset_tuple)
 
-                    # Check if they have the same predicates
+                    # Quick check: the predicate *multisets* must match.
                     if {a.predicate
                             for a in p1_candidate
                         } != {a.predicate
                               for a in p2_candidate}:
                         continue
 
-                    # Check if they unify
+                    # Attempt unification of (preconds, effects, options).
                     current_suc, current_obj_to_var = utils.unify_preconds_effects_options(
                         p1_candidate, p2_candidate, *unify_args)
                     if current_suc:
+                        # First success at this size is by construction the best
+                        # (because we iterate k from large to small).
                         best_obj_to_var = current_obj_to_var
                         found_best_unification = True
                         break
@@ -467,6 +508,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             if found_best_unification:
                 break
 
+        # Convert Object->Variable back to Var->Object mapping for return.
         sub = cast(VarToObjSub, {v: o for o, v in best_obj_to_var.items()})
         return sub
 
