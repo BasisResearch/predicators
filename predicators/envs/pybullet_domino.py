@@ -720,10 +720,14 @@ class PyBulletDominoEnv(PyBulletEnv):
             return False
         return True
 
-    @classmethod
-    def _HandEmpty_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+    def _HandEmpty_holds(self, state: State,
+                         objects: Sequence[Object]) -> bool:
         robot, = objects
-        return state.get(robot, "fingers") > 0.02
+        dominos = state.get_objects(self._domino_type)
+        for domino in dominos:
+            if state.get(domino, "is_held"):
+                return False
+        return True
 
     @classmethod
     def _Holding_holds(cls, state: State, objects: Sequence[Object]) -> bool:
@@ -906,6 +910,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                            objects: Sequence[Object]) -> bool:
         """Check if domino is at a specific position."""
         domino, position = objects
+        if state.get(domino, "is_held"):
+            return False
 
         # Get domino's actual position
         domino_x = state.get(domino, "x")
@@ -925,6 +931,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                            objects: Sequence[Object]) -> bool:
         """Check if domino is at a specific rotation."""
         domino, rotation = objects
+        if state.get(domino, "is_held"):
+            return False
 
         # Get domino's actual rotation (in radians)
         domino_rot = state.get(domino, "yaw")
@@ -994,7 +1002,8 @@ class PyBulletDominoEnv(PyBulletEnv):
 
             # If domino is close enough to this position, position is not clear
             if (abs(domino_x - target_x) <= position_tolerance
-                    and abs(domino_y - target_y) <= position_tolerance):
+                    and abs(domino_y - target_y) <= position_tolerance
+                    and not state.get(domino, "is_held")):
                 return False
 
         return True

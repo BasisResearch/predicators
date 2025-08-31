@@ -1992,7 +1992,8 @@ class PNAD:
 
     def add_to_datastore(self,
                          member: Tuple[Segment, VarToObjSub],
-                         check_effect_equality: bool = True) -> None:
+                         check_effect_equality: bool = True,
+                         check_option_equality: bool = True) -> None:
         """Add a new member to self.datastore."""
         seg, var_obj_sub = member
         if len(self.datastore) > 0:
@@ -2021,7 +2022,7 @@ class PNAD:
                 }
                 assert lifted_add_effects == self.op.add_effects
                 assert lifted_del_effects == self.op.delete_effects
-            if seg.has_option():
+            if seg.has_option() and check_option_equality:
                 # The option should match.
                 option = seg.get_option()
                 part_param_option, part_option_args = self.option_spec

@@ -112,7 +112,7 @@ def learn_processes_from_data(
     # Filter out segments explained by endogenous processes.
     remaining_segmented_trajs = filter_explained_segment(segmented_trajs,
                                                          endogenous_processes,
-                                                         remove_options=True)
+                                                         remove_options=False)
 
     # STEP 2: Learn the exogenous processes based on unexplained processes.
     #         This is different from STRIPS/endogenous processes, where these
@@ -208,12 +208,18 @@ def filter_explained_segment(
                 for a in segment.delete_effects
                 if not isinstance(a.predicate, DerivedPredicate)
             }
-            # if not explained by any; consider explained if atom change is
-            # a subset of the add_effects and delete_effects of any
+            # if not explained by any; consider explained if the atom change is
+            # a subset of the add_effects and delete_effects of any compatible
             # ground process.
             not_explained_by_any = True
             for proc in relevant_procs:
-                for g_proc in utils.all_ground_operators(proc, objects):
+                var_to_obj = {
+                    v: o
+                    for v, o in zip(proc.option_vars,
+                                    segment.get_option().objects)
+                }
+                for g_proc in utils.all_ground_operators_given_partial(
+                        proc, objects, var_to_obj):
                     _add_atoms = add_atoms.copy()
                     _delete_atoms = delete_atoms.copy()
                     if proc.ignore_effects:
@@ -248,4 +254,5 @@ def filter_explained_segment(
                 logging.debug(f"Add effects: {sorted(segment.add_effects)}")
                 logging.debug(
                     f"Delete effects: {sorted(segment.delete_effects)}")
+                logging.debug(f"Option: {segment.get_option()}\n")
     return remaining_trajs

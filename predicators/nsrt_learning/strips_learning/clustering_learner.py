@@ -29,47 +29,11 @@ from predicators.settings import CFG
 from predicators.structs import PNAD, CausalProcess, Datastore, \
     DerivedPredicate, DummyOption, EndogenousProcess, ExogenousProcess, \
     GroundAtom, LiftedAtom, Object, ParameterizedOption, Predicate, Segment, \
-    STRIPSOperator, Variable, VarToObjSub
+    STRIPSOperator, Variable, VarToObjSub, _TypedEntity
 
 if sys.platform == "darwin":
     # Set this when using macOS, to avoid issues with forked processes.
     mp.set_start_method("spawn", force=True)
-
-# Comment out to simplify debugging
-# def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
-#     """Utility for multiprocessing: evaluate one condition_candidate under the
-#     data‑likelihood scoring regime.
-
-#     Returns (cost, condition_candidate).
-#     """
-#     condition_candidate, trajectories, predicates, base_process, seed, num_it,\
-#          early_stopping_patience = args
-#     # Deep‑copy to isolate state per worker.
-#     # proc_copy = copy.deepcopy(base_process)
-#     base_process.condition_at_start = condition_candidate
-#     base_process.condition_overall = condition_candidate
-#     complexity_penalty = \
-#         CFG.process_condition_search_complexity_weight * len(
-#         condition_candidate)
-
-#     # Local import avoids pickling issues with bound methods.
-#     from predicators.approaches.pp_param_learning_approach import \
-#         learn_process_parameters
-#     process, scores = learn_process_parameters(
-#         trajectories,
-#         predicates,
-#         [base_process],
-#         use_lbfgs=False,
-#         plot_training_curve=False,
-#         lbfgs_max_iter=num_it,
-#         adam_num_steps=num_it,
-#         seed=seed,
-#         display_progress=False,
-#         early_stopping_patience=early_stopping_patience,
-#     )
-#     cost = -scores[0] + complexity_penalty
-#     # Original code minimises negative likelihood, so keep sign consistent.
-#     return cost, condition_candidate, scores, process[0]
 
 
 def _flat_pnad_scoring_worker(
@@ -121,11 +85,19 @@ def _flat_pnad_scoring_worker(
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
     """Base class for a clustering-based STRIPS learner."""
 
-    def _learn(self) -> List[PNAD]:
+    def _learn(self, debug_log: bool = True) -> List[PNAD]:
         segments = [seg for segs in self._segmented_trajs for seg in segs]
+        if debug_log:
+            logging.info(
+                f"ClusteringSTRIPSLearner._learn: Processing {len(segments)} segments from {len(self._segmented_trajs)} trajectories"
+            )
         # Cluster the segments according to common option and effects.
         pnads: List[PNAD] = []
-        for segment in segments:
+        for i, segment in enumerate(segments):
+            if debug_log:
+                logging.info(
+                    f"ClusteringSTRIPSLearner._learn: Processing segment {i+1}/{len(segments)}"
+                )
             if segment.has_option():
                 segment_option = segment.get_option()
                 segment_param_option = segment_option.parent
@@ -139,6 +111,8 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                     "cluster_and_inverse_planning"
             ] or CFG.exogenous_process_learner_do_intersect:
                 preconds1 = frozenset()  # no preconditions
+                segment_param_option = DummyOption.parent
+                segment_option_objs = tuple()
             else:
                 # Ground
                 preconds1 = frozenset(segment.init_atoms)
@@ -163,6 +137,15 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 preconds1, seg_add_effects, seg_del_effects,
                 segment_param_option, segment_option_objs, pnads)
 
+            if debug_log:
+                logging.info(
+                    f"ClusteringSTRIPSLearner._learn: Segment {i+1} unification success: {suc}"
+                )
+                if suc:
+                    logging.info(
+                        f"ClusteringSTRIPSLearner._learn: Unified with existing PNAD, total PNADs: {len(pnads)}"
+                    )
+
             if suc:
                 sub = cast(VarToObjSub,
                            {v: o
@@ -181,12 +164,14 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                         segment, seg_add_effects, seg_del_effects, pnad,
                         ent_to_ent_sub, segment_param_option,
                         pnad_param_option, segment_option_objs,
-                        tuple(pnad_option_vars))
+                        tuple(pnad_option_vars), self._endogenous_processes)
                 else:
                     assert set(sub.keys()) == set(pnad.op.parameters)
                 pnad.add_to_datastore(
                     (segment, sub),
                     check_effect_equality=not self.get_name()
+                    in ["cluster_and_search_process_learner"],
+                    check_option_equality=not self.get_name()
                     in ["cluster_and_search_process_learner"])
             else:
                 # Otherwise, create a new PNAD.
@@ -290,13 +275,15 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                                         del_effect_set, pnad, ent_to_ent_sub,
                                         segment_param_option,
                                         pnad_param_option, segment_option_objs,
-                                        tuple(pnad_option_vars))
+                                        tuple(pnad_option_vars),
+                                        self._endogenous_processes)
                                 else:
                                     assert set(sub.keys()) == set(
                                         pnad.op.parameters)
                                 pnad.add_to_datastore(
                                     (segment, sub),
-                                    check_effect_equality=False)
+                                    check_effect_equality=False,
+                                    check_option_equality=False)
                             else:
                                 add_effect_set = frozenset({
                                     atom.lift(obj_to_var)
@@ -326,6 +313,10 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 option_vars = [obj_to_var[o] for o in segment_option_objs]
                 option_spec = (segment_param_option, option_vars)
                 pnads.append(PNAD(op, datastore, option_spec))
+                if debug_log:
+                    logging.info(
+                        f"ClusteringSTRIPSLearner._learn: Created new PNAD {op.name}, total PNADs: {len(pnads)}"
+                    )
 
         if self.get_name() in ["cluster_and_search_process_learner"]:
             # Do this extra step for this learner
@@ -389,127 +380,206 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             segment_param_option: ParameterizedOption,
             pnad_param_option: ParameterizedOption,
             segment_option_objs: Tuple[Object],
-            pnad_option_vars: Tuple[Variable]) -> VarToObjSub:
+            pnad_option_vars: Tuple[Variable],
+            endogenous_processes: List[EndogenousProcess]) -> VarToObjSub:
         """Try to unify and find the *largest* set of matching init atoms
         between the given segment and the *last* segment in the PNAD's
         datastore, then return the resulting Var->Obj substitution.
 
-        The method searches over decreasing sizes of candidate subsets from the
-        two initial-atom sets and picks the first successful unification at the
-        largest cardinality (thus preferring richer intersections). Ties at the
-        same cardinality break deterministically via the sorted order of atoms.
-
-        Notes
-        -----
-        • Complexity is combinatorial in the number of candidate init atoms on
-          each side (O(\sum_k C(n,k)C(m,k))). In practice, earlier pruning by
-          predicate type and sorting provides determinism and some efficiency.
-        • Only atoms whose objects are present in the PNAD's last segment are
-          considered on the PNAD side; this avoids accidental lifting across
-          unseen objects.
-        • We explicitly filter out DerivedPredicate effects prior to unifying
-          effect sets.
+        Optimized version: uses a single unification of effects+options
+        to seed an entity mapping, then performs a branch-and-bound
+        search over preconditions with strong pruning and heuristics
+        (fail-first ordering and predicate-count upper bounds). This
+        avoids the previous O(\sum_k C(n,k) C(m,k)) subset enumeration.
         """
-        # Build lifted view of the *last* segment stored in this PNAD so we can
-        # compare its initial atoms against the current segment's init atoms.
+        # ---------- 0) Gather init atoms (ground vs. lifted) ----------
         seg_init_atoms_full = set(segment.init_atoms)
 
         # The last segment in the PNAD's datastore and its variable mapping.
         last_seg, last_var_to_obj = pnad.datastore[-1]
-        # Invert to Object->Variable mapping for the PNAD's last segment.
         last_obj_to_var = {o: v for v, o in last_var_to_obj.items()}
-        # Consider only atoms whose objects appear in the PNAD's last segment.
-        objects = set(last_obj_to_var)
+        objects_in_last = set(last_obj_to_var)
         lifted_last_init_atoms = {
             atom.lift(last_obj_to_var)
             for atom in last_seg.init_atoms
-            if all(o in objects for o in atom.objects)
+            if all(o in objects_in_last for o in atom.objects)
         }
 
-        # Restrict to predicates that are shared to reduce the search space.
+        # Restrict to predicates shared between the two sides.
         common_preds = {a.predicate for a in seg_init_atoms_full} & \
                        {b.predicate for b in lifted_last_init_atoms}
-
-        # Deterministic ordering ensures deterministic tie-breaking.
-        s_init_atoms_list = sorted(
-            [
-                atom for atom in seg_init_atoms_full
-                if atom.predicate in common_preds
-            ],
+        remove_ignore_atoms = True
+        if remove_ignore_atoms:
+            relevant_procs = [
+                p for p in endogenous_processes
+                if segment.get_option().parent == p.option
+            ]
+            for endo_proc in relevant_procs:
+                common_preds -= endo_proc.ignore_effects
+        seg_pre_list: List[GroundAtom] = sorted(
+            [a for a in seg_init_atoms_full if a.predicate in common_preds],
             key=str,
         )
-        ds_lifted_init_atoms_list = sorted(
-            [
-                atom for atom in lifted_last_init_atoms
-                if atom.predicate in common_preds
-            ],
+        pnad_pre_list: List[LiftedAtom] = sorted(
+            [b for b in lifted_last_init_atoms if b.predicate in common_preds],
             key=str,
         )
-        max_len1 = len(s_init_atoms_list)
-        max_len2 = len(ds_lifted_init_atoms_list)
 
-        # Ignore derived predicates in the effects before unification checks.
-        seg_add_eff = frozenset(
-            a for a in seg_add_eff
-            if not isinstance(a.predicate, DerivedPredicate))
-        seg_del_eff = frozenset(
-            a for a in seg_del_eff
-            if not isinstance(a.predicate, DerivedPredicate))
-        pnad_add_eff = frozenset(pnad.op.add_effects)
-        pnad_del_eff = frozenset(pnad.op.delete_effects)
+        # Quick exits: nothing to match or no shared predicates.
+        if not seg_pre_list or not pnad_pre_list:
+            return cast(VarToObjSub, {v: o for o, v in obj_to_var.items()})
 
-        # Bundle static unify args to keep the loop below clean.
-        unify_args = (
-            seg_add_eff,
-            pnad_add_eff,
-            seg_del_eff,
-            pnad_del_eff,
-            segment_param_option,
-            pnad_param_option,
-            segment_option_objs,
-            tuple(pnad_option_vars),
-        )
+        # ---------- 1) Unify effects+options once to seed a mapping ----------
+        # Remove derived predicates in the effects beforehand (already done by caller
+        # earlier, but ensure here too for safety).
+        # seg_add_eff = frozenset(
+        #     a for a in seg_add_eff if not isinstance(a.predicate, DerivedPredicate)
+        # )
+        # seg_del_eff = frozenset(
+        #     a for a in seg_del_eff if not isinstance(a.predicate, DerivedPredicate)
+        # )
+        # pnad_add_eff = frozenset(pnad.op.add_effects)
+        # pnad_del_eff = frozenset(pnad.op.delete_effects)
 
-        # We keep the best (largest) Object->Variable mapping seen so far and
-        # return its inverse (Var->Obj) at the end.
-        best_obj_to_var = obj_to_var
-        found_best_unification = False
-        k_limit = min(max_len1, max_len2)
+        # # Attempt to unify options+effects only. If this fails, no precondition
+        # # subset can help, so just return the original mapping.
+        # base_ok, base_obj_to_var = utils.unify_preconds_effects_options(
+        #     frozenset(),  # preconds1
+        #     frozenset(),  # preconds2
+        #     seg_add_eff,
+        #     pnad_add_eff,
+        #     seg_del_eff,
+        #     pnad_del_eff,
+        #     segment_param_option,
+        #     pnad_param_option,
+        #     segment_option_objs,
+        #     tuple(pnad_option_vars),
+        # )
+        # if not base_ok:
+        #     return cast(VarToObjSub, {v: o for o, v in obj_to_var.items()})
 
-        # Search from largest possible intersection size down to 0.
-        for k_common in range(k_limit, -1, -1):
-            # Try all k-sized subsets from the segment's init atoms...
-            for p1_subset_tuple in itertools.combinations(
-                    s_init_atoms_list, k_common):
-                p1_candidate = frozenset(p1_subset_tuple)
-                # ...against all k-sized subsets from the PNAD's lifted init atoms.
-                for p2_subset_tuple in itertools.combinations(
-                        ds_lifted_init_atoms_list, k_common):
-                    p2_candidate = frozenset(p2_subset_tuple)
+        # Start from the mapping returned by effects+options unify.
+        # This maps Objects (including constants) -> Variables.
+        current_map: Dict[_TypedEntity, Variable] = dict(obj_to_var)
 
-                    # Quick check: the predicate *multisets* must match.
-                    if {a.predicate
-                            for a in p1_candidate
-                        } != {a.predicate
-                              for a in p2_candidate}:
+        # We'll try to extend current_map with as many precondition matches as possible.
+        # Keep the best map we find (highest number of matched precondition atoms).
+        best_map: Dict[_TypedEntity, Variable] = dict(current_map)
+        best_count: int = 0
+
+        # ---------- 2) Organize atoms by predicate for bounds & candidate search ----------
+        from collections import Counter, defaultdict
+
+        idx_pnad_by_pred: Dict[Predicate, List[int]] = defaultdict(list)
+        for j, b in enumerate(pnad_pre_list):
+            idx_pnad_by_pred[b.predicate].append(j)
+
+        # Upper bound helper: given the set of unused indices on each side, compute
+        # a cheap predicate-count bound on how many additional matches are possible.
+        def predicate_upper_bound(seg_idxs: Set[int],
+                                  pnad_unused: Set[int]) -> int:
+            seg_ctr = Counter(seg_pre_list[i].predicate for i in seg_idxs)
+            pnad_ctr = Counter(pnad_pre_list[j].predicate for j in pnad_unused)
+            return sum(min(seg_ctr[p], pnad_ctr[p]) for p in seg_ctr.keys())
+
+        # Compatibility check for a single (ground, lifted) atom pair under a
+        # partial Object->Variable mapping. If compatible, returns the *new* pairs
+        # (obj, var) to add; otherwise returns None.
+        def compatible_extension(
+            a: GroundAtom, b: LiftedAtom, mapping: Dict[_TypedEntity, Variable]
+        ) -> Optional[List[Tuple[_TypedEntity, Variable]]]:
+            if a.predicate != b.predicate:
+                return None
+            new_pairs: List[Tuple[_TypedEntity, Variable]] = []
+            inv = {v: k for k, v in mapping.items()}
+            for obj_ent, var_ent in zip(a.entities, b.entities):
+                # Types must match
+                if obj_ent.type != var_ent.type:
+                    return None
+                # b side should be a Variable (usually), but handle if lifted constant
+                if isinstance(var_ent, Variable):
+                    # mapping consistency: obj -> var one-to-one
+                    if obj_ent in mapping:
+                        if mapping[obj_ent] != var_ent:
+                            return None
+                    elif var_ent in inv:
+                        if inv[var_ent] != obj_ent:
+                            return None
+                    else:
+                        new_pairs.append((obj_ent, var_ent))
+                else:
+                    # If b side is a constant-typed entity, require equality
+                    if obj_ent != var_ent:
+                        return None
+            return new_pairs
+
+        best_count = 0
+
+        def search(mapping: Dict[_TypedEntity, Variable], seg_left: Set[int],
+                   pnad_unused: Set[int], matched: int) -> None:
+            nonlocal best_count, best_map
+            # Upper bound pruning
+            ub = matched + predicate_upper_bound(seg_left, pnad_unused)
+            if ub <= best_count:
+                return
+
+            if not seg_left:
+                if matched > best_count:
+                    best_count = matched
+                    best_map = dict(mapping)
+                return
+
+            # Choose the next seg atom via fail-first: fewest compatible candidates
+            best_i = None
+            best_candidates: List[int] = []
+            # Small heuristic: iterate over predicates in increasing availability on PNAD side
+            for i in list(seg_left):
+                a = seg_pre_list[i]
+                candidates = []
+                for j in idx_pnad_by_pred[a.predicate]:
+                    if j not in pnad_unused:
                         continue
+                    ext = compatible_extension(a, pnad_pre_list[j], mapping)
+                    if ext is not None:
+                        candidates.append((j, ext))
+                if not candidates:
+                    # This atom cannot be matched under current mapping; skip it (i.e., leave it unmatched)
+                    # but still update best based on remaining atoms.
+                    seg_left_minus_i = set(seg_left)
+                    seg_left_minus_i.remove(i)
+                    search(mapping, seg_left_minus_i, pnad_unused, matched)
+                    return
+                # Track the atom with the fewest candidates
+                if best_i is None or len(candidates) < len(best_candidates):
+                    best_i = i
+                    best_candidates = candidates
+                    if len(best_candidates) == 1:
+                        break  # can't do better than 1
 
-                    # Attempt unification of (preconds, effects, options).
-                    current_suc, current_obj_to_var = utils.unify_preconds_effects_options(
-                        p1_candidate, p2_candidate, *unify_args)
-                    if current_suc:
-                        # First success at this size is by construction the best
-                        # (because we iterate k from large to small).
-                        best_obj_to_var = current_obj_to_var
-                        found_best_unification = True
-                        break
-                if found_best_unification:
-                    break
-            if found_best_unification:
-                break
+            assert best_i is not None
+            a = seg_pre_list[best_i]
 
-        # Convert Object->Variable back to Var->Object mapping for return.
-        sub = cast(VarToObjSub, {v: o for o, v in best_obj_to_var.items()})
+            # Try candidates (ordered deterministically by index)
+            for j, ext_pairs in sorted(best_candidates, key=lambda x: x[0]):
+                # Apply extension
+                for k, v in ext_pairs:
+                    mapping[k] = v
+                pnad_unused.remove(j)
+                seg_left.remove(best_i)
+
+                search(mapping, seg_left, pnad_unused, matched + 1)
+
+                # Revert
+                seg_left.add(best_i)
+                pnad_unused.add(j)
+                for k, _ in ext_pairs:
+                    del mapping[k]
+
+        search(dict(current_map), set(range(len(seg_pre_list))),
+               set(range(len(pnad_pre_list))), 0)
+
+        # Convert best map (Object->Variable) back to Var->Object for return.
+        sub = cast(VarToObjSub, {v: o for o, v in best_map.items()})
         return sub
 
     @abc.abstractmethod
@@ -835,8 +905,9 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
     ) -> Tuple[Set[LiftedAtom], Set[LiftedAtom]]:
         """If obj_to_var is None, we are taking in a set of ground atoms.
 
-        and will return a set of ground atoms. They are otherwise
-        lifted.
+        and will return a set of ground atoms. Otherwise they are
+        lifted. This is to account for some exogenous effect that may
+        happen in the same time as some endogenous effect.
         """
         if obj_to_var:
             process_lifted_atoms = True
@@ -846,10 +917,30 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         seg_add_eff = segment.add_effects
         seg_del_eff = segment.delete_effects
 
-        for endo_proc in endogenous_processes:
+        relevant_procs = [
+            p for p in endogenous_processes
+            if segment.get_option().parent == p.option
+        ]
+        for endo_proc in relevant_procs:
             if endo_proc.name == "NoOp":
                 continue
-            for g_proc in utils.all_ground_operators(endo_proc, objects):
+            add_effects = {
+                a
+                for a in add_effects
+                if a.predicate not in endo_proc.ignore_effects
+            }
+            delete_effects = {
+                a
+                for a in delete_effects
+                if a.predicate not in endo_proc.ignore_effects
+            }
+            var_to_obj = {
+                v: o
+                for v, o in zip(endo_proc.option_vars,
+                                segment.get_option().objects)
+            }
+            for g_proc in utils.all_ground_operators_given_partial(
+                    endo_proc, objects, var_to_obj):
                 if g_proc.add_effects.issubset(seg_add_eff) and\
                     g_proc.delete_effects.issubset(seg_del_eff):
                     if process_lifted_atoms:
@@ -871,119 +962,6 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                     #     f"and delete effect {seg_del_eff}\n"
                     #     f"new add effects: {add_effects}, del effects: {delete_effects}")
         return add_effects, delete_effects
-
-    # Comment out to simplify debugging
-    # def score_precondition_candidates(
-    #     self,
-    #     exogenous_process: ExogenousProcess,
-    #     initial_atoms: Set[LiftedAtom],
-    #     seed: int,
-    # ) -> List[Tuple[float, Set[LiftedAtom]]]:
-    #     # Build the candidate list once.
-    #     candidates = list(utils.all_subsets(initial_atoms))
-
-    #     # ---- Pruning with count_fp ----
-    #     if CFG.process_scoring_method == 'data_likelihood' and \
-    #             CFG.process_condition_search_prune_with_fp_count:
-    #         candidates_with_approx_scores = self._score_precondition_candidates(
-    #             candidates, exogenous_process, "count_fp")
-    #         # Get the top candidates either by percentage or number or both
-    #         candidates_with_approx_scores.sort(key=lambda x: x[0])
-    #         top_candidates_with_score = self._get_top_candidates(
-    #             candidates_with_approx_scores, percentage=0, number=48)
-    #         candidates = [
-    #             condition_candidate
-    #             for _, condition_candidate in top_candidates_with_score
-    #         ]
-
-    #     # ---- Actual scoring ----
-    #     # Decide whether to parallelise – we only do so for the
-    #     # 'data_likelihood' scoring mode and when multiple CPUs are handy.
-    #     cpu_count = mp.cpu_count()
-    #     use_parallel = (
-    #         CFG.process_scoring_method == "data_likelihood"
-    #         and CFG.cluster_and_search_process_learner_parallel_condition
-    #         and len(candidates) > 1 and cpu_count > 1)
-    #     start_time = time.time()
-    #     if use_parallel:
-    #         logging.debug(f"Scoring {len(candidates)} candidates with "
-    #                       f"{cpu_count} workers")
-    #         logging.debug(f"Early stopping patience: "
-    #                         f"{CFG.process_param_learning_patience}")
-    #         worker_args = [(conditions, self._trajectories, self._predicates,
-    #                         copy.deepcopy(exogenous_process), seed,
-    #                         CFG.cluster_and_search_vi_steps,
-    #                         CFG.process_param_learning_patience)
-    #                     for conditions in candidates]
-    #         with Pool(nodes=min(len(worker_args), cpu_count)) as pool:
-    #             candidates_with_scores = pool.map(
-    #                 _compute_data_likelihood_cost, worker_args)
-    #     else:
-    #         candidates_with_scores = self._score_precondition_candidates(
-    #             candidates, exogenous_process, CFG.process_scoring_method)
-
-    #     # Sort by score (lower is better)
-    #     candidates_with_scores.sort(key=lambda x: x[0])
-    #     for i, result in enumerate(candidates_with_scores):
-    #         if len(result) == 2:
-    #             score, condition_candidate = result
-    #             logging.debug(f"Conditions {i}: {condition_candidate}, "
-    #                           f"Score: {score}")
-    #         else:
-    #             score, condition_candidate, scores, process = result
-    #             process_param_str = ", ".join([f"{v:.4f}" for v in
-    #                                            process._get_parameters()])
-    #             logging.debug(f"Conditions {i}: {condition_candidate}, "
-    #                           f"Score: {score}, "
-    #                           f"Exp_state_at_best: {scores[1]:.4f}, "
-    #                           f"Exp_delay_at_best: {scores[2]:.4f}, "
-    #                           f"Entropy_at_best: {scores[3]:.4f}, "
-    #                           f"Process params: {process_param_str}")
-
-    #     logging.debug(f"Scored {len(candidates_with_scores)} candidates took "
-    #                   f"{time.time() - start_time:.2f} seconds")
-    #     return candidates_with_scores
-
-    # def _score_precondition_candidates(self, candidates: List[Set[LiftedAtom]],
-    #                                    exogenous_process: ExogenousProcess,
-    #                                    score_method: str) -> Any:
-    #     candidates_with_scores = []
-    #     # Original sequential evaluation path (unchanged logic).
-    #     for condition_candidate in candidates:
-    #         exogenous_process.condition_at_start = condition_candidate
-    #         exogenous_process.condition_overall = condition_candidate
-    #         complexity_penalty = \
-    #             CFG.process_condition_search_complexity_weight * len(
-    #             condition_candidate)
-
-    #         if score_method == 'count_fp':
-    #             false_positive_process_state = \
-    #                 self._get_false_positive_states_from_seg_trajs(
-    #                     self._atom_change_segmented_trajs,
-    #                     [exogenous_process])
-    #             num_false_positives = sum(
-    #                 len(states)
-    #                 for states in false_positive_process_state.values())
-    #             cost = num_false_positives + complexity_penalty
-    #         elif score_method == 'data_likelihood':
-    #             _, scores = self._get_data_likelihood_and_learn_params(
-    #                 self._trajectories,
-    #                 self._predicates,
-    #                 [exogenous_process],
-    #                 use_lbfgs=True,
-    #                 plot_training_curve=False,
-    #                 lbfgs_max_iter=CFG.cluster_and_search_vi_steps,
-    #                 adam_num_steps=CFG.cluster_and_search_vi_steps,
-    #             )
-    #             cost = -scores[0] + complexity_penalty
-    #         else:
-    #             raise NotImplementedError
-
-    #         result = [cost, condition_candidate]
-    #         if 'scores' in locals():
-    #             result.append(scores)
-    #         candidates_with_scores.append(result)
-    #     return candidates_with_scores
 
     @staticmethod
     def _get_top_candidates(
@@ -1260,7 +1238,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         logging.info(f"Learning preconditions for {len(pnads)} PNADs "
                      f"using a flat parallel pool.")
 
-        indexed_pnads = {i: pnad for i, pnad in enumerate(pnads)}
         final_candidates_for_pnad: Dict[int, List[Set[LiftedAtom]]] = {}
 
         # Step 1 (Optional): Prune candidate conditions using count_fp.
@@ -1272,6 +1249,31 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         possible_atoms_per_pnad = [
             self._induce_preconditions_via_intersection(pnad) for pnad in pnads
         ]
+        # Update each PNAD's operator parameters to only include variables
+        # that appear in either the (candidate) preconditions or the effects.
+        # This reduces arity early and speeds up downstream scoring.
+        filtered_pnads: List[PNAD] = []
+        for pnad, poss_atoms in zip(pnads, possible_atoms_per_pnad):
+            eff_atoms = pnad.op.add_effects | pnad.op.delete_effects
+            used_vars = {
+                v
+                for atom in (poss_atoms | eff_atoms) for v in atom.variables
+            }
+            if not used_vars:
+                # If no variables are used, keep original PNAD (degenerate case).
+                filtered_pnads.append(pnad)
+                continue
+            # Preserve original parameter order while filtering.
+            new_params = [p for p in pnad.op.parameters if p in used_vars]
+            if list(pnad.op.parameters) == new_params:
+                filtered_pnads.append(pnad)
+                continue
+            new_op = pnad.op.copy_with(parameters=new_params)
+            filtered_pnads.append(
+                PNAD(new_op, pnad.datastore, pnad.option_spec))
+        pnads = filtered_pnads
+        indexed_pnads = {i: p for i, p in enumerate(pnads)}
+
         if CFG.cluster_and_search_process_learner_llm_select_atoms:
             ranked_atoms_per_pnad = self._llm_rank_atoms(
                 possible_atoms_per_pnad, pnads)

@@ -81,12 +81,14 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects: Set[LiftedAtom] = {
             LiftedAtom(Upright, [domino]),
         }
+        ignore_effects = {AdjacentTo, DominoAtPos, DominoAtRot, PosClear}
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
                                                    sigma=torch.tensor(0.1))
         push_start_block_process = EndogenousProcess(
             "PushStartBlock", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, null_sampler,
+            ignore_effects)
         processes.add(push_start_block_process)
 
         # PickDomino: Position-based pick process
@@ -113,6 +115,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(DominoAtPos, [domino, position]),
             LiftedAtom(DominoAtRot, [domino, rotation]),
         }
+        ignore_effects = {Tilting, Upright}
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
                                                    sigma=torch.tensor(0.1))
         pick_domino_process = EndogenousProcess("PickDomino",
@@ -121,7 +124,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
                                                 delete_effects,
                                                 delay_distribution,
                                                 torch.tensor(1.0), option,
-                                                option_vars, null_sampler)
+                                                option_vars, null_sampler,
+                                                ignore_effects)
         processes.add(pick_domino_process)
 
         # PlaceDomino: Place domino at specific position and rotation
@@ -162,6 +166,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(Holding, [robot, domino1]),
             LiftedAtom(PosClear, [target_pos]),
         }
+        ignore_effects = {AdjacentTo, DominoAtRot, DominoAtPos}
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
                                                    sigma=torch.tensor(0.1))
         place_domino_process = EndogenousProcess("PlaceDomino", parameters,
@@ -170,7 +175,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
                                                  delete_effects,
                                                  delay_distribution,
                                                  torch.tensor(1.0), option,
-                                                 option_vars, null_sampler)
+                                                 option_vars, null_sampler,
+                                                 ignore_effects)
         processes.add(place_domino_process)
 
         # NoOp
