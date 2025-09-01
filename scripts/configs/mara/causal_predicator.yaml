@@ -120,6 +120,7 @@ APPROACHES:
       cluster_and_search_process_learner_parallel_pnad: True
       cluster_and_search_process_learner_llm_select_condition: False
       cluster_and_search_process_learner_llm_rank_atoms: False
+      cluster_and_search_process_learner_llm_propose_top_conditions: True
       cluster_and_search_vi_steps: 500
       cluster_learning_one_effect_per_process: True
       process_param_learning_patience: 10000
@@ -176,23 +177,22 @@ ENVS:
   #     grow_weak_pour_terminate_condition: True
   #     grow_place_option_no_sampler: True
   #     horizon: 300
-  # domino:
-  #   NAME: "pybullet_domino"
-  #   FLAGS:
-  #     excluded_predicates: "InFront"
-  #     excluded_objects_in_state_str: "loc,rot"
-  #     horizon: 200
-  #     domino_initialize_at_finished_state: False
-  #     domino_use_domino_blocks_as_target: True
-  #     domino_use_grid: True
-  #     domino_include_connected_predicate: False # necessary to generate valid plan
-  #     domino_prune_actions: False
-  #     process_planning_heuristic_weight: 2.0
-  #     process_planning_use_abstract_policy: False
+  domino:
+    NAME: "pybullet_domino"
+    FLAGS:
+      excluded_predicates: "InFront"
+      excluded_objects_in_state_str: "loc,rot"
+      horizon: 200
+      domino_initialize_at_finished_state: False
+      domino_use_domino_blocks_as_target: True
+      domino_use_grid: True
+      domino_include_connected_predicate: False # necessary to generate valid plan
+      domino_prune_actions: False
+      process_planning_heuristic_weight: 2.0
+      process_planning_use_abstract_policy: False
   fan:
     NAME: "pybullet_fan"
     FLAGS:
-      cluster_and_search_process_learner_llm_propose_top_conditions: True
       excluded_predicates: "FanFacingSide,OppositeFan,BallAtTarget,Controls"
       excluded_objects_in_state_str: "switch,loc"
       process_planning_heuristic_weight: 10.0
