@@ -374,11 +374,10 @@ class PyBulletFanEnv(PyBulletEnv):
         if not CFG.fan_known_controls_relation:
             predicates |= {self._SwitchOn, self._SwitchOff}
         return predicates
-    
+
     @property
     def target_predicates(self) -> Set[Predicate]:
-        return {self._FanOnSide,
-                self._OppositeFan}
+        return {self._FanOnSide, self._OppositeFan}
 
     @property
     def types(self) -> Set[Type]:

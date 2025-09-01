@@ -889,8 +889,8 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
         self._atom_change_segmented_trajs: List[List[Segment]] = []
 
-        if CFG.cluster_and_search_process_learner_llm_select_condition or\
-            CFG.cluster_and_search_process_learner_llm_select_atoms:
+        if CFG.cluster_and_search_process_learner_llm_propose_top_conditions or\
+            CFG.cluster_and_search_process_learner_llm_rank_atoms:
             self._llm = utils.create_llm_by_name(CFG.llm_model_name)
         else:
             self._llm = None
@@ -1058,31 +1058,20 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             return max(1, psutil.cpu_count(logical=False) - 1)
         return max(1, mp.cpu_count() - 1)
 
-    def _llm_rank_atoms(
-            self,
-            possible_atoms_per_pnad: List[Set[LiftedAtom]],
-            pnads: Optional[List[PNAD]] = None) -> List[List[LiftedAtom]]:
-        """Rank the possible atoms by their likelihood of being
-        relevant/necessary for the PNAD's effects.
+    def _build_process_descriptions(
+        self,
+        possible_atoms_per_pnad: List[Set[LiftedAtom]],
+        pnads: Optional[List[PNAD]] = None
+    ) -> List[Tuple[str, List[LiftedAtom]]]:
+        """Build process descriptions for LLM prompts.
 
         Args:
-            possible_atoms_per_pnad: List of sets of possible precondition atoms, one set per PNAD
+            possible_atoms_per_pnad: List of sets of possible precondition atoms
             pnads: Optional list of PNADs to get effect information from
 
         Returns:
-            List of lists of ranked atoms, keeping only the most relevant ones based on LLM assessment
+            List of (process_description, sorted_atoms) tuples
         """
-        if not possible_atoms_per_pnad or self._llm is None:
-            return [list(atoms) for atoms in possible_atoms_per_pnad]
-
-        # Load the prompt template
-        prompt_file = utils.get_path_to_predicators_root() + \
-            "/predicators/nsrt_learning/strips_learning/" + \
-            "llm_op_learning_prompts/atom_ranking.prompt"
-        with open(prompt_file, "r") as f:
-            template = f.read()
-
-        # Build the process effects and candidates description
         process_descriptions = []
         for i, poss_atoms in enumerate(possible_atoms_per_pnad):
             process_desc = f"Process {i}:\n"
@@ -1118,34 +1107,100 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
             process_descriptions.append((process_desc, sorted_atoms))
 
+        return process_descriptions
+
+    def _call_llm_with_template(self, template_path: str,
+                                template_vars: Dict[str, Any],
+                                debug_filename: str) -> str:
+        """Call LLM with a template and save debug info.
+
+        Args:
+            template_path: Path to the prompt template file
+            template_vars: Variables to substitute in template
+            debug_filename: Name for debug output file
+
+        Returns:
+            LLM response text
+        """
+        if self._llm is None:
+            raise ValueError("LLM not available")
+
+        # Load the prompt template
+        with open(template_path, "r") as f:
+            template = f.read()
+
         # Format the prompt
-        all_descriptions = "\n".join(
-            [desc for desc, _ in process_descriptions])
-        prompt = template.format(
-            PROCESS_EFFECTS_AND_CANDIDATES=all_descriptions)
+        prompt = template.format(**template_vars)
 
         # Get LLM response
-        try:
-            response = self._llm.sample_completions(prompt,
-                                                    imgs=None,
-                                                    temperature=0,
-                                                    seed=CFG.seed)[0]
+        response = self._llm.sample_completions(prompt,
+                                                imgs=None,
+                                                temperature=0,
+                                                seed=CFG.seed)[0]
 
-            # Save the prompt and response for debugging
-            with open(f"{CFG.log_file}/atom_ranking_response.txt", "w") as f:
-                f.write(f"{prompt}\n=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*"
-                        f"\n{response}")
-            
+        # Save debug info
+        with open(f"{CFG.log_file}/{debug_filename}", "w") as f:
+            f.write(f"{prompt}\n=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*"
+                    f"\n{response}")
+
+        return response
+
+    def _parse_llm_answer_block(self, response: str) -> Optional[str]:
+        """Extract answer content from LLM response.
+
+        Args:
+            response: Raw LLM response
+
+        Returns:
+            Answer text or None if not found
+        """
+        answer_match = re.search(r'<answer>(.*?)</answer>', response,
+                                 re.DOTALL)
+        if not answer_match:
+            return None
+        return answer_match.group(1).strip()
+
+    def _llm_rank_atoms(
+            self,
+            possible_atoms_per_pnad: List[Set[LiftedAtom]],
+            pnads: Optional[List[PNAD]] = None,
+            max_atoms: Optional[int] = None) -> List[List[LiftedAtom]]:
+        """Rank the possible atoms by their likelihood of being
+        relevant/necessary for the PNAD's effects.
+
+        Args:
+            possible_atoms_per_pnad: List of sets of possible precondition atoms, one set per PNAD
+            pnads: Optional list of PNADs to get effect information from
+
+        Returns:
+            List of lists of ranked atoms, keeping only the most relevant ones based on LLM assessment
+        """
+        if not possible_atoms_per_pnad or self._llm is None:
+            return [list(atoms) for atoms in possible_atoms_per_pnad]
+
+        try:
+            # Build process descriptions
+            process_descriptions = self._build_process_descriptions(
+                possible_atoms_per_pnad, pnads)
+
+            # Call LLM with template
+            template_path = (utils.get_path_to_predicators_root() +
+                             "/predicators/nsrt_learning/strips_learning/" +
+                             "llm_op_learning_prompts/atom_ranking.prompt")
+            all_descriptions = "\n".join(
+                [desc for desc, _ in process_descriptions])
+            template_vars = {
+                "PROCESS_EFFECTS_AND_CANDIDATES": all_descriptions
+            }
+            response = self._call_llm_with_template(
+                template_path, template_vars, "atom_ranking_response.txt")
 
             # Parse the response
-            answer_match = re.search(r'<answer>(.*?)</answer>', response,
-                                     re.DOTALL)
-            if not answer_match:
+            answer_text = self._parse_llm_answer_block(response)
+            if not answer_text:
                 logging.warning("LLM failed to provide properly formatted "
                                 "answer for atom ranking")
                 return [list(atoms) for atoms in possible_atoms_per_pnad]
-
-            answer_text = answer_match.group(1).strip()
             lines = [
                 line.strip() for line in answer_text.split('\n')
                 if line.strip()
@@ -1182,9 +1237,10 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                         if valid_indices:
                             # Keep atoms in the order specified by LLM ranking
                             # But limit to top N atoms to avoid combinatorial explosion
-                            max_atoms = min(
-                                len(valid_indices),
-                                CFG.llm_atom_ranking_max_atoms, 5)
+                            if max_atoms is None:
+                                max_atoms = len(valid_indices)
+                            else:
+                                max_atoms = min(max_atoms, len(valid_indices))
                             selected_atoms = [
                                 sorted_atoms[idx]
                                 for idx in valid_indices[:max_atoms]
@@ -1202,16 +1258,14 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                     ranked_atoms_per_pnad.append(list(sorted_atoms))
 
             # Log the results
-            for i, (original, ranked) in enumerate(
-                    zip(possible_atoms_per_pnad, ranked_atoms_per_pnad)):
+            for i, ranked in enumerate(ranked_atoms_per_pnad):
+                original = list(process_descriptions[i][1])
                 logging.info(
-                    f"Process {i}: Reduced atoms from {len(original)} to {len(ranked)}"
+                    f"Process {i}: Kept {len(ranked)}/{len(original)} atoms")
+                logging.debug(f"  Kept atoms: {sorted(ranked, key=str)}")
+                logging.debug(
+                    f"  Removed atoms: {sorted(set(original) - set(ranked), key=str)}"
                 )
-                if len(ranked) < len(original):
-                    logging.debug(f"  Kept atoms: {sorted(ranked, key=str)}")
-                    logging.debug(
-                        f"  Removed atoms: {sorted(set(original) - set(ranked), key=str)}"
-                    )
 
             return ranked_atoms_per_pnad
 
@@ -1219,6 +1273,121 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             logging.warning(
                 f"LLM atom ranking failed: {e}, keeping original atoms")
             return [list(atoms) for atoms in possible_atoms_per_pnad]
+
+    def _llm_propose_condition_sets(
+            self,
+            possible_atoms_per_pnad: List[Set[LiftedAtom]],
+            pnads: Optional[List[PNAD]] = None,
+            k: Optional[int] = None) -> List[List[Set[LiftedAtom]]]:
+        """Propose top k condition sets for each PNAD using LLM.
+
+        Args:
+            possible_atoms_per_pnad: List of sets of possible precondition atoms, one set per PNAD
+            pnads: Optional list of PNADs to get effect information from
+            k: Number of condition sets to propose per PNAD
+
+        Returns:
+            List of lists of condition sets, where each condition set is a set of atoms
+        """
+        if not possible_atoms_per_pnad or self._llm is None:
+            return [[set(atoms)] for atoms in possible_atoms_per_pnad]
+
+        if k is None:
+            k = CFG.process_learner_llm_propose_conditions_k
+
+        try:
+            # Build process descriptions
+            process_descriptions = self._build_process_descriptions(
+                possible_atoms_per_pnad, pnads)
+
+            # Call LLM with template
+            template_path = (
+                utils.get_path_to_predicators_root() +
+                "/predicators/nsrt_learning/strips_learning/" +
+                "llm_op_learning_prompts/condition_set_proposal.prompt")
+            all_descriptions = "\n".join(
+                [desc for desc, _ in process_descriptions])
+            template_vars = {
+                "PROCESS_EFFECTS_AND_CANDIDATES": all_descriptions,
+                "K": k
+            }
+            response = self._call_llm_with_template(
+                template_path, template_vars,
+                "condition_set_proposal_response.txt")
+
+            # Parse the response
+            answer_text = self._parse_llm_answer_block(response)
+            if not answer_text:
+                logging.warning("LLM failed to provide properly formatted "
+                                "answer for condition set proposal")
+                return [[set(atoms)] for atoms in possible_atoms_per_pnad]
+            lines = [
+                line.strip() for line in answer_text.split('\n')
+                if line.strip()
+            ]
+
+            # Parse condition sets for each process
+            condition_sets_per_pnad = []
+            for i, (_, sorted_atoms) in enumerate(process_descriptions):
+                # Find lines for this process
+                process_sets = []
+                process_found = False
+
+                for line in lines:
+                    if line.startswith(f"Process {i}:"):
+                        process_found = True
+                        continue
+                    elif process_found and line.startswith("Process "):
+                        # Start of next process, break
+                        break
+                    elif process_found and line.startswith("Set "):
+                        # Parse set line: "Set 1: [2,0,4]"
+                        try:
+                            set_part = line.split(":", 1)[1].strip()
+                            # Remove brackets and split by comma
+                            set_part = set_part.strip("[]")
+                            if set_part:
+                                indices = [
+                                    int(idx.strip())
+                                    for idx in set_part.split(',')
+                                ]
+                                # Filter valid indices and get corresponding atoms
+                                valid_indices = [
+                                    idx for idx in indices
+                                    if 0 <= idx < len(sorted_atoms)
+                                ]
+                                if valid_indices:
+                                    condition_set = {
+                                        sorted_atoms[idx]
+                                        for idx in valid_indices
+                                    }
+                                    process_sets.append(condition_set)
+                        except (ValueError, IndexError) as e:
+                            logging.warning(
+                                f"Failed to parse condition set for process {i}: {e}"
+                            )
+
+                if not process_sets:
+                    # No valid sets found, use original atoms as single set
+                    process_sets.append(set(sorted_atoms))
+
+                condition_sets_per_pnad.append(process_sets)
+
+            # Log the results
+            for i, sets in enumerate(condition_sets_per_pnad):
+                logging.info(
+                    f"Process {i}: Proposed {len(sets)} condition sets")
+                for j, condition_set in enumerate(sets):
+                    logging.debug(
+                        f"  Set {j+1}: {sorted(condition_set, key=str)}")
+
+            return condition_sets_per_pnad
+
+        except Exception as e:
+            logging.warning(
+                f"LLM condition set proposal failed: {e}, using original atoms"
+            )
+            return [[set(atoms)] for atoms in possible_atoms_per_pnad]
 
     def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
         """Learns preconditions for all PNADs.
@@ -1244,19 +1413,37 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         final_candidates_for_pnad: Dict[int, List[Set[LiftedAtom]]] = {}
 
         # Step 1 (Optional): Prune candidate conditions using count_fp.
-        pruning_enabled = (CFG.process_scoring_method == 'data_likelihood' and
-                           CFG.process_condition_search_prune_with_fp_count)
+        fp_count_pruning = (CFG.process_scoring_method == 'data_likelihood' and
+                            CFG.process_condition_search_prune_with_fp_count and
+        not CFG.cluster_and_search_process_learner_llm_propose_top_conditions)
 
         # Determine how many candidate preconditions to keep per PNAD for
         # parallel scoring.
         possible_atoms_per_pnad = [
             self._induce_preconditions_via_intersection(pnad) for pnad in pnads
         ]
+
+        if CFG.cluster_and_search_process_learner_llm_propose_top_conditions:
+            # Use LLM to propose top k condition sets for each PNAD
+            condition_sets_per_pnad = self._llm_propose_condition_sets(
+                possible_atoms_per_pnad, pnads)
+        elif CFG.cluster_and_search_process_learner_llm_rank_atoms:
+            ranked_atoms_per_pnad = self._llm_rank_atoms(
+                possible_atoms_per_pnad, pnads)
+            # Convert lists back to sets for compatibility with existing code
+            possible_atoms_per_pnad = [
+                set(atoms) for atoms in ranked_atoms_per_pnad
+            ]
+            condition_sets_per_pnad = None
+        else:
+            condition_sets_per_pnad = None
         # Update each PNAD's operator parameters to only include variables
         # that appear in either the (candidate) preconditions or the effects.
         # This reduces arity early and speeds up downstream scoring.
         filtered_pnads: List[PNAD] = []
-        for pnad, poss_atoms in zip(pnads, possible_atoms_per_pnad):
+        for i, (pnad, poss_atoms) in enumerate(zip(pnads, possible_atoms_per_pnad)):
+            if condition_sets_per_pnad is not None:
+                poss_atoms = set.union(*condition_sets_per_pnad[i])
             eff_atoms = pnad.op.add_effects | pnad.op.delete_effects
             used_vars = {
                 v
@@ -1277,18 +1464,10 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         pnads = filtered_pnads
         indexed_pnads = {i: p for i, p in enumerate(pnads)}
 
-        if CFG.cluster_and_search_process_learner_llm_select_atoms:
-            ranked_atoms_per_pnad = self._llm_rank_atoms(
-                possible_atoms_per_pnad, pnads)
-            # Convert lists back to sets for compatibility with existing code
-            possible_atoms_per_pnad = [
-                set(atoms) for atoms in ranked_atoms_per_pnad
-            ]
-
         num_candidates_per_pnad = [
             2**len(poss_atoms) for poss_atoms in possible_atoms_per_pnad
         ]
-        max_num_candidates = max(num_candidates_per_pnad)
+        max_num_candidates = min(max(num_candidates_per_pnad), cpu_cnt)
         num_candidates_to_keep = 1
         # Try to find the largest cap on candidates per PNAD such that the total
         # number of candidates across all PNADs does not exceed the number of
@@ -1302,9 +1481,10 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                     f"(total candidates: {total_candidates}).")
                 num_candidates_to_keep = i
                 break
-        
+
         # Helper: get initial lifted atoms for a PNAD index
-        def _initial_lifted_atoms_for_index(idx: int, p: PNAD) -> Set[LiftedAtom]:
+        def _initial_lifted_atoms_for_index(idx: int,
+                                            p: PNAD) -> Set[LiftedAtom]:
             if CFG.exogenous_process_learner_do_intersect:
                 return possible_atoms_per_pnad[idx]
             init_ground_atoms = p.datastore[0][0].init_atoms
@@ -1315,13 +1495,19 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         for i, pnad in indexed_pnads.items():
             initial_lift_atoms = _initial_lifted_atoms_for_index(i, pnad)
 
-            all_candidates = list(utils.all_subsets(initial_lift_atoms))
+            if (condition_sets_per_pnad is not None
+                    and i < len(condition_sets_per_pnad)):
+                # Use LLM-proposed condition sets
+                all_candidates = condition_sets_per_pnad[i][:num_candidates_per_pnad[i]]
+            else:
+                # Use traditional approach: all subsets
+                all_candidates = list(utils.all_subsets(initial_lift_atoms))
 
             if not all_candidates:
                 final_candidates_for_pnad[i] = []
                 continue
 
-            if pruning_enabled:
+            if fp_count_pruning:
                 base_process = pnad.make_exogenous_process()
                 logging.debug(f"Pruning {len(all_candidates)} candidates for "
                               f"PNAD {i}:\n{base_process}")

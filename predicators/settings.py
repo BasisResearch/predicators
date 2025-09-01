@@ -634,7 +634,10 @@ class GlobalSettings:
     cluster_and_search_process_learner_parallel_condition = True
     cluster_and_search_process_learner_parallel_pnad = False
     cluster_and_search_process_learner_llm_select_condition = False
-    cluster_and_search_process_learner_llm_select_atoms = False
+    cluster_and_search_process_learner_llm_rank_atoms = False
+    cluster_and_search_process_learner_llm_propose_top_conditions = False
+    process_learner_llm_atom_ranking_max_atoms = 10
+    process_learner_llm_propose_conditions_k = 5
     cluster_and_search_vi_steps = 200
     cluster_search_max_workers = -1
     cluster_and_inverse_planning_candidates = "top_consistent"  # "all", "top_consistent"
