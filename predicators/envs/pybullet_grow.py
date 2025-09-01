@@ -55,7 +55,7 @@ class PyBulletGrowEnv(PyBulletEnv):
     # robot config
     # this smaller value is needed for grasping jugs
     grasp_tol_small: ClassVar[float] = 5e-2
-    pour_pos_tol: ClassVar[float] = 0.005 * 1.5
+    pour_pos_tol: ClassVar[float] = 0.005 * 1.8
     _finger_action_tol: ClassVar[float] = 5e-3
     robot_init_x: ClassVar[float] = (x_lb + x_ub) * 0.5
     robot_init_y: ClassVar[float] = (y_lb + y_ub) * 0.5
