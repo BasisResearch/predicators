@@ -1413,9 +1413,10 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         final_candidates_for_pnad: Dict[int, List[Set[LiftedAtom]]] = {}
 
         # Step 1 (Optional): Prune candidate conditions using count_fp.
-        fp_count_pruning = (CFG.process_scoring_method == 'data_likelihood' and
-                            CFG.process_condition_search_prune_with_fp_count and
-        not CFG.cluster_and_search_process_learner_llm_propose_top_conditions)
+        fp_count_pruning = (
+            CFG.process_scoring_method == 'data_likelihood'
+            and CFG.process_condition_search_prune_with_fp_count and not CFG.
+            cluster_and_search_process_learner_llm_propose_top_conditions)
 
         # Determine how many candidate preconditions to keep per PNAD for
         # parallel scoring.
@@ -1441,7 +1442,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         # that appear in either the (candidate) preconditions or the effects.
         # This reduces arity early and speeds up downstream scoring.
         filtered_pnads: List[PNAD] = []
-        for i, (pnad, poss_atoms) in enumerate(zip(pnads, possible_atoms_per_pnad)):
+        for i, (pnad,
+                poss_atoms) in enumerate(zip(pnads, possible_atoms_per_pnad)):
             if condition_sets_per_pnad is not None:
                 poss_atoms = set.union(*condition_sets_per_pnad[i])
             eff_atoms = pnad.op.add_effects | pnad.op.delete_effects
@@ -1498,7 +1500,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             if (condition_sets_per_pnad is not None
                     and i < len(condition_sets_per_pnad)):
                 # Use LLM-proposed condition sets
-                all_candidates = condition_sets_per_pnad[i][:num_candidates_per_pnad[i]]
+                all_candidates = condition_sets_per_pnad[
+                    i][:num_candidates_per_pnad[i]]
             else:
                 # Use traditional approach: all subsets
                 all_candidates = list(utils.all_subsets(initial_lift_atoms))
