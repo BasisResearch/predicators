@@ -18,7 +18,7 @@ python predicators/main.py --env burger --approach vlm_open_loop --seed 0 \
 
 from __future__ import annotations
 
-from typing import Callable, List, Sequence, Set
+from typing import Callable, Dict, List, Sequence, Set
 
 import numpy as np
 import PIL
@@ -32,6 +32,8 @@ from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.settings import CFG
 from predicators.structs import Action, Box, Dataset, ParameterizedOption, \
     Predicate, State, Task, Type, _Option
+from predicators.structs import Segment, LowLevelTrajectory
+from predicators.approaches.pp_online_predicate_invention_approach import _get_transition_str
 
 
 class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
@@ -106,39 +108,95 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
                     draw._image)  # type: ignore[attr-defined]
                 # pylint: enable=protected-access
 
+        def _generate_string_demonstration(segmented_traj: List[Segment], ll_traj: LowLevelTrajectory, traj_num: int) -> str:
+            """Generate string-based demonstration similar to _get_transition_str in pp_online_predicate_invention_approach.py"""
+            demo_str = ""
+            traj_goal = self._train_tasks[ll_traj.train_task_idx].goal
+            demo_str += f"Demonstration {traj_num}, Goal: {str(sorted(traj_goal))}\n"
+            
+            state_hash_to_id: Dict[int, int] = {}
+            
+            for state_num, seg in enumerate(segmented_traj):
+                # Get initial state info
+                init_state = seg.states[0]
+                init_state_hash = hash(init_state)
+                if init_state_hash not in state_hash_to_id:
+                    state_hash_to_id[init_state_hash] = len(state_hash_to_id)
+                init_state_id = state_hash_to_id[init_state_hash]
+                state_name = f"state_{init_state_id}"
+                
+                # Add state description
+                if state_num == 0:
+                    demo_str += f"Starting at {state_name} with state info:\n"
+                else:
+                    demo_str += f"Now at {state_name} with state info:\n"
+                
+                state_str = init_state.dict_str(indent=2, use_object_id=CFG.rgb_observation)
+                demo_str += f"{state_str}\n"
+                
+                # Add action
+                action = seg.get_option()
+                action_str = action.simple_str(use_object_id=CFG.rgb_observation)
+                demo_str += f"Action {state_num}: {action_str} was executed\n"
+                
+                # Add resulting state
+                end_state = seg.states[-1]
+                end_state_hash = hash(end_state)
+                if end_state_hash not in state_hash_to_id:
+                    state_hash_to_id[end_state_hash] = len(state_hash_to_id)
+                end_state_id = state_hash_to_id[end_state_hash]
+                end_state_name = f"state_{end_state_id}"
+                demo_str += f"This resulted in {end_state_name} with state info:\n"
+                end_state_str = end_state.dict_str(indent=2, use_object_id=CFG.rgb_observation)
+                demo_str += f"{end_state_str}\n\n"
+            
+            return demo_str
+
         if not CFG.vlm_open_loop_use_training_demos:
             return None
-        # Crawl thru the dataset and pull out all the images.
-        # For each image, add text to it in the bototm left indicating the
-        # trajectory and timestep it's from.
-        assert dataset.trajectories[0].states[0].simulator_state is not None
-        assert isinstance(
-            dataset.trajectories[0].states[0].simulator_state["images"], List)
-        num_imgs_per_state = len(
-            dataset.trajectories[0].states[0].simulator_state["images"])
+        
+        # Handle both image and string-based demonstrations
+        if not CFG.vlm_open_loop_no_image:
+            # Original image-based demonstration logic
+            assert dataset.trajectories[0].states[0].simulator_state is not None
+            assert isinstance(
+                dataset.trajectories[0].states[0].simulator_state["images"], List)
+            num_imgs_per_state = len(
+                dataset.trajectories[0].states[0].simulator_state["images"])
+        
         segmented_trajs = [
             segment_trajectory(traj, self._initial_predicates)
             for traj in dataset.trajectories
         ]
         self._prompt_demos_str = ""
+        
         for traj_num, seg_traj in enumerate(
                 zip(segmented_trajs, dataset.trajectories)):
             segment_traj, ll_traj = seg_traj
             if not ll_traj.is_demo:
                 continue
-            traj_goal = self._train_tasks[ll_traj.train_task_idx].goal
-            self._prompt_demos_str += f"Demonstration {traj_num}, " + \
-                f"Goal: {str(sorted(traj_goal))}\n"
-            assert len(segment_traj) > 0
-            for state_num, seg in enumerate(segment_traj):
-                state = seg.states[0]
+            
+            if CFG.vlm_open_loop_no_image:
+                # Use string-based demonstrations with detailed state information
+                self._prompt_demos_str += _generate_string_demonstration(
+                    segment_traj, ll_traj, traj_num)
+            else:
+                # Both image and string-based demonstrations
+                traj_goal = self._train_tasks[ll_traj.train_task_idx].goal
+                self._prompt_demos_str += f"Demonstration {traj_num}, " + \
+                    f"Goal: {str(sorted(traj_goal))}\n"
+                self._prompt_demos_str += _generate_string_demonstration(
+                    segment_traj, ll_traj, traj_num)
+                assert len(segment_traj) > 0
+                for state_num, seg in enumerate(segment_traj):
+                    state = seg.states[0]
+                    _append_to_prompt_state_imgs_list(state)
+                    action = seg.get_option()
+                    self._prompt_demos_str += f"Action {state_num}, from " + \
+                        f"state {state_num} is {action}\n"
+                # Make sure to append the final state of the final segment!
+                state = seg.states[-1]  # pylint:disable=undefined-loop-variable
                 _append_to_prompt_state_imgs_list(state)
-                action = seg.get_option()
-                self._prompt_demos_str += f"Action {state_num}, from " + \
-                    f"state {state_num} is {action}\n"
-            # Make sure to append the final state of the final segment!
-            state = seg.states[-1]  # pylint:disable=undefined-loop-variable
-            _append_to_prompt_state_imgs_list(state)
         return None
 
     def _get_current_nsrts(self) -> Set[utils.NSRT]:

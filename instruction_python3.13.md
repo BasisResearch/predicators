@@ -87,6 +87,13 @@ Then reload your shell or run:
 source ~/.bashrc  # or ~/.zshrc
 ```
 
+## Install Fast Downward
+
+```bash
+bash install_fast_downward.sh
+export FD_EXEC_PATH=$(pwd)/external/downward/fast-downward.py
+```
+
 ## Verification
 
 To verify the installation worked:
