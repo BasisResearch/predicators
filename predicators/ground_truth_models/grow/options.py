@@ -30,7 +30,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
 
     env_cls: ClassVar[TypingType[PyBulletGrowEnv]] = PyBulletGrowEnv
     pick_policy_tol: ClassVar[float] = 1e-3
-    pour_policy_tol: ClassVar[float] = 1e-3
+    pour_policy_tol: ClassVar[float] = 1e-3/2
     _finger_action_nudge_magnitude: ClassVar[float] = 1e-3
 
     @classmethod
@@ -79,8 +79,19 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             del memory, params  # unused
             robot, jug, cup = objects
             if CFG.grow_weak_pour_terminate_condition:
-                cond = JugAboveCup.holds(state, [jug, cup]) and \
-                    HandTilted.holds(state, [robot])
+                if not Holding.holds(state, [robot, jug]):
+                    return False
+                jug_x = state.get(jug, "x")
+                jug_y = state.get(jug, "y")
+                jug_z = state.get(robot, "z") -\
+                    PyBulletCoffeeEnv.jug_handle_height()
+                jug_pos = (jug_x, jug_y, jug_z)
+                pour_pos = PyBulletCoffeeEnv._get_pour_position(state, cup)
+                sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
+                jug_above_cup = sq_dist_to_pour < cls.env_cls.pour_pos_tol/\
+                                            (cls.env_cls.pour_pos_tol_factor*2)
+                
+                cond = jug_above_cup and HandTilted.holds(state, [robot])
             else:
                 cond = Grown.holds(state, [cup])
             return cond
@@ -90,7 +101,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             [robot_type, jug_type, cup_type],
             params_space=Box(0, 1, (0, )),
             policy=PyBulletCoffeeGroundTruthOptionFactory.  # pylint: disable=protected-access
-            _create_pour_policy(),
+                _create_pour_policy(pour_policy_tol=cls.pour_policy_tol),
             initiable=lambda s, m, o, p: True,
             terminal=_Pour_terminal)
 

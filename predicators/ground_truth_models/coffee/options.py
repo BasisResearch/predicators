@@ -1,7 +1,7 @@
 """Ground-truth options for the coffee environment."""
 
 from functools import lru_cache
-from typing import ClassVar, Dict, Sequence, Set, Tuple
+from typing import ClassVar, Dict, Optional, Sequence, Set, Tuple, Optional
 from typing import Type as TypingType
 
 import numpy as np
@@ -997,7 +997,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         return policy
 
     @classmethod
-    def _create_pour_policy(cls) -> ParameterizedPolicy:
+    def _create_pour_policy(cls, pour_policy_tol: Optional[float] = None) -> ParameterizedPolicy:
 
         def policy(state: State, memory: Dict, objects: Sequence[Object],
                    params: Array) -> Action:
@@ -1045,7 +1045,10 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
 
             # If we're close enough to the pour position, pour.
             sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
-            if sq_dist_to_pour < cls.pour_policy_tol:
+            nonlocal pour_policy_tol
+            if pour_policy_tol is None:
+                pour_policy_tol = cls.pour_policy_tol
+            if sq_dist_to_pour < pour_policy_tol:
                 # print("Tilting to pour")
                 dtilt = pour_tilt - tilt
                 if abs(dtilt) < cls.env_cls.pour_angle_tol * 0.1:

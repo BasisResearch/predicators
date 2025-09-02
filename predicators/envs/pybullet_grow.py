@@ -55,7 +55,8 @@ class PyBulletGrowEnv(PyBulletEnv):
     # robot config
     # this smaller value is needed for grasping jugs
     grasp_tol_small: ClassVar[float] = 5e-2
-    pour_pos_tol: ClassVar[float] = 0.005 * 1.8
+    pour_pos_tol_factor: ClassVar[float] = 1.8
+    pour_pos_tol: ClassVar[float] = 0.005 * pour_pos_tol_factor
     _finger_action_tol: ClassVar[float] = 5e-3
     robot_init_x: ClassVar[float] = (x_lb + x_ub) * 0.5
     robot_init_y: ClassVar[float] = (y_lb + y_ub) * 0.5
@@ -451,9 +452,18 @@ class PyBulletGrowEnv(PyBulletEnv):
         jug_z = state.get(self._robot, "z") -\
             PyBulletCoffeeEnv.jug_handle_height()
         jug_pos = (jug_x, jug_y, jug_z)
-        pour_pos = PyBulletCoffeeEnv._get_pour_position(state, cup)
-        sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
-        return sq_dist_to_pour < self.pour_pos_tol
+        closest_cup = None
+        closest_cup_dist = float("inf")
+        for cup_target in state.get_objects(self._cup_type):
+            pour_pos = PyBulletCoffeeEnv._get_pour_position(state, cup_target)
+            sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
+            if sq_dist_to_pour < self.pour_pos_tol and sq_dist_to_pour < closest_cup_dist:
+                closest_cup = cup_target
+                closest_cup_dist = sq_dist_to_pour
+        # Can only be above one cup at a time
+        if closest_cup is None or closest_cup != cup:
+            return False
+        return True
 
     def _NotAboveCup_holds(self, state: State,
                            objects: Sequence[Object]) -> bool:
