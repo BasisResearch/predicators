@@ -62,7 +62,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                                  float]] = (0.6, 0.8, 1.0, 1.0)
     start_domino_x: ClassVar[float] = x_lb + domino_width
     start_domino_y: ClassVar[float] = y_lb + domino_width
-    domino_roll_threshold: ClassVar[float] = 0.1
+    domino_roll_threshold: ClassVar[float] = np.deg2rad(10)
     fallen_threshold: ClassVar[float] = np.pi * 2 / 5  # 60 degrees in radians
 
     target_height: ClassVar[float] = 0.2
