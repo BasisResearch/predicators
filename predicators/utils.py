@@ -1673,6 +1673,13 @@ def option_policy_to_policy(
             raise OptionTimeoutFailure(
                 "Encountered repeated state.",
                 info={"last_failed_option": last_option})
+        # logging for debugging
+        # if last_state is not None:
+        #     cur_atoms = abstract_function(state)
+        #     prev_atoms = abstract_function(last_state)
+        #     logging.debug(f"Prev atoms: {sorted(prev_atoms)}")
+        #     logging.info(f"Add atoms: {sorted(cur_atoms-prev_atoms)} "
+        #                     f"Del atoms: {sorted(prev_atoms-cur_atoms)}")
 
         # whether the noop option should terminate
         noop_terminate = False

@@ -87,6 +87,7 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         add_effects = {
             LiftedAtom(HandEmpty, [robot]),
             LiftedAtom(JugOnTable, [jug]),
+            LiftedAtom(NotAboveCup, [robot, jug]),
         }
         delete_effects = {
             LiftedAtom(Holding, [robot, jug]),
@@ -143,12 +144,14 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects = {
             LiftedAtom(JugAboveCup, [jug, from_cup]),
         }
+        ignore_effects = {NotAboveCup}
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
                                                    sigma=torch.tensor(0.1))
         pour_from_not_above_cup_process = EndogenousProcess(
             "PourFromAboveCup", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, null_sampler,
+            ignore_effects)
         processes.add(pour_from_not_above_cup_process)
 
         # NoOp

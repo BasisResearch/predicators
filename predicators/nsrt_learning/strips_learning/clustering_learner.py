@@ -29,60 +29,27 @@ from predicators.settings import CFG
 from predicators.structs import PNAD, CausalProcess, Datastore, \
     DerivedPredicate, DummyOption, EndogenousProcess, ExogenousProcess, \
     GroundAtom, LiftedAtom, Object, ParameterizedOption, Predicate, Segment, \
-    STRIPSOperator, Variable, VarToObjSub
+    STRIPSOperator, Variable, VarToObjSub, _TypedEntity
 
 if sys.platform == "darwin":
     # Set this when using macOS, to avoid issues with forked processes.
     mp.set_start_method("spawn", force=True)
 
-# Comment out to simplify debugging
-# def _compute_data_likelihood_cost(args: Any) -> Tuple[float, Any]:
-#     """Utility for multiprocessing: evaluate one condition_candidate under the
-#     data‑likelihood scoring regime.
-
-#     Returns (cost, condition_candidate).
-#     """
-#     condition_candidate, trajectories, predicates, base_process, seed, num_it,\
-#          early_stopping_patience = args
-#     # Deep‑copy to isolate state per worker.
-#     # proc_copy = copy.deepcopy(base_process)
-#     base_process.condition_at_start = condition_candidate
-#     base_process.condition_overall = condition_candidate
-#     complexity_penalty = \
-#         CFG.process_condition_search_complexity_weight * len(
-#         condition_candidate)
-
-#     # Local import avoids pickling issues with bound methods.
-#     from predicators.approaches.pp_param_learning_approach import \
-#         learn_process_parameters
-#     process, scores = learn_process_parameters(
-#         trajectories,
-#         predicates,
-#         [base_process],
-#         use_lbfgs=False,
-#         plot_training_curve=False,
-#         lbfgs_max_iter=num_it,
-#         adam_num_steps=num_it,
-#         seed=seed,
-#         display_progress=False,
-#         early_stopping_patience=early_stopping_patience,
-#     )
-#     cost = -scores[0] + complexity_penalty
-#     # Original code minimises negative likelihood, so keep sign consistent.
-#     return cost, condition_candidate, scores, process[0]
-
 
 def _flat_pnad_scoring_worker(
-    args: Tuple[int, ExogenousProcess, Set[LiftedAtom], List[Any],
-                Set[Predicate], int, int, float, Optional[str], Optional[str]]
-) -> Tuple[int, float, Set[LiftedAtom], Tuple[float, ...], ExogenousProcess]:
+    args: Tuple[int, int, ExogenousProcess, Set[LiftedAtom], List[Any],
+                Set[Predicate], int, int, float, Optional[str], Optional[str],
+                int]
+) -> Tuple[int, int, float, Set[LiftedAtom], Tuple[float, ...],
+           ExogenousProcess]:
     """Utility for flat multiprocessing: evaluates one condition candidate for
     one PNAD under the data-likelihood scoring regime.
 
-    Returns (pnad_idx, cost, condition_candidate, scores_tuple).
+    Returns (pnad_idx, condition_idx, cost, condition_candidate,
+    scores_tuple, process).
     """
-    (pnad_idx, base_process, condition_candidate, trajectories, predicates,
-     seed, num_it, complexity_weight, load_dir, save_dir,
+    (pnad_idx, condition_idx, base_process, condition_candidate, trajectories,
+     predicates, seed, num_it, complexity_weight, load_dir, save_dir,
      early_stopping_patience) = args
 
     # Set the conditions on the process object.
@@ -114,18 +81,27 @@ def _flat_pnad_scoring_worker(
     # Cost is negative log-likelihood plus penalty.
     cost = -scores[0] + complexity_penalty
 
-    # Return the identifier, cost, candidate, and the full scores tuple for logging.
-    return pnad_idx, cost, condition_candidate, scores, process[0]
+    # Return the identifier, condition index, cost, candidate, and the full scores tuple for logging.
+    return pnad_idx, condition_idx, cost, condition_candidate, scores, process[
+        0]
 
 
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
     """Base class for a clustering-based STRIPS learner."""
 
-    def _learn(self) -> List[PNAD]:
+    def _learn(self, debug_log: bool = True) -> List[PNAD]:
         segments = [seg for segs in self._segmented_trajs for seg in segs]
+        if debug_log:
+            logging.info(
+                f"ClusteringSTRIPSLearner._learn: Processing {len(segments)} segments from {len(self._segmented_trajs)} trajectories"
+            )
         # Cluster the segments according to common option and effects.
         pnads: List[PNAD] = []
-        for segment in segments:
+        for i, segment in enumerate(segments):
+            if debug_log:
+                logging.info(
+                    f"ClusteringSTRIPSLearner._learn: Processing segment {i+1}/{len(segments)}"
+                )
             if segment.has_option():
                 segment_option = segment.get_option()
                 segment_param_option = segment_option.parent
@@ -139,6 +115,8 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                     "cluster_and_inverse_planning"
             ] or CFG.exogenous_process_learner_do_intersect:
                 preconds1 = frozenset()  # no preconditions
+                segment_param_option = DummyOption.parent
+                segment_option_objs = tuple()
             else:
                 # Ground
                 preconds1 = frozenset(segment.init_atoms)
@@ -163,6 +141,15 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 preconds1, seg_add_effects, seg_del_effects,
                 segment_param_option, segment_option_objs, pnads)
 
+            if debug_log:
+                logging.info(
+                    f"ClusteringSTRIPSLearner._learn: Segment {i+1} unification success: {suc}"
+                )
+                if suc:
+                    logging.info(
+                        f"ClusteringSTRIPSLearner._learn: Unified with existing PNAD, total PNADs: {len(pnads)}"
+                    )
+
             if suc:
                 sub = cast(VarToObjSub,
                            {v: o
@@ -181,12 +168,14 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                         segment, seg_add_effects, seg_del_effects, pnad,
                         ent_to_ent_sub, segment_param_option,
                         pnad_param_option, segment_option_objs,
-                        tuple(pnad_option_vars))
+                        tuple(pnad_option_vars), self._endogenous_processes)
                 else:
                     assert set(sub.keys()) == set(pnad.op.parameters)
                 pnad.add_to_datastore(
                     (segment, sub),
                     check_effect_equality=not self.get_name()
+                    in ["cluster_and_search_process_learner"],
+                    check_option_equality=not self.get_name()
                     in ["cluster_and_search_process_learner"])
             else:
                 # Otherwise, create a new PNAD.
@@ -290,13 +279,15 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                                         del_effect_set, pnad, ent_to_ent_sub,
                                         segment_param_option,
                                         pnad_param_option, segment_option_objs,
-                                        tuple(pnad_option_vars))
+                                        tuple(pnad_option_vars),
+                                        self._endogenous_processes)
                                 else:
                                     assert set(sub.keys()) == set(
                                         pnad.op.parameters)
                                 pnad.add_to_datastore(
                                     (segment, sub),
-                                    check_effect_equality=False)
+                                    check_effect_equality=False,
+                                    check_option_equality=False)
                             else:
                                 add_effect_set = frozenset({
                                     atom.lift(obj_to_var)
@@ -326,6 +317,10 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 option_vars = [obj_to_var[o] for o in segment_option_objs]
                 option_spec = (segment_param_option, option_vars)
                 pnads.append(PNAD(op, datastore, option_spec))
+                if debug_log:
+                    logging.info(
+                        f"ClusteringSTRIPSLearner._learn: Created new PNAD {op.name}, total PNADs: {len(pnads)}"
+                    )
 
         if self.get_name() in ["cluster_and_search_process_learner"]:
             # Do this extra step for this learner
@@ -389,85 +384,206 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             segment_param_option: ParameterizedOption,
             pnad_param_option: ParameterizedOption,
             segment_option_objs: Tuple[Object],
-            pnad_option_vars: Tuple[Variable]) -> VarToObjSub:
-        """Try to unify and find the largest conditions that unify the init
-        atoms of the segment and the last segment in the pnad datastore.
+            pnad_option_vars: Tuple[Variable],
+            endogenous_processes: List[EndogenousProcess]) -> VarToObjSub:
+        """Try to unify and find the *largest* set of matching init atoms
+        between the given segment and the *last* segment in the PNAD's
+        datastore, then return the resulting Var->Obj substitution.
 
-        Returns an updated VarToObjSub.
+        Optimized version: uses a single unification of effects+options
+        to seed an entity mapping, then performs a branch-and-bound
+        search over preconditions with strong pruning and heuristics
+        (fail-first ordering and predicate-count upper bounds). This
+        avoids the previous O(\sum_k C(n,k) C(m,k)) subset enumeration.
         """
+        # ---------- 0) Gather init atoms (ground vs. lifted) ----------
         seg_init_atoms_full = set(segment.init_atoms)
 
+        # The last segment in the PNAD's datastore and its variable mapping.
         last_seg, last_var_to_obj = pnad.datastore[-1]
         last_obj_to_var = {o: v for v, o in last_var_to_obj.items()}
-        objects = set(last_obj_to_var)
+        objects_in_last = set(last_obj_to_var)
         lifted_last_init_atoms = {
             atom.lift(last_obj_to_var)
             for atom in last_seg.init_atoms
-            if all(o in objects for o in atom.objects)
+            if all(o in objects_in_last for o in atom.objects)
         }
 
-        # Candidate atoms that possibly match
+        # Restrict to predicates shared between the two sides.
         common_preds = {a.predicate for a in seg_init_atoms_full} & \
-                    {b.predicate for b in lifted_last_init_atoms}
+                       {b.predicate for b in lifted_last_init_atoms}
+        remove_ignore_atoms = True
+        if remove_ignore_atoms:
+            relevant_procs = [
+                p for p in endogenous_processes
+                if segment.get_option().parent == p.option
+            ]
+            for endo_proc in relevant_procs:
+                common_preds -= endo_proc.ignore_effects
+        seg_pre_list: List[GroundAtom] = sorted(
+            [a for a in seg_init_atoms_full if a.predicate in common_preds],
+            key=str,
+        )
+        pnad_pre_list: List[LiftedAtom] = sorted(
+            [b for b in lifted_last_init_atoms if b.predicate in common_preds],
+            key=str,
+        )
 
-        s_init_atoms_list = sorted([
-            atom
-            for atom in seg_init_atoms_full if atom.predicate in common_preds
-        ],
-                                   key=str)
-        ds_lifted_init_atoms_list = sorted([
-            atom for atom in lifted_last_init_atoms
-            if atom.predicate in common_preds
-        ],
-                                           key=str)
-        max_len1 = len(s_init_atoms_list)
-        max_len2 = len(ds_lifted_init_atoms_list)
+        # Quick exits: nothing to match or no shared predicates.
+        if not seg_pre_list or not pnad_pre_list:
+            return cast(VarToObjSub, {v: o for o, v in obj_to_var.items()})
 
-        seg_add_eff = frozenset(
-            a for a in seg_add_eff
-            if not isinstance(a.predicate, DerivedPredicate))
-        seg_del_eff = frozenset(
-            a for a in seg_del_eff
-            if not isinstance(a.predicate, DerivedPredicate))
-        pnad_add_eff = frozenset(pnad.op.add_effects)
-        pnad_del_eff = frozenset(pnad.op.delete_effects)
+        # ---------- 1) Unify effects+options once to seed a mapping ----------
+        # Remove derived predicates in the effects beforehand (already done by caller
+        # earlier, but ensure here too for safety).
+        # seg_add_eff = frozenset(
+        #     a for a in seg_add_eff if not isinstance(a.predicate, DerivedPredicate)
+        # )
+        # seg_del_eff = frozenset(
+        #     a for a in seg_del_eff if not isinstance(a.predicate, DerivedPredicate)
+        # )
+        # pnad_add_eff = frozenset(pnad.op.add_effects)
+        # pnad_del_eff = frozenset(pnad.op.delete_effects)
 
-        unify_args = (seg_add_eff, pnad_add_eff, seg_del_eff, pnad_del_eff,
-                      segment_param_option, pnad_param_option,
-                      segment_option_objs, tuple(pnad_option_vars))
+        # # Attempt to unify options+effects only. If this fails, no precondition
+        # # subset can help, so just return the original mapping.
+        # base_ok, base_obj_to_var = utils.unify_preconds_effects_options(
+        #     frozenset(),  # preconds1
+        #     frozenset(),  # preconds2
+        #     seg_add_eff,
+        #     pnad_add_eff,
+        #     seg_del_eff,
+        #     pnad_del_eff,
+        #     segment_param_option,
+        #     pnad_param_option,
+        #     segment_option_objs,
+        #     tuple(pnad_option_vars),
+        # )
+        # if not base_ok:
+        #     return cast(VarToObjSub, {v: o for o, v in obj_to_var.items()})
 
-        best_obj_to_var = obj_to_var
-        found_best_unification = False
-        k_limit = min(max_len1, max_len2)
+        # Start from the mapping returned by effects+options unify.
+        # This maps Objects (including constants) -> Variables.
+        current_map: Dict[_TypedEntity, Variable] = dict(obj_to_var)
 
-        for k_common in range(k_limit, -1, -1):
-            for p1_subset_tuple in itertools.combinations(
-                    s_init_atoms_list, k_common):
-                p1_candidate = frozenset(p1_subset_tuple)
-                for p2_subset_tuple in itertools.combinations(
-                        ds_lifted_init_atoms_list, k_common):
-                    p2_candidate = frozenset(p2_subset_tuple)
+        # We'll try to extend current_map with as many precondition matches as possible.
+        # Keep the best map we find (highest number of matched precondition atoms).
+        best_map: Dict[_TypedEntity, Variable] = dict(current_map)
+        best_count: int = 0
 
-                    # Check if they have the same predicates
-                    if {a.predicate
-                            for a in p1_candidate
-                        } != {a.predicate
-                              for a in p2_candidate}:
+        # ---------- 2) Organize atoms by predicate for bounds & candidate search ----------
+        from collections import Counter, defaultdict
+
+        idx_pnad_by_pred: Dict[Predicate, List[int]] = defaultdict(list)
+        for j, b in enumerate(pnad_pre_list):
+            idx_pnad_by_pred[b.predicate].append(j)
+
+        # Upper bound helper: given the set of unused indices on each side, compute
+        # a cheap predicate-count bound on how many additional matches are possible.
+        def predicate_upper_bound(seg_idxs: Set[int],
+                                  pnad_unused: Set[int]) -> int:
+            seg_ctr = Counter(seg_pre_list[i].predicate for i in seg_idxs)
+            pnad_ctr = Counter(pnad_pre_list[j].predicate for j in pnad_unused)
+            return sum(min(seg_ctr[p], pnad_ctr[p]) for p in seg_ctr.keys())
+
+        # Compatibility check for a single (ground, lifted) atom pair under a
+        # partial Object->Variable mapping. If compatible, returns the *new* pairs
+        # (obj, var) to add; otherwise returns None.
+        def compatible_extension(
+            a: GroundAtom, b: LiftedAtom, mapping: Dict[_TypedEntity, Variable]
+        ) -> Optional[List[Tuple[_TypedEntity, Variable]]]:
+            if a.predicate != b.predicate:
+                return None
+            new_pairs: List[Tuple[_TypedEntity, Variable]] = []
+            inv = {v: k for k, v in mapping.items()}
+            for obj_ent, var_ent in zip(a.entities, b.entities):
+                # Types must match
+                if obj_ent.type != var_ent.type:
+                    return None
+                # b side should be a Variable (usually), but handle if lifted constant
+                if isinstance(var_ent, Variable):
+                    # mapping consistency: obj -> var one-to-one
+                    if obj_ent in mapping:
+                        if mapping[obj_ent] != var_ent:
+                            return None
+                    elif var_ent in inv:
+                        if inv[var_ent] != obj_ent:
+                            return None
+                    else:
+                        new_pairs.append((obj_ent, var_ent))
+                else:
+                    # If b side is a constant-typed entity, require equality
+                    if obj_ent != var_ent:
+                        return None
+            return new_pairs
+
+        best_count = 0
+
+        def search(mapping: Dict[_TypedEntity, Variable], seg_left: Set[int],
+                   pnad_unused: Set[int], matched: int) -> None:
+            nonlocal best_count, best_map
+            # Upper bound pruning
+            ub = matched + predicate_upper_bound(seg_left, pnad_unused)
+            if ub <= best_count:
+                return
+
+            if not seg_left:
+                if matched > best_count:
+                    best_count = matched
+                    best_map = dict(mapping)
+                return
+
+            # Choose the next seg atom via fail-first: fewest compatible candidates
+            best_i = None
+            best_candidates: List[int] = []
+            # Small heuristic: iterate over predicates in increasing availability on PNAD side
+            for i in list(seg_left):
+                a = seg_pre_list[i]
+                candidates = []
+                for j in idx_pnad_by_pred[a.predicate]:
+                    if j not in pnad_unused:
                         continue
+                    ext = compatible_extension(a, pnad_pre_list[j], mapping)
+                    if ext is not None:
+                        candidates.append((j, ext))
+                if not candidates:
+                    # This atom cannot be matched under current mapping; skip it (i.e., leave it unmatched)
+                    # but still update best based on remaining atoms.
+                    seg_left_minus_i = set(seg_left)
+                    seg_left_minus_i.remove(i)
+                    search(mapping, seg_left_minus_i, pnad_unused, matched)
+                    return
+                # Track the atom with the fewest candidates
+                if best_i is None or len(candidates) < len(best_candidates):
+                    best_i = i
+                    best_candidates = candidates
+                    if len(best_candidates) == 1:
+                        break  # can't do better than 1
 
-                    # Check if they unify
-                    current_suc, current_obj_to_var = utils.unify_preconds_effects_options(
-                        p1_candidate, p2_candidate, *unify_args)
-                    if current_suc:
-                        best_obj_to_var = current_obj_to_var
-                        found_best_unification = True
-                        break
-                if found_best_unification:
-                    break
-            if found_best_unification:
-                break
+            assert best_i is not None
+            a = seg_pre_list[best_i]
 
-        sub = cast(VarToObjSub, {v: o for o, v in best_obj_to_var.items()})
+            # Try candidates (ordered deterministically by index)
+            for j, ext_pairs in sorted(best_candidates, key=lambda x: x[0]):
+                # Apply extension
+                for k, v in ext_pairs:
+                    mapping[k] = v
+                pnad_unused.remove(j)
+                seg_left.remove(best_i)
+
+                search(mapping, seg_left, pnad_unused, matched + 1)
+
+                # Revert
+                seg_left.add(best_i)
+                pnad_unused.add(j)
+                for k, _ in ext_pairs:
+                    del mapping[k]
+
+        search(dict(current_map), set(range(len(seg_pre_list))),
+               set(range(len(pnad_pre_list))), 0)
+
+        # Convert best map (Object->Variable) back to Var->Object for return.
+        sub = cast(VarToObjSub, {v: o for o, v in best_map.items()})
         return sub
 
     @abc.abstractmethod
@@ -777,8 +893,8 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
         self._atom_change_segmented_trajs: List[List[Segment]] = []
 
-        if CFG.cluster_and_search_process_learner_llm_select_condition or\
-            CFG.cluster_and_search_process_learner_llm_select_atoms:
+        if CFG.cluster_and_search_process_learner_llm_propose_top_conditions or\
+            CFG.cluster_and_search_process_learner_llm_rank_atoms:
             self._llm = utils.create_llm_by_name(CFG.llm_model_name)
         else:
             self._llm = None
@@ -793,8 +909,9 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
     ) -> Tuple[Set[LiftedAtom], Set[LiftedAtom]]:
         """If obj_to_var is None, we are taking in a set of ground atoms.
 
-        and will return a set of ground atoms. They are otherwise
-        lifted.
+        and will return a set of ground atoms. Otherwise they are
+        lifted. This is to account for some exogenous effect that may
+        happen in the same time as some endogenous effect.
         """
         if obj_to_var:
             process_lifted_atoms = True
@@ -804,10 +921,30 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         seg_add_eff = segment.add_effects
         seg_del_eff = segment.delete_effects
 
-        for endo_proc in endogenous_processes:
+        relevant_procs = [
+            p for p in endogenous_processes
+            if segment.get_option().parent == p.option
+        ]
+        for endo_proc in relevant_procs:
             if endo_proc.name == "NoOp":
                 continue
-            for g_proc in utils.all_ground_operators(endo_proc, objects):
+            add_effects = {
+                a
+                for a in add_effects
+                if a.predicate not in endo_proc.ignore_effects
+            }
+            delete_effects = {
+                a
+                for a in delete_effects
+                if a.predicate not in endo_proc.ignore_effects
+            }
+            var_to_obj = {
+                v: o
+                for v, o in zip(endo_proc.option_vars,
+                                segment.get_option().objects)
+            }
+            for g_proc in utils.all_ground_operators_given_partial(
+                    endo_proc, objects, var_to_obj):
                 if g_proc.add_effects.issubset(seg_add_eff) and\
                     g_proc.delete_effects.issubset(seg_del_eff):
                     if process_lifted_atoms:
@@ -829,119 +966,6 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                     #     f"and delete effect {seg_del_eff}\n"
                     #     f"new add effects: {add_effects}, del effects: {delete_effects}")
         return add_effects, delete_effects
-
-    # Comment out to simplify debugging
-    # def score_precondition_candidates(
-    #     self,
-    #     exogenous_process: ExogenousProcess,
-    #     initial_atoms: Set[LiftedAtom],
-    #     seed: int,
-    # ) -> List[Tuple[float, Set[LiftedAtom]]]:
-    #     # Build the candidate list once.
-    #     candidates = list(utils.all_subsets(initial_atoms))
-
-    #     # ---- Pruning with count_fp ----
-    #     if CFG.process_scoring_method == 'data_likelihood' and \
-    #             CFG.process_condition_search_prune_with_fp_count:
-    #         candidates_with_approx_scores = self._score_precondition_candidates(
-    #             candidates, exogenous_process, "count_fp")
-    #         # Get the top candidates either by percentage or number or both
-    #         candidates_with_approx_scores.sort(key=lambda x: x[0])
-    #         top_candidates_with_score = self._get_top_candidates(
-    #             candidates_with_approx_scores, percentage=0, number=48)
-    #         candidates = [
-    #             condition_candidate
-    #             for _, condition_candidate in top_candidates_with_score
-    #         ]
-
-    #     # ---- Actual scoring ----
-    #     # Decide whether to parallelise – we only do so for the
-    #     # 'data_likelihood' scoring mode and when multiple CPUs are handy.
-    #     cpu_count = mp.cpu_count()
-    #     use_parallel = (
-    #         CFG.process_scoring_method == "data_likelihood"
-    #         and CFG.cluster_and_search_process_learner_parallel_condition
-    #         and len(candidates) > 1 and cpu_count > 1)
-    #     start_time = time.time()
-    #     if use_parallel:
-    #         logging.debug(f"Scoring {len(candidates)} candidates with "
-    #                       f"{cpu_count} workers")
-    #         logging.debug(f"Early stopping patience: "
-    #                         f"{CFG.process_param_learning_patience}")
-    #         worker_args = [(conditions, self._trajectories, self._predicates,
-    #                         copy.deepcopy(exogenous_process), seed,
-    #                         CFG.cluster_and_search_vi_steps,
-    #                         CFG.process_param_learning_patience)
-    #                     for conditions in candidates]
-    #         with Pool(nodes=min(len(worker_args), cpu_count)) as pool:
-    #             candidates_with_scores = pool.map(
-    #                 _compute_data_likelihood_cost, worker_args)
-    #     else:
-    #         candidates_with_scores = self._score_precondition_candidates(
-    #             candidates, exogenous_process, CFG.process_scoring_method)
-
-    #     # Sort by score (lower is better)
-    #     candidates_with_scores.sort(key=lambda x: x[0])
-    #     for i, result in enumerate(candidates_with_scores):
-    #         if len(result) == 2:
-    #             score, condition_candidate = result
-    #             logging.debug(f"Conditions {i}: {condition_candidate}, "
-    #                           f"Score: {score}")
-    #         else:
-    #             score, condition_candidate, scores, process = result
-    #             process_param_str = ", ".join([f"{v:.4f}" for v in
-    #                                            process._get_parameters()])
-    #             logging.debug(f"Conditions {i}: {condition_candidate}, "
-    #                           f"Score: {score}, "
-    #                           f"Exp_state_at_best: {scores[1]:.4f}, "
-    #                           f"Exp_delay_at_best: {scores[2]:.4f}, "
-    #                           f"Entropy_at_best: {scores[3]:.4f}, "
-    #                           f"Process params: {process_param_str}")
-
-    #     logging.debug(f"Scored {len(candidates_with_scores)} candidates took "
-    #                   f"{time.time() - start_time:.2f} seconds")
-    #     return candidates_with_scores
-
-    # def _score_precondition_candidates(self, candidates: List[Set[LiftedAtom]],
-    #                                    exogenous_process: ExogenousProcess,
-    #                                    score_method: str) -> Any:
-    #     candidates_with_scores = []
-    #     # Original sequential evaluation path (unchanged logic).
-    #     for condition_candidate in candidates:
-    #         exogenous_process.condition_at_start = condition_candidate
-    #         exogenous_process.condition_overall = condition_candidate
-    #         complexity_penalty = \
-    #             CFG.process_condition_search_complexity_weight * len(
-    #             condition_candidate)
-
-    #         if score_method == 'count_fp':
-    #             false_positive_process_state = \
-    #                 self._get_false_positive_states_from_seg_trajs(
-    #                     self._atom_change_segmented_trajs,
-    #                     [exogenous_process])
-    #             num_false_positives = sum(
-    #                 len(states)
-    #                 for states in false_positive_process_state.values())
-    #             cost = num_false_positives + complexity_penalty
-    #         elif score_method == 'data_likelihood':
-    #             _, scores = self._get_data_likelihood_and_learn_params(
-    #                 self._trajectories,
-    #                 self._predicates,
-    #                 [exogenous_process],
-    #                 use_lbfgs=True,
-    #                 plot_training_curve=False,
-    #                 lbfgs_max_iter=CFG.cluster_and_search_vi_steps,
-    #                 adam_num_steps=CFG.cluster_and_search_vi_steps,
-    #             )
-    #             cost = -scores[0] + complexity_penalty
-    #         else:
-    #             raise NotImplementedError
-
-    #         result = [cost, condition_candidate]
-    #         if 'scores' in locals():
-    #             result.append(scores)
-    #         candidates_with_scores.append(result)
-    #     return candidates_with_scores
 
     @staticmethod
     def _get_top_candidates(
@@ -1032,31 +1056,26 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
     def get_name(cls) -> str:
         return "cluster_and_search_process_learner"
 
-    def _llm_rank_atoms(
-            self,
-            possible_atoms_per_pnad: List[Set[LiftedAtom]],
-            pnads: Optional[List[PNAD]] = None) -> List[List[LiftedAtom]]:
-        """Rank the possible atoms by their likelihood of being
-        relevant/necessary for the PNAD's effects.
+    def _determine_worker_count(self) -> int:
+        """Return number of worker processes to use based on config."""
+        if CFG.process_learning_process_per_physical_core:
+            return max(1, psutil.cpu_count(logical=False) - 1)
+        return max(1, mp.cpu_count() - 1)
+
+    def _build_process_descriptions(
+        self,
+        possible_atoms_per_pnad: List[Set[LiftedAtom]],
+        pnads: Optional[List[PNAD]] = None
+    ) -> List[Tuple[str, List[LiftedAtom]]]:
+        """Build process descriptions for LLM prompts.
 
         Args:
-            possible_atoms_per_pnad: List of sets of possible precondition atoms, one set per PNAD
+            possible_atoms_per_pnad: List of sets of possible precondition atoms
             pnads: Optional list of PNADs to get effect information from
 
         Returns:
-            List of lists of ranked atoms, keeping only the most relevant ones based on LLM assessment
+            List of (process_description, sorted_atoms) tuples
         """
-        if not possible_atoms_per_pnad or self._llm is None:
-            return [list(atoms) for atoms in possible_atoms_per_pnad]
-
-        # Load the prompt template
-        prompt_file = utils.get_path_to_predicators_root() + \
-            "/predicators/nsrt_learning/strips_learning/" + \
-            "llm_op_learning_prompts/atom_ranking.prompt"
-        with open(prompt_file, "r") as f:
-            template = f.read()
-
-        # Build the process effects and candidates description
         process_descriptions = []
         for i, poss_atoms in enumerate(possible_atoms_per_pnad):
             process_desc = f"Process {i}:\n"
@@ -1092,34 +1111,100 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
             process_descriptions.append((process_desc, sorted_atoms))
 
+        return process_descriptions
+
+    def _call_llm_with_template(self, template_path: str,
+                                template_vars: Dict[str, Any],
+                                debug_filename: str) -> str:
+        """Call LLM with a template and save debug info.
+
+        Args:
+            template_path: Path to the prompt template file
+            template_vars: Variables to substitute in template
+            debug_filename: Name for debug output file
+
+        Returns:
+            LLM response text
+        """
+        if self._llm is None:
+            raise ValueError("LLM not available")
+
+        # Load the prompt template
+        with open(template_path, "r") as f:
+            template = f.read()
+
         # Format the prompt
-        all_descriptions = "\n".join(
-            [desc for desc, _ in process_descriptions])
-        prompt = template.format(
-            PROCESS_EFFECTS_AND_CANDIDATES=all_descriptions)
+        prompt = template.format(**template_vars)
 
         # Get LLM response
-        try:
-            response = self._llm.sample_completions(prompt,
-                                                    imgs=None,
-                                                    temperature=0,
-                                                    seed=CFG.seed)[0]
+        response = self._llm.sample_completions(prompt,
+                                                imgs=None,
+                                                temperature=0,
+                                                seed=CFG.seed)[0]
 
-            # Save the prompt and response for debugging
-            with open(f"{CFG.log_file}/atom_ranking_response.txt", "w") as f:
-                f.write(f"{prompt}\n=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*"
-                        f"\n{response}")
-            breakpoint()
+        # Save debug info
+        with open(f"{CFG.log_file}/{debug_filename}", "w") as f:
+            f.write(f"{prompt}\n=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*"
+                    f"\n{response}")
+
+        return response
+
+    def _parse_llm_answer_block(self, response: str) -> Optional[str]:
+        """Extract answer content from LLM response.
+
+        Args:
+            response: Raw LLM response
+
+        Returns:
+            Answer text or None if not found
+        """
+        answer_match = re.search(r'<answer>(.*?)</answer>', response,
+                                 re.DOTALL)
+        if not answer_match:
+            return None
+        return answer_match.group(1).strip()
+
+    def _llm_rank_atoms(
+            self,
+            possible_atoms_per_pnad: List[Set[LiftedAtom]],
+            pnads: Optional[List[PNAD]] = None,
+            max_atoms: Optional[int] = None) -> List[List[LiftedAtom]]:
+        """Rank the possible atoms by their likelihood of being
+        relevant/necessary for the PNAD's effects.
+
+        Args:
+            possible_atoms_per_pnad: List of sets of possible precondition atoms, one set per PNAD
+            pnads: Optional list of PNADs to get effect information from
+
+        Returns:
+            List of lists of ranked atoms, keeping only the most relevant ones based on LLM assessment
+        """
+        if not possible_atoms_per_pnad or self._llm is None:
+            return [list(atoms) for atoms in possible_atoms_per_pnad]
+
+        try:
+            # Build process descriptions
+            process_descriptions = self._build_process_descriptions(
+                possible_atoms_per_pnad, pnads)
+
+            # Call LLM with template
+            template_path = (utils.get_path_to_predicators_root() +
+                             "/predicators/nsrt_learning/strips_learning/" +
+                             "llm_op_learning_prompts/atom_ranking.prompt")
+            all_descriptions = "\n".join(
+                [desc for desc, _ in process_descriptions])
+            template_vars = {
+                "PROCESS_EFFECTS_AND_CANDIDATES": all_descriptions
+            }
+            response = self._call_llm_with_template(
+                template_path, template_vars, "atom_ranking_response.txt")
 
             # Parse the response
-            answer_match = re.search(r'<answer>(.*?)</answer>', response,
-                                     re.DOTALL)
-            if not answer_match:
+            answer_text = self._parse_llm_answer_block(response)
+            if not answer_text:
                 logging.warning("LLM failed to provide properly formatted "
                                 "answer for atom ranking")
                 return [list(atoms) for atoms in possible_atoms_per_pnad]
-
-            answer_text = answer_match.group(1).strip()
             lines = [
                 line.strip() for line in answer_text.split('\n')
                 if line.strip()
@@ -1156,9 +1241,10 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                         if valid_indices:
                             # Keep atoms in the order specified by LLM ranking
                             # But limit to top N atoms to avoid combinatorial explosion
-                            max_atoms = min(
-                                len(valid_indices),
-                                CFG.get("llm_atom_ranking_max_atoms", 5))
+                            if max_atoms is None:
+                                max_atoms = len(valid_indices)
+                            else:
+                                max_atoms = min(max_atoms, len(valid_indices))
                             selected_atoms = [
                                 sorted_atoms[idx]
                                 for idx in valid_indices[:max_atoms]
@@ -1176,16 +1262,14 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                     ranked_atoms_per_pnad.append(list(sorted_atoms))
 
             # Log the results
-            for i, (original, ranked) in enumerate(
-                    zip(possible_atoms_per_pnad, ranked_atoms_per_pnad)):
+            for i, ranked in enumerate(ranked_atoms_per_pnad):
+                original = list(process_descriptions[i][1])
                 logging.info(
-                    f"Process {i}: Reduced atoms from {len(original)} to {len(ranked)}"
+                    f"Process {i}: Kept {len(ranked)}/{len(original)} atoms")
+                logging.debug(f"  Kept atoms: {sorted(ranked, key=str)}")
+                logging.debug(
+                    f"  Removed atoms: {sorted(set(original) - set(ranked), key=str)}"
                 )
-                if len(ranked) < len(original):
-                    logging.debug(f"  Kept atoms: {sorted(ranked, key=str)}")
-                    logging.debug(
-                        f"  Removed atoms: {sorted(set(original) - set(ranked), key=str)}"
-                    )
 
             return ranked_atoms_per_pnad
 
@@ -1193,6 +1277,121 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             logging.warning(
                 f"LLM atom ranking failed: {e}, keeping original atoms")
             return [list(atoms) for atoms in possible_atoms_per_pnad]
+
+    def _llm_propose_condition_sets(
+            self,
+            possible_atoms_per_pnad: List[Set[LiftedAtom]],
+            pnads: Optional[List[PNAD]] = None,
+            k: Optional[int] = None) -> List[List[Set[LiftedAtom]]]:
+        """Propose top k condition sets for each PNAD using LLM.
+
+        Args:
+            possible_atoms_per_pnad: List of sets of possible precondition atoms, one set per PNAD
+            pnads: Optional list of PNADs to get effect information from
+            k: Number of condition sets to propose per PNAD
+
+        Returns:
+            List of lists of condition sets, where each condition set is a set of atoms
+        """
+        if not possible_atoms_per_pnad or self._llm is None:
+            return [[set(atoms)] for atoms in possible_atoms_per_pnad]
+
+        if k is None:
+            k = CFG.process_learner_llm_propose_conditions_k
+
+        try:
+            # Build process descriptions
+            process_descriptions = self._build_process_descriptions(
+                possible_atoms_per_pnad, pnads)
+
+            # Call LLM with template
+            template_path = (
+                utils.get_path_to_predicators_root() +
+                "/predicators/nsrt_learning/strips_learning/" +
+                "llm_op_learning_prompts/condition_set_proposal.prompt")
+            all_descriptions = "\n".join(
+                [desc for desc, _ in process_descriptions])
+            template_vars = {
+                "PROCESS_EFFECTS_AND_CANDIDATES": all_descriptions,
+                "K": k
+            }
+            response = self._call_llm_with_template(
+                template_path, template_vars,
+                "condition_set_proposal_response.txt")
+
+            # Parse the response
+            answer_text = self._parse_llm_answer_block(response)
+            if not answer_text:
+                logging.warning("LLM failed to provide properly formatted "
+                                "answer for condition set proposal")
+                return [[set(atoms)] for atoms in possible_atoms_per_pnad]
+            lines = [
+                line.strip() for line in answer_text.split('\n')
+                if line.strip()
+            ]
+
+            # Parse condition sets for each process
+            condition_sets_per_pnad = []
+            for i, (_, sorted_atoms) in enumerate(process_descriptions):
+                # Find lines for this process
+                process_sets = []
+                process_found = False
+
+                for line in lines:
+                    if line.startswith(f"Process {i}:"):
+                        process_found = True
+                        continue
+                    elif process_found and line.startswith("Process "):
+                        # Start of next process, break
+                        break
+                    elif process_found and line.startswith("Set "):
+                        # Parse set line: "Set 1: [2,0,4]"
+                        try:
+                            set_part = line.split(":", 1)[1].strip()
+                            # Remove brackets and split by comma
+                            set_part = set_part.strip("[]")
+                            if set_part:
+                                indices = [
+                                    int(idx.strip())
+                                    for idx in set_part.split(',')
+                                ]
+                                # Filter valid indices and get corresponding atoms
+                                valid_indices = [
+                                    idx for idx in indices
+                                    if 0 <= idx < len(sorted_atoms)
+                                ]
+                                if valid_indices:
+                                    condition_set = {
+                                        sorted_atoms[idx]
+                                        for idx in valid_indices
+                                    }
+                                    process_sets.append(condition_set)
+                        except (ValueError, IndexError) as e:
+                            logging.warning(
+                                f"Failed to parse condition set for process {i}: {e}"
+                            )
+
+                if not process_sets:
+                    # No valid sets found, use original atoms as single set
+                    process_sets.append(set(sorted_atoms))
+
+                condition_sets_per_pnad.append(process_sets)
+
+            # Log the results
+            for i, sets in enumerate(condition_sets_per_pnad):
+                logging.info(
+                    f"Process {i}: Proposed {len(sets)} condition sets")
+                for j, condition_set in enumerate(sets):
+                    logging.debug(
+                        f"  Set {j+1}: {sorted(condition_set, key=str)}")
+
+            return condition_sets_per_pnad
+
+        except Exception as e:
+            logging.warning(
+                f"LLM condition set proposal failed: {e}, using original atoms"
+            )
+            return [[set(atoms)] for atoms in possible_atoms_per_pnad]
 
     def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
         """Learns preconditions for all PNADs.
@@ -1204,12 +1403,9 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         expensive data-likelihood metric.
         """
         # Check if parallelization is enabled and beneficial.
-        if CFG.process_learning_process_per_physical_core:
-            cpu_cnt = max(1, psutil.cpu_count(logical=False) - 1)
-        else:
-            cpu_cnt = max(1, mp.cpu_count() - 1)
+        cpu_cnt = self._determine_worker_count()
         use_parallel = (CFG.cluster_and_search_process_learner_parallel_pnad
-                        and len(pnads) > 1 and cpu_cnt > 1)
+                        and cpu_cnt > 1)
 
         if not use_parallel:
             logging.info("Learning PNAD preconditions sequentially.")
@@ -1218,30 +1414,66 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         logging.info(f"Learning preconditions for {len(pnads)} PNADs "
                      f"using a flat parallel pool.")
 
-        indexed_pnads = {i: pnad for i, pnad in enumerate(pnads)}
         final_candidates_for_pnad: Dict[int, List[Set[LiftedAtom]]] = {}
 
         # Step 1 (Optional): Prune candidate conditions using count_fp.
-        pruning_enabled = (CFG.process_scoring_method == 'data_likelihood' and
-                           CFG.process_condition_search_prune_with_fp_count)
+        fp_count_pruning = (
+            CFG.process_scoring_method == 'data_likelihood'
+            and CFG.process_condition_search_prune_with_fp_count and not CFG.
+            cluster_and_search_process_learner_llm_propose_top_conditions)
 
         # Determine how many candidate preconditions to keep per PNAD for
         # parallel scoring.
         possible_atoms_per_pnad = [
             self._induce_preconditions_via_intersection(pnad) for pnad in pnads
         ]
-        if CFG.cluster_and_search_process_learner_llm_select_atoms:
+
+        if CFG.cluster_and_search_process_learner_llm_propose_top_conditions:
+            # Use LLM to propose top k condition sets for each PNAD
+            condition_sets_per_pnad = self._llm_propose_condition_sets(
+                possible_atoms_per_pnad, pnads)
+        elif CFG.cluster_and_search_process_learner_llm_rank_atoms:
             ranked_atoms_per_pnad = self._llm_rank_atoms(
                 possible_atoms_per_pnad, pnads)
             # Convert lists back to sets for compatibility with existing code
             possible_atoms_per_pnad = [
                 set(atoms) for atoms in ranked_atoms_per_pnad
             ]
+            condition_sets_per_pnad = None
+        else:
+            condition_sets_per_pnad = None
+        # Update each PNAD's operator parameters to only include variables
+        # that appear in either the (candidate) preconditions or the effects.
+        # This reduces arity early and speeds up downstream scoring.
+        filtered_pnads: List[PNAD] = []
+        for i, (pnad,
+                poss_atoms) in enumerate(zip(pnads, possible_atoms_per_pnad)):
+            if condition_sets_per_pnad is not None:
+                poss_atoms = set.union(*condition_sets_per_pnad[i])
+            eff_atoms = pnad.op.add_effects | pnad.op.delete_effects
+            used_vars = {
+                v
+                for atom in (poss_atoms | eff_atoms) for v in atom.variables
+            }
+            if not used_vars:
+                # If no variables are used, keep original PNAD (degenerate case).
+                filtered_pnads.append(pnad)
+                continue
+            # Preserve original parameter order while filtering.
+            new_params = [p for p in pnad.op.parameters if p in used_vars]
+            if list(pnad.op.parameters) == new_params:
+                filtered_pnads.append(pnad)
+                continue
+            new_op = pnad.op.copy_with(parameters=new_params)
+            filtered_pnads.append(
+                PNAD(new_op, pnad.datastore, pnad.option_spec))
+        pnads = filtered_pnads
+        indexed_pnads = {i: p for i, p in enumerate(pnads)}
 
         num_candidates_per_pnad = [
             2**len(poss_atoms) for poss_atoms in possible_atoms_per_pnad
         ]
-        max_num_candidates = max(num_candidates_per_pnad)
+        max_num_candidates = min(max(num_candidates_per_pnad), cpu_cnt)
         num_candidates_to_keep = 1
         # Try to find the largest cap on candidates per PNAD such that the total
         # number of candidates across all PNADs does not exceed the number of
@@ -1251,31 +1483,38 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 [min(num, i) for num in num_candidates_per_pnad])
             if total_candidates <= cpu_cnt:
                 logging.info(
-                    f"Setting candidate cap per PNAD to "
-                    f"{num_candidates_to_keep} to utilize {cpu_cnt} CPUs (total "
-                    f"candidates: {total_candidates}).")
+                    f"Setting candidate cap per PNAD to {i} to utilize {cpu_cnt} CPUs "
+                    f"(total candidates: {total_candidates}).")
                 num_candidates_to_keep = i
                 break
 
-        for i, pnad in indexed_pnads.items():
+        # Helper: get initial lifted atoms for a PNAD index
+        def _initial_lifted_atoms_for_index(idx: int,
+                                            p: PNAD) -> Set[LiftedAtom]:
             if CFG.exogenous_process_learner_do_intersect:
-                initial_lift_atoms = possible_atoms_per_pnad[i]
-            else:
-                init_ground_atoms = pnad.datastore[0][0].init_atoms
-                var_to_obj = pnad.datastore[0][1]
-                obj_to_var = {v: k for k, v in var_to_obj.items()}
-                initial_lift_atoms = {
-                    atom.lift(obj_to_var)
-                    for atom in init_ground_atoms
-                }
+                return possible_atoms_per_pnad[idx]
+            init_ground_atoms = p.datastore[0][0].init_atoms
+            var_to_obj = p.datastore[0][1]
+            obj_to_var = {v: k for k, v in var_to_obj.items()}
+            return {atom.lift(obj_to_var) for atom in init_ground_atoms}
 
-            all_candidates = list(utils.all_subsets(initial_lift_atoms))
+        for i, pnad in indexed_pnads.items():
+            initial_lift_atoms = _initial_lifted_atoms_for_index(i, pnad)
+
+            if (condition_sets_per_pnad is not None
+                    and i < len(condition_sets_per_pnad)):
+                # Use LLM-proposed condition sets
+                all_candidates = condition_sets_per_pnad[
+                    i][:num_candidates_per_pnad[i]]
+            else:
+                # Use traditional approach: all subsets
+                all_candidates = list(utils.all_subsets(initial_lift_atoms))
 
             if not all_candidates:
                 final_candidates_for_pnad[i] = []
                 continue
 
-            if pruning_enabled:
+            if fp_count_pruning:
                 base_process = pnad.make_exogenous_process()
                 logging.debug(f"Pruning {len(all_candidates)} candidates for "
                               f"PNAD {i}:\n{base_process}")
@@ -1331,60 +1570,17 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         work_items = []
         for i, pnad in indexed_pnads.items():
             base_process = pnad.make_exogenous_process()
-            for condition in final_candidates_for_pnad[i]:
-                item = (i, copy.deepcopy(base_process), condition,
-                        self._trajectories, self._predicates, CFG.seed,
-                        CFG.cluster_and_search_vi_steps,
+            for condition_idx, condition in enumerate(
+                    final_candidates_for_pnad[i]):
+                item = (i, condition_idx, copy.deepcopy(base_process),
+                        condition, self._trajectories, self._predicates,
+                        CFG.seed, CFG.cluster_and_search_vi_steps,
                         CFG.process_condition_search_complexity_weight,
                         load_dir, save_dir,
                         CFG.process_param_learning_patience)
                 work_items.append(item)
 
-        # ----- Debug start -----
-        def debug_func(work_item):
-            (pnad_idx, base_process, condition_candidate, trajectories,
-             predicates, seed, num_it, complexity_weight, load_dir, save_dir,
-             early_stopping_patience) = work_item
-            logging.info(f"Debugging condition {condition_candidate} for "
-                         f"PNAD index {pnad_idx}")
-            # Set the conditions on the process object.
-            base_process.condition_at_start = condition_candidate
-            base_process.condition_overall = condition_candidate
-
-            from predicators.approaches.pp_param_learning_approach import \
-                learn_process_parameters
-
-            # Perform the expensive part: learning and scoring.
-            process, scores = learn_process_parameters(
-                trajectories,
-                predicates,
-                [base_process
-                 ],  # The list now contains just the one process to score.
-                use_lbfgs=False,
-                plot_training_curve=False,
-                lbfgs_max_iter=num_it,
-                adam_num_steps=num_it,
-                seed=seed,
-                display_progress=True,
-                early_stopping_patience=early_stopping_patience,
-                debug_log=True)
-            process_param_str = ", ".join(
-                [f"{v:.4f}" for v in process[0]._get_parameters()])
-            logging.info(f"ELBO: {scores[0]:.4f}, "
-                         f"Exp_state_prob: {scores[1]:.4f}, "
-                         f"Exp_delay_prob: {scores[2]:.4f}, "
-                         f"Entropy: {scores[3]:.4f}, "
-                         f"Process params: {process_param_str}\n")
-
-        # with mu=5; work_item 2: FaucetOn
-        #            work_item 5: BrunerOn
-        # # ------ For FaucetOn
-        # debug_func(work_items[2])
-
-        # # ------ For BurnerOn
-        # debug_func(work_items[5])
-        # breakpoint()
-        # ----- Debug end -----
+        # Debug code removed for clarity.
         if not work_items:
             return []
 
@@ -1405,9 +1601,15 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                           List[Tuple[float, FrozenSet[LiftedAtom], Tuple[float,
                                                                          ...],
                                      ExogenousProcess]]] = defaultdict(list)
-        for pnad_idx, cost, condition, scores_tuple, process in results:
+        for pnad_idx, condition_idx, cost, condition_candidate, scores_tuple, process in results:
+            # Retrieve the original condition from final_candidates_for_pnad using the condition_idx
+            # This ensures we get the condition with proper auxiliary_predicates
+            original_condition = final_candidates_for_pnad[pnad_idx][
+                condition_idx]
+            process.condition_at_start = original_condition.copy()
+            process.condition_overall = original_condition.copy()
             pnad_scores[pnad_idx].append(
-                (cost, frozenset(condition), scores_tuple, process))
+                (cost, frozenset(original_condition), scores_tuple, process))
 
         #   Log the scores and select the best condition
         best_conditions: Dict[int, FrozenSet[LiftedAtom]] = {}
@@ -1438,23 +1640,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                               f"Exp_delay_prob: {scores[2]:.4f}, "
                               f"Entropy: {scores[3]:.4f}, "
                               f"Process params: {process_param_str}")
-                if CFG.use_wandb:
-                    wandb.log({
-                        f"pnad_{pnad_idx}_condition_{rank}_cost":
-                        cost,
-                        f"pnad_{pnad_idx}_condition_{rank}_condition":
-                        str(condition_candidate),
-                        f"pnad_{pnad_idx}_condition_{rank}_elbo":
-                        scores[0],
-                        f"pnad_{pnad_idx}_condition_{rank}_exp_state_prob":
-                        scores[1],
-                        f"pnad_{pnad_idx}_condition_{rank}_exp_delay_prob":
-                        scores[2],
-                        f"pnad_{pnad_idx}_condition_{rank}_entropy":
-                        scores[3],
-                        f"pnad_{pnad_idx}_condition_{rank}_process_params":
-                        process_param_str
-                    })
 
             # Get the conditions with the top marginal likelihood
             multiple_top_conditions = False

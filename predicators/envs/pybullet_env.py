@@ -358,7 +358,7 @@ class PyBulletEnv(BaseEnv):
         # 3) Reset all known objects (position, orientation, etc.)
         for obj in self._objects:
             if obj.type.name in [
-                    "robot", "loc", "rot", "human", "side", "direction"
+                    "robot", "loc", "angle", "human", "side", "direction"
             ]:
                 continue
             self._reset_single_object(obj, state)
@@ -396,6 +396,9 @@ class PyBulletEnv(BaseEnv):
         if "rot" in features:
             angle = state.get(obj, "rot")
             # Convert from 2D angle to a 3D quaternion (assuming rotation around z)
+            orn = p.getQuaternionFromEuler([0.0, 0.0, angle])
+        elif "yaw" in features:
+            angle = state.get(obj, "yaw")
             orn = p.getQuaternionFromEuler([0.0, 0.0, angle])
         else:
             orn = self._default_orn  # e.g. (0,0,0,1)
@@ -453,7 +456,7 @@ class PyBulletEnv(BaseEnv):
             obj_features = obj.type.feature_names
             obj_dict = {}
 
-            if obj.type.name in ["loc", "rot", "human", "side", "direction"]:
+            if obj.type.name in ["loc", "angle", "human", "side", "direction"]:
                 for feature in obj_features:
                     obj_dict[feature] = self._extract_feature(obj, feature)
                 state_dict[obj] = obj_dict
@@ -471,9 +474,15 @@ class PyBulletEnv(BaseEnv):
                 obj_dict["y"] = py
             if "z" in obj_features:
                 obj_dict["z"] = pz
-            if "rot" in obj_features:
-                yaw = p.getEulerFromQuaternion(orn)[2]
-                obj_dict["rot"] = yaw
+            if "rot" in obj_features or "yaw" in obj_features or \
+                "roll" in obj_features:
+                roll, pitch, yaw = p.getEulerFromQuaternion(orn)
+                if "rot" in obj_features:
+                    obj_dict["rot"] = yaw
+                if "yaw" in obj_features:
+                    obj_dict["yaw"] = yaw
+                if "roll" in obj_features:
+                    obj_dict["roll"] = roll
             if "is_held" in obj_features:
                 obj_dict["is_held"] = 1.0 if obj.id == self._held_obj_id \
                                             else 0.0
@@ -491,7 +500,8 @@ class PyBulletEnv(BaseEnv):
             # Additional features
             for feature in obj_features:
                 if feature not in [
-                        "x", "y", "z", "rot", "is_held", "r", "g", "b"
+                        "x", "y", "z", "rot", "yaw", "roll", "is_held", "r",
+                        "g", "b"
                 ]:
                     obj_dict[feature] = self._extract_feature(obj, feature)
 

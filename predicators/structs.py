@@ -528,14 +528,14 @@ class DerivedPredicate(Predicate):
                           bool] = field(compare=False)
     untransformed_predicate: Optional[Predicate] = field(default=None,
                                                          compare=False)
-    auxiliary_predicates: Optional[Set[ConceptPredicate]] = field(
-        default=None, compare=False)
+    auxiliary_predicates: Optional[Set[Predicate]] = field(default=None,
+                                                           compare=False)
 
     def update_auxiliary_concepts(
             self,
-            auxiliary_concepts: Set[ConceptPredicate]) -> ConceptPredicate:
+            auxiliary_predicates: Set[DerivedPredicate]) -> DerivedPredicate:
         """Create a new ConceptPredicate with updated auxiliary_concepts."""
-        return replace(self, auxiliary_concepts=auxiliary_concepts)
+        return replace(self, auxiliary_predicates=auxiliary_predicates)
 
     @cached_property
     def _hash(self) -> int:
@@ -1992,7 +1992,8 @@ class PNAD:
 
     def add_to_datastore(self,
                          member: Tuple[Segment, VarToObjSub],
-                         check_effect_equality: bool = True) -> None:
+                         check_effect_equality: bool = True,
+                         check_option_equality: bool = True) -> None:
         """Add a new member to self.datastore."""
         seg, var_obj_sub = member
         if len(self.datastore) > 0:
@@ -2021,7 +2022,7 @@ class PNAD:
                 }
                 assert lifted_add_effects == self.op.add_effects
                 assert lifted_del_effects == self.op.delete_effects
-            if seg.has_option():
+            if seg.has_option() and check_option_equality:
                 # The option should match.
                 option = seg.get_option()
                 part_param_option, part_option_args = self.option_spec
@@ -2654,12 +2655,16 @@ class CausalProcess(abc.ABC):
 
     @cached_property
     def _str(self) -> str:
+        ignore_effects_str = ""
+        if hasattr(self, 'ignore_effects') and isinstance(
+                self.ignore_effects, set):
+            ignore_effects_str = f"\n    Ignore Effects: {sorted(self.ignore_effects, key=str)}"
         return f"""    Parameters: {self.parameters}
     Conditions at start: {sorted(self.condition_at_start, key=str)}
     Conditions overall: {sorted(self.condition_overall, key=str)}
     Conditions at end: {sorted(self.condition_at_end, key=str)}
     Add Effects: {sorted(self.add_effects, key=str)}
-    Delete Effects: {sorted(self.delete_effects, key=str)}
+    Delete Effects: {sorted(self.delete_effects, key=str)}{ignore_effects_str}
     Log Strength: {self.strength:.4f}
     Delay Distribution: {self.delay_distribution}"""
 
@@ -2767,6 +2772,7 @@ class EndogenousProcess(CausalProcess):
     option: ParameterizedOption
     option_vars: Sequence[Variable]
     _sampler: NSRTSampler = field(repr=False)
+    ignore_effects: Set[Predicate] = field(default_factory=set)
 
     def copy(self) -> EndogenousProcess:
         """Create a deep copy of this endogenous process."""
@@ -2782,7 +2788,9 @@ class EndogenousProcess(CausalProcess):
             strength=self.strength.clone(),
             option=self.option.copy(),
             option_vars=self.option_vars.copy(),
-            _sampler=self._sampler.copy())
+            _sampler=self._sampler.copy(),
+            ignore_effects=self.ignore_effects.copy(),
+        )
 
     def filter_predicates(self,
                           kept: Collection[Predicate]) -> EndogenousProcess:
@@ -2803,12 +2811,14 @@ class EndogenousProcess(CausalProcess):
             a
             for a in self.delete_effects if a.predicate in kept
         }
+        ignore_effects = {a for a in self.ignore_effects if a in kept}
 
         return EndogenousProcess(self.name, self.parameters,
                                  condition_at_start, condition_overall,
                                  condition_at_env, add_effects, delete_effects,
                                  self.delay_distribution, self.strength,
-                                 self.option, self.option_vars, self._sampler)
+                                 self.option, self.option_vars, self._sampler,
+                                 ignore_effects)
 
     def ground(self, objects: Sequence[Object]) -> _GroundEndogenousProcess:
         assert len(objects) == len(self.parameters)
@@ -2943,6 +2953,11 @@ class _GroundEndogenousProcess(_GroundCausalProcess):
     option_objs: Sequence[Object]
     _sampler: NSRTSampler = field(repr=False)
 
+    @property
+    def ignore_effects(self) -> Set[Predicate]:
+        """Ignore effects from the parent."""
+        return self.parent.ignore_effects
+
     @cached_property
     def _str(self) -> str:
         return f"""Process-{self.name}:
@@ -2952,6 +2967,7 @@ class _GroundEndogenousProcess(_GroundCausalProcess):
     Conditions at end: {sorted(self.condition_at_end, key=str)}
     Add Effects: {sorted(self.add_effects, key=str)}
     Delete Effects: {sorted(self.delete_effects, key=str)}
+    Ignore Effects: {sorted(self.ignore_effects, key=str)}
     Option: {self.option}
     Option Objects: {self.option_objs}"""
 

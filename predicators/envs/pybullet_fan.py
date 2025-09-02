@@ -337,7 +337,7 @@ class PyBulletFanEnv(PyBulletEnv):
                                          self._FrontFanSwitch_holds)
         self._BackFanSwitch = Predicate("BackFanSwitch", [self._switch_type],
                                         self._BackFanSwitch_holds)
-        self._FanOnSide = Predicate("FanOnSide",
+        self._FanOnSide = Predicate("FanFacingSide",
                                     [self._fan_type, self._side_type],
                                     self._FanOnSide_holds)
         self._OppositeFan = Predicate("OppositeFan",
@@ -374,6 +374,10 @@ class PyBulletFanEnv(PyBulletEnv):
         if not CFG.fan_known_controls_relation:
             predicates |= {self._SwitchOn, self._SwitchOff}
         return predicates
+
+    @property
+    def target_predicates(self) -> Set[Predicate]:
+        return {self._FanOnSide, self._OppositeFan}
 
     @property
     def types(self) -> Set[Type]:

@@ -88,84 +88,82 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
                                                 option_vars, null_sampler)
             processes.add(plug_in_process)
 
-        if CFG.coffee_combined_move_and_twist_policy:
-            # Twist (combined move and twist)
-            robot = Variable("?robot", robot_type)
-            jug = Variable("?jug", jug_type)
-            parameters = [robot, jug]
-            option_vars = [robot, jug]
-            option = options["Twist"]
-            condition_at_start = {
-                LiftedAtom(OnTable, [jug]),
-                LiftedAtom(HandEmpty, [robot]),
-            }
-            add_effects_twist: Set[LiftedAtom] = set()
-            delete_effects_twist: Set[LiftedAtom] = set()
-            if CFG.coffee_jug_pickable_pred:
-                add_effects_twist.add(LiftedAtom(JugPickable, [jug]))
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
-                                                       sigma=torch.tensor(0.1))
-            twist_process = EndogenousProcess("Twist",
-                                              parameters, condition_at_start,
-                                              set(), set(), add_effects_twist,
-                                              delete_effects_twist,
-                                              delay_distribution,
-                                              torch.tensor(1.0), option,
-                                              option_vars, null_sampler)
-            processes.add(twist_process)
-        else:
-            # MoveToTwistJug
-            robot = Variable("?robot", robot_type)
-            jug = Variable("?jug", jug_type)
-            parameters = [robot, jug]
-            option_vars = [robot, jug]
-            option = options["MoveToTwistJug"]
-            condition_at_start = {
-                LiftedAtom(OnTable, [jug]),
-                LiftedAtom(HandEmpty, [robot]),
-            }
-            add_effects = {
-                LiftedAtom(Twisting, [robot, jug]),
-            }
-            delete_effects = {
-                LiftedAtom(HandEmpty, [robot]),
-            }
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
-                                                       sigma=torch.tensor(0.1))
-            move_to_twist_jug_process = EndogenousProcess(
-                "MoveToTwistJug", parameters, condition_at_start, set(), set(),
-                add_effects, delete_effects, delay_distribution,
-                torch.tensor(1.0), option, option_vars, null_sampler)
-            processes.add(move_to_twist_jug_process)
-
-            # TwistJug
-            robot = Variable("?robot", robot_type)
-            jug = Variable("?jug", jug_type)
-            parameters = [robot, jug]
-            option_vars = [robot, jug]
-            option = options["TwistJug"]
-            condition_at_start = {
-                LiftedAtom(OnTable, [jug]),
-                LiftedAtom(Twisting, [robot, jug]),
-            }
-            add_effects = {
-                LiftedAtom(HandEmpty, [robot]),
-            }
-            if CFG.coffee_jug_pickable_pred:
-                add_effects.add(LiftedAtom(JugPickable, [jug]))
-            delete_effects = {
-                LiftedAtom(Twisting, [robot, jug]),
-            }
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
-                                                       sigma=torch.tensor(0.1))
-            twist_jug_process = EndogenousProcess("TwistJug", parameters,
+        if not CFG.coffee_use_pixelated_jug:
+            if CFG.coffee_combined_move_and_twist_policy:
+                # Twist (combined move and twist)
+                robot = Variable("?robot", robot_type)
+                jug = Variable("?jug", jug_type)
+                parameters = [robot, jug]
+                option_vars = [robot, jug]
+                option = options["Twist"]
+                condition_at_start = {
+                    LiftedAtom(OnTable, [jug]),
+                    LiftedAtom(HandEmpty, [robot]),
+                }
+                add_effects_twist: Set[LiftedAtom] = set()
+                delete_effects_twist: Set[LiftedAtom] = set()
+                if CFG.coffee_jug_pickable_pred:
+                    add_effects_twist.add(LiftedAtom(JugPickable, [jug]))
+                delay_distribution = DiscreteGaussianDelay(
+                    mu=torch.tensor(4.0), sigma=torch.tensor(0.1))
+                twist_process = EndogenousProcess("Twist", parameters,
                                                   condition_at_start, set(),
-                                                  set(), add_effects,
-                                                  delete_effects,
+                                                  set(), add_effects_twist,
+                                                  delete_effects_twist,
                                                   delay_distribution,
                                                   torch.tensor(1.0), option,
                                                   option_vars, null_sampler)
-            processes.add(twist_jug_process)
+                processes.add(twist_process)
+            else:
+                # MoveToTwistJug
+                robot = Variable("?robot", robot_type)
+                jug = Variable("?jug", jug_type)
+                parameters = [robot, jug]
+                option_vars = [robot, jug]
+                option = options["MoveToTwistJug"]
+                condition_at_start = {
+                    LiftedAtom(OnTable, [jug]),
+                    LiftedAtom(HandEmpty, [robot]),
+                }
+                add_effects = {
+                    LiftedAtom(Twisting, [robot, jug]),
+                }
+                delete_effects = {
+                    LiftedAtom(HandEmpty, [robot]),
+                }
+                delay_distribution = DiscreteGaussianDelay(
+                    mu=torch.tensor(2.0), sigma=torch.tensor(0.1))
+                move_to_twist_jug_process = EndogenousProcess(
+                    "MoveToTwistJug", parameters, condition_at_start, set(),
+                    set(), add_effects, delete_effects, delay_distribution,
+                    torch.tensor(1.0), option, option_vars, null_sampler)
+                processes.add(move_to_twist_jug_process)
+
+                # TwistJug
+                robot = Variable("?robot", robot_type)
+                jug = Variable("?jug", jug_type)
+                parameters = [robot, jug]
+                option_vars = [robot, jug]
+                option = options["TwistJug"]
+                condition_at_start = {
+                    LiftedAtom(OnTable, [jug]),
+                    LiftedAtom(Twisting, [robot, jug]),
+                }
+                add_effects = {
+                    LiftedAtom(HandEmpty, [robot]),
+                }
+                if CFG.coffee_jug_pickable_pred:
+                    add_effects.add(LiftedAtom(JugPickable, [jug]))
+                delete_effects = {
+                    LiftedAtom(Twisting, [robot, jug]),
+                }
+                delay_distribution = DiscreteGaussianDelay(
+                    mu=torch.tensor(3.0), sigma=torch.tensor(0.1))
+                twist_jug_process = EndogenousProcess(
+                    "TwistJug", parameters, condition_at_start, set(), set(),
+                    add_effects, delete_effects, delay_distribution,
+                    torch.tensor(1.0), option, option_vars, null_sampler)
+                processes.add(twist_jug_process)
 
         # PickJugFromTable
         robot = Variable("?robot", robot_type)

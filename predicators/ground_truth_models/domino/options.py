@@ -62,7 +62,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
         # Types
         robot_type = types["robot"]
         domino_type = types["domino"]
-        rotation_type = types["rot"]
+        rotation_type = types["angle"]
         position_type = types["loc"]
 
         def get_current_fingers(state: State) -> float:
@@ -267,7 +267,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             dx = state.get(domino, "x")
             dy = state.get(domino, "y")
             dz = state.get(domino, "z")
-            drot = state.get(domino, "rot")
+            drot = state.get(domino, "yaw")
             target_position = (x_func(dx, drot), y_func(dy, drot), z_func(dz))
             target_orn = p.getQuaternionFromEuler(
                 [0, cls.env_cls.robot_init_tilt, drot + np.pi / 2])
@@ -307,7 +307,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             dx = state.get(domino, "x")
             dy = state.get(domino, "y")
             dz = state.get(domino, "z")
-            drot = state.get(domino, "rot")
+            drot = state.get(domino, "yaw")
             target_position = (x_func(dx), y_func(dy), z_func(dz))
             target_orn = p.getQuaternionFromEuler(
                 [0, cls.env_cls.robot_init_tilt, drot])
@@ -347,7 +347,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
             # Get properties of the reference domino (domino2)
             x2, y2 = state.get(domino_b, "x"), state.get(domino_b, "y")
-            rot2 = state.get(domino_b, "rot")
+            rot2 = state.get(domino_b, "yaw")
             # Use domino1's current z for reference
             dz = state.get(domino_f, "z")
 
@@ -441,16 +441,19 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                     logging.warning(
                         f"Unexpected domino rotation {rot2} in place option. "
                         "Defaulting to cardinal turn logic.")
-                    raise ValueError(
-                        f"Unexpected domino rotation {rot2} in place option. ")
-                    # target_rot = rot2 - turn_dir * np.pi / 4
-                    # grid_x = x2 + gap * np.sin(rot2)
-                    # grid_y = y2 + gap * np.cos(rot2)
-                    # shift_magnitude = cls.env_cls.domino_width * cls.env_cls.turn_shift_frac
-                    # shift_dx = shift_magnitude * (turn_dir * np.cos(rot2) - np.sin(rot2))
-                    # shift_dy = shift_magnitude * (-turn_dir * np.sin(rot2) - np.cos(rot2))
-                    # target_x = grid_x + shift_dx
-                    # target_y = grid_y + shift_dy
+                    # raise ValueError(
+                    #     f"Unexpected domino rotation {rot2} in place option. ")
+                    # The target domino will be turned by 45 degrees.
+                    target_rot = rot2 - turn_dir * np.pi / 4
+                    grid_x = state.get(tgt_pos, "xx")
+                    grid_y = state.get(tgt_pos, "yy")
+                    shift_magnitude = cls.env_cls.domino_width * cls.env_cls.turn_shift_frac
+                    shift_dx = shift_magnitude * (turn_dir * np.cos(rot2) -
+                                                  np.sin(rot2))
+                    shift_dy = shift_magnitude * (-turn_dir * np.sin(rot2) -
+                                                  np.cos(rot2))
+                    target_x = grid_x + shift_dx
+                    target_y = grid_y + shift_dy
 
             target_position = (target_x, target_y, z_func(dz))
             target_orn = p.getQuaternionFromEuler(

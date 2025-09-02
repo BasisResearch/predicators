@@ -1,7 +1,7 @@
 """Ground-truth options for the coffee environment."""
 
 from functools import lru_cache
-from typing import ClassVar, Dict, Sequence, Set, Tuple
+from typing import ClassVar, Dict, Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 
 import numpy as np
@@ -564,57 +564,58 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         if CFG.coffee_machine_has_plug:
             PluggedIn = predicates["PluggedIn"]
 
-        # TwistJug
-        def _TwistJug_terminal(state: State, memory: Dict,
-                               objects: Sequence[Object],
-                               params: Array) -> bool:
-            del memory, params  # unused
-            robot, _ = objects
-            # return HandEmpty.holds(state, [robot])
-            # modify to stop at the beginning state
-            robot_pose = [
-                state.get(robot, "x"),
-                state.get(robot, "y"),
-                state.get(robot, "z"),
-            ]
-            robot_wrist = state.get(robot, "wrist")
-            robot_tilt = state.get(robot, "tilt")
-            robot_finger = state.get(robot, "fingers")
-            return np.allclose(robot_pose, [cls.env_cls.robot_init_x,
-                                            cls.env_cls.robot_init_y,
-                                            cls.env_cls.robot_init_z],
-                                            atol=1e-2) and \
-                   np.allclose([robot_wrist, robot_tilt, robot_finger],
-                               [cls.env_cls.robot_init_wrist,
-                                cls.env_cls.robot_init_tilt,
-                                cls.env_cls.open_fingers],
-                                            atol=1e-2)
+        if not CFG.coffee_use_pixelated_jug:
+            # TwistJug
+            def _TwistJug_terminal(state: State, memory: Dict,
+                                   objects: Sequence[Object],
+                                   params: Array) -> bool:
+                del memory, params  # unused
+                robot, _ = objects
+                # return HandEmpty.holds(state, [robot])
+                # modify to stop at the beginning state
+                robot_pose = [
+                    state.get(robot, "x"),
+                    state.get(robot, "y"),
+                    state.get(robot, "z"),
+                ]
+                robot_wrist = state.get(robot, "wrist")
+                robot_tilt = state.get(robot, "tilt")
+                robot_finger = state.get(robot, "fingers")
+                return np.allclose(robot_pose, [cls.env_cls.robot_init_x,
+                                                cls.env_cls.robot_init_y,
+                                                cls.env_cls.robot_init_z],
+                                                atol=1e-2) and \
+                    np.allclose([robot_wrist, robot_tilt, robot_finger],
+                                [cls.env_cls.robot_init_wrist,
+                                    cls.env_cls.robot_init_tilt,
+                                    cls.env_cls.open_fingers],
+                                                atol=1e-2)
 
-        TwistJug = ParameterizedOption(
-            "TwistJug",
-            types=[robot_type, jug_type],
-            # The parameter is a normalized amount to twist by.
-            params_space=Box(-1, 1, (1 if CFG.coffee_twist_sampler else
-                                     0, )),  # temp; originally 1
-            policy=cls._create_twist_jug_policy(),
-            initiable=lambda s, m, o, p: True,
-            terminal=_TwistJug_terminal,
-        )
-        # Rewrite by removing and adding
-        options.remove(TwistJug)
-        options.add(TwistJug)
-
-        if CFG.coffee_combined_move_and_twist_policy:
-            # Get from the options MoveToTwistJug
-            _MoveToTwistJug = utils.get_parameterized_option_by_name(
-                options, "MoveToTwistJug")
-            assert _MoveToTwistJug is not None
-            options.remove(_MoveToTwistJug)
+            TwistJug = ParameterizedOption(
+                "TwistJug",
+                types=[robot_type, jug_type],
+                # The parameter is a normalized amount to twist by.
+                params_space=Box(-1, 1, (1 if CFG.coffee_twist_sampler else
+                                         0, )),  # temp; originally 1
+                policy=cls._create_twist_jug_policy(),
+                initiable=lambda s, m, o, p: True,
+                terminal=_TwistJug_terminal,
+            )
+            # Rewrite by removing and adding
             options.remove(TwistJug)
+            options.add(TwistJug)
 
-            Twist = utils.LinearChainParameterizedOption(
-                "Twist", [_MoveToTwistJug, TwistJug])
-            options.add(Twist)
+            if CFG.coffee_combined_move_and_twist_policy:
+                # Get from the options MoveToTwistJug
+                _MoveToTwistJug = utils.get_parameterized_option_by_name(
+                    options, "MoveToTwistJug")
+                assert _MoveToTwistJug is not None
+                options.remove(_MoveToTwistJug)
+                options.remove(TwistJug)
+
+                Twist = utils.LinearChainParameterizedOption(
+                    "Twist", [_MoveToTwistJug, TwistJug])
+                options.add(Twist)
 
         if CFG.coffee_move_back_after_place_and_push:
 
@@ -996,7 +997,9 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         return policy
 
     @classmethod
-    def _create_pour_policy(cls) -> ParameterizedPolicy:
+    def _create_pour_policy(
+            cls,
+            pour_policy_tol: Optional[float] = None) -> ParameterizedPolicy:
 
         def policy(state: State, memory: Dict, objects: Sequence[Object],
                    params: Array) -> Action:
@@ -1027,6 +1030,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
                                   [cls.env_cls.dispense_area_x,
                                    cls.env_cls.dispense_area_y])**2) < \
                     cls.env_cls.dispense_tol:
+                # print("Moving back to outside the machine")
                 # Move the jug out of the machine to a safe location
                 safe_x = robot_x
                 safe_y = robot_y - 0.05
@@ -1043,7 +1047,11 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
 
             # If we're close enough to the pour position, pour.
             sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
-            if sq_dist_to_pour < cls.pour_policy_tol:
+            nonlocal pour_policy_tol
+            if pour_policy_tol is None:
+                pour_policy_tol = cls.pour_policy_tol
+            if sq_dist_to_pour < pour_policy_tol:
+                # print("Tilting to pour")
                 dtilt = pour_tilt - tilt
                 if abs(dtilt) < cls.env_cls.pour_angle_tol * 0.1:
                     # make pouring more stable
@@ -1058,6 +1066,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             # If we're above the pour position, move down to pour.
             xy_pour_sq_dist = (jug_x - pour_x)**2 + (jug_y - pour_y)**2
             if xy_pour_sq_dist < cls.env_cls.safe_z_tol * 1e-2:
+                # print("Moving to pour z (already at pour x, y)")
                 new_joint_pos = cls._get_move_action(
                     state,
                     # robot_pour_pos,
@@ -1066,9 +1075,11 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
                     dtilt=0.0,
                     finger_status="closed")
                 return new_joint_pos
+
             # If we're at a safe height, move toward above the pour position.
             if (robot_z -
                     cls.env_cls.robot_init_z)**2 < cls.env_cls.safe_z_tol:
+                # print(f"Moving to pour x, y")
                 return cls._get_move_action(
                     state, (robot_pour_pos[0], robot_pour_pos[1], robot_z),
                     robot_pos,
@@ -1076,10 +1087,10 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
                     finger_status="closed")
 
             # Move backward and to a safe moving height.
-            # print(f"moving to safe height")
+            # print(f"Moving to safe height; z squared diff: {(robot_z - cls.env_cls.robot_init_z)**2}")
             dwrist = cls.env_cls.robot_init_wrist - state.get(robot, "wrist")
             return cls._get_move_action(
-                state, (robot_x, robot_y - 1e-1, cls.env_cls.robot_init_z),
+                state, (robot_x, robot_y, cls.env_cls.robot_init_z),
                 robot_pos,
                 dtilt=0.0,
                 dwrist=dwrist,

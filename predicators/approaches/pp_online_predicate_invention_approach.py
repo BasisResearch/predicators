@@ -53,8 +53,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
                  bilevel_plan_without_sim: Optional[bool] = None,
                  option_model: Optional[_OptionModelBase] = None):
         # just used for oracle predicate proposal or learned predicate
-        self._oracle_predicates = create_new_env(CFG.env,
-                                                 use_gui=False).predicates
+        self._oracle_predicates = create_new_env(
+            CFG.env, use_gui=False).target_predicates
         self._candidate_predicates: Set[Predicate] = set()
         self._llm = utils.create_llm_by_name(CFG.llm_model_name)
         self._vlm = utils.create_vlm_by_name(CFG.llm_model_name)
@@ -100,7 +100,6 @@ class OnlinePredicateInventionProcessPlanningApproach(
         else:
             proposed_predicates = set()
         logging.info(f"Done: created {len(proposed_predicates)} predicates")
-        breakpoint()
 
         # --- Select the predicates to keep ---
         self._select_predicates_and_learn_processes(
@@ -188,6 +187,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 base_candidates |= self._get_predicate_proposals_from_fm(
                     proposal_method, trajectories, i)
             # TODO: filter semantically equivalent predicate by evaluation
+            breakpoint()
         return base_candidates
 
     def _get_predicate_proposals_from_fm(
@@ -588,6 +588,15 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 for atom in proc_copy.delete_effects
                 if atom.predicate in candidate_predicates
             }
+            # Make sure the parameter only include variables that appear in the
+            # conditions and effects
+            remaining_variables = set()
+            for atom in proc_copy.condition_at_start | proc_copy.add_effects |\
+                        proc_copy.delete_effects:
+                remaining_variables |= set(atom.variables)
+            proc_copy.parameters = [
+                v for v in proc_copy.parameters if v in remaining_variables
+            ]
             return proc_copy
 
         def _get_best_compatible_exo_processes(

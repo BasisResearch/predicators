@@ -93,7 +93,7 @@ APPROACHES:
       num_online_learning_cycles: 10
       rgb_observation: False # for visual predicators
       # Testing predicate invention:
-      vlm_predicator_oracle_base_predicates: False
+      vlm_predicator_oracle_base_predicates: True # temp: if learn with oracle proposal work
       vlm_predicator_oracle_learned_predicates: False
       vlm_predicator_use_grammar: True
       grammar_search_grammar_use_single_feature: False
@@ -119,7 +119,8 @@ APPROACHES:
       cluster_and_search_process_learner_parallel_condition: True
       cluster_and_search_process_learner_parallel_pnad: True
       cluster_and_search_process_learner_llm_select_condition: False
-      cluster_and_search_process_learner_llm_select_atoms: False
+      cluster_and_search_process_learner_llm_rank_atoms: False
+      cluster_and_search_process_learner_llm_propose_top_conditions: True
       cluster_and_search_vi_steps: 500
       cluster_learning_one_effect_per_process: True
       process_param_learning_patience: 10000
@@ -140,42 +141,42 @@ ENVS:
   #     horizon: 150
   #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
   #     boil_goal_simple_human_happy: True
-  boil:
-    NAME: "pybullet_boil"
-    FLAGS:
-      excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,NoJugAtFaucetOrAtFaucetAndFilled"
-      excluded_objects_in_state_str: "switch"
-      max_num_steps_option_rollout: 50
-      horizon: 500 # 300 should be enough, 50 is good during dev
-      # boil_goal: "task_completed" # This option isn't fully ready because
-        # with the current only_learn_exogenous_processes setting, it won't try
-        # to learn the precondition for the DeclareComplete option.
-      boil_goal: "human_happy" # Can also be "task_completed", "simple"
-      # boil_goal: "simple"
-      boil_require_jug_full_to_heatup: True
-      process_planning_heuristic_weight: 1.0
-  coffee:
-    NAME: "pybullet_coffee"
-    FLAGS:
-      excluded_predicates: "JugFilled,Twisting,HandTilted,PressingButton,NotSameCup,RobotAboveCup"
-      coffee_rotated_jug_ratio: 0
-      coffee_num_cups_train: [1]
-      coffee_machine_have_light_bar: False
-      coffee_move_back_after_place_and_push: True
-      coffee_machine_has_plug: False
-      coffee_combined_move_and_twist_policy: True
-      coffee_use_pixelated_jug: True
-      coffee_fill_jug_gradually: True
-      max_num_steps_option_rollout: 100
-  grow:
-    NAME: "pybullet_grow"
-    FLAGS:
-      excluded_predicates: "SameColor,HandTilted"
-      coffee_use_pixelated_jug: True
-      max_num_steps_option_rollout: 50
-      grow_weak_pour_terminate_condition: True
-      grow_place_option_no_sampler: True
-      horizon: 300
+  # boil:
+  #   NAME: "pybullet_boil"
+  #   FLAGS:
+  #     excluded_predicates: "NoWaterSpilled,WaterBoiled,JugFilled,NoJugAtFaucetOrAtFaucetAndFilled"
+  #     excluded_objects_in_state_str: "switch"
+  #     max_num_steps_option_rollout: 50
+  #     horizon: 500 # 300 should be enough, 50 is good during dev
+  #     # boil_goal: "task_completed" # This option isn't fully ready because
+  #       # with the current only_learn_exogenous_processes setting, it won't try
+  #       # to learn the precondition for the DeclareComplete option.
+  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
+  #     # boil_goal: "simple"
+  #     boil_require_jug_full_to_heatup: True
+  #     process_planning_heuristic_weight: 1.0
+  # coffee:
+  #   NAME: "pybullet_coffee"
+  #   FLAGS:
+  #     excluded_predicates: "JugFilled,Twisting,HandTilted,PressingButton,NotSameCup,RobotAboveCup"
+  #     coffee_rotated_jug_ratio: 0
+  #     coffee_num_cups_train: [1]
+  #     coffee_machine_have_light_bar: False
+  #     coffee_move_back_after_place_and_push: True
+  #     coffee_machine_has_plug: False
+  #     coffee_combined_move_and_twist_policy: True
+  #     coffee_use_pixelated_jug: True
+  #     coffee_fill_jug_gradually: True
+  #     max_num_steps_option_rollout: 100
+  # grow:
+  #   NAME: "pybullet_grow"
+  #   FLAGS:
+  #     excluded_predicates: "SameColor,HandTilted"
+  #     coffee_use_pixelated_jug: True
+  #     max_num_steps_option_rollout: 50
+  #     grow_weak_pour_terminate_condition: True
+  #     grow_place_option_no_sampler: True
+  #     horizon: 400
   domino:
     NAME: "pybullet_domino"
     FLAGS:
@@ -189,13 +190,13 @@ ENVS:
       domino_prune_actions: False
       process_planning_heuristic_weight: 2.0
       process_planning_use_abstract_policy: False
-  fan:
-    NAME: "pybullet_fan"
-    FLAGS:
-      excluded_predicates: "FanOnSide,OppositeFan,BallAtTarget"
-      excluded_objects_in_state_str: "switch,loc"
-      process_planning_heuristic_weight: 10.0
-      terminate_on_goal_reached: True # maybe required for successful eval
+  # fan:
+  #   NAME: "pybullet_fan"
+  #   FLAGS:
+  #     excluded_predicates: "FanFacingSide,OppositeFan,BallAtTarget,Controls"
+  #     excluded_objects_in_state_str: "switch,loc"
+  #     process_planning_heuristic_weight: 10.0
+  #     terminate_on_goal_reached: True # maybe required for successful eval
 ARGS:
   - "debug"
   # - "use_gui"
@@ -235,4 +236,4 @@ FLAGS:
   log: 'logs/'
   no_repeated_arguments_in_grounding: True
 START_SEED: 0
-NUM_SEEDS: 3
+NUM_SEEDS: 1
