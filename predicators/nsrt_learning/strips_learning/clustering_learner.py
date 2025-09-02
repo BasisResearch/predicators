@@ -1606,6 +1606,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             # This ensures we get the condition with proper auxiliary_predicates
             original_condition = final_candidates_for_pnad[pnad_idx][
                 condition_idx]
+            process.condition_at_start = original_condition.copy()
+            process.condition_overall = original_condition.copy()
             pnad_scores[pnad_idx].append(
                 (cost, frozenset(original_condition), scores_tuple, process))
 
