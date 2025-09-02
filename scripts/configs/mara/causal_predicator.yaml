@@ -168,28 +168,28 @@ ENVS:
   #     coffee_use_pixelated_jug: True
   #     coffee_fill_jug_gradually: True
   #     max_num_steps_option_rollout: 100
-  grow:
-    NAME: "pybullet_grow"
-    FLAGS:
-      excluded_predicates: "SameColor,HandTilted"
-      coffee_use_pixelated_jug: True
-      max_num_steps_option_rollout: 50
-      grow_weak_pour_terminate_condition: True
-      grow_place_option_no_sampler: True
-      horizon: 400
-  # domino:
-  #   NAME: "pybullet_domino"
+  # grow:
+  #   NAME: "pybullet_grow"
   #   FLAGS:
-  #     excluded_predicates: "InFront"
-  #     excluded_objects_in_state_str: "loc,rot"
-  #     horizon: 200
-  #     domino_initialize_at_finished_state: False
-  #     domino_use_domino_blocks_as_target: True
-  #     domino_use_grid: True
-  #     domino_include_connected_predicate: False # necessary to generate valid plan
-  #     domino_prune_actions: False
-  #     process_planning_heuristic_weight: 2.0
-  #     process_planning_use_abstract_policy: False
+  #     excluded_predicates: "SameColor,HandTilted"
+  #     coffee_use_pixelated_jug: True
+  #     max_num_steps_option_rollout: 50
+  #     grow_weak_pour_terminate_condition: True
+  #     grow_place_option_no_sampler: True
+  #     horizon: 400
+  domino:
+    NAME: "pybullet_domino"
+    FLAGS:
+      excluded_predicates: "InFront"
+      excluded_objects_in_state_str: "loc,rot"
+      horizon: 200
+      domino_initialize_at_finished_state: False
+      domino_use_domino_blocks_as_target: True
+      domino_use_grid: True
+      domino_include_connected_predicate: False # necessary to generate valid plan
+      domino_prune_actions: False
+      process_planning_heuristic_weight: 2.0
+      process_planning_use_abstract_policy: False
   # fan:
   #   NAME: "pybullet_fan"
   #   FLAGS:

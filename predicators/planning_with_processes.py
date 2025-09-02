@@ -980,9 +980,13 @@ def create_ff_heuristic(
                         # The new subgoals are the auxiliary predicates that support it.
                         # In a relaxed plan, we conservatively add all atoms from the
                         # previous layer that could be supporters.
-                        supporter_predicates =\
-                            utils.get_base_supporter_predicates(
-                                subgoal.predicate)
+                        try:
+                            supporter_predicates =\
+                                utils.get_base_supporter_predicates(
+                                    subgoal.predicate)
+                        except Exception as e:
+                            logging.error(f"Error getting base supporter predicates for {subgoal.predicate}: {e}")
+                            breakpoint()
                         new_subgoals = {
                             atom
                             for atom in fact_layers[i - 1]
