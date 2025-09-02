@@ -1,0 +1,69 @@
+# Requirements file for Python 3.13 compatibility
+# This file provides alternative dependencies that work with Python 3.13
+# while maintaining compatibility with the predicators package
+
+# Core scientific computing
+numpy>=1.24.0
+scipy>=1.10.0
+pandas>=1.5.0
+
+# Machine learning
+torch>=2.0.0
+torchvision>=0.15.0
+scikit-learn>=1.3.0
+
+# Environment and RL
+gym>=0.26.0
+gymnasium>=0.27.0  # Modern replacement for gym
+
+# Image processing
+opencv-python>=4.5.0
+pillow>=10.0.0
+imageio>=2.30.0
+imageio-ffmpeg>=0.6.0
+
+# Plotting and visualization
+matplotlib>=3.6.0
+seaborn>=0.12.0
+
+# Development and testing
+pytest>=7.0.0
+mypy>=1.0.0
+pylint>=2.15.0
+
+# Utility libraries
+pyyaml>=6.0
+requests>=2.28.0
+tqdm>=4.64.0
+tabulate>=0.9.0
+dill>=0.3.6
+pathos>=0.3.0
+colorlog>=6.0.0
+
+# AI/ML APIs
+openai>=1.19.0
+google-generativeai>=0.8.0
+tenacity>=8.0.0
+httpx>=0.27.0
+
+# Planning
+pyperplan>=2.0
+graphlib-backport>=1.0.0
+
+# Additional dependencies
+slack_bolt>=1.0.0
+wandb>=0.15.0
+types-PyYAML>=6.0.0
+psutil>=5.9.0
+lisdf>=0.1.0
+ImageHash>=4.3.0
+
+# Git-based dependencies
+# Install these separately with:
+# pip install git+https://github.com/sebdumancic/structure_mapping.git
+# pip install git+https://github.com/tomsilver/pg3.git  
+# pip install git+https://github.com/Learning-and-Intelligent-Systems/gym-sokoban.git
+
+# Note: PyBullet is excluded as it has compilation issues with Python 3.13
+# PyBullet-dependent environments will be skipped during execution
+
