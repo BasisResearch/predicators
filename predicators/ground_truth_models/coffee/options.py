@@ -1,7 +1,7 @@
 """Ground-truth options for the coffee environment."""
 
 from functools import lru_cache
-from typing import ClassVar, Dict, Optional, Sequence, Set, Tuple, Optional
+from typing import ClassVar, Dict, Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 
 import numpy as np
@@ -997,7 +997,9 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         return policy
 
     @classmethod
-    def _create_pour_policy(cls, pour_policy_tol: Optional[float] = None) -> ParameterizedPolicy:
+    def _create_pour_policy(
+            cls,
+            pour_policy_tol: Optional[float] = None) -> ParameterizedPolicy:
 
         def policy(state: State, memory: Dict, objects: Sequence[Object],
                    params: Array) -> Action:

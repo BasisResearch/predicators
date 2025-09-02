@@ -112,7 +112,7 @@ ENVS:
       max_num_steps_option_rollout: 50
       grow_weak_pour_terminate_condition: True
       grow_place_option_no_sampler: True
-      horizon: 300
+      horizon: 400
   # domino:
   #   NAME: "pybullet_domino"
   #   FLAGS:
