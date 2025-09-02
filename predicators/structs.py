@@ -528,14 +528,14 @@ class DerivedPredicate(Predicate):
                           bool] = field(compare=False)
     untransformed_predicate: Optional[Predicate] = field(default=None,
                                                          compare=False)
-    auxiliary_predicates: Optional[Set[ConceptPredicate]] = field(
-        default=None, compare=False)
+    auxiliary_predicates: Optional[Set[Predicate]] = field(default=None,
+                                                           compare=False)
 
     def update_auxiliary_concepts(
             self,
-            auxiliary_concepts: Set[ConceptPredicate]) -> ConceptPredicate:
+            auxiliary_predicates: Set[DerivedPredicate]) -> DerivedPredicate:
         """Create a new ConceptPredicate with updated auxiliary_concepts."""
-        return replace(self, auxiliary_concepts=auxiliary_concepts)
+        return replace(self, auxiliary_predicates=auxiliary_predicates)
 
     @cached_property
     def _hash(self) -> int:

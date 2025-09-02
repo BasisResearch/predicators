@@ -985,7 +985,9 @@ def create_ff_heuristic(
                                 utils.get_base_supporter_predicates(
                                     subgoal.predicate)
                         except Exception as e:
-                            logging.error(f"Error getting base supporter predicates for {subgoal.predicate}: {e}")
+                            logging.error(
+                                f"Error getting base supporter predicates for {subgoal.predicate}: {e}"
+                            )
                             breakpoint()
                         new_subgoals = {
                             atom

@@ -223,10 +223,14 @@ class PyBulletDominoEnv(PyBulletEnv):
 
             if CFG.domino_use_grid:
                 self._InFrontDirection = DerivedPredicate(
-                    "InFrontDirection",
-                    [self._domino_type, self._domino_type, self._direction_type],
+                    "InFrontDirection", [
+                        self._domino_type, self._domino_type,
+                        self._direction_type
+                    ],
                     self._InFrontDirection_holds,
-                    auxiliary_predicates=[self._DominoAtPos, self._DominoAtRot])
+                    auxiliary_predicates=[
+                        self._DominoAtPos, self._DominoAtRot
+                    ])
                 self._InFront = DerivedPredicate(
                     "InFront", [self._domino_type, self._domino_type],
                     self._InFront_holds,
