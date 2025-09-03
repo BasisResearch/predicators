@@ -1359,7 +1359,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             # Log the results
             for i, sets in enumerate(condition_sets_per_pnad):
                 logging.debug(f"Process {i}: {pformat(pnads[i])}\n"
-                             f"Proposed {len(sets)} condition sets")
+                              f"Proposed {len(sets)} condition sets")
                 for j, condition_set in enumerate(sets):
                     logging.debug(
                         f"  Set {j+1}: {sorted(condition_set, key=str)}")
@@ -1702,10 +1702,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         use_parallel = (CFG.cluster_and_search_process_learner_parallel_pnad
                         and cpu_cnt > 1)
 
-        if not use_parallel:
-            logging.info("Learning PNAD preconditions sequentially.")
-            return self._learn_pnad_preconditions_sequential(pnads)
-
         logging.info(
             f"Learning preconditions for {len(pnads)} PNADs using a flat parallel pool."
         )
@@ -1741,8 +1737,17 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         logging.debug(f"Num vi steps: {CFG.cluster_and_search_vi_steps}, "
                       "Early stopping patience: "
                       f"{CFG.process_param_learning_patience}")
-        with Pool(nodes=min(len(work_items), cpu_cnt)) as pool:
-            results = pool.map(_flat_pnad_scoring_worker, work_items)
+        
+        if use_parallel:
+            with Pool(nodes=min(len(work_items), cpu_cnt)) as pool:
+                results = pool.map(_flat_pnad_scoring_worker, work_items)
+        else:
+            logging.info("Using sequential scoring as alternative to parallel processing.")
+            results = []
+            for work_item in work_items:
+                result = _flat_pnad_scoring_worker(work_item)
+                results.append(result)
+        
         logging.info(f"Finished scoring in {time.time() - start_time:.2f}s.")
 
         # Step 7: Process results and select best conditions
@@ -1752,41 +1757,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         # Step 8: Construct final PNADs
         return self._construct_final_pnads(best_conditions, pnads)
 
-    def _learn_pnad_preconditions_sequential(self,
-                                             pnads: List[PNAD]) -> List[PNAD]:
-        """Sequential version (original implementation)."""
-        final_pnads: List[PNAD] = []
-
-        for pnad in pnads:
-            if CFG.exogenous_process_learner_do_intersect:
-                init_lift_atoms = self._induce_preconditions_via_intersection(
-                    pnad)
-            else:
-                init_ground_atoms = pnad.datastore[0][0].init_atoms
-                var_to_obj = pnad.datastore[0][1]
-                obj_to_var = {v: k for k, v in var_to_obj.items()}
-                init_lift_atoms = set(
-                    atom.lift(obj_to_var) for atom in init_ground_atoms)
-            CFG.cluster_process_learner_top_n_conditions = 1
-            cond_at_start = next(
-                self._get_top_consistent_conditions(init_lift_atoms, pnad,
-                                                    "top_n", CFG.seed))
-            add_eff = pnad.op.add_effects
-            del_eff = pnad.op.delete_effects
-            new_params = set(var for atom in cond_at_start | add_eff | del_eff
-                             for var in atom.variables)
-
-            # Check uniqueness
-            if self._is_unique_pnad(frozenset(cond_at_start), pnad,
-                                    final_pnads):
-                new_pnad = PNAD(
-                    pnad.op.copy_with(preconditions=cond_at_start,
-                                      parameters=new_params), pnad.datastore,
-                    pnad.option_spec)
-                final_pnads.append(new_pnad)
-            # TODO: merge datastores if they are the same
-
-        return final_pnads
 
     def _is_unique_pnad(self, precon: FrozenSet[LiftedAtom], pnad: PNAD,
                         final_pnads: List[PNAD]) -> bool:
