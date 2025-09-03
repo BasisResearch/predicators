@@ -1170,8 +1170,10 @@ class PyBulletFanEnv(PyBulletEnv):
                 if num_pos_x == 3 and num_pos_y == 3:
                     # Edge positions in 3x3 grid: exclude center position
                     center_pos = (x_coords[1], y_coords[1])  # Center position
-                    edge_positions = [pos for pos in available_pos if pos != center_pos]
-                    
+                    edge_positions = [
+                        pos for pos in available_pos if pos != center_pos
+                    ]
+
                     # Ball position: choose from edge positions only
                     ball_pos = tuple(rng.choice(edge_positions))
                     # Safely remove the ball position
@@ -1179,25 +1181,29 @@ class PyBulletFanEnv(PyBulletEnv):
 
                     # Choose target to create alignment (same row or column as ball)
                     aligned_targets = []
-                    
+
                     # Same row targets (horizontal alignment) - 2 steps away
                     for x in x_coords:
                         candidate_pos = (x, ball_pos[1])
-                        if (candidate_pos in available_pos and candidate_pos != ball_pos and
-                            abs(x - ball_pos[0]) > 1.5 * self.pos_gap):
+                        if (candidate_pos in available_pos
+                                and candidate_pos != ball_pos
+                                and abs(x - ball_pos[0]) > 1.5 * self.pos_gap):
                             aligned_targets.append(candidate_pos)
-                    
+
                     # Same column targets (vertical alignment) - 2 steps away
                     for y in y_coords:
                         candidate_pos = (ball_pos[0], y)
-                        if (candidate_pos in available_pos and candidate_pos != ball_pos and
-                            abs(y - ball_pos[1]) > 1.5 * self.pos_gap):
+                        if (candidate_pos in available_pos
+                                and candidate_pos != ball_pos
+                                and abs(y - ball_pos[1]) > 1.5 * self.pos_gap):
                             aligned_targets.append(candidate_pos)
-                    
+
                     if not aligned_targets:
                         # Fallback to any available position
-                        aligned_targets = [pos for pos in available_pos if pos != ball_pos]
-                    
+                        aligned_targets = [
+                            pos for pos in available_pos if pos != ball_pos
+                        ]
+
                     tar_pos = tuple(rng.choice(aligned_targets))
                     # Safely remove the target position
                     available_pos.remove(tar_pos)
@@ -1214,7 +1220,8 @@ class PyBulletFanEnv(PyBulletEnv):
                     if num_walls_per_task > 0:
                         # Place wall to block direct path between ball and target
                         blocking_pos = self._get_strategic_wall_position(
-                            ball_pos, tar_pos, x_coords, y_coords, available_pos, rng)
+                            ball_pos, tar_pos, x_coords, y_coords,
+                            available_pos, rng)
                         if blocking_pos is not None:
                             wall_positions.append(blocking_pos)
                             # Safely remove the blocking position
@@ -1250,8 +1257,10 @@ class PyBulletFanEnv(PyBulletEnv):
                 # Find grid indices for target
                 for i, y in enumerate(y_coords):
                     for j, x in enumerate(x_coords):
-                        if np.isclose(x, tar_pos[0], atol=self.position_tolerance) and \
-                           np.isclose(y, tar_pos[1], atol=self.position_tolerance):
+                        if np.isclose(x, tar_pos[0],
+                                atol=self.position_tolerance) and \
+                           np.isclose(y, tar_pos[1],
+                                atol=self.position_tolerance):
                             tar_grid_idx = (j, i)
                             break
                     if tar_grid_idx is not None:
@@ -1260,8 +1269,10 @@ class PyBulletFanEnv(PyBulletEnv):
                 # Find grid indices for ball
                 for i, y in enumerate(y_coords):
                     for j, x in enumerate(x_coords):
-                        if np.isclose(x, ball_pos[0], atol=self.position_tolerance) and \
-                           np.isclose(y, ball_pos[1], atol=self.position_tolerance):
+                        if np.isclose(x, ball_pos[0],
+                                atol=self.position_tolerance) and \
+                           np.isclose(y, ball_pos[1],
+                                atol=self.position_tolerance):
                             ball_grid_idx = (j, i)
                             break
                     if ball_grid_idx is not None:
@@ -1271,14 +1282,17 @@ class PyBulletFanEnv(PyBulletEnv):
                 for wall_pos in wall_positions:
                     for i, y in enumerate(y_coords):
                         for j, x in enumerate(x_coords):
-                            if np.isclose(x, wall_pos[0], atol=self.position_tolerance) and \
-                               np.isclose(y, wall_pos[1], atol=self.position_tolerance):
+                            if np.isclose(x, wall_pos[0],
+                                    atol=self.position_tolerance) and \
+                               np.isclose(y, wall_pos[1],
+                                    atol=self.position_tolerance):
                                 wall_grid_indices.add((j, i))
                                 break
 
                 # Check if we have a valid path from ball to target
                 if tar_grid_idx is not None and ball_grid_idx is not None and \
-                   self._has_valid_path(ball_grid_idx, tar_grid_idx, wall_grid_indices, num_pos_x, num_pos_y):
+                   self._has_valid_path(ball_grid_idx, tar_grid_idx,
+                   wall_grid_indices, num_pos_x, num_pos_y):
                     # Valid path found, create the task
 
                     init_dict = {}
@@ -1365,8 +1379,8 @@ class PyBulletFanEnv(PyBulletEnv):
             else:
                 # If we couldn't find a valid configuration after max attempts
                 raise ValueError(
-                    f"Could not generate a valid task configuration after {max_attempts} attempts"
-                )
+                    f"Could not generate a valid task configuration after "
+                    f"{max_attempts} attempts")
             print(f"Found a valid task after {attempt} attempts")
 
             init_state = utils.create_state_from_dict(init_dict)
@@ -1397,24 +1411,26 @@ class PyBulletFanEnv(PyBulletEnv):
             tasks.append(EnvironmentTask(init_state, goal_atoms))
         return self._add_pybullet_state_to_tasks(tasks)
 
-    def _get_strategic_wall_position(self, ball_pos: Tuple[float, float], 
-                                   target_pos: Tuple[float, float],
-                                   x_coords: List[float], y_coords: List[float],
-                                   available_pos: List[Tuple[float, float]],
-                                   rng: np.random.Generator) -> Tuple[float, float]:
+    def _get_strategic_wall_position(
+            self, ball_pos: Tuple[float, float],
+            target_pos: Tuple[float, float], x_coords: List[float],
+            y_coords: List[float], available_pos: List[Tuple[float, float]],
+            rng: np.random.Generator) -> Tuple[float, float]:
         """Get a wall position that is between the ball and target."""
         # Find positions that are between ball and target
         between_positions = []
-        
+
         for pos in available_pos:
             # Check if position is between ball and target (on same row or column)
             if (pos[0] == ball_pos[0] == target_pos[0] and  # Same column
-                min(ball_pos[1], target_pos[1]) < pos[1] < max(ball_pos[1], target_pos[1])):
+                    min(ball_pos[1], target_pos[1]) < pos[1] < max(
+                        ball_pos[1], target_pos[1])):
                 between_positions.append(pos)
             elif (pos[1] == ball_pos[1] == target_pos[1] and  # Same row
-                  min(ball_pos[0], target_pos[0]) < pos[0] < max(ball_pos[0], target_pos[0])):
+                  min(ball_pos[0], target_pos[0]) < pos[0] < max(
+                      ball_pos[0], target_pos[0])):
                 between_positions.append(pos)
-        
+
         # Return a random position between ball and target, or random if none found
         if between_positions:
             return rng.choice(between_positions)
@@ -1472,8 +1488,7 @@ if __name__ == "__main__":
     # CFG.fan_fans_blow_opposite_direction = True
     env = PyBulletFanEnv(use_gui=True)
     rng = np.random.default_rng(CFG.seed)
-    tasks = env._make_tasks(10, 
-                            CFG.fan_train_num_pos_x,
+    tasks = env._make_tasks(10, CFG.fan_train_num_pos_x,
                             CFG.fan_train_num_pos_y,
                             CFG.fan_train_num_walls_per_task, rng)
 
