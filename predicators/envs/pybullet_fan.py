@@ -1,4 +1,5 @@
 import logging
+from collections import deque
 from itertools import product
 from typing import Any, ClassVar, Dict, List, Sequence, Set, Tuple
 
@@ -1114,6 +1115,48 @@ class PyBulletFanEnv(PyBulletEnv):
             possible_num_walls_per_task=CFG.fan_test_num_walls_per_task,
             rng=self._test_rng)
 
+    def _has_valid_path(self, start_pos: Tuple[int,
+                                               int], target_pos: Tuple[int,
+                                                                       int],
+                        blocked_positions: Set[Tuple[int, int]],
+                        num_pos_x: int, num_pos_y: int) -> bool:
+        """Check if there's a valid path from start to target using only
+        cardinal directions."""
+        if start_pos == target_pos:
+            return True
+
+        # BFS to find path using only cardinal directions
+        queue = deque([start_pos])
+        visited = {start_pos}
+
+        # Cardinal directions: up, down, left, right
+        directions = [(0, 1), (0, -1), (-1, 0), (1, 0)]
+
+        while queue:
+            current_x, current_y = queue.popleft()
+
+            for dx, dy in directions:
+                next_x, next_y = current_x + dx, current_y + dy
+
+                # Check bounds
+                if not (0 <= next_x < num_pos_x and 0 <= next_y < num_pos_y):
+                    continue
+
+                # Check if position is blocked or already visited
+                if (next_x,
+                        next_y) in blocked_positions or (next_x,
+                                                         next_y) in visited:
+                    continue
+
+                # Check if we reached the target
+                if (next_x, next_y) == target_pos:
+                    return True
+
+                visited.add((next_x, next_y))
+                queue.append((next_x, next_y))
+
+        return False
+
     def _make_tasks(self, num_tasks: int, num_pos_x: int, num_pos_y: int,
                     possible_num_walls_per_task: List[int],
                     rng: np.random.Generator) -> List[EnvironmentTask]:
@@ -1148,112 +1191,171 @@ class PyBulletFanEnv(PyBulletEnv):
 
         tasks = []
         for _ in range(num_tasks):
-            # Sample the number of walls for this task
-            num_walls_per_task = rng.choice(possible_num_walls_per_task)
-            available_pos = grid_pos.copy()
-            # Robot
-            robot_dict = {
-                "x": self.robot_init_x,
-                "y": self.robot_init_y,
-                "z": self.robot_init_z,
-                "fingers": self.open_fingers,
-                "tilt": self.robot_init_tilt,
-                "wrist": self.robot_init_wrist,
-            }
+            # Try to generat a valid task with path validation
+            max_attempts = 100  # Prevent infinite loop
+            for attempt in range(max_attempts):
+                # Sample the number of walls for this task
+                num_walls_per_task = rng.choice(possible_num_walls_per_task)
+                available_pos = grid_pos.copy()
 
-            # Target
-            tar_pos = tuple(rng.choice(available_pos))
-            available_pos.remove(tar_pos)
-            target_dict = {
-                "x": tar_pos[0],
-                "y": tar_pos[1],
-                "z": self.table_height,
-                "rot": 0.0,
-                "is_hit": 0.0,
-            }
-
-            init_dict = {}
-            init_dict[self._robot] = robot_dict
-            init_dict[self._target] = target_dict
-
-            for fan_obj in self._fans:
-                # Each fan_obj now represents all fans on one side
-                side_idx = fan_obj.side_idx
-                # Set position based on the center or representative position for the side
-                if side_idx == 2:  # down
-                    px = (self.fan_x_lb +
-                          self.fan_x_ub) / 2  # center of back fans
-                    py = self.down_fan_y
-                    rot = np.pi / 2
-                elif side_idx == 3:  # up
-                    px = (self.fan_x_lb +
-                          self.fan_x_ub) / 2  # center of front fans
-                    py = self.up_fan_y
-                    rot = -np.pi / 2
-                elif side_idx == 0:  # left
-                    px = self.left_fan_x
-                    py = (self.fan_y_lb +
-                          self.fan_y_ub) / 2  # center of left fans
-                    rot = 0.0
-                else:  # right (side_idx == 1)
-                    px = self.right_fan_x
-                    py = (self.fan_y_lb +
-                          self.fan_y_ub) / 2  # center of right fans
-                    rot = np.pi
-                fan_dict = {
-                    "x": px,
-                    "y": py,
-                    "z": self.table_height + self.fan_z_len / 2,
-                    "rot": rot,
-                    "side": float(side_idx),
-                    "is_on": 0.0
+                # Robot
+                robot_dict = {
+                    "x": self.robot_init_x,
+                    "y": self.robot_init_y,
+                    "z": self.robot_init_z,
+                    "fingers": self.open_fingers,
+                    "tilt": self.robot_init_tilt,
+                    "wrist": self.robot_init_wrist,
                 }
-                init_dict[fan_obj] = fan_dict
 
-            # Switches default off
-            for switch_obj in self._switches:
-                init_dict[switch_obj] = {
-                    "x": self.switch_base_x +
-                    self.switch_x_spacing * switch_obj.side_idx,
-                    "y": self.switch_y,
+                # Target
+                tar_pos = tuple(rng.choice(available_pos))
+                available_pos.remove(tar_pos)
+                target_dict = {
+                    "x": tar_pos[0],
+                    "y": tar_pos[1],
                     "z": self.table_height,
-                    "rot": np.pi / 2,
-                    "side": float(switch_obj.side_idx),
-                    "is_on": 0.0,
+                    "rot": 0.0,
+                    "is_hit": 0.0,
                 }
 
-            # Sides - add them to the state dictionary
-            init_dict[self._sides[0]] = {"side_idx": 0.0}
-            init_dict[self._sides[1]] = {"side_idx": 1.0}
-            init_dict[self._sides[2]] = {"side_idx": 3.0}
-            init_dict[self._sides[3]] = {"side_idx": 2.0}
-            # for i, side_obj in enumerate(self._sides):
-            #     init_dict[side_obj] = {
-            #         "side": float(i),
-            #     }
+                # Place walls and collect their grid positions
+                wall_positions = []
+                for i in range(num_walls_per_task):
+                    wall_pos = tuple(rng.choice(available_pos))
+                    available_pos.remove(wall_pos)
+                    wall_positions.append(wall_pos)
 
-            # Walls
-            for i in range(num_walls_per_task):
-                wall_pos = tuple(rng.choice(available_pos))
-                available_pos.remove(wall_pos)
-                init_dict[self._walls[i]] = {
-                    "x": wall_pos[0],
-                    "y": wall_pos[1],
-                    "z": self.table_height + self.wall_z_len / 2,
-                    "rot": rng.uniform(-self.wall_rot, self.wall_rot)
-                }
+                # Ball position
+                ball_pos = tuple(rng.choice(available_pos))
 
-            # Ball
-            ball_pos = tuple(rng.choice(available_pos))
-            available_pos.remove(ball_pos)
-            ball_dict = {
-                "x": ball_pos[0],
-                "y": ball_pos[1],
-                "z": self.table_height + self.ball_height_offset
-            }
-            init_dict[self._ball] = ball_dict
+                # Convert continuous positions to grid indices for path validation
+                tar_grid_idx = None
+                ball_grid_idx = None
+                wall_grid_indices = set()
 
-            init_dict.update(pos_dict)
+                # Find grid indices for target
+                for i, y in enumerate(y_coords):
+                    for j, x in enumerate(x_coords):
+                        if np.isclose(x, tar_pos[0], atol=self.position_tolerance) and \
+                           np.isclose(y, tar_pos[1], atol=self.position_tolerance):
+                            tar_grid_idx = (j, i)
+                            break
+                    if tar_grid_idx is not None:
+                        break
+
+                # Find grid indices for ball
+                for i, y in enumerate(y_coords):
+                    for j, x in enumerate(x_coords):
+                        if np.isclose(x, ball_pos[0], atol=self.position_tolerance) and \
+                           np.isclose(y, ball_pos[1], atol=self.position_tolerance):
+                            ball_grid_idx = (j, i)
+                            break
+                    if ball_grid_idx is not None:
+                        break
+
+                # Find grid indices for walls
+                for wall_pos in wall_positions:
+                    for i, y in enumerate(y_coords):
+                        for j, x in enumerate(x_coords):
+                            if np.isclose(x, wall_pos[0], atol=self.position_tolerance) and \
+                               np.isclose(y, wall_pos[1], atol=self.position_tolerance):
+                                wall_grid_indices.add((j, i))
+                                break
+
+                # Check if we have a valid path from ball to target
+                if tar_grid_idx is not None and ball_grid_idx is not None and \
+                   self._has_valid_path(ball_grid_idx, tar_grid_idx, wall_grid_indices, num_pos_x, num_pos_y):
+                    # Valid path found, create the task
+                    available_pos.remove(ball_pos)
+
+                    init_dict = {}
+                    init_dict[self._robot] = robot_dict
+                    init_dict[self._target] = target_dict
+
+                    for fan_obj in self._fans:
+                        # Each fan_obj now represents all fans on one side
+                        side_idx = fan_obj.side_idx
+                        # Set position based on the center or representative position for the side
+                        if side_idx == 2:  # down
+                            px = (self.fan_x_lb +
+                                  self.fan_x_ub) / 2  # center of back fans
+                            py = self.down_fan_y
+                            rot = np.pi / 2
+                        elif side_idx == 3:  # up
+                            px = (self.fan_x_lb +
+                                  self.fan_x_ub) / 2  # center of front fans
+                            py = self.up_fan_y
+                            rot = -np.pi / 2
+                        elif side_idx == 0:  # left
+                            px = self.left_fan_x
+                            py = (self.fan_y_lb +
+                                  self.fan_y_ub) / 2  # center of left fans
+                            rot = 0.0
+                        else:  # right (side_idx == 1)
+                            px = self.right_fan_x
+                            py = (self.fan_y_lb +
+                                  self.fan_y_ub) / 2  # center of right fans
+                            rot = np.pi
+                        fan_dict = {
+                            "x": px,
+                            "y": py,
+                            "z": self.table_height + self.fan_z_len / 2,
+                            "rot": rot,
+                            "side": float(side_idx),
+                            "is_on": 0.0
+                        }
+                        init_dict[fan_obj] = fan_dict
+
+                    # Switches default off
+                    for switch_obj in self._switches:
+                        init_dict[switch_obj] = {
+                            "x":
+                            self.switch_base_x +
+                            self.switch_x_spacing * switch_obj.side_idx,
+                            "y":
+                            self.switch_y,
+                            "z":
+                            self.table_height,
+                            "rot":
+                            np.pi / 2,
+                            "side":
+                            float(switch_obj.side_idx),
+                            "is_on":
+                            0.0,
+                        }
+
+                    # Sides - add them to the state dictionary
+                    init_dict[self._sides[0]] = {"side_idx": 0.0}
+                    init_dict[self._sides[1]] = {"side_idx": 1.0}
+                    init_dict[self._sides[2]] = {"side_idx": 3.0}
+                    init_dict[self._sides[3]] = {"side_idx": 2.0}
+
+                    # Walls
+                    for i, wall_pos in enumerate(wall_positions):
+                        init_dict[self._walls[i]] = {
+                            "x": wall_pos[0],
+                            "y": wall_pos[1],
+                            "z": self.table_height + self.wall_z_len / 2,
+                            "rot": rng.uniform(-self.wall_rot, self.wall_rot)
+                        }
+
+                    # Ball
+                    ball_dict = {
+                        "x": ball_pos[0],
+                        "y": ball_pos[1],
+                        "z": self.table_height + self.ball_height_offset
+                    }
+                    init_dict[self._ball] = ball_dict
+
+                    init_dict.update(pos_dict)
+                    break
+            else:
+                # If we couldn't find a valid configuration after max attempts
+                raise ValueError(
+                    f"Could not generate a valid task configuration after {max_attempts} attempts"
+                )
+            print(f"Found a valid task after {attempt} attempts")
 
             init_state = utils.create_state_from_dict(init_dict)
 
