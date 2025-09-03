@@ -274,13 +274,6 @@ class PyBulletFanEnv(PyBulletEnv):
             for i in range(max_walls_per_task)
         ]
         # Create positions based on maximum grid size to support both train and test
-        max_num_pos_x = max(CFG.fan_train_num_pos_x, CFG.fan_test_num_pos_x)
-        max_num_pos_y = max(CFG.fan_train_num_pos_y, CFG.fan_test_num_pos_y)
-
-        self._positions = [
-            Object(f"loc_y{i}_x{j}", self._location_type)
-            for i in range(max_num_pos_y) for j in range(max_num_pos_x)
-        ]
         self.pos_dict = dict()
 
         # Grid positions will be set dynamically in task generation
@@ -1128,14 +1121,18 @@ class PyBulletFanEnv(PyBulletEnv):
         x_coords, y_coords = self._generate_grid_coordinates(
             num_pos_x, num_pos_y)
         grid_pos = [(x, y) for y in y_coords for x in x_coords]
+        _positions = [
+            Object(f"loc_y{i}_x{j}", self._location_type)
+            for i in range(num_pos_y) for j in range(num_pos_x)
+        ]
 
         # Create position dictionary for this task configuration
         pos_dict = {}
         pos_index = 0
         for i in range(num_pos_y):
             for j in range(num_pos_x):
-                if pos_index < len(self._positions):
-                    pos_obj = self._positions[pos_index]
+                if pos_index < len(_positions):
+                    pos_obj = _positions[pos_index]
                     pos_dict[pos_obj] = {"xx": x_coords[j], "yy": y_coords[i]}
                     pos_index += 1
 

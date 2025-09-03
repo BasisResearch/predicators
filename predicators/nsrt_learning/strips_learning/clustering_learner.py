@@ -89,19 +89,11 @@ def _flat_pnad_scoring_worker(
 class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
     """Base class for a clustering-based STRIPS learner."""
 
-    def _learn(self, debug_log: bool = True) -> List[PNAD]:
+    def _learn(self) -> List[PNAD]:
         segments = [seg for segs in self._segmented_trajs for seg in segs]
-        if debug_log:
-            logging.info(
-                f"ClusteringSTRIPSLearner._learn: Processing {len(segments)} segments from {len(self._segmented_trajs)} trajectories"
-            )
         # Cluster the segments according to common option and effects.
         pnads: List[PNAD] = []
         for i, segment in enumerate(segments):
-            if debug_log:
-                logging.info(
-                    f"ClusteringSTRIPSLearner._learn: Processing segment {i+1}/{len(segments)}"
-                )
             if segment.has_option():
                 segment_option = segment.get_option()
                 segment_param_option = segment_option.parent
@@ -140,15 +132,6 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             suc, ent_to_ent_sub, pnad = self._unify_segment_with_pnads(
                 preconds1, seg_add_effects, seg_del_effects,
                 segment_param_option, segment_option_objs, pnads)
-
-            if debug_log:
-                logging.info(
-                    f"ClusteringSTRIPSLearner._learn: Segment {i+1} unification success: {suc}"
-                )
-                if suc:
-                    logging.info(
-                        f"ClusteringSTRIPSLearner._learn: Unified with existing PNAD, total PNADs: {len(pnads)}"
-                    )
 
             if suc:
                 sub = cast(VarToObjSub,
@@ -317,10 +300,6 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 option_vars = [obj_to_var[o] for o in segment_option_objs]
                 option_spec = (segment_param_option, option_vars)
                 pnads.append(PNAD(op, datastore, option_spec))
-                if debug_log:
-                    logging.info(
-                        f"ClusteringSTRIPSLearner._learn: Created new PNAD {op.name}, total PNADs: {len(pnads)}"
-                    )
 
         if self.get_name() in ["cluster_and_search_process_learner"]:
             # Do this extra step for this learner
@@ -1380,7 +1359,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             # Log the results
             for i, sets in enumerate(condition_sets_per_pnad):
                 logging.info(
-                    f"Process {i}: Proposed {len(sets)} condition sets")
+                    f"Process {i}: {pformat(pnads[i])}"
+                    f"Proposed {len(sets)} condition sets\n")
                 for j, condition_set in enumerate(sets):
                     logging.debug(
                         f"  Set {j+1}: {sorted(condition_set, key=str)}")
@@ -1633,7 +1613,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 cost, condition_candidate, scores, process = result
                 process_param_str = ", ".join(
                     [f"{v:.4f}" for v in process._get_parameters()])
-                logging.debug(f"Conditions {rank}: {condition_candidate}, "
+                logging.debug(f"Conditions {rank}: "
+                              f"{sorted(condition_candidate)}, "
                               f"Cost: {cost}, "
                               f"ELBO: {scores[0]:.4f}, "
                               f"Exp_state_prob: {scores[1]:.4f}, "
