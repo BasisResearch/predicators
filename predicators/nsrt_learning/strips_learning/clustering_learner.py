@@ -1452,6 +1452,11 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         num_candidates_per_pnad = [
             2**len(poss_atoms) for poss_atoms in possible_atoms_per_pnad
         ]
+        if condition_sets_per_pnad is not None:
+            num_candidates_per_pnad = [
+                len(condition_sets) for condition_sets in 
+                condition_sets_per_pnad
+            ]
         max_num_candidates = min(max(num_candidates_per_pnad), cpu_cnt)
         num_candidates_to_keep = 1
         # Try to find the largest cap on candidates per PNAD such that the total
