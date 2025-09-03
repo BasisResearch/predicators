@@ -129,7 +129,7 @@ APPROACHES:
       grammar_search_operator_complexity_weight: 0.1
       grammar_search_hill_climbing_depth: 1
       vlm_predicator_num_proposal_batches: 1
-      process_learning_process_per_physical_core: False
+      process_learning_process_per_physical_core: True
       skip_test_until_last_ite_or_early_stopping: True
 
 ENVS:
