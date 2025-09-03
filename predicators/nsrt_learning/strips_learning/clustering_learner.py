@@ -1449,27 +1449,27 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         pnads = filtered_pnads
         indexed_pnads = {i: p for i, p in enumerate(pnads)}
 
-        num_candidates_per_pnad = [
-            2**len(poss_atoms) for poss_atoms in possible_atoms_per_pnad
+        max_candidates_per_pnad = [
+            2**len(possible_atoms) for possible_atoms in possible_atoms_per_pnad
         ]
         if condition_sets_per_pnad is not None:
-            num_candidates_per_pnad = [
+            max_candidates_per_pnad = [
                 len(condition_sets) for condition_sets in 
                 condition_sets_per_pnad
             ]
-        max_num_candidates = min(max(num_candidates_per_pnad), cpu_cnt)
-        num_candidates_to_keep = 1
+        max_candidates_across_pnads = min(max(max_candidates_per_pnad), cpu_cnt)
+        min_candidates_to_keep = 1
         # Try to find the largest cap on candidates per PNAD such that the total
         # number of candidates across all PNADs does not exceed the number of
         # available CPUs.
-        for i in range(max_num_candidates, 0, -1):
+        for i in range(max_candidates_across_pnads, 0, -1):
             total_candidates = sum(
-                [min(num, i) for num in num_candidates_per_pnad])
+                [min(num, i) for num in max_candidates_per_pnad])
             if total_candidates <= cpu_cnt:
                 logging.info(
                     f"Setting candidate cap per PNAD to {i} to utilize {cpu_cnt} CPUs "
                     f"(total candidates: {total_candidates}).")
-                num_candidates_to_keep = i
+                min_candidates_to_keep = i
                 break
 
         # Helper: get initial lifted atoms for a PNAD index
@@ -1527,7 +1527,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 top_candidates = self._get_top_candidates(
                     candidates_with_approx_scores,
                     percentage=0,
-                    number=num_candidates_to_keep)
+                    number=min_candidates_to_keep)
                 pruned_candidates = [cand for _, cand in top_candidates]
                 final_candidates_for_pnad[i] = pruned_candidates
                 logging.debug(
