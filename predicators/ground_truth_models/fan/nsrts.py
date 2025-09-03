@@ -29,7 +29,7 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
 
         # Predicates
         BallAtPos = predicates["BallAtPos"]
-        ClearPos = predicates["ClearPos"]
+        ClearPos = predicates["ClearLoc"]
 
         LeftOf = predicates["LeftOf"]
         RightOf = predicates["RightOf"]

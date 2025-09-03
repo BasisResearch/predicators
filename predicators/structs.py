@@ -473,12 +473,12 @@ class Predicate:
                 f"{CFG.grammar_search_classifier_pretty_str_names[i]}:{t.name}"
             )
             var_names.append(
-                f"{t.name} {CFG.grammar_search_classifier_pretty_str_names[i]}"
+                f"{CFG.grammar_search_classifier_pretty_str_names[i]}"
             )
         vars_str = ", ".join(vars_str)
 
         body_str = f"{self.name}({vars_str})"
-        if hasattr(self, "parameterized_assertion") and\
+        if hasattr(self, "natural_language_assertion") and\
             self.natural_language_assertion is not None:
             body_str += f": {self.natural_language_assertion(var_names)}"
         return body_str

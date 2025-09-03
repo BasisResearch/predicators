@@ -44,7 +44,7 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
         FanOn = predicates["FanOn"]
         FanOff = predicates["FanOff"]
         BallAtLoc = predicates["BallAtLoc"]
-        ClearPos = predicates["ClearPos"]
+        ClearLoc = predicates["ClearLoc"]
         FanFacingSide = predicates["FanFacingSide"]
         SideOf = predicates["SideOf"]
         OppositeFan = predicates["OppositeFan"]
@@ -149,7 +149,7 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
         parameters = [ball, pos1, pos2, dir]
         condition_at_start = {
             LiftedAtom(BallAtLoc, [ball, pos1]),
-            LiftedAtom(ClearPos, [pos2]),
+            LiftedAtom(ClearLoc, [pos2]),
             LiftedAtom(SideOf, [pos1, pos2, dir]),  # could be invented
             LiftedAtom(FanFacingSide, [fan, dir]),  # could be invented
         }

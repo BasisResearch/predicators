@@ -193,7 +193,7 @@ ENVS:
   fan:
     NAME: "pybullet_fan"
     FLAGS:
-      excluded_predicates: "FanFacingSide,OppositeFan,BallAtTarget,Controls"
+      excluded_predicates: "FanFacingSide,OppositeFan,Controls"
       excluded_objects_in_state_str: "switch,loc"
       process_planning_heuristic_weight: 10.0
       terminate_on_goal_reached: True # maybe required for successful eval

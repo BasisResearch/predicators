@@ -288,59 +288,70 @@ class PyBulletFanEnv(PyBulletEnv):
         super().__init__(use_gui=use_gui)
 
         # Define new predicates if desired
-        self._FanOn = Predicate("FanOn", [self._fan_type], self._FanOn_holds)
+        self._FanOn = Predicate("FanOn", [self._fan_type], self._FanOn_holds,
+            natural_language_assertion=lambda os:
+                f"fan {os[0]} is on")
         self._FanOff = Predicate("FanOff", [self._fan_type],
-                                 lambda s, o: not self._FanOn_holds(s, o))
+                                 lambda s, o: not self._FanOn_holds(s, o),
+            natural_language_assertion=lambda os:
+                f"fan {os[0]} is off")
         self._SwitchOn = Predicate("SwitchOn", [self._switch_type],
                                    self._FanOn_holds)
         self._SwitchOff = Predicate("SwitchOff", [self._switch_type],
                                     lambda s, o: not self._FanOn_holds(s, o))
-        self._BallAtTarget = Predicate("BallAtTarget",
-                                       [self._ball_type, self._target_type],
-                                       self._BallAtTarget_holds)
         self._BallAtLoc = Predicate("BallAtLoc",
                                     [self._ball_type, self._location_type],
-                                    self._BallAtPos_holds)
-        self._LeftOf = Predicate("LeftOf",
-                                 [self._location_type, self._location_type],
-                                 self._LeftOf_holds)
-        self._RightOf = Predicate("RightOf",
-                                  [self._location_type, self._location_type],
-                                  self._RightOf_holds)
-        self._UpOf = Predicate("UpOf",
-                               [self._location_type, self._location_type],
-                               self._UpOf_holds)
-        self._DownOf = Predicate("DownOf",
-                                 [self._location_type, self._location_type],
-                                 self._DownOf_holds)
-        self._ClearPos = Predicate("ClearPos", [self._location_type],
-                                   self._ClearPos_holds)
-        self._LeftFan = Predicate("LeftFan", [self._fan_type],
-                                  self._LeftFanSwitch_holds)
-        self._RightFan = Predicate("RightFan", [self._fan_type],
-                                   self._RightFanSwitch_holds)
-        self._FrontFan = Predicate("FrontFan", [self._fan_type],
-                                   self._FrontFanSwitch_holds)
-        self._BackFan = Predicate("BackFan", [self._fan_type],
-                                  self._BackFanSwitch_holds)
-        self._LeftFanSwitch = Predicate("LeftFanSwitch", [self._switch_type],
-                                        self._LeftFanSwitch_holds)
-        self._RightFanSwitch = Predicate("RightFanSwitch", [self._switch_type],
-                                         self._RightFanSwitch_holds)
-        self._FrontFanSwitch = Predicate("FrontFanSwitch", [self._switch_type],
-                                         self._FrontFanSwitch_holds)
-        self._BackFanSwitch = Predicate("BackFanSwitch", [self._switch_type],
-                                        self._BackFanSwitch_holds)
-        self._FanOnSide = Predicate("FanFacingSide",
+                                    self._BallAtLoc_holds,
+            natural_language_assertion=lambda os:
+                    f"ball {os[0]} is at location {os[1]}")
+        # self._LeftOf = Predicate("LeftOf",
+        #                          [self._location_type, self._location_type],
+        #                          self._LeftOf_holds)
+        # self._RightOf = Predicate("RightOf",
+        #                           [self._location_type, self._location_type],
+        #                           self._RightOf_holds)
+        # self._UpOf = Predicate("UpOf",
+        #                        [self._location_type, self._location_type],
+        #                        self._UpOf_holds)
+        # self._DownOf = Predicate("DownOf",
+        #                          [self._location_type, self._location_type],
+        #                          self._DownOf_holds)
+        self._ClearLoc = Predicate("ClearLoc", [self._location_type],
+                                   self._ClearPos_holds,
+            natural_language_assertion=lambda os:
+                f"location {os[0]} is clear of objects")
+        # self._LeftFan = Predicate("LeftFan", [self._fan_type],
+        #                           self._LeftFanSwitch_holds)
+        # self._RightFan = Predicate("RightFan", [self._fan_type],
+        #                            self._RightFanSwitch_holds)
+        # self._FrontFan = Predicate("FrontFan", [self._fan_type],
+        #                            self._FrontFanSwitch_holds)
+        # self._BackFan = Predicate("BackFan", [self._fan_type],
+        #                           self._BackFanSwitch_holds)
+        # self._LeftFanSwitch = Predicate("LeftFanSwitch", [self._switch_type],
+        #                                 self._LeftFanSwitch_holds)
+        # self._RightFanSwitch = Predicate("RightFanSwitch", [self._switch_type],
+        #                                  self._RightFanSwitch_holds)
+        # self._FrontFanSwitch = Predicate("FrontFanSwitch", [self._switch_type],
+        #                                  self._FrontFanSwitch_holds)
+        # self._BackFanSwitch = Predicate("BackFanSwitch", [self._switch_type],
+        #                                 self._BackFanSwitch_holds)
+        self._FanFacingSide = Predicate("FanFacingSide",
                                     [self._fan_type, self._side_type],
-                                    self._FanOnSide_holds)
+                                    self._FanFacingSide_holds,
+            natural_language_assertion=lambda os:
+                f"fan {os[0]} is facing the side {os[1]}")
         self._OppositeFan = Predicate("OppositeFan",
                                       [self._fan_type, self._fan_type],
-                                      self._OppositeFan_holds)
+                                      self._OppositeFan_holds,
+            natural_language_assertion=lambda os:
+                f"fan {os[0]} is facing the opposite side of fan {os[1]}")
         self._SideOf = Predicate(
             "SideOf",
             [self._location_type, self._location_type, self._side_type],
-            self._SideOf_holds)
+            self._SideOf_holds,
+            natural_language_assertion=lambda os:
+                f"location {os[0]} is to the {os[2]} side of location {os[1]}")
         self._Controls = Predicate("Controls",
                                    [self._switch_type, self._fan_type],
                                    self._Controls_holds)
@@ -354,15 +365,14 @@ class PyBulletFanEnv(PyBulletEnv):
         predicates = {
             self._FanOn,
             self._FanOff,
-            self._BallAtTarget,
             self._BallAtLoc,
             # self._LeftOf, self._RightOf, self._UpOf, self._DownOf,
             # self._LeftFanSwitch, self._RightFanSwitch, self._FrontFanSwitch,
             # self._BackFanSwitch,
-            self._FanOnSide,
+            self._FanFacingSide,
             self._SideOf,
             self._Controls,
-            self._ClearPos,
+            self._ClearLoc,
             self._OppositeFan,
         }
         if not CFG.fan_known_controls_relation:
@@ -371,7 +381,7 @@ class PyBulletFanEnv(PyBulletEnv):
 
     @property
     def target_predicates(self) -> Set[Predicate]:
-        return {self._FanOnSide, self._OppositeFan}
+        return {self._FanFacingSide, self._OppositeFan}
 
     @property
     def types(self) -> Set[Type]:
@@ -964,15 +974,8 @@ class PyBulletFanEnv(PyBulletEnv):
         (fan, ) = objects
         return state.get(fan, "is_on") > 0.5
 
-    def _BallAtTarget_holds(self, state: State,
-                            objects: Sequence[Object]) -> bool:
-        ball, target = objects
-        return self._is_ball_close_to_position(state.get(ball, "x"),
-                                               state.get(ball, "y"),
-                                               state.get(target, "x"),
-                                               state.get(target, "y"))
 
-    def _BallAtPos_holds(self, state: State,
+    def _BallAtLoc_holds(self, state: State,
                          objects: Sequence[Object]) -> bool:
         ball, pos = objects
         return self._is_ball_close_to_position(state.get(ball, "x"),
@@ -1038,7 +1041,7 @@ class PyBulletFanEnv(PyBulletEnv):
         switch, = objects
         return state.get(switch, "side") == 2
 
-    def _FanOnSide_holds(self, state: State,
+    def _FanFacingSide_holds(self, state: State,
                          objects: Sequence[Object]) -> bool:
         """Whether the fan is on the specified side of the table.
 
@@ -1403,7 +1406,6 @@ class PyBulletFanEnv(PyBulletEnv):
 
             goal_atoms = {
                 GroundAtom(self._BallAtLoc, [self._ball, target_pos_obj]),
-                # GroundAtom(self._BallAtTarget, [self._ball, self._target])
             }
             # all fans are off in the goal
             for fan_obj in self._fans:
