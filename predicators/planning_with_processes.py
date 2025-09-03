@@ -659,6 +659,7 @@ def _skeleton_generator_with_processes(
                         f"Heuristic: {h}, g: {child_node.cumulative_cost}")
                 hq.heappush(queue, (priority, rng_prio.uniform(), child_node))
                 if time.perf_counter() - start_time >= timeout:
+                    logging.debug(f"Planning timeout of {timeout} reached.")
                     break
     if time_heuristic:
         average_heuristic_time = total_heuristic_time / heuristic_call_count if heuristic_call_count > 0 else 0.0
