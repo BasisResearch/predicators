@@ -1358,8 +1358,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
             # Log the results
             for i, sets in enumerate(condition_sets_per_pnad):
-                logging.info(f"Process {i}: {pformat(pnads[i])}"
-                             f"Proposed {len(sets)} condition sets\n")
+                logging.debug(f"Process {i}: {pformat(pnads[i])}\n"
+                             f"Proposed {len(sets)} condition sets")
                 for j, condition_set in enumerate(sets):
                     logging.debug(
                         f"  Set {j+1}: {sorted(condition_set, key=str)}")
