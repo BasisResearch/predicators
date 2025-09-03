@@ -1283,6 +1283,18 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             process_descriptions = self._build_process_descriptions(
                 possible_atoms_per_pnad, pnads)
 
+            # Extract unique predicates from all candidate atoms
+            all_predicates = set()
+            for poss_atoms in possible_atoms_per_pnad:
+                for atom in poss_atoms:
+                    all_predicates.add(atom.predicate)
+            
+            # Create predicate listing string
+            predicate_listing = "\n".join(
+                predicate.pretty_str_with_assertion() 
+                for predicate in sorted(all_predicates, key=lambda p: p.name)
+            )
+
             # Call LLM with template
             template_path = (
                 utils.get_path_to_predicators_root() +
@@ -1292,6 +1304,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 [desc for desc, _ in process_descriptions])
             template_vars = {
                 "PROCESS_EFFECTS_AND_CANDIDATES": all_descriptions,
+                "PREDICATE_LISTING": predicate_listing,
                 "K": k
             }
             response = self._call_llm_with_template(

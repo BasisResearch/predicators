@@ -1,13 +1,15 @@
-You are an expert in automated planning and causal reasoning. Your task is to propose the most likely sets of preconditions for specific process effects to occur.
+You are an expert in automated planning and causal reasoning. Your task is to propose the most likely sets of conditions for specific process effects to occur.
 
-Given a process with specific add effects and delete effects, you need to propose multiple coherent sets of candidate atoms that could serve as necessary preconditions for the process to successfully achieve its effects.
+Given a process with specific add effects and delete effects, you need to propose multiple coherent sets of candidate atoms that could serve as necessary conditions for the process to successfully achieve its effects.
 
 Key principles for proposing condition sets:
 1. **Causal Relevance**: Each set should contain atoms that are causally necessary for the effects to occur
 2. **Physical Constraints**: Include atoms representing physical constraints or requirements 
 3. **Domain Knowledge**: Use common sense about how processes work in the real world
-4. **Robot Independence**: Atoms involving robots as arguments are typically NOT necessary for exogenous processes
-5. **State Dependencies**: Include atoms that represent prerequisite states for the effects
+4. **State Dependencies**: Include atoms that represent prerequisite states for the effects
+
+Available predicates in the candidate atoms are:
+{PREDICATE_LISTING}
 
 For each process, I will provide:
 - Add effects: What the process makes true

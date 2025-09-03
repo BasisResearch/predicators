@@ -198,6 +198,7 @@ ENVS:
       process_planning_heuristic_weight: 10.0
       terminate_on_goal_reached: True # maybe required for successful eval
       max_num_steps_interaction_request: 200 # 300 should be enough
+      fan_fans_blow_opposite_direction: True
 ARGS:
   - "debug"
   # - "use_gui"
