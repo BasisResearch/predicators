@@ -1115,48 +1115,6 @@ class PyBulletFanEnv(PyBulletEnv):
             possible_num_walls_per_task=CFG.fan_test_num_walls_per_task,
             rng=self._test_rng)
 
-    def _has_valid_path(self, start_pos: Tuple[int,
-                                               int], target_pos: Tuple[int,
-                                                                       int],
-                        blocked_positions: Set[Tuple[int, int]],
-                        num_pos_x: int, num_pos_y: int) -> bool:
-        """Check if there's a valid path from start to target using only
-        cardinal directions."""
-        if start_pos == target_pos:
-            return True
-
-        # BFS to find path using only cardinal directions
-        queue = deque([start_pos])
-        visited = {start_pos}
-
-        # Cardinal directions: up, down, left, right
-        directions = [(0, 1), (0, -1), (-1, 0), (1, 0)]
-
-        while queue:
-            current_x, current_y = queue.popleft()
-
-            for dx, dy in directions:
-                next_x, next_y = current_x + dx, current_y + dy
-
-                # Check bounds
-                if not (0 <= next_x < num_pos_x and 0 <= next_y < num_pos_y):
-                    continue
-
-                # Check if position is blocked or already visited
-                if (next_x,
-                        next_y) in blocked_positions or (next_x,
-                                                         next_y) in visited:
-                    continue
-
-                # Check if we reached the target
-                if (next_x, next_y) == target_pos:
-                    return True
-
-                visited.add((next_x, next_y))
-                queue.append((next_x, next_y))
-
-        return False
-
     def _make_tasks(self, num_tasks: int, num_pos_x: int, num_pos_y: int,
                     possible_num_walls_per_task: List[int],
                     rng: np.random.Generator) -> List[EnvironmentTask]:
@@ -1384,6 +1342,48 @@ class PyBulletFanEnv(PyBulletEnv):
                 goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
             tasks.append(EnvironmentTask(init_state, goal_atoms))
         return self._add_pybullet_state_to_tasks(tasks)
+
+    def _has_valid_path(self, start_pos: Tuple[int,
+                                               int], target_pos: Tuple[int,
+                                                                       int],
+                        blocked_positions: Set[Tuple[int, int]],
+                        num_pos_x: int, num_pos_y: int) -> bool:
+        """Check if there's a valid path from start to target using only
+        cardinal directions."""
+        if start_pos == target_pos:
+            return True
+
+        # BFS to find path using only cardinal directions
+        queue = deque([start_pos])
+        visited = {start_pos}
+
+        # Cardinal directions: up, down, left, right
+        directions = [(0, 1), (0, -1), (-1, 0), (1, 0)]
+
+        while queue:
+            current_x, current_y = queue.popleft()
+
+            for dx, dy in directions:
+                next_x, next_y = current_x + dx, current_y + dy
+
+                # Check bounds
+                if not (0 <= next_x < num_pos_x and 0 <= next_y < num_pos_y):
+                    continue
+
+                # Check if position is blocked or already visited
+                if (next_x,
+                        next_y) in blocked_positions or (next_x,
+                                                         next_y) in visited:
+                    continue
+
+                # Check if we reached the target
+                if (next_x, next_y) == target_pos:
+                    return True
+
+                visited.add((next_x, next_y))
+                queue.append((next_x, next_y))
+
+        return False
 
 
 if __name__ == "__main__":
