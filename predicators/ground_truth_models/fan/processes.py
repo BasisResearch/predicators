@@ -149,7 +149,7 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
         parameters = [ball, pos1, pos2, dir]
         condition_at_start = {
             LiftedAtom(BallAtLoc, [ball, pos2]),
-            LiftedAtom(ClearLoc, [pos2]),
+            LiftedAtom(ClearLoc, [pos1]),
             LiftedAtom(SideOf, [pos1, pos2, dir]),  # could be invented
             LiftedAtom(FanFacingSide, [fan, dir]),  # could be invented
         }

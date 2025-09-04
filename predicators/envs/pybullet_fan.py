@@ -1426,8 +1426,8 @@ class PyBulletFanEnv(PyBulletEnv):
                 GroundAtom(self._BallAtLoc, [self._ball, target_pos_obj]),
             }
             # all fans are off in the goal
-            for fan_obj in self._fans:
-                goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
+            # for fan_obj in self._fans:
+            #     goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
             tasks.append(EnvironmentTask(init_state, goal_atoms))
         return self._add_pybullet_state_to_tasks(tasks)
 
