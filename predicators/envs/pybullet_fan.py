@@ -987,13 +987,13 @@ class PyBulletFanEnv(PyBulletEnv):
     def _BallAtLoc_holds(self, state: State,
                          objects: Sequence[Object]) -> bool:
         ball, pos = objects
-        walls = state.get_objects(self._wall_type)
-        for wall in walls:
-            if self._is_ball_close_to_position(state.get(wall, "x"),
-                                               state.get(wall, "y"),
-                                               state.get(pos, "xx"),
-                                               state.get(pos, "yy")):
-                return False
+        # walls = state.get_objects(self._wall_type)
+        # for wall in walls:
+        #     if self._is_ball_close_to_position(state.get(wall, "x"),
+        #                                        state.get(wall, "y"),
+        #                                        state.get(pos, "xx"),
+        #                                        state.get(pos, "yy")):
+        #         return False
         return self._is_ball_close_to_position(state.get(ball, "x"),
                                                state.get(ball, "y"),
                                                state.get(pos, "xx"),
@@ -1426,8 +1426,8 @@ class PyBulletFanEnv(PyBulletEnv):
                 GroundAtom(self._BallAtLoc, [self._ball, target_pos_obj]),
             }
             # all fans are off in the goal
-            # for fan_obj in self._fans:
-            #     goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
+            for fan_obj in self._fans:
+                goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
             tasks.append(EnvironmentTask(init_state, goal_atoms))
         return self._add_pybullet_state_to_tasks(tasks)
 
