@@ -137,7 +137,7 @@ class PyBulletFanEnv(PyBulletEnv):
     ball_radius: ClassVar[float] = 0.04
     ball_mass: ClassVar[float] = 0.01
     ball_friction: ClassVar[float] = 10.0
-    ball_height_offset: ClassVar[float] = 0.05
+    ball_height_offset: ClassVar[float] = ball_radius
     ball_linear_damping: ClassVar[float] = 10.0
     ball_angular_damping: ClassVar[float] = 10.0
     ball_color: ClassVar[Tuple[float, float, float,
