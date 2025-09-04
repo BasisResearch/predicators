@@ -204,7 +204,7 @@ class PyBulletFanEnv(PyBulletEnv):
             "y",  # fan base y
             "z",  # fan base z
             "rot",  # base orientation (Z euler)
-            "side",  # 0=left,1=right,2=back,3=front
+            "facing_side",  # 0=left,1=right,2=back,3=front
             "is_on",  # whether the controlling switch is on
         ],
         sim_features=["id", "side_idx", "fan_ids", "joint_ids"])
@@ -216,7 +216,7 @@ class PyBulletFanEnv(PyBulletEnv):
             "y",
             "z",
             "rot",  # switch orientation
-            "side",  # matches fan side
+            "controls_fan",  # matches fan side
             "is_on",  # is this switch on
         ],
         sim_features=["id", "joint_id", "side_idx"])
@@ -249,16 +249,16 @@ class PyBulletFanEnv(PyBulletEnv):
         # Fans - create one fan object per side instead of multiple
         self._fans: List[Object] = []
         self._switch_sides = ["left", "right", "down", "up"]
-        for side_str in self._switch_sides:
+        for i, side_str in enumerate(self._switch_sides):
             # Create one fan object per side (left=0, right=1, down=2, up=3)
-            fan_obj = Object(f"fan_{side_str}", self._fan_type)
+            fan_obj = Object(f"fan_{i}", self._fan_type)
             self._fans.append(fan_obj)
 
         # Switches: now each is a distinct object of _switch_type
         self._switches: List[Object] = []
-        for side_str in self._switch_sides:
+        for i, side_str in enumerate(self._switch_sides):
             # Create a switch object using the new _switch_type
-            switch_obj = Object(f"switch_{side_str}", self._switch_type)
+            switch_obj = Object(f"switch_{i}", self._switch_type)
             self._switches.append(switch_obj)
 
         # Sides: representing the four directional sides
@@ -568,9 +568,13 @@ class PyBulletFanEnv(PyBulletEnv):
             switch_obj.side_idx = i  # 0=left,1=right,2=back,3=front
 
         # Sides (no PyBullet bodies, just assign IDs for consistency)
-        for i, side_obj in enumerate(self._sides):
-            # side_obj.id = -1  # No PyBullet body
-            side_obj.side_idx = i  # 0=left,1=right,2=back,3=front
+        self._sides[0].side_idx = 1.0
+        self._sides[1].side_idx = 0.0
+        self._sides[2].side_idx = 3.0
+        self._sides[3].side_idx = 2.0
+        # for i, side_obj in enumerate(self._sides):
+        #     # side_obj.id = -1  # No PyBullet body
+        #     side_obj.side_idx = i  # 0=left,1=right,2=back,3=front
 
         for wall, id in zip(self._walls, pybullet_bodies["wall_ids"]):
             wall.id = id
@@ -803,13 +807,13 @@ class PyBulletFanEnv(PyBulletEnv):
     def _extract_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
         if obj.type == self._fan_type:
-            if feature == "side":
+            if feature == "facing_side":
                 return float(obj.side_idx)
             elif feature == "is_on":
                 controlling_switch = self._switches[obj.side_idx]
                 return float(self._is_switch_on(controlling_switch.id))
         elif obj.type == self._switch_type:
-            if feature == "side":
+            if feature == "controls_fan":
                 return float(obj.side_idx)
             elif feature == "is_on":
                 return float(self._is_switch_on(obj.id))
@@ -859,10 +863,10 @@ class PyBulletFanEnv(PyBulletEnv):
     def _simulate_fans(self) -> None:
         """Spin any switched-on fans and blow the ball."""
         # For each switch, if on => spin all fans with same side_idx
-        for side_idx, switch_obj in enumerate(self._switches):
+        for ctrl_fan_idx, switch_obj in enumerate(self._switches):
             on = self._is_switch_on(switch_obj.id)
             fan_obj = self._fans[
-                side_idx]  # Get the single fan object for this side
+                ctrl_fan_idx]  # Get the single fan object for this side
 
             # Check if fan_ids attribute exists and is populated
             if not hasattr(fan_obj, 'fan_ids') or not fan_obj.fan_ids:
@@ -1024,22 +1028,22 @@ class PyBulletFanEnv(PyBulletEnv):
     def _LeftFanSwitch_holds(self, state: State,
                              objects: Sequence[Object]) -> bool:
         switch, = objects
-        return state.get(switch, "side") == 0
+        return state.get(switch, "controls_fan") == 0
 
     def _RightFanSwitch_holds(self, state: State,
                               objects: Sequence[Object]) -> bool:
         switch, = objects
-        return state.get(switch, "side") == 1
+        return state.get(switch, "controls_fan") == 1
 
     def _FrontFanSwitch_holds(self, state: State,
                               objects: Sequence[Object]) -> bool:
         switch, = objects
-        return state.get(switch, "side") == 3
+        return state.get(switch, "controls_fan") == 3
 
     def _BackFanSwitch_holds(self, state: State,
                              objects: Sequence[Object]) -> bool:
         switch, = objects
-        return state.get(switch, "side") == 2
+        return state.get(switch, "controls_fan") == 2
 
     def _FanFacingSide_holds(self, state: State,
                          objects: Sequence[Object]) -> bool:
@@ -1048,7 +1052,7 @@ class PyBulletFanEnv(PyBulletEnv):
         True if the fan's side matches the side object's side.
         """
         fan, side = objects
-        return state.get(fan, "side") == state.get(side, "side_idx")
+        return state.get(fan, "facing_side") == state.get(side, "side_idx")
 
     def _OppositeFan_holds(self, state: State,
                            objects: Sequence[Object]) -> bool:
@@ -1056,8 +1060,8 @@ class PyBulletFanEnv(PyBulletEnv):
         fan1, fan2 = objects
         if fan1.name == fan2.name:
             return False
-        side1 = state.get(fan1, "side")
-        side2 = state.get(fan2, "side")
+        side1 = state.get(fan1, "facing_side")
+        side2 = state.get(fan2, "facing_side")
         # Check if they are on opposite sides using XOR
         # Sides 0,1 are opposite (differ by 1), sides 2,3 are opposite (differ by 1)
         return abs(side1 - side2) == 1 and (side1 // 2) == (side2 // 2)
@@ -1073,20 +1077,20 @@ class PyBulletFanEnv(PyBulletEnv):
         pos1, pos2, side = objects
         side_val = state.get(side, "side_idx")
 
-        if side_val == 0:  # left
+        if side_val == 1:  # left
             return self._is_ball_close_to_position(
                 state.get(pos1, "xx") + self.pos_gap, state.get(pos1, "yy"),
                 state.get(pos2, "xx"), state.get(pos2, "yy"))
-        elif side_val == 1:  # right
+        elif side_val == 0:  # right
             return self._is_ball_close_to_position(
                 state.get(pos1, "xx") - self.pos_gap, state.get(pos1, "yy"),
                 state.get(pos2, "xx"), state.get(pos2, "yy"))
-        elif side_val == 3:  # down
+        elif side_val == 2:  # down
             return self._is_ball_close_to_position(
                 state.get(pos1, "xx"),
                 state.get(pos1, "yy") - self.pos_gap, state.get(pos2, "xx"),
                 state.get(pos2, "yy"))
-        elif side_val == 2:  # up
+        elif side_val == 3:  # up
             return self._is_ball_close_to_position(
                 state.get(pos1, "xx"),
                 state.get(pos1, "yy") + self.pos_gap, state.get(pos2, "xx"),
@@ -1096,8 +1100,9 @@ class PyBulletFanEnv(PyBulletEnv):
 
     def _Controls_holds(self, state: State, objects: Sequence[Object]) -> bool:
         """(Controls fan switch)."""
+        # TODO: this probably needs to be updated
         switch, fan = objects
-        return state.get(fan, "side") == state.get(switch, "side")
+        return state.get(fan, "facing_side") == state.get(switch, "controls_fan")
 
     # -------------------------------------------------------------------------
     # Task Generation
@@ -1331,7 +1336,7 @@ class PyBulletFanEnv(PyBulletEnv):
                             "y": py,
                             "z": self.table_height + self.fan_z_len / 2,
                             "rot": rot,
-                            "side": float(side_idx),
+                            "facing_side": float(side_idx),
                             "is_on": 0.0
                         }
                         init_dict[fan_obj] = fan_dict
@@ -1348,15 +1353,15 @@ class PyBulletFanEnv(PyBulletEnv):
                             self.table_height,
                             "rot":
                             np.pi / 2,
-                            "side":
+                            "controls_fan":
                             float(switch_obj.side_idx),
                             "is_on":
                             0.0,
                         }
 
                     # Sides - add them to the state dictionary
-                    init_dict[self._sides[0]] = {"side_idx": 0.0}
-                    init_dict[self._sides[1]] = {"side_idx": 1.0}
+                    init_dict[self._sides[0]] = {"side_idx": 1.0}
+                    init_dict[self._sides[1]] = {"side_idx": 0.0}
                     init_dict[self._sides[2]] = {"side_idx": 3.0}
                     init_dict[self._sides[3]] = {"side_idx": 2.0}
 
@@ -1484,6 +1489,7 @@ class PyBulletFanEnv(PyBulletEnv):
 
 if __name__ == "__main__":
     import time
+    from pprint import pformat
     CFG.seed = 0
     CFG.env = "pybullet_fan"
     # CFG.pybullet_sim_steps_per_action = 20
@@ -1496,8 +1502,32 @@ if __name__ == "__main__":
 
     for task in tasks:
         env._reset_state(task.init)
-        for _ in range(50):
+        # print(f"Task {task.init.pretty_str()}")
+        # print(f"{pformat(utils.abstract(task.init, env.predicates))}")
+        # breakpoint()
+        for _ in range(5000):
             action = Action(
                 np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)
-            time.sleep(0.01)
+            
+            # Debug code
+            # state = env._get_state()
+            # print(f"{pformat(utils.abstract(state, env.predicates))}")
+            # fans = state.get_objects(env._fan_type)
+            # sides = state.get_objects(env._side_type)
+            # on_fan = None
+            # on_switch = None
+            # for fan in fans:
+            #     for side in sides:
+            #         if env._FanFacingSide_holds(state, [fan, side]):
+            #             print(f"Fan {fan} is facing side {side}, is on: {env._FanOn_holds(state, [fan])}")
+            #             if env._FanOn_holds(state, [fan]):
+            #                 on_fan = fan
+            # for switch in env._switches:
+            #     print(f"Switch {switch} controls fan {state.get(switch, 'controls_fan')} is on: {env._FanOn_holds(state, [switch])}")
+            #     if env._FanOn_holds(state, [switch]):
+            #         on_switch = switch
+            # if on_fan is not None and on_switch is not None:
+            #     print(f"The robot thinks {on_switch} controls {on_fan}: {env._Controls_holds(state, [on_switch, on_fan])}")
+            # print("\n")
+            time.sleep(0.1)
