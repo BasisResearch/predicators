@@ -134,12 +134,14 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Ball Properties
     # -------------------------------------------------------------------------
-    ball_radius: ClassVar[float] = 0.05
+    ball_radius: ClassVar[float] = 0.04
     ball_mass: ClassVar[float] = 0.01
     ball_friction: ClassVar[float] = 10.0
     ball_height_offset: ClassVar[float] = 0.05
     ball_linear_damping: ClassVar[float] = 10.0
     ball_angular_damping: ClassVar[float] = 10.0
+    ball_color: ClassVar[Tuple[float, float, float,
+                               float]] = (0.0, 0.0, 1.0, 1)
 
     # -------------------------------------------------------------------------
     # Wall Properties
@@ -153,13 +155,15 @@ class PyBulletFanEnv(PyBulletEnv):
     wall_z_len: ClassVar[float] = 0.008
     wall_rot: ClassVar[float] = 0.0  # can be np.py/2
     wall_mass: ClassVar[float] = 0.0
-    wall_friction: ClassVar[float] = 0.001
+    wall_friction: ClassVar[float] = 0.1
+    wall_color: ClassVar[Tuple[float, float, float,
+                               float]] = (0.5, 0.5, 0.5, 1.0)
 
     # Boundary walls around grid
-    boundary_wall_height: ClassVar[float] = 0.01
+    boundary_wall_height: ClassVar[float] = 0.03
     boundary_wall_thickness: ClassVar[float] = 0.002
     boundary_wall_color: ClassVar[Tuple[float, float, float,
-                                        float]] = (0.5, 0.3, 0.3, 1)
+                                        float]] = (0.9, 0.9, 0.9, 1)
 
     # -------------------------------------------------------------------------
     # Target Properties
@@ -167,6 +171,7 @@ class PyBulletFanEnv(PyBulletEnv):
     target_thickness: ClassVar[float] = 0.00001
     target_mass: ClassVar[float] = 0.0
     target_friction: ClassVar[float] = 0.04
+    target_color: ClassVar[Tuple[float, float, float, float]] = (0, 1, 0, 1.0)
 
     # =========================================================================
     # SIMULATION & DEBUG CONFIGURATION
@@ -486,7 +491,7 @@ class PyBulletFanEnv(PyBulletEnv):
         wall_ids = []
         for _ in range(max_walls_per_task):
             wall_id = create_pybullet_block(
-                color=(0.5, 0.5, 0.5, 1.0),
+                color=cls.wall_color,
                 half_extents=(cls.wall_x_len / 2, cls.wall_y_len / 2,
                               cls.wall_z_len / 2),
                 mass=cls.wall_mass,
@@ -501,7 +506,7 @@ class PyBulletFanEnv(PyBulletEnv):
         # Create the ball
         # ---------------------------------------------------------------------
         ball_id = create_pybullet_sphere(
-            color=(0.0, 0.0, 1.0, 1),
+            color=cls.ball_color,
             radius=cls.ball_radius,
             mass=cls.ball_mass,
             friction=cls.ball_friction,
@@ -982,6 +987,13 @@ class PyBulletFanEnv(PyBulletEnv):
     def _BallAtLoc_holds(self, state: State,
                          objects: Sequence[Object]) -> bool:
         ball, pos = objects
+        walls = state.get_objects(self._wall_type)
+        for wall in walls:
+            if self._is_ball_close_to_position(state.get(wall, "x"),
+                                               state.get(wall, "y"),
+                                               state.get(pos, "xx"),
+                                               state.get(pos, "yy")):
+                return False
         return self._is_ball_close_to_position(state.get(ball, "x"),
                                                state.get(ball, "y"),
                                                state.get(pos, "xx"),
@@ -1414,8 +1426,8 @@ class PyBulletFanEnv(PyBulletEnv):
                 GroundAtom(self._BallAtLoc, [self._ball, target_pos_obj]),
             }
             # all fans are off in the goal
-            # for fan_obj in self._fans:
-            #     goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
+            for fan_obj in self._fans:
+                goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
             tasks.append(EnvironmentTask(init_state, goal_atoms))
         return self._add_pybullet_state_to_tasks(tasks)
 
