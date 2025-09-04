@@ -288,13 +288,14 @@ class PyBulletFanEnv(PyBulletEnv):
         super().__init__(use_gui=use_gui)
 
         # Define new predicates if desired
-        self._FanOn = Predicate("FanOn", [self._fan_type], self._FanOn_holds,
-            natural_language_assertion=lambda os:
-                f"fan {os[0]} is on")
-        self._FanOff = Predicate("FanOff", [self._fan_type],
-                                 lambda s, o: not self._FanOn_holds(s, o),
-            natural_language_assertion=lambda os:
-                f"fan {os[0]} is off")
+        self._FanOn = Predicate(
+            "FanOn", [self._fan_type],
+            self._FanOn_holds,
+            natural_language_assertion=lambda os: f"fan {os[0]} is on")
+        self._FanOff = Predicate(
+            "FanOff", [self._fan_type],
+            lambda s, o: not self._FanOn_holds(s, o),
+            natural_language_assertion=lambda os: f"fan {os[0]} is off")
         self._SwitchOn = Predicate("SwitchOn", [self._switch_type],
                                    self._FanOn_holds)
         self._SwitchOff = Predicate("SwitchOff", [self._switch_type],
@@ -302,8 +303,31 @@ class PyBulletFanEnv(PyBulletEnv):
         self._BallAtLoc = Predicate("BallAtLoc",
                                     [self._ball_type, self._location_type],
                                     self._BallAtLoc_holds,
+                                    natural_language_assertion=lambda os:
+                                    f"ball {os[0]} is at location {os[1]}")
+        self._ClearLoc = Predicate("ClearLoc", [self._location_type],
+                                   self._ClearPos_holds,
+                                   natural_language_assertion=lambda os:
+                                   f"location {os[0]} is clear of objects")
+        self._FanFacingSide = Predicate(
+            "FanFacingSide", [self._fan_type, self._side_type],
+            self._FanFacingSide_holds,
             natural_language_assertion=lambda os:
-                    f"ball {os[0]} is at location {os[1]}")
+            f"fan {os[0]} is facing the side {os[1]}")
+        self._OppositeFan = Predicate(
+            "OppositeFan", [self._fan_type, self._fan_type],
+            self._OppositeFan_holds,
+            natural_language_assertion=lambda os:
+            f"fan {os[0]} is facing the opposite side of fan {os[1]}")
+        self._SideOf = Predicate(
+            "SideOf",
+            [self._location_type, self._location_type, self._side_type],
+            self._SideOf_holds,
+            natural_language_assertion=lambda os:
+            f"location {os[0]} is to the {os[2]} side of location {os[1]}")
+        self._Controls = Predicate("Controls",
+                                   [self._switch_type, self._fan_type],
+                                   self._Controls_holds)
         # self._LeftOf = Predicate("LeftOf",
         #                          [self._location_type, self._location_type],
         #                          self._LeftOf_holds)
@@ -316,10 +340,6 @@ class PyBulletFanEnv(PyBulletEnv):
         # self._DownOf = Predicate("DownOf",
         #                          [self._location_type, self._location_type],
         #                          self._DownOf_holds)
-        self._ClearLoc = Predicate("ClearLoc", [self._location_type],
-                                   self._ClearPos_holds,
-            natural_language_assertion=lambda os:
-                f"location {os[0]} is clear of objects")
         # self._LeftFan = Predicate("LeftFan", [self._fan_type],
         #                           self._LeftFanSwitch_holds)
         # self._RightFan = Predicate("RightFan", [self._fan_type],
@@ -336,25 +356,6 @@ class PyBulletFanEnv(PyBulletEnv):
         #                                  self._FrontFanSwitch_holds)
         # self._BackFanSwitch = Predicate("BackFanSwitch", [self._switch_type],
         #                                 self._BackFanSwitch_holds)
-        self._FanFacingSide = Predicate("FanFacingSide",
-                                    [self._fan_type, self._side_type],
-                                    self._FanFacingSide_holds,
-            natural_language_assertion=lambda os:
-                f"fan {os[0]} is facing the side {os[1]}")
-        self._OppositeFan = Predicate("OppositeFan",
-                                      [self._fan_type, self._fan_type],
-                                      self._OppositeFan_holds,
-            natural_language_assertion=lambda os:
-                f"fan {os[0]} is facing the opposite side of fan {os[1]}")
-        self._SideOf = Predicate(
-            "SideOf",
-            [self._location_type, self._location_type, self._side_type],
-            self._SideOf_holds,
-            natural_language_assertion=lambda os:
-                f"location {os[0]} is to the {os[2]} side of location {os[1]}")
-        self._Controls = Predicate("Controls",
-                                   [self._switch_type, self._fan_type],
-                                   self._Controls_holds)
 
     @classmethod
     def get_name(cls) -> str:
@@ -978,7 +979,6 @@ class PyBulletFanEnv(PyBulletEnv):
         (fan, ) = objects
         return state.get(fan, "is_on") > 0.5
 
-
     def _BallAtLoc_holds(self, state: State,
                          objects: Sequence[Object]) -> bool:
         ball, pos = objects
@@ -1046,7 +1046,7 @@ class PyBulletFanEnv(PyBulletEnv):
         return state.get(switch, "controls_fan") == 2
 
     def _FanFacingSide_holds(self, state: State,
-                         objects: Sequence[Object]) -> bool:
+                             objects: Sequence[Object]) -> bool:
         """Whether the fan is on the specified side of the table.
 
         True if the fan's side matches the side object's side.
@@ -1102,7 +1102,8 @@ class PyBulletFanEnv(PyBulletEnv):
         """(Controls fan switch)."""
         # TODO: this probably needs to be updated
         switch, fan = objects
-        return state.get(fan, "facing_side") == state.get(switch, "controls_fan")
+        return state.get(fan,
+                         "facing_side") == state.get(switch, "controls_fan")
 
     # -------------------------------------------------------------------------
     # Task Generation
@@ -1509,7 +1510,7 @@ if __name__ == "__main__":
             action = Action(
                 np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)
-            
+
             # Debug code
             # state = env._get_state()
             # print(f"{pformat(utils.abstract(state, env.predicates))}")

@@ -473,8 +473,7 @@ class Predicate:
                 f"{CFG.grammar_search_classifier_pretty_str_names[i]}:{t.name}"
             )
             var_names.append(
-                f"{CFG.grammar_search_classifier_pretty_str_names[i]}"
-            )
+                f"{CFG.grammar_search_classifier_pretty_str_names[i]}")
         vars_str = ", ".join(vars_str)
 
         body_str = f"{self.name}({vars_str})"

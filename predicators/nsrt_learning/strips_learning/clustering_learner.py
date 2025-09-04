@@ -1288,12 +1288,11 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             for poss_atoms in possible_atoms_per_pnad:
                 for atom in poss_atoms:
                     all_predicates.add(atom.predicate)
-            
+
             # Create predicate listing string
             predicate_listing = "\n".join(
-                predicate.pretty_str_with_assertion() 
-                for predicate in sorted(all_predicates, key=lambda p: p.name)
-            )
+                predicate.pretty_str_with_assertion()
+                for predicate in sorted(all_predicates, key=lambda p: p.name))
 
             # Call LLM with template
             template_path = (
@@ -1750,17 +1749,19 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         logging.debug(f"Num vi steps: {CFG.cluster_and_search_vi_steps}, "
                       "Early stopping patience: "
                       f"{CFG.process_param_learning_patience}")
-        
+
         if use_parallel:
             with Pool(nodes=min(len(work_items), cpu_cnt)) as pool:
                 results = pool.map(_flat_pnad_scoring_worker, work_items)
         else:
-            logging.info("Using sequential scoring as alternative to parallel processing.")
+            logging.info(
+                "Using sequential scoring as alternative to parallel processing."
+            )
             results = []
             for work_item in work_items:
                 result = _flat_pnad_scoring_worker(work_item)
                 results.append(result)
-        
+
         logging.info(f"Finished scoring in {time.time() - start_time:.2f}s.")
 
         # Step 7: Process results and select best conditions
@@ -1769,7 +1770,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
         # Step 8: Construct final PNADs
         return self._construct_final_pnads(best_conditions, pnads)
-
 
     def _is_unique_pnad(self, precon: FrozenSet[LiftedAtom], pnad: PNAD,
                         final_pnads: List[PNAD]) -> bool:
