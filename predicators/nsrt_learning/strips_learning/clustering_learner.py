@@ -1304,7 +1304,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             template_vars = {
                 "PROCESS_EFFECTS_AND_CANDIDATES": all_descriptions,
                 "PREDICATE_LISTING": predicate_listing,
-                "K": k
+                # "K": k
             }
             response = self._call_llm_with_template(
                 template_path, template_vars,
