@@ -190,7 +190,6 @@ ENVS:
       domino_prune_actions: False
       process_planning_heuristic_weight: 2.0
       process_planning_use_abstract_policy: False
-      grammar_search_task_planning_timeout: 5
   fan:
     NAME: "pybullet_fan"
     FLAGS:
