@@ -152,7 +152,7 @@ class PyBulletFanEnv(PyBulletEnv):
     # wall_y_len: ClassVar[float] = 0.04
     wall_x_len: ClassVar[float] = pos_gap - 0.02
     wall_y_len: ClassVar[float] = pos_gap - 0.02
-    wall_z_len: ClassVar[float] = 0.008
+    wall_z_len: ClassVar[float] = 0.02
     wall_rot: ClassVar[float] = 0.0  # can be np.py/2
     wall_mass: ClassVar[float] = 0.0
     wall_friction: ClassVar[float] = 0.1

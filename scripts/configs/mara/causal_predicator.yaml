@@ -178,28 +178,28 @@ ENVS:
   #     grow_weak_pour_terminate_condition: True
   #     grow_place_option_no_sampler: True
   #     horizon: 400
-  domino:
-    NAME: "pybullet_domino"
-    FLAGS:
-      excluded_predicates: "InFront"
-      excluded_objects_in_state_str: "loc,rot"
-      horizon: 200
-      domino_initialize_at_finished_state: False
-      domino_use_domino_blocks_as_target: True
-      domino_use_grid: True
-      domino_include_connected_predicate: False # necessary to generate valid plan
-      domino_prune_actions: False
-      process_planning_heuristic_weight: 2.0
-      process_planning_use_abstract_policy: False
-  # fan:
-  #   NAME: "pybullet_fan"
+  # domino:
+  #   NAME: "pybullet_domino"
   #   FLAGS:
-  #     excluded_predicates: "FanFacingSide,OppositeFan,Controls"
-  #     excluded_objects_in_state_str: "switch,loc"
-  #     process_planning_heuristic_weight: 10.0
-  #     terminate_on_goal_reached: True # maybe required for successful eval
-  #     max_num_steps_interaction_request: 200 # 300 should be enough
-  #     cluster_learning_one_effect_per_process: False
+  #     excluded_predicates: "InFront"
+  #     excluded_objects_in_state_str: "loc,rot"
+  #     horizon: 200
+  #     domino_initialize_at_finished_state: False
+  #     domino_use_domino_blocks_as_target: True
+  #     domino_use_grid: True
+  #     domino_include_connected_predicate: False # necessary to generate valid plan
+  #     domino_prune_actions: False
+  #     process_planning_heuristic_weight: 2.0
+  #     process_planning_use_abstract_policy: False
+  fan:
+    NAME: "pybullet_fan"
+    FLAGS:
+      excluded_predicates: "FanFacingSide,OppositeFan,Controls"
+      excluded_objects_in_state_str: "switch,loc"
+      process_planning_heuristic_weight: 10.0
+      terminate_on_goal_reached: True # maybe required for successful eval
+      max_num_steps_interaction_request: 200 # 300 should be enough
+      cluster_learning_one_effect_per_process: False
 ARGS:
   - "debug"
   # - "use_gui"
