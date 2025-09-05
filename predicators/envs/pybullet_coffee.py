@@ -67,7 +67,8 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     dispense_tol: ClassVar[float] = 1e-2
     plugged_in_tol: ClassVar[float] = 1e-2
     pour_angle_tol: ClassVar[float] = 1e-1
-    pour_pos_tol: ClassVar[float] = 0.005
+    pour_pos_tol_factor: ClassVar[float] = 1.8
+    pour_pos_tol: ClassVar[float] = 0.005 * pour_pos_tol_factor
     init_padding: ClassVar[float] = 0.05
     pick_jug_y_padding: ClassVar[float] = 0.05
     pick_jug_rot_tol: ClassVar[float] = 0.1
@@ -607,7 +608,8 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
             # Increase the liquid in the cup
             current_liquid = state.get(cup, "current_liquid")
             cup_cap = state.get(cup, "capacity_liquid")
-            new_liquid = min(current_liquid + self.pour_velocity, cup_cap)
+            new_liquid = min(current_liquid + self.pour_velocity,
+                             cup_cap + 0.01)
             state.set(cup, "current_liquid", new_liquid)
 
             # Remove the old liquid body in PyBullet

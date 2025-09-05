@@ -91,19 +91,20 @@ ENVS:
   #     # boil_goal: "simple"
   #     boil_require_jug_full_to_heatup: True
   #     process_planning_heuristic_weight: 1.0
-  # coffee:
-  #   NAME: "pybullet_coffee"
-  #   FLAGS:
-  #     excluded_predicates: "Twisting,HandTilted,PressingButton,NotSameCup,RobotAboveCup"
-  #     coffee_rotated_jug_ratio: 0
-  #     coffee_num_cups_train: [1]
-  #     coffee_machine_have_light_bar: False
-  #     coffee_move_back_after_place_and_push: True
-  #     coffee_machine_has_plug: False
-  #     coffee_combined_move_and_twist_policy: True
-  #     coffee_use_pixelated_jug: True
-  #     coffee_fill_jug_gradually: True
-  #     max_num_steps_option_rollout: 100
+  coffee:
+    NAME: "pybullet_coffee"
+    FLAGS:
+      excluded_predicates: "Twisting,PressingButton,NotSameCup,RobotAboveCup"
+      coffee_rotated_jug_ratio: 0
+      coffee_num_cups_train: [1]
+      coffee_machine_have_light_bar: False
+      coffee_move_back_after_place_and_push: True
+      coffee_machine_has_plug: False
+      coffee_combined_move_and_twist_policy: True
+      coffee_use_pixelated_jug: True
+      coffee_fill_jug_gradually: True
+      max_num_steps_option_rollout: 100
+      horizon: 300
   # grow:
   #   NAME: "pybullet_grow"
   #   FLAGS:
@@ -126,13 +127,13 @@ ENVS:
   #     process_planning_use_abstract_policy: False
   #     # domino_test_num_targets: [1] # temp for experiment
   #     # domino_test_num_pos_x: 3 # temp for experiment
-  fan:
-    NAME: "pybullet_fan"
-    FLAGS:
-      excluded_objects_in_state_str: "switch"
-      terminate_on_goal_reached: True # maybe required for successful eval
-      process_planning_heuristic_weight: 10.0
-      terminate_on_goal_reached: True # maybe required for successful eval
+  # fan:
+  #   NAME: "pybullet_fan"
+  #   FLAGS:
+  #     excluded_objects_in_state_str: "switch"
+  #     terminate_on_goal_reached: True # maybe required for successful eval
+  #     process_planning_heuristic_weight: 10.0
+  #     terminate_on_goal_reached: True # maybe required for successful eval
 ARGS:
   - "debug"
   # - "use_gui"

@@ -26,7 +26,8 @@ class CoffeeEnv(BaseEnv):
     dispense_tol: ClassVar[float] = 1.0
     plugged_in_tol: ClassVar[float] = 1.0
     pour_angle_tol: ClassVar[float] = 1e-1
-    pour_pos_tol: ClassVar[float] = 1.0
+    pour_pos_tol_factor: ClassVar[float] = 1.0
+    pour_pos_tol: ClassVar[float] = 1.0 * pour_pos_tol_factor
     init_padding: ClassVar[float] = 0.5  # used to space objects in init states
     pick_jug_y_padding: ClassVar[float] = 1.5
     pick_jug_rot_tol: ClassVar[float] = np.pi / 3
@@ -753,8 +754,28 @@ class CoffeeEnv(BaseEnv):
     def _JugAboveCup_holds(self, state: State,
                            objects: Sequence[Object]) -> bool:
         jug, cup = objects
-        assert jug == self._jug
-        return self._robot_jug_above_cup(state, cup)
+        # assert jug == self._jug
+        # return self._robot_jug_above_cup(state, cup)
+        if not self._Holding_holds(state, [self._robot, jug]):
+            return False
+        jug_x = state.get(jug, "x")
+        jug_y = state.get(jug, "y")
+        jug_z = state.get(self._robot, "z") - self.jug_handle_height()
+        jug_pos = (jug_x, jug_y, jug_z)
+
+        closest_cup = None
+        closest_cup_dist = float("inf")
+        for cup_target in state.get_objects(self._cup_type):
+            pour_pos = self._get_pour_position(state, cup_target)
+            sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
+            if sq_dist_to_pour < self.pour_pos_tol and \
+                sq_dist_to_pour < closest_cup_dist:
+                closest_cup = cup_target
+                closest_cup_dist = sq_dist_to_pour
+        # Can only be above one cup at a time
+        if closest_cup is None or closest_cup != cup:
+            return False
+        return True
 
     def _NotAboveCup_holds(self, state: State,
                            objects: Sequence[Object]) -> bool:

@@ -168,6 +168,7 @@ ENVS:
       coffee_use_pixelated_jug: True
       coffee_fill_jug_gradually: True
       max_num_steps_option_rollout: 100
+      horizon: 300
   grow:
     NAME: "pybullet_grow"
     FLAGS:
