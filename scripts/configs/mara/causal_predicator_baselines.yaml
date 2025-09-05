@@ -94,7 +94,7 @@ ENVS:
   coffee:
     NAME: "pybullet_coffee"
     FLAGS:
-      excluded_predicates: "Twisting,HandTilted,PressingButton,NotSameCup,RobotAboveCup"
+      excluded_predicates: "Twisting,PressingButton,NotSameCup,RobotAboveCup"
       coffee_rotated_jug_ratio: 0
       coffee_num_cups_train: [1]
       coffee_machine_have_light_bar: False
