@@ -144,7 +144,7 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects = {
             LiftedAtom(JugAboveCup, [jug, from_cup]),
         }
-        ignore_effects = {NotAboveCup}
+        ignore_effects = {NotAboveCup, JugAboveCup}
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
                                                    sigma=torch.tensor(0.1))
         pour_from_not_above_cup_process = EndogenousProcess(
