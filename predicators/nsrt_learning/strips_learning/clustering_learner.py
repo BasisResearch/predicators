@@ -594,6 +594,19 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
         sub = cast(VarToObjSub, {v: o for o, v in best_map.items()})
         return sub
 
+    @abc.abstractmethod
+    def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
+        """Subclass-specific algorithm for learning PNAD preconditions.
+
+        Returns a list of new PNADs. Should NOT modify the given PNADs.
+        """
+        raise NotImplementedError("Override me!")
+
+    def _postprocessing_learn_ignore_effects(self,
+                                             pnads: List[PNAD]) -> List[PNAD]:
+        """Optionally postprocess to learn ignore effects."""
+        _ = self  # unused, but may be used in subclasses
+        return pnads
 
 class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
     """A clustering STRIPS learner that learns preconditions via
