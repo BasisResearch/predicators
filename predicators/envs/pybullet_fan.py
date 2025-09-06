@@ -152,10 +152,10 @@ class PyBulletFanEnv(PyBulletEnv):
     # wall_y_len: ClassVar[float] = 0.04
     wall_x_len: ClassVar[float] = pos_gap - 0.02
     wall_y_len: ClassVar[float] = pos_gap - 0.02
-    wall_z_len: ClassVar[float] = 0.02
+    obstacle_wall_height: ClassVar[float] = 0.02
     wall_rot: ClassVar[float] = 0.0  # can be np.py/2
     wall_mass: ClassVar[float] = 0.0
-    wall_friction: ClassVar[float] = 0.1
+    wall_friction: ClassVar[float] = 0.0
     wall_color: ClassVar[Tuple[float, float, float,
                                float]] = (0.5, 0.5, 0.5, 1.0)
 
@@ -493,10 +493,11 @@ class PyBulletFanEnv(PyBulletEnv):
             wall_id = create_pybullet_block(
                 color=cls.wall_color,
                 half_extents=(cls.wall_x_len / 2, cls.wall_y_len / 2,
-                              cls.wall_z_len / 2),
+                              cls.obstacle_wall_height / 2),
                 mass=cls.wall_mass,
                 friction=cls.wall_friction,
-                position=(0.75, 1.28, cls.table_height + cls.wall_z_len / 2),
+                position=(0.75, 1.28,
+                          cls.table_height + cls.obstacle_wall_height / 2),
                 orientation=p.getQuaternionFromEuler([0, 0, 0]),
                 physics_client_id=physics_client_id)
             wall_ids.append(wall_id)
@@ -1383,7 +1384,8 @@ class PyBulletFanEnv(PyBulletEnv):
                         init_dict[self._walls[i]] = {
                             "x": wall_pos[0],
                             "y": wall_pos[1],
-                            "z": self.table_height + self.wall_z_len / 2,
+                            "z":
+                            self.table_height + self.obstacle_wall_height / 2,
                             "rot": rng.uniform(-self.wall_rot, self.wall_rot)
                         }
 
@@ -1426,8 +1428,8 @@ class PyBulletFanEnv(PyBulletEnv):
                 GroundAtom(self._BallAtLoc, [self._ball, target_pos_obj]),
             }
             # all fans are off in the goal
-            for fan_obj in self._fans:
-                goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
+            # for fan_obj in self._fans:
+            #     goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
             tasks.append(EnvironmentTask(init_state, goal_atoms))
         return self._add_pybullet_state_to_tasks(tasks)
 

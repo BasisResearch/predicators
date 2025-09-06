@@ -366,15 +366,12 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             segment_option_objs: Tuple[Object],
             pnad_option_vars: Tuple[Variable],
             endogenous_processes: List[EndogenousProcess]) -> VarToObjSub:
-        """Try to unify and find the *largest* set of matching init atoms
-        between the given segment and the *last* segment in the PNAD's
-        datastore, then return the resulting Var->Obj substitution.
+        """Try to unify and find the *best* set of matching init atoms between
+        the given segment and the *last* segment in the PNAD's datastore, then
+        return the resulting Var->Obj substitution.
 
-        Optimized version: uses a single unification of effects+options
-        to seed an entity mapping, then performs a branch-and-bound
-        search over preconditions with strong pruning and heuristics
-        (fail-first ordering and predicate-count upper bounds). This
-        avoids the previous O(\sum_k C(n,k) C(m,k)) subset enumeration.
+        Prioritizes atoms involving effect variables to ensure critical
+        atoms like SideOf(dest, source, direction) are preserved.
         """
         # ---------- 0) Gather init atoms (ground vs. lifted) ----------
         seg_init_atoms_full = set(segment.init_atoms)
@@ -389,9 +386,19 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             if all(o in objects_in_last for o in atom.objects)
         }
 
+        # Identify effect variables for prioritization
+        effect_vars = set()
+        for atom in pnad.op.add_effects | pnad.op.delete_effects:
+            effect_vars.update(atom.variables)
+
+        # Identify critical ground objects from segment effects
+        effect_objects = set()
+        for atom in seg_add_eff | seg_del_eff:
+            effect_objects.update(atom.objects)
+
         # Restrict to predicates shared between the two sides.
         common_preds = {a.predicate for a in seg_init_atoms_full} & \
-                       {b.predicate for b in lifted_last_init_atoms}
+                    {b.predicate for b in lifted_last_init_atoms}
         remove_ignore_atoms = True
         if remove_ignore_atoms:
             relevant_procs = [
@@ -400,6 +407,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
             ]
             for endo_proc in relevant_procs:
                 common_preds -= endo_proc.ignore_effects
+
         seg_pre_list: List[GroundAtom] = sorted(
             [a for a in seg_init_atoms_full if a.predicate in common_preds],
             key=str,
@@ -413,43 +421,13 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
         if not seg_pre_list or not pnad_pre_list:
             return cast(VarToObjSub, {v: o for o, v in obj_to_var.items()})
 
-        # ---------- 1) Unify effects+options once to seed a mapping ----------
-        # Remove derived predicates in the effects beforehand (already done by caller
-        # earlier, but ensure here too for safety).
-        # seg_add_eff = frozenset(
-        #     a for a in seg_add_eff if not isinstance(a.predicate, DerivedPredicate)
-        # )
-        # seg_del_eff = frozenset(
-        #     a for a in seg_del_eff if not isinstance(a.predicate, DerivedPredicate)
-        # )
-        # pnad_add_eff = frozenset(pnad.op.add_effects)
-        # pnad_del_eff = frozenset(pnad.op.delete_effects)
-
-        # # Attempt to unify options+effects only. If this fails, no precondition
-        # # subset can help, so just return the original mapping.
-        # base_ok, base_obj_to_var = utils.unify_preconds_effects_options(
-        #     frozenset(),  # preconds1
-        #     frozenset(),  # preconds2
-        #     seg_add_eff,
-        #     pnad_add_eff,
-        #     seg_del_eff,
-        #     pnad_del_eff,
-        #     segment_param_option,
-        #     pnad_param_option,
-        #     segment_option_objs,
-        #     tuple(pnad_option_vars),
-        # )
-        # if not base_ok:
-        #     return cast(VarToObjSub, {v: o for o, v in obj_to_var.items()})
-
-        # Start from the mapping returned by effects+options unify.
-        # This maps Objects (including constants) -> Variables.
+        # ---------- 1) Start from the mapping returned by effects+options ----------
         current_map: Dict[_TypedEntity, Variable] = dict(obj_to_var)
 
         # We'll try to extend current_map with as many precondition matches as possible.
-        # Keep the best map we find (highest number of matched precondition atoms).
+        # Use weighted scoring that prioritizes effect-related atoms
         best_map: Dict[_TypedEntity, Variable] = dict(current_map)
-        best_count: int = 0
+        best_score: float = 0.0  # Changed to float for weighted scoring
 
         # ---------- 2) Organize atoms by predicate for bounds & candidate search ----------
         from collections import Counter, defaultdict
@@ -458,17 +436,61 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
         for j, b in enumerate(pnad_pre_list):
             idx_pnad_by_pred[b.predicate].append(j)
 
-        # Upper bound helper: given the set of unused indices on each side, compute
-        # a cheap predicate-count bound on how many additional matches are possible.
-        def predicate_upper_bound(seg_idxs: Set[int],
-                                  pnad_unused: Set[int]) -> int:
-            seg_ctr = Counter(seg_pre_list[i].predicate for i in seg_idxs)
-            pnad_ctr = Counter(pnad_pre_list[j].predicate for j in pnad_unused)
-            return sum(min(seg_ctr[p], pnad_ctr[p]) for p in seg_ctr.keys())
+        # Compute atom weights based on involvement with effects
+        def compute_atom_weight(ground_atom: GroundAtom,
+                                lifted_atom: LiftedAtom) -> float:
+            """Compute weight for matching this atom pair."""
+            weight = 1.0  # Base weight
 
-        # Compatibility check for a single (ground, lifted) atom pair under a
-        # partial Object->Variable mapping. If compatible, returns the *new* pairs
-        # (obj, var) to add; otherwise returns None.
+            # High priority for atoms involving effect objects/variables
+            involves_effect_ground = any(obj in effect_objects
+                                         for obj in ground_atom.objects)
+            involves_effect_lifted = any(var in effect_vars
+                                         for var in lifted_atom.variables)
+
+            if involves_effect_ground and involves_effect_lifted:
+                # Critical atoms like SideOf connecting source and dest
+                if ground_atom.predicate.name == "SideOf":
+                    # Check if it connects effect locations
+                    if len(effect_objects.intersection(
+                            ground_atom.objects)) >= 2:
+                        weight = 100.0  # Highest priority
+                    else:
+                        weight = 10.0
+                else:
+                    weight = 5.0
+            elif involves_effect_ground or involves_effect_lifted:
+                weight = 2.0
+
+            return weight
+
+        # Upper bound helper with weighted scoring
+        def weighted_upper_bound(seg_idxs: Set[int],
+                                 pnad_unused: Set[int]) -> float:
+            """Compute weighted upper bound on possible score."""
+            bound = 0.0
+            seg_by_pred = defaultdict(list)
+            for i in seg_idxs:
+                seg_by_pred[seg_pre_list[i].predicate].append(i)
+
+            for pred, seg_indices in seg_by_pred.items():
+                pnad_indices = [
+                    j for j in idx_pnad_by_pred[pred] if j in pnad_unused
+                ]
+                # For each predicate, we can match at most min(seg_count, pnad_count)
+                max_matches = min(len(seg_indices), len(pnad_indices))
+                if max_matches > 0:
+                    # Use maximum possible weight for this predicate
+                    max_weight = max(
+                        compute_atom_weight(seg_pre_list[si],
+                                            pnad_pre_list[pi])
+                        for si in seg_indices[:max_matches]
+                        for pi in pnad_indices[:max_matches]
+                    ) if seg_indices and pnad_indices else 1.0
+                    bound += max_matches * max_weight
+            return bound
+
+        # Compatibility check for a single (ground, lifted) atom pair
         def compatible_extension(
             a: GroundAtom, b: LiftedAtom, mapping: Dict[_TypedEntity, Variable]
         ) -> Optional[List[Tuple[_TypedEntity, Variable]]]:
@@ -497,26 +519,26 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                         return None
             return new_pairs
 
-        best_count = 0
-
         def search(mapping: Dict[_TypedEntity, Variable], seg_left: Set[int],
-                   pnad_unused: Set[int], matched: int) -> None:
-            nonlocal best_count, best_map
-            # Upper bound pruning
-            ub = matched + predicate_upper_bound(seg_left, pnad_unused)
-            if ub <= best_count:
+                   pnad_unused: Set[int], score: float) -> None:
+            nonlocal best_score, best_map
+
+            # Upper bound pruning with weighted scoring
+            ub = score + weighted_upper_bound(seg_left, pnad_unused)
+            if ub <= best_score:
                 return
 
             if not seg_left:
-                if matched > best_count:
-                    best_count = matched
+                if score > best_score:
+                    best_score = score
                     best_map = dict(mapping)
                 return
 
-            # Choose the next seg atom via fail-first: fewest compatible candidates
+            # Choose next atom: prioritize high-weight atoms with few candidates
             best_i = None
-            best_candidates: List[int] = []
-            # Small heuristic: iterate over predicates in increasing availability on PNAD side
+            best_candidates: List[Tuple[int, List, float]] = []
+            best_priority = -float('inf')
+
             for i in list(seg_left):
                 a = seg_pre_list[i]
                 candidates = []
@@ -525,33 +547,38 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                         continue
                     ext = compatible_extension(a, pnad_pre_list[j], mapping)
                     if ext is not None:
-                        candidates.append((j, ext))
+                        weight = compute_atom_weight(a, pnad_pre_list[j])
+                        candidates.append((j, ext, weight))
+
                 if not candidates:
-                    # This atom cannot be matched under current mapping; skip it (i.e., leave it unmatched)
-                    # but still update best based on remaining atoms.
+                    # This atom cannot be matched; continue without it
                     seg_left_minus_i = set(seg_left)
                     seg_left_minus_i.remove(i)
-                    search(mapping, seg_left_minus_i, pnad_unused, matched)
+                    search(mapping, seg_left_minus_i, pnad_unused, score)
                     return
-                # Track the atom with the fewest candidates
-                if best_i is None or len(candidates) < len(best_candidates):
+
+                # Priority: high weight atoms with few candidates (more constrained)
+                max_weight = max(c[2] for c in candidates)
+                priority = max_weight / (len(candidates) + 1
+                                         )  # Favor constrained, high-weight
+
+                if priority > best_priority:
                     best_i = i
                     best_candidates = candidates
-                    if len(best_candidates) == 1:
-                        break  # can't do better than 1
+                    best_priority = priority
 
             assert best_i is not None
-            a = seg_pre_list[best_i]
 
-            # Try candidates (ordered deterministically by index)
-            for j, ext_pairs in sorted(best_candidates, key=lambda x: x[0]):
+            # Try candidates, ordered by weight (highest first)
+            for j, ext_pairs, weight in sorted(best_candidates,
+                                               key=lambda x: (-x[2], x[0])):
                 # Apply extension
                 for k, v in ext_pairs:
                     mapping[k] = v
                 pnad_unused.remove(j)
                 seg_left.remove(best_i)
 
-                search(mapping, seg_left, pnad_unused, matched + 1)
+                search(mapping, seg_left, pnad_unused, score + weight)
 
                 # Revert
                 seg_left.add(best_i)
@@ -559,26 +586,13 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 for k, _ in ext_pairs:
                     del mapping[k]
 
+        # Run the weighted search
         search(dict(current_map), set(range(len(seg_pre_list))),
-               set(range(len(pnad_pre_list))), 0)
+               set(range(len(pnad_pre_list))), 0.0)
 
-        # Convert best map (Object->Variable) back to Var->Object for return.
+        # Convert best map (Object->Variable) back to Var->Object for return
         sub = cast(VarToObjSub, {v: o for o, v in best_map.items()})
         return sub
-
-    @abc.abstractmethod
-    def _learn_pnad_preconditions(self, pnads: List[PNAD]) -> List[PNAD]:
-        """Subclass-specific algorithm for learning PNAD preconditions.
-
-        Returns a list of new PNADs. Should NOT modify the given PNADs.
-        """
-        raise NotImplementedError("Override me!")
-
-    def _postprocessing_learn_ignore_effects(self,
-                                             pnads: List[PNAD]) -> List[PNAD]:
-        """Optionally postprocess to learn ignore effects."""
-        _ = self  # unused, but may be used in subclasses
-        return pnads
 
 
 class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
@@ -1054,9 +1068,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         )
 
         # Step 1: Generate candidate conditions
-        (possible_atoms_per_pnad, 
-        condition_sets_per_pnad) = self._generate_candidate_conditions(
-            pnads)
+        (possible_atoms_per_pnad,
+         condition_sets_per_pnad) = self._generate_candidate_conditions(pnads)
 
         # Step 2: Filter PNAD parameters
         pnads = self._filter_pnad_parameters(pnads, possible_atoms_per_pnad,
@@ -1115,7 +1128,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         possible_atoms_per_pnad = [
             self._induce_preconditions_via_intersection(pnad) for pnad in pnads
         ]
-        breakpoint()
 
         if CFG.cluster_and_search_process_learner_llm_propose_top_conditions:
             condition_sets_per_pnad = self._llm_propose_condition_sets(
@@ -1131,7 +1143,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             condition_sets_per_pnad = None
 
         return possible_atoms_per_pnad, condition_sets_per_pnad
-
 
     def _determine_worker_count(self) -> int:
         """Return number of worker processes to use based on config."""
@@ -1213,6 +1224,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         # Format the prompt
         prompt = template.format(**template_vars)
 
+        print(pformat(prompt))
+        breakpoint()
         # Get LLM response
         response = self._llm.sample_completions(prompt,
                                                 imgs=None,
@@ -1774,7 +1787,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                         base_pnad.datastore, base_pnad.option_spec))
 
         return final_pnads
-
 
     def _is_unique_pnad(self, precon: FrozenSet[LiftedAtom], pnad: PNAD,
                         final_pnads: List[PNAD]) -> bool:
