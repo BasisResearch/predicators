@@ -1224,8 +1224,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         # Format the prompt
         prompt = template.format(**template_vars)
 
-        print(pformat(prompt))
-        breakpoint()
         # Get LLM response
         response = self._llm.sample_completions(prompt,
                                                 imgs=None,
