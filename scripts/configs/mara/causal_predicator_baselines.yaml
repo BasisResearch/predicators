@@ -90,7 +90,6 @@ ENVS:
       boil_goal: "human_happy" # Can also be "task_completed", "simple"
       # boil_goal: "simple"
       boil_require_jug_full_to_heatup: True
-      process_planning_heuristic_weight: 1.0
   coffee:
     NAME: "pybullet_coffee"
     FLAGS:
@@ -133,6 +132,7 @@ ENVS:
       terminate_on_goal_reached: True # maybe required for successful eval
       process_planning_heuristic_weight: 10.0
       terminate_on_goal_reached: True # maybe required for successful eval
+      horizon: 500
 ARGS:
   - "debug"
   # - "use_gui"

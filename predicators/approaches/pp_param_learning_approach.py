@@ -102,6 +102,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             lbfgs_max_iter=CFG.process_param_learning_num_steps,
             adam_num_steps=CFG.process_param_learning_num_steps,
             early_stopping_patience=20,
+            use_empirical=CFG.process_param_learning_use_empirical,
         )
         logging.debug(f"ELBO: {scores[0]}, exp_state: {scores[1]}, "
                       f"exp_delay: {scores[2]}, entropy: {scores[3]}")

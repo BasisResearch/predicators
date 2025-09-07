@@ -443,10 +443,10 @@ class GlobalSettings:
     fan_use_kinematic = True
     fan_train_num_pos_x = 3
     fan_train_num_pos_y = 3
-    fan_test_num_pos_x = 9
+    fan_test_num_pos_x = 6 # can do 9
     fan_test_num_pos_y = 4
     fan_train_num_walls_per_task = [1]
-    fan_test_num_walls_per_task = [3, 4]
+    fan_test_num_walls_per_task = [2, 3] # can do 4
 
     # boil env
     boil_use_constant_delay = False
@@ -651,6 +651,7 @@ class GlobalSettings:
     process_scoring_method = "data_likelihood"  # "count_fp", "data_likelihood"
     process_condition_search_complexity_weight = 1e-4
     process_param_learning_num_steps = 200
+    process_param_learning_use_empirical = False
     process_param_learning_patience = None
     process_param_learning_batch_size = 16
     process_condition_search_prune_with_fp_count = False
