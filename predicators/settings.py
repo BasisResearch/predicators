@@ -629,6 +629,7 @@ class GlobalSettings:
     exogenous_process_learner_do_intersect = False
     only_learn_exogenous_processes = False
     learn_process_parameters = False
+    use_empirical_init_for_vi_params = False
     pause_after_process_learning_for_inspection = False
     learnable_delay_distribution = "cmp"  # "constant", "cmp", "normal"
     process_learner_check_false_positives = False
