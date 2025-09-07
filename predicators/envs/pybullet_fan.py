@@ -95,6 +95,11 @@ class PyBulletFanEnv(PyBulletEnv):
     fan_spin_velocity: ClassVar[float] = 100.0  # Velocity for joint_0
     wind_force_magnitude: ClassVar[float] = 0.4  # Force applied to ball
     joint_motor_force: ClassVar[float] = 20.0  # Motor control force
+    
+    # -------------------------------------------------------------------------
+    # Kinematic Ball Movement
+    # -------------------------------------------------------------------------
+    kinematic_ball_speed: ClassVar[float] = 0.0005  # Speed for kinematic movement (m/s per simulation step)
 
     # -------------------------------------------------------------------------
     # Fan Positioning
@@ -153,6 +158,9 @@ class PyBulletFanEnv(PyBulletEnv):
     wall_x_len: ClassVar[float] = pos_gap - 0.02
     wall_y_len: ClassVar[float] = pos_gap - 0.02
     obstacle_wall_height: ClassVar[float] = 0.02
+    # wall_x_len: ClassVar[float] = pos_gap - 0.03
+    # wall_y_len: ClassVar[float] = pos_gap - 0.03
+    # obstacle_wall_height: ClassVar[float] = 0.01
     wall_rot: ClassVar[float] = 0.0  # can be np.py/2
     wall_mass: ClassVar[float] = 0.0
     wall_friction: ClassVar[float] = 0.0
@@ -869,6 +877,13 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     def _simulate_fans(self) -> None:
         """Spin any switched-on fans and blow the ball."""
+        if CFG.fan_use_kinematic:
+            self._simulate_fans_kinematic()
+        else:
+            self._simulate_fans_dynamic()
+
+    def _simulate_fans_dynamic(self) -> None:
+        """Original dynamic fan simulation using forces."""
         # For each switch, if on => spin all fans with same side_idx
         for ctrl_fan_idx, switch_obj in enumerate(self._switches):
             on = self._is_switch_on(switch_obj.id)
@@ -908,6 +923,80 @@ class PyBulletFanEnv(PyBulletEnv):
                             force=self.joint_motor_force,
                             physicsClientId=self._physics_client_id,
                         )
+
+    def _simulate_fans_kinematic(self) -> None:
+        """Kinematic fan simulation using position-based movement."""
+        # Get current ball position
+        ball_pos, ball_orn = p.getBasePositionAndOrientation(
+            self._ball.id, physicsClientId=self._physics_client_id)
+        ball_x, ball_y, ball_z = ball_pos
+        
+        # Calculate movement vector based on active fans
+        movement_x = 0.0
+        movement_y = 0.0
+        
+        # Check each fan and accumulate movement vectors
+        for ctrl_fan_idx, switch_obj in enumerate(self._switches):
+            on = self._is_switch_on(switch_obj.id)
+            fan_obj = self._fans[ctrl_fan_idx]
+
+            # Check if fan_ids attribute exists and is populated
+            if not hasattr(fan_obj, 'fan_ids') or not fan_obj.fan_ids:
+                continue
+
+            if on and fan_obj.fan_ids:
+                # Still spin the fans visually
+                for i, fan_id in enumerate(fan_obj.fan_ids):
+                    joint_id = fan_obj.joint_ids[i]
+                    if joint_id >= 0:
+                        p.setJointMotorControl2(
+                            bodyUniqueId=fan_id,
+                            jointIndex=joint_id,
+                            controlMode=p.VELOCITY_CONTROL,
+                            targetVelocity=self.fan_spin_velocity,
+                            force=self.joint_motor_force,
+                            physicsClientId=self._physics_client_id,
+                        )
+                
+                # Add movement based on fan direction
+                if ctrl_fan_idx == 0:  # left fan - push right
+                    movement_x += self.kinematic_ball_speed
+                elif ctrl_fan_idx == 1:  # right fan - push left  
+                    movement_x -= self.kinematic_ball_speed
+                elif ctrl_fan_idx == 2:  # back fan - push forward (up in y)
+                    movement_y += self.kinematic_ball_speed
+                elif ctrl_fan_idx == 3:  # front fan - push backward (down in y)
+                    movement_y -= self.kinematic_ball_speed
+            else:
+                # Turn off fans visually
+                for i, fan_id in enumerate(fan_obj.fan_ids):
+                    joint_id = fan_obj.joint_ids[i]
+                    if joint_id >= 0:
+                        p.setJointMotorControl2(
+                            bodyUniqueId=fan_id,
+                            jointIndex=joint_id,
+                            controlMode=p.VELOCITY_CONTROL,
+                            targetVelocity=0.0,
+                            force=self.joint_motor_force,
+                            physicsClientId=self._physics_client_id,
+                        )
+        
+        # Apply the accumulated movement by setting ball position
+        if movement_x != 0.0 or movement_y != 0.0:
+            new_x = ball_x + movement_x
+            new_y = ball_y + movement_y
+            
+            # Keep the ball within workspace bounds
+            new_x = max(self.x_lb, min(self.x_ub, new_x))
+            new_y = max(self.y_lb, min(self.y_ub, new_y))
+            
+            # Set the new ball position directly
+            p.resetBasePositionAndOrientation(
+                self._ball.id,
+                posObj=[new_x, new_y, ball_z],
+                ornObj=ball_orn,
+                physicsClientId=self._physics_client_id
+            )
 
     def _apply_fan_force_to_ball(self, fan_id: int, ball_id: int) -> None:
         """Compute the direction the fan blows (+X in fan local frame) and
