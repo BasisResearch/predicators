@@ -112,6 +112,122 @@ class ParamLearningBilevelProcessPlanningApproach(
         return
 
 
+def compute_empirical_delays(
+    trajectories: List[LowLevelTrajectory],
+    predicates: Set[Predicate],
+    processes: Sequence[CausalProcess],
+) -> Dict[str, List[int]]:
+    """Compute empirical delays for each process type from trajectory data.
+    
+    Returns a dictionary mapping process names to lists of observed delays.
+    """
+    atom_option_dataset = utils.create_ground_atom_option_dataset(
+        trajectories, predicates)
+    
+    # Dictionary to store delays for each process type
+    process_delays: Dict[str, List[int]] = defaultdict(list)
+    
+    for traj in atom_option_dataset:
+        traj_len = len(traj.states)
+        objs = set(traj._low_level_states[0])
+        
+        # Ground the processes for this trajectory
+        _ground_processes, _ = process_task_plan_grounding(
+            init_atoms=set(),
+            objects=objs,
+            nsrts=processes,
+            allow_noops=True,
+            compute_reachable_atoms=False,
+        )
+        ground_processes = [
+            gp for gp in _ground_processes
+            if isinstance(gp, _GroundCausalProcess)
+        ]
+        
+        # For each ground process, find when it was triggered and when effects appeared
+        for gp in ground_processes:
+            # Find all times when this process was triggered
+            trigger_times = []
+            for t in range(traj_len):
+                if gp.cause_triggered(traj.states[:t + 1], traj.actions[:t + 1]):
+                    trigger_times.append(t)
+            
+            # For each trigger time, find when the effects appeared
+            for trigger_t in trigger_times:
+                # Check when the add effects appear
+                for effect_t in range(trigger_t + 1, traj_len):
+                    # Check if all add effects are present and all delete effects are gone
+                    add_satisfied = gp.add_effects.issubset(traj.states[effect_t])
+                    delete_satisfied = not any(atom in traj.states[effect_t] 
+                                              for atom in gp.delete_effects)
+                    
+                    if add_satisfied and delete_satisfied:
+                        # Found the effect time - compute delay
+                        delay = effect_t - trigger_t
+                        process_delays[gp.parent.name].append(delay)
+                        break
+    
+    return process_delays
+
+
+def learn_process_parameters_empirical(
+    trajectories: List[LowLevelTrajectory],
+    predicates: Set[Predicate],
+    processes: Sequence[CausalProcess],
+    use_empirical: bool = False,
+) -> Tuple[Sequence[CausalProcess], Dict[str, Tuple[float, float]]]:
+    """Learn process parameters using empirical estimation of delays.
+    
+    When use_empirical=True, directly computes mean and std from observed delays.
+    Returns the processes with updated parameters and a dict of statistics.
+    """
+    if not use_empirical:
+        raise ValueError("This function is only for empirical estimation")
+    
+    # Compute empirical delays for each process type
+    process_delays = compute_empirical_delays(trajectories, predicates, processes)
+    
+    # Statistics dictionary to return
+    stats = {}
+    
+    # Update each process with empirical parameters
+    for process in processes:
+        if process.name in process_delays and len(process_delays[process.name]) > 0:
+            delays = torch.tensor(process_delays[process.name], dtype=torch.float32)
+            
+            # Compute mean and std
+            empirical_mean = delays.mean()
+            empirical_std = delays.std() if len(delays) > 1 else torch.tensor(0.1)
+            
+            # Ensure std is not too small
+            empirical_std = torch.clamp(empirical_std, min=0.1)
+            
+            # Create parameter tensor [log_strength, log_mu, log_sigma]
+            # We'll keep strength at 1.0 (log(1) = 0) since we're ignoring it
+            params = torch.tensor([
+                0.0,  # log_strength = 0 (strength = 1)
+                torch.log(empirical_mean),  # log_mu
+                torch.log(empirical_std)     # log_sigma
+            ])
+            
+            # Update the process parameters
+            process._set_parameters(params)
+            
+            # Store statistics
+            stats[process.name] = (empirical_mean.item(), empirical_std.item())
+            
+            print(f"Process {process.name}:")
+            print(f"  Observed delays: {process_delays[process.name]}")
+            print(f"  Empirical mean: {empirical_mean:.2f}")
+            print(f"  Empirical std: {empirical_std:.2f}")
+        else:
+            # No observations for this process - use defaults
+            print(f"Process {process.name}: No observations found, keeping defaults")
+            stats[process.name] = (None, None)
+    
+    return processes, stats
+
+
 def learn_process_parameters(
     trajectories: List[LowLevelTrajectory],
     predicates: Set[Predicate],
@@ -128,8 +244,24 @@ def learn_process_parameters(
     check_condition_overall: bool = True,
     batch_size: int = 16,
     debug_log: bool = False,
+    use_empirical: bool = True,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
-    """Learn process parameters using stochastic optimization."""
+    """Learn process parameters using stochastic optimization or empirical estimation.
+    
+    If use_empirical=True, bypasses variational inference and directly estimates
+    delay parameters from observed data.
+    """
+    
+    # If using empirical estimation, bypass all the variational inference
+    if use_empirical:
+        processes, stats = learn_process_parameters_empirical(
+            trajectories, predicates, processes, use_empirical=True
+        )
+        
+        # Return dummy values for the scores since we're not computing ELBO
+        # (mean_elbo, mean_exp_state, mean_exp_delay, mean_entropy, frame_strength)
+        return processes, (0.0, 0.0, 0.0, 0.0, 1.0)
+    
     if use_lbfgs:
         num_steps = 1
         batch_size = 100
