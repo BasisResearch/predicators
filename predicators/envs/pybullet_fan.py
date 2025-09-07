@@ -33,6 +33,7 @@ class PyBulletFanEnv(PyBulletEnv):
     table_orn: ClassVar[Quaternion] = p.getQuaternionFromEuler(
         [0.0, 0.0, np.pi / 2.0])
     table_scale: ClassVar[float] = 1.0
+    table_rolling_friction: ClassVar[float] = 0.04
 
     # Workspace bounds
     x_lb: ClassVar[float] = 0.4
@@ -170,7 +171,7 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     target_thickness: ClassVar[float] = 0.00001
     target_mass: ClassVar[float] = 0.0
-    target_friction: ClassVar[float] = 0.04
+    target_friction: ClassVar[float] = table_rolling_friction
     target_color: ClassVar[Tuple[float, float, float, float]] = (0, 1, 0, 1.0)
 
     # =========================================================================
@@ -421,6 +422,10 @@ class PyBulletFanEnv(PyBulletEnv):
             physics_client_id=physics_client_id,
         )
         bodies["table_id"] = table_id
+        p.changeDynamics(table_id,
+                         -1,
+                         rollingFriction=cls.table_rolling_friction,
+                         physicsClientId=physics_client_id)
 
         # ---------------------------------------------------------------------
         # Create fans in four groups: left, right, back, front
