@@ -20,7 +20,7 @@ For each process, I will provide:
 
 Please propose as many likely condition sets as you deem suitable for each process. Each condition set should be a coherent combination of atom indices that together form a plausible set of preconditions. It's possible that there is a large number of atoms in a condition set in some cases.
 
-Format your response as:
+Think step by step if it’s helpful before outputting your response, formatted as:
 <answer>
 Process 0:
 Set 1: [2,0,4]

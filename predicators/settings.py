@@ -440,7 +440,7 @@ class GlobalSettings:
     fan_fans_blow_opposite_direction = False
     fan_known_controls_relation = True
     fan_combine_switch_on_off = False
-    fan_use_kinematic = True
+    fan_use_kinematic = False
     fan_train_num_pos_x = 3
     fan_train_num_pos_y = 3
     fan_test_num_pos_x = 6 # can do 9
