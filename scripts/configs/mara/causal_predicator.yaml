@@ -11,18 +11,6 @@ APPROACHES:
   #     bilevel_plan_without_sim: True
   #     llm_model_name: "google/gemini-2.5-pro" # "openai/gpt-4o", "gpt-4.1", "gpt-4o"
   #     vlm_open_loop_no_image: True
-  # param_learning:
-  #   NAME: "param_learning_process_planning"
-  #   # ARGS:
-  #   #   - "load_data"
-  #   FLAGS:
-  #     # boil_use_constant_delay: True
-  #     demonstrator: "oracle_process_planning"
-  #     # This following is needed to generate a successful demo trajectory, or 
-  #     # else the demo collection will fail with an option plan exhausted error.
-  #     bilevel_plan_without_sim: True
-  #     terminate_on_goal_reached: False
-  #     terminate_on_goal_reached_and_option_terminated: True
   # offline_model_learning:
   #   # This can learn the JugFilled and WaterBoiled process but not spill.
   #   NAME: "process_learning_and_planning"
