@@ -61,8 +61,8 @@ class PyBulletFanEnv(PyBulletEnv):
     # ROBOT CONFIGURATION
     # =========================================================================
     robot_init_x: ClassVar[float] = (x_lb + x_ub) * 0.5
-    robot_init_y: ClassVar[float] = (y_lb + y_ub) * 0.5
-    robot_init_z: ClassVar[float] = z_ub - 0.1
+    robot_init_y: ClassVar[float] = (y_lb + y_ub) * 0.4
+    robot_init_z: ClassVar[float] = z_ub - 0.3
     robot_base_pos: ClassVar[Pose3D] = (0.75, 0.62, 0.0)
     robot_base_orn: ClassVar[Quaternion] = p.getQuaternionFromEuler(
         [0.0, 0.0, np.pi / 2.0])
@@ -95,11 +95,12 @@ class PyBulletFanEnv(PyBulletEnv):
     fan_spin_velocity: ClassVar[float] = 100.0  # Velocity for joint_0
     wind_force_magnitude: ClassVar[float] = 0.4  # Force applied to ball
     joint_motor_force: ClassVar[float] = 20.0  # Motor control force
-    
+
     # -------------------------------------------------------------------------
     # Kinematic Ball Movement
     # -------------------------------------------------------------------------
-    kinematic_ball_speed: ClassVar[float] = 0.0005  # Speed for kinematic movement (m/s per simulation step)
+    kinematic_ball_speed: ClassVar[
+        float] = 0.003 # Speed for kinematic movement (m/s per simulation step)
 
     # -------------------------------------------------------------------------
     # Fan Positioning
@@ -128,7 +129,8 @@ class PyBulletFanEnv(PyBulletEnv):
     switch_height: ClassVar[float] = 0.08
 
     # Switch positioning
-    switch_y: ClassVar[float] = robot_init_y - 0.25  # Y position of switches
+    switch_y: ClassVar[float] = (y_lb +
+                                 y_ub) * 0.5 - 0.25  # Y position of switches
     switch_base_x: ClassVar[float] = 0.60  # Base X position for first switch
     switch_x_spacing: ClassVar[float] = 0.08  # Spacing between switches
 
@@ -930,11 +932,11 @@ class PyBulletFanEnv(PyBulletEnv):
         ball_pos, ball_orn = p.getBasePositionAndOrientation(
             self._ball.id, physicsClientId=self._physics_client_id)
         ball_x, ball_y, ball_z = ball_pos
-        
+
         # Calculate movement vector based on active fans
         movement_x = 0.0
         movement_y = 0.0
-        
+
         # Check each fan and accumulate movement vectors
         for ctrl_fan_idx, switch_obj in enumerate(self._switches):
             on = self._is_switch_on(switch_obj.id)
@@ -957,11 +959,11 @@ class PyBulletFanEnv(PyBulletEnv):
                             force=self.joint_motor_force,
                             physicsClientId=self._physics_client_id,
                         )
-                
+
                 # Add movement based on fan direction
                 if ctrl_fan_idx == 0:  # left fan - push right
                     movement_x += self.kinematic_ball_speed
-                elif ctrl_fan_idx == 1:  # right fan - push left  
+                elif ctrl_fan_idx == 1:  # right fan - push left
                     movement_x -= self.kinematic_ball_speed
                 elif ctrl_fan_idx == 2:  # back fan - push forward (up in y)
                     movement_y += self.kinematic_ball_speed
@@ -980,23 +982,22 @@ class PyBulletFanEnv(PyBulletEnv):
                             force=self.joint_motor_force,
                             physicsClientId=self._physics_client_id,
                         )
-        
+
         # Apply the accumulated movement by setting ball position
         if movement_x != 0.0 or movement_y != 0.0:
             new_x = ball_x + movement_x
             new_y = ball_y + movement_y
-            
+
             # Keep the ball within workspace bounds
             new_x = max(self.x_lb, min(self.x_ub, new_x))
             new_y = max(self.y_lb, min(self.y_ub, new_y))
-            
+
             # Set the new ball position directly
             p.resetBasePositionAndOrientation(
                 self._ball.id,
                 posObj=[new_x, new_y, ball_z],
                 ornObj=ball_orn,
-                physicsClientId=self._physics_client_id
-            )
+                physicsClientId=self._physics_client_id)
 
     def _apply_fan_force_to_ball(self, fan_id: int, ball_id: int) -> None:
         """Compute the direction the fan blows (+X in fan local frame) and
@@ -1517,8 +1518,8 @@ class PyBulletFanEnv(PyBulletEnv):
                 GroundAtom(self._BallAtLoc, [self._ball, target_pos_obj]),
             }
             # all fans are off in the goal
-            # for fan_obj in self._fans:
-            #     goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
+            for fan_obj in self._fans:
+                goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
             tasks.append(EnvironmentTask(init_state, goal_atoms))
         return self._add_pybullet_state_to_tasks(tasks)
 
