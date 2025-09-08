@@ -1108,14 +1108,14 @@ def _parse_predicates_predictions(
         logging.info(f"Found definition for predicate {pred_name}")
         vlm_invention_use_concept_predicates = False
         if vlm_invention_use_concept_predicates:
-            is_concept_predicate = check_is_concept_predicate(code_str)
-            logging.info(f"\t it's a concept predicate: "
+            is_concept_predicate = check_is_derived_predicate(code_str)
+            logging.info(f"\t it's a derived predicate: "
                          f"{is_concept_predicate}")
         else:
             is_concept_predicate = False
-            # logging.info(f"\t concept predicate disabled")
+            # logging.info(f"\t derived predicate disabled")
 
-        # Recognize that it's a concept predicate
+        # Recognize that it's a derived predicate
         if is_concept_predicate:
             untranslated_derived_pred_str.append(add_python_quote(code_str))
         else:
@@ -1166,8 +1166,8 @@ from predicators.settings import CFG
 """
 
 
-def check_is_concept_predicate(code_str: str) -> bool:
-    """Check if the predicate is a concept predicate by looking for `get` or
+def check_is_derived_predicate(code_str: str) -> bool:
+    """Check if the predicate is a derived predicate by looking for `get` or
     `evaluate_simple` in the code block."""
     if "state.get(" in code_str or\
         "state.evaluate_simple_assertion" in code_str:
