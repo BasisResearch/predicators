@@ -183,12 +183,13 @@ ENVS:
     FLAGS:
       excluded_predicates: "FanFacingSide,OppositeFan,Controls"
       excluded_objects_in_state_str: "switch,loc"
-      process_planning_heuristic_weight: 2
+      process_planning_heuristic_weight: 10
       terminate_on_goal_reached: True # maybe required for successful eval
       max_num_steps_interaction_request: 200 # 300 should be enough
       cluster_learning_one_effect_per_process: False
       process_param_learning_use_empirical: True
       horizon: 500
+      grammar_search_task_planning_timeout: 5
 ARGS:
   - "debug"
   # - "use_gui"
