@@ -1238,11 +1238,13 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         # Format the prompt
         prompt = template.format(**template_vars)
 
-        # Get LLM response
+        # Get LLM response - use online_learning_cycle as seed if available
+        seed = CFG.seed * 10 + self.online_learning_cycle if \
+            self.online_learning_cycle is not None else CFG.seed
         response = self._llm.sample_completions(prompt,
                                                 imgs=None,
                                                 temperature=0,
-                                                seed=CFG.seed)[0]
+                                                seed=seed)[0]
 
         # Save debug info
         with open(f"{CFG.log_file}/{debug_filename}", "w") as f:
