@@ -315,12 +315,14 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(NotAboveCup, [robot, jug]),
             LiftedAtom(JugAboveCup, [jug, from_cup]),
         }
+        ignore_effects = {NotAboveCup, JugAboveCup}
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
                                                    sigma=torch.tensor(0.1))
         pourFromNotAboveCup_process = EndogenousProcess(
             "PourFromCup", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, null_sampler,
+            ignore_effects)
         processes.add(pourFromNotAboveCup_process)
 
         # Noop

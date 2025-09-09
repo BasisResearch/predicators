@@ -96,8 +96,8 @@ def submit_openmind_job(entry_point: str,
     #     cmd += "--partition=xeon-p8 "
     cmd += (
         "--nodes=1 "
-        "--cpus-per-task=128 "
-        "--mem=128G "
+        "--cpus-per-task=32 "
+        "--mem=64G "
         # "--cpus-per-task=8 "
         # "--mem=16G "
         # "-p tenenbaum "

@@ -180,8 +180,15 @@ class CoffeeGroundTruthOptionFactory(GroundTruthOptionFactory):
             del memory, params  # unused
             robot, jug, cup = objects
             if CFG.coffee_fill_jug_gradually:
-                cond = JugAboveCup.holds(state, [jug, cup]) and \
-                    HandTilted.holds(state, [robot])
+                jug_x = state.get(jug, "x")
+                jug_y = state.get(jug, "y")
+                jug_z = state.get(robot, "z") - cls.env_cls.jug_handle_height()
+                jug_pos = (jug_x, jug_y, jug_z)
+                pour_pos = cls._get_pour_position(state, cup)
+                sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
+                at_pos_cond = sq_dist_to_pour < cls.env_cls.pour_pos_tol/\
+                                            (cls.env_cls.pour_pos_tol_factor)
+                cond = at_pos_cond and HandTilted.holds(state, [robot])
             else:
                 cond = CupFilled.holds(state, [cup])
             return cond
@@ -539,7 +546,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
     env_cls: ClassVar[TypingType[PyBulletCoffeeEnv]] = PyBulletCoffeeEnv
     # twist_policy_tol: ClassVar[float] = 1e-2
     pick_policy_tol: ClassVar[float] = 1e-3
-    pour_policy_tol: ClassVar[float] = 1e-3
+    pour_policy_tol: ClassVar[float] = 1e-3 / 2
     _finger_action_nudge_magnitude: ClassVar[float] = 1e-3
 
     @classmethod

@@ -270,8 +270,8 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
             if CFG.fan_known_controls_relation:
                 robot, fan = objects
                 switch = [switch for switch in state.get_objects(switch_type)
-                          if state.get(switch, "side") ==\
-                                state.get(fan, "side")][0]
+                          if state.get(switch, "controls_fan") ==\
+                                state.get(fan, "facing_side")][0]
             else:
                 robot, switch = objects
             current_position = (state.get(robot, "x"), state.get(robot, "y"),

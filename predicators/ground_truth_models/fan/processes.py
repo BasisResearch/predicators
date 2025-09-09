@@ -44,7 +44,7 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
         FanOn = predicates["FanOn"]
         FanOff = predicates["FanOff"]
         BallAtLoc = predicates["BallAtLoc"]
-        ClearPos = predicates["ClearPos"]
+        ClearLoc = predicates["ClearLoc"]
         FanFacingSide = predicates["FanFacingSide"]
         SideOf = predicates["SideOf"]
         OppositeFan = predicates["OppositeFan"]
@@ -148,8 +148,8 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
         dir = Variable("?dir", side_type)
         parameters = [ball, pos1, pos2, dir]
         condition_at_start = {
-            LiftedAtom(BallAtLoc, [ball, pos1]),
-            LiftedAtom(ClearPos, [pos2]),
+            LiftedAtom(BallAtLoc, [ball, pos2]),
+            LiftedAtom(ClearLoc, [pos1]),
             LiftedAtom(SideOf, [pos1, pos2, dir]),  # could be invented
             LiftedAtom(FanFacingSide, [fan, dir]),  # could be invented
         }
@@ -168,10 +168,10 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
 
         condition_overall = set(condition_at_start)
         add_effects = {
-            LiftedAtom(BallAtLoc, [ball, pos2]),
+            LiftedAtom(BallAtLoc, [ball, pos1]),
         }
         delete_effects = {
-            LiftedAtom(BallAtLoc, [ball, pos1]),
+            LiftedAtom(BallAtLoc, [ball, pos2]),
         }
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
                                                    sigma=torch.tensor(0.1))

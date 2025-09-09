@@ -440,12 +440,13 @@ class GlobalSettings:
     fan_fans_blow_opposite_direction = False
     fan_known_controls_relation = True
     fan_combine_switch_on_off = False
+    fan_use_kinematic = False
     fan_train_num_pos_x = 3
     fan_train_num_pos_y = 3
-    fan_test_num_pos_x = 9
+    fan_test_num_pos_x = 6 # can do 9
     fan_test_num_pos_y = 4
     fan_train_num_walls_per_task = [1]
-    fan_test_num_walls_per_task = [3, 4]
+    fan_test_num_walls_per_task = [2, 3] # can do 4
 
     # boil env
     boil_use_constant_delay = False
@@ -628,6 +629,7 @@ class GlobalSettings:
     exogenous_process_learner_do_intersect = False
     only_learn_exogenous_processes = False
     learn_process_parameters = False
+    use_empirical_init_for_vi_params = False
     pause_after_process_learning_for_inspection = False
     learnable_delay_distribution = "cmp"  # "constant", "cmp", "normal"
     process_learner_check_false_positives = False
@@ -649,6 +651,7 @@ class GlobalSettings:
     process_scoring_method = "data_likelihood"  # "count_fp", "data_likelihood"
     process_condition_search_complexity_weight = 1e-4
     process_param_learning_num_steps = 200
+    process_param_learning_use_empirical = False
     process_param_learning_patience = None
     process_param_learning_batch_size = 16
     process_condition_search_prune_with_fp_count = False

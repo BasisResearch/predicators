@@ -452,12 +452,15 @@ class PyBulletGrowEnv(PyBulletEnv):
         jug_z = state.get(self._robot, "z") -\
             PyBulletCoffeeEnv.jug_handle_height()
         jug_pos = (jug_x, jug_y, jug_z)
+
+        # Find the closest cup to the jug; can only be above one cup at a time
         closest_cup = None
         closest_cup_dist = float("inf")
         for cup_target in state.get_objects(self._cup_type):
             pour_pos = PyBulletCoffeeEnv._get_pour_position(state, cup_target)
             sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
-            if sq_dist_to_pour < self.pour_pos_tol and sq_dist_to_pour < closest_cup_dist:
+            if sq_dist_to_pour < self.pour_pos_tol and \
+                sq_dist_to_pour < closest_cup_dist:
                 closest_cup = cup_target
                 closest_cup_dist = sq_dist_to_pour
         # Can only be above one cup at a time

@@ -102,6 +102,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             lbfgs_max_iter=CFG.process_param_learning_num_steps,
             adam_num_steps=CFG.process_param_learning_num_steps,
             early_stopping_patience=20,
+            use_empirical=CFG.process_param_learning_use_empirical,
         )
         logging.debug(f"ELBO: {scores[0]}, exp_state: {scores[1]}, "
                       f"exp_delay: {scores[2]}, entropy: {scores[3]}")
@@ -110,6 +111,7 @@ class ParamLearningBilevelProcessPlanningApproach(
             logging.debug(pformat(p))
         logging.debug(f"Log frame strength: {scores[4]}")
         return
+
 
 
 def learn_process_parameters(
@@ -128,8 +130,47 @@ def learn_process_parameters(
     check_condition_overall: bool = True,
     batch_size: int = 16,
     debug_log: bool = False,
+    use_empirical: bool = False,
 ) -> Tuple[Sequence[CausalProcess], Tuple[float, float, float, float, float]]:
-    """Learn process parameters using stochastic optimization."""
+    """Learn process parameters using stochastic optimization or empirical
+    estimation.
+
+    If use_empirical=True, bypasses variational inference and directly
+    estimates delay parameters from observed data.
+    """
+
+    # If using empirical estimation, bypass all the variational inference
+    if use_empirical:
+        processes, stats = learn_process_parameters_empirical(
+            trajectories, predicates, processes, use_empirical=True)
+
+        # Even when using empirical estimation, we need to prepare data and evaluate properly
+        max_traj_len = max(
+            len(traj.states)
+            for traj in trajectories) if len(trajectories) > 0 else 0
+
+        per_traj_data, proc_and_guide_params_full, num_proc_params = \
+            _prepare_training_data_and_model_params(
+                predicates,
+                processes,
+                trajectories,
+                check_condition_overall,
+            )
+
+        # Initialize guide parameters randomly since we don't learn them empirically
+        guide_params = proc_and_guide_params_full[num_proc_params:]
+        final_frame_param = torch.tensor(1.0)  # Default frame strength
+
+        # Evaluate the empirically set model on the dataset
+        mean_elbo, mean_exp_state, mean_exp_delay, mean_entropy = evaluate_model_on_dataset(
+            per_traj_data=per_traj_data,
+            frame_param=final_frame_param,
+            guide_params=guide_params,
+            debug_log=debug_log)
+
+        return processes, (mean_elbo, mean_exp_state, mean_exp_delay,
+                           mean_entropy, 1.0)
+
     if use_lbfgs:
         num_steps = 1
         batch_size = 100
@@ -154,6 +195,12 @@ def learn_process_parameters(
             trajectories,
             check_condition_overall,
         )
+
+    # --- Optionally initialize process parameters with empirical estimates ---
+    if CFG.use_empirical_init_for_vi_params:
+        _initialize_params_with_empirical_estimates(
+            trajectories, predicates, processes, proc_and_guide_params_full,
+            num_proc_params)
 
     # --- Separate parameter tensor into logical, learnable components ---
 
@@ -578,6 +625,131 @@ def elbo_torch(
     elbo = ll + entropy
     return elbo, exp_state_prob, exp_delay_prob, entropy
 
+def compute_empirical_delays(
+    trajectories: List[LowLevelTrajectory],
+    predicates: Set[Predicate],
+    processes: Sequence[CausalProcess],
+) -> Dict[str, List[int]]:
+    """Compute empirical delays for each process type from trajectory data.
+
+    Returns a dictionary mapping process names to lists of observed
+    delays.
+    """
+    atom_option_dataset = utils.create_ground_atom_option_dataset(
+        trajectories, predicates)
+
+    # Dictionary to store delays for each process type
+    process_delays: Dict[str, List[int]] = defaultdict(list)
+
+    for traj in atom_option_dataset:
+        traj_len = len(traj.states)
+        objs = set(traj._low_level_states[0])
+
+        # Ground the processes for this trajectory
+        _ground_processes, _ = process_task_plan_grounding(
+            init_atoms=set(),
+            objects=objs,
+            nsrts=processes,
+            allow_noops=True,
+            compute_reachable_atoms=False,
+        )
+        ground_processes = [
+            gp for gp in _ground_processes
+            if isinstance(gp, _GroundCausalProcess)
+        ]
+
+        # For each ground process, find when it was triggered and when effects appeared
+        for gp in ground_processes:
+            # Find all times when this process was triggered
+            trigger_times = []
+            for t in range(traj_len):
+                if gp.cause_triggered(traj.states[:t + 1],
+                                      traj.actions[:t + 1]):
+                    trigger_times.append(t)
+
+            # For each trigger time, find when the effects appeared
+            for trigger_t in trigger_times:
+                # Check when the add effects appear
+                for effect_t in range(trigger_t + 1, traj_len):
+                    # Check if all add effects are present and all delete effects are gone
+                    add_satisfied = gp.add_effects.issubset(
+                        traj.states[effect_t])
+                    delete_satisfied = not any(atom in traj.states[effect_t]
+                                               for atom in gp.delete_effects)
+
+                    if add_satisfied and delete_satisfied:
+                        # Found the effect time - compute delay
+                        delay = effect_t - trigger_t
+                        process_delays[gp.parent.name].append(delay)
+                        break
+
+    return process_delays
+
+
+def learn_process_parameters_empirical(
+    trajectories: List[LowLevelTrajectory],
+    predicates: Set[Predicate],
+    processes: Sequence[CausalProcess],
+    use_empirical: bool = False,
+) -> Tuple[Sequence[CausalProcess], Dict[str, Tuple[float, float]]]:
+    """Learn process parameters using empirical estimation of delays.
+
+    When use_empirical=True, directly computes mean and std from
+    observed delays. Returns the processes with updated parameters and a
+    dict of statistics.
+    """
+    if not use_empirical:
+        raise ValueError("This function is only for empirical estimation")
+
+    # Compute empirical delays for each process type
+    process_delays = compute_empirical_delays(trajectories, predicates,
+                                              processes)
+
+    # Statistics dictionary to return
+    stats = {}
+
+    # Update each process with empirical parameters
+    for process in processes:
+        if process.name in process_delays and len(
+                process_delays[process.name]) > 0:
+            delays = torch.tensor(process_delays[process.name],
+                                  dtype=torch.float32)
+
+            # Compute mean and std
+            empirical_mean = delays.mean()
+            empirical_std = delays.std() if len(delays) > 1 else torch.tensor(
+                0.1)
+
+            # Ensure std is not too small
+            empirical_std = torch.clamp(empirical_std, min=0.1)
+
+            # Create parameter tensor [log_strength, log_mu, log_sigma]
+            # We'll keep strength at 1.0 (log(1) = 0) since we're ignoring it
+            params = torch.tensor([
+                0.0,  # log_strength = 0 (strength = 1)
+                torch.log(empirical_mean),  # log_mu
+                torch.log(empirical_std)  # log_sigma
+            ])
+
+            # Update the process parameters
+            process._set_parameters(params)
+
+            # Store statistics
+            stats[process.name] = (empirical_mean.item(), empirical_std.item())
+
+            print(f"Process {process.name}:")
+            print(f"  Observed delays: {process_delays[process.name]}")
+            print(f"  Empirical mean: {empirical_mean:.2f}")
+            print(f"  Empirical std: {empirical_std:.2f}")
+        else:
+            # No observations for this process - use defaults
+            print(
+                f"Process {process.name}: No observations found, keeping defaults"
+            )
+            stats[process.name] = (None, None)
+
+    return processes, stats
+
 
 @torch.no_grad()
 def evaluate_model_on_dataset(
@@ -763,6 +935,59 @@ def _prepare_training_data_and_model_params(
     model_params = torch.nn.Parameter(torch.randn(total_params_len) * 0.01)
 
     return per_traj_data, model_params, num_proc_params
+
+
+def _initialize_params_with_empirical_estimates(
+    trajectories: List[LowLevelTrajectory],
+    predicates: Set[Predicate],
+    processes: Sequence[CausalProcess],
+    model_params: torch.nn.Parameter,
+    num_proc_params: int,
+) -> None:
+    """Initialize process parameters using empirical estimates from trajectory
+    data.
+
+    This function computes empirical delays from trajectory data and uses them to
+    initialize the process parameters in the model_params tensor. Only the process
+    parameters (first num_proc_params elements) are modified - guide parameters
+    remain randomly initialized.
+    """
+    # Compute empirical delays for each process type
+    process_delays = compute_empirical_delays(trajectories, predicates,
+                                              processes)
+
+    # Initialize process parameters with empirical estimates
+    with torch.no_grad():
+        for i, process in enumerate(processes):
+            param_start_idx = i * 3  # 3 parameters per process
+
+            if process.name in process_delays and len(
+                    process_delays[process.name]) > 0:
+                delays = torch.tensor(process_delays[process.name],
+                                      dtype=torch.float32)
+
+                # Compute mean and std
+                empirical_mean = delays.mean()
+                empirical_std = delays.std(
+                ) if len(delays) > 1 else torch.tensor(0.1)
+                empirical_std = torch.clamp(empirical_std, min=0.1)
+
+                # Set parameters: [log_strength, log_mu, log_sigma]
+                model_params.data[
+                    param_start_idx] = 0.0  # log_strength = 0 (strength = 1)
+                model_params.data[param_start_idx + 1] = torch.log(
+                    empirical_mean)  # log_mu
+                model_params.data[param_start_idx + 2] = torch.log(
+                    empirical_std)  # log_sigma
+
+                print(f"Empirically initialized process {process.name}:")
+                print(f"  Mean delay: {empirical_mean:.2f}")
+                print(f"  Std delay: {empirical_std:.2f}")
+            else:
+                # No observations - keep random initialization but log it
+                print(
+                    f"Process {process.name}: No empirical data, keeping random initialization"
+                )
 
 
 def _create_guide_dict_for_trajectory(

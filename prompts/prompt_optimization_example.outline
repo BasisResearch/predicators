@@ -194,11 +194,11 @@ Context: You are an expert AI planning researcher. Your task is to design *task-
 The environment has the following types, each with some features:
 
 ball: {'x', 'y', 'z'}
-fan: {'x', 'y', 'z', 'rot', 'side', 'is_on'}
+fan: {'x', 'y', 'z', 'rot', 'facing_side', 'is_on'}
 loc: {'xx', 'yy'}
 robot: {'x', 'y', 'z', 'fingers', 'tilt', 'wrist'}
-side: {'side'}
-switch: {'x', 'y', 'z', 'rot', 'side', 'is_on'}
+side: {'side_idx'}
+switch: {'x', 'y', 'z', 'rot', 'controls_fan', 'is_on'}
 target: {'x', 'y', 'z', 'rot', 'is_hit'}
 wall: {'x', 'y', 'z', 'rot'}
 
@@ -221,112 +221,112 @@ The demonstrator performs a sequence of actions, ending with HumanHappy()=True. 
 
 Starting at state_0 with additional info:
   {'ball:ball': {'x': 0.83, 'y': 1.33, 'z': 0.45},
-   'down:side': {'side': 2.00},
-   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'side': 2.00, 'is_on': 0.00},
-   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'side': 0.00, 'is_on': 0.00},
-   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'side': 1.00, 'is_on': 0.00},
-   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'side': 3.00, 'is_on': 0.00},
-   'left:side': {'side': 0.00},
-   'right:side': {'side': 1.00},
+   'down:side': {'side_idx': 2.00},
+   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'facing_side': 2.00, 'is_on': 0.00},
+   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'facing_side': 0.00, 'is_on': 0.00},
+   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'facing_side': 1.00, 'is_on': 0.00},
+   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'facing_side': 3.00, 'is_on': 0.00},
+   'left:side': {'side_idx': 0.00},
+   'right:side': {'side_idx': 1.00},
    'robot:robot': {'x': 0.75, 'y': 1.35, 'z': 0.85, 'fingers': 0.04, 'tilt': 1.57, 'wrist': -1.57},
    'target:target': {'x': 0.75, 'y': 1.49, 'z': 0.40, 'rot': 0.00, 'is_hit': 0.00},
-   'up:side': {'side': 3.00},
+   'up:side': {'side_idx': 3.00},
    'wall0:wall': {'x': 0.83, 'y': 1.41, 'z': 0.40, 'rot': 0.00}}
 
 Action SwitchOn(robot, fan_right) was executed in state_0
 
 This action results in state_1 with additional info:
   {'ball:ball': {'x': 0.82, 'y': 1.33, 'z': 0.45},
-   'down:side': {'side': 2.00},
-   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'side': 2.00, 'is_on': 0.00},
-   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'side': 0.00, 'is_on': 0.00},
-   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'side': 1.00, 'is_on': 1.00},
-   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'side': 3.00, 'is_on': 0.00},
-   'left:side': {'side': 0.00},
-   'right:side': {'side': 1.00},
+   'down:side': {'side_idx': 2.00},
+   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'facing_side': 2.00, 'is_on': 0.00},
+   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'facing_side': 0.00, 'is_on': 0.00},
+   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'facing_side': 1.00, 'is_on': 1.00},
+   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'facing_side': 3.00, 'is_on': 0.00},
+   'left:side': {'side_idx': 0.00},
+   'right:side': {'side_idx': 1.00},
    'robot:robot': {'x': 0.68, 'y': 1.09, 'z': 0.50, 'fingers': 0.01, 'tilt': 1.57, 'wrist': -0.01},
    'target:target': {'x': 0.75, 'y': 1.49, 'z': 0.40, 'rot': 0.00, 'is_hit': 0.00},
-   'up:side': {'side': 3.00},
+   'up:side': {'side_idx': 3.00},
    'wall0:wall': {'x': 0.83, 'y': 1.41, 'z': 0.40, 'rot': 0.00}}
 
 Action NoOp(robot) was executed in state_1
 
 This action results in state_2 with additional info:
   {'ball:ball': {'x': 0.79, 'y': 1.33, 'z': 0.45},
-   'down:side': {'side': 2.00},
-   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'side': 2.00, 'is_on': 0.00},
-   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'side': 0.00, 'is_on': 0.00},
-   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'side': 1.00, 'is_on': 1.00},
-   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'side': 3.00, 'is_on': 0.00},
-   'left:side': {'side': 0.00},
-   'right:side': {'side': 1.00},
+   'down:side': {'side_idx': 2.00},
+   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'facing_side': 2.00, 'is_on': 0.00},
+   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'facing_side': 0.00, 'is_on': 0.00},
+   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'facing_side': 1.00, 'is_on': 1.00},
+   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'facing_side': 3.00, 'is_on': 0.00},
+   'left:side': {'side_idx': 0.00},
+   'right:side': {'side_idx': 1.00},
    'robot:robot': {'x': 0.69, 'y': 1.09, 'z': 0.50, 'fingers': 0.00, 'tilt': 1.55, 'wrist': -1.17},
    'target:target': {'x': 0.75, 'y': 1.49, 'z': 0.40, 'rot': 0.00, 'is_hit': 0.00},
-   'up:side': {'side': 3.00},
+   'up:side': {'side_idx': 3.00},
    'wall0:wall': {'x': 0.83, 'y': 1.41, 'z': 0.40, 'rot': 0.00}}
 
 Action SwitchOff(robot, fan_right) was executed in state_2
 
 This action results in state_3 with additional info:
   {'ball:ball': {'x': 0.75, 'y': 1.33, 'z': 0.45},
-   'down:side': {'side': 2.00},
-   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'side': 2.00, 'is_on': 0.00},
-   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'side': 0.00, 'is_on': 0.00},
-   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'side': 1.00, 'is_on': 0.00},
-   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'side': 3.00, 'is_on': 0.00},
-   'left:side': {'side': 0.00},
-   'right:side': {'side': 1.00},
+   'down:side': {'side_idx': 2.00},
+   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'facing_side': 2.00, 'is_on': 0.00},
+   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'facing_side': 0.00, 'is_on': 0.00},
+   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'facing_side': 1.00, 'is_on': 0.00},
+   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'facing_side': 3.00, 'is_on': 0.00},
+   'left:side': {'side_idx': 0.00},
+   'right:side': {'side_idx': 1.00},
    'robot:robot': {'x': 0.68, 'y': 1.11, 'z': 0.51, 'fingers': -0.01, 'tilt': 1.57, 'wrist': 0.00},
    'target:target': {'x': 0.75, 'y': 1.49, 'z': 0.40, 'rot': 0.00, 'is_hit': 0.00},
-   'up:side': {'side': 3.00},
+   'up:side': {'side_idx': 3.00},
    'wall0:wall': {'x': 0.83, 'y': 1.41, 'z': 0.40, 'rot': 0.00}}
 
 Action SwitchOn(robot, fan_down) was executed in state_3
 
 This action results in state_4 with additional info:
   {'ball:ball': {'x': 0.75, 'y': 1.34, 'z': 0.45},
-   'down:side': {'side': 2.00},
-   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'side': 2.00, 'is_on': 1.00},
-   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'side': 0.00, 'is_on': 0.00},
-   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'side': 1.00, 'is_on': 0.00},
-   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'side': 3.00, 'is_on': 0.00},
-   'left:side': {'side': 0.00},
-   'right:side': {'side': 1.00},
+   'down:side': {'side_idx': 2.00},
+   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'facing_side': 2.00, 'is_on': 1.00},
+   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'facing_side': 0.00, 'is_on': 0.00},
+   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'facing_side': 1.00, 'is_on': 0.00},
+   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'facing_side': 3.00, 'is_on': 0.00},
+   'left:side': {'side_idx': 0.00},
+   'right:side': {'side_idx': 1.00},
    'robot:robot': {'x': 0.76, 'y': 1.10, 'z': 0.50, 'fingers': 0.01, 'tilt': 1.57, 'wrist': -0.01},
    'target:target': {'x': 0.75, 'y': 1.49, 'z': 0.40, 'rot': 0.00, 'is_hit': 0.00},
-   'up:side': {'side': 3.00},
+   'up:side': {'side_idx': 3.00},
    'wall0:wall': {'x': 0.83, 'y': 1.41, 'z': 0.40, 'rot': 0.00}}
 
 Action NoOp(robot) was executed in state_4
 
 This action results in state_5 with additional info:
   {'ball:ball': {'x': 0.75, 'y': 1.37, 'z': 0.45},
-   'down:side': {'side': 2.00},
-   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'side': 2.00, 'is_on': 1.00},
-   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'side': 0.00, 'is_on': 0.00},
-   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'side': 1.00, 'is_on': 0.00},
-   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'side': 3.00, 'is_on': 0.00},
-   'left:side': {'side': 0.00},
-   'right:side': {'side': 1.00},
+   'down:side': {'side_idx': 2.00},
+   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'facing_side': 2.00, 'is_on': 1.00},
+   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'facing_side': 0.00, 'is_on': 0.00},
+   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'facing_side': 1.00, 'is_on': 0.00},
+   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'facing_side': 3.00, 'is_on': 0.00},
+   'left:side': {'side_idx': 0.00},
+   'right:side': {'side_idx': 1.00},
    'robot:robot': {'x': 0.76, 'y': 1.10, 'z': 0.50, 'fingers': -0.00, 'tilt': 1.57, 'wrist': -0.00},
    'target:target': {'x': 0.75, 'y': 1.49, 'z': 0.40, 'rot': 0.00, 'is_hit': 0.00},
-   'up:side': {'side': 3.00},
+   'up:side': {'side_idx': 3.00},
    'wall0:wall': {'x': 0.83, 'y': 1.41, 'z': 0.40, 'rot': 0.00}}
 
 Action NoOp(robot) was executed in state_5
 
 This action results in state_6 with additional info:
   {'ball:ball': {'x': 0.75, 'y': 1.45, 'z': 0.45},
-   'down:side': {'side': 2.00},
-   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'side': 2.00, 'is_on': 1.00},
-   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'side': 0.00, 'is_on': 0.00},
-   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'side': 1.00, 'is_on': 0.00},
-   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'side': 3.00, 'is_on': 0.00},
-   'left:side': {'side': 0.00},
-   'right:side': {'side': 1.00},
+   'down:side': {'side_idx': 2.00},
+   'fan_down:fan': {'x': 0.40, 'y': 1.21, 'z': 0.46, 'rot': 1.57, 'facing_side': 2.00, 'is_on': 1.00},
+   'fan_left:fan': {'x': 0.32, 'y': 1.29, 'z': 0.46, 'rot': 0.00, 'facing_side': 0.00, 'is_on': 0.00},
+   'fan_right:fan': {'x': 1.18, 'y': 1.29, 'z': 0.46, 'rot': 3.14, 'facing_side': 1.00, 'is_on': 0.00},
+   'fan_up:fan': {'x': 0.40, 'y': 1.61, 'z': 0.46, 'rot': -1.57, 'facing_side': 3.00, 'is_on': 0.00},
+   'left:side': {'side_idx': 0.00},
+   'right:side': {'side_idx': 1.00},
    'robot:robot': {'x': 0.76, 'y': 1.10, 'z': 0.50, 'fingers': -0.00, 'tilt': 1.57, 'wrist': -0.00},
    'target:target': {'x': 0.75, 'y': 1.49, 'z': 0.40, 'rot': 0.00, 'is_hit': 1.00},
-   'up:side': {'side': 3.00},
+   'up:side': {'side_idx': 3.00},
    'wall0:wall': {'x': 0.83, 'y': 1.41, 'z': 0.40, 'rot': 0.00}}
 
 ### Your Task
@@ -369,7 +369,7 @@ Provide your predicate proposals in the following format:
         True if the fan's side matches the side object's side.
         """
         fan, side = objects
-        return state.get(fan, "side") == state.get(side, "side")
+        return state.get(fan, "facing_side") == state.get(side, "side_idx")
 ```
 
 #### Example prompt 3
