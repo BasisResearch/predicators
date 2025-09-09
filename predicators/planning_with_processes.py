@@ -781,13 +781,14 @@ def task_plan(
     convenient wrapper around _skeleton_generator below (which IS used
     by SeSamE) that takes in only the minimal necessary arguments.
 
-    This method is tightly coupled with task_plan_grounding -- the reason they
-    are separate methods is that it is sometimes possible to ground only once
-    and then plan multiple times (e.g. from different initial states, or to
-    different goals). To run task planning once, call task_plan_grounding to
-    get ground_nsrts and reachable_atoms; then create a heuristic using
-    utils.create_task_planning_heuristic; then call this method. See the tests
-    in tests/test_planning for usage examples.
+    This method is tightly coupled with task_plan_grounding -- the
+    reason they are separate methods is that it is sometimes possible to
+    ground only once and then plan multiple times (e.g. from different
+    initial states, or to different goals). To run task planning once,
+    call task_plan_grounding to get ground_nsrts and reachable_atoms;
+    then create a heuristic using utils.create_task_planning_heuristic;
+    then call this method. See the tests in tests/test_planning for
+    usage examples.
     """
     if CFG.planning_check_dr_reachable and not goal.issubset(reachable_atoms):
         logging.info(f"Detected goal unreachable. Goal: {goal}")

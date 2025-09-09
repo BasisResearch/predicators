@@ -131,7 +131,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
 
     @classmethod
     def jug_height(cls) -> float:
-        """use class method to allow for dynamic changes."""
+        """Use class method to allow for dynamic changes."""
         if CFG.coffee_use_pixelated_jug:
             return cls.jug_new_height
         return cls.jug_old_height
@@ -152,7 +152,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
 
     @classmethod
     def jug_handle_height(cls) -> float:
-        """use class method to allow for dynamic changes."""
+        """Use class method to allow for dynamic changes."""
         if CFG.coffee_use_pixelated_jug:
             return cls.jug_new_handle_height
         return cls.jug_old_handle_height
@@ -579,8 +579,8 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                         self._jug_current_liquid +
                         self.coffee_machine_fill_speed)
                     self._jug_liquid_id = self._create_liquid_for_jug()
-                    if (not self._jug_filled and self._jug_current_liquid >
-                            self.coffee_filled_threshold):
+                    if (not self._jug_filled and self._jug_current_liquid
+                            > self.coffee_filled_threshold):
                         self._jug_filled = True
                 else:
                     # Instant filling

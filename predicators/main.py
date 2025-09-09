@@ -710,9 +710,9 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
                                num_solved if num_solved > 0 else float("inf"))
 
     # Skeleton / sample info
-    metrics["min_num_samples"] = (
-        cogman.metrics["min_num_samples"]
-        if cogman.metrics["min_num_samples"] < float("inf") else 0)
+    metrics["min_num_samples"] = (cogman.metrics["min_num_samples"]
+                                  if cogman.metrics["min_num_samples"]
+                                  < float("inf") else 0)
     metrics["max_num_samples"] = cogman.metrics["max_num_samples"]
     metrics["min_skeletons_optimized"] = (
         cogman.metrics["min_num_skeletons_optimized"]
@@ -733,8 +733,9 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             "num_failures_discovered"
     ]:
         total = cogman.metrics[f"total_{metric_name}"]
-        metrics[f"avg_{metric_name}"] = (
-            total / num_found_policy if num_found_policy > 0 else float("inf"))
+        metrics[f"avg_{metric_name}"] = (total /
+                                         num_found_policy if num_found_policy
+                                         > 0 else float("inf"))
 
     return metrics
 

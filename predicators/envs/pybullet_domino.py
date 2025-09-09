@@ -1007,12 +1007,13 @@ class PyBulletDominoEnv(PyBulletEnv):
                           objects: Sequence[Object]) -> bool:
         """Check if a position is adjacent to a domino in cardinal directions.
 
-        This is similar to _InFrontDirection_holds but checks if a position
-        is adjacent to any position where the domino could be placed, considering
-        that the domino can be in multiple positions during heuristic computation.
+        This is similar to _InFrontDirection_holds but checks if a
+        position is adjacent to any position where the domino could be
+        placed, considering that the domino can be in multiple positions
+        during heuristic computation.
 
-        Adjacent positions are those that are exactly one grid step away in
-        cardinal directions (up, down, left, right) but not diagonal.
+        Adjacent positions are those that are exactly one grid step away
+        in cardinal directions (up, down, left, right) but not diagonal.
         """
         position, domino = objects
 

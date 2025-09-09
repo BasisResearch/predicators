@@ -380,7 +380,8 @@ def elbo_torch(
     use_sparse_trajectory: bool = True,
     debug_log: bool = False,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
-    """*Differentiable* ELBO computation with efficient, cached condition checks."""
+    """*Differentiable* ELBO computation with efficient, cached condition
+    checks."""
     trajectory = atom_option_trajectory
     num_time_steps = len(trajectory.states)
 

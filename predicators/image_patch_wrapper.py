@@ -1,4 +1,4 @@
-"""adapted from SoM."""
+"""Adapted from SoM."""
 import os
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
@@ -290,6 +290,7 @@ class ImagePatch:
              upper: int) -> 'ImagePatch':
         """Returns a new ImagePatch containing a crop of the original image at
         the given coordinates.
+
         Returns
         -------
         ImagePatch

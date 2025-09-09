@@ -374,8 +374,8 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             # Get constants from the environment class
             gap = cls.env_cls.pos_gap
 
-            target_angle_is_cardinal = abs(np.sin(
-                2 * target_rot_rad)) < angle_tol
+            target_angle_is_cardinal = abs(np.sin(2 *
+                                                  target_rot_rad)) < angle_tol
 
             # Case 1: Place straight ahead
             if dir_value == 0.0 or target_angle_is_cardinal:  # straight

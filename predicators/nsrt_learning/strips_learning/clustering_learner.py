@@ -164,9 +164,10 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 segment_param_option, segment_option_objs, pnads)
 
             if suc:
-                sub = cast(VarToObjSub,
-                           {v: o
-                            for o, v in ent_to_ent_sub.items()})
+                sub = cast(VarToObjSub, {
+                    v: o
+                    for o, v in ent_to_ent_sub.items()
+                })
                 # Add to this PNAD.
                 if CFG.exogenous_process_learner_do_intersect:
                     # Find the largest conditions that unifies the init
@@ -203,7 +204,8 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                     # anything in the init atoms of the segment.
                     objects |= {
                         o
-                        for atom in segment.init_atoms for o in atom.objects
+                        for atom in segment.init_atoms
+                        for o in atom.objects
                     }
 
                 objects_lst = sorted(objects)
@@ -270,10 +272,10 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                                     segment_param_option, segment_option_objs,
                                     pnads)
                             if suc:
-                                sub = cast(
-                                    VarToObjSub,
-                                    {v: o
-                                     for o, v in ent_to_ent_sub.items()})
+                                sub = cast(VarToObjSub, {
+                                    v: o
+                                    for o, v in ent_to_ent_sub.items()
+                                })
                                 # Add to this PNAD.
                                 if CFG.exogenous_process_learner_do_intersect:
                                     # Find the largest conditions that unifies the init
@@ -578,8 +580,8 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
             # Get the objects in the init atoms
             additional_objects = {
                 o
-                for atom in init_atoms for o in atom.objects
-                if o not in existing_objs
+                for atom in init_atoms
+                for o in atom.objects if o not in existing_objs
             }
             # Create a new var_to_obj mapping for the objects
             objects_lst = sorted(additional_objects)
@@ -1541,8 +1543,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         """Check if a PNAD with given preconditions is unique."""
         for final_pnad in final_pnads:
             # Quick size checks first for efficiency
-            if (len(precon) != len(final_pnad.op.preconditions) or
-                    len(pnad.op.add_effects) != len(final_pnad.op.add_effects)
+            if (len(precon) != len(final_pnad.op.preconditions) or len(
+                    pnad.op.add_effects) != len(final_pnad.op.add_effects)
                     or len(pnad.op.delete_effects) != len(
                         final_pnad.op.delete_effects)):
                 continue
