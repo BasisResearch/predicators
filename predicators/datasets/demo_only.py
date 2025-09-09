@@ -284,10 +284,11 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                     make_demo_videos(video_monitor, idx)
                 if CFG.make_demo_images:
                     make_demo_images(video_monitor, idx, num_tasks)
-            continue
+            else:
+                continue
 
         # Check that the goal holds at the end. Print a warning if not.
-        if not task.goal_holds(traj.states[-1]):  # pragma: no cover
+        if not task.goal_holds(traj.states[-1]) and not CFG.keep_failed_demos:  # pragma: no cover
             logging.warning("WARNING: Oracle failed on training task.")
             continue
         if CFG.demonstrator == "human":  # pragma: no cover

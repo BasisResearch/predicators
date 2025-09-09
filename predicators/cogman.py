@@ -268,6 +268,11 @@ def run_episode_and_get_observations(
                     break
                 if monitor is not None and not monitor_observed:
                     monitor.observe(obs, None)
+                if CFG.keep_failed_demos:
+                    cogman.finish_episode(obs)
+                    traj = (observations, actions)
+                    solved = env.goal_reached()
+                    return traj, solved, metrics
                 raise e
             if terminate_on_goal_reached and env.goal_reached():
                 break
