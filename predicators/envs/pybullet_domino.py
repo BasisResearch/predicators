@@ -726,13 +726,13 @@ class PyBulletDominoEnv(PyBulletEnv):
         domino, = objects
         # Check if the domino has the pink color (target domino)
         eps = 1e-3
-        if abs(state.get(domino, "r") - cls.target_domino_color[0]) > eps:
-            return False
-        if abs(state.get(domino, "g") - cls.target_domino_color[1]) > eps:
-            return False
-        if abs(state.get(domino, "b") - cls.target_domino_color[2]) > eps:
-            return False
-        return True
+        return (
+            abs(state.get(domino, "r") - cls.glued_domino_color[0]) > eps and
+            abs(state.get(domino, "g") - cls.glued_domino_color[1]) > eps and
+            abs(state.get(domino, "b") - cls.glued_domino_color[2]) > eps) or (
+            abs(state.get(domino, "r") - cls.target_domino_color[0]) > eps and
+            abs(state.get(domino, "g") - cls.target_domino_color[1]) > eps and
+            abs(state.get(domino, "b") - cls.target_domino_color[2]) > eps)
 
     def _HandEmpty_holds(self, state: State,
                          objects: Sequence[Object]) -> bool:
