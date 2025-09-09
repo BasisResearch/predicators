@@ -180,6 +180,7 @@ ENVS:
       process_planning_use_abstract_policy: False
       domino_has_glued_dominos: True
       keep_failed_demos: True
+      env_has_impossible_goals: True
   # fan:
   #   NAME: "pybullet_fan"
   #   FLAGS:
@@ -224,7 +225,7 @@ FLAGS:
   # use_classification_problem_setting: False # This decides the entry point
   # use_counterfactual_dataset_path_name: True  # for generating images or videos
   planning_filter_unreachable_nsrt: False
-  planning_check_dr_reachable: False
+  planning_check_dr_reachable: True
   sesame_task_planning_heuristic: 'h_ff' # goal_count, lm_cut, h_max, h_ff
   timeout: 600
   log: 'logs/'

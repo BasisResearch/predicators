@@ -50,6 +50,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             Connected = predicates["Connected"]
         else:
             AdjacentTo = predicates["AdjacentTo"]
+        if CFG.domino_has_glued_dominos:
+            DominoNotGlued = predicates["DominoNotGlued"]
         # Note: Tilting predicate exists but represents the goal state
         # Note: The "Falling" predicate from the sketch is not implemented in the current environment
         # We would need to add it to the environment for the DominoFall exogenous process
@@ -205,6 +207,10 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(InFront, [domino1, domino2]),
             LiftedAtom(Tilting, [domino2]),
         }
+        if CFG.domino_has_glued_dominos:
+            condition_at_start.update({
+                LiftedAtom(DominoNotGlued, [domino1]),
+            })
         condition_overall = condition_at_start.copy()
         add_effects = {
             LiftedAtom(Tilting, [domino1]),

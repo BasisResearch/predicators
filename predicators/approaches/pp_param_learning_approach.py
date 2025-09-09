@@ -649,7 +649,7 @@ def compute_empirical_delays(
         _ground_processes, _ = process_task_plan_grounding(
             init_atoms=set(),
             objects=objs,
-            nsrts=processes,
+            cps=processes,
             allow_noops=True,
             compute_reachable_atoms=False,
         )
@@ -858,7 +858,7 @@ def _prepare_training_data_and_model_params(
         _ground_processes, _ = process_task_plan_grounding(
             init_atoms=set(),
             objects=objs,
-            nsrts=processes,
+            cps=processes,
             allow_noops=True,
             compute_reachable_atoms=False,
         )

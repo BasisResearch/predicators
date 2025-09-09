@@ -401,6 +401,12 @@ def _generate_interaction_results(
                 env.render, request, teacher)
         elif CFG.make_interaction_videos:
             monitor = utils.VideoMonitor(env.render)
+        
+        # Used to check if our think the approach is unsolvable.
+        if CFG.env_has_impossible_goals:
+            planning_explorer_generated_a_plan = True
+            if 'RandomNSRTsExplorer' in request.act_policy.__qualname__:
+                planning_explorer_generated_a_plan = False
         cogman.set_override_policy(request.act_policy)
         cogman.set_termination_function(request.termination_function)
         env_task = env.get_train_tasks()[request.train_task_idx]
@@ -418,6 +424,10 @@ def _generate_interaction_results(
                 utils.RequestActPolicyFailure,
             },
             monitor=monitor)
+        if CFG.env_has_impossible_goals:
+            task_solvable = env.is_task_solvable(env_task)
+            if not task_solvable:
+                solved = not planning_explorer_generated_a_plan
         task_solved_status.append(solved)
         cogman.unset_override_policy()
         cogman.unset_termination_function()
@@ -628,6 +638,14 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             logging.info(f"[main.py] Task {test_task_idx+1} / "
                          f"{len(test_tasks)}: approach failed with error: {e}")
             _handle_solve_exception(e, test_task_idx, partial_refinements)
+            # TODO: handle impossible goals here
+            if CFG.env_has_impossible_goals:
+                task_solvable = env.is_task_solvable(env_task)
+                if not task_solvable:
+                    if "not dr-reachable" in str(e):
+                        logging.info("[main.py] Task is unsolvable and is "
+                                    "recognized")
+                        num_solved += 1
             continue
 
         # Update solve-time metrics

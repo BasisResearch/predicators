@@ -264,8 +264,9 @@ class PyBulletDominoEnv(PyBulletEnv):
             self._Holding,
             self._InFrontDirection,
             self._InFront,
-            self._DominoNotGlued,
         }
+        if CFG.domino_has_glued_dominos:
+            base_predicates.add(self._DominoNotGlued)
 
         if CFG.domino_use_grid:
             base_predicates.update({
@@ -303,6 +304,15 @@ class PyBulletDominoEnv(PyBulletEnv):
             base_types.update({self._position_type, self._angle_type})
 
         return base_types
+    
+    def is_task_solvable(self, task: EnvironmentTask) -> bool:
+        """Check if the task is solvable."""
+        if CFG.domino_has_glued_dominos:
+            dominos = task.init.get_objects(self._domino_type)
+            for domino in dominos:
+                if self._DominoGlued_holds(task.init, [domino]):
+                    return False
+        return True
 
     # -------------------------------------------------------------------------
     # Grid Coordinate Generation
@@ -626,13 +636,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             eps = 1e-5
             for domino in domino_objs:
                 if domino.id is not None:
-                    r = state.get(domino, "r")
-                    g = state.get(domino, "g") 
-                    b = state.get(domino, "b")
-                    # Check if this domino has the glued color (pure red)
-                    if (abs(r - self.glued_domino_color[0]) < eps and
-                        abs(g - self.glued_domino_color[1]) < eps and
-                        abs(b - self.glued_domino_color[2]) < eps):
+                    if self._DominoGlued_holds(state, [domino]):
                         # Make this domino immovable by setting very high mass
                         p.changeDynamics(domino.id, -1, mass=1e10, 
                                        physicsClientId=self._physics_client_id)
@@ -726,10 +730,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         domino, = objects
         # Check if the domino has the pink color (target domino)
         eps = 1e-3
-        return (
-            abs(state.get(domino, "r") - cls.glued_domino_color[0]) > eps and
-            abs(state.get(domino, "g") - cls.glued_domino_color[1]) > eps and
-            abs(state.get(domino, "b") - cls.glued_domino_color[2]) > eps) or (
+        return (cls._DominoGlued_holds(state, objects)) or (
             abs(state.get(domino, "r") - cls.target_domino_color[0]) > eps and
             abs(state.get(domino, "g") - cls.target_domino_color[1]) > eps and
             abs(state.get(domino, "b") - cls.target_domino_color[2]) > eps)
@@ -1083,20 +1084,19 @@ class PyBulletDominoEnv(PyBulletEnv):
                               objects: Sequence[Object]) -> bool:
         """Check if a domino is NOT glued (i.e., does not have the red glued
         color)."""
-        domino, = objects
-        # Check if the domino does NOT have the glued domino color (pure red)
+        return not cls._DominoGlued_holds(state, objects)
+
+    @classmethod
+    def _DominoGlued_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+        """Check if a domino is glued (i.e., has the red glued color)."""
         eps = 1e-3
-        r_val = state.get(domino, "r")
-        g_val = state.get(domino, "g")
-        b_val = state.get(domino, "b")
-
-        # If the domino has the glued color (pure red), it's glued, so return False
-        if (abs(r_val - cls.glued_domino_color[0]) < eps
+        r_val = state.get(objects[0], "r")
+        g_val = state.get(objects[0], "g")
+        b_val = state.get(objects[0], "b")
+        
+        return (abs(r_val - cls.glued_domino_color[0]) < eps
                 and abs(g_val - cls.glued_domino_color[1]) < eps
-                and abs(b_val - cls.glued_domino_color[2]) < eps):
-            return False  # It IS glued, so NOT glued is False
-
-        return True  # It's not glued
+                and abs(b_val - cls.glued_domino_color[2]) < eps)
 
     # -------------------------------------------------------------------------
     # Task Generation
@@ -2103,3 +2103,4 @@ if __name__ == "__main__":
                 np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)
             time.sleep(0.01)
+

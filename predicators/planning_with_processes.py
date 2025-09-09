@@ -43,12 +43,83 @@ def _build_exogenous_process_index(
     return precondition_to_exogenous_processes
 
 
+def get_reachable_atoms_from_processes(
+    ground_processes: List[_GroundCausalProcess],
+    atoms: Set[GroundAtom],
+    derived_predicates: Set[DerivedPredicate] = set(),
+    objects: Set[Object] = set(),
+) -> Set[GroundAtom]:
+    """Get all atoms that are reachable from the init atoms using ground processes.
+    
+    This function builds a relaxed planning graph by applying exogenous processes
+    and derived predicates similar to when building the relaxed planning graph 
+    in the ff_heuristic.
+    
+    Args:
+        ground_processes: List of grounded causal processes
+        atoms: Initial set of atoms
+        derived_predicates: Set of derived predicates to consider
+        objects: Set of objects for derived predicate evaluation
+    
+    Returns:
+        Set of all reachable atoms
+    """
+    # Pre-compute dependencies for incremental derived predicates
+    dep_to_derived_preds: Dict[Predicate, List[DerivedPredicate]] = defaultdict(list)
+    if derived_predicates:
+        for der_pred in derived_predicates:
+            if der_pred.auxiliary_predicates is not None:
+                for aux_pred in der_pred.auxiliary_predicates:
+                    dep_to_derived_preds[aux_pred].append(der_pred)
+    
+    # Initialize with input atoms and any initial derived facts
+    reachable_atoms = atoms.copy()
+    if derived_predicates:
+        reachable_atoms.update(
+            utils.abstract_with_derived_predicates(reachable_atoms, derived_predicates, objects)
+        )
+    
+    # Build relaxed planning graph until fixed point
+    while True:
+        fixed_point_reached = True
+        previous_atoms = reachable_atoms.copy()
+        
+        # Apply all applicable ground processes
+        newly_added_primitive_facts = set()
+        for process in ground_processes:
+            if process.condition_at_start.issubset(reachable_atoms):
+                # Add effects that aren't already reachable
+                new_effects = process.add_effects - reachable_atoms
+                if new_effects:
+                    fixed_point_reached = False
+                    newly_added_primitive_facts.update(new_effects)
+                    reachable_atoms.update(new_effects)
+        
+        # Handle derived predicates incrementally if we added new primitive facts
+        if newly_added_primitive_facts and derived_predicates:
+            newly_derived_facts = _run_incremental_derived_predicate_logic(
+                newly_added_primitive_facts,
+                previous_atoms,
+                objects,
+                dep_to_derived_preds,
+            )
+            if newly_derived_facts:
+                fixed_point_reached = False
+                reachable_atoms.update(newly_derived_facts)
+        
+        if fixed_point_reached:
+            break
+    
+    return reachable_atoms
+
+
 def process_task_plan_grounding(
     init_atoms: Set[GroundAtom],
     objects: Set[Object],
-    nsrts: Collection[CausalProcess],
+    cps: Collection[CausalProcess],
     allow_noops: bool = True,
     compute_reachable_atoms: bool = False,
+    derived_predicates: Set[DerivedPredicate] = set(),
 ) -> Tuple[List[_GroundCausalProcess], Set[GroundAtom]]:
     """Ground all operators for task planning into dummy _GroundNSRTs,
     filtering out ones that are unreachable or have empty effects.
@@ -58,18 +129,21 @@ def process_task_plan_grounding(
 
     See the task_plan docstring for usage instructions.
     """
-    ground_nsrts = []
-    for nsrt in sorted(nsrts):
-        for ground_nsrt in utils.all_ground_nsrts(nsrt, objects):
-            if allow_noops or (ground_nsrt.add_effects
-                               | ground_nsrt.delete_effects):
-                ground_nsrts.append(ground_nsrt)
+    ground_cps = []
+    for cp in sorted(cps):
+        for ground_cp in utils.all_ground_nsrts(cp, objects):
+            if allow_noops or (ground_cp.add_effects
+                               | ground_cp.delete_effects):
+                ground_cps.append(ground_cp)
     if compute_reachable_atoms:
-        reachable_atoms = utils.get_reachable_atoms(ground_nsrts, init_atoms)
+        reachable_atoms = get_reachable_atoms_from_processes(ground_cps, 
+                                                            init_atoms, 
+                                                            derived_predicates, 
+                                                            objects)
     else:
         reachable_atoms = set()
 
-    reachable_nsrts = ground_nsrts
+    reachable_nsrts = ground_cps
     return reachable_nsrts, reachable_atoms
 
 
@@ -708,7 +782,8 @@ def task_plan_from_task(
         objects,
         processes,
         allow_noops=True,
-        compute_reachable_atoms=False)
+        compute_reachable_atoms=True,
+        derived_predicates=derived_predicates)
 
     if CFG.sesame_task_planning_heuristic == "goal_count":
         heuristic = utils.create_task_planning_heuristic(
@@ -1410,7 +1485,7 @@ if __name__ == "__main__":
     ground_processes, _ = process_task_plan_grounding(
         init_atoms=task.init,
         objects=set(task.init),
-        nsrts=processes,
+        cps=processes,
         allow_noops=True,
         compute_reachable_atoms=False)
 

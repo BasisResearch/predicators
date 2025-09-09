@@ -578,6 +578,7 @@ class GlobalSettings:
     terminate_on_goal_reached = True
     keep_failed_demos = False  # For saving videos
     terminate_on_goal_reached_and_option_terminated = False
+    env_has_impossible_goals = False
 
     # dataset parameters
     # For learning-based approaches, the data collection timeout for planning.

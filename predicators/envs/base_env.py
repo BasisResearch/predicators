@@ -412,3 +412,7 @@ class BaseEnv(abc.ABC):
         # outputted in when querying the VLM. That way, we can use the same
         # function to sanitize atoms regardless of their origin.
         return [[a] for a in atom_strs]
+    
+    def is_task_solvable(self, task: Task) -> bool:
+        """Check if the task is solvable."""
+        return True
