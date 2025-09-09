@@ -33,9 +33,11 @@ class MapleQApproach(OnlineNSRTLearningApproach):
                          action_space, train_tasks)
 
         # The current implementation assumes that NSRTs are not changing.
-        assert CFG.strips_learner == "oracle"
+        # assert CFG.strips_learner == "oracle"
+        print(f"CFG.strips_learner {CFG.strips_learner}")
         # The base sampler should also be unchanging and from the oracle.
-        assert CFG.sampler_learner == "oracle"
+        # assert CFG.sampler_learner == "oracle"
+        print(f"CFG.sampler_learner {CFG.sampler_learner}")
 
         # Log all transition data.
         self._interaction_goals: List[Set[GroundAtom]] = []

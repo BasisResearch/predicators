@@ -5,12 +5,18 @@
 APPROACHES:
   # oracle_nsrt:
   #   NAME: "oracle"
-  oracle:
-    NAME: "oracle_process_planning"
+  maple_q:
+    NAME: "maple_q"
     FLAGS:
-      demonstrator: "oracle_process_planning"
-      terminate_on_goal_reached_and_option_terminated: True
-      bilevel_plan_without_sim: True
+      explorer: "maple_q"
+      mlp_regressor_max_itr: 640000
+      active_sampler_learning_batch_size: 512
+  # oracle:
+  #   NAME: "oracle_process_planning"
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     bilevel_plan_without_sim: True
   # vlm_plan: # ViLa baseline
   #   NAME: "vlm_open_loop"
   #   FLAGS:
