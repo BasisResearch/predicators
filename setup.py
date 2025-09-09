@@ -43,6 +43,7 @@ setup(
         "opencv-python>=4.5.0",
         "colorlog",
         "wandb",
+        "psutil>=5.9.0",
     ],
     include_package_data=True,
     extras_require={
