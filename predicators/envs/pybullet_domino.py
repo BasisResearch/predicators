@@ -186,6 +186,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         self.grid_pos = []
 
         self.block_constraints = []
+        self.fixed_domino_ids = []
         self._debug_line_ids = []
 
         super().__init__(use_gui)
@@ -483,34 +484,6 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
-    def _create_invisible_link_body(self) -> int:
-        """Create a zero-mass, zero-collision 'rod' (link) in PyBullet.
-
-        We'll attach each domino to this rod with a hinge joint.
-        """
-        # A tiny sphere collision shape (or None) so it doesn't collide / add mass.
-        collision_shape_id = p.createCollisionShape(
-            shapeType=p.GEOM_SPHERE,
-            radius=0.0001,  # effectively 0
-            physicsClientId=self._physics_client_id)
-
-        # Visual shape is also effectively invisible.
-        visual_shape_id = p.createVisualShape(
-            shapeType=p.GEOM_SPHERE,
-            radius=0.00001,
-            rgbaColor=[0, 0, 0, 0],  # transparent
-            physicsClientId=self._physics_client_id)
-
-        # Create the multi-body with mass=0, so it never moves on its own.
-        rod_body_id = p.createMultiBody(
-            baseMass=0.0,
-            baseCollisionShapeIndex=collision_shape_id,
-            baseVisualShapeIndex=visual_shape_id,
-            basePosition=[0, 0, 10],  # spawn out of the way, reposition below
-            useMaximalCoordinates=True,  # simpler, no internal links
-            physicsClientId=self._physics_client_id)
-        return rod_body_id
-
     def _create_fixed_constraint(self, bodyA: int, bodyB: int) -> int:
         """Create a fixed joint in PyBullet with a pivot at the midpoint of the
         two bodies (so they remain exactly where they are)."""
@@ -570,6 +543,12 @@ class PyBulletDominoEnv(PyBulletEnv):
         for constraint in self.block_constraints:
             p.removeConstraint(constraint)
         self.block_constraints = []
+        
+        # Restore normal dynamics to previously fixed dominoes
+        for domino_id in self.fixed_domino_ids:
+            p.changeDynamics(domino_id, -1, mass=self.domino_mass, 
+                           physicsClientId=self._physics_client_id)
+        self.fixed_domino_ids = []
 
         if CFG.domino_some_dominoes_are_connected:
             for i in range(len(domino_objs) - 1):
@@ -641,6 +620,23 @@ class PyBulletDominoEnv(PyBulletEnv):
                     parentObjectUniqueId=-1,
                     parentLinkIndex=-1)
                 self._debug_line_ids.append(line_id)
+
+        # Handle fixed domino constraints when CFG.domino_has_glued_dominoes is True
+        if CFG.domino_has_glued_dominos:
+            eps = 1e-5
+            for domino in domino_objs:
+                if domino.id is not None:
+                    r = state.get(domino, "r")
+                    g = state.get(domino, "g") 
+                    b = state.get(domino, "b")
+                    # Check if this domino has the glued color (pure red)
+                    if (abs(r - self.glued_domino_color[0]) < eps and
+                        abs(g - self.glued_domino_color[1]) < eps and
+                        abs(b - self.glued_domino_color[2]) < eps):
+                        # Make this domino immovable by setting very high mass
+                        p.changeDynamics(domino.id, -1, mass=1e10, 
+                                       physicsClientId=self._physics_client_id)
+                        self.fixed_domino_ids.append(domino.id)
 
     def _get_flat_rotation(self, flap_obj: Object) -> float:
         j_pos, _, _, _ = p.getJointState(flap_obj.id, flap_obj.joint_id)
@@ -2087,7 +2083,7 @@ if __name__ == "__main__":
     CFG.domino_initialize_at_finished_state = False
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_use_grid = True
-    CFG.num_train_tasks = 1
+    CFG.num_train_tasks = 2
     CFG.num_test_tasks = 2
     env = PyBulletDominoEnv(use_gui=True)
     # # Set up test configurations for the example
