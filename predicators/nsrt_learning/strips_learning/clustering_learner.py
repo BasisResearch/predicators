@@ -609,6 +609,7 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
         _ = self  # unused, but may be used in subclasses
         return pnads
 
+
 class ClusterAndIntersectSTRIPSLearner(ClusteringSTRIPSLearner):
     """A clustering STRIPS learner that learns preconditions via
     intersection."""

@@ -113,7 +113,6 @@ class ParamLearningBilevelProcessPlanningApproach(
         return
 
 
-
 def learn_process_parameters(
     trajectories: List[LowLevelTrajectory],
     predicates: Set[Predicate],
@@ -624,6 +623,7 @@ def elbo_torch(
 
     elbo = ll + entropy
     return elbo, exp_state_prob, exp_delay_prob, entropy
+
 
 def compute_empirical_delays(
     trajectories: List[LowLevelTrajectory],

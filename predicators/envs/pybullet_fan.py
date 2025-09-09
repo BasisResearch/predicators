@@ -100,7 +100,7 @@ class PyBulletFanEnv(PyBulletEnv):
     # Kinematic Ball Movement
     # -------------------------------------------------------------------------
     kinematic_ball_speed: ClassVar[
-        float] = 0.003 # Speed for kinematic movement (m/s per simulation step)
+        float] = 0.003  # Speed for kinematic movement (m/s per simulation step)
 
     # -------------------------------------------------------------------------
     # Fan Positioning

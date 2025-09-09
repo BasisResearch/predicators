@@ -410,6 +410,7 @@ class GlobalSettings:
     domino_use_domino_blocks_as_target = False
     domino_use_grid = False
     domino_include_connected_predicate = False
+    domino_has_glued_dominos = True
     domino_prune_actions = False  # Set to True to enable action pruning
     domino_train_num_dominos = [2]
     domino_test_num_dominos = [3]
@@ -443,10 +444,10 @@ class GlobalSettings:
     fan_use_kinematic = False
     fan_train_num_pos_x = 3
     fan_train_num_pos_y = 3
-    fan_test_num_pos_x = 6 # can do 9
+    fan_test_num_pos_x = 6  # can do 9
     fan_test_num_pos_y = 4
     fan_train_num_walls_per_task = [1]
-    fan_test_num_walls_per_task = [2, 3] # can do 4
+    fan_test_num_walls_per_task = [2, 3]  # can do 4
 
     # boil env
     boil_use_constant_delay = False
