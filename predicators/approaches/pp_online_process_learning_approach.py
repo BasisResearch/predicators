@@ -39,6 +39,7 @@ class OnlineProcessLearningAndPlanningApproach(
                          option_model=option_model)
         self._online_dataset = Dataset([])
         self._online_learning_cycle = 0
+        self._requests_train_task_idxs: Optional[List[int]] = None
 
     @classmethod
     def get_name(cls) -> str:
@@ -79,21 +80,34 @@ class OnlineProcessLearningAndPlanningApproach(
         # Create the interaction requests.
         requests = []
         # Can also just use CFG.online_nsrt_learning_requests_per_cycle
-        for _ in range(CFG.online_nsrt_learning_number_of_tasks_to_try):
-            # Select a random task (with replacement).
+        # for _ in range(CFG.online_nsrt_learning_number_of_tasks_to_try):
+        #     # Select a random task (with replacement).
+        #     task_idx = self._rng.choice(len(self._train_tasks))
+        #     for i in range(CFG.online_nsrt_learning_requests_per_task):
+        #         logging.info(f"Getting strategy {i} for task {task_idx}")
+        #         # Set up the explorer policy and termination function.
+        #         policy, termination_function = explorer.get_exploration_strategy(
+        #             task_idx, CFG.timeout)
+        #         # Create the interaction request.
+        #         req = InteractionRequest(
+        #             train_task_idx=task_idx,
+        #             act_policy=policy,
+        #             query_policy=lambda s: None,
+        #             termination_function=termination_function)
+        #         requests.append(req)
+        self._requests_train_task_idxs = []
+        for i in range(CFG.online_nsrt_learning_requests_per_cycle):
             task_idx = self._rng.choice(len(self._train_tasks))
-            for i in range(CFG.online_nsrt_learning_requests_per_task):
-                logging.info(f"Getting strategy {i} for task {task_idx}")
-                # Set up the explorer policy and termination function.
-                policy, termination_function = explorer.get_exploration_strategy(
-                    task_idx, CFG.timeout)
-                # Create the interaction request.
-                req = InteractionRequest(
-                    train_task_idx=task_idx,
-                    act_policy=policy,
-                    query_policy=lambda s: None,
-                    termination_function=termination_function)
-                requests.append(req)
+            logging.info(f"Getting strategy {i}; this is for task {task_idx}")
+            self._requests_train_task_idxs.append(task_idx)
+            policy, termination_function = explorer.get_exploration_strategy(
+                task_idx, CFG.timeout)
+            req = InteractionRequest(
+                train_task_idx=task_idx,
+                act_policy=policy,
+                query_policy=lambda s: None,
+                termination_function=termination_function)
+            requests.append(req)
         return requests
 
     def learn_from_interaction_results(

@@ -1434,7 +1434,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             }
             response = self._call_llm_with_template(
                 template_path, template_vars,
-                "condition_set_proposal_response.txt")
+                "condition_set_proposal_response_"\
+                f"{self.online_learning_cycle}.txt")
 
             # Parse the response
             answer_text = self._parse_llm_answer_block(response)

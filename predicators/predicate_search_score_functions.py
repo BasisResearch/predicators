@@ -420,8 +420,14 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                           metrics) in enumerate(generator):
                     assert goal.issubset(plan_atoms_sequence[-1])
                     # Estimate the probability that this skeleton is refinable.
-                    refinement_prob = self._get_refinement_prob(
-                        demo_atoms_sequence, plan_atoms_sequence)
+                    if CFG.env_has_impossible_goals:
+                        task_unsolvable = not goal.issubset(
+                            demo_atoms_sequence[-1])
+                        if task_unsolvable:
+                            refinement_prob = 0.0
+                    else:
+                        refinement_prob = self._get_refinement_prob(
+                            demo_atoms_sequence, plan_atoms_sequence)
                     # Get the number of nodes that have been created or
                     # expanded so far.
                     assert self.metric_name in metrics

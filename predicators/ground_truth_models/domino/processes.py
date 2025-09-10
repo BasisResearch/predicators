@@ -117,7 +117,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(DominoAtPos, [domino, position]),
             LiftedAtom(DominoAtRot, [domino, rotation]),
         }
-        ignore_effects = {Tilting, Upright}
+        ignore_effects = {Tilting, Upright, DominoAtRot}
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
                                                    sigma=torch.tensor(0.1))
         pick_domino_process = EndogenousProcess("PickDomino",
@@ -168,7 +168,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(Holding, [robot, domino1]),
             LiftedAtom(PosClear, [target_pos]),
         }
-        ignore_effects = {AdjacentTo, DominoAtRot, DominoAtPos}
+        ignore_effects = {AdjacentTo, DominoAtRot, DominoAtPos, PosClear}
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
                                                    sigma=torch.tensor(0.1))
         place_domino_process = EndogenousProcess("PlaceDomino", parameters,
@@ -187,11 +187,13 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         option_vars = [robot]
         option = NoOp
         noop_delay_distribution = ConstantDelay(1)
+        ignore_effects = {AdjacentTo, DominoAtRot, DominoAtPos, PosClear}
         noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
                                          set(), set(), set(),
                                          noop_delay_distribution,
                                          torch.tensor(1.0), option,
-                                         option_vars, null_sampler)
+                                         option_vars, null_sampler,
+                                         ignore_effects)
         processes.add(noop_process)
 
         # --- Exogenous Processes ---

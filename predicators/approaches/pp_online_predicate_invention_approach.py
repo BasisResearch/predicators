@@ -83,10 +83,13 @@ class OnlinePredicateInventionProcessPlanningApproach(
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
         # --- Process the interaction results ---
-        for result in results:
-            traj = LowLevelTrajectory(
-                result.states, result.actions,
-                _train_task_idx=0)  # TODO: remove the heck
+        assert self._requests_train_task_idxs is not None, \
+            "Missing request->task index mapping."
+        for i, result in enumerate(results):
+            task_idx = self._requests_train_task_idxs[i]
+            traj = LowLevelTrajectory(result.states,
+                                      result.actions,
+                                      _train_task_idx=task_idx)
             self._online_dataset.append(traj)
 
         all_trajs = self._offline_dataset.trajectories + \
