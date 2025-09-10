@@ -288,9 +288,10 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                 continue
 
         # Check that the goal holds at the end. Print a warning if not.
-        if not task.goal_holds(traj.states[-1]) and not CFG.keep_failed_demos:  # pragma: no cover
-            logging.warning("WARNING: Oracle failed on training task.")
-            continue
+        if not task.goal_holds(traj.states[-1]):  # pragma: no cover
+            logging.warning(f"WARNING: Oracle failed on training task {idx}.")
+            if not CFG.keep_failed_demos:
+                continue
         if CFG.demonstrator == "human":  # pragma: no cover
             logging.info("Successfully collected human demonstration of "
                          f"length {len(traj.states)} for task {idx+1} / "

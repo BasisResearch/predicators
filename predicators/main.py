@@ -646,6 +646,8 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
                         logging.info("[main.py] Task is unsolvable and is "
                                     "recognized")
                         num_solved += 1
+                        logging.info(f"Task {test_task_idx+1} / "
+                                        f"{len(test_tasks)}: SOLVED")
             continue
 
         # Update solve-time metrics

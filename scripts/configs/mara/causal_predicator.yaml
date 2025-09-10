@@ -168,7 +168,7 @@ ENVS:
   domino:
     NAME: "pybullet_domino"
     FLAGS:
-      excluded_predicates: "InFront"
+      excluded_predicates: "InFront,DominoNotGlued"
       excluded_objects_in_state_str: "loc,rot"
       horizon: 200
       domino_initialize_at_finished_state: False
