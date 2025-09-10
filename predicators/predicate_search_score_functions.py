@@ -456,7 +456,7 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                 if CFG.env_has_impossible_goals:
                     predicated_unsolvable = "not dr-reachable" in str(e)
                     # check if the last state in the traj satisfies the goal
-                    task_unsolvable = goal.issubset(demo_atoms_sequence[-1])
+                    task_unsolvable = not goal.issubset(demo_atoms_sequence[-1])
                     if predicated_unsolvable and task_unsolvable:
                         expected_planning_time -= \
                            CFG.grammar_search_recognizing_unsolvable_goals_bonus
