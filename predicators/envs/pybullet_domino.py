@@ -202,7 +202,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                                   self._Upright_holds)
         self._Tilting = Predicate("Tilting", [self._domino_type],
                                   self._Tilting_holds)
-        self._StartBlock = Predicate("StartBlock", [self._domino_type],
+        self._InitialBlock = Predicate("InitialBlock", [self._domino_type],
                                      self._StartBlock_holds)
         self._MovableBlock = Predicate("MovableBlock", [self._domino_type],
                                        self._MovableBlock_holds)
@@ -258,7 +258,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             self._Toppled,
             self._Upright,
             self._Tilting,
-            self._StartBlock,
+            self._InitialBlock,
             self._MovableBlock,
             self._HandEmpty,
             self._Holding,

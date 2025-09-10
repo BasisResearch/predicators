@@ -39,7 +39,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         Holding = predicates["Holding"]
         InFront = predicates["InFront"]
         Upright = predicates["Upright"]
-        StartBlock = predicates["StartBlock"]
+        StartBlock = predicates["InitialBlock"]
         Toppled = predicates["Toppled"]
         Tilting = predicates["Tilting"]
         DominoAtPos = predicates["DominoAtPos"]

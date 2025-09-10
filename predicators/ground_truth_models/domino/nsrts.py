@@ -25,7 +25,7 @@ class PyBulletDominoGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         target_type = types["target"]
 
         # Predicates
-        StartBlock = predicates["StartBlock"]
+        StartBlock = predicates["InitialBlock"]
         HandEmpty = predicates["HandEmpty"]
         Holding = predicates["Holding"]
         Toppled = predicates["Toppled"]
