@@ -449,11 +449,17 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                     #               f"refinable_skeleton_not_found_prob: {refinable_skeleton_not_found_prob}, "
                     #               f"terminate_prob: {terminate_prob},\n"
                     #               f"num_nodes: {num_nodes}, ")
-            except (PlanningTimeout, PlanningFailure):
+            except (PlanningTimeout, PlanningFailure) as e:
                 # Note if we failed to find any skeleton, the next lines add
                 # the upper bound with refinable_skeleton_not_found_prob = 1.0,
                 # so no special action is required.
-                pass
+                if CFG.env_has_impossible_goals:
+                    predicated_unsolvable = "not dr-reachable" in str(e)
+                    # check if the last state in the traj satisfies the goal
+                    task_unsolvable = goal.issubset(demo_atoms_sequence[-1])
+                    if predicated_unsolvable and task_unsolvable:
+                        expected_planning_time -= \
+                           CFG.grammar_search_recognizing_unsolvable_goals_bonus
             # After exhausting the skeleton budget or timeout, we use this
             # probability to estimate a "worst-case" planning time, making the
             # soft assumption that some skeleton will eventually work.
