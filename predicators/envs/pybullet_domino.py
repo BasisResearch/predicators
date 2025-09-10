@@ -731,9 +731,9 @@ class PyBulletDominoEnv(PyBulletEnv):
         # Check if the domino has the pink color (target domino)
         eps = 1e-3
         return (cls._DominoGlued_holds(state, objects)) or (
-            abs(state.get(domino, "r") - cls.target_domino_color[0]) > eps and
-            abs(state.get(domino, "g") - cls.target_domino_color[1]) > eps and
-            abs(state.get(domino, "b") - cls.target_domino_color[2]) > eps)
+            abs(state.get(domino, "r") - cls.target_domino_color[0]) < eps and
+            abs(state.get(domino, "g") - cls.target_domino_color[1]) < eps and
+            abs(state.get(domino, "b") - cls.target_domino_color[2]) < eps)
 
     def _HandEmpty_holds(self, state: State,
                          objects: Sequence[Object]) -> bool:
@@ -2095,8 +2095,10 @@ if __name__ == "__main__":
 
     for task in tasks:
         env._reset_state(task.init)
-        # print(pformat(utils.abstract(task.init, env.predicates)), '\n')
+        print(f"init state: {pformat(utils.abstract(task.init, env.predicates))}\n")
+        print(f"goal: {task.goal}\n")
         print(pformat(task.init.pretty_str()), '\n')
+        breakpoint()
 
         for i in range(100):
             action = Action(
