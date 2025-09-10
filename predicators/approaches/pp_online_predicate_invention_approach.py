@@ -178,13 +178,13 @@ class OnlinePredicateInventionProcessPlanningApproach(
         else:
             base_candidates: Set[Predicate] = set()
 
-            noisy_but_complete_proposal = True
-            if noisy_but_complete_proposal:
-                base_candidates |= set(p for p in self._oracle_predicates
-                                       if p.name in [
-                                           #    "NoWaterSpilled",
-                                           "NoJugAtFaucetOrAtFaucetAndFilled"
-                                       ])
+            # noisy_but_complete_proposal = True
+            # if noisy_but_complete_proposal:
+            #     base_candidates |= set(p for p in self._oracle_predicates
+            #                            if p.name in [
+            #                                #    "NoWaterSpilled",
+            #                                "NoJugAtFaucetOrAtFaucetAndFilled"
+            #                            ])
 
             for i in range(CFG.vlm_predicator_num_proposal_batches):
                 base_candidates |= self._get_predicate_proposals_from_fm(
@@ -212,16 +212,24 @@ class OnlinePredicateInventionProcessPlanningApproach(
         # unconditional: (3 calls): spec -> primitive impl -> concept impl
         if proposal_method in ["transition_modeling", "subgoals"]:
             # 1. Get template
-            prompt_template_f = f"prompts/invent_{proposal_method}.outline"
+            successful_trajectory = traj_is_successful(trajectories[0], 
+                                                       self._train_tasks)
+            if successful_trajectory:
+                prompt_template_f = f"prompts/invent_{proposal_method}_solved"\
+                                    f".outline"
+            else:
+                prompt_template_f = f"prompts/invent_{proposal_method}_failed"\
+                                    f".outline"
             with open(prompt_template_f, "r") as f:
                 prompt_template = f.read()
 
             # 2. Fill and save the template
             pred_str = _get_predicates_str(self._get_current_predicates())
             types = set(o.type for o in set(trajectories[0].states[0]))
+            logging.info(f"Inventing predicates from only the offline dataset.")
             experience_str, state_str = _get_transition_str(
-                self._offline_dataset.trajectories +\
-                    self._online_dataset.trajectories,
+                self._offline_dataset.trajectories, # +\
+                    # self._online_dataset.trajectories,
                 self._train_tasks,
                 self._get_current_predicates(),
                 ite=self._online_learning_cycle,
@@ -949,6 +957,7 @@ def _get_transition_str(
     predicates: Set[Predicate],
     ite: int,
     max_num_examples: int = 10,
+    only_use_successful_trajs: bool = False,
 ) -> Tuple[str, str]:
     """Get the state before and after some actions.
 
@@ -959,11 +968,13 @@ def _get_transition_str(
     if CFG.rgb_observation:
         obs_dir = CFG.log_file + f"ite{ite}_obs/"
         os.makedirs(obs_dir, exist_ok=True)
-    successful_trajs = [
-        traj for traj in trajectories if traj_is_successful(traj, train_tasks)
-    ]
-    if successful_trajs:
-        trajectories = successful_trajs
+
+    if only_use_successful_trajs:
+        successful_trajs = [
+            traj for traj in trajectories if traj_is_successful(traj, train_tasks)
+        ]
+        if successful_trajs:
+            trajectories = successful_trajs
 
     # Segment the trajectories and get states before and after the actions.
     segmented_trajs = [

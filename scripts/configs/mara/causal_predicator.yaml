@@ -81,7 +81,7 @@ APPROACHES:
       num_online_learning_cycles: 10
       rgb_observation: False # for visual predicators
       # Testing predicate invention:
-      vlm_predicator_oracle_base_predicates: True # temp: if learn with oracle proposal work
+      vlm_predicator_oracle_base_predicates: False # temp: if learn with oracle proposal work
       vlm_predicator_oracle_learned_predicates: False
       vlm_predicator_use_grammar: True
       grammar_search_grammar_use_single_feature: False
@@ -169,7 +169,7 @@ ENVS:
     NAME: "pybullet_domino"
     FLAGS:
       excluded_predicates: "InFront,DominoNotGlued"
-      excluded_objects_in_state_str: "loc,rot"
+      excluded_objects_in_state_str: "loc,rot,angle,direction"
       horizon: 200
       domino_initialize_at_finished_state: False
       domino_use_domino_blocks_as_target: True
@@ -183,6 +183,7 @@ ENVS:
       env_has_impossible_goals: True
       num_train_tasks: 2
       max_initial_demos: 1
+      process_param_learning_use_empirical: True
   # fan:
   #   NAME: "pybullet_fan"
   #   FLAGS:
