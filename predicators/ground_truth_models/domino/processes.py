@@ -207,10 +207,10 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(InFront, [domino1, domino2]),
             LiftedAtom(Tilting, [domino2]),
         }
-        if CFG.domino_has_glued_dominos:
-            condition_at_start.update({
-                LiftedAtom(DominoNotGlued, [domino1]),
-            })
+        # if CFG.domino_has_glued_dominos:
+        #     condition_at_start.update({
+        #         LiftedAtom(DominoNotGlued, [domino1]),
+        #     })
         condition_overall = condition_at_start.copy()
         add_effects = {
             LiftedAtom(Tilting, [domino1]),
