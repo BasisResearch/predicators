@@ -1226,7 +1226,8 @@ class PyBulletDominoEnv(PyBulletEnv):
             num_pos_x: int,
             num_pos_y: int,
             log_debug: bool = False,
-            task_idx: Optional[int] = None) -> Optional[Dict]:
+            task_idx: Optional[int] = None,
+            is_training: bool = False) -> Optional[Dict]:
         """Grid-based sequence generator.
 
         This version implements straight moves and L-shaped 90-degree
@@ -1298,7 +1299,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                     ("straight", next_x, next_y, curr_rot, placements))
 
             # 2. Check for "turn" moves (2 dominoes).
-            if (total_domino_blocks - domino_count) >= 2:
+            # Skip turns if in training mode and the straight-only flag is set
+            if (total_domino_blocks - domino_count) >= 2 and not (is_training and CFG.domino_only_straight_sequence_in_training):
                 # turn_dir: -1 for left, 1 for right.
                 for turn_dir, name in [(-1, "turn_left"), (1, "turn_right")]:
                     # The first domino (d1) is one step straight on the grid.
@@ -1611,7 +1613,8 @@ class PyBulletDominoEnv(PyBulletEnv):
             possible_num_pivots=CFG.domino_train_num_pivots,
             num_pos_x=CFG.domino_train_num_pos_x,
             num_pos_y=CFG.domino_train_num_pos_y,
-            rng=self._train_rng)
+            rng=self._train_rng,
+            is_training=True)
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(
@@ -1621,7 +1624,8 @@ class PyBulletDominoEnv(PyBulletEnv):
             possible_num_pivots=CFG.domino_test_num_pivots,
             num_pos_x=CFG.domino_test_num_pos_x,
             num_pos_y=CFG.domino_test_num_pos_y,
-            rng=self._test_rng)
+            rng=self._test_rng,
+            is_training=False)
 
     def _make_tasks(self,
                     num_tasks: int,
@@ -1631,7 +1635,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                     num_pos_x: int,
                     num_pos_y: int,
                     rng: np.random.Generator,
-                    log_debug: bool = True) -> List[EnvironmentTask]:
+                    log_debug: bool = True,
+                    is_training: bool = False) -> List[EnvironmentTask]:
         tasks = []
         total_attempts = 0
         # Suppose we want to create M = 3 dominoes, N = 2 targets for each task
@@ -1711,7 +1716,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                         num_pos_x,
                         num_pos_y,
                         log_debug=log_debug,
-                        task_idx=i_task)
+                        task_idx=i_task,
+                        is_training=is_training)
                 else:
                     obj_dict = self._generate_domino_sequence(
                         rng,
@@ -2098,7 +2104,6 @@ if __name__ == "__main__":
         print(f"init state: {pformat(utils.abstract(task.init, env.predicates))}\n")
         print(f"goal: {task.goal}\n")
         print(pformat(task.init.pretty_str()), '\n')
-        breakpoint()
 
         for i in range(100):
             action = Action(

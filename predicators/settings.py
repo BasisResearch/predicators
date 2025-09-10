@@ -412,6 +412,7 @@ class GlobalSettings:
     domino_include_connected_predicate = False
     domino_has_glued_dominos = True
     domino_prune_actions = False  # Set to True to enable action pruning
+    domino_only_straight_sequence_in_training = True  # Generate only straight sequences during training
     domino_train_num_dominos = [2]
     domino_test_num_dominos = [3]
     domino_train_num_targets = [1]
