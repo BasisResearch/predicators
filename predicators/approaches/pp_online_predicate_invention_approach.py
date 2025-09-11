@@ -190,7 +190,6 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 base_candidates |= self._get_predicate_proposals_from_fm(
                     proposal_method, trajectories, i)
             # TODO: filter semantically equivalent predicate by evaluation
-            breakpoint()
         return base_candidates
 
     def _get_predicate_proposals_from_fm(
@@ -956,7 +955,7 @@ def _get_transition_str(
     train_tasks: List[Task],
     predicates: Set[Predicate],
     ite: int,
-    max_num_examples: int = 10,
+    max_num_trajs: int = 1,
     only_use_successful_trajs: bool = False,
 ) -> Tuple[str, str]:
     """Get the state before and after some actions.
@@ -975,6 +974,7 @@ def _get_transition_str(
         ]
         if successful_trajs:
             trajectories = successful_trajs
+    trajectories = trajectories[:max_num_trajs]
 
     # Segment the trajectories and get states before and after the actions.
     segmented_trajs = [
