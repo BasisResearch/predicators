@@ -149,6 +149,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         condition_at_start = {
             LiftedAtom(Holding, [robot, domino1]),
             LiftedAtom(PosClear, [target_pos]),
+            LiftedAtom(Upright, [domino2]),
         }
         if CFG.domino_include_connected_predicate:
             condition_at_start.update({
