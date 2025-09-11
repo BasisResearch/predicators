@@ -585,7 +585,10 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 seg_left.add(best_i)
                 pnad_unused.add(j)
                 for k, _ in ext_pairs:
-                    del mapping[k]
+                    try:
+                        del mapping[k]
+                    except KeyError:
+                        pass
 
         # Run the weighted search
         search(dict(current_map), set(range(len(seg_pre_list))),
