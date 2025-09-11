@@ -117,7 +117,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(DominoAtPos, [domino, position]),
             LiftedAtom(DominoAtRot, [domino, rotation]),
         }
-        ignore_effects = {Tilting, Upright, DominoAtRot}
+        ignore_effects = {Tilting, Upright, DominoAtRot, DominoAtPos, PosClear}
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
                                                    sigma=torch.tensor(0.1))
         pick_domino_process = EndogenousProcess("PickDomino",
@@ -149,6 +149,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         condition_at_start = {
             LiftedAtom(Holding, [robot, domino1]),
             LiftedAtom(PosClear, [target_pos]),
+            LiftedAtom(Upright, [domino2]),
         }
         if CFG.domino_include_connected_predicate:
             condition_at_start.update({

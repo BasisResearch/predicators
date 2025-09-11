@@ -920,8 +920,7 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         return False
 
-    @classmethod
-    def _DominoAtPos_holds(cls, state: State,
+    def _DominoAtPos_holds(self, state: State,
                            objects: Sequence[Object]) -> bool:
         """Check if domino is at a specific position."""
         domino, position = objects
@@ -932,14 +931,26 @@ class PyBulletDominoEnv(PyBulletEnv):
         domino_x = state.get(domino, "x")
         domino_y = state.get(domino, "y")
 
-        # Get the target position
-        target_x = state.get(position, "xx")
-        target_y = state.get(position, "yy")
+        # Closest position to the domino
+        closest_position = None
+        closest_distance = float('inf')
+        for pos in state.get_objects(self._position_type):
+            pos_x = state.get(pos, "xx")
+            pos_y = state.get(pos, "yy")
+            distance = np.sqrt((domino_x - pos_x)**2 + (domino_y - pos_y)**2)
+            if distance < closest_distance:
+                closest_distance = distance
+                closest_position = pos
+        return closest_position == position
 
-        # Check if domino is close enough to the target position
-        position_tolerance = cls.pos_gap * 0.5
-        return (abs(domino_x - target_x) <= position_tolerance
-                and abs(domino_y - target_y) <= position_tolerance)
+        # # Get the target position
+        # target_x = state.get(position, "xx")
+        # target_y = state.get(position, "yy")
+
+        # # Check if domino is close enough to the target position
+        # position_tolerance = cls.pos_gap * 0.5
+        # return (abs(domino_x - target_x) <= position_tolerance
+        #         and abs(domino_y - target_y) <= position_tolerance)
 
     @classmethod
     def _DominoAtRot_holds(cls, state: State,
