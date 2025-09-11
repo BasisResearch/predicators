@@ -1146,7 +1146,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
         if CFG.cluster_and_search_process_learner_llm_propose_top_conditions:
             condition_sets_per_pnad = self._llm_propose_condition_sets(
-                possible_atoms_per_pnad, pnads)
+                possible_atoms_per_pnad, pnads,
+                CFG.cluster_and_search_llm_propose_batch_size)
         elif CFG.cluster_and_search_process_learner_llm_rank_atoms:
             ranked_atoms_per_pnad = self._llm_rank_atoms(
                 possible_atoms_per_pnad, pnads)
@@ -1387,13 +1388,15 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             self,
             possible_atoms_per_pnad: List[Set[LiftedAtom]],
             pnads: Optional[List[PNAD]] = None,
-            k: Optional[int] = None) -> List[List[Set[LiftedAtom]]]:
+            k: Optional[int] = None,
+            batch_size: Optional[int] = None) -> List[List[Set[LiftedAtom]]]:
         """Propose top k condition sets for each PNAD using LLM.
 
         Args:
             possible_atoms_per_pnad: List of sets of possible precondition atoms, one set per PNAD
             pnads: Optional list of PNADs to get effect information from
             k: Number of condition sets to propose per PNAD
+            batch_size: Maximum number of PNADs to process in each LLM call
 
         Returns:
             List of lists of condition sets, where each condition set is a set of atoms
@@ -1404,6 +1407,39 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         if k is None:
             k = CFG.process_learner_llm_propose_conditions_k
 
+        # If batch_size is not specified or if we have fewer PNADs than the limit,
+        # process all at once (original behavior)
+        if (batch_size is None or 
+            len(possible_atoms_per_pnad) <= batch_size):
+            return self._llm_propose_condition_sets_batch(
+                possible_atoms_per_pnad, pnads, k)
+
+        # Otherwise, process in batches
+        all_condition_sets = []
+        num_pnads = len(possible_atoms_per_pnad)
+        
+        for start_idx in range(0, num_pnads, batch_size):
+            end_idx = min(start_idx + batch_size, num_pnads)
+            
+            # Extract batch data
+            batch_atoms = possible_atoms_per_pnad[start_idx:end_idx]
+            batch_pnads = pnads[start_idx:end_idx] if pnads else None
+            
+            # Process this batch
+            batch_condition_sets = self._llm_propose_condition_sets_batch(
+                batch_atoms, batch_pnads, k, batch_idx=start_idx//batch_size)
+            
+            all_condition_sets.extend(batch_condition_sets)
+        
+        return all_condition_sets
+    
+    def _llm_propose_condition_sets_batch(
+            self,
+            possible_atoms_per_pnad: List[Set[LiftedAtom]],
+            pnads: Optional[List[PNAD]] = None,
+            k: Optional[int] = None,
+            batch_idx: Optional[int] = None) -> List[List[Set[LiftedAtom]]]:
+        """Process a batch of PNADs for condition set proposal."""
         try:
             # Build process descriptions
             process_descriptions = self._build_process_descriptions(
@@ -1435,7 +1471,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             response = self._call_llm_with_template(
                 template_path, template_vars,
                 "condition_set_proposal_response_"\
-                f"{self.online_learning_cycle}.txt")
+                f"{self.online_learning_cycle}_{batch_idx}.txt")
 
             # Parse the response
             answer_text = self._parse_llm_answer_block(response)
@@ -1497,8 +1533,11 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
             # Log the results
             for i, sets in enumerate(condition_sets_per_pnad):
-                logging.debug(f"Process {i}: {pformat(pnads[i])}\n"
-                              f"Proposed {len(sets)} condition sets")
+                if pnads:
+                    logging.debug(f"Process {i}: {pformat(pnads[i])}\n"
+                                  f"Proposed {len(sets)} condition sets")
+                else:
+                    logging.debug(f"Process {i}: Proposed {len(sets)} condition sets")
                 for j, condition_set in enumerate(sets):
                     logging.debug(
                         f"  Set {j+1}: {sorted(condition_set, key=str)}")

@@ -620,6 +620,7 @@ class GlobalSettings:
     cluster_and_search_score_func_max_groundings = 10000
     cluster_and_search_var_count_weight = 0.1
     cluster_and_search_precon_size_weight = 0.01
+    cluster_and_search_llm_propose_batch_size = 4
     cluster_and_intersect_prune_low_data_pnads = False
     # If cluster_and_intersect_prune_low_data_pnads is set to True, PNADs must
     # have at least this fraction of the segments produced by the option that is
