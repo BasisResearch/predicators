@@ -657,6 +657,7 @@ class GlobalSettings:
     process_param_learning_use_empirical = False
     process_param_learning_patience = None
     process_param_learning_batch_size = 16
+    process_learning_use_empirical = False
     process_condition_search_prune_with_fp_count = False
     process_learning_learn_strength = True
     process_learning_process_per_physical_core = True  # Physical core vs logical core

@@ -81,7 +81,7 @@ APPROACHES:
       num_online_learning_cycles: 10
       rgb_observation: False # for visual predicators
       # Testing predicate invention:
-      vlm_predicator_oracle_base_predicates: False # temp: if learn with oracle proposal work
+      vlm_predicator_oracle_base_predicates: True # temp: if learn with oracle proposal work
       vlm_predicator_oracle_learned_predicates: False
       vlm_predicator_use_grammar: True
       grammar_search_grammar_use_single_feature: False
@@ -165,6 +165,19 @@ ENVS:
   #     grow_weak_pour_terminate_condition: True
   #     grow_place_option_no_sampler: True
   #     horizon: 400
+  # fan:
+  #   NAME: "pybullet_fan"
+  #   FLAGS:
+  #     excluded_predicates: "FanFacingSide,OppositeFan,Controls"
+  #     excluded_objects_in_state_str: "switch,loc"
+  #     process_planning_heuristic_weight: 10
+  #     terminate_on_goal_reached: True # maybe required for successful eval
+  #     max_num_steps_interaction_request: 200 # 300 should be enough
+  #     cluster_learning_one_effect_per_process: False
+  #     process_param_learning_use_empirical: True
+  #     process_learning_use_empirical: True
+  #     horizon: 500
+  #     grammar_search_task_planning_timeout: 5
   domino:
     NAME: "pybullet_domino"
     FLAGS:
@@ -182,20 +195,9 @@ ENVS:
       keep_failed_demos: True
       env_has_impossible_goals: True
       num_train_tasks: 2
-      max_initial_demos: 1
+      max_initial_demos: 2
       process_param_learning_use_empirical: True
-  # fan:
-  #   NAME: "pybullet_fan"
-  #   FLAGS:
-  #     excluded_predicates: "FanFacingSide,OppositeFan,Controls"
-  #     excluded_objects_in_state_str: "switch,loc"
-  #     process_planning_heuristic_weight: 10
-  #     terminate_on_goal_reached: True # maybe required for successful eval
-  #     max_num_steps_interaction_request: 200 # 300 should be enough
-  #     cluster_learning_one_effect_per_process: False
-  #     process_param_learning_use_empirical: True
-  #     horizon: 500
-  #     grammar_search_task_planning_timeout: 5
+      process_learning_use_empirical: True
 ARGS:
   - "debug"
   # - "use_gui"
