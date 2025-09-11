@@ -960,8 +960,7 @@ def _get_transition_str(
 ) -> Tuple[str, str]:
     """Get the state before and after some actions.
 
-    Prioritize successful
-    trajectories.
+    Prioritize successful trajectories.
     TODO: save images of the states.
     """
     if CFG.rgb_observation:
