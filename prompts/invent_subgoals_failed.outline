@@ -1,4 +1,4 @@
-Context: You are an expert AI planning researcher. Your task is to design task-specific predicates that can be used in a PDDL-like model to facilitate effective and efficient robot planning.
+Context: You are an expert AI planning researcher. Your task is to design task-specific predicates that can be used in a PDDL-like model to (a) detect unreachable goals early and (b) avoid futile plans.
 
 ### Types and Features
 The environment has the following types, each with some features:
@@ -11,23 +11,30 @@ You should consider the following existing predicates:
 {PREDICATES_IN_ENV}
 
 ### Robot’s Goal
-The robot's ultimate goal in this environment is to make the predicate {GOAL_PREDICATE} true.
+The robot's goal in this environment is to make the predicate {GOAL_PREDICATE} true.
 
 ### Demonstration Trajectory
-The demonstrator performs a sequence of actions, ending with the goal being achieved. The state-feature-action trajectory is provided below.
+The demonstrator performs a sequence of actions, which they thought would achieve the goal but did not. The state-feature-action trajectory is provided below.
 
 {EXPERIENCE_IN_ENV}
 
 ### Your Task
-Invent a small set of the *most essential* new predicates. These should be simple, primitive concepts that represent critical **subgoals**, **conditions for success**, or any conditions that must be maintained to prevent failure, even if failure is not shown in the demonstration.
+Invent a small set of the most essential new predicates whose primary purpose is to expose **blocking conditions**: primitive, easily-checkable properties that must hold somewhere in the environment for the goal to be achievable. If a blocking condition is true (or a required enabling condition is false), a rational planner can conclude that the goal is unreachable under the available actions.
+
+Prioritize:
+- Necessary preconditions for success that the demonstrator overlooked.
+- Irreversible or static properties (e.g., object class, material, color category) that make certain transitions impossible.
+- Local checks that can be evaluated from the provided object features without simulating dynamics.
+
+Note: Features such as colors may encode latent material or affordance classes. You may want to propose predicates that identify such classes when they impose hard constraints on feasible state transitions or interactions (e.g., non-deformable, too-heavy, low-friction, brittle, sealed, non-activatable).
 
 ### Constraints
-- Do *not* propose any new predicates that are purely pose-based (i.e., based on raw x, y, z coordinates or 'rot', 'tilt' angles).
-- Avoid composite predicates: Focus on proposing primitive predicates that capture a property or relation, instead of negations, conjunctions (AND) or disjunctions (OR) of existing or proposed predicates—these can be constructed later from primitives.
-- The assertion should be clear, precise, unambiguous, and describe the relationship or properties of the variables `?<var1>`, `?<var2>`, etc., if applicable. The assertion should be detailed enough for an external observer to confidently and correctly determine its truth value based on the provided state information.
-- Replace placeholders like <predicate1_name>, <var1>, etc., with actual names; <type1> and <obj1> with actual names and types from the state dictionary provided. *Do not* use types that are not present in the states (e.g., int or float).
-- Do not use bold or italic fonts in your response.
-- Respond only with the output section outlined below.
+- Do not propose predicates that are purely pose-based (raw x, y, z, yaw, roll, tilt, wrist, etc.).
+- Avoid composite predicates (no negation/AND/OR of other predicates). Each proposal should state one primitive property or relation that can be verified from the given features.
+- Assertions must be clear and unambiguous, describing the relationship or properties of variables ?<var1>, ?<var2>, etc., so an external observer could label truth values from the provided object features alone.
+- Replace placeholders like <predicate1_name>, <var1>, etc., with actual names; use only types present in the states.
+- Do not use bold or italic fonts.
+- Respond only with the Output section below.
 
 ### Output Format
 Provide your predicate proposals in the following format:
@@ -36,4 +43,3 @@ Provide your predicate proposals in the following format:
 # Predicate Proposals
 * <predicate1_name>(?<var1>:<type1>, ?<var2>:<type2>, ...): <The assertion this predicate is making>.
 * ...
-```
