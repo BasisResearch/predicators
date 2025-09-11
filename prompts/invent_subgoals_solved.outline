@@ -19,12 +19,15 @@ The demonstrator performs a sequence of actions, ending with the goal being achi
 {EXPERIENCE_IN_ENV}
 
 ### Your Task
-Invent a small set of the *most essential* new predicates. These should be simple, primitive concepts that represent critical **subgoals**, **conditions for success**, or any conditions that must be maintained to prevent failure, even if failure is not shown in the demonstration.
+Invent a small set of the *most essential* new predicates. These should be simple, primitive concepts that represent critical **subgoals**, **conditions for subgoals**, or any conditions that must be maintained to prevent failure, even if failure is not shown in the demonstration.
+
+Note:
+- If a continuous feature represents progress toward a subgoal, define exactly one terminal predicate for its end state (with a high threshold near the value observed when the goal is achieved) and ignore intermediate progress states.
 
 ### Constraints
 - Do *not* propose any new predicates that are purely pose-based (i.e., based on raw x, y, z coordinates or 'rot', 'tilt' angles).
-- Avoid composite predicates: Focus on proposing primitive predicates that capture a property or relation, instead of negations, conjunctions (AND) or disjunctions (OR) of existing or proposed predicates—these can be constructed later from primitives.
-- The assertion should be clear, precise, unambiguous, and describe the relationship or properties of the variables `?<var1>`, `?<var2>`, etc., if applicable. The assertion should be detailed enough for an external observer to confidently and correctly determine its truth value based on the provided state information.
+- Avoid composite predicates (no negation/AND/OR of other predicates). Each proposal should state one primitive property or relation that can be verified from the given features.
+- Assertions must be clear and unambiguous, describing the relationship or properties of variables ?<var1>, ?<var2>, etc., so an external observer could label truth values from the provided object features alone.
 - Replace placeholders like <predicate1_name>, <var1>, etc., with actual names; <type1> and <obj1> with actual names and types from the state dictionary provided. *Do not* use types that are not present in the states (e.g., int or float).
 - Do not use bold or italic fonts in your response.
 - Respond only with the output section outlined below.
