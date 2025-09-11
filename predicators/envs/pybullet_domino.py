@@ -203,7 +203,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         self._Tilting = Predicate("Tilting", [self._domino_type],
                                   self._Tilting_holds)
         self._InitialBlock = Predicate("InitialBlock", [self._domino_type],
-                                     self._StartBlock_holds)
+                                       self._StartBlock_holds)
         self._MovableBlock = Predicate("MovableBlock", [self._domino_type],
                                        self._MovableBlock_holds)
         self._HandEmpty = Predicate("HandEmpty", [self._robot_type],
@@ -285,7 +285,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     def goal_predicates(self) -> Set[Predicate]:
         # The goal is always to topple all targets
         return {self._Toppled}
-    
+
     @property
     def target_predicates(self) -> Set[Predicate]:
         target_predicates = {self._InFrontDirection}
@@ -304,7 +304,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             base_types.update({self._position_type, self._angle_type})
 
         return base_types
-    
+
     def is_task_solvable(self, task: EnvironmentTask) -> bool:
         """Check if the task is solvable."""
         if CFG.domino_has_glued_dominos:
@@ -553,11 +553,13 @@ class PyBulletDominoEnv(PyBulletEnv):
         for constraint in self.block_constraints:
             p.removeConstraint(constraint)
         self.block_constraints = []
-        
+
         # Restore normal dynamics to previously fixed dominoes
         for domino_id in self.fixed_domino_ids:
-            p.changeDynamics(domino_id, -1, mass=self.domino_mass, 
-                           physicsClientId=self._physics_client_id)
+            p.changeDynamics(domino_id,
+                             -1,
+                             mass=self.domino_mass,
+                             physicsClientId=self._physics_client_id)
         self.fixed_domino_ids = []
 
         if CFG.domino_some_dominoes_are_connected:
@@ -638,8 +640,11 @@ class PyBulletDominoEnv(PyBulletEnv):
                 if domino.id is not None:
                     if self._DominoGlued_holds(state, [domino]):
                         # Make this domino immovable by setting very high mass
-                        p.changeDynamics(domino.id, -1, mass=1e10, 
-                                       physicsClientId=self._physics_client_id)
+                        p.changeDynamics(
+                            domino.id,
+                            -1,
+                            mass=1e10,
+                            physicsClientId=self._physics_client_id)
                         self.fixed_domino_ids.append(domino.id)
 
     def _get_flat_rotation(self, flap_obj: Object) -> float:
@@ -731,9 +736,9 @@ class PyBulletDominoEnv(PyBulletEnv):
         # Check if the domino has the pink color (target domino)
         eps = 1e-3
         return (cls._DominoGlued_holds(state, objects)) or (
-            abs(state.get(domino, "r") - cls.target_domino_color[0]) < eps and
-            abs(state.get(domino, "g") - cls.target_domino_color[1]) < eps and
-            abs(state.get(domino, "b") - cls.target_domino_color[2]) < eps)
+            abs(state.get(domino, "r") - cls.target_domino_color[0]) < eps
+            and abs(state.get(domino, "g") - cls.target_domino_color[1]) < eps
+            and abs(state.get(domino, "b") - cls.target_domino_color[2]) < eps)
 
     def _HandEmpty_holds(self, state: State,
                          objects: Sequence[Object]) -> bool:
@@ -1098,13 +1103,14 @@ class PyBulletDominoEnv(PyBulletEnv):
         return not cls._DominoGlued_holds(state, objects)
 
     @classmethod
-    def _DominoGlued_holds(cls, state: State, objects: Sequence[Object]) -> bool:
+    def _DominoGlued_holds(cls, state: State,
+                           objects: Sequence[Object]) -> bool:
         """Check if a domino is glued (i.e., has the red glued color)."""
         eps = 1e-3
         r_val = state.get(objects[0], "r")
         g_val = state.get(objects[0], "g")
         b_val = state.get(objects[0], "b")
-        
+
         return (abs(r_val - cls.glued_domino_color[0]) < eps
                 and abs(g_val - cls.glued_domino_color[1]) < eps
                 and abs(b_val - cls.glued_domino_color[2]) < eps)
@@ -1112,13 +1118,14 @@ class PyBulletDominoEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Task Generation
 
-    def _generate_domino_sequence(self,
-                                  rng: np.random.Generator,
-                                  n_dominos: int,
-                                  n_targets: int,
-                                  n_pivots: int,
-                                  log_debug: bool = False,
-                                  task_idx: Optional[int] = None) -> Optional[Dict]:
+    def _generate_domino_sequence(
+            self,
+            rng: np.random.Generator,
+            n_dominos: int,
+            n_targets: int,
+            n_pivots: int,
+            log_debug: bool = False,
+            task_idx: Optional[int] = None) -> Optional[Dict]:
         """Generate a sequence of dominoes, targets, and pivots.
 
         Returns:
@@ -1146,7 +1153,13 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         # Place first domino (start block)
         obj_dict[self.dominos[domino_count]] = self._place_domino(
-            domino_count, x, y, rot, is_start_block=True, rng=rng, task_idx=task_idx)
+            domino_count,
+            x,
+            y,
+            rot,
+            is_start_block=True,
+            rng=rng,
+            task_idx=task_idx)
         domino_count += 1
 
         turn_choices = self.turn_choices.copy()
@@ -1311,7 +1324,9 @@ class PyBulletDominoEnv(PyBulletEnv):
 
             # 2. Check for "turn" moves (2 dominoes).
             # Skip turns if in training mode and the straight-only flag is set
-            if (total_domino_blocks - domino_count) >= 2 and not (is_training and CFG.domino_only_straight_sequence_in_training):
+            if (total_domino_blocks - domino_count) >= 2 and not (
+                    is_training
+                    and CFG.domino_only_straight_sequence_in_training):
                 # turn_dir: -1 for left, 1 for right.
                 for turn_dir, name in [(-1, "turn_left"), (1, "turn_right")]:
                     # The first domino (d1) is one step straight on the grid.
@@ -1445,12 +1460,22 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         return obj_dict
 
-    def _place_next_domino(
-            self, rng: np.random.Generator, obj_dict: Dict, x: float, y: float,
-            rot: float, gap: float, domino_count: int, pivot_count: int,
-            n_pivots: int, n_dominos: int, turn_choices: List[str],
-            just_placed_target: bool, just_turned_90: bool,
-            _in_bounds: Callable[[float, float], bool], task_idx: Optional[int] = None) -> Tuple:
+    def _place_next_domino(self,
+                           rng: np.random.Generator,
+                           obj_dict: Dict,
+                           x: float,
+                           y: float,
+                           rot: float,
+                           gap: float,
+                           domino_count: int,
+                           pivot_count: int,
+                           n_pivots: int,
+                           n_dominos: int,
+                           turn_choices: List[str],
+                           just_placed_target: bool,
+                           just_turned_90: bool,
+                           _in_bounds: Callable[[float, float], bool],
+                           task_idx: Optional[int] = None) -> Tuple:
         """Place the next domino in the sequence."""
         # Choose placement strategy
         choices = turn_choices.copy()
@@ -1477,10 +1502,16 @@ class PyBulletDominoEnv(PyBulletEnv):
             return self._place_straight_domino(rng, obj_dict, x, y, rot, gap,
                                                domino_count, _in_bounds)
 
-    def _place_straight_domino(
-            self, rng: np.random.Generator, obj_dict: Dict, x: float, y: float,
-            rot: float, gap: float, domino_count: int,
-            _in_bounds: Callable[[float, float], bool], task_idx: Optional[int] = None) -> Tuple:
+    def _place_straight_domino(self,
+                               rng: np.random.Generator,
+                               obj_dict: Dict,
+                               x: float,
+                               y: float,
+                               rot: float,
+                               gap: float,
+                               domino_count: int,
+                               _in_bounds: Callable[[float, float], bool],
+                               task_idx: Optional[int] = None) -> Tuple:
         """Place a domino straight ahead."""
         dy = gap * np.cos(rot)
         dx = gap * np.sin(rot)
@@ -1489,13 +1520,26 @@ class PyBulletDominoEnv(PyBulletEnv):
             return (False, x, y, rot, domino_count, 0, False)
 
         obj_dict[self.dominos[domino_count]] = self._place_domino(
-            domino_count, nx, ny, rot, is_start_block=False, rng=rng, task_idx=task_idx)
+            domino_count,
+            nx,
+            ny,
+            rot,
+            is_start_block=False,
+            rng=rng,
+            task_idx=task_idx)
         return (True, nx, ny, rot, domino_count + 1, 0, False)
 
-    def _place_turn90_domino(
-            self, rng: np.random.Generator, obj_dict: Dict, x: float, y: float,
-            rot: float, gap: float, domino_count: int, n_dominos: int,
-            _in_bounds: Callable[[float, float], bool], task_idx: Optional[int] = None) -> Tuple:
+    def _place_turn90_domino(self,
+                             rng: np.random.Generator,
+                             obj_dict: Dict,
+                             x: float,
+                             y: float,
+                             rot: float,
+                             gap: float,
+                             domino_count: int,
+                             n_dominos: int,
+                             _in_bounds: Callable[[float, float], bool],
+                             task_idx: Optional[int] = None) -> Tuple:
         """Place dominoes in a 90-degree turn."""
         # Check we have enough dominos left
         if domino_count + 1 >= n_dominos:
@@ -1507,7 +1551,13 @@ class PyBulletDominoEnv(PyBulletEnv):
                 return (False, x, y, rot, domino_count, 0, False)
 
             obj_dict[self.dominos[domino_count]] = self._place_domino(
-                domino_count, nx, ny, rot, is_start_block=False, rng=rng, task_idx=task_idx)
+                domino_count,
+                nx,
+                ny,
+                rot,
+                is_start_block=False,
+                rng=rng,
+                task_idx=task_idx)
             return (True, nx, ny, rot, domino_count + 1, 0, True)
         else:
             # Turn 45° twice
@@ -1547,13 +1597,26 @@ class PyBulletDominoEnv(PyBulletEnv):
                 return (False, x, y, rot, domino_count, 0, False)
 
             obj_dict[self.dominos[domino_count]] = self._place_domino(
-                domino_count, nx, ny, rot, is_start_block=False, rng=rng, task_idx=task_idx)
+                domino_count,
+                nx,
+                ny,
+                rot,
+                is_start_block=False,
+                rng=rng,
+                task_idx=task_idx)
             return (True, nx, ny, rot, domino_count + 1, 0, True)
 
-    def _place_pivot180_domino(
-            self, rng: np.random.Generator, obj_dict: Dict, x: float, y: float,
-            rot: float, gap: float, domino_count: int, pivot_count: int,
-            _in_bounds: Callable[[float, float], bool], task_idx: Optional[int] = None) -> Tuple:
+    def _place_pivot180_domino(self,
+                               rng: np.random.Generator,
+                               obj_dict: Dict,
+                               x: float,
+                               y: float,
+                               rot: float,
+                               gap: float,
+                               domino_count: int,
+                               pivot_count: int,
+                               _in_bounds: Callable[[float, float], bool],
+                               task_idx: Optional[int] = None) -> Tuple:
         """Place a pivot and domino with 180-degree flip."""
         pivot_dir = rng.choice([-1, 1])
         side_offset = self.pivot_width / 2
@@ -1593,10 +1656,17 @@ class PyBulletDominoEnv(PyBulletEnv):
         return (True, back_x, back_y, new_rot, domino_count + 1, pivot_count,
                 False)
 
-    def _place_next_target(
-            self, rng: np.random.Generator, obj_dict: Dict, x: float, y: float,
-            rot: float, gap: float, domino_count: int, target_count: int,
-            _in_bounds: Callable[[float, float], bool], task_idx: Optional[int] = None) -> Tuple:
+    def _place_next_target(self,
+                           rng: np.random.Generator,
+                           obj_dict: Dict,
+                           x: float,
+                           y: float,
+                           rot: float,
+                           gap: float,
+                           domino_count: int,
+                           target_count: int,
+                           _in_bounds: Callable[[float, float], bool],
+                           task_idx: Optional[int] = None) -> Tuple:
         """Place the next target in the sequence."""
         dy = gap * np.cos(rot)
         dx = gap * np.sin(rot)
@@ -1607,7 +1677,13 @@ class PyBulletDominoEnv(PyBulletEnv):
         if CFG.domino_use_domino_blocks_as_target:
             # Place a pink domino as target
             obj_dict[self.dominos[domino_count]] = self._place_domino(
-                domino_count, nx, ny, rot, is_target_block=True, rng=rng, task_idx=task_idx)
+                domino_count,
+                nx,
+                ny,
+                rot,
+                is_target_block=True,
+                rng=rng,
+                task_idx=task_idx)
             domino_count += 1
         else:
             # Place a regular target
@@ -1799,9 +1875,9 @@ class PyBulletDominoEnv(PyBulletEnv):
                     should_be_glued = False
                 else:
                     # Other tasks: use random sampling with glued_percentage
-                    should_be_glued = (rng is not None and 
+                    should_be_glued = (rng is not None and
                                        rng.random() < self.glued_percentage)
-            
+
             if should_be_glued:
                 color = self.glued_domino_color
             else:
@@ -2112,7 +2188,9 @@ if __name__ == "__main__":
 
     for task in tasks:
         env._reset_state(task.init)
-        print(f"init state: {pformat(utils.abstract(task.init, env.predicates))}\n")
+        print(
+            f"init state: {pformat(utils.abstract(task.init, env.predicates))}\n"
+        )
         print(f"goal: {task.goal}\n")
         print(pformat(task.init.pretty_str()), '\n')
 
@@ -2121,4 +2199,3 @@ if __name__ == "__main__":
                 np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)
             time.sleep(0.01)
-

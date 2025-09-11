@@ -10,10 +10,10 @@ from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Sequence, \
 
 import dill as pkl
 import PIL
-import wandb
 from gym.spaces import Box
 from PIL import ImageDraw, ImageFont
 
+import wandb
 from predicators import utils
 from predicators.approaches.grammar_search_invention_approach import \
     _create_grammar, _GivenPredicateGrammar
@@ -211,7 +211,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         # unconditional: (3 calls): spec -> primitive impl -> concept impl
         if proposal_method in ["transition_modeling", "subgoals"]:
             # 1. Get template
-            successful_trajectory = traj_is_successful(trajectories[0], 
+            successful_trajectory = traj_is_successful(trajectories[0],
                                                        self._train_tasks)
             if successful_trajectory:
                 prompt_template_f = f"prompts/invent_{proposal_method}_solved"\
@@ -225,10 +225,11 @@ class OnlinePredicateInventionProcessPlanningApproach(
             # 2. Fill and save the template
             pred_str = _get_predicates_str(self._get_current_predicates())
             types = set(o.type for o in set(trajectories[0].states[0]))
-            logging.info(f"Inventing predicates from only the offline dataset.")
+            logging.info(
+                f"Inventing predicates from only the offline dataset.")
             experience_str, state_str = _get_transition_str(
-                self._offline_dataset.trajectories, # +\
-                    # self._online_dataset.trajectories,
+                self._offline_dataset.trajectories,  # +\
+                # self._online_dataset.trajectories,
                 self._train_tasks,
                 self._get_current_predicates(),
                 ite=self._online_learning_cycle,
@@ -969,7 +970,8 @@ def _get_transition_str(
 
     if only_use_successful_trajs:
         successful_trajs = [
-            traj for traj in trajectories if traj_is_successful(traj, train_tasks)
+            traj for traj in trajectories
+            if traj_is_successful(traj, train_tasks)
         ]
         if successful_trajs:
             trajectories = successful_trajs

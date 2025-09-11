@@ -397,8 +397,9 @@ class PyBulletFanEnv(PyBulletEnv):
 
     @property
     def target_predicates(self) -> Set[Predicate]:
-        return {self._FanFacingSide, 
-        # self._OppositeFan
+        return {
+            self._FanFacingSide,
+            # self._OppositeFan
         }
 
     @property

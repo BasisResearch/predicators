@@ -43,8 +43,8 @@ from pathlib import Path
 from typing import Any, List, Optional, Sequence, Tuple, Union
 
 import dill as pkl
-import wandb
 
+import wandb
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout, \
     create_approach
@@ -401,7 +401,7 @@ def _generate_interaction_results(
                 env.render, request, teacher)
         elif CFG.make_interaction_videos:
             monitor = utils.VideoMonitor(env.render)
-        
+
         # Used to check if our think the approach is unsolvable.
         if CFG.env_has_impossible_goals:
             planning_explorer_generated_a_plan = True
@@ -644,10 +644,10 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
                 if not task_solvable:
                     if "not dr-reachable" in str(e):
                         logging.info("[main.py] Task is unsolvable and is "
-                                    "recognized")
+                                     "recognized")
                         num_solved += 1
                         logging.info(f"Task {test_task_idx+1} / "
-                                        f"{len(test_tasks)}: SOLVED")
+                                     f"{len(test_tasks)}: SOLVED")
             continue
 
         # Update solve-time metrics

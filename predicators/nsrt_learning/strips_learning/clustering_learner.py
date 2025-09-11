@@ -16,9 +16,9 @@ from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Set, \
 
 import multiprocess as mp
 import psutil
-import wandb
 from pathos.multiprocessing import ProcessingPool as Pool
 
+import wandb
 from predicators import utils
 from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import BaseSTRIPSLearner

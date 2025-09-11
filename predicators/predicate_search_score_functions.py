@@ -420,7 +420,8 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                           metrics) in enumerate(generator):
                     assert goal.issubset(plan_atoms_sequence[-1])
                     # Estimate the probability that this skeleton is refinable.
-                    task_unsolvable = not goal.issubset(demo_atoms_sequence[-1])
+                    task_unsolvable = not goal.issubset(
+                        demo_atoms_sequence[-1])
                     if CFG.env_has_impossible_goals and task_unsolvable:
                         refinement_prob = 0.0
                     else:
@@ -460,7 +461,8 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                 if CFG.env_has_impossible_goals:
                     predicated_unsolvable = "not dr-reachable" in str(e)
                     # check if the last state in the traj satisfies the goal
-                    task_unsolvable = not goal.issubset(demo_atoms_sequence[-1])
+                    task_unsolvable = not goal.issubset(
+                        demo_atoms_sequence[-1])
                     if predicated_unsolvable and task_unsolvable:
                         expected_planning_time -= \
                            CFG.grammar_search_recognizing_unsolvable_goals_bonus
