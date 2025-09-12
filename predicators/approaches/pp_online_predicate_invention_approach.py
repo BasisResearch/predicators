@@ -629,7 +629,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
                     for atom in best_compatible_process.add_effects
                     | best_compatible_process.delete_effects
                 }
-                if candidate_predicates.issubset(effect_pred):
+                if any(effect_p in candidate_predicates for effect_p in 
+                        effect_pred):
                     for _, (_, condition, _, proc) in enumerate(results):
                         condition_pred = {atom.predicate for atom in condition}
                         if condition_pred.issubset(candidate_predicates):

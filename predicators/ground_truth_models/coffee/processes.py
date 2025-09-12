@@ -331,11 +331,13 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
         option_vars = [robot]
         option = NoOp
         delay_distribution = ConstantDelay(1)
+        ignore_effects = {NotAboveCup, JugAboveCup}
         noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
                                          set(), set(),
                                          set(), delay_distribution,
                                          torch.tensor(1.0), option,
-                                         option_vars, null_sampler)
+                                         option_vars, null_sampler,
+                                         ignore_effects)
         processes.add(noop_process)
 
         # --- Exogenous Processes ---
