@@ -19,10 +19,12 @@ The demonstrator performs a sequence of actions, ending with the goal being achi
 {EXPERIENCE_IN_ENV}
 
 ### Your Task
-Invent a small set of the *most essential* new predicates. These should be simple, primitive concepts that represent critical **subgoals**, **conditions for subgoals**, or any conditions that must be maintained to prevent failure, even if failure is not shown in the demonstration.
+Invent a small set of the *most essential* new predicates. These should be simple, primitive concepts that represent critical **subgoals**, **conditions for subgoals**, or *any conditions that must be maintained to prevent failure, even if failure is not shown in the demonstration*.
 
 Note:
 - If a continuous feature represents progress toward a subgoal, define exactly one terminal predicate for its end state (with a high threshold near the value observed when the goal is achieved) and ignore intermediate progress states.
+- Geometry/affordance guardrail: Do not invent predicates that rely on pose or derived geometry (distance, proximity, alignment, path, line-of-sight, “within θ”, abs(·) < τ), or on capabilities (Can*, AbleTo*, Near*), unless such relations are already provided as explicit non-pose features.
+- There maybe some risk or violation condition that must remain safe for the goal to succeed, even if failure is not shown. For such features include a maintenance predicate that keeps it within a safe bound (e.g., T_low ≤ 0.1 for normalized features).
 
 ### Constraints
 - Do *not* propose any new predicates that are purely pose-based (i.e., based on raw x, y, z coordinates or 'rot', 'tilt' angles).
