@@ -26,7 +26,7 @@ X_LIM = (-5, 110)
 # Groups over which to take mean/std.
 GROUPS = [
     "ENV", "APPROACH", "EXCLUDED_PREDICATES", "EXPERIMENT_ID",
-    "ONLINE_LEARNING_CYCLE"
+    # "ONLINE_LEARNING_CYCLE"
 ]
 
 # All column names and keys to load into the pandas tables.
@@ -40,8 +40,8 @@ COLUMN_NAMES_AND_KEYS = [
     ("AVG_NODES_CREATED", "avg_num_nodes_created"),
     ("LEARNING_TIME", "learning_time"),
     ("PERC_SOLVED", "perc_solved"),
-    ("ONLINE_LEARNING_CYCLE",
-     "cycle"),  # add to select model at specific cycle
+    # ("ONLINE_LEARNING_CYCLE",
+    #  "cycle"),  # add to select model at specific cycle
     ("AVG_NUM_FAILED_PLAN", "avg_num_skeletons_optimized"),
 ]
 
@@ -71,8 +71,7 @@ BAR_GROUPS = [
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle_invention" in v)),
     # ("oracle explore",
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle_explore" in v)),
-    # ("Ours", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "nsp-nl" in v)),
-    # (
+    ("Ours", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)),
     #     "MAPLE",
     #     lambda df: (df["EXPERIMENT_ID"].apply(lambda v: "maple_q" in v)) &
     #     # (df["ONLINE_LEARNING_CYCLE"].apply(lambda v: "19" == v))

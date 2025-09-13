@@ -78,40 +78,48 @@ ENVS:
   #     horizon: 150
   #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
   #     boil_goal_simple_human_happy: True
-  # boil:
-  #   NAME: "pybullet_boil"
-  #   FLAGS:
-  #     excluded_objects_in_state_str: "switch"
-  #     max_num_steps_option_rollout: 50
-  #     horizon: 500 # 300 should be enough, 50 is good during dev
-  #     # boil_goal: "task_completed" # This option isn't fully ready because
-  #       # with the current only_learn_exogenous_processes setting, it won't try
-  #       # to learn the precondition for the DeclareComplete option.
-  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
-  #     # boil_goal: "simple"
-  #     boil_require_jug_full_to_heatup: True
-  # coffee:
-  #   NAME: "pybullet_coffee"
-  #   FLAGS:
-  #     excluded_predicates: "Twisting,PressingButton,NotSameCup,RobotAboveCup"
-  #     coffee_rotated_jug_ratio: 0
-  #     coffee_num_cups_train: [1]
-  #     coffee_machine_have_light_bar: False
-  #     coffee_move_back_after_place_and_push: True
-  #     coffee_machine_has_plug: False
-  #     coffee_combined_move_and_twist_policy: True
-  #     coffee_use_pixelated_jug: True
-  #     coffee_fill_jug_gradually: True
-  #     max_num_steps_option_rollout: 100
-  # grow:
-  #   NAME: "pybullet_grow"
-  #   FLAGS:
-  #     excluded_predicates: "HandTilted"
-  #     coffee_use_pixelated_jug: True
-  #     max_num_steps_option_rollout: 50
-  #     grow_weak_pour_terminate_condition: True
-  #     grow_place_option_no_sampler: True
-  #     horizon: 400
+  coffee:
+    NAME: "pybullet_coffee"
+    FLAGS:
+      excluded_predicates: "Twisting,PressingButton,NotSameCup,RobotAboveCup"
+      coffee_rotated_jug_ratio: 0
+      coffee_num_cups_train: [1]
+      coffee_machine_have_light_bar: False
+      coffee_move_back_after_place_and_push: True
+      coffee_machine_has_plug: False
+      coffee_combined_move_and_twist_policy: True
+      coffee_use_pixelated_jug: True
+      coffee_fill_jug_gradually: True
+      max_num_steps_option_rollout: 100
+  grow:
+    NAME: "pybullet_grow"
+    FLAGS:
+      excluded_predicates: "HandTilted"
+      coffee_use_pixelated_jug: True
+      max_num_steps_option_rollout: 50
+      grow_weak_pour_terminate_condition: True
+      grow_place_option_no_sampler: True
+      horizon: 400
+  boil:
+    NAME: "pybullet_boil"
+    FLAGS:
+      excluded_objects_in_state_str: "switch"
+      max_num_steps_option_rollout: 50
+      horizon: 500 # 300 should be enough, 50 is good during dev
+      # boil_goal: "task_completed" # This option isn't fully ready because
+        # with the current only_learn_exogenous_processes setting, it won't try
+        # to learn the precondition for the DeclareComplete option.
+      boil_goal: "human_happy" # Can also be "task_completed", "simple"
+      # boil_goal: "simple"
+      boil_require_jug_full_to_heatup: True
+  fan:
+    NAME: "pybullet_fan"
+    FLAGS:
+      excluded_objects_in_state_str: "switch"
+      terminate_on_goal_reached: True # maybe required for successful eval
+      process_planning_heuristic_weight: 10.0
+      terminate_on_goal_reached: True # maybe required for successful eval
+      horizon: 500
   domino:
     NAME: "pybullet_domino"
     FLAGS:
@@ -126,14 +134,6 @@ ENVS:
       domino_has_glued_dominos: True
       keep_failed_demos: True
       env_has_impossible_goals: True
-  # fan:
-  #   NAME: "pybullet_fan"
-  #   FLAGS:
-  #     excluded_objects_in_state_str: "switch"
-  #     terminate_on_goal_reached: True # maybe required for successful eval
-  #     process_planning_heuristic_weight: 10.0
-  #     terminate_on_goal_reached: True # maybe required for successful eval
-  #     horizon: 500
 ARGS:
   - "debug"
   # - "use_gui"
@@ -173,4 +173,4 @@ FLAGS:
   log: 'logs/'
   no_repeated_arguments_in_grounding: True
 START_SEED: 0
-NUM_SEEDS: 1
+NUM_SEEDS: 3
