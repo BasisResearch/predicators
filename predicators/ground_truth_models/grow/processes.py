@@ -95,10 +95,12 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
                                                    sigma=torch.tensor(0.1))
+        ignore_effects = {Holding, HandEmpty, JugOnTable}
         place_jug_on_table_process = EndogenousProcess(
             "PlaceJugOnTable", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, null_sampler,
+            ignore_effects)
         processes.add(place_jug_on_table_process)
 
         # Pour from not-above-cup
@@ -161,6 +163,7 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         option = NoOp
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
                                                    sigma=torch.tensor(0.1))
+        ignore_effects = {JugAboveCup, NotAboveCup}
         noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
                                          set(), set(),
                                          set(), delay_distribution,

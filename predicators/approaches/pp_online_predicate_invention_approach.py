@@ -621,6 +621,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
             none, remove the none # candidates from the top conditions.
             # Remove parts that are outside of candidates predicates
             """
+            new_predicates = candidate_predicates - self._initial_predicates
             remaining_exogenous_processes = set()
             for _, results in self._proc_name_to_results.items():
                 best_compatible_process = results[0][3]
@@ -633,6 +634,9 @@ class OnlinePredicateInventionProcessPlanningApproach(
                         effect_pred):
                     for _, (_, condition, _, proc) in enumerate(results):
                         condition_pred = {atom.predicate for atom in condition}
+                        if new_predicates.issubset(condition_pred):
+                            best_compatible_process = proc
+                            break
                         if condition_pred.issubset(candidate_predicates):
                             # If the condition is a subset of the candidate
                             # predicates, then we can use this process.

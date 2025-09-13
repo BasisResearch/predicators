@@ -1150,7 +1150,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         if CFG.cluster_and_search_process_learner_llm_propose_top_conditions:
             condition_sets_per_pnad = self._llm_propose_condition_sets(
                 possible_atoms_per_pnad, pnads,
-                CFG.cluster_and_search_llm_propose_batch_size)
+                # batch_size=CFG.cluster_and_search_llm_propose_batch_size
+                )
         elif CFG.cluster_and_search_process_learner_llm_rank_atoms:
             ranked_atoms_per_pnad = self._llm_rank_atoms(
                 possible_atoms_per_pnad, pnads)
@@ -1248,7 +1249,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             self.online_learning_cycle is not None else CFG.seed
         response = self._llm.sample_completions(prompt,
                                                 imgs=None,
-                                                temperature=0,
+                                                temperature=0.1,
                                                 seed=seed)[0]
 
         # Save debug info

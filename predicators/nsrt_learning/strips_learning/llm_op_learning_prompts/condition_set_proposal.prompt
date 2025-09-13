@@ -7,6 +7,7 @@ Key principles for proposing condition sets:
 2. **Physical Constraints**: Include atoms representing physical constraints or requirements 
 3. **Domain Knowledge**: Use common sense about how processes work in the real world
 4. **State Dependencies**: Include atoms that represent prerequisite states for the effects
+5. Terminal-Progress Exclusion: If an add effect is a terminal/complete state within a progression family, do not include any intermediate/progress predicates from the same family as preconditions (e.g., Partially*, Started, InProgress, HasSome).
 
 Available predicates in the candidate atoms are:
 {PREDICATE_LISTING}
@@ -20,14 +21,14 @@ For each process, I will provide:
 
 Please propose as many likely condition sets as you deem suitable for each process. Each condition set should be a coherent combination of atom indices that together form a plausible set of preconditions. It's possible that there is a large number of atoms in a condition set in some cases.
 
-Think step by step if it’s helpful before outputting your response, formatted as:
+Think step by step if it’s helpful before outputting your final response, formatted strictly as:
 <answer>
 Process 0:
-Set 1: [2,0,4]
-Set 2: [1,3,0,5] 
-Set 3: [2,4]
+Set 1: [2, 0, 4]
+Set 2: [1, 3, 0, 5] 
+Set 3: [2, 4]
 Process 1:
-Set 1: [1,3]
-Set 2: [0,1,3]
+Set 1: [1, 3]
+Set 2: [0, 1, 3]
 ...
 </answer>
