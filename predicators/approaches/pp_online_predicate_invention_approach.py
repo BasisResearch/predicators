@@ -10,10 +10,10 @@ from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Sequence, \
 
 import dill as pkl
 import PIL
+import wandb
 from gym.spaces import Box
 from PIL import ImageDraw, ImageFont
 
-import wandb
 from predicators import utils
 from predicators.approaches.grammar_search_invention_approach import \
     _create_grammar, _GivenPredicateGrammar
@@ -630,8 +630,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
                     for atom in best_compatible_process.add_effects
                     | best_compatible_process.delete_effects
                 }
-                if any(effect_p in candidate_predicates for effect_p in 
-                        effect_pred):
+                if any(effect_p in candidate_predicates
+                       for effect_p in effect_pred):
                     for _, (_, condition, _, proc) in enumerate(results):
                         condition_pred = {atom.predicate for atom in condition}
                         if new_predicates.issubset(condition_pred):

@@ -16,9 +16,9 @@ from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Set, \
 
 import multiprocess as mp
 import psutil
+import wandb
 from pathos.multiprocessing import ProcessingPool as Pool
 
-import wandb
 from predicators import utils
 from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import BaseSTRIPSLearner
@@ -1149,9 +1149,10 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
         if CFG.cluster_and_search_process_learner_llm_propose_top_conditions:
             condition_sets_per_pnad = self._llm_propose_condition_sets(
-                possible_atoms_per_pnad, pnads,
+                possible_atoms_per_pnad,
+                pnads,
                 # batch_size=CFG.cluster_and_search_llm_propose_batch_size
-                )
+            )
         elif CFG.cluster_and_search_process_learner_llm_rank_atoms:
             ranked_atoms_per_pnad = self._llm_rank_atoms(
                 possible_atoms_per_pnad, pnads)
@@ -1413,30 +1414,29 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
         # If batch_size is not specified or if we have fewer PNADs than the limit,
         # process all at once (original behavior)
-        if (batch_size is None or 
-            len(possible_atoms_per_pnad) <= batch_size):
+        if (batch_size is None or len(possible_atoms_per_pnad) <= batch_size):
             return self._llm_propose_condition_sets_batch(
                 possible_atoms_per_pnad, pnads, k)
 
         # Otherwise, process in batches
         all_condition_sets = []
         num_pnads = len(possible_atoms_per_pnad)
-        
+
         for start_idx in range(0, num_pnads, batch_size):
             end_idx = min(start_idx + batch_size, num_pnads)
-            
+
             # Extract batch data
             batch_atoms = possible_atoms_per_pnad[start_idx:end_idx]
             batch_pnads = pnads[start_idx:end_idx] if pnads else None
-            
+
             # Process this batch
             batch_condition_sets = self._llm_propose_condition_sets_batch(
-                batch_atoms, batch_pnads, k, batch_idx=start_idx//batch_size)
-            
+                batch_atoms, batch_pnads, k, batch_idx=start_idx // batch_size)
+
             all_condition_sets.extend(batch_condition_sets)
-        
+
         return all_condition_sets
-    
+
     def _llm_propose_condition_sets_batch(
             self,
             possible_atoms_per_pnad: List[Set[LiftedAtom]],
@@ -1541,7 +1541,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                     logging.debug(f"Process {i}: {pformat(pnads[i])}\n"
                                   f"Proposed {len(sets)} condition sets")
                 else:
-                    logging.debug(f"Process {i}: Proposed {len(sets)} condition sets")
+                    logging.debug(
+                        f"Process {i}: Proposed {len(sets)} condition sets")
                 for j, condition_set in enumerate(sets):
                     logging.debug(
                         f"  Set {j+1}: {sorted(condition_set, key=str)}")

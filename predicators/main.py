@@ -43,8 +43,8 @@ from pathlib import Path
 from typing import Any, List, Optional, Sequence, Tuple, Union
 
 import dill as pkl
-
 import wandb
+
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout, \
     create_approach
