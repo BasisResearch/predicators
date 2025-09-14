@@ -152,8 +152,8 @@ ENVS:
       domino_has_glued_dominos: True
       keep_failed_demos: True
       env_has_impossible_goals: True
-      num_train_tasks: 2
-      max_initial_demos: 2
+      # num_train_tasks: 2
+      # max_initial_demos: 2
       domino_oracle_knows_glued_dominos: True
 ARGS:
   - "debug"
