@@ -77,7 +77,10 @@ BAR_GROUPS = [
     #     # (df["ONLINE_LEARNING_CYCLE"].apply(lambda v: "19" == v))
     #     (df["ONLINE_LEARNING_CYCLE"].apply(lambda v: "15" == v))  # blocks
     # ),
-    ("ViLa", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "vlm_plan" in v)),
+    ("ViLa\n(ZS)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
+            "vlm_plan_zero_shot" in v)),
+    ("ViLa\n(FS)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
+            "vlm_plan_few_shot" in v)),
     # ("Sym. pred.",
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "interpret" in v)),
     # # ("ablate select obj.",
