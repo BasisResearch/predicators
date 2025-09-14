@@ -60,7 +60,8 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
             train_print_every=CFG.pytorch_train_print_every,
             n_iter_no_change=CFG.active_sampler_learning_n_iter_no_change,
             num_lookahead_samples=CFG.
-            active_sampler_learning_num_lookahead_samples)
+            active_sampler_learning_num_lookahead_samples,
+            predicates=self._get_current_predicates())
 
     @classmethod
     def get_name(cls) -> str:
@@ -180,10 +181,7 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
             self._last_seen_segment_traj_idx += 1
             for seg_i, segment in enumerate(segmented_traj):
                 s = segment.states[0]
-                try:
-                    goal = new_traj_goals[traj_i]
-                except:
-                    breakpoint()
+                goal = new_traj_goals[traj_i]
                 o = segment.get_option()
                 ns = segment.states[-1]
                 reward = 1.0 if goal.issubset(segment.final_atoms) else 0.0

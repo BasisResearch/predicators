@@ -29,7 +29,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from predicators import utils
 from predicators.settings import CFG
 from predicators.structs import Array, GroundAtom, MaxTrainIters, Object, \
-    State, _GroundNSRT, _Option
+    State, _GroundNSRT, _Option, Predicate
 
 torch.use_deterministic_algorithms(mode=True)  # type: ignore
 torch.set_num_threads(1)  # fixes libglomp error on supercloud
@@ -1334,7 +1334,8 @@ class MapleQFunction(MLPRegressor):
                  discount: float = 0.8,
                  num_lookahead_samples: int = 5,
                  replay_buffer_max_size: int = 1000000,
-                 replay_buffer_sample_with_replacement: bool = True) -> None:
+                 replay_buffer_sample_with_replacement: bool = True,
+                 predicates: Set[Predicate] = set()) -> None:
         super().__init__(seed, hid_sizes, max_train_iters, clip_gradients,
                          clip_value, learning_rate, weight_decay,
                          use_torch_gpu, train_print_every, n_iter_no_change)
@@ -1344,6 +1345,7 @@ class MapleQFunction(MLPRegressor):
         self._replay_buffer_max_size = replay_buffer_max_size
         self._replay_buffer_sample_with_replacement = \
             replay_buffer_sample_with_replacement
+        self._predicates = predicates
 
         # Updated once, after the first round of learning.
         self._ordered_objects: List[Object] = []
@@ -1584,6 +1586,7 @@ class MapleQFunction(MLPRegressor):
         """
         # Create all applicable ground high-level actions (NSRTs or processes).
         state_objs = set(state)
+        abs_state = utils.abstract(state, self._predicates)
 
         def is_applicable(ground_hla: Any) -> bool:
             # Objects subset check
@@ -1594,7 +1597,7 @@ class MapleQFunction(MLPRegressor):
                 return all(a.holds(state) for a in ground_hla.preconditions)
             # Process case (endogenous): use condition_at_start
             if hasattr(ground_hla, "condition_at_start"):
-                return all(a.holds(state) for a in ground_hla.condition_at_start)
+                return ground_hla.condition_at_start.issubset(abs_state)
             # Default to applicable if no info (defensive)
             return True
 
