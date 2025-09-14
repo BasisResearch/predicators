@@ -28,9 +28,21 @@ APPROACHES:
       online_learning_assert_no_exclude_pred: False
       maple_q_same_hla_option_param_space: False
       # Because MAPLE can't generalize to unseen goals
-      # coffee_num_cups_test: "[1,2]"
-      # blocks_num_blocks_test: "[3,4]"
-      # balance_num_blocks_test: "[2,4]"
+      # coffee
+      coffee_num_cups_test: "[1]"
+      # grow
+      grow_num_cups_test: "[2]"
+      # boil
+      boil_num_jugs_test: "[1]"
+      # domino
+      domino_test_num_dominos: "[2]"
+      domino_test_num_targets: "[1]"
+      domino_test_num_pos_x: 3
+      domino_test_num_pos_y: 2
+      # fan
+      fan_test_num_pos_x: 3
+      fan_test_num_pos_y: 3
+      fan_test_num_walls_per_task: "[1]"
   # param_learning:
   #   NAME: "param_learning_process_planning"
   #   ARGS:
