@@ -3,7 +3,7 @@
 #    python scripts/local/launch_simp.py -c mara_bench.yaml
 ---
 APPROACHES:
-  # vlm_plan: # ViLa baseline
+  # vlm_plan_zero_shot: # ViLa zero-shot baseline
   #   NAME: "vlm_open_loop"
   #   FLAGS:
   #     demonstrator: "oracle_process_planning"
@@ -11,6 +11,14 @@ APPROACHES:
   #     bilevel_plan_without_sim: True
   #     llm_model_name: "google/gemini-2.5-pro" # "openai/gpt-4o", "gpt-4.1", "gpt-4o"
   #     vlm_open_loop_no_image: True
+  # vlm_plan_few_shot: # ViLa few-shot baseline
+  #   NAME: "vlm_open_loop"
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     bilevel_plan_without_sim: True
+  #     llm_model_name: "google/gemini-2.5-pro" # "openai/gpt-4o", "gpt-4.1", "gpt-4o"
+  #     vlm_open_loop_no_image: True
+  #     vlm_open_loop_use_training_demos: True
   # offline_model_learning:
   #   # This can learn the JugFilled and WaterBoiled process but not spill.
   #   NAME: "process_learning_and_planning"
@@ -119,7 +127,6 @@ APPROACHES:
       vlm_predicator_num_proposal_batches: 1
       process_learning_process_per_physical_core: True
       skip_test_until_last_ite_or_early_stopping: True
-
 ENVS:
   # boil_smpl:
   #   NAME: "pybullet_boil"

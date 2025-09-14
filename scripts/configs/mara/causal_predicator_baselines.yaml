@@ -11,14 +11,6 @@ APPROACHES:
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
       bilevel_plan_without_sim: True
-  # vlm_plan: # ViLa baseline
-  #   NAME: "vlm_open_loop"
-  #   FLAGS:
-  #     demonstrator: "oracle_process_planning"
-  #     num_train_tasks: 0
-  #     bilevel_plan_without_sim: True
-  #     llm_model_name: "google/gemini-2.5-pro" # "openai/gpt-4o", "gpt-4.1", "gpt-4o"
-  #     vlm_open_loop_no_image: True
   # param_learning:
   #   NAME: "param_learning_process_planning"
   #   ARGS:
@@ -91,6 +83,7 @@ ENVS:
       coffee_use_pixelated_jug: True
       coffee_fill_jug_gradually: True
       max_num_steps_option_rollout: 100
+      horizon: 300
   grow:
     NAME: "pybullet_grow"
     FLAGS:
@@ -123,6 +116,7 @@ ENVS:
   domino:
     NAME: "pybullet_domino"
     FLAGS:
+      excluded_objects_in_state_str: "loc,rot,angle,direction"
       horizon: 200
       domino_initialize_at_finished_state: False
       domino_use_domino_blocks_as_target: True
@@ -134,6 +128,9 @@ ENVS:
       domino_has_glued_dominos: True
       keep_failed_demos: True
       env_has_impossible_goals: True
+      num_train_tasks: 2
+      max_initial_demos: 2
+      domino_oracle_knows_glued_dominos: True
 ARGS:
   - "debug"
   # - "use_gui"
