@@ -170,7 +170,7 @@ ENVS:
     NAME: "pybullet_fan"
     FLAGS:
       excluded_predicates: "FanFacingSide,OppositeFan,Controls"
-      excluded_objects_in_state_str: "switch,loc"
+      excluded_objects_in_state_str: "switch,loc,target"
       process_planning_heuristic_weight: 10
       terminate_on_goal_reached: True # maybe required for successful eval
       max_num_steps_interaction_request: 200 # 300 should be enough

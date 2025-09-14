@@ -948,10 +948,16 @@ def _get_types_str(types: Set[Type],
                    include_features: bool = True,
                    use_python_def_str: bool = False) -> str:
     """Get the types string."""
+    excluded_types = []
+    if CFG.excluded_types_in_state_str:
+        excluded_types = CFG.excluded_types_in_state_str.split(",")
+
     if use_python_def_str:
-        type_str = [t.python_definition_str() for t in types]
+        type_str = [t.python_definition_str() for t in types if t.name not in 
+                    excluded_types]
     else:
-        type_str = [t.pretty_str() for t in types]
+        type_str = [t.pretty_str() for t in types if t.name not in 
+                    excluded_types]
     type_str = sorted(type_str)
     return "\n".join(type_str)
 
