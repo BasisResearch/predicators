@@ -949,7 +949,7 @@ def _get_types_str(types: Set[Type],
                    use_python_def_str: bool = False) -> str:
     """Get the types string."""
     excluded_types = []
-    if CFG.excluded_types_in_state_str:
+    if CFG.excluded_objects_in_state_str:
         excluded_types = CFG.excluded_types_in_state_str.split(",")
 
     if use_python_def_str:
