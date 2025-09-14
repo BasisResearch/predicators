@@ -8,6 +8,7 @@ Base samplers and applicable actions are used to perform the argmax.
 from __future__ import annotations
 
 from typing import Any, Callable, List, Optional, Set
+import logging
 
 import dill as pkl
 from gym.spaces import Box
@@ -19,8 +20,9 @@ from predicators.explorers import BaseExplorer, create_explorer
 from predicators.ml_models import MapleQFunction
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, InteractionRequest, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, State, Task, Type, \
-    _GroundNSRT, _Option
+    LowLevelTrajectory, ParameterizedOption, Predicate, Segment, State, Task, \
+    Type, _GroundCausalProcess, _Option
+from predicators.nsrt_learning.segmentation import segment_trajectory
 
 
 class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
@@ -40,6 +42,9 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
         # Log all transition data.
         self._interaction_goals: List[Set[GroundAtom]] = []
         self._last_seen_segment_traj_idx = -1
+        # For Q-learning data updates (segments by option changes).
+        self._segmented_trajs: List[List[Segment]] = []
+        self._offline_segmented_trajs: List[List[Segment]] = []
 
         # Store the Q function. Note that this implicitly
         # contains a replay buffer.
@@ -68,12 +73,14 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
                train_or_test: str = "") -> Callable[[State], Action]:
 
         def _option_policy(state: State) -> _Option:
-            return self._q_function.get_option(
+            option = self._q_function.get_option(
                 state,
                 task.goal,
                 num_samples_per_ground_nsrt=CFG.
                 active_sampler_learning_num_samples,
                 train_or_test=train_or_test)
+            logging.debug(f"taking option: {option}")
+            return option
 
         return utils.option_policy_to_policy(
             _option_policy, max_option_steps=CFG.max_num_steps_option_rollout)
@@ -91,7 +98,8 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
                                    self._types,
                                    self._action_space,
                                    self._train_tasks,
-                                   self._get_current_nsrts(),
+                                   # Endogenous processes are action-like
+                                   self._get_current_endogenous_processes(),
                                    self._option_model,
                                    max_steps_before_termination=max_steps,
                                    maple_q_function=self._q_function)
@@ -108,74 +116,62 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
         self._interaction_goals = save_dict["interaction_goals"]
         self._online_learning_cycle = CFG.skip_until_cycle + 1
 
-    def _learn_nsrts(self, trajectories: List[LowLevelTrajectory],
-                     online_learning_cycle: Optional[int],
-                     annotations: Optional[List[Any]]) -> None:
-        # Start by learning NSRTs in the usual way.
-        super()._learn_nsrts(trajectories, online_learning_cycle, annotations)
-        if CFG.approach == "active_sampler_learning":
-            # Check the assumption that operators and options are 1:1.
-            # This is just an implementation convenience.
-            assert len({
-                nsrt.option  # pragma: no cover.
-                for nsrt in self._nsrts
-            }) == len(self._nsrts)  # pragma: no cover.
-            for nsrt in self._nsrts:  # pragma: no cover.
-                assert nsrt.option_vars == nsrt.parameters  # pragma: no cover.
-        # On the first cycle, we need to register the ground NSRTs, goals, and
-        # objects in the Q function so that it can define its inputs.
-        # Do not set grounding for rl_bridge_policy since it was set already
-        # in init_nsrts
-        if not online_learning_cycle and CFG.approach != "rl_bridge_policy":
-            all_ground_nsrts: Set[_GroundNSRT] = set()
-            if CFG.sesame_grounder == "naive":
-                for nsrt in self._nsrts:
-                    all_objects = {
-                        o
-                        for t in self._train_tasks for o in t.init
-                    }
-                    all_ground_nsrts.update(
-                        utils.all_ground_nsrts(nsrt, all_objects))
-            elif CFG.sesame_grounder == "fd_translator":  # pragma: no cover
-                all_objects = set()
-                for t in self._train_tasks:
-                    curr_task_objects = set(t.init)
-                    curr_task_types = {o.type for o in t.init}
-                    curr_init_atoms = utils.abstract(
-                        t.init, self._get_current_predicates())
-                    all_ground_nsrts.update(
-                        utils.all_ground_nsrts_fd_translator(
-                            self._nsrts, curr_task_objects,
-                            self._get_current_predicates(), curr_task_types,
-                            curr_init_atoms, t.goal))
-                    all_objects.update(curr_task_objects)
-            else:  # pragma: no cover
-                raise ValueError(
-                    f"Unrecognized sesame_grounder: {CFG.sesame_grounder}")
-            goals = [t.goal for t in self._train_tasks]
-            self._q_function.set_grounding(all_objects, goals,
-                                           all_ground_nsrts)
-        # Update the data using the updated self._segmented_trajs.
-        self._update_maple_data()
-        # Re-learn Q function.
-        self._q_function.train_q_function()
-        # Save the things we need other than the NSRTs, which were already
-        # saved in the above call to self._learn_nsrts()
-        save_path = utils.get_approach_save_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.DATA", "wb") as f:
-            pkl.dump(
-                {
-                    "q_function": self._q_function,
-                    "last_seen_segment_traj_idx":
-                    self._last_seen_segment_traj_idx,
-                    "interaction_goals": self._interaction_goals,
-                }, f)
+    def _learn_processes(self, trajectories: List[LowLevelTrajectory],
+                         online_learning_cycle: Optional[int],
+                         annotations: Optional[List[Any]]) -> None:
+        # # Learn endogenous/exogenous processes via superclass.
+        # super()._learn_processes(trajectories, online_learning_cycle,
+        #                          annotations)
+        # Ground current endogenous processes for Q-learning.
+        all_ground_processes: Set[_GroundCausalProcess] = set()
+        all_objects = {o for t in self._train_tasks for o in t.init}
+        for process in self._get_current_endogenous_processes():
+            all_ground_processes.update(
+                utils.all_ground_nsrts(process, all_objects))
+        goals = [t.goal for t in self._train_tasks]
+        self._q_function.set_grounding(all_objects, goals,
+                                       all_ground_processes)
+        # Refresh segmentation by option changes.
+        prev_segmenter = CFG.segmenter
+        try:
+            CFG.segmenter = "option_changes"
+            new_segments = [
+                segment_trajectory(traj, self._get_current_predicates())
+                for traj in trajectories
+            ]
+        finally:
+            CFG.segmenter = prev_segmenter
+        # if online_learning_cycle is None:
+        #     # Offline phase: only offline trajectories are included.
+        #     self._offline_segmented_trajs = new_segments
+        #     self._segmented_trajs = list(self._offline_segmented_trajs)
+        # else:
+        #     # Online phase: input trajectories are only the online ones so far.
+        #     self._segmented_trajs = list(self._offline_segmented_trajs) + \
+        #                              list(new_segments)
+        if online_learning_cycle is not None:
+            self._segmented_trajs = list(new_segments)
+            # Update the data using the updated self._segmented_trajs.
+            self._update_maple_data()
+            # Re-learn Q function.
+            self._q_function.train_q_function()
+            # Save the things we need other than the NSRTs, which were already
+            # saved in the above call to self._learn_processes()
+            save_path = utils.get_approach_save_path_str()
+            with open(f"{save_path}_{online_learning_cycle}.DATA", "wb") as f:
+                pkl.dump(
+                    {
+                        "q_function": self._q_function,
+                        "last_seen_segment_traj_idx":
+                        self._last_seen_segment_traj_idx,
+                        "interaction_goals": self._interaction_goals,
+                    }, f)
 
     def _update_maple_data(self) -> None:
         start_idx = self._last_seen_segment_traj_idx + 1
         new_trajs = self._segmented_trajs[start_idx:]
 
-        goal_offset = CFG.max_initial_demos
+        goal_offset = 0
         assert len(self._segmented_trajs) == goal_offset + \
             len(self._interaction_goals)
         new_traj_goals = self._interaction_goals[goal_offset + start_idx:]
@@ -184,7 +180,10 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
             self._last_seen_segment_traj_idx += 1
             for seg_i, segment in enumerate(segmented_traj):
                 s = segment.states[0]
-                goal = new_traj_goals[traj_i]
+                try:
+                    goal = new_traj_goals[traj_i]
+                except:
+                    breakpoint()
                 o = segment.get_option()
                 ns = segment.states[-1]
                 reward = 1.0 if goal.issubset(segment.final_atoms) else 0.0

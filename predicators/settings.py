@@ -740,6 +740,7 @@ class GlobalSettings:
     online_learning_max_novelty_count = 0
     online_nsrt_learning_number_of_tasks_to_try = 1
     online_nsrt_learning_requests_per_task = 3
+    online_learning_assert_no_exclude_pred = True
 
     # active sampler learning parameters
     active_sampler_learning_model = "myopic_classifier_mlp"
@@ -764,6 +765,7 @@ class GlobalSettings:
     # maple q function parameters
     use_epsilon_annealing = True
     min_epsilon = 0.05
+    maple_q_same_hla_option_param_space = True
 
     # skill competence model parameters
     skill_competence_model = "optimistic"
