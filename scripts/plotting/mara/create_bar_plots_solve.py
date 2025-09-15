@@ -81,10 +81,10 @@ BAR_GROUPS = [
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "interpret" in v)),
     # # ("ablate select obj.",
     # #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_acc_select" in v)),
-    # ("Ablate op.",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_new_op_learner" in v)),
-    # ("No invent",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_invent" in v)),
+    ("Ablate\nBayes.",
+     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ablate_bayes" in v)),
+    ("No invent",
+     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_invent" in v)),
 ]
 
 keep_max_cycle_only = True
