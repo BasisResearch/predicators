@@ -239,7 +239,7 @@ FLAGS:
   # use_counterfactual_dataset_path_name: True  # for generating images or videos
   planning_filter_unreachable_nsrt: False
   planning_check_dr_reachable: True
-  sesame_task_planning_heuristic: 'h_ff' # goal_count, lm_cut, h_max, h_ff
+  process_task_planning_heuristic: 'h_ff' # goal_count, lm_cut, h_max, h_ff
   timeout: 600
   log: 'logs/'
   no_repeated_arguments_in_grounding: True
