@@ -641,6 +641,7 @@ class GlobalSettings:
     process_learner_check_false_positives = False
     cluster_and_search_process_learner_parallel_condition = True
     cluster_and_search_process_learner_parallel_pnad = False
+    process_learner_ablate_bayes = False
     cluster_and_search_process_learner_llm_select_condition = False
     cluster_and_search_process_learner_llm_rank_atoms = False
     cluster_and_search_process_learner_llm_propose_top_conditions = False

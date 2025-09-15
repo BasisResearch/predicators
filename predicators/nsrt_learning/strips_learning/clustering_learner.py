@@ -1172,6 +1172,36 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         pnads = self._filter_pnad_parameters(pnads, possible_atoms_per_pnad,
                                              condition_sets_per_pnad)
 
+        # Step 2.5: Ablation - use top condition if flag is set
+        if CFG.process_learner_ablate_bayes:
+            logging.info("Using ablation: taking top condition from condition_sets_per_pnad")
+            best_conditions = []
+            
+            # Set up proc_name_to_results with placeholder values
+            for i, pnad in enumerate(pnads):
+                if (condition_sets_per_pnad is not None and 
+                    i < len(condition_sets_per_pnad) and 
+                    condition_sets_per_pnad[i]):
+                    # Take the first (top) condition from condition_sets
+                    best_condition = condition_sets_per_pnad[i][0]
+                else:
+                    # Fallback to empty condition if no condition sets available
+                    best_condition = set()
+                best_conditions.append(best_condition)
+                
+                # Create placeholder scored_conditions entry for proc_name_to_results
+                # Format: (cost, frozenset(condition), scores_tuple, process)
+                placeholder_process = pnad.make_exogenous_process()
+                placeholder_process.condition_at_start = best_condition.copy()
+                placeholder_process.condition_overall = best_condition.copy()
+                placeholder_scored_conditions = [
+                    (0.0, frozenset(best_condition), (0.0,), placeholder_process)
+                ]
+                self.proc_name_to_results[pnad.op.name] = placeholder_scored_conditions
+            
+            # Construct final PNADs with the top conditions
+            return self._construct_final_pnads(best_conditions, pnads)
+
         # Step 3: Calculate candidate limits for CPU utilization
         min_candidates_to_keep = self._calculate_candidate_limits(
             possible_atoms_per_pnad, condition_sets_per_pnad, cpu_cnt)
