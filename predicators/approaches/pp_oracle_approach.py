@@ -44,13 +44,12 @@ class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):
             modified_processes = set()
             for process in processes:
                 # Create a copy with strength set to 1
-                modified_process = process.copy()
-                strength_params = torch.tensor(1.0)
+                strength_params = torch.tensor([1.0])
                 delay_params = torch.ones(len(
-                    modified_process.delay_distribution.get_parameters()))
-                modified_process._set_parameters(torch.cat([strength_params, 
+                    process.delay_distribution.get_parameters()))
+                process._set_parameters(torch.cat([strength_params, 
                     delay_params]))
-                modified_processes.add(modified_process)
+                modified_processes.add(process)
             processes = modified_processes
             
         self._processes = processes
