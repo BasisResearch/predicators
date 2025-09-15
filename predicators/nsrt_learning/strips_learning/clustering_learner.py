@@ -1175,7 +1175,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         # Step 2.5: Ablation - use top condition if flag is set
         if CFG.process_learner_ablate_bayes:
             logging.info("Using ablation: taking top condition from condition_sets_per_pnad")
-            best_conditions = []
+            best_conditions: Dict[int, FrozenSet[LiftedAtom]] = {}
             
             # Set up proc_name_to_results with placeholder values
             for i, pnad in enumerate(pnads):
@@ -1187,7 +1187,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                 else:
                     # Fallback to empty condition if no condition sets available
                     best_condition = set()
-                best_conditions.append(best_condition)
+                best_conditions[i] = best_condition
                 
                 # Create placeholder scored_conditions entry for proc_name_to_results
                 # Format: (cost, frozenset(condition), scores_tuple, process)
