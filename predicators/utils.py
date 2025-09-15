@@ -1646,7 +1646,6 @@ def option_policy_to_policy(
     option_policy: Callable[[State], _Option],
     max_option_steps: Optional[int] = None,
     raise_error_on_repeated_state: bool = False,
-    noop_option_terminate_on_atom_change: bool = False,
     abstract_function: Optional[Callable[[State], Set[GroundAtom]]] = None
 ) -> Callable[[State], Action]:
     """Create a policy that executes a policy over options."""
@@ -1683,7 +1682,7 @@ def option_policy_to_policy(
 
         # whether the noop option should terminate
         noop_terminate = False
-        if noop_option_terminate_on_atom_change and cur_option.name == "NoOp":
+        if CFG.noop_option_terminate_on_atom_change and cur_option.name == "NoOp":
             assert abstract_function is not None
             cur_atoms = abstract_function(state)
             prev_atoms = abstract_function(last_state)
@@ -1719,7 +1718,6 @@ def option_plan_to_policy(
     plan: Sequence[_Option],
     max_option_steps: Optional[int] = None,
     raise_error_on_repeated_state: bool = False,
-    noop_option_terminate_on_atom_change: bool = False,
     abstract_function: Optional[Callable[[State], Set[GroundAtom]]] = None
 ) -> Callable[[State], Action]:
     """Create a policy that executes a sequence of options in order."""
@@ -1737,8 +1735,6 @@ def option_plan_to_policy(
         _option_policy,
         max_option_steps=max_option_steps,
         raise_error_on_repeated_state=raise_error_on_repeated_state,
-        noop_option_terminate_on_atom_change=\
-            noop_option_terminate_on_atom_change,
         abstract_function=abstract_function)
 
 
@@ -1783,7 +1779,8 @@ def nsrt_plan_to_greedy_policy(
     nsrt_plan: Sequence[_GroundNSRT],
     goal: Set[GroundAtom],
     rng: np.random.Generator,
-    necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None
+    necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None,
+    abstract_function: Optional[Callable[[State], Set[GroundAtom]]] = None
 ) -> Callable[[State], Action]:
     """Greedily execute an NSRT plan, assuming downward refinability and that
     any sample will work.
@@ -1793,7 +1790,8 @@ def nsrt_plan_to_greedy_policy(
     """
     option_policy = nsrt_plan_to_greedy_option_policy(
         nsrt_plan, goal, rng, necessary_atoms_seq=necessary_atoms_seq)
-    return option_policy_to_policy(option_policy)
+    return option_policy_to_policy(option_policy, 
+            abstract_function=abstract_function)
 
 
 def process_plan_to_greedy_option_policy(
@@ -1840,14 +1838,11 @@ def process_plan_to_greedy_policy(
     goal: Set[GroundAtom],
     rng: np.random.Generator,
     necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None,
-    noop_option_terminate_on_atom_change: bool = False,
     abstract_function: Optional[Callable[[State], Set[GroundAtom]]] = None
 ) -> Callable[[State], Action]:
     option_policy = process_plan_to_greedy_option_policy(
         process_plan, goal, rng, necessary_atoms_seq=necessary_atoms_seq)
     return option_policy_to_policy(option_policy,
-                                    noop_option_terminate_on_atom_change=\
-                                        noop_option_terminate_on_atom_change,
                                     abstract_function=abstract_function)
 
 

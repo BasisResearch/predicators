@@ -786,18 +786,18 @@ def task_plan_from_task(
         compute_reachable_atoms=True,
         derived_predicates=derived_predicates)
 
-    if CFG.sesame_task_planning_heuristic == "goal_count":
+    if CFG.process_task_planning_heuristic == "goal_count":
         heuristic = utils.create_task_planning_heuristic(
-            CFG.sesame_task_planning_heuristic, init_atoms, goal,
+            CFG.process_task_planning_heuristic, init_atoms, goal,
             ground_processes, all_predicates, objects)
-    elif CFG.sesame_task_planning_heuristic == "lm_cut":
+    elif CFG.process_task_planning_heuristic == "lm_cut":
         heuristic = create_lm_cut_heuristic(
             goal,
             ground_processes,
             derived_predicates,
             objects,
             use_derived_predicates=CFG.use_derived_predicate_in_heuristic)
-    elif CFG.sesame_task_planning_heuristic == "h_max":
+    elif CFG.process_task_planning_heuristic == "h_max":
         heuristic = create_h_max_heuristic(
             goal,
             ground_processes,
@@ -805,7 +805,7 @@ def task_plan_from_task(
             objects,
             use_derived_predicates=CFG.use_derived_predicate_in_heuristic)
 
-    elif CFG.sesame_task_planning_heuristic == "h_ff":
+    elif CFG.process_task_planning_heuristic == "h_ff":
         heuristic = create_ff_heuristic(
             goal,
             ground_processes,
@@ -814,7 +814,7 @@ def task_plan_from_task(
             use_derived_predicates=CFG.use_derived_predicate_in_heuristic)
     else:
         raise ValueError(
-            f"Unrecognized sesame_task_planning_heuristic: {CFG.sesame_task_planning_heuristic}"
+            f"Unrecognized process_task_planning_heuristic: {CFG.process_task_planning_heuristic}"
         )
 
     return task_plan(

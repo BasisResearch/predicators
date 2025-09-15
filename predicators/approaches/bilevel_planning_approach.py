@@ -67,7 +67,8 @@ class BilevelPlanningApproach(BaseApproach):
             self._last_nsrt_plan = nsrt_plan
             self._last_atoms_seq = atoms_seq
             policy = utils.nsrt_plan_to_greedy_policy(nsrt_plan, task.goal,
-                                                      self._rng)
+                                                      self._rng,
+                        abstract_function=lambda s: utils.abstract(s, preds))
             logging.debug("Current Task Plan:")
             for act in nsrt_plan:
                 logging.debug(act)
