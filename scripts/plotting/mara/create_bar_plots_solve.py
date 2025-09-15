@@ -73,16 +73,16 @@ BAR_GROUPS = [
         lambda df: df["EXPERIMENT_ID"].apply(lambda v: "online_nsrt_learning" in v)),
     ("MAPLE",
         lambda df: (df["EXPERIMENT_ID"].apply(lambda v: "maple_q" in v))),
-    ("ViLa\n(ZS)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
+    ("ViLa\n(zs)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
             "vlm_plan_zero_shot" in v)),
-    ("ViLa\n(FS)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
+    ("ViLa\n(fs)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
             "vlm_plan_few_shot" in v)),
-    # ("Sym. pred.",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "interpret" in v)),
-    # # ("ablate select obj.",
-    # #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_acc_select" in v)),
-    ("Ablate\nBayes.",
-     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ablate_bayes" in v)),
+    # ("Ablate\nBayes.",
+    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ablate_bayes" in v)),
+    # ("Ablate\nLLM.",
+    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ablate_llm" in v)),
+    ("No param\nlearn",
+     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_invent" in v)),
     ("No invent",
      lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_invent" in v)),
 ]
