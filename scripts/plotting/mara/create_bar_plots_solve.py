@@ -26,7 +26,7 @@ X_LIM = (-5, 110)
 # Groups over which to take mean/std.
 GROUPS = [
     "ENV", "APPROACH", "EXCLUDED_PREDICATES", "EXPERIMENT_ID",
-    # "ONLINE_LEARNING_CYCLE"
+    "ONLINE_LEARNING_CYCLE"
 ]
 
 # All column names and keys to load into the pandas tables.
@@ -40,8 +40,8 @@ COLUMN_NAMES_AND_KEYS = [
     ("AVG_NODES_CREATED", "avg_num_nodes_created"),
     ("LEARNING_TIME", "learning_time"),
     ("PERC_SOLVED", "perc_solved"),
-    # ("ONLINE_LEARNING_CYCLE",
-    #  "cycle"),  # add to select model at specific cycle
+    ("ONLINE_LEARNING_CYCLE",
+     "cycle"),  # add to select model at specific cycle
     ("AVG_NUM_FAILED_PLAN", "avg_num_skeletons_optimized"),
 ]
 
@@ -65,18 +65,14 @@ PLOT_GROUPS = [
 
 # See PLOT_GROUPS comment.
 BAR_GROUPS = [
-    ("Plan\nw/\ntrue\nmodel",
-     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle" in v)),
-    # ("oracle invent",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle_invention" in v)),
-    # ("oracle explore",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle_explore" in v)),
-    ("Ours", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)),
-    #     "MAPLE",
-    #     lambda df: (df["EXPERIMENT_ID"].apply(lambda v: "maple_q" in v)) &
-    #     # (df["ONLINE_LEARNING_CYCLE"].apply(lambda v: "19" == v))
-    #     (df["ONLINE_LEARNING_CYCLE"].apply(lambda v: "15" == v))  # blocks
-    # ),
+    ("Plan\nw/ true\nmodel",
+        lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle" in v)),
+    ("Ours", 
+        lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)),
+    ("Online\nNSRT",
+        lambda df: df["EXPERIMENT_ID"].apply(lambda v: "online_nsrt_learning" in v)),
+    ("MAPLE",
+        lambda df: (df["EXPERIMENT_ID"].apply(lambda v: "maple_q" in v))),
     ("ViLa\n(ZS)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
             "vlm_plan_zero_shot" in v)),
     ("ViLa\n(FS)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
@@ -91,6 +87,7 @@ BAR_GROUPS = [
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_invent" in v)),
 ]
 
+keep_max_cycle_only = True
 #################### Should not need to change below here #####################
 
 
@@ -100,8 +97,14 @@ def _main() -> None:
     os.makedirs(outdir, exist_ok=True)
     matplotlib.rcParams.update({'font.size': FONT_SIZE})
 
+    # When keeping max cycle only, don't group by cycle since we've filtered to highest cycle
+    groups_to_use = GROUPS.copy()
+    if keep_max_cycle_only and "ONLINE_LEARNING_CYCLE" in groups_to_use:
+        groups_to_use.remove("ONLINE_LEARNING_CYCLE")
+    
     grouped_means, grouped_stds, _ = create_dataframes(COLUMN_NAMES_AND_KEYS,
-                                                       GROUPS, DERIVED_KEYS)
+                                                       groups_to_use, DERIVED_KEYS,
+                                        keep_max_cycle_only=keep_max_cycle_only)
     means = grouped_means.reset_index()
     stds = grouped_stds.reset_index()
 
@@ -120,6 +123,7 @@ def _main() -> None:
                 try:
                     assert len(mean) == len(std) == 1
                 except:
+                    print(f"Error for {label} {plot_title} {key}, mean: {mean}, std: {std}")
                     breakpoint()
                 plot_labels.append(label)
                 plot_means.append(mean[0])
