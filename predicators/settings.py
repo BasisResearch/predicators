@@ -673,6 +673,7 @@ class GlobalSettings:
     build_exogenous_process_index_for_planning = True
     process_planning_use_abstract_policy = False
     process_planning_max_policy_guided_rollout = 10
+    process_planning_set_parameters_one = False
     process_task_planning_heuristic = 'h_ff'
     noop_option_terminate_on_atom_change = False
 

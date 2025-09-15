@@ -2576,6 +2576,9 @@ class DelayDistribution:
     def set_parameters(self, parameters: Sequence[torch.Tensor],
                        **kwargs: Any) -> None:
         raise NotImplementedError
+    
+    def get_parameters(self) -> Sequence[float]:
+        raise NotImplementedError
 
     def sample(self) -> int:
         raise NotImplementedError
