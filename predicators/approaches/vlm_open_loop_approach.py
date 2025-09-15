@@ -218,7 +218,9 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
             raise ApproachFailure(
                 f"VLM failed to produce coherent option plan. Reason: {e}")
 
-        policy = utils.option_plan_to_policy(option_plan)
+        policy = utils.option_plan_to_policy(option_plan,
+                            abstract_function=lambda s: 
+                            utils.abstract(s, self._get_current_predicates()))
 
         def _policy(s: State) -> Action:
             try:

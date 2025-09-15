@@ -92,7 +92,6 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
                 process_plan,
                 task.goal,
                 self._rng,
-                noop_option_terminate_on_atom_change=True,
                 abstract_function=lambda s: utils.abstract(s, preds))
             logging.debug("Current Task Plan:")
             for process in process_plan:

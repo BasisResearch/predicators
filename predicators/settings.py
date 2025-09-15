@@ -606,6 +606,7 @@ class GlobalSettings:
     # STRIPS learning algorithm. See get_name() functions in the directory
     # nsrt_learning/strips_learning/ for valid settings.
     strips_learner = "cluster_and_intersect"
+    clustering_learner_check_effect_equality = True
     disable_harmlessness_check = False  # some methods may want this to be True
     enable_harmless_op_pruning = False  # some methods may want this to be True
     precondition_soft_intersection_threshold_percent = 0.8  # between 0 and 1
@@ -671,6 +672,8 @@ class GlobalSettings:
     build_exogenous_process_index_for_planning = True
     process_planning_use_abstract_policy = False
     process_planning_max_policy_guided_rollout = 10
+    process_task_planning_heuristic = 'h_ff'
+    noop_option_terminate_on_atom_change = False
 
     # torch GPU usage setting
     use_torch_gpu = False
