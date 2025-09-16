@@ -54,7 +54,6 @@ APPROACHES:
       bilevel_plan_without_sim: True
       demonstrator: "oracle_process_planning"
       explorer: "exploit_planning"
-      max_num_steps_interaction_request: 300 # 300 should be enough
       terminate_on_goal_reached: False
       terminate_on_goal_reached_and_option_terminated: True
       online_learning_early_stopping: True
@@ -105,7 +104,6 @@ APPROACHES:
   #     demonstrator: "oracle_process_planning"
   #     explorer: "exploit_planning"
   #     online_nsrt_learning_requests_per_cycle: 1  # just 1 for now
-  #     max_num_steps_interaction_request: 500
   #     # This following is needed to generate a successful demo trajectory, or 
   #     # else the demo collection will fail with an option plan exhausted error.
   #     strips_learner: "llm"
@@ -196,6 +194,7 @@ FLAGS:
   # exhausted error from the option_policy. 
   # When do we need this to be False? Was it in cases when we wanted to generate
   # a more complete video?
+  max_num_steps_interaction_request: 300 # 300 should be enough
   pretrained_model_service_provider: "openrouter" # "openrouter" or "openai"
   llm_model_name: "google/gemini-2.5-pro" # "openai/gpt-4o", "gpt-4.1", "gpt-4o"
   llm_openai_max_response_tokens: 1e6
