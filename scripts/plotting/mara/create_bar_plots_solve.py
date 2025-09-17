@@ -23,6 +23,24 @@ DPI = 500
 FONT_SIZE = 18
 X_LIM = (-5, 110)
 
+# Color configuration
+USE_DIFFERENT_COLORS = True  # Set to False to use same color for all bars
+SINGLE_BAR_COLOR = 'green'  # Color to use when USE_DIFFERENT_COLORS is False
+
+# Color palette for different approaches
+BAR_COLORS = [
+    '#1f77b4',  # blue
+    '#ff7f0e',  # orange
+    '#2ca02c',  # green
+    '#d62728',  # red
+    '#9467bd',  # purple
+    '#8c564b',  # brown
+    '#e377c2',  # pink
+    '#7f7f7f',  # gray
+    '#bcbd22',  # olive
+    '#17becf',  # cyan
+]
+
 # Groups over which to take mean/std.
 GROUPS = [
     "ENV", "APPROACH", "EXCLUDED_PREDICATES", "EXPERIMENT_ID",
@@ -117,7 +135,8 @@ def _main() -> None:
             plot_labels = []
             plot_means = []
             plot_stds = []
-            for label, bar_selector in BAR_GROUPS:
+            plot_colors = []
+            for i, (label, bar_selector) in enumerate(BAR_GROUPS):
                 selector = combine_selectors([plot_selector, bar_selector])
                 exp_means = get_df_for_entry(key, means, selector)
                 exp_stds = get_df_for_entry(key, stds, selector)
@@ -137,7 +156,11 @@ def _main() -> None:
                 plot_labels.append(label)
                 plot_means.append(mean[0])
                 plot_stds.append(std[0])
-            ax.barh(plot_labels, plot_means, xerr=plot_stds, color='green')
+                if USE_DIFFERENT_COLORS:
+                    plot_colors.append(BAR_COLORS[i % len(BAR_COLORS)])
+                else:
+                    plot_colors.append(SINGLE_BAR_COLOR)
+            ax.barh(plot_labels, plot_means, xerr=plot_stds, color=plot_colors)
             ax.set_xlim(X_LIM)
             ax.tick_params(axis='y', colors='black')
             ax.set_title(plot_title)
