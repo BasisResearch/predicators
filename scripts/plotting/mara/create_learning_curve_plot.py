@@ -24,7 +24,7 @@ pd.set_option('chained_assignment', None)
 # Details about the plt figure.
 DPI = 500
 FONT_SIZE = 18
-Y_LIM = (0, 105)
+Y_LIM = (-5, 105)
 
 # Color palette for different approaches
 COLORS = [
@@ -76,7 +76,7 @@ APPROACH_GROUPS = [
 
 # Approaches that don't do online learning - show as horizontal lines at final performance
 HORIZONTAL_LINE_GROUPS = [
-    ("Plan w/ true model",
+    ("Oracle",
      lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle" in v)),
     # ("Ours",
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)),
@@ -174,7 +174,7 @@ def _main() -> None:
 
     # Create learning curve plots for each environment
     for env_name, env_selector in PLOT_ENVS:
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(10, 8))
 
         # Determine x-axis range by finding max iteration across all online learning approaches
         max_x = 0
@@ -235,13 +235,13 @@ def _main() -> None:
                                 color=color)
 
         # Customize the plot
-        ax.set_xlabel('Online Learning Iteration')
-        ax.set_ylabel('Percentage Solved (%)')
-        ax.set_title(f'{env_name}')
+        ax.set_xlabel('Online Learning Iteration', color='black')
+        ax.set_ylabel('Percentage Solved (%)', color='black')
+        ax.set_title(f'{env_name}', color='black')
         ax.set_xlim(-0.5, max_x + 0.5)
         ax.set_ylim(Y_LIM)
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        ax.grid(True, alpha=0.3)
+        ax.legend(bbox_to_anchor=(1, 1.02), loc='upper left')
+        # ax.grid(True, alpha=0.3)
 
         # Save the plot
         plt.tight_layout()
