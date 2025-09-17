@@ -81,7 +81,6 @@ class BilevelPlanningExplorer(BaseExplorer):
                     process_plan,
                     task.goal,
                     self._rng,
-                    noop_option_terminate_on_atom_change=True,
                     abstract_function=lambda s: utils.abstract(
                         s, self._predicates))
 
