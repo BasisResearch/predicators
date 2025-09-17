@@ -265,7 +265,7 @@ APPROACHES:
   #     vlm_predicator_num_proposal_batches: 1
   #     process_learning_process_per_physical_core: True
   #     skip_test_until_last_ite_or_early_stopping: True
-  ours_1_request:
+  ours_always_test:
     NAME: "online_predicate_invention_and_process_planning"
     FLAGS:
       bilevel_plan_without_sim: True
@@ -273,7 +273,7 @@ APPROACHES:
       explorer: "exploit_planning"
       exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
       bilevel_planning_explorer_enumerate_plans: True
-      online_nsrt_learning_requests_per_cycle: 1  # just 1 for now
+      online_nsrt_learning_requests_per_cycle: 8  # just 1 for now
       # This following is needed to generate a successful demo trajectory, or 
       # else the demo collection will fail with an option plan exhausted error.
       find_best_matching_pnad_skip_if_effect_not_subset: False
@@ -288,7 +288,7 @@ APPROACHES:
       terminate_on_goal_reached_and_option_terminated: True
       only_learn_exogenous_processes: True
       online_learning_early_stopping: True
-      num_online_learning_cycles: 40
+      num_online_learning_cycles: 10
       # Testing predicate invention:
       learn_process_parameters: True
       grammar_search_grammar_use_single_feature: False
@@ -313,7 +313,6 @@ APPROACHES:
       vlm_predicator_num_proposal_batches: 1
       process_learning_process_per_physical_core: True
       skip_test_until_last_ite_or_early_stopping: False
-      online_learning_early_stopping_by_test_solve_rate: True
       num_test_tasks: 10
 ENVS:
   # boil_smpl:

@@ -65,11 +65,11 @@ APPROACH_GROUPS = [
     # ("Online NSRT",
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "online_nsrt_learning" in v)),
     ("MAPLE", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "maple_q" in v)),
-    ("Ours",
-     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)
-     ),
     # ("Ours",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ours_1_request" in v)),
+    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)
+    #  ),
+    ("Ours",
+     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ours_always_test" in v)),
     # ("No param learn",
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_invent" in v)),
 ]
