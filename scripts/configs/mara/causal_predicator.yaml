@@ -265,7 +265,7 @@ APPROACHES:
   #     vlm_predicator_num_proposal_batches: 1
   #     process_learning_process_per_physical_core: True
   #     skip_test_until_last_ite_or_early_stopping: True
-  predicate_invention_1_request_per_cycle:
+  ours_1_request:
     NAME: "online_predicate_invention_and_process_planning"
     FLAGS:
       bilevel_plan_without_sim: True
@@ -313,6 +313,7 @@ APPROACHES:
       vlm_predicator_num_proposal_batches: 1
       process_learning_process_per_physical_core: True
       skip_test_until_last_ite_or_early_stopping: False
+      online_learning_early_stopping_by_test_solve_rate: True
       num_test_tasks: 10
 ENVS:
   # boil_smpl:
