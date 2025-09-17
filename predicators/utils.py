@@ -4885,7 +4885,7 @@ def configure_logging() -> None:
     colorlog_handler.setFormatter(colored_formatter)
     handlers: List[logging.Handler] = [colorlog_handler]
     if CFG.log_file:
-        CFG.log_file += f"{CFG.approach}/{CFG.env}/seed{CFG.seed}/"
+        CFG.log_file += f"{CFG.approach}/{CFG.experiment_id}/seed{CFG.seed}/"
         os.makedirs(CFG.log_file, exist_ok=True)
 
         timestamp = datetime.datetime.now().strftime("%m%d%H%M%S")
