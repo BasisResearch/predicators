@@ -1,15 +1,17 @@
-"""Create learning curves showing percentage solved over online learning iterations.
+"""Create learning curves showing percentage solved over online learning
+iterations.
 
-Shows how different approaches improve over online learning cycles, with each
-line representing a different approach and x-axis showing iterations.
+Shows how different approaches improve over online learning cycles, with
+each line representing a different approach and x-axis showing
+iterations.
 """
 
 import os
 
 import matplotlib
 import matplotlib.pyplot as plt
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from scripts.analyze_results_directory import create_raw_dataframe, \
     pd_create_equal_selector
@@ -52,10 +54,8 @@ COLUMN_NAMES_AND_KEYS = [
     ("ONLINE_LEARNING_CYCLE", "cycle"),
 ]
 
-DERIVED_KEYS = [(
-    "perc_solved",
-    lambda r: 100 * r["num_solved"] / r["num_test_tasks"]
-)]
+DERIVED_KEYS = [("perc_solved",
+                 lambda r: 100 * r["num_solved"] / r["num_test_tasks"])]
 
 # The keys of the dict are labels for the legend, and the dict values are
 # selectors to filter the dataframe for each approach that do online learning.
@@ -64,10 +64,10 @@ APPROACH_GROUPS = [
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)),
     # ("Online NSRT",
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "online_nsrt_learning" in v)),
-    ("MAPLE",
-     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "maple_q" in v)),
+    ("MAPLE", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "maple_q" in v)),
     ("Ours",
-     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)),
+     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)
+     ),
     # ("Ours",
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ours_1_request" in v)),
     # ("No param learn",
@@ -123,21 +123,26 @@ def _get_learning_curves_for_approach(df, approach_selector, env_selector):
         return [], [], []
 
     # Convert cycles to numeric and add offset so None (-1) becomes 0
-    filtered_df['CYCLE_NUMERIC'] = filtered_df['ONLINE_LEARNING_CYCLE'].apply(_convert_cycle_to_numeric)
-    filtered_df['X_VALUE'] = filtered_df['CYCLE_NUMERIC'] + 1  # None (-1) -> 0, 0 -> 1, 1 -> 2, etc.
+    filtered_df['CYCLE_NUMERIC'] = filtered_df['ONLINE_LEARNING_CYCLE'].apply(
+        _convert_cycle_to_numeric)
+    filtered_df['X_VALUE'] = filtered_df[
+        'CYCLE_NUMERIC'] + 1  # None (-1) -> 0, 0 -> 1, 1 -> 2, etc.
 
     # Group by cycle and compute mean/std across seeds
-    grouped = filtered_df.groupby('X_VALUE')['PERC_SOLVED'].agg(['mean', 'std']).reset_index()
+    grouped = filtered_df.groupby('X_VALUE')['PERC_SOLVED'].agg(
+        ['mean', 'std']).reset_index()
 
     x_values = grouped['X_VALUE'].tolist()
     y_means = grouped['mean'].tolist()
-    y_stds = grouped['std'].fillna(0).tolist()  # Fill NaN std with 0 for single data points
+    y_stds = grouped['std'].fillna(
+        0).tolist()  # Fill NaN std with 0 for single data points
 
     return x_values, y_means, y_stds
 
 
 def _get_final_performance_for_approach(df, approach_selector, env_selector):
-    """Get final performance (mean and std) for approaches that don't do online learning.
+    """Get final performance (mean and std) for approaches that don't do online
+    learning.
 
     Returns:
         mean: Mean percentage solved across seeds
@@ -195,8 +200,13 @@ def _main() -> None:
             color_idx += 1
 
             # Plot the line with error bars
-            ax.errorbar(x_vals, y_means, yerr=y_stds,
-                       label=approach_label, marker='o', capsize=5, color=color)
+            ax.errorbar(x_vals,
+                        y_means,
+                        yerr=y_stds,
+                        label=approach_label,
+                        marker='o',
+                        capsize=5,
+                        color=color)
 
         # Plot horizontal lines for non-online learning approaches
         for approach_label, approach_selector in HORIZONTAL_LINE_GROUPS:
@@ -210,11 +220,19 @@ def _main() -> None:
             color_idx += 1
 
             # Plot horizontal line spanning the full x range
-            ax.axhline(y=mean, label=approach_label, linestyle='--', alpha=0.8, color=color)
+            ax.axhline(y=mean,
+                       label=approach_label,
+                       linestyle='--',
+                       alpha=0.8,
+                       color=color)
 
             # Add error band around the horizontal line
             if std > 0:
-                ax.fill_between([0, max_x], mean - std, mean + std, alpha=0.2, color=color)
+                ax.fill_between([0, max_x],
+                                mean - std,
+                                mean + std,
+                                alpha=0.2,
+                                color=color)
 
         # Customize the plot
         ax.set_xlabel('Online Learning Iteration')

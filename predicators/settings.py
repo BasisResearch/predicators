@@ -22,7 +22,7 @@ class GlobalSettings:
     online_learning_max_transitions = float("inf")
     online_learning_early_stopping = False
     skip_test_until_last_ite_or_early_stopping = False
-    online_learning_early_stopping_by_test_solve_rate = False # just for plotting
+    online_learning_early_stopping_by_test_solve_rate = False  # just for plotting
     # Maximum number of training tasks to give a demonstration for, if the
     # offline_data_method is demo-based.
     max_initial_demos = float("inf")

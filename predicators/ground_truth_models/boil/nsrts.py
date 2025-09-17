@@ -5,10 +5,10 @@ from typing import Dict, Sequence, Set
 import numpy as np
 
 from predicators.ground_truth_models import GroundTruthNSRTFactory
+from predicators.settings import CFG
 from predicators.structs import NSRT, Array, GroundAtom, LiftedAtom, Object, \
     ParameterizedOption, Predicate, State, Type, Variable
 from predicators.utils import null_sampler
-from predicators.settings import CFG
 
 
 class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
@@ -113,8 +113,9 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(Holding, [robot, jug]),
         }
 
-        place_on_burner_nsrt = NSRT("PlaceOnBurner", parameters, preconditions, add_effects,
-                     delete_effects, set(), option, option_vars, null_sampler)
+        place_on_burner_nsrt = NSRT("PlaceOnBurner", parameters,
+                                    preconditions, add_effects, delete_effects,
+                                    set(), option, option_vars, null_sampler)
         nsrts.add(place_on_burner_nsrt)
 
         # PickJugFromFaucet
@@ -137,9 +138,9 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(JugAtFaucet, [jug, faucet]),
         }
         pick_jug_from_faucet_nsrt = NSRT("PickJugFromFaucet", parameters,
-                                        preconditions, add_effects,
-                                        delete_effects, set(), option,
-                                        option_vars, null_sampler)
+                                         preconditions, add_effects,
+                                         delete_effects, set(), option,
+                                         option_vars, null_sampler)
         nsrts.add(pick_jug_from_faucet_nsrt)
 
         # PickJugFromBurner
@@ -162,9 +163,9 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(JugAtBurner, [jug, burner]),
         }
         pick_jug_from_burner_nsrt = NSRT("PickJugFromBurner", parameters,
-                                        preconditions, add_effects,
-                                        delete_effects, set(), option,
-                                        option_vars, null_sampler)
+                                         preconditions, add_effects,
+                                         delete_effects, set(), option,
+                                         option_vars, null_sampler)
         nsrts.add(pick_jug_from_burner_nsrt)
 
         # PickJugFromOutsideFaucetAndBurner
@@ -184,10 +185,10 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(HandEmpty, [robot]),
             LiftedAtom(JugNotAtBurnerOrFaucet, [jug]),
         }
-        pick_jug_outside_faucet_burner_nsrt = NSRT("PickJugFromOutsideFaucetAndBurner", parameters,
-                                                  preconditions, add_effects,
-                                                  delete_effects, set(), option,
-                                                  option_vars, null_sampler)
+        pick_jug_outside_faucet_burner_nsrt = NSRT(
+            "PickJugFromOutsideFaucetAndBurner", parameters, preconditions,
+            add_effects, delete_effects, set(), option, option_vars,
+            null_sampler)
         nsrts.add(pick_jug_outside_faucet_burner_nsrt)
 
         # PlaceUnderFaucet
@@ -210,9 +211,9 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(NoJugAtFaucet, [faucet]),
         }
         place_under_faucet_nsrt = NSRT("PlaceUnderFaucet", parameters,
-                                      preconditions, add_effects,
-                                      delete_effects, set(), option,
-                                      option_vars, null_sampler)
+                                       preconditions, add_effects,
+                                       delete_effects, set(), option,
+                                       option_vars, null_sampler)
         nsrts.add(place_under_faucet_nsrt)
 
         # PlaceOutsideFaucetAndBurner
@@ -231,10 +232,11 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         delete_effects = {
             LiftedAtom(Holding, [robot, jug]),
         }
-        place_outside_faucet_burner_nsrt = NSRT("PlaceOutsideFaucetAndBurner", parameters,
-                                               preconditions, add_effects,
-                                               delete_effects, set(), option,
-                                               option_vars, null_sampler)
+        place_outside_faucet_burner_nsrt = NSRT("PlaceOutsideFaucetAndBurner",
+                                                parameters, preconditions,
+                                                add_effects, delete_effects,
+                                                set(), option, option_vars,
+                                                null_sampler)
         nsrts.add(place_outside_faucet_burner_nsrt)
 
         # SwitchFaucetOn
@@ -254,9 +256,9 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(FaucetOff, [faucet]),
         }
         switch_faucet_on_nsrt = NSRT("SwitchFaucetOn", parameters,
-                                    preconditions, add_effects,
-                                    delete_effects, set(), option,
-                                    option_vars, null_sampler)
+                                     preconditions, add_effects,
+                                     delete_effects, set(), option,
+                                     option_vars, null_sampler)
         nsrts.add(switch_faucet_on_nsrt)
 
         # SwitchFaucetOff
@@ -276,9 +278,9 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(FaucetOn, [faucet]),
         }
         switch_faucet_off_nsrt = NSRT("SwitchFaucetOff", parameters,
-                                     preconditions, add_effects,
-                                     delete_effects, set(), option,
-                                     option_vars, null_sampler)
+                                      preconditions, add_effects,
+                                      delete_effects, set(), option,
+                                      option_vars, null_sampler)
         nsrts.add(switch_faucet_off_nsrt)
 
         # SwitchBurnerOn
@@ -298,9 +300,9 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(BurnerOff, [burner]),
         }
         switch_burner_on_nsrt = NSRT("SwitchBurnerOn", parameters,
-                                    preconditions, add_effects,
-                                    delete_effects, set(), option,
-                                    option_vars, null_sampler)
+                                     preconditions, add_effects,
+                                     delete_effects, set(), option,
+                                     option_vars, null_sampler)
         nsrts.add(switch_burner_on_nsrt)
 
         # SwitchBurnerOff
@@ -320,9 +322,9 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(BurnerOn, [burner]),
         }
         switch_burner_off_nsrt = NSRT("SwitchBurnerOff", parameters,
-                                     preconditions, add_effects,
-                                     delete_effects, set(), option,
-                                     option_vars, null_sampler)
+                                      preconditions, add_effects,
+                                      delete_effects, set(), option,
+                                      option_vars, null_sampler)
         nsrts.add(switch_burner_off_nsrt)
 
         # NoOp
@@ -334,7 +336,8 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         add_effects = set()
         delete_effects = set()
         noop_nsrt = NSRT("NoOp", parameters, preconditions, add_effects,
-                        delete_effects, set(), option, option_vars, null_sampler)
+                         delete_effects, set(), option, option_vars,
+                         null_sampler)
         nsrts.add(noop_nsrt)
 
         # DeclareComplete (only if task_completed goal)
@@ -356,9 +359,9 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             }
             delete_effects = set()
             declare_complete_nsrt = NSRT("DeclareComplete", parameters,
-                                        preconditions, add_effects,
-                                        delete_effects, set(), option,
-                                        option_vars, null_sampler)
+                                         preconditions, add_effects,
+                                         delete_effects, set(), option,
+                                         option_vars, null_sampler)
             nsrts.add(declare_complete_nsrt)
 
         return nsrts

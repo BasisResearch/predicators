@@ -70,9 +70,10 @@ class PyBulletDominoGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         delete_effects = {
             LiftedAtom(Upright, [domino]),
         }
-        push_start_block_nsrt = NSRT("PushStartBlock", parameters, preconditions,
-                                    add_effects, delete_effects, set(), option,
-                                    option_vars, null_sampler)
+        push_start_block_nsrt = NSRT("PushStartBlock", parameters,
+                                     preconditions, add_effects,
+                                     delete_effects, set(), option,
+                                     option_vars, null_sampler)
         nsrts.add(push_start_block_nsrt)
 
         # PickDomino: Position-based pick process
@@ -99,9 +100,9 @@ class PyBulletDominoGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(DominoAtPos, [domino, position]),
             LiftedAtom(DominoAtRot, [domino, rotation]),
         }
-        pick_domino_nsrt = NSRT("PickDomino", parameters, preconditions,
-                               add_effects, delete_effects, set(), option,
-                               option_vars, null_sampler)
+        pick_domino_nsrt = NSRT("PickDomino", parameters,
+                                preconditions, add_effects, delete_effects,
+                                set(), option, option_vars, null_sampler)
         nsrts.add(pick_domino_nsrt)
 
         # PlaceDomino: Place domino at specific position and rotation
@@ -112,7 +113,9 @@ class PyBulletDominoGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         rotation = Variable("?rot", rotation_type)
         if CFG.domino_include_connected_predicate:
             d2_pos = Variable("?pos2", position_type)
-            parameters = [robot, domino1, domino2, target_pos, d2_pos, rotation]
+            parameters = [
+                robot, domino1, domino2, target_pos, d2_pos, rotation
+            ]
         else:
             parameters = [robot, domino1, domino2, target_pos, rotation]
         option_vars = [robot, domino1, domino2, target_pos, rotation]
@@ -140,9 +143,9 @@ class PyBulletDominoGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             LiftedAtom(Holding, [robot, domino1]),
             LiftedAtom(PosClear, [target_pos]),
         }
-        place_domino_nsrt = NSRT("PlaceDomino", parameters, preconditions,
-                                add_effects, delete_effects, set(), option,
-                                option_vars, null_sampler)
+        place_domino_nsrt = NSRT("PlaceDomino", parameters,
+                                 preconditions, add_effects, delete_effects,
+                                 set(), option, option_vars, null_sampler)
         nsrts.add(place_domino_nsrt)
 
         # NoOp
@@ -154,7 +157,8 @@ class PyBulletDominoGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         add_effects = set()
         delete_effects = set()
         noop_nsrt = NSRT("NoOp", parameters, preconditions, add_effects,
-                        delete_effects, set(), option, option_vars, null_sampler)
+                         delete_effects, set(), option, option_vars,
+                         null_sampler)
         nsrts.add(noop_nsrt)
 
         return nsrts

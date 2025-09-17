@@ -9,7 +9,7 @@ from predicators import utils
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.option_model import _OptionModelBase
 from predicators.planning import PlanningFailure, _MaxSkeletonsFailure, \
-    sesame_plan, run_task_plan_once
+    run_task_plan_once, sesame_plan
 from predicators.planning_with_processes import \
     task_plan_from_task as task_plan_with_processes
 from predicators.settings import CFG
@@ -86,16 +86,13 @@ class BilevelPlanningExplorer(BaseExplorer):
 
             else:
                 plan, _, _ = run_task_plan_once(
-                    task,
-                    self._nsrts,
-                    self._predicates,
-                    self._types,
-                    timeout,
-                    seed,
-                    CFG.sesame_task_planning_heuristic)
-                policy = utils.option_plan_to_policy(plan,
-                abstract_function=lambda s: utils.abstract(s, self._predicates))
-                
+                    task, self._nsrts, self._predicates, self._types, timeout,
+                    seed, CFG.sesame_task_planning_heuristic)
+                policy = utils.option_plan_to_policy(
+                    plan,
+                    abstract_function=lambda s: utils.abstract(
+                        s, self._predicates))
+
         else:
             assert not CFG.bilevel_plan_without_sim
             plan, _, _ = sesame_plan(

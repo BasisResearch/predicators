@@ -83,18 +83,19 @@ PLOT_GROUPS = [
 
 # See PLOT_GROUPS comment.
 BAR_GROUPS = [
-    ("Oracle",
-        lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle" in v)),
-    ("Ours", 
-        lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)),
-    ("VisPred",
-        lambda df: df["EXPERIMENT_ID"].apply(lambda v: "online_nsrt_learning" in v)),
-    ("MAPLE",
-        lambda df: (df["EXPERIMENT_ID"].apply(lambda v: "maple_q" in v))),
-    ("ViLa(zs)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
-            "vlm_plan_zero_shot" in v)),
-    ("ViLa(fs)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
-            "vlm_plan_few_shot" in v)),
+    ("Oracle", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle" in v)),
+    ("Ours",
+     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)
+     ),
+    ("VisPred", lambda df: df["EXPERIMENT_ID"].apply(
+        lambda v: "online_nsrt_learning" in v)),
+    ("MAPLE", lambda df:
+     (df["EXPERIMENT_ID"].apply(lambda v: "maple_q" in v))),
+    ("ViLa(zs)",
+     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "vlm_plan_zero_shot" in v)
+     ),
+    ("ViLa(fs)",
+     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "vlm_plan_few_shot" in v)),
     ("No Bayes",
      lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ablate_bayes" in v)),
     ("No LLM",
@@ -122,10 +123,12 @@ def _main() -> None:
     groups_to_use = GROUPS.copy()
     if keep_max_cycle_only and "ONLINE_LEARNING_CYCLE" in groups_to_use:
         groups_to_use.remove("ONLINE_LEARNING_CYCLE")
-    
-    grouped_means, grouped_stds, _ = create_dataframes(COLUMN_NAMES_AND_KEYS,
-                                                       groups_to_use, DERIVED_KEYS,
-                                        keep_max_cycle_only=keep_max_cycle_only)
+
+    grouped_means, grouped_stds, _ = create_dataframes(
+        COLUMN_NAMES_AND_KEYS,
+        groups_to_use,
+        DERIVED_KEYS,
+        keep_max_cycle_only=keep_max_cycle_only)
     means = grouped_means.reset_index()
     stds = grouped_stds.reset_index()
 
@@ -146,12 +149,16 @@ def _main() -> None:
                     assert len(mean) == len(std) == 1
                 except:
                     if label in NO_RESULT_GROUP:
-                        print(f"No results for {label} {plot_title} {key} which"
-                           f" is in the NO_RESULT_GROUP, setting mean/std to 0")
+                        print(
+                            f"No results for {label} {plot_title} {key} which"
+                            f" is in the NO_RESULT_GROUP, setting mean/std to 0"
+                        )
                         mean = [0]
                         std = [0]
                     else:
-                        print(f"Error for {label} {plot_title} {key}, mean: {mean}, std: {std}")
+                        print(
+                            f"Error for {label} {plot_title} {key}, mean: {mean}, std: {std}"
+                        )
                         breakpoint()
                 plot_labels.append(label)
                 plot_means.append(mean[0])

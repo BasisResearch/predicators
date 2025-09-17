@@ -16,9 +16,9 @@ from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Set, \
 
 import multiprocess as mp
 import psutil
+import wandb
 from pathos.multiprocessing import ProcessingPool as Pool
 
-import wandb
 from predicators import utils
 from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.nsrt_learning.strips_learning import BaseSTRIPSLearner
@@ -124,8 +124,10 @@ class ClusteringSTRIPSLearner(BaseSTRIPSLearner):
                 if suc:
                     # Add to this PNAD.
                     assert set(sub.keys()) == set(pnad.op.parameters)
-                    pnad.add_to_datastore((segment, sub), 
-                        check_effect_equality=CFG.clustering_learner_check_effect_equality)
+                    pnad.add_to_datastore(
+                        (segment, sub),
+                        check_effect_equality=CFG.
+                        clustering_learner_check_effect_equality)
                     break
             else:
                 # Otherwise, create a new PNAD.
@@ -1174,31 +1176,35 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
         # Step 2.5: Ablation - use top condition if flag is set
         if CFG.process_learner_ablate_bayes:
-            logging.info("Using ablation: taking top condition from condition_sets_per_pnad")
+            logging.info(
+                "Using ablation: taking top condition from condition_sets_per_pnad"
+            )
             best_conditions: Dict[int, FrozenSet[LiftedAtom]] = {}
-            
+
             # Set up proc_name_to_results with placeholder values
             for i, pnad in enumerate(pnads):
-                if (condition_sets_per_pnad is not None and 
-                    i < len(condition_sets_per_pnad) and 
-                    condition_sets_per_pnad[i]):
+                if (condition_sets_per_pnad is not None
+                        and i < len(condition_sets_per_pnad)
+                        and condition_sets_per_pnad[i]):
                     # Take the first (top) condition from condition_sets
                     best_condition = condition_sets_per_pnad[i][0]
                 else:
                     # Fallback to empty condition if no condition sets available
                     best_condition = set()
                 best_conditions[i] = best_condition
-                
+
                 # Create placeholder scored_conditions entry for proc_name_to_results
                 # Format: (cost, frozenset(condition), scores_tuple, process)
                 placeholder_process = pnad.make_exogenous_process()
                 placeholder_process.condition_at_start = best_condition.copy()
                 placeholder_process.condition_overall = best_condition.copy()
                 placeholder_scored_conditions = [
-                    (0.0, frozenset(best_condition), (0.0,), placeholder_process)
+                    (0.0, frozenset(best_condition), (0.0, ),
+                     placeholder_process)
                 ]
-                self.proc_name_to_results[pnad.op.name] = placeholder_scored_conditions
-            
+                self.proc_name_to_results[
+                    pnad.op.name] = placeholder_scored_conditions
+
             # Construct final PNADs with the top conditions
             return self._construct_final_pnads(best_conditions, pnads)
 
@@ -1258,9 +1264,10 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
         if CFG.cluster_and_search_process_learner_llm_propose_top_conditions:
             condition_sets_per_pnad = self._llm_propose_condition_sets(
-                possible_atoms_per_pnad, pnads,
+                possible_atoms_per_pnad,
+                pnads,
                 # batch_size=CFG.cluster_and_search_llm_propose_batch_size
-                )
+            )
         elif CFG.cluster_and_search_process_learner_llm_rank_atoms:
             ranked_atoms_per_pnad = self._llm_rank_atoms(
                 possible_atoms_per_pnad, pnads)
@@ -1522,30 +1529,29 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
         # If batch_size is not specified or if we have fewer PNADs than the limit,
         # process all at once (original behavior)
-        if (batch_size is None or 
-            len(possible_atoms_per_pnad) <= batch_size):
+        if (batch_size is None or len(possible_atoms_per_pnad) <= batch_size):
             return self._llm_propose_condition_sets_batch(
                 possible_atoms_per_pnad, pnads, k)
 
         # Otherwise, process in batches
         all_condition_sets = []
         num_pnads = len(possible_atoms_per_pnad)
-        
+
         for start_idx in range(0, num_pnads, batch_size):
             end_idx = min(start_idx + batch_size, num_pnads)
-            
+
             # Extract batch data
             batch_atoms = possible_atoms_per_pnad[start_idx:end_idx]
             batch_pnads = pnads[start_idx:end_idx] if pnads else None
-            
+
             # Process this batch
             batch_condition_sets = self._llm_propose_condition_sets_batch(
-                batch_atoms, batch_pnads, k, batch_idx=start_idx//batch_size)
-            
+                batch_atoms, batch_pnads, k, batch_idx=start_idx // batch_size)
+
             all_condition_sets.extend(batch_condition_sets)
-        
+
         return all_condition_sets
-    
+
     def _llm_propose_condition_sets_batch(
             self,
             possible_atoms_per_pnad: List[Set[LiftedAtom]],
@@ -1650,7 +1656,8 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                     logging.debug(f"Process {i}: {pformat(pnads[i])}\n"
                                   f"Proposed {len(sets)} condition sets")
                 else:
-                    logging.debug(f"Process {i}: Proposed {len(sets)} condition sets")
+                    logging.debug(
+                        f"Process {i}: Proposed {len(sets)} condition sets")
                 for j, condition_set in enumerate(sets):
                     logging.debug(
                         f"  Set {j+1}: {sorted(condition_set, key=str)}")

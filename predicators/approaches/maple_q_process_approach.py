@@ -7,8 +7,8 @@ Base samplers and applicable actions are used to perform the argmax.
 
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional, Set
 import logging
+from typing import Any, Callable, List, Optional, Set
 
 import dill as pkl
 from gym.spaces import Box
@@ -18,11 +18,11 @@ from predicators.approaches.pp_online_process_learning_approach import \
     OnlineProcessLearningAndPlanningApproach
 from predicators.explorers import BaseExplorer, create_explorer
 from predicators.ml_models import MapleQFunction
+from predicators.nsrt_learning.segmentation import segment_trajectory
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, InteractionRequest, \
     LowLevelTrajectory, ParameterizedOption, Predicate, Segment, State, Task, \
     Type, _GroundCausalProcess, _Option
-from predicators.nsrt_learning.segmentation import segment_trajectory
 
 
 class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
@@ -93,17 +93,18 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
         max_steps = b**(1 + self._online_learning_cycle)
         preds = self._get_current_predicates()
         assert CFG.explorer == "maple_q"
-        explorer = create_explorer(CFG.explorer,
-                                   preds,
-                                   self._initial_options,
-                                   self._types,
-                                   self._action_space,
-                                   self._train_tasks,
-                                   # Endogenous processes are action-like
-                                   self._get_current_endogenous_processes(),
-                                   self._option_model,
-                                   max_steps_before_termination=max_steps,
-                                   maple_q_function=self._q_function)
+        explorer = create_explorer(
+            CFG.explorer,
+            preds,
+            self._initial_options,
+            self._types,
+            self._action_space,
+            self._train_tasks,
+            # Endogenous processes are action-like
+            self._get_current_endogenous_processes(),
+            self._option_model,
+            max_steps_before_termination=max_steps,
+            maple_q_function=self._q_function)
         return explorer
 
     def load(self, online_learning_cycle: Optional[int]) -> None:

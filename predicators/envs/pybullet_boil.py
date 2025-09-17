@@ -118,13 +118,22 @@ class PyBulletBoilEnv(PyBulletEnv):
     happy_speed: ClassVar[float] = 0.05
 
     # Colors for switches and faucet
-    burner_switch_color: ClassVar[Tuple[float, float, float, float]] = (1.0, 0.5, 0.0, 1.0)  # orange
-    faucet_switch_color: ClassVar[Tuple[float, float, float, float]] = (0.0, 0.7, 1.0, 1.0)  # light blue
-    faucet_color: ClassVar[Tuple[float, float, float, float]] = (0.6, 0.6, 0.6, 1.0)  # gray
+    burner_switch_color: ClassVar[Tuple[float, float, float,
+                                        float]] = (1.0, 0.5, 0.0, 1.0
+                                                   )  # orange
+    faucet_switch_color: ClassVar[Tuple[float, float, float,
+                                        float]] = (0.0, 0.7, 1.0, 1.0
+                                                   )  # light blue
+    faucet_color: ClassVar[Tuple[float, float, float,
+                                 float]] = (0.6, 0.6, 0.6, 1.0)  # gray
 
     # Burner plate colors
-    burner_off_color: ClassVar[Tuple[float, float, float, float]] = (0.7, 0.7, 0.7, 1.0)  # gray (off)
-    burner_on_color: ClassVar[Tuple[float, float, float, float]] = (1.0, 0.3, 0.0, 1.0)  # red-orange (on)
+    burner_off_color: ClassVar[Tuple[float, float, float,
+                                     float]] = (0.7, 0.7, 0.7, 1.0
+                                                )  # gray (off)
+    burner_on_color: ClassVar[Tuple[float, float, float,
+                                    float]] = (1.0, 0.3, 0.0, 1.0
+                                               )  # red-orange (on)
 
     # Dist thresholds
     faucet_align_threshold: ClassVar[
@@ -369,7 +378,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             # Example placeholder URDF for a jug
             jug_id = create_object(asset_path="urdf/jug-pixel.urdf",
                                    color=(1, 1, 1, 1) if all_white_jugs else
-                                    random.choice(cls._obj_colors_main),
+                                   random.choice(cls._obj_colors_main),
                                    use_fixed_base=False,
                                    physics_client_id=physics_client_id)
             jug_ids.append(jug_id)
@@ -398,8 +407,10 @@ class PyBulletBoilEnv(PyBulletEnv):
                 use_fixed_base=True,
                 physics_client_id=physics_client_id)
             # Color only the base (link -1), not the slider
-            p.changeVisualShape(switch_id, -1, rgbaColor=cls.burner_switch_color,
-                              physicsClientId=physics_client_id)
+            p.changeVisualShape(switch_id,
+                                -1,
+                                rgbaColor=cls.burner_switch_color,
+                                physicsClientId=physics_client_id)
             burner_switch_ids.append(switch_id)
         bodies["burner_switch_ids"] = burner_switch_ids
 
@@ -417,8 +428,10 @@ class PyBulletBoilEnv(PyBulletEnv):
             use_fixed_base=True,
             physics_client_id=physics_client_id)
         # Color only the base (link -1), not the slider
-        p.changeVisualShape(faucet_switch_id, -1, rgbaColor=cls.faucet_switch_color,
-                          physicsClientId=physics_client_id)
+        p.changeVisualShape(faucet_switch_id,
+                            -1,
+                            rgbaColor=cls.faucet_switch_color,
+                            physicsClientId=physics_client_id)
         bodies["faucet_switch_id"] = faucet_switch_id
 
         return physics_client_id, pybullet_robot, bodies

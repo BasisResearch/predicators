@@ -29,7 +29,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from predicators import utils
 from predicators.settings import CFG
 from predicators.structs import Array, GroundAtom, MaxTrainIters, Object, \
-    State, _GroundNSRT, _Option, Predicate
+    Predicate, State, _GroundNSRT, _Option
 
 torch.use_deterministic_algorithms(mode=True)  # type: ignore
 torch.set_num_threads(1)  # fixes libglomp error on supercloud
@@ -1320,22 +1320,24 @@ class MapleQFunction(MLPRegressor):
     Assumes a fixed set of objects and ground NSRTs.
     """
 
-    def __init__(self,
-                 seed: int,
-                 hid_sizes: List[int],
-                 max_train_iters: MaxTrainIters,
-                 clip_gradients: bool,
-                 clip_value: float,
-                 learning_rate: float,
-                 weight_decay: float = 0,
-                 use_torch_gpu: bool = False,
-                 train_print_every: int = 1000,
-                 n_iter_no_change: int = 10000000,
-                 discount: float = 0.8,
-                 num_lookahead_samples: int = 5,
-                 replay_buffer_max_size: int = 1000000,
-                 replay_buffer_sample_with_replacement: bool = True,
-                 predicates: Set[Predicate] = set()) -> None:
+    def __init__(
+        self,
+        seed: int,
+        hid_sizes: List[int],
+        max_train_iters: MaxTrainIters,
+        clip_gradients: bool,
+        clip_value: float,
+        learning_rate: float,
+        weight_decay: float = 0,
+        use_torch_gpu: bool = False,
+        train_print_every: int = 1000,
+        n_iter_no_change: int = 10000000,
+        discount: float = 0.8,
+        num_lookahead_samples: int = 5,
+        replay_buffer_max_size: int = 1000000,
+        replay_buffer_sample_with_replacement: bool = True,
+        predicates: Set[Predicate] = set()
+    ) -> None:
         super().__init__(seed, hid_sizes, max_train_iters, clip_gradients,
                          clip_value, learning_rate, weight_decay,
                          use_torch_gpu, train_print_every, n_iter_no_change)
@@ -1601,8 +1603,9 @@ class MapleQFunction(MLPRegressor):
             # Default to applicable if no info (defensive)
             return True
 
-        applicable_ground = [o for o in self._ordered_ground_nsrts
-                              if is_applicable(o)]
+        applicable_ground = [
+            o for o in self._ordered_ground_nsrts if is_applicable(o)
+        ]
         # Randomize order to ensure fully randomized sampling order.
         indices = list(range(len(applicable_ground)))
         self._rng.shuffle(indices)

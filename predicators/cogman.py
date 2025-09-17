@@ -261,7 +261,8 @@ def run_episode_and_get_observations(
                 show_stack_trace = True
                 if show_stack_trace:
                     import traceback
-                    logging.debug(f"[CogMan] Full traceback:\n{traceback.format_exc()}")
+                    logging.debug(
+                        f"[CogMan] Full traceback:\n{traceback.format_exc()}")
                 if exceptions_to_break_on is not None and \
                    any(issubclass(type(e), c) for c in exceptions_to_break_on):
                     if monitor_observed:

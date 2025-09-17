@@ -1790,8 +1790,8 @@ def nsrt_plan_to_greedy_policy(
     """
     option_policy = nsrt_plan_to_greedy_option_policy(
         nsrt_plan, goal, rng, necessary_atoms_seq=necessary_atoms_seq)
-    return option_policy_to_policy(option_policy, 
-            abstract_function=abstract_function)
+    return option_policy_to_policy(option_policy,
+                                   abstract_function=abstract_function)
 
 
 def process_plan_to_greedy_option_policy(
@@ -1843,7 +1843,7 @@ def process_plan_to_greedy_policy(
     option_policy = process_plan_to_greedy_option_policy(
         process_plan, goal, rng, necessary_atoms_seq=necessary_atoms_seq)
     return option_policy_to_policy(option_policy,
-                                    abstract_function=abstract_function)
+                                   abstract_function=abstract_function)
 
 
 def sample_applicable_option(param_options: List[ParameterizedOption],

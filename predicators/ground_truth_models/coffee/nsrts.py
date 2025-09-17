@@ -102,9 +102,9 @@ class CoffeeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                     LiftedAtom(HandEmpty, [robot]),
                 }
                 move_to_twist_jug_nsrt = NSRT("MoveToTwistJug", parameters,
-                                            preconditions, add_effects,
-                                            delete_effects, set(), option,
-                                            option_vars, null_sampler)
+                                              preconditions, add_effects,
+                                              delete_effects, set(), option,
+                                              option_vars, null_sampler)
                 nsrts.add(move_to_twist_jug_nsrt)
 
                 # TwistJug
@@ -127,8 +127,8 @@ class CoffeeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                 }
 
                 def twist_jug_sampler(state: State, goal: Set[GroundAtom],
-                                    rng: np.random.Generator,
-                                    objs: Sequence[Object]) -> Array:
+                                      rng: np.random.Generator,
+                                      objs: Sequence[Object]) -> Array:
                     del state, goal, objs  # unused
                     return np.array(rng.uniform(-1, 1, size=(1, )),
                                     dtype=np.float32)
@@ -154,9 +154,9 @@ class CoffeeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                 if CFG.coffee_jug_pickable_pred:
                     add_effects.add(LiftedAtom(JugPickable, [jug]))
                 delete_effects = set()
-                twist_nsrt = NSRT("Twist", parameters, preconditions, add_effects,
-                                delete_effects, set(), option, option_vars,
-                                null_sampler)
+                twist_nsrt = NSRT("Twist", parameters,
+                                  preconditions, add_effects, delete_effects,
+                                  set(), option, option_vars, null_sampler)
                 nsrts.add(twist_nsrt)
 
         # PickJugFromTable
