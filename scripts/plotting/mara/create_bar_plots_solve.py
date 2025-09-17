@@ -65,27 +65,30 @@ PLOT_GROUPS = [
 
 # See PLOT_GROUPS comment.
 BAR_GROUPS = [
-    ("Plan\nw/ true\nmodel",
+    ("Oracle",
         lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle" in v)),
     ("Ours", 
         lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)),
-    ("Online\nNSRT",
+    ("VisPred",
         lambda df: df["EXPERIMENT_ID"].apply(lambda v: "online_nsrt_learning" in v)),
     ("MAPLE",
         lambda df: (df["EXPERIMENT_ID"].apply(lambda v: "maple_q" in v))),
-    ("ViLa\n(zs)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
+    ("ViLa(zs)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
             "vlm_plan_zero_shot" in v)),
-    ("ViLa\n(fs)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
+    ("ViLa(fs)", lambda df: df["EXPERIMENT_ID"].apply(lambda v: 
             "vlm_plan_few_shot" in v)),
-    # ("Ablate\nBayes.",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ablate_bayes" in v)),
-    # ("Ablate\nLLM.",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ablate_llm" in v)),
-    ("No param\nlearn",
-     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_invent" in v)),
+    ("No Bayes",
+     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ablate_bayes" in v)),
+    ("No LLM",
+     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ablate_llm" in v)),
+    ("Oracle-VI",
+     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_param_learn" in v)),
     ("No invent",
      lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_invent" in v)),
 ]
+
+# Allow no result group
+NO_RESULT_GROUP = ["No LLM"]
 
 keep_max_cycle_only = True
 #################### Should not need to change below here #####################
@@ -123,8 +126,14 @@ def _main() -> None:
                 try:
                     assert len(mean) == len(std) == 1
                 except:
-                    print(f"Error for {label} {plot_title} {key}, mean: {mean}, std: {std}")
-                    breakpoint()
+                    if label in NO_RESULT_GROUP:
+                        print(f"No results for {label} {plot_title} {key} which"
+                           f" is in the NO_RESULT_GROUP, setting mean/std to 0")
+                        mean = [0]
+                        std = [0]
+                    else:
+                        print(f"Error for {label} {plot_title} {key}, mean: {mean}, std: {std}")
+                        breakpoint()
                 plot_labels.append(label)
                 plot_means.append(mean[0])
                 plot_stds.append(std[0])
