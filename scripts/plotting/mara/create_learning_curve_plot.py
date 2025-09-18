@@ -249,14 +249,14 @@ def _main() -> None:
             color = COLORS[color_idx % len(COLORS)]
             color_idx += 1
 
-            # Plot the line with error bars
-            ax.errorbar(x_vals,
-                        y_means,
-                        yerr=y_stds,
-                        label=approach_label,
-                        marker='o',
-                        capsize=5,
-                        color=color)
+            # Plot the line with shaded error region
+            ax.plot(x_vals, y_means, label=approach_label, marker='o', color=color)
+
+            # Add shaded error region
+            if any(std > 0 for std in y_stds):
+                y_lower = [mean - std for mean, std in zip(y_means, y_stds)]
+                y_upper = [mean + std for mean, std in zip(y_means, y_stds)]
+                ax.fill_between(x_vals, y_lower, y_upper, alpha=0.2, color=color)
 
         # Plot horizontal lines for non-online learning approaches
         for approach_label, approach_selector in HORIZONTAL_LINE_GROUPS:
