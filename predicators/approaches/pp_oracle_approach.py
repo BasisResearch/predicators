@@ -35,8 +35,10 @@ class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):
                          bilevel_plan_without_sim,
                          option_model=option_model)
         if processes is None:
+            # use only_endogenous for the no_invent baseline
             processes = get_gt_processes(CFG.env, self._initial_predicates,
-                                         self._initial_options)
+                            self._initial_options,
+                            only_endogenous=CFG.running_no_invent_baseline)
 
         # Set all processes' strength parameters to 1 if flag is enabled
         if CFG.process_planning_set_parameters_one:

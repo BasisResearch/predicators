@@ -677,6 +677,7 @@ class GlobalSettings:
     process_planning_set_parameters_one = False
     process_task_planning_heuristic = 'h_ff'
     noop_option_terminate_on_atom_change = True
+    running_no_invent_baseline = False
 
     # torch GPU usage setting
     use_torch_gpu = False
