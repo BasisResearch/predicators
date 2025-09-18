@@ -107,7 +107,7 @@ BAR_GROUPS = [
 ]
 
 # Allow no result group
-NO_RESULT_GROUP = ["No LLM"]
+NO_RESULT_GROUP = ["No LLM", "VisPred"]
 
 keep_max_cycle_only = True
 #################### Should not need to change below here #####################
@@ -167,7 +167,8 @@ def _main() -> None:
                     plot_colors.append(BAR_COLORS[i % len(BAR_COLORS)])
                 else:
                     plot_colors.append(SINGLE_BAR_COLOR)
-            ax.barh(plot_labels, plot_means, xerr=plot_stds, color=plot_colors)
+            ax.barh(plot_labels, plot_means, xerr=plot_stds, color=plot_colors,
+                   capsize=5, ecolor='black', error_kw={'linewidth': 2})
             ax.set_xlim(X_LIM)
             ax.tick_params(axis='y', colors='black')
             ax.set_title(plot_title)
