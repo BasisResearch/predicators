@@ -9,6 +9,7 @@ APPROACHES:
   #     demonstrator: "oracle_process_planning"
   #     terminate_on_goal_reached_and_option_terminated: True
   #     bilevel_plan_without_sim: True
+  #     running_no_invent_baseline: True
   # vlm_plan_zero_shot: # ViLa zero-shot baseline
   #   NAME: "vlm_open_loop"
   #   FLAGS:

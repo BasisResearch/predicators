@@ -171,7 +171,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(Holding, [robot, domino1]),
             LiftedAtom(PosClear, [target_pos]),
         }
-        ignore_effects = {AdjacentTo, DominoAtRot, DominoAtPos, PosClear}
+        ignore_effects = {AdjacentTo, DominoAtRot, DominoAtPos, PosClear,
+                            Tilting}
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
                                                    sigma=torch.tensor(0.1))
         place_domino_process = EndogenousProcess("PlaceDomino", parameters,
