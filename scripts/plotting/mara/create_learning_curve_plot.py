@@ -108,8 +108,13 @@ def _convert_cycle_to_numeric(cycle_str):
         return -1
 
 
-def _get_learning_curves_for_approach(df, approach_selector, env_selector):
+def _get_learning_curves_for_approach(df, approach_selector, env_selector, max_iteration=None):
     """Get learning curves for a specific approach and environment.
+
+    For each seed, forward-fills missing iterations with the previous best performance.
+
+    Args:
+        max_iteration: If provided, extend curves to this iteration using forward-filling
 
     Returns:
         x_values: List of cycle numbers (starting from 0 for None)
@@ -128,8 +133,53 @@ def _get_learning_curves_for_approach(df, approach_selector, env_selector):
     filtered_df['X_VALUE'] = filtered_df[
         'CYCLE_NUMERIC'] + 1  # None (-1) -> 0, 0 -> 1, 1 -> 2, etc.
 
-    # Group by cycle and compute mean/std across seeds
-    grouped = filtered_df.groupby('X_VALUE')['PERC_SOLVED'].agg(
+    # Get all unique seeds and iterations
+    all_seeds = filtered_df['SEED'].unique()
+    actual_iterations = sorted(filtered_df['X_VALUE'].unique())
+
+    # If max_iteration is provided, extend to that iteration
+    if max_iteration is not None:
+        all_iterations = list(range(min(actual_iterations), max_iteration + 1))
+    else:
+        all_iterations = actual_iterations
+
+    # Forward-fill missing values for each seed
+    forward_filled_data = []
+
+    for seed in all_seeds:
+        seed_data = filtered_df[filtered_df['SEED'] == seed].copy()
+        seed_data = seed_data.sort_values('X_VALUE')
+
+        # Track best performance seen so far for this seed
+        best_performance = 0
+
+        for iteration in all_iterations:
+            iteration_data = seed_data[seed_data['X_VALUE'] == iteration]
+
+            if not iteration_data.empty:
+                # We have data for this iteration, update best performance
+                current_performance = iteration_data['PERC_SOLVED'].iloc[0]
+                best_performance = max(best_performance, current_performance)
+                forward_filled_data.append({
+                    'SEED': seed,
+                    'X_VALUE': iteration,
+                    'PERC_SOLVED': current_performance
+                })
+            else:
+                # Missing data for this iteration, use previous best
+                forward_filled_data.append({
+                    'SEED': seed,
+                    'X_VALUE': iteration,
+                    'PERC_SOLVED': best_performance
+                })
+
+    # Convert to DataFrame and compute mean/std across seeds for each iteration
+    forward_filled_df = pd.DataFrame(forward_filled_data)
+
+    if forward_filled_df.empty:
+        return [], [], []
+
+    grouped = forward_filled_df.groupby('X_VALUE')['PERC_SOLVED'].agg(
         ['mean', 'std']).reset_index()
 
     x_values = grouped['X_VALUE'].tolist()
@@ -191,7 +241,7 @@ def _main() -> None:
         color_idx = 0
         for approach_label, approach_selector in APPROACH_GROUPS:
             x_vals, y_means, y_stds = _get_learning_curves_for_approach(
-                df, approach_selector, env_selector)
+                df, approach_selector, env_selector, max_iteration=max_x)
 
             if not x_vals:  # Skip if no data for this approach
                 continue
