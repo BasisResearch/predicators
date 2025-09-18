@@ -70,8 +70,8 @@ APPROACH_GROUPS = [
     #  ),
     ("Ours",
      lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ours_always_test" in v)),
-    # ("No param learn",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "no_invent" in v)),
+    ("VisPred",
+     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "online_nsrt_learning" in v)),
 ]
 
 # Approaches that don't do online learning - show as horizontal lines at final performance
