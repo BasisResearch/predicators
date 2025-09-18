@@ -11,13 +11,13 @@ APPROACHES:
   #     demonstrator: "oracle_process_planning"
   #     terminate_on_goal_reached_and_option_terminated: True
   #     bilevel_plan_without_sim: True
-  no_param_learn:
-    NAME: "oracle_process_planning"
-    FLAGS:
-      demonstrator: "oracle_process_planning"
-      terminate_on_goal_reached_and_option_terminated: True
-      bilevel_plan_without_sim: True
-      process_planning_set_parameters_one: True
+  # no_param_learn:
+  #   NAME: "oracle_process_planning"
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     bilevel_plan_without_sim: True
+  #     process_planning_set_parameters_one: True
   # maple_q: # MAPLE baseline
   #   NAME: "maple_q_with_process"
   #   FLAGS:
@@ -52,27 +52,30 @@ APPROACHES:
   #     fan_test_num_pos_x: 3
   #     fan_test_num_pos_y: 3
   #     fan_test_num_walls_per_task: "[1]"
-  # online_nsrt_learning:
-  #   NAME: "online_nsrt_learning"
-  #   FLAGS:
-  #     num_train_tasks: 2
-  #     num_online_learning_cycles: 10
-  #     online_nsrt_learning_requests_per_cycle: 8
-  #     bilevel_plan_without_sim: True
-  #     demonstrator: "oracle_process_planning"
-  #     explorer: "exploit_planning"
-  #     terminate_on_goal_reached: False
-  #     terminate_on_goal_reached_and_option_terminated: True
-  #     online_learning_early_stopping: True
-  #     rgb_observation: False # for visual predicators
-  #     bilevel_planning_explorer_enumerate_plans: True
-  #     exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
-  #     skip_test_until_last_ite_or_early_stopping: True
-  #     online_learning_assert_no_exclude_pred: False
-  #     disable_harmlessness_check: True
-  #     sampler_learner: "oracle"
-  #     option_learner: "no_learning"
-  #     clustering_learner_check_effect_equality: False
+  online_nsrt_learning:
+    NAME: "online_nsrt_learning"
+    FLAGS:
+      num_train_tasks: 2
+      num_online_learning_cycles: 10
+      online_nsrt_learning_requests_per_cycle: 8
+      bilevel_plan_without_sim: True
+      demonstrator: "oracle_process_planning"
+      explorer: "exploit_planning"
+      terminate_on_goal_reached: False
+      terminate_on_goal_reached_and_option_terminated: True
+      online_learning_early_stopping: True
+      rgb_observation: False # for visual predicators
+      bilevel_planning_explorer_enumerate_plans: True
+      exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
+      skip_test_until_last_ite_or_early_stopping: True
+      online_learning_assert_no_exclude_pred: False
+      disable_harmlessness_check: True
+      sampler_learner: "oracle"
+      option_learner: "no_learning"
+      clustering_learner_check_effect_equality: False
+      # for plotting learning curve
+      # skip_test_until_last_ite_or_early_stopping: False 
+      # num_test_tasks: 10
   # param_learning:
   #   NAME: "param_learning_process_planning"
   #   ARGS:
