@@ -237,28 +237,8 @@ def _main() -> None:
         # Use at least 5 as max for reasonable plot range
         max_x = max(max_x, 5)
 
-        # Plot each online learning approach as a separate line
-        color_idx = 0
-        for approach_label, approach_selector in APPROACH_GROUPS:
-            x_vals, y_means, y_stds = _get_learning_curves_for_approach(
-                df, approach_selector, env_selector, max_iteration=max_x)
-
-            if not x_vals:  # Skip if no data for this approach
-                continue
-
-            color = COLORS[color_idx % len(COLORS)]
-            color_idx += 1
-
-            # Plot the line with shaded error region
-            ax.plot(x_vals, y_means, label=approach_label, marker='o', color=color)
-
-            # Add shaded error region
-            if any(std > 0 for std in y_stds):
-                y_lower = [mean - std for mean, std in zip(y_means, y_stds)]
-                y_upper = [mean + std for mean, std in zip(y_means, y_stds)]
-                ax.fill_between(x_vals, y_lower, y_upper, alpha=0.2, color=color)
-
         # Plot horizontal lines for non-online learning approaches
+        color_idx = 0
         for approach_label, approach_selector in HORIZONTAL_LINE_GROUPS:
             mean, std = _get_final_performance_for_approach(
                 df, approach_selector, env_selector)
@@ -283,6 +263,27 @@ def _main() -> None:
                                 mean + std,
                                 alpha=0.2,
                                 color=color)
+
+        # Plot each online learning approach as a separate line
+        for approach_label, approach_selector in APPROACH_GROUPS:
+            x_vals, y_means, y_stds = _get_learning_curves_for_approach(
+                df, approach_selector, env_selector, max_iteration=max_x)
+
+            if not x_vals:  # Skip if no data for this approach
+                continue
+
+            color = COLORS[color_idx % len(COLORS)]
+            color_idx += 1
+
+            # Plot the line with shaded error region
+            ax.plot(x_vals, y_means, label=approach_label, marker='o', color=color)
+
+            # Add shaded error region
+            if any(std > 0 for std in y_stds):
+                y_lower = [mean - std for mean, std in zip(y_means, y_stds)]
+                y_upper = [mean + std for mean, std in zip(y_means, y_stds)]
+                ax.fill_between(x_vals, y_lower, y_upper, alpha=0.2, color=color)
+
 
         # Customize the plot
         ax.set_xlabel('Online Learning Iteration', color='black')
