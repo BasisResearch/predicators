@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import Callable, List, Sequence, Set
 
+import logging
 import numpy as np
 import PIL
 from PIL import ImageDraw
@@ -150,6 +151,15 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
         try:
             option_plan = self._query_vlm_for_option_plan(task)
         except Exception as e:
+            if CFG.planning_check_dr_reachable:
+                try:
+                    init_atoms = utils.abstract(task.init,
+                                                self._get_current_predicates())
+                except Exception:  # pragma: no cover - best-effort logging only
+                    init_atoms = set()
+                logging.info(f"Detected goal unreachable. Goal: {task.goal}")
+                logging.info(f"Initial atoms: {init_atoms}")
+                raise ApproachFailure(f"Goal {task.goal} not dr-reachable")
             raise ApproachFailure(
                 f"VLM failed to produce coherent option plan. Reason: {e}")
 
