@@ -27,6 +27,7 @@ from PIL import ImageDraw
 
 from predicators import utils
 from predicators.approaches import ApproachFailure
+from predicators.planning import PlanningFailure
 from predicators.approaches.bilevel_planning_approach import \
     BilevelPlanningApproach
 from predicators.nsrt_learning.segmentation import segment_trajectory
@@ -159,7 +160,7 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
                     init_atoms = set()
                 logging.info(f"Detected goal unreachable. Goal: {task.goal}")
                 logging.info(f"Initial atoms: {init_atoms}")
-                raise ApproachFailure(f"Goal {task.goal} not dr-reachable")
+                raise PlanningFailure(f"Goal {task.goal} not dr-reachable")
             raise ApproachFailure(
                 f"VLM failed to produce coherent option plan. Reason: {e}")
 
