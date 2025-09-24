@@ -23,8 +23,11 @@ pd.set_option('chained_assignment', None)
 
 # Details about the plt figure.
 DPI = 500
-FONT_SIZE = 18
+FONT_SIZE = 30
 Y_LIM = (-5, 105)
+
+# Toggle to generate a single plot with subplots for each environment
+GENERATE_A_SINGLE_PLOT = True
 
 # Color palette for different approaches
 COLORS = [
@@ -88,11 +91,11 @@ HORIZONTAL_LINE_GROUPS = [
 
 # Which environments to create plots for
 PLOT_ENVS = [
-    ("Boil", pd_create_equal_selector("ENV", "pybullet_boil")),
     ("Coffee", pd_create_equal_selector("ENV", "pybullet_coffee")),
     ("Grow", pd_create_equal_selector("ENV", "pybullet_grow")),
-    ("Fan", pd_create_equal_selector("ENV", "pybullet_fan")),
+    ("Boil", pd_create_equal_selector("ENV", "pybullet_boil")),
     ("Domino", pd_create_equal_selector("ENV", "pybullet_domino")),
+    ("Fan", pd_create_equal_selector("ENV", "pybullet_fan")),
 ]
 
 #################### Should not need to change below here #####################
@@ -222,85 +225,180 @@ def _main() -> None:
     # Load all raw data (don't group/aggregate yet)
     df = create_raw_dataframe(COLUMN_NAMES_AND_KEYS, DERIVED_KEYS)
 
-    # Create learning curve plots for each environment
-    for env_name, env_selector in PLOT_ENVS:
-        fig, ax = plt.subplots(figsize=(10, 8))
+    if GENERATE_A_SINGLE_PLOT:
+        # Create a single plot with subplots for each environment
+        num_envs = len(PLOT_ENVS)
+        fig, axes = plt.subplots(1, num_envs, figsize=(6 * num_envs, 7))
 
-        # Determine x-axis range by finding max iteration across all online learning approaches
-        max_x = 0
-        for approach_label, approach_selector in APPROACH_GROUPS:
-            x_vals, _, _ = _get_learning_curves_for_approach(
-                df, approach_selector, env_selector)
-            if x_vals:
-                max_x = max(max_x, max(x_vals))
+        # Handle case where there's only one subplot
+        if num_envs == 1:
+            axes = [axes]
 
-        # Use at least 5 as max for reasonable plot range
-        max_x = max(max_x, 5)
+        # Determine global max x-axis range
+        global_max_x = 0
+        for _, env_selector in PLOT_ENVS:
+            for approach_label, approach_selector in APPROACH_GROUPS:
+                x_vals, _, _ = _get_learning_curves_for_approach(
+                    df, approach_selector, env_selector)
+                if x_vals:
+                    global_max_x = max(global_max_x, max(x_vals))
+        global_max_x = max(global_max_x, 5)
 
-        # Plot horizontal lines for non-online learning approaches
-        color_idx = 0
-        for approach_label, approach_selector in HORIZONTAL_LINE_GROUPS:
-            mean, std = _get_final_performance_for_approach(
-                df, approach_selector, env_selector)
+        for env_idx, (env_name, env_selector) in enumerate(PLOT_ENVS):
+            ax = axes[env_idx]
 
-            if mean is None:  # Skip if no data for this approach
-                continue
+            # Plot horizontal lines for non-online learning approaches
+            color_idx = 0
+            for approach_label, approach_selector in HORIZONTAL_LINE_GROUPS:
+                mean, std = _get_final_performance_for_approach(
+                    df, approach_selector, env_selector)
 
-            color = COLORS[color_idx % len(COLORS)]
-            color_idx += 1
+                if mean is None:  # Skip if no data for this approach
+                    continue
 
-            # Plot horizontal line spanning the full x range
-            ax.axhline(y=mean,
-                       label=approach_label,
-                       linestyle='--',
-                       alpha=0.8,
-                       color=color)
+                color = COLORS[color_idx % len(COLORS)]
+                color_idx += 1
 
-            # Add error band around the horizontal line
-            if std > 0:
-                ax.fill_between([0, max_x],
-                                mean - std,
-                                mean + std,
-                                alpha=0.2,
-                                color=color)
+                # Plot horizontal line spanning the full x range
+                ax.axhline(y=mean,
+                           label=approach_label if env_idx == 0 else "",
+                           linestyle='--',
+                           alpha=0.8,
+                           color=color)
 
-        # Plot each online learning approach as a separate line
-        for approach_label, approach_selector in APPROACH_GROUPS:
-            x_vals, y_means, y_stds = _get_learning_curves_for_approach(
-                df, approach_selector, env_selector, max_iteration=max_x)
+                # Add error band around the horizontal line
+                if std > 0:
+                    ax.fill_between([0, global_max_x],
+                                    mean - std,
+                                    mean + std,
+                                    alpha=0.2,
+                                    color=color)
 
-            if not x_vals:  # Skip if no data for this approach
-                continue
+            # Plot each online learning approach as a separate line
+            for approach_label, approach_selector in APPROACH_GROUPS:
+                x_vals, y_means, y_stds = _get_learning_curves_for_approach(
+                    df, approach_selector, env_selector, max_iteration=global_max_x)
 
-            color = COLORS[color_idx % len(COLORS)]
-            color_idx += 1
+                if not x_vals:  # Skip if no data for this approach
+                    continue
 
-            # Plot the line with shaded error region
-            ax.plot(x_vals, y_means, label=approach_label, marker='o', color=color)
+                color = COLORS[color_idx % len(COLORS)]
+                color_idx += 1
 
-            # Add shaded error region
-            if any(std > 0 for std in y_stds):
-                y_lower = [mean - std for mean, std in zip(y_means, y_stds)]
-                y_upper = [mean + std for mean, std in zip(y_means, y_stds)]
-                ax.fill_between(x_vals, y_lower, y_upper, alpha=0.2, color=color)
+                # Plot the line with shaded error region
+                ax.plot(x_vals, y_means,
+                       label=approach_label if env_idx == 0 else "",
+                       marker='o', color=color)
 
+                # Add shaded error region
+                if any(std > 0 for std in y_stds):
+                    y_lower = [mean - std for mean, std in zip(y_means, y_stds)]
+                    y_upper = [mean + std for mean, std in zip(y_means, y_stds)]
+                    ax.fill_between(x_vals, y_lower, y_upper, alpha=0.2, color=color)
 
-        # Customize the plot
-        ax.set_xlabel('Online Learning Iteration', color='black')
-        ax.set_ylabel('Percentage Solved (%)', color='black')
-        ax.set_title(f'{env_name}', color='black')
-        ax.set_xlim(-0.5, max_x + 0.5)
-        ax.set_ylim(Y_LIM)
-        ax.legend(bbox_to_anchor=(1, 1.02), loc='upper left')
-        # ax.grid(True, alpha=0.3)
+            # Customize each subplot
+            ax.set_xlabel('Online Learning Iteration', color='black', fontsize=FONT_SIZE)
+            ax.set_title(f'{env_name}', color='black', fontsize=FONT_SIZE)
+            ax.set_xlim(-0.5, global_max_x + 0.5)
+            ax.set_ylim(Y_LIM[0], Y_LIM[1])
 
-        # Save the plot
+            # Only show y-axis ticks and labels on the leftmost subplot
+            if env_idx > 0:
+                ax.set_yticklabels([])
+
+        # Add shared y-axis label to the left of the first plot
+        fig.text(0.0, 0.5, 'Percentage Solved (%)', va='center', rotation='vertical', color='black', fontsize=FONT_SIZE + 2)
+
+        # Add legend flat at the bottom
+        handles, labels = axes[0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.1), ncol=len(labels))
+
+        # Save the single plot
         plt.tight_layout()
-        filename = f"{env_name.lower()}_learning_curves.png"
+        filename = "all_environments_learning_curves.png"
         outfile = os.path.join(outdir, filename)
         plt.savefig(outfile, dpi=DPI, bbox_inches='tight')
         print(f"Wrote out to {outfile}")
         plt.close()
+
+    else:
+        # Create individual plots for each environment (original behavior)
+        for env_name, env_selector in PLOT_ENVS:
+            fig, ax = plt.subplots(figsize=(10, 8))
+
+            # Determine x-axis range by finding max iteration across all online learning approaches
+            max_x = 0
+            for approach_label, approach_selector in APPROACH_GROUPS:
+                x_vals, _, _ = _get_learning_curves_for_approach(
+                    df, approach_selector, env_selector)
+                if x_vals:
+                    max_x = max(max_x, max(x_vals))
+
+            # Use at least 5 as max for reasonable plot range
+            max_x = max(max_x, 5)
+
+            # Plot horizontal lines for non-online learning approaches
+            color_idx = 0
+            for approach_label, approach_selector in HORIZONTAL_LINE_GROUPS:
+                mean, std = _get_final_performance_for_approach(
+                    df, approach_selector, env_selector)
+
+                if mean is None:  # Skip if no data for this approach
+                    continue
+
+                color = COLORS[color_idx % len(COLORS)]
+                color_idx += 1
+
+                # Plot horizontal line spanning the full x range
+                ax.axhline(y=mean,
+                           label=approach_label,
+                           linestyle='--',
+                           alpha=0.8,
+                           color=color)
+
+                # Add error band around the horizontal line
+                if std is not None and std > 0:
+                    ax.fill_between([0, max_x],
+                                    mean - std,
+                                    mean + std,
+                                    alpha=0.2,
+                                    color=color)
+
+            # Plot each online learning approach as a separate line
+            for approach_label, approach_selector in APPROACH_GROUPS:
+                x_vals, y_means, y_stds = _get_learning_curves_for_approach(
+                    df, approach_selector, env_selector, max_iteration=max_x)
+
+                if not x_vals:  # Skip if no data for this approach
+                    continue
+
+                color = COLORS[color_idx % len(COLORS)]
+                color_idx += 1
+
+                # Plot the line with shaded error region
+                ax.plot(x_vals, y_means, label=approach_label, marker='o', color=color)
+
+                # Add shaded error region
+                if any(std > 0 for std in y_stds):
+                    y_lower = [mean - std for mean, std in zip(y_means, y_stds)]
+                    y_upper = [mean + std for mean, std in zip(y_means, y_stds)]
+                    ax.fill_between(x_vals, y_lower, y_upper, alpha=0.2, color=color)
+
+            # Customize the plot
+            ax.set_xlabel('Online Learning Iteration', color='black', fontsize=FONT_SIZE)
+            ax.set_ylabel('Percentage Solved (%)', color='black', fontsize=FONT_SIZE)
+            ax.set_title(f'{env_name}', color='black', fontsize=FONT_SIZE)
+            ax.set_xlim(-0.5, max_x + 0.5)
+            ax.set_ylim(Y_LIM[0], Y_LIM[1])
+            ax.legend(bbox_to_anchor=(1, 1.02), loc='upper left')
+
+            # Save the plot
+            plt.tight_layout()
+            filename = f"{env_name.lower()}_learning_curves.png"
+            outfile = os.path.join(outdir, filename)
+            plt.savefig(outfile, dpi=DPI, bbox_inches='tight')
+            print(f"Wrote out to {outfile}")
+            plt.close()
 
 
 if __name__ == "__main__":
