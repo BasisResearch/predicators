@@ -79,7 +79,7 @@ APPROACH_GROUPS = [
 
 # Approaches that don't do online learning - show as horizontal lines at final performance
 HORIZONTAL_LINE_GROUPS = [
-    ("Oracle",
+    ("Manual",
      lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle" in v)),
     # ("Ours",
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)),
