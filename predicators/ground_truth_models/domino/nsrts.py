@@ -1,8 +1,9 @@
-"""Ground-truth NSRTs for the coffee environment."""
+"""Ground-truth NSRTs for the domino environment."""
 
 from typing import Dict, Set
 
 from predicators.ground_truth_models import GroundTruthNSRTFactory
+from predicators.settings import CFG
 from predicators.structs import NSRT, DummyParameterizedOption, LiftedAtom, \
     ParameterizedOption, Predicate, Type, Variable
 from predicators.utils import null_sampler
@@ -20,38 +21,144 @@ class PyBulletDominoGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                   predicates: Dict[str, Predicate],
                   options: Dict[str, ParameterizedOption]) -> Set[NSRT]:
         # Types
-        block_type = types["domino"]
         robot_type = types["robot"]
-        target_type = types["target"]
+        domino_type = types["domino"]
+        position_type = types["loc"]
+        rotation_type = types["angle"]
 
         # Predicates
-        StartBlock = predicates["InitialBlock"]
         HandEmpty = predicates["HandEmpty"]
         Holding = predicates["Holding"]
+        InFront = predicates["InFront"]
+        Upright = predicates["Upright"]
+        StartBlock = predicates["InitialBlock"]
         Toppled = predicates["Toppled"]
+        Tilting = predicates["Tilting"]
+        DominoAtPos = predicates["DominoAtPos"]
+        DominoAtRot = predicates["DominoAtRot"]
+        MovableBlock = predicates["MovableBlock"]
+        PosClear = predicates["PosClear"]
+        if CFG.domino_include_connected_predicate:
+            Connected = predicates["Connected"]
+        else:
+            AdjacentTo = predicates["AdjacentTo"]
+        if CFG.domino_has_glued_dominos:
+            DominoNotGlued = predicates["DominoNotGlued"]
 
         # Options
         Push = options["Push"]
+        Pick = options["Pick"]
+        Place = options["Place"]
+        NoOp = options["NoOp"]
 
         nsrts = set()
 
-        # Push
-        block = Variable("?block", block_type)
+        # PushStartBlock: Push the start block to initiate the domino chain
         robot = Variable("?robot", robot_type)
-        target = Variable("?target", target_type)
-        parameters = [robot, block, target]
-        option_vars = [robot, block]
+        domino = Variable("?domino", domino_type)
+        parameters = [robot, domino]
+        option_vars = [robot, domino]
         option = Push
         preconditions = {
             LiftedAtom(HandEmpty, [robot]),
-            LiftedAtom(StartBlock, [block])
+            LiftedAtom(StartBlock, [domino]),
+            LiftedAtom(Upright, [domino]),
         }
-        add_effects = {LiftedAtom(Toppled, [target])}
-        delete_effects = {}
+        add_effects = {
+            LiftedAtom(Tilting, [domino]),
+        }
+        delete_effects = {
+            LiftedAtom(Upright, [domino]),
+        }
+        push_start_block_nsrt = NSRT("PushStartBlock", parameters,
+                                     preconditions, add_effects,
+                                     delete_effects, set(), option,
+                                     option_vars, null_sampler)
+        nsrts.add(push_start_block_nsrt)
 
-        push_nsrt = NSRT("Push", parameters, preconditions, add_effects,
+        # PickDomino: Position-based pick process
+        robot = Variable("?robot", robot_type)
+        domino = Variable("?domino", domino_type)
+        position = Variable("?pos", position_type)
+        rotation = Variable("?rot", rotation_type)
+        parameters = [robot, domino, position, rotation]
+        option_vars = [robot, domino]
+        option = Pick
+        preconditions = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(DominoAtPos, [domino, position]),
+            LiftedAtom(DominoAtRot, [domino, rotation]),
+            LiftedAtom(MovableBlock, [domino]),
+            LiftedAtom(Upright, [domino]),
+        }
+        add_effects = {
+            LiftedAtom(Holding, [robot, domino]),
+            LiftedAtom(PosClear, [position]),
+        }
+        delete_effects = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(DominoAtPos, [domino, position]),
+            LiftedAtom(DominoAtRot, [domino, rotation]),
+        }
+        pick_domino_nsrt = NSRT("PickDomino", parameters,
+                                preconditions, add_effects, delete_effects,
+                                set(), option, option_vars, null_sampler)
+        nsrts.add(pick_domino_nsrt)
+
+        # PlaceDomino: Place domino at specific position and rotation
+        robot = Variable("?robot", robot_type)
+        domino1 = Variable("?domino1", domino_type)
+        domino2 = Variable("?domino2", domino_type)
+        target_pos = Variable("?pos1", position_type)
+        rotation = Variable("?rot", rotation_type)
+        if CFG.domino_include_connected_predicate:
+            d2_pos = Variable("?pos2", position_type)
+            parameters = [
+                robot, domino1, domino2, target_pos, d2_pos, rotation
+            ]
+        else:
+            parameters = [robot, domino1, domino2, target_pos, rotation]
+        option_vars = [robot, domino1, domino2, target_pos, rotation]
+        option = Place
+        preconditions = {
+            LiftedAtom(Holding, [robot, domino1]),
+            LiftedAtom(PosClear, [target_pos]),
+            LiftedAtom(Upright, [domino2]),
+        }
+        if CFG.domino_include_connected_predicate:
+            preconditions.update({
+                LiftedAtom(DominoAtPos, [domino2, d2_pos]),
+                LiftedAtom(Connected, [target_pos, d2_pos]),
+            })
+        else:
+            preconditions.update({
+                LiftedAtom(AdjacentTo, [target_pos, domino2]),
+            })
+        add_effects = {
+            LiftedAtom(HandEmpty, [robot]),
+            LiftedAtom(DominoAtPos, [domino1, target_pos]),
+            LiftedAtom(DominoAtRot, [domino1, rotation]),
+        }
+        delete_effects = {
+            LiftedAtom(Holding, [robot, domino1]),
+            LiftedAtom(PosClear, [target_pos]),
+        }
+        place_domino_nsrt = NSRT("PlaceDomino", parameters,
+                                 preconditions, add_effects, delete_effects,
+                                 set(), option, option_vars, null_sampler)
+        nsrts.add(place_domino_nsrt)
+
+        # NoOp
+        robot = Variable("?robot", robot_type)
+        parameters = [robot]
+        option_vars = [robot]
+        option = NoOp
+        preconditions = set()
+        add_effects = set()
+        delete_effects = set()
+        noop_nsrt = NSRT("NoOp", parameters, preconditions, add_effects,
                          delete_effects, set(), option, option_vars,
                          null_sampler)
-        nsrts.add(push_nsrt)
+        nsrts.add(noop_nsrt)
 
         return nsrts

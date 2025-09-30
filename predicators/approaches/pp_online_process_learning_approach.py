@@ -48,7 +48,7 @@ class OnlineProcessLearningAndPlanningApproach(
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         """Learn models from the offline datasets."""
         if len(dataset.trajectories) > 0:
-            super()._learn_processes(
+            self._learn_processes(
                 dataset.trajectories,
                 online_learning_cycle=None,
                 annotations=(dataset.annotations

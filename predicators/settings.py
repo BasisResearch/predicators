@@ -22,6 +22,7 @@ class GlobalSettings:
     online_learning_max_transitions = float("inf")
     online_learning_early_stopping = False
     skip_test_until_last_ite_or_early_stopping = False
+    online_learning_early_stopping_by_test_solve_rate = False  # just for plotting
     # Maximum number of training tasks to give a demonstration for, if the
     # offline_data_method is demo-based.
     max_initial_demos = float("inf")
@@ -423,6 +424,7 @@ class GlobalSettings:
     domino_train_num_pos_y = 2
     domino_test_num_pos_x = 4  # 5 is too large for robot to reach sometimes
     domino_test_num_pos_y = 3
+    domino_oracle_knows_glued_dominos = False
 
     # burger env parameters
     burger_render_set_of_marks = True
@@ -605,6 +607,7 @@ class GlobalSettings:
     # STRIPS learning algorithm. See get_name() functions in the directory
     # nsrt_learning/strips_learning/ for valid settings.
     strips_learner = "cluster_and_intersect"
+    clustering_learner_check_effect_equality = True
     disable_harmlessness_check = False  # some methods may want this to be True
     enable_harmless_op_pruning = False  # some methods may want this to be True
     precondition_soft_intersection_threshold_percent = 0.8  # between 0 and 1
@@ -639,6 +642,7 @@ class GlobalSettings:
     process_learner_check_false_positives = False
     cluster_and_search_process_learner_parallel_condition = True
     cluster_and_search_process_learner_parallel_pnad = False
+    process_learner_ablate_bayes = False
     cluster_and_search_process_learner_llm_select_condition = False
     cluster_and_search_process_learner_llm_rank_atoms = False
     cluster_and_search_process_learner_llm_propose_top_conditions = False
@@ -670,6 +674,10 @@ class GlobalSettings:
     build_exogenous_process_index_for_planning = True
     process_planning_use_abstract_policy = False
     process_planning_max_policy_guided_rollout = 10
+    process_planning_set_parameters_one = False
+    process_task_planning_heuristic = 'h_ff'
+    noop_option_terminate_on_atom_change = True
+    running_no_invent_baseline = False
 
     # torch GPU usage setting
     use_torch_gpu = False
@@ -739,6 +747,7 @@ class GlobalSettings:
     online_learning_max_novelty_count = 0
     online_nsrt_learning_number_of_tasks_to_try = 1
     online_nsrt_learning_requests_per_task = 3
+    online_learning_assert_no_exclude_pred = True
 
     # active sampler learning parameters
     active_sampler_learning_model = "myopic_classifier_mlp"
@@ -763,6 +772,7 @@ class GlobalSettings:
     # maple q function parameters
     use_epsilon_annealing = True
     min_epsilon = 0.05
+    maple_q_same_hla_option_param_space = True
 
     # skill competence model parameters
     skill_competence_model = "optimistic"

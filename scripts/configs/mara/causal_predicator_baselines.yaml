@@ -5,20 +5,77 @@
 APPROACHES:
   # oracle_nsrt:
   #   NAME: "oracle"
-  oracle:
-    NAME: "oracle_process_planning"
-    FLAGS:
-      demonstrator: "oracle_process_planning"
-      terminate_on_goal_reached_and_option_terminated: True
-      bilevel_plan_without_sim: True
-  # vlm_plan: # ViLa baseline
-  #   NAME: "vlm_open_loop"
+  # oracle:
+  #   NAME: "oracle_process_planning"
   #   FLAGS:
   #     demonstrator: "oracle_process_planning"
-  #     num_train_tasks: 0
+  #     terminate_on_goal_reached_and_option_terminated: True
   #     bilevel_plan_without_sim: True
-  #     llm_model_name: "google/gemini-2.5-pro" # "openai/gpt-4o", "gpt-4.1", "gpt-4o"
-  #     vlm_open_loop_no_image: True
+  # no_param_learn:
+  #   NAME: "oracle_process_planning"
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     bilevel_plan_without_sim: True
+  #     process_planning_set_parameters_one: True
+  # maple_q: # MAPLE baseline
+  #   NAME: "maple_q_with_process"
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     bilevel_plan_without_sim: True
+  #     num_online_learning_cycles: 10
+  #     num_train_tasks: 1000
+  #     online_nsrt_learning_requests_per_cycle: 1000
+  #     max_initial_demos: 0
+  #     explorer: "maple_q"
+  #     mlp_regressor_max_itr: 640000
+  #     active_sampler_learning_batch_size: 512
+  #     only_learn_exogenous_processes: True
+  #     strips_learner: "oracle"
+  #     sampler_learner: "oracle"
+  #     # maple_assert_oracle_strips: False
+  #     online_learning_assert_no_exclude_pred: False
+  #     maple_q_same_hla_option_param_space: False
+  #     # Because MAPLE can't generalize to unseen goals
+  #     # coffee
+  #     coffee_num_cups_test: "[1]"
+  #     # grow
+  #     grow_num_cups_test: "[2]"
+  #     # boil
+  #     boil_num_jugs_test: "[1]"
+  #     # domino
+  #     domino_test_num_dominos: "[2]"
+  #     domino_test_num_targets: "[1]"
+  #     domino_test_num_pos_x: 3
+  #     domino_test_num_pos_y: 2
+  #     # fan
+  #     fan_test_num_pos_x: 3
+  #     fan_test_num_pos_y: 3
+  #     fan_test_num_walls_per_task: "[1]"
+  online_nsrt_learning:
+    NAME: "online_nsrt_learning"
+    FLAGS:
+      num_train_tasks: 2
+      num_online_learning_cycles: 10
+      online_nsrt_learning_requests_per_cycle: 8
+      bilevel_plan_without_sim: True
+      demonstrator: "oracle_process_planning"
+      explorer: "exploit_planning"
+      terminate_on_goal_reached: False
+      terminate_on_goal_reached_and_option_terminated: True
+      online_learning_early_stopping: True
+      rgb_observation: False # for visual predicators
+      bilevel_planning_explorer_enumerate_plans: True
+      exploit_bilevel_planning_explorer_fallback_explorer: "RandomNSRTs"
+      skip_test_until_last_ite_or_early_stopping: True
+      online_learning_assert_no_exclude_pred: False
+      disable_harmlessness_check: True
+      sampler_learner: "oracle"
+      option_learner: "no_learning"
+      clustering_learner_check_effect_equality: False
+      # for plotting learning curve
+      # skip_test_until_last_ite_or_early_stopping: False 
+      # num_test_tasks: 10
   # param_learning:
   #   NAME: "param_learning_process_planning"
   #   ARGS:
@@ -57,7 +114,6 @@ APPROACHES:
   #     demonstrator: "oracle_process_planning"
   #     explorer: "exploit_planning"
   #     online_nsrt_learning_requests_per_cycle: 1  # just 1 for now
-  #     max_num_steps_interaction_request: 500
   #     # This following is needed to generate a successful demo trajectory, or 
   #     # else the demo collection will fail with an option plan exhausted error.
   #     strips_learner: "llm"
@@ -70,51 +126,53 @@ APPROACHES:
   #     online_learning_early_stopping: True
   #     num_online_learning_cycles: 1
 ENVS:
-  # boil_smpl:
-  #   NAME: "pybullet_boil"
-  #   FLAGS:
-  #     excluded_objects_in_state_str: "switch"
-  #     max_num_steps_option_rollout: 50
-  #     horizon: 150
-  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
-  #     boil_goal_simple_human_happy: True
-  # boil:
-  #   NAME: "pybullet_boil"
-  #   FLAGS:
-  #     excluded_objects_in_state_str: "switch"
-  #     max_num_steps_option_rollout: 50
-  #     horizon: 500 # 300 should be enough, 50 is good during dev
-  #     # boil_goal: "task_completed" # This option isn't fully ready because
-  #       # with the current only_learn_exogenous_processes setting, it won't try
-  #       # to learn the precondition for the DeclareComplete option.
-  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
-  #     # boil_goal: "simple"
-  #     boil_require_jug_full_to_heatup: True
-  # coffee:
-  #   NAME: "pybullet_coffee"
-  #   FLAGS:
-  #     excluded_predicates: "Twisting,PressingButton,NotSameCup,RobotAboveCup"
-  #     coffee_rotated_jug_ratio: 0
-  #     coffee_num_cups_train: [1]
-  #     coffee_machine_have_light_bar: False
-  #     coffee_move_back_after_place_and_push: True
-  #     coffee_machine_has_plug: False
-  #     coffee_combined_move_and_twist_policy: True
-  #     coffee_use_pixelated_jug: True
-  #     coffee_fill_jug_gradually: True
-  #     max_num_steps_option_rollout: 100
-  # grow:
-  #   NAME: "pybullet_grow"
-  #   FLAGS:
-  #     excluded_predicates: "HandTilted"
-  #     coffee_use_pixelated_jug: True
-  #     max_num_steps_option_rollout: 50
-  #     grow_weak_pour_terminate_condition: True
-  #     grow_place_option_no_sampler: True
-  #     horizon: 400
+  coffee:
+    NAME: "pybullet_coffee"
+    FLAGS:
+      excluded_predicates: "Twisting,PressingButton,NotSameCup,RobotAboveCup"
+      coffee_rotated_jug_ratio: 0
+      coffee_num_cups_train: [1]
+      coffee_machine_have_light_bar: False
+      coffee_move_back_after_place_and_push: True
+      coffee_machine_has_plug: False
+      coffee_combined_move_and_twist_policy: True
+      coffee_use_pixelated_jug: True
+      coffee_fill_jug_gradually: True
+      max_num_steps_option_rollout: 100
+      horizon: 300
+  grow:
+    NAME: "pybullet_grow"
+    FLAGS:
+      excluded_predicates: "HandTilted"
+      coffee_use_pixelated_jug: True
+      max_num_steps_option_rollout: 50
+      grow_weak_pour_terminate_condition: True
+      grow_place_option_no_sampler: True
+      horizon: 400
+  boil:
+    NAME: "pybullet_boil"
+    FLAGS:
+      excluded_objects_in_state_str: "switch"
+      max_num_steps_option_rollout: 50
+      horizon: 500 # 300 should be enough, 50 is good during dev
+      # boil_goal: "task_completed" # This option isn't fully ready because
+        # with the current only_learn_exogenous_processes setting, it won't try
+        # to learn the precondition for the DeclareComplete option.
+      boil_goal: "human_happy" # Can also be "task_completed", "simple"
+      # boil_goal: "simple"
+      boil_require_jug_full_to_heatup: True
+  fan:
+    NAME: "pybullet_fan"
+    FLAGS:
+      excluded_objects_in_state_str: "switch"
+      terminate_on_goal_reached: True # maybe required for successful eval
+      process_planning_heuristic_weight: 10.0
+      terminate_on_goal_reached: True # maybe required for successful eval
+      horizon: 500
   domino:
     NAME: "pybullet_domino"
     FLAGS:
+      excluded_objects_in_state_str: "loc,rot,angle,direction"
       horizon: 200
       domino_initialize_at_finished_state: False
       domino_use_domino_blocks_as_target: True
@@ -124,16 +182,9 @@ ENVS:
       process_planning_heuristic_weight: 2 # too large will generate suboptimal plans in some cases (e.g. w 2 moveble and 2 targets)
       process_planning_use_abstract_policy: False
       domino_has_glued_dominos: True
-      keep_failed_demos: True
       env_has_impossible_goals: True
-  # fan:
-  #   NAME: "pybullet_fan"
-  #   FLAGS:
-  #     excluded_objects_in_state_str: "switch"
-  #     terminate_on_goal_reached: True # maybe required for successful eval
-  #     process_planning_heuristic_weight: 10.0
-  #     terminate_on_goal_reached: True # maybe required for successful eval
-  #     horizon: 500
+      # max_initial_demos: 2
+      domino_oracle_knows_glued_dominos: True
 ARGS:
   - "debug"
   # - "use_gui"
@@ -153,6 +204,7 @@ FLAGS:
   # exhausted error from the option_policy. 
   # When do we need this to be False? Was it in cases when we wanted to generate
   # a more complete video?
+  max_num_steps_interaction_request: 300 # 300 should be enough
   pretrained_model_service_provider: "openrouter" # "openrouter" or "openai"
   llm_model_name: "google/gemini-2.5-pro" # "openai/gpt-4o", "gpt-4.1", "gpt-4o"
   llm_openai_max_response_tokens: 1e6
@@ -168,9 +220,10 @@ FLAGS:
   keep_failed_demos: True
   planning_filter_unreachable_nsrt: False
   planning_check_dr_reachable: True
-  sesame_task_planning_heuristic: 'h_ff' # goal_count, lm_cut, h_max, h_ff
+  process_task_planning_heuristic: 'h_ff'
   timeout: 600
   log: 'logs/'
   no_repeated_arguments_in_grounding: True
 START_SEED: 0
-NUM_SEEDS: 1
+NUM_SEEDS: 3
+USE_GPU: False

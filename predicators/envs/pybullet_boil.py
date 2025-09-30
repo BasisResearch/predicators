@@ -3,6 +3,7 @@
 python predicators/envs/pybullet_boil.py
 """
 import logging
+import random
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -60,7 +61,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Camera
     # -------------------------------------------------------------------------
-    _camera_distance: ClassVar[float] = .8
+    _camera_distance: ClassVar[float] = 0.9
     _camera_yaw: ClassVar[float] = 180
     _camera_pitch: ClassVar[float] = -45
     _camera_target: ClassVar[Tuple[float, float, float]] = (0.75, 1.25, 0.52)
@@ -115,6 +116,24 @@ class PyBulletBoilEnv(PyBulletEnv):
     heating_speed: ClassVar[
         float] = 0.02  # how fast the jug's "heat_level" goes up per step
     happy_speed: ClassVar[float] = 0.05
+
+    # Colors for switches and faucet
+    burner_switch_color: ClassVar[Tuple[float, float, float,
+                                        float]] = (1.0, 0.5, 0.0, 1.0
+                                                   )  # orange
+    faucet_switch_color: ClassVar[Tuple[float, float, float,
+                                        float]] = (0.0, 0.7, 1.0, 1.0
+                                                   )  # light blue
+    faucet_color: ClassVar[Tuple[float, float, float,
+                                 float]] = (0.6, 0.6, 0.6, 1.0)  # gray
+
+    # Burner plate colors
+    burner_off_color: ClassVar[Tuple[float, float, float,
+                                     float]] = (0.7, 0.7, 0.7, 1.0
+                                                )  # gray (off)
+    burner_on_color: ClassVar[Tuple[float, float, float,
+                                    float]] = (1.0, 0.3, 0.0, 1.0
+                                               )  # red-orange (on)
 
     # Dist thresholds
     faucet_align_threshold: ClassVar[
@@ -338,14 +357,28 @@ class PyBulletBoilEnv(PyBulletEnv):
             physics_client_id=physics_client_id,
         )
         bodies["table_id"] = table_id
+        # add another table for more space to place jugs and burners
+        create_object(asset_path="urdf/table.urdf",
+                      position=[
+                          cls.table_pos[0],
+                          cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2,
+                          cls.table_pos[2]
+                      ],
+                      orientation=cls.table_orn,
+                      scale=1.0,
+                      use_fixed_base=True,
+                      physics_client_id=physics_client_id)
 
         # 2) Create jugs
         jug_ids = []
         max_jugs = max(max(CFG.boil_num_jugs_train),
                        max(CFG.boil_num_jugs_test))
+        all_white_jugs = False
         for _ in range(max_jugs):
             # Example placeholder URDF for a jug
             jug_id = create_object(asset_path="urdf/jug-pixel.urdf",
+                                   color=(1, 1, 1, 1) if all_white_jugs else
+                                   random.choice(cls._obj_colors_main),
                                    use_fixed_base=False,
                                    physics_client_id=physics_client_id)
             jug_ids.append(jug_id)
@@ -357,7 +390,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                           max(CFG.boil_num_burner_test))
         for _ in range(max_burners):
             burner_id = create_pybullet_block(
-                color=(.7, .7, .7, 1),
+                color=cls.burner_off_color,
                 half_extents=(0.07, 0.07, 0.001),
                 mass=0,
                 friction=0.5,
@@ -373,12 +406,18 @@ class PyBulletBoilEnv(PyBulletEnv):
                 scale=1.0,
                 use_fixed_base=True,
                 physics_client_id=physics_client_id)
+            # Color only the base (link -1), not the slider
+            p.changeVisualShape(switch_id,
+                                -1,
+                                rgbaColor=cls.burner_switch_color,
+                                physicsClientId=physics_client_id)
             burner_switch_ids.append(switch_id)
         bodies["burner_switch_ids"] = burner_switch_ids
 
         # 5) Create faucet and faucet switch
         faucet_id = create_object(
             asset_path="urdf/partnet_mobility/faucet/1488/mobility.urdf",
+            color=cls.faucet_color,
             use_fixed_base=True,
             physics_client_id=physics_client_id)
         bodies["faucet_id"] = faucet_id
@@ -388,6 +427,11 @@ class PyBulletBoilEnv(PyBulletEnv):
             scale=1.0,
             use_fixed_base=True,
             physics_client_id=physics_client_id)
+        # Color only the base (link -1), not the slider
+        p.changeVisualShape(faucet_switch_id,
+                            -1,
+                            rgbaColor=cls.faucet_switch_color,
+                            physicsClientId=physics_client_id)
         bodies["faucet_switch_id"] = faucet_switch_id
 
         return physics_client_id, pybullet_robot, bodies
@@ -574,6 +618,9 @@ class PyBulletBoilEnv(PyBulletEnv):
                           position=(oov_x, oov_y, self.switch_height),
                           physics_client_id=self._physics_client_id)
 
+        # Update burner colors to match their initial on/off state
+        self._update_burner_colors(state)
+
     # -------------------------------------------------------------------------
     # Step Logic
     # -------------------------------------------------------------------------
@@ -592,10 +639,13 @@ class PyBulletBoilEnv(PyBulletEnv):
         # 3) Update jug colors based on their 'heat'
         self._update_jug_colors(next_state)
 
-        # 4) Update the human's happiness level
+        # 4) Update burner colors based on their on/off state
+        self._update_burner_colors(next_state)
+
+        # 5) Update the human's happiness level
         self._update_human_happiness(next_state)
 
-        # 5) Update prev_on states for next step
+        # 6) Update prev_on states for next step
         self._update_prev_on_states(next_state)
 
         # Re-read final state
@@ -734,6 +784,19 @@ class PyBulletBoilEnv(PyBulletEnv):
             alpha = 0.9
             update_object(water_id,
                           color=(r, g, b, alpha),
+                          physics_client_id=self._physics_client_id)
+
+    def _update_burner_colors(self, state: State) -> None:
+        """Update burner plate colors based on their on/off state."""
+        burners = state.get_objects(self._burner_type)
+        for i, burner_obj in enumerate(burners):
+            burner_id = burner_obj.id
+            if burner_id is None:
+                continue
+            burner_on = self._is_switch_on(self._burner_switches[i].id)
+            color = self.burner_on_color if burner_on else self.burner_off_color
+            update_object(burner_id,
+                          color=color,
                           physics_client_id=self._physics_client_id)
 
     def _update_human_happiness(self, state: State) -> None:

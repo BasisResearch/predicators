@@ -35,8 +35,25 @@ class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):
                          bilevel_plan_without_sim,
                          option_model=option_model)
         if processes is None:
+            # use only_endogenous for the no_invent baseline
             processes = get_gt_processes(CFG.env, self._initial_predicates,
-                                         self._initial_options)
+                            self._initial_options,
+                            only_endogenous=CFG.running_no_invent_baseline)
+
+        # Set all processes' strength parameters to 1 if flag is enabled
+        if CFG.process_planning_set_parameters_one:
+            import torch
+            modified_processes = set()
+            for process in processes:
+                # Create a copy with strength set to 1
+                strength_params = torch.tensor([1.0])
+                delay_params = torch.ones(
+                    len(process.delay_distribution.get_parameters()))
+                process._set_parameters(
+                    torch.cat([strength_params, delay_params]))
+                modified_processes.add(process)
+            processes = modified_processes
+
         self._processes = processes
 
     @classmethod

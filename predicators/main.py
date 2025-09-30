@@ -261,6 +261,7 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
     """Run the online learning loop."""
     num_online_transitions = 0
     total_query_cost = 0.0
+    test_solve_rate = 0.0
 
     # Create teacher if needed
     teacher = Teacher(train_tasks) if get_allowed_query_type_names() else None
@@ -338,15 +339,17 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
             or not CFG.skip_test_until_last_ite_or_early_stopping)
         # Check for early stopping based on train task solve rate
         early_stopping = False
-        if CFG.online_learning_early_stopping and \
+        if (CFG.online_learning_early_stopping and \
            len(task_first_solve_attempts) == len(train_tasks) and \
            all(task_first_solve_attempts.values()) and \
-           i > 0:
+           i > 0 and \
+           not CFG.online_learning_early_stopping_by_test_solve_rate) or \
+           (CFG.online_learning_early_stopping_by_test_solve_rate and \
+           test_solve_rate == 1.0):
             logging.info("All training tasks solved on first attempt, "
                          "triggering early stopping.\n")
             early_stopping = True
             should_run_testing = True  # Run testing when early stopping
-
         # Learn from results if appropriate
         if (not CFG.load_approach or CFG.restart_learning) and \
             not early_stopping:
@@ -366,6 +369,7 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
                 **offline_learning_metrics
             })
             _save_test_results(results, online_learning_cycle=i)
+            test_solve_rate = results["test_solve_rate"]
         else:
             logging.info(
                 f"Skipping testing for cycle {i} due to skip_test_until_last_ite_or_early_stopping flag"

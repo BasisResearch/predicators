@@ -2577,6 +2577,9 @@ class DelayDistribution:
                        **kwargs: Any) -> None:
         raise NotImplementedError
 
+    def get_parameters(self) -> Sequence[float]:
+        raise NotImplementedError
+
     def sample(self) -> int:
         raise NotImplementedError
 

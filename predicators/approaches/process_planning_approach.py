@@ -92,7 +92,6 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
                 process_plan,
                 task.goal,
                 self._rng,
-                noop_option_terminate_on_atom_change=True,
                 abstract_function=lambda s: utils.abstract(s, preds))
             logging.debug("Current Task Plan:")
             for process in process_plan:
@@ -134,8 +133,24 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
 
         return plan, atoms_seq, metrics
 
-    def _save_metrics(self, metrics, processes, predicates):
-        pass
+    def _save_metrics(self, metrics: Metrics, processes: Set[CausalProcess],
+                      predicates: Set[Predicate]) -> None:
+        for metric in [
+                "num_samples", "num_skeletons_optimized",
+                "num_failures_discovered", "num_nodes_expanded",
+                "num_nodes_created", "plan_length", "refinement_time"
+        ]:
+            self._metrics[f"total_{metric}"] += metrics[metric]
+        self._metrics["total_num_processes"] += len(processes)
+        self._metrics["total_num_preds"] += len(predicates)
+        for metric in [
+                "num_samples",
+                "num_skeletons_optimized",
+        ]:
+            self._metrics[f"min_{metric}"] = min(
+                metrics[metric], self._metrics[f"min_{metric}"])
+            self._metrics[f"max_{metric}"] = max(
+                metrics[metric], self._metrics[f"max_{metric}"])
 
     def _build_abstract_policy(self, task: Task) -> AbstractProcessPolicy:
         """Use a VLM to generate a plan and build a policy from it."""

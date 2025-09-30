@@ -232,7 +232,10 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
             if CFG.keep_failed_demos:
                 partial_refinements = getattr(e, "info",
                                               {}).get("partial_refinements")
-                _, plan = max(partial_refinements, key=lambda x: len(x[1]))
+                if partial_refinements is None:
+                    plan = []
+                else:
+                    _, plan = max(partial_refinements, key=lambda x: len(x[1]))
                 policy = utils.option_plan_to_policy(plan)
                 termination_function = lambda s: False
 
