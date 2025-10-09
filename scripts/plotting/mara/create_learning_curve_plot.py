@@ -73,14 +73,13 @@ APPROACH_GROUPS = [
     #  ),
     ("Ours",
      lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ours_always_test" in v)),
-    ("VisPred",
-     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "online_nsrt_learning" in v)),
+    ("VisPred", lambda df: df["EXPERIMENT_ID"].apply(
+        lambda v: "online_nsrt_learning" in v)),
 ]
 
 # Approaches that don't do online learning - show as horizontal lines at final performance
 HORIZONTAL_LINE_GROUPS = [
-    ("Manual",
-     lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle" in v)),
+    ("Manual", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle" in v)),
     # ("Ours",
     #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)),
     # ("ViLa (zs)",
@@ -111,7 +110,10 @@ def _convert_cycle_to_numeric(cycle_str):
         return -1
 
 
-def _get_learning_curves_for_approach(df, approach_selector, env_selector, max_iteration=None):
+def _get_learning_curves_for_approach(df,
+                                      approach_selector,
+                                      env_selector,
+                                      max_iteration=None):
     """Get learning curves for a specific approach and environment.
 
     For each seed, forward-fills missing iterations with the previous best performance.
@@ -277,7 +279,10 @@ def _main() -> None:
             # Plot each online learning approach as a separate line
             for approach_label, approach_selector in APPROACH_GROUPS:
                 x_vals, y_means, y_stds = _get_learning_curves_for_approach(
-                    df, approach_selector, env_selector, max_iteration=global_max_x)
+                    df,
+                    approach_selector,
+                    env_selector,
+                    max_iteration=global_max_x)
 
                 if not x_vals:  # Skip if no data for this approach
                     continue
@@ -286,18 +291,30 @@ def _main() -> None:
                 color_idx += 1
 
                 # Plot the line with shaded error region
-                ax.plot(x_vals, y_means,
-                       label=approach_label if env_idx == 0 else "",
-                       marker='o', color=color)
+                ax.plot(x_vals,
+                        y_means,
+                        label=approach_label if env_idx == 0 else "",
+                        marker='o',
+                        color=color)
 
                 # Add shaded error region
                 if any(std > 0 for std in y_stds):
-                    y_lower = [mean - std for mean, std in zip(y_means, y_stds)]
-                    y_upper = [mean + std for mean, std in zip(y_means, y_stds)]
-                    ax.fill_between(x_vals, y_lower, y_upper, alpha=0.2, color=color)
+                    y_lower = [
+                        mean - std for mean, std in zip(y_means, y_stds)
+                    ]
+                    y_upper = [
+                        mean + std for mean, std in zip(y_means, y_stds)
+                    ]
+                    ax.fill_between(x_vals,
+                                    y_lower,
+                                    y_upper,
+                                    alpha=0.2,
+                                    color=color)
 
             # Customize each subplot
-            ax.set_xlabel('Online Learning Iteration', color='black', fontsize=FONT_SIZE)
+            ax.set_xlabel('Online Learning Iteration',
+                          color='black',
+                          fontsize=FONT_SIZE)
             ax.set_title(f'{env_name}', color='black', fontsize=FONT_SIZE)
             ax.set_xlim(-0.5, global_max_x + 0.5)
             ax.set_ylim(Y_LIM[0], Y_LIM[1])
@@ -307,11 +324,21 @@ def _main() -> None:
                 ax.set_yticklabels([])
 
         # Add shared y-axis label to the left of the first plot
-        fig.text(0.0, 0.5, 'Percentage Solved (%)', va='center', rotation='vertical', color='black', fontsize=FONT_SIZE + 2)
+        fig.text(0.0,
+                 0.5,
+                 'Percentage Solved (%)',
+                 va='center',
+                 rotation='vertical',
+                 color='black',
+                 fontsize=FONT_SIZE + 2)
 
         # Add legend flat at the bottom
         handles, labels = axes[0].get_legend_handles_labels()
-        fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.1), ncol=len(labels))
+        fig.legend(handles,
+                   labels,
+                   loc='lower center',
+                   bbox_to_anchor=(0.5, -0.1),
+                   ncol=len(labels))
 
         # Save the single plot
         plt.tight_layout()
@@ -376,17 +403,33 @@ def _main() -> None:
                 color_idx += 1
 
                 # Plot the line with shaded error region
-                ax.plot(x_vals, y_means, label=approach_label, marker='o', color=color)
+                ax.plot(x_vals,
+                        y_means,
+                        label=approach_label,
+                        marker='o',
+                        color=color)
 
                 # Add shaded error region
                 if any(std > 0 for std in y_stds):
-                    y_lower = [mean - std for mean, std in zip(y_means, y_stds)]
-                    y_upper = [mean + std for mean, std in zip(y_means, y_stds)]
-                    ax.fill_between(x_vals, y_lower, y_upper, alpha=0.2, color=color)
+                    y_lower = [
+                        mean - std for mean, std in zip(y_means, y_stds)
+                    ]
+                    y_upper = [
+                        mean + std for mean, std in zip(y_means, y_stds)
+                    ]
+                    ax.fill_between(x_vals,
+                                    y_lower,
+                                    y_upper,
+                                    alpha=0.2,
+                                    color=color)
 
             # Customize the plot
-            ax.set_xlabel('Online Learning Iteration', color='black', fontsize=FONT_SIZE)
-            ax.set_ylabel('Percentage Solved (%)', color='black', fontsize=FONT_SIZE)
+            ax.set_xlabel('Online Learning Iteration',
+                          color='black',
+                          fontsize=FONT_SIZE)
+            ax.set_ylabel('Percentage Solved (%)',
+                          color='black',
+                          fontsize=FONT_SIZE)
             ax.set_title(f'{env_name}', color='black', fontsize=FONT_SIZE)
             ax.set_xlim(-0.5, max_x + 0.5)
             ax.set_ylim(Y_LIM[0], Y_LIM[1])

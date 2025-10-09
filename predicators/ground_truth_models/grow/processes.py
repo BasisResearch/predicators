@@ -95,8 +95,9 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         }
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
                                                    sigma=torch.tensor(0.1))
-        ignore_effects = {Holding, HandEmpty, JugOnTable, JugAboveCup,
-                          NotAboveCup}
+        ignore_effects = {
+            Holding, HandEmpty, JugOnTable, JugAboveCup, NotAboveCup
+        }
         place_jug_on_table_process = EndogenousProcess(
             "PlaceJugOnTable", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,

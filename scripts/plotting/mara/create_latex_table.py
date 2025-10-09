@@ -32,13 +32,14 @@ COLUMN_NAMES_AND_KEYS = [
     ("AVG_NODES_CREATED", "avg_num_nodes_created"),
     ("LEARNING_TIME", "learning_time"),
     ("PERC_SOLVED", "perc_solved"),
-    ("ONLINE_LEARNING_CYCLE", "cycle"),  # add to select model at specific cycle
+    ("ONLINE_LEARNING_CYCLE",
+     "cycle"),  # add to select model at specific cycle
     ("AVG_NUM_FAILED_PLAN", "avg_num_skeletons_optimized"),
 ]
 
-DERIVED_KEYS = [("perc_solved",
-                 lambda r: 100 * r["num_solved"] / r["num_test_tasks"]),
-            ] 
+DERIVED_KEYS = [
+    ("perc_solved", lambda r: 100 * r["num_solved"] / r["num_test_tasks"]),
+]
 
 TOP_ROW_LABEL = "\\bf{Environment}"
 HEADER_LABEL_SIZE = ""  # change to "\\scriptsize " for smaller headers
