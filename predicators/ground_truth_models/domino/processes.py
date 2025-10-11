@@ -83,7 +83,9 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         delete_effects: Set[LiftedAtom] = {
             LiftedAtom(Upright, [domino]),
         }
-        ignore_effects = {AdjacentTo, DominoAtPos, DominoAtRot, PosClear}
+        ignore_effects = {DominoAtPos, DominoAtRot, PosClear}
+        if not CFG.domino_include_connected_predicate:
+            ignore_effects.add(AdjacentTo)
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(1.0),
                                                    sigma=torch.tensor(0.1))
         push_start_block_process = EndogenousProcess(
@@ -172,8 +174,10 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(PosClear, [target_pos]),
         }
         ignore_effects = {
-            AdjacentTo, DominoAtRot, DominoAtPos, PosClear, Tilting
+            DominoAtRot, DominoAtPos, PosClear, Tilting
         }
+        if not CFG.domino_include_connected_predicate:
+            ignore_effects.add(AdjacentTo)
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
                                                    sigma=torch.tensor(0.1))
         place_domino_process = EndogenousProcess("PlaceDomino", parameters,
@@ -192,7 +196,9 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         option_vars = [robot]
         option = NoOp
         noop_delay_distribution = ConstantDelay(1)
-        ignore_effects = {AdjacentTo, DominoAtRot, DominoAtPos, PosClear}
+        ignore_effects = {DominoAtRot, DominoAtPos, PosClear}
+        if not CFG.domino_include_connected_predicate:
+            ignore_effects.add(AdjacentTo)
         noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
                                          set(), set(), set(),
                                          noop_delay_distribution,
@@ -206,7 +212,6 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         # Note: The DominoFall process from the sketch requires a "Falling" predicate
         # which is not currently implemented in the environment.
         # This process would look like:
-        #
         domino1 = Variable("?d1", domino_type)
         domino2 = Variable("?d2", domino_type)
         parameters = [domino1, domino2]
