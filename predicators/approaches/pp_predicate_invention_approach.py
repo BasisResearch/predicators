@@ -1,11 +1,7 @@
 import logging
-from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, Set
 
-import dill as pkl
-import numpy as np
 from gym.spaces import Box
-from scipy.optimize import minimize
 
 from predicators.approaches.pp_process_learning_approach import \
     ProcessLearningAndPlanningApproach
