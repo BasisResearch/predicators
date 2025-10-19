@@ -233,7 +233,7 @@ def _run_pipeline(env: BaseEnv,
 
 def _handle_offline_learning(
         cogman: CogMan,
-        offline_dataset: Dataset) -> Tuple[float, float, float, dict]:
+        offline_dataset: Dataset) -> Tuple[int, float, float, dict]:
     """Handle offline learning phase and initial evaluation."""
     num_offline_transitions = sum(
         len(traj.actions) for traj in offline_dataset.trajectories)

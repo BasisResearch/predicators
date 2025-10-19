@@ -2,6 +2,7 @@
 
 import math
 from operator import gt, lt
+from typing import Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -215,7 +216,7 @@ def _main() -> None:
             if abs(mean - best_mean) <= BOLD_NUM_STDS * best_std:
                 bolded.add((outer_label, inner_label))
         # Determine which should be red.
-        red = set()
+        red: Set[Tuple[str, str]] = set()
         # for entry, (mean, std, size) in entry_to_mean_std_size.items():
         #     if size < RED_MIN_SIZE:
         #         red.add(entry)

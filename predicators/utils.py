@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import abc
 import contextlib
+import copy
 import datetime
 import functools
 import gc
