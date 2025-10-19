@@ -1,0 +1,257 @@
+"""A human-in-the-loop approach where the user manually selects processes via
+terminal prompts at each decision point."""
+
+from typing import Callable, List, Optional, Set, cast
+
+from gym.spaces import Box
+
+from predicators import utils
+from predicators.approaches import ApproachFailure
+from predicators.approaches.process_planning_approach import \
+    BilevelProcessPlanningApproach
+from predicators.ground_truth_models import get_gt_processes
+from predicators.settings import CFG
+from predicators.structs import NSRT, Action, CausalProcess, \
+    EndogenousProcess, GroundAtom, ParameterizedOption, Predicate, State, \
+    Task, Type, _GroundEndogenousProcess, _Option
+
+
+class HumanInteractionApproach(BilevelProcessPlanningApproach):
+    """A human-in-the-loop approach for process-based planning.
+
+    At each decision point, displays applicable processes to the user
+    and prompts for selection via terminal input.
+    """
+
+    def __init__(self,
+                 initial_predicates: Set[Predicate],
+                 initial_options: Set[ParameterizedOption],
+                 types: Set[Type],
+                 action_space: Box,
+                 train_tasks: List[Task],
+                 processes: Optional[Set[CausalProcess]] = None) -> None:
+        super().__init__(initial_predicates, initial_options, types,
+                         action_space, train_tasks)
+        if processes is None:
+            # use only_endogenous for the no_invent baseline
+            processes = get_gt_processes(
+                CFG.env,
+                self._initial_predicates,
+                self._initial_options,
+                only_endogenous=CFG.running_no_invent_baseline)
+
+        self._processes = processes
+        # No learning components needed for human interaction
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "human_interaction"
+
+    @property
+    def is_learning_based(self) -> bool:
+        return False
+
+    def _get_current_processes(self) -> Set[CausalProcess]:
+        """Get the current set of processes.
+
+        This should be overridden if learning processes, otherwise
+        returns empty set (assumes processes come from oracle/initial).
+        """
+        return self._processes
+
+    def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
+        """Create a policy that prompts the user for process selection."""
+        del timeout  # Unused parameter
+
+        def _option_policy(state: State) -> _Option:
+            option = self.prompt_user_for_option(state, task.goal)
+            return option
+
+        return utils.option_policy_to_policy(
+            _option_policy, max_option_steps=CFG.max_num_steps_option_rollout)
+
+    def prompt_user_for_option(self, state: State,
+                               goal: Set[GroundAtom]) -> _Option:
+        """Prompt the user to select an option at the current state.
+
+        First prompts for parameterized skill selection, then prompts
+        for each argument one-by-one.
+
+        Args:
+            state: Current state
+            goal: Goal atoms
+
+        Returns:
+            Selected option
+        """
+        predicates = self._get_current_predicates()
+        applicable_processes = self._get_applicable_processes_at_state(
+            state, self._get_current_processes(), predicates)
+
+        if not applicable_processes:
+            raise ApproachFailure("No applicable processes available!")
+
+        # Display current state
+        current_atoms = utils.abstract(state, predicates)
+        print("\n" + "=" * 60)
+        print("CURRENT STATE:")
+        for atom in sorted(current_atoms, key=str):
+            print(f"  {atom}")
+
+        # Group applicable processes by their parent (parameterized skill)
+        from collections import defaultdict
+        lift_processes = defaultdict(list)
+        for ground_process in applicable_processes:
+            parent = ground_process.parent
+            lift_processes[parent].append(ground_process)
+
+        # Step 1: Prompt for parameterized skill selection
+        lift_endo_processes = list(lift_processes.keys())
+        print("\nAVAILABLE SKILLS:")
+        for i, parent in enumerate(lift_endo_processes, 1):
+            param_names = [p.name for p in parent.option_vars]
+            print(f"  {i}. {parent.name}({', '.join(param_names)})")
+
+        selected_parent = None
+        while selected_parent is None:
+            user_input = input(
+                f"\nSelect skill (1-{len(lift_endo_processes)}, or 'q' to quit): "
+            ).strip().lower()
+
+            if user_input == 'q':
+                raise ApproachFailure("User quit process selection")
+
+            try:
+                selection = int(user_input)
+                if 1 <= selection <= len(lift_endo_processes):
+                    selected_parent = lift_endo_processes[selection - 1]
+                    print(f"Selected skill: {selected_parent.name}")
+                else:
+                    print(
+                        f"Invalid selection. Please enter a number between 1 and {len(lift_endo_processes)}"
+                    )
+            except ValueError:
+                print("Invalid input. Please enter a number or 'q' to quit.")
+
+        # Step 2: Prompt for arguments one-by-one
+        applicable_for_skill = lift_processes[selected_parent]
+        selected_objects = self._prompt_for_arguments(selected_parent,
+                                                      applicable_for_skill,
+                                                      state)
+
+        # Find the ground process matching the selected objects
+        for ground_process in applicable_for_skill:
+            if ground_process.option_objs == selected_objects:
+                return ground_process.sample_option(state, goal, self._rng)
+
+        raise ApproachFailure(
+            "Could not find process matching selected objects")
+
+    def _prompt_for_arguments(
+            self, parent_skill: EndogenousProcess,
+            applicable_processes: List[_GroundEndogenousProcess],
+            _state: State) -> List:
+        """Prompt user to select arguments one-by-one for the given skill.
+
+        Args:
+            parent_skill: The parameterized skill (NSRT)
+            applicable_processes: List of ground processes for this skill
+            _state: Current state (unused, kept for future extensibility)
+
+        Returns:
+            List of selected objects matching the skill's parameters
+        """
+        selected_objects = []
+
+        # For each parameter in the skill
+        for param_idx, param in enumerate(parent_skill.option_vars):
+            # Get valid objects for this parameter position
+            valid_objects = set()
+            for process in applicable_processes:
+                # Only consider processes that match previously selected objects
+                if all(process.objects[i] == selected_objects[i]
+                       for i in range(len(selected_objects))):
+                    valid_objects.add(process.objects[param_idx])
+
+            valid_objects_list = sorted(valid_objects, key=str)
+
+            # Display available objects for this parameter
+            print(
+                f"\nSelect argument for parameter '{param.name}' (type: {param.type.name}):"
+            )
+            for i, obj in enumerate(valid_objects_list, 1):
+                print(f"  {i}. {obj.name}")
+
+            if len(valid_objects_list) == 1:
+                selected_obj = valid_objects_list[0]
+                print(
+                    f"Only one valid object. Automatically selected: {selected_obj}"
+                )
+            else:
+                # Prompt for selection
+                selected_obj = None
+                while selected_obj is None:
+                    user_input = input(
+                        f"Select object (1-{len(valid_objects_list)}, or 'q' to quit): "
+                    ).strip().lower()
+
+                    if user_input == 'q':
+                        raise ApproachFailure("User quit argument selection")
+
+                    try:
+                        selection = int(user_input)
+                        if 1 <= selection <= len(valid_objects_list):
+                            selected_obj = valid_objects_list[selection - 1]
+                            print(f"Selected: {selected_obj.name}")
+                        else:
+                            print(
+                                f"Invalid selection. Please enter a number between 1 and {len(valid_objects_list)}"
+                            )
+                    except ValueError:
+                        print(
+                            "Invalid input. Please enter a number or 'q' to quit."
+                        )
+
+            selected_objects.append(selected_obj)
+
+        return selected_objects
+
+    def _get_applicable_processes_at_state(
+            self, state: State, processes: Set[CausalProcess],
+            predicates: Set[Predicate]) -> List[_GroundEndogenousProcess]:
+        """Get all applicable ground processes at the current state.
+
+        Args:
+            state: Current state
+            processes: Available processes
+            predicates: Available predicates
+
+        Returns:
+            List of applicable ground processes
+        """
+        # Abstract the state
+        current_atoms = utils.abstract(state, predicates)
+
+        # Get objects from state
+        objects = set(state.data.keys())
+
+        # Ground all processes
+        from predicators.structs import EndogenousProcess, _GroundNSRT
+        all_ground_processes: Set[_GroundNSRT] = set()
+        for process in processes:
+            # Only consider endogenous processes (action-like)
+            if isinstance(process, EndogenousProcess):
+                ground_processes = utils.all_ground_nsrts(process, objects)
+                all_ground_processes.update(ground_processes)
+
+        # Filter to applicable ones
+        applicable = list(
+            utils.get_applicable_operators(all_ground_processes,
+                                           current_atoms))
+
+        # Cast to the expected type since we only process EndogenousProcess
+        return cast(List[_GroundEndogenousProcess], applicable)
+
+    def _get_current_nsrts(self) -> Set[NSRT]:
+        """Get the current set of NSRTs."""
+        return set()
