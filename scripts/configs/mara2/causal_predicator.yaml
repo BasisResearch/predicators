@@ -5,6 +5,10 @@
 APPROACHES:
   human_interaction:
     NAME: "human_interaction"
+    FLAGS:
+      human_interaction_approach_use_scripted_option: True
+      scripted_option_dir: "scripted_option_policies"
+      script_option_file_name: "domino.txt"
   # predicate_invention:
   #   NAME: "online_predicate_invention_and_process_planning"
   #   # ARGS:

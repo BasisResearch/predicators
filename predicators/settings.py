@@ -538,6 +538,11 @@ class GlobalSettings:
     vlm_open_loop_use_training_demos = False
     vlm_open_loop_no_image = False  # Use object-centric state
 
+    # parameters for the human_interaction_approach
+    human_interaction_approach_use_scripted_option = False
+    scripted_option_dir = "scripted_options"
+    script_option_file_name = "scripted_plan.txt"
+
     # SeSamE parameters
     sesame_task_planner = "astar"  # "astar" or "fdopt" or "fdsat"
     sesame_task_planning_heuristic = "lmcut"

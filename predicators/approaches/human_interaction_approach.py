@@ -1,8 +1,9 @@
 """A human-in-the-loop approach where the user manually selects processes via
 terminal prompts at each decision point."""
 
-from typing import Callable, List, Optional, Set, cast
+from typing import Callable, List, Optional, Set, Sequence, cast
 
+import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
@@ -63,12 +64,78 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
         """Create a policy that prompts the user for process selection."""
         del timeout  # Unused parameter
 
+        # If scripted option is enabled, use the scripted plan
+        if CFG.human_interaction_approach_use_scripted_option:
+            try:
+                option_plan = self._load_scripted_option_plan(task)
+            except Exception as e:
+                raise ApproachFailure(
+                    f"Failed to load scripted option plan. Reason: {e}")
+
+            policy = utils.option_plan_to_policy(
+                option_plan,
+                abstract_function=lambda s: utils.abstract(
+                    s, self._get_current_predicates()))
+
+            def _policy(s: State) -> Action:
+                try:
+                    return policy(s)
+                except utils.OptionExecutionFailure as e:
+                    raise ApproachFailure(e.args[0], e.info)
+
+            return _policy
+
+        # Otherwise, use interactive user prompting
         def _option_policy(state: State) -> _Option:
             option = self.prompt_user_for_option(state, task.goal)
             return option
 
         return utils.option_policy_to_policy(
             _option_policy, max_option_steps=CFG.max_num_steps_option_rollout)
+
+    def _load_scripted_option_plan(self, task: Task) -> Sequence[_Option]:
+        """Load and parse a scripted option plan from a file.
+
+        The file format is the same as what VLM open loop approach expects:
+        a text file with "Plan:\n" followed by parsable option plan.
+
+        Args:
+            task: The task to solve
+
+        Returns:
+            Sequence of ground options
+        """
+        # Construct the file path
+        filepath = utils.get_path_to_predicators_root() + \
+            f"/{CFG.approach_dir}/{CFG.scripted_option_dir}/{CFG.script_option_file_name}"
+
+        # Read the file
+        with open(filepath, "r", encoding="utf-8") as f:
+            plan_text = f.read()
+
+        # Parse the plan (similar to vlm_open_loop_approach)
+        option_plan: List[_Option] = []
+        try:
+            start_index = plan_text.index("Plan:\n") + len("Plan:\n")
+            parsable_plan_prediction = plan_text[start_index:]
+        except ValueError:
+            raise ValueError("Scripted plan file is badly formatted; cannot "
+                             "parse plan! Expected 'Plan:\\n' prefix.")
+
+        # Get objects and parse the plan
+        objects_list = sorted(set(task.init))
+        parsed_option_plan = utils.parse_model_output_into_option_plan(
+            parsable_plan_prediction, objects_list, self._types,
+            self._initial_options, True)
+
+        # Convert to grounded options
+        for option_tuple in parsed_option_plan:
+            # Convert empty params to list to avoid numpy boolean evaluation issues
+            params = [] if len(option_tuple[2]) == 0 else np.array(
+                option_tuple[2])
+            option_plan.append(option_tuple[0].ground(option_tuple[1], params))
+
+        return option_plan
 
     def prompt_user_for_option(self, state: State,
                                goal: Set[GroundAtom]) -> _Option:
@@ -110,7 +177,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
         print("\nAVAILABLE SKILLS:")
         for i, parent in enumerate(lift_endo_processes, 1):
             param_names = [p.name for p in parent.option_vars]
-            print(f"  {i}. {parent.name}({', '.join(param_names)})")
+            print(f"  {i}. {parent.option.name}({', '.join(param_names)})")
 
         selected_parent = None
         while selected_parent is None:
