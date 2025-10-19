@@ -87,9 +87,10 @@ class PyBulletDominoEnv(PyBulletEnv):
     robot_init_x: ClassVar[float] = (x_lb + x_ub) * 0.5
     robot_init_y: ClassVar[float] = (y_lb + y_ub) * 0.5
     robot_init_z: ClassVar[float] = z_ub
-    robot_base_pos: ClassVar[Pose3D] = (0.75, 0.72, 0.0)
-    robot_base_orn: ClassVar[Quaternion] = p.getQuaternionFromEuler(
-        [0.0, 0.0, np.pi / 2])
+    robot_base_pos: ClassVar[Optional[Tuple[float, float,
+                                            float]]] = (0.75, 0.72, 0.0)
+    robot_base_orn: ClassVar[Optional[Tuple[float, float, float, float]]] =\
+        p.getQuaternionFromEuler([0.0, 0.0, np.pi / 2])
     robot_init_tilt: ClassVar[float] = np.pi / 2
     robot_init_wrist: ClassVar[float] = -np.pi / 2
 
@@ -182,12 +183,12 @@ class PyBulletDominoEnv(PyBulletEnv):
                 self.rotations.append(obj)
         else:
             # Initialize empty lists when grid is not used
-            self.rotations: List[Object] = []
-        self.grid_pos = []
+            self.rotations = []
+        self.grid_pos: List[Tuple[float, float]] = []
 
-        self.block_constraints = []
-        self.fixed_domino_ids = []
-        self._debug_line_ids = []
+        self.block_constraints: List[int] = []
+        self.fixed_domino_ids: List[int] = []
+        self._debug_line_ids: List[int] = []
 
         super().__init__(use_gui)
 
@@ -232,17 +233,17 @@ class PyBulletDominoEnv(PyBulletEnv):
                         self._direction_type
                     ],
                     self._InFrontDirection_holds,
-                    auxiliary_predicates=[
+                    auxiliary_predicates={
                         self._DominoAtPos, self._DominoAtRot
-                    ])
+                    })
                 self._InFront = DerivedPredicate(
                     "InFront", [self._domino_type, self._domino_type],
                     self._InFront_holds,
-                    auxiliary_predicates=[self._InFrontDirection])
+                    auxiliary_predicates={self._InFrontDirection})
                 self._AdjacentTo = DerivedPredicate(
                     "AdjacentTo", [self._position_type, self._domino_type],
                     self._AdjacentTo_holds,
-                    auxiliary_predicates=[self._DominoAtPos])
+                    auxiliary_predicates={self._DominoAtPos})
 
         # Add DominoNotGlued predicate
         self._DominoNotGlued = Predicate("DominoNotGlued", [self._domino_type],
@@ -288,7 +289,7 @@ class PyBulletDominoEnv(PyBulletEnv):
 
     @property
     def target_predicates(self) -> Set[Predicate]:
-        target_predicates = {self._InFrontDirection}
+        target_predicates: Set[Predicate] = {self._InFrontDirection}
         if CFG.domino_has_glued_dominos:
             target_predicates.add(self._DominoNotGlued)
         return target_predicates
@@ -363,11 +364,9 @@ class PyBulletDominoEnv(PyBulletEnv):
         bodies["table_id"] = table_id
         # add another table for more space to play dominoes
         create_object(asset_path="urdf/table.urdf",
-                      position=[
-                          cls.table_pos[0],
-                          cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2,
-                          cls.table_pos[2]
-                      ],
+                      position=(cls.table_pos[0],
+                                cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2,
+                                cls.table_pos[2]),
                       orientation=cls.table_orn,
                       scale=1.0,
                       use_fixed_base=True,
@@ -409,7 +408,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                               cls.domino_height / 2),
                 mass=cls.domino_mass,
                 friction=cls.domino_friction,
-                orientation=[0.0, 0.0, 0.0],
+                orientation=(0.0, 0.0, 0.0, 1.0),
                 physics_client_id=physics_client_id,
                 add_top_triangle=True,
             )
@@ -468,7 +467,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         pivot_ids = [pivot.id for pivot in self.pivots]
         return domino_ids + pivot_ids
 
-    def _create_task_specific_objects(self, state):
+    def _create_task_specific_objects(self, state: State) -> None:
         pass
 
     def _extract_feature(self, obj: Object, feature: str) -> float:
@@ -531,7 +530,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         )
         return cid
 
-    def _no_target_in_between(self, state, domino1: Object,
+    def _no_target_in_between(self, state: State, domino1: Object,
                               domino2: Object) -> bool:
         for target in state.get_objects(self._target_type):
             x1 = state.get(domino1, "x")
@@ -777,10 +776,10 @@ class PyBulletDominoEnv(PyBulletEnv):
                              "function")
 
         # Helper functions to parse object names and cache results
-        _pos_coord_cache = {}
-        _rot_rad_cache = {}
+        _pos_coord_cache: Dict[Object, Tuple[int, int]] = {}
+        _rot_rad_cache: Dict[Object, float] = {}
 
-        def extract_grid_coords(pos_obj):
+        def extract_grid_coords(pos_obj: Object) -> Tuple[int, int]:
             if pos_obj in _pos_coord_cache:
                 return _pos_coord_cache[pos_obj]
             name_parts = pos_obj.name.split("_")
@@ -790,7 +789,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             _pos_coord_cache[pos_obj] = result
             return result
 
-        def extract_rotation_angle_rad(rot_obj):
+        def extract_rotation_angle_rad(rot_obj: Object) -> float:
             if rot_obj in _rot_rad_cache:
                 return _rot_rad_cache[rot_obj]
             angle_str = rot_obj.name.split("_")[1]
@@ -1058,9 +1057,9 @@ class PyBulletDominoEnv(PyBulletEnv):
                              "function")
 
         # Helper functions to parse object names and cache results
-        _pos_coord_cache = {}
+        _pos_coord_cache: Dict[Object, Tuple[int, int]] = {}
 
-        def extract_grid_coords(pos_obj):
+        def extract_grid_coords(pos_obj: Object) -> Tuple[int, int]:
             if pos_obj in _pos_coord_cache:
                 return _pos_coord_cache[pos_obj]
             name_parts = pos_obj.name.split("_")
@@ -1565,7 +1564,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             half_turn = np.pi / 4 * turn_dir
 
             # First 45°
-            side_offset = 0  # Original had side_offset = 0
+            side_offset = 0.0  # Original had side_offset = 0
             rot += half_turn
             dx = gap * np.sin(rot)
             dy = gap * np.cos(rot)
@@ -1912,8 +1911,8 @@ class PyBulletDominoEnv(PyBulletEnv):
     def _move_intermediate_objects_to_finished_state(
             self,
             obj_dict: Dict,
-            num_pos_x: int = None,
-            num_pos_y: int = None) -> Dict:
+            num_pos_x: Optional[int] = None,
+            num_pos_y: Optional[int] = None) -> Dict:
         """Move all intermediate dominoes and pivots to the lower end of the
         table in a row, keeping only the start domino and targets in their
         original positions.
@@ -2096,8 +2095,8 @@ def create_domino_block(
         mass: float,
         # This is the *lateral* friction you already pass to create_pybullet_block
         friction: float,
-        position: Sequence[Pose3D] = (0, 0, 0),
-        orientation: Sequence[Quaternion] = (0, 0, 0, 1),
+        position: Pose3D = (0.0, 0.0, 0.0),
+        orientation: Quaternion = (0.0, 0.0, 0.0, 1.0),
         physics_client_id: int = 0,
         add_top_triangle: bool = False,
         *,
@@ -2194,7 +2193,7 @@ if __name__ == "__main__":
         print(f"goal: {task.goal}\n")
         print(pformat(task.init.pretty_str()), '\n')
 
-        for i in range(100):
+        for i in range(1000):
             action = Action(
                 np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)

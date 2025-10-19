@@ -413,6 +413,7 @@ class BaseEnv(abc.ABC):
         # function to sanitize atoms regardless of their origin.
         return [[a] for a in atom_strs]
 
-    def is_task_solvable(self, task: Task) -> bool:
+    def is_task_solvable(self, task: EnvironmentTask) -> bool:
         """Check if the task is solvable."""
+        del task  # unused
         return True

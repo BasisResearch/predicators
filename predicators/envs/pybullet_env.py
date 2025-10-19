@@ -41,8 +41,9 @@ class PyBulletEnv(BaseEnv):
     _finger_action_tol: ClassVar[float] = 1e-4
     open_fingers: ClassVar[float] = 0.04
     closed_fingers: ClassVar[float] = 0.01
-    robot_base_pos: Optional[Tuple[float, float, float]] = None
-    robot_base_orn: Optional[Tuple[float, float, float, float]] = None
+    robot_base_pos: ClassVar[Optional[Tuple[float, float, float]]] = None
+    robot_base_orn: ClassVar[Optional[Tuple[float, float, float,
+                                            float]]] = None
 
     # Object parameters.
     _obj_mass: ClassVar[float] = 0.5
@@ -882,8 +883,8 @@ def create_pybullet_block(
     half_extents: Tuple[float, float, float],
     mass: float,
     friction: float,
-    position: Sequence[Pose3D] = (0, 0, 0),
-    orientation: Sequence[Quaternion] = (0, 0, 0, 1),
+    position: Pose3D = (0.0, 0.0, 0.0),
+    orientation: Quaternion = (0.0, 0.0, 0.0, 1.0),
     physics_client_id: int = 0,
     add_top_triangle: bool = False,
 ) -> int:
@@ -978,8 +979,8 @@ def create_pybullet_sphere(
     radius: float,
     mass: float,
     friction: float,
-    position: Sequence[Pose3D] = (0, 0, 0),
-    orientation: Sequence[Quaternion] = (0, 0, 0, 1),
+    position: Pose3D = (0.0, 0.0, 0.0),
+    orientation: Quaternion = (0.0, 0.0, 0.0, 1.0),
     physics_client_id: int = 0,
 ) -> int:
     """A generic utility for creating a new sphere.
