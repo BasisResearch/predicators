@@ -173,9 +173,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(Holding, [robot, domino1]),
             LiftedAtom(PosClear, [target_pos]),
         }
-        ignore_effects = {
-            DominoAtRot, DominoAtPos, PosClear, Tilting
-        }
+        ignore_effects = {DominoAtRot, DominoAtPos, PosClear, Tilting}
         if not CFG.domino_include_connected_predicate:
             ignore_effects.add(AdjacentTo)
         delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(3.0),
