@@ -1,7 +1,7 @@
 """A human-in-the-loop approach where the user manually selects processes via
 terminal prompts at each decision point."""
 
-from typing import Callable, List, Optional, Set, Sequence, cast
+from typing import Callable, List, Optional, Sequence, Set, cast
 
 import numpy as np
 from gym.spaces import Box
