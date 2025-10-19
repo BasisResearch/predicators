@@ -187,19 +187,21 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
             for i in range(CFG.vlm_predicator_num_proposal_batches):
                 base_candidates |= self._get_predicate_proposals_from_fm(
-                    proposal_method, trajectories, i)
+                    proposal_method, trajectories, i,
+                    invent_derived_predicates=\
+                        CFG.predicate_invent_invent_derived_predicates)
             # TODO: filter semantically equivalent predicate by evaluation
         return base_candidates
 
     def _get_predicate_proposals_from_fm(
             self, proposal_method: str, trajectories: List[LowLevelTrajectory],
-            proposal_batch_id: int) -> Set[Predicate]:
+            proposal_batch_id: int,
+            invent_derived_predicates: bool) -> Set[Predicate]:
         """Get predicate proposals from the FM."""
-        # --- Invent predicates based on the dataset
+        ###### Invent predicates in NL based on the dataset ######
         b_id = proposal_batch_id
         seed = CFG.seed * 100 + self._online_learning_cycle * 10 + b_id
 
-        # "transition_modelling", "discrimination", "unconditional"
         assert proposal_method in [
             "transition_modeling", "discrimination", "unconditional",
             "subgoals"
@@ -213,8 +215,12 @@ class OnlinePredicateInventionProcessPlanningApproach(
             successful_trajectory = traj_is_successful(trajectories[0],
                                                        self._train_tasks)
             if successful_trajectory:
-                prompt_template_f = f"prompts/invent_{proposal_method}_solved"\
-                                    f".outline"
+                if invent_derived_predicates:
+                    prompt_template_f = f"prompts/invent_{proposal_method}"\
+                        "_solved_derived.outline"
+                else:
+                    prompt_template_f =\
+                        f"prompts/invent_{proposal_method}_solved.outline"
             else:
                 prompt_template_f = f"prompts/invent_{proposal_method}_failed"\
                                     f".outline"
@@ -232,6 +238,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 self._train_tasks,
                 self._get_current_predicates(),
                 ite=self._online_learning_cycle,
+                use_abstract_state_str=invent_derived_predicates,
             )
             prompt = prompt_template.format(
                 PREDICATES_IN_ENV=pred_str,
@@ -295,7 +302,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
             # TODO: implement the prompt and parse logic
         else:
             raise NotImplementedError
-        # Implement the predicates in python
+
+        ###### Implement the predicates in python ######
         # Create the implementation prompt
         if CFG.predicate_invent_neural_symbolic_predicates:
             raise NotImplementedError
@@ -971,6 +979,7 @@ def _get_transition_str(
     ite: int,
     max_num_trajs: int = 1,
     only_use_successful_trajs: bool = False,
+    use_abstract_state_str: bool = False,
 ) -> Tuple[str, str]:
     """Get the state before and after some actions.
 
@@ -1011,8 +1020,12 @@ def _get_transition_str(
                     f"Starting at {obs_name} with additional info:")
             state = segment.states[0]
             assert isinstance(state, utils.PyBulletState)
-            state_str = state.dict_str(indent=2,
-                                       use_object_id=CFG.rgb_observation)
+            if use_abstract_state_str:
+                state_str = sorted(utils.abstract(state, predicates))
+            else:
+                state_str = state.dict_str(indent=2,
+                                        use_object_id=CFG.rgb_observation)
+            
             result_str.append(f"{state_str}")
             str_for_this_state = [f"  {obs_name} with additional info:"]
             str_for_this_state.append(f"{state_str}")
@@ -1037,7 +1050,11 @@ def _get_transition_str(
                               "with additional info:")
         # Append final state
         state = segment.states[-1]
-        state_str = state.dict_str(indent=2, use_object_id=CFG.rgb_observation)
+        if use_abstract_state_str:
+            state_str = sorted(utils.abstract(state, predicates))
+        else:
+            state_str = state.dict_str(indent=2, 
+                                       use_object_id=CFG.rgb_observation)
         result_str.append(f"{state_str}")
         str_for_this_state = [f"  {obs_name} with additional info:"]
         str_for_this_state.append(f"{state_str}")
