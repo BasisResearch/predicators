@@ -38,6 +38,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     table_pos: ClassVar[Pose3D] = (0.75, 1.35, table_height / 2)
     table_orn: ClassVar[Quaternion] = p.getQuaternionFromEuler(
         [0., 0., np.pi / 2])
+    table_width: ClassVar[float] = 1.0
 
     x_lb: ClassVar[float] = 0.4
     x_ub: ClassVar[float] = 1.1
@@ -363,7 +364,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         # add another table for more space to play dominoes
         create_object(asset_path="urdf/table.urdf",
                       position=(cls.table_pos[0],
-                                cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2,
+                                cls.table_pos[1] + cls.table_width / 2,
                                 cls.table_pos[2]),
                       orientation=cls.table_orn,
                       scale=1.0,
