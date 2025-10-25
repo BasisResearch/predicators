@@ -225,25 +225,23 @@ class PyBulletDominoEnv(PyBulletEnv):
                 self._Connected_holds)
             self._PosClear = Predicate("PosClear", [self._position_type],
                                        self._PosClear_holds)
-
-            if CFG.domino_use_grid:
-                self._InFrontDirection = DerivedPredicate(
-                    "InFrontDirection", [
-                        self._domino_type, self._domino_type,
-                        self._direction_type
-                    ],
-                    self._InFrontDirection_holds,
-                    auxiliary_predicates={
-                        self._DominoAtPos, self._DominoAtRot
-                    })
-                self._InFront = DerivedPredicate(
-                    "InFront", [self._domino_type, self._domino_type],
-                    self._InFront_holds,
-                    auxiliary_predicates={self._InFrontDirection})
-                self._AdjacentTo = DerivedPredicate(
-                    "AdjacentTo", [self._position_type, self._domino_type],
-                    self._AdjacentTo_holds,
-                    auxiliary_predicates={self._DominoAtPos})
+            self._InFrontDirection = DerivedPredicate(
+                "InFrontDirection", [
+                    self._domino_type, self._domino_type,
+                    self._direction_type
+                ],
+                self._InFrontDirection_holds,
+                auxiliary_predicates={
+                    self._DominoAtPos, self._DominoAtRot
+                })
+            self._InFront = DerivedPredicate(
+                "InFront", [self._domino_type, self._domino_type],
+                self._InFront_holds,
+                auxiliary_predicates={self._InFrontDirection})
+            self._AdjacentTo = DerivedPredicate(
+                "AdjacentTo", [self._position_type, self._domino_type],
+                self._AdjacentTo_holds,
+                auxiliary_predicates={self._DominoAtPos})
 
         # Add DominoNotGlued predicate
         self._DominoNotGlued = Predicate("DominoNotGlued", [self._domino_type],
