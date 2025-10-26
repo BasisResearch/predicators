@@ -452,6 +452,21 @@ class GlobalSettings:
     fan_train_num_walls_per_task = [1]
     fan_test_num_walls_per_task = [2, 3]  # can do 4
 
+    # domino_fan env (combined domino + fan environment)
+    domino_fan_use_grid = True
+    domino_fan_train_num_dominos = [3, 4]
+    domino_fan_test_num_dominos = [5, 6]
+    domino_fan_train_num_walls = [2, 3]
+    domino_fan_test_num_walls = [3, 4]
+    domino_fan_train_grid_size = (5, 5)
+    domino_fan_test_grid_size = (6, 6)
+    domino_fan_ball_task_ratio = 0.5  # Fraction of tasks with ball goals vs domino goals
+    domino_fan_include_ball_in_domino_tasks = True  # Include ball in domino tasks (as obstacle)
+    domino_fan_include_dominoes_in_ball_tasks = False  # Include dominoes in ball tasks
+    domino_fan_ball_position_tolerance = 0.04  # Tolerance for ball reaching target
+    domino_fan_use_kinematic = True  # Use kinematic ball movement (vs dynamic forces)
+    domino_fan_has_glued_dominoes = False  # Include immovable glued dominoes
+
     # boil env
     boil_use_constant_delay = False
     boil_use_normal_delay = True
