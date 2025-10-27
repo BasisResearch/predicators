@@ -64,7 +64,7 @@ class PyBulletDominoFanEnv(PyBulletEnv):
     init_padding: float = 0.05
 
     # Grid Layout Configuration (optional via CFG)
-    pos_gap: ClassVar[float] = 0.08  # Distance between grid positions
+    # Note: pos_gap is defined below after domino_width
 
     # Camera Configuration
     _camera_distance: ClassVar[float] = 1.3
@@ -160,6 +160,8 @@ class PyBulletDominoFanEnv(PyBulletEnv):
     domino_height: ClassVar[float] = 0.15
     domino_mass: ClassVar[float] = 0.1
     domino_friction: ClassVar[float] = 0.5
+    turn_shift_frac: ClassVar[float] = 0.6  # For turning dominoes
+    pos_gap: ClassVar[float] = domino_width * 1.4  # Distance between grid positions 0.07 * 1.4=0.098
 
     # Domino Colors
     start_domino_color: ClassVar[Tuple[float, float, float,
@@ -1184,8 +1186,9 @@ class PyBulletDominoFanEnv(PyBulletEnv):
         else:
             y_start = cls.loc_y_mid - num_pos_y * cls.pos_gap / 2 + cls.pos_gap / 2
 
-        x_coords = [x_start + i * cls.pos_gap for i in range(num_pos_x)]
-        y_coords = [y_start + i * cls.pos_gap for i in range(num_pos_y)]
+        # Round to 5 decimals to match movement calculations
+        x_coords = [round(x_start + i * cls.pos_gap, 5) for i in range(num_pos_x)]
+        y_coords = [round(y_start + i * cls.pos_gap, 5) for i in range(num_pos_y)]
 
         return x_coords, y_coords
 
@@ -1447,6 +1450,7 @@ class PyBulletDominoFanEnv(PyBulletEnv):
             num_tasks=CFG.num_train_tasks,
             possible_num_dominos=CFG.domino_fan_train_num_dominos,
             possible_num_walls=CFG.domino_fan_train_num_walls,
+            possible_num_targets=CFG.domino_fan_train_num_targets,
             grid_size=CFG.domino_fan_train_grid_size,
             rng=self._train_rng)
 
@@ -1456,11 +1460,14 @@ class PyBulletDominoFanEnv(PyBulletEnv):
             num_tasks=CFG.num_test_tasks,
             possible_num_dominos=CFG.domino_fan_test_num_dominos,
             possible_num_walls=CFG.domino_fan_test_num_walls,
+            possible_num_targets=CFG.domino_fan_test_num_targets,
             grid_size=CFG.domino_fan_test_grid_size,
             rng=self._test_rng)
 
     def _make_tasks(self, num_tasks: int, possible_num_dominos: List[int],
-                    possible_num_walls: List[int], grid_size: Tuple[int, int],
+                    possible_num_walls: List[int], 
+                    possible_num_targets: List[int],
+                    grid_size: Tuple[int, int],
                     rng: np.random.Generator) -> List[EnvironmentTask]:
         """Generate tasks with either domino goals OR ball goals.
 
@@ -1478,7 +1485,8 @@ class PyBulletDominoFanEnv(PyBulletEnv):
                                    ])
 
             task = self._generate_task(i_task, task_type, possible_num_dominos,
-                                       possible_num_walls, num_pos_x,
+                                       possible_num_walls, 
+                                       possible_num_targets, num_pos_x,
                                        num_pos_y, rng)
 
             if task is not None:
@@ -1486,9 +1494,254 @@ class PyBulletDominoFanEnv(PyBulletEnv):
 
         return self._add_pybullet_state_to_tasks(tasks)
 
+    def _generate_domino_sequence_with_grid(
+            self,
+            rng: np.random.Generator,
+            n_dominos: int,
+            n_targets: int,
+            num_pos_x: int,
+            num_pos_y: int,
+            log_debug: bool = False,
+            task_idx: Optional[int] = None) -> Optional[Tuple[Dict, Set]]:
+        """Grid-based sequence generator adapted from pybullet_domino.py.
+
+        Returns:
+            Tuple of (obj_dict, used_coords) where obj_dict maps domino objects
+            to their placement parameters, and used_coords is a set of grid
+            coordinates used by the sequence. Returns None if generation failed.
+        """
+        obj_dict: Dict = {}
+        domino_count = 0
+        target_count = 0
+        used_coords = set()
+
+        # Generate grid coordinates for this specific configuration
+        x_coords, y_coords = self._generate_grid_coordinates(
+            num_pos_x, num_pos_y)
+        grid_pos = [(x, y) for y in y_coords for x in x_coords]
+
+        if log_debug:
+            print(f"Generated {num_pos_x}x{num_pos_y} grid:")
+            print(f"  x_coords: {[f'{x:.3f}' for x in x_coords]}")
+            print(f"  y_coords: {[f'{y:.3f}' for y in y_coords]}")
+            print(f"  pos_gap: {self.pos_gap}")
+
+        # Use a set for efficient checking of valid grid coordinates.
+        grid_coords_set = set(grid_pos)
+
+        # Choose a random starting position and orientation (cardinal directions).
+        start_idx = rng.choice(len(grid_pos))
+        curr_x, curr_y = grid_pos[start_idx]
+        # If in the top row, can't face away from robot because it's unreachable
+        top_row_y = np.max([y for _, y in grid_pos])
+        if np.abs(curr_y - top_row_y) < 1e-3:
+            curr_rot = rng.choice([np.pi / 2, np.pi, -np.pi / 2])
+        else:
+            curr_rot = rng.choice([0, np.pi / 2, np.pi, -np.pi / 2])
+        used_coords.add((curr_x, curr_y))
+
+        # Place the first domino (start block).
+        obj_dict[self._dominoes[domino_count]] = {
+            "x": curr_x,
+            "y": curr_y,
+            "z": self.z_lb + self.domino_height / 2,
+            "yaw": curr_rot,
+            "roll": 0.0,
+            "r": self.start_domino_color[0],
+            "g": self.start_domino_color[1],
+            "b": self.start_domino_color[2],
+            "is_held": 0.0,
+        }
+        domino_count += 1
+        if log_debug:
+            print(f"Placed first domino at {curr_x}, {curr_y}, {curr_rot}")
+
+        # Determine total domino blocks to place
+        # For domino_fan, we always use domino blocks as targets
+        total_domino_blocks = n_dominos + n_targets
+
+        if log_debug:
+            print(f"  Grid: {num_pos_x}x{num_pos_y} = {len(grid_pos)} positions")
+            print(f"  Need to place: {total_domino_blocks} dominoes ({n_dominos} regular + {n_targets} targets)")
+
+        # Main placement loop.
+        while domino_count < total_domino_blocks:
+            possible_moves = []
+            # A move is defined by: (name, final_x, final_y, final_rot, placements)
+            # where placements is a list of (x, y, rot) for each domino in the move.
+
+            # 1. Check for a "straight" move (1 domino).
+            dx = round(self.pos_gap * np.sin(curr_rot), 5)
+            dy = round(self.pos_gap * np.cos(curr_rot), 5)
+            next_x = round(curr_x + dx, 5)
+            next_y = round(curr_y + dy, 5)
+
+            if log_debug:
+                print(f"  Domino {domino_count}: at ({curr_x:.3f}, {curr_y:.3f}), rot={curr_rot:.2f}")
+                print(f"    Checking straight: ({next_x:.3f}, {next_y:.3f})", end="")
+
+            if (next_x, next_y) in grid_coords_set and \
+            (next_x, next_y) not in used_coords:
+                placements = [(next_x, next_y, curr_rot)]
+                possible_moves.append(
+                    ("straight", next_x, next_y, curr_rot, placements))
+                if log_debug:
+                    print(" ✓")
+            elif log_debug:
+                in_grid = (next_x, next_y) in grid_coords_set
+                is_used = (next_x, next_y) in used_coords
+                print(f" ✗ (in_grid={in_grid}, used={is_used})")
+
+            # 2. Check for "turn" moves (2 dominoes).
+            if (total_domino_blocks - domino_count) >= 2:
+                # turn_dir: -1 for left, 1 for right.
+                for turn_dir, name in [(-1, "turn_left"), (1, "turn_right")]:
+                    # The first domino (d1) is one step straight on the grid.
+                    d1_grid_x, d1_grid_y = next_x, next_y
+                    if (d1_grid_x, d1_grid_y) not in grid_coords_set or \
+                       (d1_grid_x, d1_grid_y) in used_coords:
+                        continue
+
+                    # Its orientation is 45 degrees towards the turn direction.
+                    d1_rot = curr_rot - turn_dir * np.pi / 4
+
+                    # Calculate the shift vector to pull the turning domino inward.
+                    shift_magnitude = self.domino_width * self.turn_shift_frac
+                    shift_dx = shift_magnitude * \
+                        (turn_dir * np.cos(curr_rot) - np.sin(curr_rot))
+                    shift_dy = shift_magnitude * \
+                        (-turn_dir * np.sin(curr_rot) - np.cos(curr_rot))
+
+                    # The physical position is the grid position plus the shift.
+                    d1_x = d1_grid_x + shift_dx
+                    d1_y = d1_grid_y + shift_dy
+
+                    # The second domino (d2) completes the turn.
+                    d2_rot = d1_rot - turn_dir * 1 * np.pi / 4
+
+                    # Calculate d2's physical position relative to d1's.
+                    gap = self.pos_gap
+                    sin_d1 = np.sin(d1_rot)
+                    cos_d1 = np.cos(d1_rot)
+                    disp_x = (
+                        gap * turn_dir * cos_d1 +
+                        (2 * shift_magnitude - gap) * sin_d1) / np.sqrt(2)
+                    disp_y = (
+                        -gap * turn_dir * sin_d1 +
+                        (2 * shift_magnitude - gap) * cos_d1) / np.sqrt(2)
+                    d2_x = round(d1_x + disp_x, 5)
+                    d2_y = round(d1_y + disp_y, 5)
+
+                    # Check if the grid position of the second domino is valid.
+                    expected_final_rot = curr_rot + turn_dir * np.pi / 2
+                    d2_grid_dx = round(
+                        self.pos_gap * np.sin(expected_final_rot), 5)
+                    d2_grid_dy = round(
+                        self.pos_gap * np.cos(expected_final_rot), 5)
+                    d2_grid_x = round(d1_grid_x + d2_grid_dx, 5)
+                    d2_grid_y = round(d1_grid_y + d2_grid_dy, 5)
+
+                    if (d2_grid_x, d2_grid_y) in grid_coords_set and \
+                       (d2_grid_x, d2_grid_y) not in used_coords:
+
+                        placements = [(d1_x, d1_y, d1_rot),
+                                      (d2_x, d2_y, d2_rot)]
+
+                        possible_moves.append(
+                            (name, d2_grid_x, d2_grid_y, d2_rot, placements))
+
+            if not possible_moves:
+                # No valid moves, generation failed for this attempt.
+                if log_debug:
+                    print(f"  ✗ Failed: No valid moves from ({curr_x}, {curr_y}) with rot={curr_rot:.2f}")
+                    print(f"     Placed {domino_count}/{total_domino_blocks} dominoes so far")
+                    print(f"     Grid coords set size: {len(grid_coords_set)}, Used: {len(used_coords)}")
+                return None
+
+            # Choose a random valid move and get its placement plan.
+            _move_name, final_x, final_y, final_rot, placements = \
+                possible_moves[rng.choice(len(possible_moves))]
+            if log_debug:
+                print(
+                    f"Chose move: {_move_name}, final_x: {final_x}, final_y: {final_y}, final_rot: {final_rot}"
+                )
+
+            # Execute the placement plan for the chosen move.
+            for (x, y, rot) in placements:
+                if log_debug:
+                    print(f"Placing domino at {x}, {y}, {rot}")
+                if domino_count >= total_domino_blocks:
+                    break  # Should not be reached with correct logic.
+
+                # Decide if this domino block should be a target.
+                is_target = False
+                if target_count < n_targets:
+                    remaining_blocks = total_domino_blocks - domino_count
+                    remaining_targets = n_targets - target_count
+
+                    # Reserve one target for the very last domino in the sequence
+                    is_last_block = (domino_count == total_domino_blocks - 1)
+                    has_targets_left = remaining_targets > 0
+
+                    if is_last_block and has_targets_left:
+                        # Force the last domino to be a target if we still need targets
+                        is_target = True
+                    elif not is_last_block and remaining_targets > 1:
+                        # For non-last dominoes, only consider making them targets if we have more than 1 target left
+                        # This ensures at least one target is reserved for the end
+                        targets_available_for_placement = remaining_targets - 1
+                        if (targets_available_for_placement >= remaining_blocks - 1 or \
+                            rng.random() < targets_available_for_placement / (remaining_blocks - 1)) and\
+                            domino_count >= 2:
+                            is_target = True
+
+                # Determine color based on whether this is a target
+                if is_target:
+                    # Check if target should be glued
+                    should_be_glued = False
+                    if CFG.domino_fan_has_glued_dominoes:
+                        should_be_glued = rng.random() < 0.5  # 50% chance of glued
+
+                    if should_be_glued:
+                        color = self.glued_domino_color
+                    else:
+                        color = self.target_domino_color
+                else:
+                    color = self.domino_color
+
+                # Place the domino block.
+                obj_dict[self._dominoes[domino_count]] = {
+                    "x": x,
+                    "y": y,
+                    "z": self.z_lb + self.domino_height / 2,
+                    "yaw": rot,
+                    "roll": 0.0,
+                    "r": color[0],
+                    "g": color[1],
+                    "b": color[2],
+                    "is_held": 0.0,
+                }
+
+                # Use the grid coordinates for tracking used spots.
+                # Find the closest grid coordinate to the physical placement
+                closest_grid_coord = min(grid_pos,
+                                         key=lambda p: (p[0] - x)**2 +
+                                         (p[1] - y)**2)
+                used_coords.add(closest_grid_coord)
+
+                if is_target:
+                    target_count += 1
+                domino_count += 1
+
+            # Update state for the next iteration.
+            curr_x, curr_y, curr_rot = final_x, final_y, final_rot
+
+        return (obj_dict, used_coords)
+
     def _generate_task(self, task_idx: int, task_type: str,
                        possible_num_dominos: List[int],
-                       possible_num_walls: List[int], num_pos_x: int,
+                       possible_num_walls: List[int], 
+                       possible_num_targets: List[int], num_pos_x: int,
                        num_pos_y: int,
                        rng: np.random.Generator) -> Optional[EnvironmentTask]:
         """Generate a task with either domino toppling or ball-at-location goal.
@@ -1502,6 +1755,9 @@ class PyBulletDominoFanEnv(PyBulletEnv):
         # Determine number of objects based on task type
         n_dominos = rng.choice(possible_num_dominos)
         n_walls = rng.choice(possible_num_walls)
+
+        # For domino tasks, we need to specify targets (toppleable dominoes)
+        n_targets = rng.choice(possible_num_targets)
 
         # Generate grid
         x_coords, y_coords = self._generate_grid_coordinates(
@@ -1564,29 +1820,72 @@ class PyBulletDominoFanEnv(PyBulletEnv):
         init_dict[self._sides[2]] = {"side_idx": 3.0}
         init_dict[self._sides[3]] = {"side_idx": 2.0}
 
-        # Place objects based on task type
-        used_positions = []
-        target_x, target_y = 0.0, 0.0  # Initialize for type checking
+        # Generate domino sequence using the sequence generator
+        # Try to generate a valid sequence (with retries)
+        domino_obj_dict = None
+        used_coords = set()
+        max_attempts = 100
 
-        # For ball tasks: place ball and target first
-        ball_pos_idx = rng.choice(len(grid_pos))
-        ball_x, ball_y = grid_pos[ball_pos_idx]
-        used_positions.append(ball_pos_idx)
+        for attempt in range(max_attempts):
+            result = self._generate_domino_sequence_with_grid(
+                rng=rng,
+                n_dominos=n_dominos,
+                n_targets=n_targets,
+                num_pos_x=num_pos_x,
+                num_pos_y=num_pos_y,
+                log_debug=(attempt < 3),  # Debug first 3 attempts
+                task_idx=task_idx
+            )
+            if result is not None:
+                domino_obj_dict, used_coords = result
+                break
 
+        if domino_obj_dict is None:
+            # Failed to generate a valid domino sequence
+            return None
+
+        # Add dominoes to init_dict
+        init_dict.update(domino_obj_dict)
+
+        # Convert used_coords to a set of indices for easier tracking
+        used_position_coords = used_coords.copy()
+
+        # Get available grid positions (not used by dominoes)
+        available_positions = [
+            (x, y) for (x, y) in grid_pos if (x, y) not in used_position_coords
+        ]
+
+        # Ensure we have enough positions for walls, ball, and target
+        if len(available_positions) < n_walls + 2:  # +2 for ball and target
+            # Not enough space, regenerate or return None
+            return None
+
+        # Shuffle available positions for random placement
+        rng.shuffle(available_positions)
+
+        # Place walls on available positions
+        wall_positions = available_positions[:n_walls]
+        for i, (x, y) in enumerate(wall_positions):
+            init_dict[self._walls[i]] = {
+                "x": x,
+                "y": y,
+                "z": self.table_height + self.obstacle_wall_height / 2,
+                "rot": 0.0
+            }
+
+        # Remove wall positions from available positions
+        available_positions = available_positions[n_walls:]
+
+        # Place ball on an available position
+        ball_x, ball_y = available_positions[0]
         init_dict[self._ball] = {
             "x": ball_x,
             "y": ball_y,
             "z": self.table_height + self.ball_height_offset
         }
 
-        # Place target (different from ball)
-        available_target_pos = [
-            i for i in range(len(grid_pos)) if i not in used_positions
-        ]
-        target_pos_idx = rng.choice(available_target_pos)
-        target_x, target_y = grid_pos[target_pos_idx]
-        used_positions.append(target_pos_idx)
-
+        # Place target on a different available position
+        target_x, target_y = available_positions[1]
         init_dict[self._target] = {
             "x": target_x,
             "y": target_y,
@@ -1594,82 +1893,6 @@ class PyBulletDominoFanEnv(PyBulletEnv):
             "rot": 0.0,
             "is_hit": 0.0
         }
-
-        # Place walls
-        available_wall_pos = [
-            i for i in range(len(grid_pos)) if i not in used_positions
-        ]
-        wall_positions = rng.choice(
-            available_wall_pos,
-            size=min(n_walls, len(available_wall_pos)),
-            replace=False) if available_wall_pos else []
-        for i, pos_idx in enumerate(wall_positions):
-            x, y = grid_pos[pos_idx]
-            init_dict[self._walls[i]] = {
-                "x": x,
-                "y": y,
-                "z": self.table_height + self.obstacle_wall_height / 2,
-                "rot": 0.0
-            }
-        used_positions.extend(wall_positions)
-
-        # Place dominoes
-        available_domino_pos = [
-            i for i in range(len(grid_pos)) if i not in used_positions
-        ]
-        domino_positions = rng.choice(
-            available_domino_pos,
-            size=min(n_dominos, len(available_domino_pos)),
-            replace=False) if available_domino_pos else []
-
-        for i, pos_idx in enumerate(domino_positions):
-            x, y = grid_pos[pos_idx]
-            init_dict[self._dominoes[i]] = {
-                "x":
-                x,
-                "y":
-                y,
-                "z":
-                self.z_lb + self.domino_height / 2,
-                "yaw":
-                0.0 if (i == 0) else rng.choice(
-                    [0, np.pi / 2]),
-                "roll":
-                0.0,
-                "r":
-                self.start_domino_color[0] if i == 0 else self.domino_color[0],
-                "g":
-                self.start_domino_color[1] if i == 0 else self.domino_color[1],
-                "b":
-                self.start_domino_color[2] if i == 0 else self.domino_color[2],
-                "is_held":
-                0.0,
-            }
-
-        # Remove unused dominoes from init state
-        for unused_domino in self._dominoes[len(domino_positions):]:
-            if unused_domino in init_dict:
-                del init_dict[unused_domino]
-
-        # Place ball in domino tasks
-        available_ball_pos = [
-            i for i in range(len(grid_pos)) if i not in used_positions
-        ]
-        if available_ball_pos:
-            ball_pos_idx = rng.choice(available_ball_pos)
-            ball_x, ball_y = grid_pos[ball_pos_idx]
-            init_dict[self._ball] = {
-                "x": ball_x,
-                "y": ball_y,
-                "z": self.table_height + self.ball_height_offset
-            }
-        else:
-            # Fallback: place at grid center if no space
-            init_dict[self._ball] = {
-                "x": self.loc_x_mid,
-                "y": self.loc_y_mid,
-                "z": self.table_height + self.ball_height_offset
-            }
 
         # Add grid positions
         target_pos_obj: Optional[Object] = None
@@ -1702,23 +1925,35 @@ class PyBulletDominoFanEnv(PyBulletEnv):
 
         # Create goal based on task type
         if task_type == "domino":
-            # Goal: all dominoes toppled
+            # Goal: all target dominoes toppled
+            # Target dominoes are those with target_domino_color or glued_domino_color
             goal_atoms = set()
-            for i in range(len(domino_positions)):
-                goal_atoms.add(GroundAtom(self._Toppled, [self._dominoes[i]]))
+            eps = 1e-3
+            for domino_obj in init_state.get_objects(self._domino_type):
+                r = init_state.get(domino_obj, "r")
+                g = init_state.get(domino_obj, "g")
+                b = init_state.get(domino_obj, "b")
+
+                # Check if it's a target domino (pink or red/glued)
+                is_target = (
+                    (abs(r - self.target_domino_color[0]) < eps and
+                     abs(g - self.target_domino_color[1]) < eps and
+                     abs(b - self.target_domino_color[2]) < eps) or
+                    (abs(r - self.glued_domino_color[0]) < eps and
+                     abs(g - self.glued_domino_color[1]) < eps and
+                     abs(b - self.glued_domino_color[2]) < eps)
+                )
+
+                if is_target:
+                    goal_atoms.add(GroundAtom(self._Toppled, [domino_obj]))
         else:  # ball task
             # Goal: ball at target location
-            if CFG.domino_fan_use_grid:
-                if target_pos_obj is None:
-                    raise ValueError(
-                        "Could not find target position object in grid")
-                goal_atoms = {
-                    GroundAtom(self._BallAtLoc, [self._ball, target_pos_obj])
-                }
-            else:
-                raise NotImplementedError(
-                    "Ball tasks without grid are not currently supported. "
-                    "Set CFG.domino_fan_use_grid = True")
+            if target_pos_obj is None:
+                raise ValueError(
+                    "Could not find target position object in grid")
+            goal_atoms = {
+                GroundAtom(self._BallAtLoc, [self._ball, target_pos_obj])
+            }
 
         return EnvironmentTask(init_state, goal_atoms)
 
@@ -1731,9 +1966,9 @@ if __name__ == "__main__":
     # CFG.domino_use_domino_blocks_as_target = True
     # CFG.domino_use_grid = True
     # CFG.domino_fan_use_grid = False
-    CFG.num_train_tasks = 2
+    CFG.num_train_tasks = 10
     CFG.num_test_tasks = 2
-    CFG.domino_fan_train_grid_size = (10, 10)
+    CFG.domino_fan_train_grid_size = (8, 8)
     env = PyBulletDominoFanEnv(use_gui=True)
     # # Set up test configurations for the example
     # CFG.domino_test_num_dominos = [3]
@@ -1750,7 +1985,7 @@ if __name__ == "__main__":
         # print(f"goal: {task.goal}\n")
         # print(pformat(task.init.pretty_str()), '\n')
 
-        for i in range(1000):
+        for i in range(100):
             action = Action(
                 np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)

@@ -456,6 +456,8 @@ class GlobalSettings:
     domino_fan_use_grid = True
     domino_fan_train_num_dominos = [3, 4]
     domino_fan_test_num_dominos = [5, 6]
+    domino_fan_train_num_targets = [1]
+    domino_fan_test_num_targets = [1, 2]
     domino_fan_train_num_walls = [2, 3]
     domino_fan_test_num_walls = [3, 4]
     domino_fan_train_grid_size = (5, 5)
