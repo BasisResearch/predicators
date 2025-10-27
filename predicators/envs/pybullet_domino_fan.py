@@ -1844,6 +1844,11 @@ class PyBulletDominoFanEnv(PyBulletEnv):
             # Failed to generate a valid domino sequence
             return None
 
+        # If we want to initialize at finished state, move intermediate objects
+        if not CFG.domino_initialize_at_finished_state:
+            domino_obj_dict = self._move_intermediate_objects_to_unfinished_state(
+                domino_obj_dict, num_pos_x, num_pos_y)
+
         # Add dominoes to init_dict
         init_dict.update(domino_obj_dict)
 
@@ -1957,6 +1962,188 @@ class PyBulletDominoFanEnv(PyBulletEnv):
 
         return EnvironmentTask(init_state, goal_atoms)
 
+    def _move_intermediate_objects_to_unfinished_state(
+            self,
+            obj_dict: Dict,
+            num_pos_x: Optional[int] = None,
+            num_pos_y: Optional[int] = None) -> Dict:
+        """Move all intermediate dominoes and walls to the lower end of the
+        table in a row, keeping only the start domino and targets in their
+        original positions.
+
+        When CFG.domino_fan_use_grid=True, places intermediate objects on clear
+        grid positions, preferably on the bottom side starting from the
+        middle and extending to left and right.
+
+        Args:
+            obj_dict: Dictionary containing the original positions of all objects
+            num_pos_x: Number of grid positions in x direction
+            num_pos_y: Number of grid positions in y direction
+
+        Returns:
+            Modified dictionary with intermediate objects repositioned
+        """
+        # Identify which objects to move
+        intermediate_objects = []
+
+        # Find all dominoes except the start domino (which has light green color)
+        # and target dominoes (which have pink or red/glued color)
+        for domino in self._dominoes:
+            if domino in obj_dict:
+                domino_data = obj_dict[domino]
+                # Check if it's not a start domino (not light green)
+                eps = 1e-3
+                is_start_domino = (abs(
+                    domino_data.get("r", 0.0) -
+                    self.start_domino_color[0]) < eps and abs(
+                        domino_data.get("g", 0.0) - self.start_domino_color[1])
+                                   < eps and abs(
+                                       domino_data.get("b", 0.0) -
+                                       self.start_domino_color[2]) < eps)
+
+                # Check if it's a target domino (pink or red/glued color)
+                is_target_domino = (abs(
+                    domino_data.get("r", 0.0) - self.target_domino_color[0]
+                ) < eps and abs(
+                    domino_data.get("g", 0.0) -
+                    self.target_domino_color[1]) < eps and abs(
+                        domino_data.get("b", 0.0) -
+                        self.target_domino_color[2]) < eps) or (abs(
+                            domino_data.get("r", 0.0) -
+                            self.glued_domino_color[0]) < eps and abs(
+                                domino_data.get("g", 0.0) -
+                                self.glued_domino_color[1]) < eps and abs(
+                                    domino_data.get("b", 0.0) -
+                                    self.glued_domino_color[2]) < eps)
+
+                # Only move dominoes that are neither start nor target dominoes
+                if not is_start_domino and not is_target_domino:
+                    intermediate_objects.append((domino, "domino"))
+
+        # Find all walls
+        for wall in self._walls:
+            if wall in obj_dict:
+                intermediate_objects.append((wall, "wall"))
+
+        if not intermediate_objects:
+            return obj_dict
+
+        if CFG.domino_fan_use_grid:
+            # Use grid positioning when grid is enabled
+            # First, identify which grid positions are already occupied
+            occupied_positions = set()
+            position_tolerance = self.pos_gap * 0.5
+
+            # Extract just the objects from the intermediate_objects tuples for easier checking
+            intermediate_obj_set = {
+                obj
+                for obj, obj_type in intermediate_objects
+            }
+
+            # Generate grid positions
+            if num_pos_x is not None and num_pos_y is not None:
+                x_coords, y_coords = self._generate_grid_coordinates(
+                    num_pos_x, num_pos_y)
+            else:
+                # Fallback to maximum grid size
+                max_grid_size = max(CFG.domino_fan_train_grid_size,
+                                    CFG.domino_fan_test_grid_size,
+                                    key=lambda t: t[0] * t[1])
+                x_coords, y_coords = self._generate_grid_coordinates(
+                    max_grid_size[0], max_grid_size[1])
+
+            grid_pos = [(x, y) for y in y_coords for x in x_coords]
+
+            for obj, obj_data in obj_dict.items():
+                if obj not in intermediate_obj_set:  # Skip objects we're about to move
+                    obj_x = obj_data.get("x", 0.0)
+                    obj_y = obj_data.get("y", 0.0)
+
+                    # Check which grid position this object occupies
+                    for grid_x, grid_y in grid_pos:
+                        if (abs(obj_x - grid_x) <= position_tolerance
+                                and abs(obj_y - grid_y) <= position_tolerance):
+                            occupied_positions.add((grid_x, grid_y))
+                            break
+
+            # Find available positions on the bottom side, starting from middle
+            # Sort grid positions by y coordinate (ascending) then by distance from x center
+            x_center = (x_coords[0] + x_coords[-1]) / 2 if x_coords else 0
+
+            # Get bottom row positions first, then other rows if needed
+            available_positions = []
+            for y in sorted(y_coords):  # Start from bottom (smallest y)
+                row_positions = [(x, y) for x in x_coords
+                                 if (x, y) not in occupied_positions]
+                # Sort by distance from center
+                row_positions.sort(key=lambda pos: abs(pos[0] - x_center))
+                available_positions.extend(row_positions)
+
+            # Place intermediate objects on available grid positions
+            for i, (obj, obj_type) in enumerate(intermediate_objects):
+                if i < len(available_positions):
+                    new_x, new_y = available_positions[i]
+                else:
+                    # Fallback to non-grid positioning if we run out of grid positions
+                    start_x = self.x_lb + self.domino_width
+                    spacing = self.domino_width * 1.5
+                    new_x = start_x + i * spacing
+                    new_y = (self.y_lb + self.y_ub) / 2
+
+                if obj_type == "domino":
+                    obj_dict[obj] = {
+                        "x": new_x,
+                        "y": new_y,
+                        "z": self.z_lb + self.domino_height / 2,
+                        "yaw": 0.0,  # Reset rotation to upright
+                        "roll": 0.0,  # Reset tilt to upright
+                        "r": self.domino_color[0],
+                        "g": self.domino_color[1],
+                        "b": self.domino_color[2],
+                        "is_held": 0.0,
+                    }
+                elif obj_type == "wall":
+                    obj_dict[obj] = {
+                        "x": new_x,
+                        "y": new_y,
+                        "z": self.table_height + self.obstacle_wall_height / 2,
+                        "rot": 0.0,
+                    }
+        else:
+            # Original non-grid positioning
+            # Calculate positions for intermediate objects
+            # Place them in a row near x_lb with even spacing
+            start_x = self.x_lb + self.domino_width  # Start a bit inside the boundary
+            spacing = self.domino_width * 1.5  # Space between objects
+            y_position = (self.y_lb +
+                          self.y_ub) / 2  # Middle of the table in y direction
+
+            # Update positions for intermediate objects
+            for i, (obj, obj_type) in enumerate(intermediate_objects):
+                new_x = start_x + i * spacing
+
+                if obj_type == "domino":
+                    obj_dict[obj] = {
+                        "x": new_x,
+                        "y": y_position,
+                        "z": self.z_lb + self.domino_height / 2,
+                        "yaw": 0.0,  # Reset rotation to upright
+                        "roll": 0.0,  # Reset tilt to upright
+                        "r": self.domino_color[0],
+                        "g": self.domino_color[1],
+                        "b": self.domino_color[2],
+                        "is_held": 0.0,
+                    }
+                elif obj_type == "wall":
+                    obj_dict[obj] = {
+                        "x": new_x,
+                        "y": y_position,
+                        "z": self.table_height + self.obstacle_wall_height / 2,
+                        "rot": 0.0,
+                    }
+
+        return obj_dict
+
 
 if __name__ == "__main__":
 
@@ -1969,6 +2156,7 @@ if __name__ == "__main__":
     CFG.num_train_tasks = 10
     CFG.num_test_tasks = 2
     CFG.domino_fan_train_grid_size = (8, 8)
+    CFG.domino_initialize_at_finished_state = True
     env = PyBulletDominoFanEnv(use_gui=True)
     # # Set up test configurations for the example
     # CFG.domino_test_num_dominos = [3]

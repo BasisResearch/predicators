@@ -1819,7 +1819,7 @@ class PyBulletDominoEnv(PyBulletEnv):
 
             # If we want to initialize at finished state, move intermediate objects
             if not CFG.domino_initialize_at_finished_state:
-                obj_dict = self._move_intermediate_objects_to_finished_state(
+                obj_dict = self._move_intermediate_objects_to_unfinished_state(
                     obj_dict, num_pos_x, num_pos_y)
 
             init_dict.update(obj_dict)
@@ -1903,7 +1903,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             "yaw": rot,
         }
 
-    def _move_intermediate_objects_to_finished_state(
+    def _move_intermediate_objects_to_unfinished_state(
             self,
             obj_dict: Dict,
             num_pos_x: Optional[int] = None,
