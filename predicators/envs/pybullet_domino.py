@@ -10,6 +10,7 @@ python predicators/main.py --approach oracle --env pybullet_domino \
 import logging
 import time
 from pprint import pformat
+from dataclasses import dataclass
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, \
     Set, Tuple
 
@@ -24,6 +25,19 @@ from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
     Predicate, State, Type
+
+
+@dataclass
+class PlacementResult:
+    """Result of placing a domino, target, or pivot in the sequence."""
+    success: bool
+    x: float
+    y: float
+    rotation: float
+    domino_count: int
+    pivot_count: int = 0
+    target_count: int = 0
+    just_turned_90: bool = False
 
 
 class PyBulletDominoEnv(PyBulletEnv):
@@ -680,6 +694,35 @@ class PyBulletDominoEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Task Generation
 
+    def _get_expected_domino_count(self, n_dominos: int,
+                                    n_targets: int) -> int:
+        """Calculate the expected total number of dominoes."""
+        if CFG.domino_use_domino_blocks_as_target:
+            return n_dominos + n_targets
+        return n_dominos
+
+    def _should_continue_placement(self, domino_count: int, target_count: int,
+                                   n_dominos: int, n_targets: int) -> bool:
+        """Check if we should continue placing dominoes and targets."""
+        expected_domino_count = self._get_expected_domino_count(
+            n_dominos, n_targets)
+        if CFG.domino_use_domino_blocks_as_target:
+            return (domino_count < expected_domino_count
+                    or target_count < n_targets)
+        return domino_count < n_dominos or target_count < n_targets
+
+    def _check_placement_complete(self, domino_count: int, target_count: int,
+                                  pivot_count: int, n_dominos: int,
+                                  n_targets: int, n_pivots: int) -> bool:
+        """Check if all dominoes, targets, and pivots have been placed."""
+        expected_domino_count = self._get_expected_domino_count(
+            n_dominos, n_targets)
+        if CFG.domino_use_domino_blocks_as_target:
+            return (domino_count == expected_domino_count
+                    and target_count == n_targets and pivot_count == n_pivots)
+        return (domino_count == n_dominos and target_count == n_targets
+                and pivot_count == n_pivots)
+
     def _generate_domino_sequence(
             self,
             rng: np.random.Generator,
@@ -698,342 +741,355 @@ class PyBulletDominoEnv(PyBulletEnv):
             """Check if (nx, ny) is within table boundaries."""
             return self.x_lb < nx < self.x_ub and self.y_lb < ny < self.y_ub
 
+        # Initialize placement state
         obj_dict = {}
         domino_count = 0
         target_count = 0
         pivot_count = 0
         just_placed_target = False
         just_turned_90 = False
-        success = True
 
         # Initial domino position and orientation
         x = rng.uniform(self.domino_x_lb, self.domino_x_ub)
         y = rng.uniform(self.domino_y_lb, self.domino_y_ub)
-        rot = rng.choice([0, np.pi / 2, -np.pi / 2])
+        rotation = rng.choice([0, np.pi / 2, -np.pi / 2])
         gap = self.pos_gap
 
         # Place first domino (start block)
         obj_dict[self.dominos[domino_count]] = self._place_domino(
-            domino_count,
-            x,
-            y,
-            rot,
-            is_start_block=True,
-            rng=rng,
+            domino_count, x, y, rotation, is_start_block=True, rng=rng,
             task_idx=task_idx)
         domino_count += 1
 
-        turn_choices = self.turn_choices.copy()
-        if pivot_count == n_pivots:
-            turn_choices.remove("pivot180")
-
-        # Determine loop condition based on CFG
-        if CFG.domino_use_domino_blocks_as_target:
-            expected_total_dominoes = n_dominos + n_targets
-            loop_condition = domino_count < expected_total_dominoes or target_count < n_targets
-        else:
-            loop_condition = domino_count < n_dominos or target_count < n_targets
-
         # Main placement loop
-        while loop_condition:
+        while self._should_continue_placement(domino_count, target_count,
+                                               n_dominos, n_targets):
+            # Determine what we can place
             can_place_target = (domino_count >= 2 and target_count < n_targets
                                 and not just_placed_target)
-            must_place_domino = not can_place_target
+            expected_domino_count = self._get_expected_domino_count(
+                n_dominos, n_targets)
+            can_place_domino = domino_count < expected_domino_count
 
-            if CFG.domino_use_domino_blocks_as_target:
-                expected_total_dominoes = n_dominos + n_targets
-                can_place_domino = domino_count + n_targets < expected_total_dominoes
-            else:
-                can_place_domino = domino_count < n_dominos
+            # Decide whether to place domino or target
+            should_place_domino = (not can_place_target
+                                   or rng.random() > 0.5) and can_place_domino
 
-            if (must_place_domino or rng.random() > 0.5) and can_place_domino:
+            if should_place_domino:
                 # Place domino (or pivot)
-                # Update turn choices first
-                turn_choices = self.turn_choices.copy()
-                if pivot_count == n_pivots:
-                    turn_choices.remove("pivot180")
-
-                result = self._place_next_domino(rng, obj_dict, x, y, rot, gap,
-                                                 domino_count, pivot_count,
+                result = self._place_next_domino(rng, obj_dict, x, y, rotation,
+                                                 gap, domino_count, pivot_count,
                                                  n_pivots, n_dominos,
-                                                 turn_choices,
                                                  just_placed_target,
-                                                 just_turned_90, _in_bounds)
-                if not result[0]:
+                                                 just_turned_90, _in_bounds,
+                                                 task_idx)
+                if not result.success:
                     return None
 
-                x, y, rot = result[1], result[2], result[3]
-                domino_count = result[4]
-                pivot_count = result[5]
-                just_turned_90 = result[6]
+                x, y, rotation = result.x, result.y, result.rotation
+                domino_count = result.domino_count
+                pivot_count = result.pivot_count
+                just_turned_90 = result.just_turned_90
                 just_placed_target = False
 
             else:
                 # Place target
                 if log_debug:
                     print("Placing target")
-                result = self._place_next_target(rng, obj_dict, x, y, rot, gap,
-                                                 domino_count, target_count,
-                                                 _in_bounds)
-                if not result[0]:
+                result = self._place_next_target(rng, obj_dict, x, y, rotation,
+                                                 gap, domino_count, target_count,
+                                                 _in_bounds, task_idx)
+                if not result.success:
                     return None
 
-                x, y, rot = result[1], result[2], result[3]
-                domino_count = result[4]
-                target_count = result[5]
+                x, y, rotation = result.x, result.y, result.rotation
+                domino_count = result.domino_count
+                target_count = result.target_count
                 just_placed_target = True
                 just_turned_90 = False
 
-            # Update loop condition
-            if CFG.domino_use_domino_blocks_as_target:
-                expected_total_dominoes = n_dominos + n_targets
-                loop_condition = domino_count < expected_total_dominoes or target_count < n_targets
-            else:
-                loop_condition = domino_count < n_dominos or target_count < n_targets
-
         # Check if we successfully placed everything
-        if CFG.domino_use_domino_blocks_as_target:
-            expected_domino_count = n_dominos + n_targets
-            success = (domino_count == expected_domino_count
-                       and target_count == n_targets
-                       and pivot_count == n_pivots)
-        else:
-            success = (domino_count == n_dominos and target_count == n_targets
-                       and pivot_count == n_pivots)
-
-        return obj_dict if success else None
+        if self._check_placement_complete(domino_count, target_count,
+                                          pivot_count, n_dominos, n_targets,
+                                          n_pivots):
+            return obj_dict
+        return None
 
     def _place_next_domino(self,
                            rng: np.random.Generator,
                            obj_dict: Dict,
                            x: float,
                            y: float,
-                           rot: float,
+                           rotation: float,
                            gap: float,
                            domino_count: int,
                            pivot_count: int,
                            n_pivots: int,
                            n_dominos: int,
-                           turn_choices: List[str],
                            just_placed_target: bool,
                            just_turned_90: bool,
                            _in_bounds: Callable[[float, float], bool],
-                           task_idx: Optional[int] = None) -> Tuple:
-        """Place the next domino in the sequence."""
-        # Choose placement strategy
-        choices = turn_choices.copy()
-        if just_turned_90:
-            choices.remove("turn90")
+                           task_idx: Optional[int] = None) -> PlacementResult:
+        """Place the next domino in the sequence by selecting and executing a placement strategy.
+
+        Determines available placement strategies based on constraints (e.g., avoiding
+        consecutive 90-degree turns, forcing straight placement after targets), then randomly
+        chooses and executes one of the valid strategies: straight, turn90, or pivot180."""
+        # Determine available placement strategies
+        turn_choices = self.turn_choices.copy()
+        if pivot_count >= n_pivots and "pivot180" in turn_choices:
+            turn_choices.remove("pivot180")
+        if just_turned_90 and "turn90" in turn_choices:
+            turn_choices.remove("turn90")
         if just_placed_target:
-            choices = ["straight"]
-        choice = rng.choice(choices)
+            turn_choices = ["straight"]
+
+        choice = rng.choice(turn_choices)
         print(f"Choice: {choice}")
 
+        # Execute the chosen placement strategy
         if choice == "straight":
-            return self._place_straight_domino(rng, obj_dict, x, y, rot, gap,
-                                               domino_count, _in_bounds)
+            return self._place_straight_domino(rng, obj_dict, x, y, rotation,
+                                               gap, domino_count, _in_bounds,
+                                               task_idx)
         elif choice == "turn90":
-            return self._place_turn90_domino(rng, obj_dict, x, y, rot, gap,
+            return self._place_turn90_domino(rng, obj_dict, x, y, rotation, gap,
                                              domino_count, n_dominos,
-                                             _in_bounds)
-        elif choice == "pivot180" and pivot_count < n_pivots:
-            return self._place_pivot180_domino(rng, obj_dict, x, y, rot, gap,
-                                               domino_count, pivot_count,
-                                               _in_bounds)
+                                             _in_bounds, task_idx)
+        elif choice == "pivot180":
+            return self._place_pivot180_domino(rng, obj_dict, x, y, rotation,
+                                               gap, domino_count, pivot_count,
+                                               _in_bounds, task_idx)
         else:
             # Fallback to straight
-            return self._place_straight_domino(rng, obj_dict, x, y, rot, gap,
-                                               domino_count, _in_bounds)
+            return self._place_straight_domino(rng, obj_dict, x, y, rotation,
+                                               gap, domino_count, _in_bounds,
+                                               task_idx)
 
     def _place_straight_domino(self,
                                rng: np.random.Generator,
                                obj_dict: Dict,
                                x: float,
                                y: float,
-                               rot: float,
+                               rotation: float,
                                gap: float,
                                domino_count: int,
                                _in_bounds: Callable[[float, float], bool],
-                               task_idx: Optional[int] = None) -> Tuple:
-        """Place a domino straight ahead."""
-        dy = gap * np.cos(rot)
-        dx = gap * np.sin(rot)
-        nx, ny = x + dx, y + dy
-        if not _in_bounds(nx, ny):
-            return (False, x, y, rot, domino_count, 0, False)
+                               task_idx: Optional[int] = None) -> PlacementResult:
+        """Place a domino straight ahead in the current direction.
 
+        Calculates the next position by moving forward along the current rotation angle
+        by the specified gap distance. Validates the new position is within bounds before
+        placing the domino."""
+        # Calculate next position
+        dx = gap * np.sin(rotation)
+        dy = gap * np.cos(rotation)
+        new_x, new_y = x + dx, y + dy
+
+        if not _in_bounds(new_x, new_y):
+            return PlacementResult(success=False,
+                                   x=x,
+                                   y=y,
+                                   rotation=rotation,
+                                   domino_count=domino_count)
+
+        # Place the domino
         obj_dict[self.dominos[domino_count]] = self._place_domino(
-            domino_count,
-            nx,
-            ny,
-            rot,
-            is_start_block=False,
-            rng=rng,
+            domino_count, new_x, new_y, rotation, is_start_block=False, rng=rng,
             task_idx=task_idx)
-        return (True, nx, ny, rot, domino_count + 1, 0, False)
+
+        return PlacementResult(success=True,
+                               x=new_x,
+                               y=new_y,
+                               rotation=rotation,
+                               domino_count=domino_count + 1)
 
     def _place_turn90_domino(self,
                              rng: np.random.Generator,
                              obj_dict: Dict,
                              x: float,
                              y: float,
-                             rot: float,
+                             rotation: float,
                              gap: float,
                              domino_count: int,
                              n_dominos: int,
                              _in_bounds: Callable[[float, float], bool],
-                             task_idx: Optional[int] = None) -> Tuple:
-        """Place dominoes in a 90-degree turn."""
-        # Check we have enough dominos left
+                             task_idx: Optional[int] = None) -> PlacementResult:
+        """Place two dominoes to create a 90-degree turn in the sequence.
+
+        Executes the turn by placing two dominoes with 45-degree rotations each, resulting
+        in a smooth 90-degree curve. The turn direction (left or right) is randomly selected.
+        Returns early with straight placement if insufficient dominoes remain."""
+        # Check if we have enough dominos left for a full turn (needs 2 dominos)
         if domino_count + 1 >= n_dominos:
-            # Fallback to straight
-            dy = gap * np.cos(rot)
-            dx = gap * np.sin(rot)
-            nx, ny = x + dx, y + dy
-            if not _in_bounds(nx, ny):
-                return (False, x, y, rot, domino_count, 0, False)
+            # Not enough dominos for turn, fallback to straight
+            return self._place_straight_domino(rng, obj_dict, x, y, rotation,
+                                               gap, domino_count, _in_bounds,
+                                               task_idx)
 
-            obj_dict[self.dominos[domino_count]] = self._place_domino(
-                domino_count,
-                nx,
-                ny,
-                rot,
-                is_start_block=False,
-                rng=rng,
-                task_idx=task_idx)
-            return (True, nx, ny, rot, domino_count + 1, 0, True)
-        else:
-            # Turn 45° twice
-            turn_dir = rng.choice([-1, 1])
-            half_turn = np.pi / 4 * turn_dir
+        # Turn 45° twice (total 90° turn)
+        turn_direction = rng.choice([-1, 1])
+        half_turn_angle = np.pi / 4 * turn_direction
 
-            # First 45°
-            side_offset = 0.0  # Original had side_offset = 0
-            rot += half_turn
-            dx = gap * np.sin(rot)
-            dy = gap * np.cos(rot)
-            dx -= turn_dir * side_offset * np.cos(rot)
-            dy += turn_dir * side_offset * np.sin(rot)
-            nx, ny = x + dx, y + dy
-            if not _in_bounds(nx, ny):
-                return (False, x, y, rot, domino_count, 0, False)
+        # First 45° turn
+        rotation += half_turn_angle
+        dx = gap * np.sin(rotation)
+        dy = gap * np.cos(rotation)
+        first_x, first_y = x + dx, y + dy
 
-            obj_dict[self.dominos[domino_count]] = self._place_domino(
-                domino_count,
-                nx,
-                ny,
-                rot + np.pi / 2,
-                is_start_block=False,
-                rng=rng,
-                task_idx=task_idx)
-            domino_count += 1
+        if not _in_bounds(first_x, first_y):
+            return PlacementResult(success=False,
+                                   x=x,
+                                   y=y,
+                                   rotation=rotation,
+                                   domino_count=domino_count)
 
-            # Second 45°
-            side_offset = self.domino_width / 2
-            rot += half_turn
-            dx = gap * np.sin(rot)
-            dy = gap * np.cos(rot)
-            dx -= turn_dir * side_offset * np.cos(rot)
-            dy += turn_dir * side_offset * np.sin(rot)
-            nx, ny = nx + dx, ny + dy
-            if not _in_bounds(nx, ny):
-                return (False, x, y, rot, domino_count, 0, False)
+        obj_dict[self.dominos[domino_count]] = self._place_domino(
+            domino_count, first_x, first_y, rotation + np.pi / 2,
+            is_start_block=False, rng=rng, task_idx=task_idx)
+        domino_count += 1
 
-            obj_dict[self.dominos[domino_count]] = self._place_domino(
-                domino_count,
-                nx,
-                ny,
-                rot,
-                is_start_block=False,
-                rng=rng,
-                task_idx=task_idx)
-            return (True, nx, ny, rot, domino_count + 1, 0, True)
+        # Second 45° turn
+        side_offset = self.domino_width / 2
+        rotation += half_turn_angle
+        dx = gap * np.sin(rotation) - turn_direction * side_offset * np.cos(
+            rotation)
+        dy = gap * np.cos(rotation) + turn_direction * side_offset * np.sin(
+            rotation)
+        second_x, second_y = first_x + dx, first_y + dy
+
+        if not _in_bounds(second_x, second_y):
+            return PlacementResult(success=False,
+                                   x=x,
+                                   y=y,
+                                   rotation=rotation,
+                                   domino_count=domino_count)
+
+        obj_dict[self.dominos[domino_count]] = self._place_domino(
+            domino_count, second_x, second_y, rotation, is_start_block=False,
+            rng=rng, task_idx=task_idx)
+
+        return PlacementResult(success=True,
+                               x=second_x,
+                               y=second_y,
+                               rotation=rotation,
+                               domino_count=domino_count + 1,
+                               just_turned_90=True)
 
     def _place_pivot180_domino(self,
                                rng: np.random.Generator,
                                obj_dict: Dict,
                                x: float,
                                y: float,
-                               rot: float,
+                               rotation: float,
                                gap: float,
                                domino_count: int,
                                pivot_count: int,
                                _in_bounds: Callable[[float, float], bool],
-                               task_idx: Optional[int] = None) -> Tuple:
-        """Place a pivot and domino with 180-degree flip."""
-        pivot_dir = rng.choice([-1, 1])
+                               task_idx: Optional[int] = None) -> PlacementResult:
+        """Place a pivot followed by a domino to create a 180-degree direction reversal.
+
+        Places a pivot object that acts as a turning point, then positions a domino on the
+        opposite side with 180-degree rotation. The side offset direction is randomly chosen.
+        Both the pivot and domino positions are validated before placement."""
+        pivot_direction = rng.choice([-1, 1])
         side_offset = self.pivot_width / 2
 
-        # Place pivot
-        pivot_x = x + gap * (2 / 3) * np.sin(rot)
-        pivot_y = y + gap * (2 / 3) * np.cos(rot)
-        pivot_x -= pivot_dir * side_offset * np.cos(rot)
-        pivot_y -= pivot_dir * side_offset * np.sin(rot)
+        # Calculate pivot position
+        pivot_x = x + gap * (2 / 3) * np.sin(rotation)
+        pivot_y = y + gap * (2 / 3) * np.cos(rotation)
+        pivot_x -= pivot_direction * side_offset * np.cos(rotation)
+        pivot_y -= pivot_direction * side_offset * np.sin(rotation)
 
         if not _in_bounds(pivot_x, pivot_y):
-            return (False, x, y, rot, domino_count, pivot_count, False)
+            return PlacementResult(success=False,
+                                   x=x,
+                                   y=y,
+                                   rotation=rotation,
+                                   domino_count=domino_count,
+                                   pivot_count=pivot_count)
 
+        # Place the pivot
         obj_dict[self.pivots[pivot_count]] = self._place_pivot_or_target(
-            pivot_x, pivot_y, rot)
-        pivot_count += 1
+            pivot_x, pivot_y, rotation)
 
-        # Place domino after 180° flip
-        back_x = pivot_x - (gap * (2 / 3)) * np.sin(rot)
-        back_y = pivot_y - (gap * (2 / 3)) * np.cos(rot)
-        back_x -= pivot_dir * side_offset * np.cos(rot)
-        back_y += pivot_dir * side_offset * -np.sin(rot)
+        # Calculate domino position after 180° flip
+        domino_x = pivot_x - (gap * (2 / 3)) * np.sin(rotation)
+        domino_y = pivot_y - (gap * (2 / 3)) * np.cos(rotation)
+        domino_x -= pivot_direction * side_offset * np.cos(rotation)
+        domino_y += pivot_direction * side_offset * -np.sin(rotation)
 
-        if not _in_bounds(back_x, back_y):
-            return (False, x, y, rot, domino_count, pivot_count, False)
+        if not _in_bounds(domino_x, domino_y):
+            return PlacementResult(success=False,
+                                   x=x,
+                                   y=y,
+                                   rotation=rotation,
+                                   domino_count=domino_count,
+                                   pivot_count=pivot_count)
 
-        new_rot = rot + np.pi  # 180° flip
+        # Place the domino with 180° rotation
+        new_rotation = rotation + np.pi
         obj_dict[self.dominos[domino_count]] = self._place_domino(
-            domino_count,
-            back_x,
-            back_y,
-            new_rot,
-            is_start_block=False,
-            rng=rng,
-            task_idx=task_idx)
+            domino_count, domino_x, domino_y, new_rotation, is_start_block=False,
+            rng=rng, task_idx=task_idx)
 
-        return (True, back_x, back_y, new_rot, domino_count + 1, pivot_count,
-                False)
+        return PlacementResult(success=True,
+                               x=domino_x,
+                               y=domino_y,
+                               rotation=new_rotation,
+                               domino_count=domino_count + 1,
+                               pivot_count=pivot_count + 1)
 
     def _place_next_target(self,
                            rng: np.random.Generator,
                            obj_dict: Dict,
                            x: float,
                            y: float,
-                           rot: float,
+                           rotation: float,
                            gap: float,
                            domino_count: int,
                            target_count: int,
                            _in_bounds: Callable[[float, float], bool],
-                           task_idx: Optional[int] = None) -> Tuple:
-        """Place the next target in the sequence."""
-        dy = gap * np.cos(rot)
-        dx = gap * np.sin(rot)
-        nx, ny = x + dx, y + dy
-        if not _in_bounds(nx, ny):
-            return (False, x, y, rot, domino_count, target_count)
+                           task_idx: Optional[int] = None) -> PlacementResult:
+        """Place the next target object in the domino sequence.
+
+        Calculates the target position along the current direction and places either a
+        pink domino (if using domino blocks as targets) or a regular target object.
+        The placement behavior depends on the CFG.domino_use_domino_blocks_as_target setting."""
+        # Calculate target position
+        dx = gap * np.sin(rotation)
+        dy = gap * np.cos(rotation)
+        target_x, target_y = x + dx, y + dy
+
+        if not _in_bounds(target_x, target_y):
+            return PlacementResult(success=False,
+                                   x=x,
+                                   y=y,
+                                   rotation=rotation,
+                                   domino_count=domino_count,
+                                   target_count=target_count)
 
         if CFG.domino_use_domino_blocks_as_target:
             # Place a pink domino as target
             obj_dict[self.dominos[domino_count]] = self._place_domino(
-                domino_count,
-                nx,
-                ny,
-                rot,
-                is_target_block=True,
-                rng=rng,
-                task_idx=task_idx)
-            domino_count += 1
+                domino_count, target_x, target_y, rotation, is_target_block=True,
+                rng=rng, task_idx=task_idx)
+            return PlacementResult(success=True,
+                                   x=target_x,
+                                   y=target_y,
+                                   rotation=rotation,
+                                   domino_count=domino_count + 1,
+                                   target_count=target_count + 1)
         else:
             # Place a regular target
             obj_dict[self.targets[target_count]] = self._place_pivot_or_target(
-                nx, ny, rot)
-
-        return (True, nx, ny, rot, domino_count, target_count + 1)
+                target_x, target_y, rotation)
+            return PlacementResult(success=True,
+                                   x=target_x,
+                                   y=target_y,
+                                   rotation=rotation,
+                                   domino_count=domino_count,
+                                   target_count=target_count + 1)
 
     def _generate_train_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(
@@ -1089,9 +1145,11 @@ class PyBulletDominoEnv(PyBulletEnv):
             # Generate sequence using helper function
             obj_dict = None
             max_attempts = 1000
-            for i in range(max_attempts):
+            attempts_for_this_task = 0
+            for attempt_num in range(max_attempts):
+                attempts_for_this_task = attempt_num + 1
                 if log_debug:
-                    print(f"\nAttempt {i} for task {i_task}")
+                    print(f"\nAttempt {attempt_num} for task {i_task}")
                 obj_dict = self._generate_domino_sequence(rng,
                                                           n_dominos,
                                                           n_targets,
@@ -1108,7 +1166,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             if log_debug:
                 print(f"Found a task")
 
-            # If we want to initialize at finished state, move intermediate objects
+            # If we want to not initialize at finished state, move inter. objs.
             if not CFG.domino_initialize_at_finished_state:
                 obj_dict = self._move_intermediate_objects_to_unfinished_state(
                     obj_dict)
@@ -1121,7 +1179,6 @@ class PyBulletDominoEnv(PyBulletEnv):
                 # Find target dominoes (pink dominoes) and set them as goals
                 goal_atoms = set()
                 for domino_obj in init_state.get_objects(self._domino_type):
-                    # goal_atoms.add(GroundAtom(self._Toppled, [domino_obj]))
                     if self._TargetDomino_holds(init_state, [domino_obj]):
                         goal_atoms.add(GroundAtom(self._Toppled, [domino_obj]))
             else:
@@ -1129,15 +1186,14 @@ class PyBulletDominoEnv(PyBulletEnv):
                 goal_atoms = {GroundAtom(self._Toppled, [self.targets[0]])}
 
             tasks.append(EnvironmentTask(init_state, goal_atoms))
-            total_attempts += i + 1
+            total_attempts += attempts_for_this_task
         if log_debug:
             print(f"Total attempts: {total_attempts}")
 
         return self._add_pybullet_state_to_tasks(tasks)
 
-    # A small helper to set up dictionary entries:
     def _place_domino(self,
-                      d_idx: int,
+                      domino_idx: int,
                       x: float,
                       y: float,
                       rot: float,
@@ -1145,6 +1201,11 @@ class PyBulletDominoEnv(PyBulletEnv):
                       is_target_block: bool = False,
                       rng: Optional[np.random.Generator] = None,
                       task_idx: Optional[int] = None) -> Dict:
+        """Create a dictionary containing the placement parameters for a domino.
+
+        Returns a dictionary with position, orientation, color, and state information.
+        The color is determined by the block type: light green for start blocks, pink or
+        red for target blocks (depending on glued status), and blue for regular blocks."""
         # Choose color based on block type
         if is_start_block:
             color = self.start_domino_color
@@ -1182,11 +1243,14 @@ class PyBulletDominoEnv(PyBulletEnv):
             "is_held": 0.0,
         }
 
-    # Same for pivot or target (note pivot/target is on z_lb):
     def _place_pivot_or_target(self,
                                x: float,
                                y: float,
                                rot: float = 0.0) -> Dict:
+        """Create a dictionary containing the placement parameters for a pivot or target.
+
+        Returns a dictionary with position and rotation information. The z-coordinate
+        is set to table height since pivots and targets rest directly on the table surface."""
         return {
             "x": x,
             "y": y,
@@ -1310,8 +1374,8 @@ def create_domino_block(
         ccd: bool = True,
         ccd_swept_radius: Optional[
             float] = None,  # defaults to 0.5 * min(half_extents)
-        ccd_motion_threshold: Optional[
-            float] = None,  # defaults to 0.5 * min(half_extents)
+        _ccd_motion_threshold: Optional[
+            float] = None,  # defaults to 0.5 * min(half_extents) - currently unused
 ) -> int:
     """Create a 'domino-tuned' block by calling your original
     create_pybullet_block and then applying additional dynamics
@@ -1355,7 +1419,8 @@ def create_domino_block(
     if ccd:
         m = min(half_extents)
         swept = ccd_swept_radius if ccd_swept_radius is not None else 0.5 * m
-        thresh = ccd_motion_threshold if ccd_motion_threshold is not None else 0.5 * m
+        # Note: ccdMotionThreshold is commented out but kept for reference
+        # thresh = _ccd_motion_threshold if _ccd_motion_threshold is not None else 0.5 * m
         p.changeDynamics(
             block_id,
             linkIndex=-1,
