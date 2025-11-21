@@ -453,6 +453,7 @@ class GlobalSettings:
     fan_test_num_walls_per_task = [2, 3]  # can do 4
 
     # domino_fan env (combined domino + fan environment)
+    domino_domino_on_stairs = False
     domino_fan_use_grid = True
     domino_fan_train_num_dominos = [3, 4]
     domino_fan_test_num_dominos = [5, 6]

@@ -190,6 +190,11 @@ class PyBulletDominoFanEnv(PyBulletEnv):
     wall_color: ClassVar[Tuple[float, float, float,
                                float]] = (0.5, 0.5, 0.5, 1.0)
 
+    # Domino stairs configuration
+    stair_height_increment: ClassVar[float] = 0.005
+    stair_color: ClassVar[Tuple[float, float, float,
+                                float]] = (0.7, 0.6, 0.5, 1.0)
+
     # Boundary walls
     boundary_wall_height: ClassVar[float] = 0.03
     boundary_wall_thickness: ClassVar[float] = 0.002
@@ -336,8 +341,9 @@ class PyBulletDominoFanEnv(PyBulletEnv):
         else:
             self._rotations = []
 
-        # Storage for boundary walls and debug lines
+        # Storage for boundary walls, stairs, and debug lines
         self._boundary_wall_ids: List[int] = []
+        self._stair_ids: List[int] = []
         self._debug_line_ids: List[int] = []
 
         # Call parent init
@@ -739,6 +745,9 @@ class PyBulletDominoFanEnv(PyBulletEnv):
         # Reposition boundary walls
         self._reposition_boundary_walls(state)
 
+        # Reposition domino stairs (if enabled)
+        self._reposition_domino_stairs(state)
+
         # Move unused walls out of view
         oov_x, oov_y = self._out_of_view_xy
         wall_objs = state.get_objects(self._wall_type)
@@ -861,6 +870,46 @@ class PyBulletDominoFanEnv(PyBulletEnv):
         self._boundary_wall_ids = [
             left_wall_id, right_wall_id, front_wall_id, back_wall_id
         ]
+
+    def _reposition_domino_stairs(self, state: State) -> None:
+        """Create stairs under dominoes when CFG.domino_domino_on_stairs is True."""
+        # Remove existing stairs
+        for stair_id in self._stair_ids:
+            if stair_id >= 0:
+                p.removeBody(stair_id, physicsClientId=self._physics_client_id)
+        self._stair_ids = []
+
+        # Only create stairs if the feature is enabled
+        if not CFG.domino_domino_on_stairs:
+            return
+
+        # Get domino objects
+        domino_objs = state.get_objects(self._domino_type)
+        if not domino_objs:
+            return
+
+        # Create stairs under each domino with progressively increasing height
+        for i, domino_obj in enumerate(domino_objs):
+            domino_x = state.get(domino_obj, "x")
+            domino_y = state.get(domino_obj, "y")
+
+            # Calculate stair height based on domino index
+            stair_height = self.obstacle_wall_height + (i * self.stair_height_increment)
+
+            # Create stair block under the domino
+            stair_id = create_pybullet_block(
+                color=self.stair_color,
+                half_extents=(self.wall_x_len / 2,
+                              self.wall_y_len / 2,
+                              stair_height / 2),
+                mass=self.wall_mass,
+                friction=self.wall_friction,
+                position=(domino_x, domino_y,
+                          self.table_height + stair_height / 2),
+                orientation=p.getQuaternionFromEuler([0, 0, 0]),
+                physics_client_id=self._physics_client_id)
+
+            self._stair_ids.append(stair_id)
 
     def _position_fans_on_sides(self) -> None:
         """Position all PyBullet fan bodies on their respective sides."""
@@ -1541,10 +1590,17 @@ class PyBulletDominoFanEnv(PyBulletEnv):
         used_coords.add((curr_x, curr_y))
 
         # Place the first domino (start block).
+        # Calculate z position with stair height if stairs are enabled
+        if CFG.domino_domino_on_stairs:
+            stair_height = self.obstacle_wall_height + (domino_count * self.stair_height_increment)
+            domino_z = self.table_height + stair_height + self.domino_height / 2
+        else:
+            domino_z = self.z_lb + self.domino_height / 2
+
         obj_dict[self._dominoes[domino_count]] = {
             "x": curr_x,
             "y": curr_y,
-            "z": self.z_lb + self.domino_height / 2,
+            "z": domino_z,
             "yaw": curr_rot,
             "roll": 0.0,
             "r": self.start_domino_color[0],
@@ -1710,10 +1766,17 @@ class PyBulletDominoFanEnv(PyBulletEnv):
                     color = self.domino_color
 
                 # Place the domino block.
+                # Calculate z position with stair height if stairs are enabled
+                if CFG.domino_domino_on_stairs:
+                    stair_height = self.obstacle_wall_height + (domino_count * self.stair_height_increment)
+                    domino_z = self.table_height + stair_height + self.domino_height / 2
+                else:
+                    domino_z = self.z_lb + self.domino_height / 2
+
                 obj_dict[self._dominoes[domino_count]] = {
                     "x": x,
                     "y": y,
-                    "z": self.z_lb + self.domino_height / 2,
+                    "z": domino_z,
                     "yaw": rot,
                     "roll": 0.0,
                     "r": color[0],
@@ -2157,6 +2220,7 @@ if __name__ == "__main__":
     CFG.num_test_tasks = 2
     CFG.domino_fan_train_grid_size = (8, 8)
     CFG.domino_initialize_at_finished_state = True
+    CFG.domino_domino_on_stairs = True
     env = PyBulletDominoFanEnv(use_gui=True)
     # # Set up test configurations for the example
     # CFG.domino_test_num_dominos = [3]
