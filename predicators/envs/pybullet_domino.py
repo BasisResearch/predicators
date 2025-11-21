@@ -51,6 +51,10 @@ class PyBulletDominoEnv(PyBulletEnv):
     domino_width: ClassVar[float] = 0.07
     domino_depth: ClassVar[float] = 0.015
     domino_height: ClassVar[float] = 0.15
+    domino_x_lb: ClassVar[float] = x_lb
+    domino_x_ub: ClassVar[float] = x_ub
+    domino_y_lb: ClassVar[float] = y_lb + domino_width
+    domino_y_ub: ClassVar[float] = y_ub - 3 * domino_width
     turn_shift_frac: ClassVar[float] = 0.6
     # domino_mass: ClassVar[float] = 0.3
     domino_mass: ClassVar[float] = 0.1
@@ -64,8 +68,6 @@ class PyBulletDominoEnv(PyBulletEnv):
     glued_domino_color: ClassVar[Tuple[float, float, float,
                                        float]] = (1.0, 0.0, 0.0, 1.0)
     glued_percentage: ClassVar[float] = 0.5
-    start_domino_x: ClassVar[float] = x_lb + domino_width
-    start_domino_y: ClassVar[float] = y_lb + domino_width
     domino_roll_threshold: ClassVar[float] = np.deg2rad(5)
     fallen_threshold: ClassVar[float] = np.pi * 2 / 5  # 60 degrees in radians
 
@@ -284,6 +286,33 @@ class PyBulletDominoEnv(PyBulletEnv):
             cls.table_pos[0] - (cls.x_ub - cls.x_lb) / 2, cls.table_pos[1] +
             (cls.y_ub - cls.y_lb) / 2, cls.table_height + 0.001
         ], [1, 0, 0],
+                           parentObjectUniqueId=-1,
+                           parentLinkIndex=-1)
+
+        # Draw boundary rectangle for domino placement area
+        debug_height = cls.table_height + 0.002
+        # Bottom edge (y_lb)
+        p.addUserDebugLine([cls.domino_x_lb, cls.domino_y_lb, debug_height],
+                           [cls.domino_x_ub, cls.domino_y_lb, debug_height],
+                           [0, 1, 0], 2,
+                           parentObjectUniqueId=-1,
+                           parentLinkIndex=-1)
+        # Top edge (y_ub)
+        p.addUserDebugLine([cls.domino_x_lb, cls.domino_y_ub, debug_height],
+                           [cls.domino_x_ub, cls.domino_y_ub, debug_height],
+                           [0, 1, 0], 2,
+                           parentObjectUniqueId=-1,
+                           parentLinkIndex=-1)
+        # Left edge (x_lb)
+        p.addUserDebugLine([cls.domino_x_lb, cls.domino_y_lb, debug_height],
+                           [cls.domino_x_lb, cls.domino_y_ub, debug_height],
+                           [0, 1, 0], 2,
+                           parentObjectUniqueId=-1,
+                           parentLinkIndex=-1)
+        # Right edge (x_ub)
+        p.addUserDebugLine([cls.domino_x_ub, cls.domino_y_lb, debug_height],
+                           [cls.domino_x_ub, cls.domino_y_ub, debug_height],
+                           [0, 1, 0], 2,
                            parentObjectUniqueId=-1,
                            parentLinkIndex=-1)
 
@@ -1013,8 +1042,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             possible_num_dominos=CFG.domino_train_num_dominos,
             possible_num_targets=CFG.domino_train_num_targets,
             possible_num_pivots=CFG.domino_train_num_pivots,
-            rng=self._train_rng,
-            is_training=True)
+            rng=self._train_rng)
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(
@@ -1022,8 +1050,7 @@ class PyBulletDominoEnv(PyBulletEnv):
             possible_num_dominos=CFG.domino_test_num_dominos,
             possible_num_targets=CFG.domino_test_num_targets,
             possible_num_pivots=CFG.domino_test_num_pivots,
-            rng=self._test_rng,
-            is_training=False)
+            rng=self._test_rng)
 
     def _make_tasks(self,
                     num_tasks: int,
@@ -1031,8 +1058,7 @@ class PyBulletDominoEnv(PyBulletEnv):
                     possible_num_targets: List[int],
                     possible_num_pivots: List[int],
                     rng: np.random.Generator,
-                    log_debug: bool = True,
-                    is_training: bool = False) -> List[EnvironmentTask]:
+                    log_debug: bool = True) -> List[EnvironmentTask]:
         tasks = []
         total_attempts = 0
         # Suppose we want to create M = 3 dominoes, N = 2 targets for each task
@@ -1346,8 +1372,9 @@ if __name__ == "__main__":
 
     CFG.seed = 0
     CFG.env = "pybullet_domino"
-    CFG.domino_initialize_at_finished_state = False
+    CFG.domino_initialize_at_finished_state = True
     CFG.domino_use_domino_blocks_as_target = True
+    CFG.domino_has_glued_dominos = False
     CFG.num_train_tasks = 10
     CFG.num_test_tasks = 2
     env = PyBulletDominoEnv(use_gui=True)
