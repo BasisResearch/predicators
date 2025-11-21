@@ -9,8 +9,8 @@ python predicators/main.py --approach oracle --env pybullet_domino \
 """
 import logging
 import time
-from pprint import pformat
 from dataclasses import dataclass
+from pprint import pformat
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, \
     Set, Tuple
 
@@ -309,25 +309,29 @@ class PyBulletDominoEnv(PyBulletEnv):
         # Bottom edge (y_lb)
         p.addUserDebugLine([cls.domino_x_lb, cls.domino_y_lb, debug_height],
                            [cls.domino_x_ub, cls.domino_y_lb, debug_height],
-                           [0, 1, 0], 2,
+                           [0, 1, 0],
+                           2,
                            parentObjectUniqueId=-1,
                            parentLinkIndex=-1)
         # Top edge (y_ub)
         p.addUserDebugLine([cls.domino_x_lb, cls.domino_y_ub, debug_height],
                            [cls.domino_x_ub, cls.domino_y_ub, debug_height],
-                           [0, 1, 0], 2,
+                           [0, 1, 0],
+                           2,
                            parentObjectUniqueId=-1,
                            parentLinkIndex=-1)
         # Left edge (x_lb)
         p.addUserDebugLine([cls.domino_x_lb, cls.domino_y_lb, debug_height],
                            [cls.domino_x_lb, cls.domino_y_ub, debug_height],
-                           [0, 1, 0], 2,
+                           [0, 1, 0],
+                           2,
                            parentObjectUniqueId=-1,
                            parentLinkIndex=-1)
         # Right edge (x_ub)
         p.addUserDebugLine([cls.domino_x_ub, cls.domino_y_lb, debug_height],
                            [cls.domino_x_ub, cls.domino_y_ub, debug_height],
-                           [0, 1, 0], 2,
+                           [0, 1, 0],
+                           2,
                            parentObjectUniqueId=-1,
                            parentLinkIndex=-1)
 
@@ -696,7 +700,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     # Task Generation
 
     def _get_expected_domino_count(self, n_dominos: int,
-                                    n_targets: int) -> int:
+                                   n_targets: int) -> int:
         """Calculate the expected total number of dominoes."""
         if CFG.domino_use_domino_blocks_as_target:
             return n_dominos + n_targets
@@ -758,13 +762,18 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         # Place first domino (start block)
         obj_dict[self.dominos[domino_count]] = self._place_domino(
-            domino_count, x, y, rotation, is_start_block=True, rng=rng,
+            domino_count,
+            x,
+            y,
+            rotation,
+            is_start_block=True,
+            rng=rng,
             task_idx=task_idx)
         domino_count += 1
 
         # Main placement loop
         while self._should_continue_placement(domino_count, target_count,
-                                               n_dominos, n_targets):
+                                              n_dominos, n_targets):
             # Determine what we can place
             can_place_target = (domino_count >= 2 and target_count < n_targets
                                 and not just_placed_target)
@@ -778,13 +787,10 @@ class PyBulletDominoEnv(PyBulletEnv):
 
             if should_place_domino:
                 # Place domino (or pivot)
-                result = self._place_next_domino(rng, obj_dict, x, y, rotation,
-                                                 gap, domino_count, pivot_count,
-                                                 target_count,
-                                                 n_pivots, n_dominos, n_targets,
-                                                 just_placed_target,
-                                                 just_turned_90, _in_bounds,
-                                                 task_idx)
+                result = self._place_next_domino(
+                    rng, obj_dict, x, y, rotation, gap, domino_count,
+                    pivot_count, target_count, n_pivots, n_dominos, n_targets,
+                    just_placed_target, just_turned_90, _in_bounds, task_idx)
                 if not result.success:
                     return None
 
@@ -800,8 +806,9 @@ class PyBulletDominoEnv(PyBulletEnv):
                 if log_debug:
                     print("Placing target")
                 result = self._place_next_target(rng, obj_dict, x, y, rotation,
-                                                 gap, domino_count, target_count,
-                                                 _in_bounds, task_idx)
+                                                 gap, domino_count,
+                                                 target_count, _in_bounds,
+                                                 task_idx)
                 if not result.success:
                     return None
 
@@ -835,11 +842,14 @@ class PyBulletDominoEnv(PyBulletEnv):
                            just_turned_90: bool,
                            _in_bounds: Callable[[float, float], bool],
                            task_idx: Optional[int] = None) -> PlacementResult:
-        """Place the next domino in the sequence by selecting and executing a placement strategy.
+        """Place the next domino in the sequence by selecting and executing a
+        placement strategy.
 
-        Determines available placement strategies based on constraints (e.g., avoiding
-        consecutive 90-degree turns, forcing straight placement after targets), then randomly
-        chooses and executes one of the valid strategies: straight, turn90, or pivot180."""
+        Determines available placement strategies based on constraints
+        (e.g., avoiding consecutive 90-degree turns, forcing straight
+        placement after targets), then randomly chooses and executes one
+        of the valid strategies: straight, turn90, or pivot180.
+        """
         # Determine available placement strategies
         turn_choices = self.turn_choices.copy()
         if pivot_count >= n_pivots and "pivot180" in turn_choices:
@@ -854,7 +864,9 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         # Determine if the second block in a turn should be a target
         should_place_target_at_end = False
-        if CFG.domino_use_domino_blocks_as_target and choice in ["turn90", "pivot180"]:
+        if CFG.domino_use_domino_blocks_as_target and choice in [
+                "turn90", "pivot180"
+        ]:
             # Check if we have targets left to place and randomly decide
             if target_count < n_targets and rng.random() > 0.5:
                 should_place_target_at_end = True
@@ -865,9 +877,9 @@ class PyBulletDominoEnv(PyBulletEnv):
                                                gap, domino_count, _in_bounds,
                                                task_idx)
         elif choice == "turn90":
-            return self._place_turn90_domino(rng, obj_dict, x, y, rotation, gap,
-                                             domino_count, n_dominos, n_targets,
-                                             _in_bounds, task_idx,
+            return self._place_turn90_domino(rng, obj_dict, x, y, rotation,
+                                             gap, domino_count, n_dominos,
+                                             n_targets, _in_bounds, task_idx,
                                              should_place_target_at_end)
         elif choice == "pivot180":
             return self._place_pivot180_domino(rng, obj_dict, x, y, rotation,
@@ -880,21 +892,23 @@ class PyBulletDominoEnv(PyBulletEnv):
                                                gap, domino_count, _in_bounds,
                                                task_idx)
 
-    def _place_straight_domino(self,
-                               rng: np.random.Generator,
-                               obj_dict: Dict,
-                               x: float,
-                               y: float,
-                               rotation: float,
-                               gap: float,
-                               domino_count: int,
-                               _in_bounds: Callable[[float, float], bool],
-                               task_idx: Optional[int] = None) -> PlacementResult:
+    def _place_straight_domino(
+            self,
+            rng: np.random.Generator,
+            obj_dict: Dict,
+            x: float,
+            y: float,
+            rotation: float,
+            gap: float,
+            domino_count: int,
+            _in_bounds: Callable[[float, float], bool],
+            task_idx: Optional[int] = None) -> PlacementResult:
         """Place a domino straight ahead in the current direction.
 
-        Calculates the next position by moving forward along the current rotation angle
-        by the specified gap distance. Validates the new position is within bounds before
-        placing the domino."""
+        Calculates the next position by moving forward along the current
+        rotation angle by the specified gap distance. Validates the new
+        position is within bounds before placing the domino.
+        """
         # Calculate next position
         dx = gap * np.sin(rotation)
         dy = gap * np.cos(rotation)
@@ -909,7 +923,12 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         # Place the domino
         obj_dict[self.dominos[domino_count]] = self._place_domino(
-            domino_count, new_x, new_y, rotation, is_start_block=False, rng=rng,
+            domino_count,
+            new_x,
+            new_y,
+            rotation,
+            is_start_block=False,
+            rng=rng,
             task_idx=task_idx)
 
         return PlacementResult(success=True,
@@ -918,19 +937,20 @@ class PyBulletDominoEnv(PyBulletEnv):
                                rotation=rotation,
                                domino_count=domino_count + 1)
 
-    def _place_turn90_domino(self,
-                             rng: np.random.Generator,
-                             obj_dict: Dict,
-                             x: float,
-                             y: float,
-                             rotation: float,
-                             gap: float,
-                             domino_count: int,
-                             n_dominos: int,
-                             n_targets: int,
-                             _in_bounds: Callable[[float, float], bool],
-                             task_idx: Optional[int] = None,
-                             should_place_target_at_end: bool = False) -> PlacementResult:
+    def _place_turn90_domino(
+            self,
+            rng: np.random.Generator,
+            obj_dict: Dict,
+            x: float,
+            y: float,
+            rotation: float,
+            gap: float,
+            domino_count: int,
+            n_dominos: int,
+            n_targets: int,
+            _in_bounds: Callable[[float, float], bool],
+            task_idx: Optional[int] = None,
+            should_place_target_at_end: bool = False) -> PlacementResult:
         """Place two dominoes to create a 90-degree turn in the sequence.
 
         Executes the turn by placing two dominoes with 45-degree rotations each, resulting
@@ -938,9 +958,11 @@ class PyBulletDominoEnv(PyBulletEnv):
         Returns early with straight placement if insufficient dominoes remain.
 
         Args:
-            should_place_target_at_end: If True, the second block will be placed as a target domino."""
+            should_place_target_at_end: If True, the second block will be placed as a target domino.
+        """
         # Check if we have enough dominos left for a full turn (needs 2 dominos)
-        expected_domino_count = self._get_expected_domino_count(n_dominos, n_targets)
+        expected_domino_count = self._get_expected_domino_count(
+            n_dominos, n_targets)
         if domino_count + 1 >= expected_domino_count:
             # Not enough dominos for turn, fallback to straight
             return self._place_straight_domino(rng, obj_dict, x, y, rotation,
@@ -965,8 +987,13 @@ class PyBulletDominoEnv(PyBulletEnv):
                                    domino_count=domino_count)
 
         obj_dict[self.dominos[domino_count]] = self._place_domino(
-            domino_count, first_x, first_y, rotation + np.pi / 2,
-            is_start_block=False, rng=rng, task_idx=task_idx)
+            domino_count,
+            first_x,
+            first_y,
+            rotation + np.pi / 2,
+            is_start_block=False,
+            rng=rng,
+            task_idx=task_idx)
         domino_count += 1
 
         # Second 45° turn
@@ -987,9 +1014,14 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         # Place second block - can be a target if requested
         obj_dict[self.dominos[domino_count]] = self._place_domino(
-            domino_count, second_x, second_y, rotation, is_start_block=False,
+            domino_count,
+            second_x,
+            second_y,
+            rotation,
+            is_start_block=False,
             is_target_block=should_place_target_at_end,
-            rng=rng, task_idx=task_idx)
+            rng=rng,
+            task_idx=task_idx)
 
         target_count_increment = 1 if should_place_target_at_end else 0
         return PlacementResult(success=True,
@@ -1001,26 +1033,29 @@ class PyBulletDominoEnv(PyBulletEnv):
                                just_turned_90=True,
                                just_placed_target=should_place_target_at_end)
 
-    def _place_pivot180_domino(self,
-                               rng: np.random.Generator,
-                               obj_dict: Dict,
-                               x: float,
-                               y: float,
-                               rotation: float,
-                               gap: float,
-                               domino_count: int,
-                               pivot_count: int,
-                               _in_bounds: Callable[[float, float], bool],
-                               task_idx: Optional[int] = None,
-                               should_place_target_at_end: bool = False) -> PlacementResult:
-        """Place a pivot followed by a domino to create a 180-degree direction reversal.
+    def _place_pivot180_domino(
+            self,
+            rng: np.random.Generator,
+            obj_dict: Dict,
+            x: float,
+            y: float,
+            rotation: float,
+            gap: float,
+            domino_count: int,
+            pivot_count: int,
+            _in_bounds: Callable[[float, float], bool],
+            task_idx: Optional[int] = None,
+            should_place_target_at_end: bool = False) -> PlacementResult:
+        """Place a pivot followed by a domino to create a 180-degree direction
+        reversal.
 
         Places a pivot object that acts as a turning point, then positions a domino on the
         opposite side with 180-degree rotation. The side offset direction is randomly chosen.
         Both the pivot and domino positions are validated before placement.
 
         Args:
-            should_place_target_at_end: If True, the domino after the pivot will be placed as a target domino."""
+            should_place_target_at_end: If True, the domino after the pivot will be placed as a target domino.
+        """
         pivot_direction = rng.choice([-1, 1])
         side_offset = self.pivot_width / 2
 
@@ -1059,9 +1094,14 @@ class PyBulletDominoEnv(PyBulletEnv):
         # Place the domino with 180° rotation - can be a target if requested
         new_rotation = rotation + np.pi
         obj_dict[self.dominos[domino_count]] = self._place_domino(
-            domino_count, domino_x, domino_y, new_rotation, is_start_block=False,
+            domino_count,
+            domino_x,
+            domino_y,
+            new_rotation,
+            is_start_block=False,
             is_target_block=should_place_target_at_end,
-            rng=rng, task_idx=task_idx)
+            rng=rng,
+            task_idx=task_idx)
 
         target_count_increment = 1 if should_place_target_at_end else 0
         return PlacementResult(success=True,
@@ -1086,9 +1126,11 @@ class PyBulletDominoEnv(PyBulletEnv):
                            task_idx: Optional[int] = None) -> PlacementResult:
         """Place the next target object in the domino sequence.
 
-        Calculates the target position along the current direction and places either a
-        pink domino (if using domino blocks as targets) or a regular target object.
-        The placement behavior depends on the CFG.domino_use_domino_blocks_as_target setting."""
+        Calculates the target position along the current direction and
+        places either a pink domino (if using domino blocks as targets)
+        or a regular target object. The placement behavior depends on
+        the CFG.domino_use_domino_blocks_as_target setting.
+        """
         # Calculate target position
         dx = gap * np.sin(rotation)
         dy = gap * np.cos(rotation)
@@ -1105,8 +1147,13 @@ class PyBulletDominoEnv(PyBulletEnv):
         if CFG.domino_use_domino_blocks_as_target:
             # Place a pink domino as target
             obj_dict[self.dominos[domino_count]] = self._place_domino(
-                domino_count, target_x, target_y, rotation, is_target_block=True,
-                rng=rng, task_idx=task_idx)
+                domino_count,
+                target_x,
+                target_y,
+                rotation,
+                is_target_block=True,
+                rng=rng,
+                task_idx=task_idx)
             return PlacementResult(success=True,
                                    x=target_x,
                                    y=target_y,
@@ -1234,11 +1281,14 @@ class PyBulletDominoEnv(PyBulletEnv):
                       is_target_block: bool = False,
                       rng: Optional[np.random.Generator] = None,
                       task_idx: Optional[int] = None) -> Dict:
-        """Create a dictionary containing the placement parameters for a domino.
+        """Create a dictionary containing the placement parameters for a
+        domino.
 
-        Returns a dictionary with position, orientation, color, and state information.
-        The color is determined by the block type: light green for start blocks, pink or
-        red for target blocks (depending on glued status), and blue for regular blocks."""
+        Returns a dictionary with position, orientation, color, and
+        state information. The color is determined by the block type:
+        light green for start blocks, pink or red for target blocks
+        (depending on glued status), and blue for regular blocks.
+        """
         # Choose color based on block type
         if is_start_block:
             color = self.start_domino_color
@@ -1280,10 +1330,13 @@ class PyBulletDominoEnv(PyBulletEnv):
                                x: float,
                                y: float,
                                rot: float = 0.0) -> Dict:
-        """Create a dictionary containing the placement parameters for a pivot or target.
+        """Create a dictionary containing the placement parameters for a pivot
+        or target.
 
-        Returns a dictionary with position and rotation information. The z-coordinate
-        is set to table height since pivots and targets rest directly on the table surface."""
+        Returns a dictionary with position and rotation information. The
+        z-coordinate is set to table height since pivots and targets
+        rest directly on the table surface.
+        """
         return {
             "x": x,
             "y": y,
@@ -1407,8 +1460,9 @@ def create_domino_block(
         ccd: bool = True,
         ccd_swept_radius: Optional[
             float] = None,  # defaults to 0.5 * min(half_extents)
-        _ccd_motion_threshold: Optional[
-            float] = None,  # defaults to 0.5 * min(half_extents) - currently unused
+        _ccd_motion_threshold:
+    Optional[
+        float] = None,  # defaults to 0.5 * min(half_extents) - currently unused
 ) -> int:
     """Create a 'domino-tuned' block by calling your original
     create_pybullet_block and then applying additional dynamics
