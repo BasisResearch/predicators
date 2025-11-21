@@ -38,6 +38,7 @@ class PlacementResult:
     pivot_count: int = 0
     target_count: int = 0
     just_turned_90: bool = False
+    just_placed_target: bool = False
 
 
 class PyBulletDominoEnv(PyBulletEnv):
@@ -779,7 +780,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                 # Place domino (or pivot)
                 result = self._place_next_domino(rng, obj_dict, x, y, rotation,
                                                  gap, domino_count, pivot_count,
-                                                 n_pivots, n_dominos,
+                                                 target_count,
+                                                 n_pivots, n_dominos, n_targets,
                                                  just_placed_target,
                                                  just_turned_90, _in_bounds,
                                                  task_idx)
@@ -789,8 +791,9 @@ class PyBulletDominoEnv(PyBulletEnv):
                 x, y, rotation = result.x, result.y, result.rotation
                 domino_count = result.domino_count
                 pivot_count = result.pivot_count
+                target_count += result.target_count
                 just_turned_90 = result.just_turned_90
-                just_placed_target = False
+                just_placed_target = result.just_placed_target
 
             else:
                 # Place target
@@ -824,8 +827,10 @@ class PyBulletDominoEnv(PyBulletEnv):
                            gap: float,
                            domino_count: int,
                            pivot_count: int,
+                           target_count: int,
                            n_pivots: int,
                            n_dominos: int,
+                           n_targets: int,
                            just_placed_target: bool,
                            just_turned_90: bool,
                            _in_bounds: Callable[[float, float], bool],
@@ -847,6 +852,13 @@ class PyBulletDominoEnv(PyBulletEnv):
         choice = rng.choice(turn_choices)
         print(f"Choice: {choice}")
 
+        # Determine if the second block in a turn should be a target
+        should_place_target_at_end = False
+        if CFG.domino_use_domino_blocks_as_target and choice in ["turn90", "pivot180"]:
+            # Check if we have targets left to place and randomly decide
+            if target_count < n_targets and rng.random() > 0.5:
+                should_place_target_at_end = True
+
         # Execute the chosen placement strategy
         if choice == "straight":
             return self._place_straight_domino(rng, obj_dict, x, y, rotation,
@@ -854,12 +866,14 @@ class PyBulletDominoEnv(PyBulletEnv):
                                                task_idx)
         elif choice == "turn90":
             return self._place_turn90_domino(rng, obj_dict, x, y, rotation, gap,
-                                             domino_count, n_dominos,
-                                             _in_bounds, task_idx)
+                                             domino_count, n_dominos, n_targets,
+                                             _in_bounds, task_idx,
+                                             should_place_target_at_end)
         elif choice == "pivot180":
             return self._place_pivot180_domino(rng, obj_dict, x, y, rotation,
                                                gap, domino_count, pivot_count,
-                                               _in_bounds, task_idx)
+                                               _in_bounds, task_idx,
+                                               should_place_target_at_end)
         else:
             # Fallback to straight
             return self._place_straight_domino(rng, obj_dict, x, y, rotation,
@@ -913,15 +927,21 @@ class PyBulletDominoEnv(PyBulletEnv):
                              gap: float,
                              domino_count: int,
                              n_dominos: int,
+                             n_targets: int,
                              _in_bounds: Callable[[float, float], bool],
-                             task_idx: Optional[int] = None) -> PlacementResult:
+                             task_idx: Optional[int] = None,
+                             should_place_target_at_end: bool = False) -> PlacementResult:
         """Place two dominoes to create a 90-degree turn in the sequence.
 
         Executes the turn by placing two dominoes with 45-degree rotations each, resulting
         in a smooth 90-degree curve. The turn direction (left or right) is randomly selected.
-        Returns early with straight placement if insufficient dominoes remain."""
+        Returns early with straight placement if insufficient dominoes remain.
+
+        Args:
+            should_place_target_at_end: If True, the second block will be placed as a target domino."""
         # Check if we have enough dominos left for a full turn (needs 2 dominos)
-        if domino_count + 1 >= n_dominos:
+        expected_domino_count = self._get_expected_domino_count(n_dominos, n_targets)
+        if domino_count + 1 >= expected_domino_count:
             # Not enough dominos for turn, fallback to straight
             return self._place_straight_domino(rng, obj_dict, x, y, rotation,
                                                gap, domino_count, _in_bounds,
@@ -965,16 +985,21 @@ class PyBulletDominoEnv(PyBulletEnv):
                                    rotation=rotation,
                                    domino_count=domino_count)
 
+        # Place second block - can be a target if requested
         obj_dict[self.dominos[domino_count]] = self._place_domino(
             domino_count, second_x, second_y, rotation, is_start_block=False,
+            is_target_block=should_place_target_at_end,
             rng=rng, task_idx=task_idx)
 
+        target_count_increment = 1 if should_place_target_at_end else 0
         return PlacementResult(success=True,
                                x=second_x,
                                y=second_y,
                                rotation=rotation,
                                domino_count=domino_count + 1,
-                               just_turned_90=True)
+                               target_count=target_count_increment,
+                               just_turned_90=True,
+                               just_placed_target=should_place_target_at_end)
 
     def _place_pivot180_domino(self,
                                rng: np.random.Generator,
@@ -986,12 +1011,16 @@ class PyBulletDominoEnv(PyBulletEnv):
                                domino_count: int,
                                pivot_count: int,
                                _in_bounds: Callable[[float, float], bool],
-                               task_idx: Optional[int] = None) -> PlacementResult:
+                               task_idx: Optional[int] = None,
+                               should_place_target_at_end: bool = False) -> PlacementResult:
         """Place a pivot followed by a domino to create a 180-degree direction reversal.
 
         Places a pivot object that acts as a turning point, then positions a domino on the
         opposite side with 180-degree rotation. The side offset direction is randomly chosen.
-        Both the pivot and domino positions are validated before placement."""
+        Both the pivot and domino positions are validated before placement.
+
+        Args:
+            should_place_target_at_end: If True, the domino after the pivot will be placed as a target domino."""
         pivot_direction = rng.choice([-1, 1])
         side_offset = self.pivot_width / 2
 
@@ -1027,18 +1056,22 @@ class PyBulletDominoEnv(PyBulletEnv):
                                    domino_count=domino_count,
                                    pivot_count=pivot_count)
 
-        # Place the domino with 180° rotation
+        # Place the domino with 180° rotation - can be a target if requested
         new_rotation = rotation + np.pi
         obj_dict[self.dominos[domino_count]] = self._place_domino(
             domino_count, domino_x, domino_y, new_rotation, is_start_block=False,
+            is_target_block=should_place_target_at_end,
             rng=rng, task_idx=task_idx)
 
+        target_count_increment = 1 if should_place_target_at_end else 0
         return PlacementResult(success=True,
                                x=domino_x,
                                y=domino_y,
                                rotation=new_rotation,
                                domino_count=domino_count + 1,
-                               pivot_count=pivot_count + 1)
+                               pivot_count=pivot_count + 1,
+                               target_count=target_count_increment,
+                               just_placed_target=should_place_target_at_end)
 
     def _place_next_target(self,
                            rng: np.random.Generator,
@@ -1434,12 +1467,12 @@ def create_domino_block(
 
 if __name__ == "__main__":
 
-    CFG.seed = 0
+    CFG.seed = 2
     CFG.env = "pybullet_domino"
     CFG.domino_initialize_at_finished_state = True
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_has_glued_dominos = False
-    CFG.num_train_tasks = 10
+    CFG.num_train_tasks = 1
     CFG.num_test_tasks = 2
     env = PyBulletDominoEnv(use_gui=True)
 
