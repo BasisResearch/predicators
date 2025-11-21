@@ -1,6 +1,7 @@
 """Grid-based variant of the PyBullet domino environment.
 
-This module extends PyBulletDominoEnv with grid-based positioning and discrete rotations.
+This module extends PyBulletDominoEnv with grid-based positioning and
+discrete rotations.
 """
 import time
 from pprint import pformat
@@ -10,14 +11,16 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.envs.pybullet_domino import PyBulletDominoEnv, create_domino_block
+from predicators.envs.pybullet_domino import PyBulletDominoEnv, \
+    create_domino_block
 from predicators.settings import CFG
-from predicators.structs import Action, DerivedPredicate, EnvironmentTask, GroundAtom, \
-    Object, Predicate, State, Type
+from predicators.structs import Action, DerivedPredicate, EnvironmentTask, \
+    GroundAtom, Object, Predicate, State, Type
 
 
 class PyBulletDominoGridEnv(PyBulletDominoEnv):
-    """Grid-based variant of PyBulletDominoEnv with discrete positions and rotations."""
+    """Grid-based variant of PyBulletDominoEnv with discrete positions and
+    rotations."""
 
     def __init__(self, use_gui: bool = True) -> None:
         # Grid-specific types will be created before calling super().__init__()
@@ -40,15 +43,15 @@ class PyBulletDominoGridEnv(PyBulletDominoEnv):
         self.grid_pos: List[Tuple[float, float]] = []
 
         # Define grid-specific predicates
-        self._DominoAtPos = Predicate(
-            "DominoAtPos", [self._domino_type, self._position_type],
-            self._DominoAtPos_holds)
-        self._DominoAtRot = Predicate(
-            "DominoAtRot", [self._domino_type, self._angle_type],
-            self._DominoAtRot_holds)
-        self._Connected = Predicate(
-            "Connected", [self._position_type, self._position_type],
-            self._Connected_holds)
+        self._DominoAtPos = Predicate("DominoAtPos",
+                                      [self._domino_type, self._position_type],
+                                      self._DominoAtPos_holds)
+        self._DominoAtRot = Predicate("DominoAtRot",
+                                      [self._domino_type, self._angle_type],
+                                      self._DominoAtRot_holds)
+        self._Connected = Predicate("Connected",
+                                    [self._position_type, self._position_type],
+                                    self._Connected_holds)
         self._PosClear = Predicate("PosClear", [self._position_type],
                                    self._PosClear_holds)
         self._InFrontDirection = DerivedPredicate(
@@ -138,8 +141,7 @@ class PyBulletDominoGridEnv(PyBulletDominoEnv):
             y = state.get(pos_obj, "yy")
             line_id = p.addUserDebugLine(
                 [x, y, self.table_height],
-                [x, y, self.table_height + self.debug_line_height],
-                [1, 0, 0],
+                [x, y, self.table_height + self.debug_line_height], [1, 0, 0],
                 parentObjectUniqueId=-1,
                 parentLinkIndex=-1)
             self._debug_line_ids.append(line_id)
@@ -728,7 +730,8 @@ class PyBulletDominoGridEnv(PyBulletDominoEnv):
                     rng: np.random.Generator,
                     log_debug: bool = True,
                     is_training: bool = False) -> List[EnvironmentTask]:
-        """Override to use grid-based sequence generation and add position objects."""
+        """Override to use grid-based sequence generation and add position
+        objects."""
         tasks = []
         total_attempts = 0
 
@@ -905,10 +908,7 @@ class PyBulletDominoGridEnv(PyBulletDominoEnv):
         occupied_positions = set()
         position_tolerance = self.pos_gap * 0.5
 
-        intermediate_obj_set = {
-            obj
-            for obj, obj_type in intermediate_objects
-        }
+        intermediate_obj_set = {obj for obj, obj_type in intermediate_objects}
 
         for obj, obj_data in obj_dict.items():
             if obj not in intermediate_obj_set:

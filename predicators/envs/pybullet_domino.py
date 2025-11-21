@@ -22,8 +22,8 @@ from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.objects import create_object, update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
-from predicators.structs import Action, EnvironmentTask, \
-    GroundAtom, Object, Predicate, State, Type
+from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
+    Predicate, State, Type
 
 
 class PyBulletDominoEnv(PyBulletEnv):
@@ -1067,13 +1067,12 @@ class PyBulletDominoEnv(PyBulletEnv):
             for i in range(max_attempts):
                 if log_debug:
                     print(f"\nAttempt {i} for task {i_task}")
-                obj_dict = self._generate_domino_sequence(
-                    rng,
-                    n_dominos,
-                    n_targets,
-                    n_pivots,
-                    log_debug=log_debug,
-                    task_idx=i_task)
+                obj_dict = self._generate_domino_sequence(rng,
+                                                          n_dominos,
+                                                          n_targets,
+                                                          n_pivots,
+                                                          log_debug=log_debug,
+                                                          task_idx=i_task)
                 if obj_dict is not None:
                     if log_debug:
                         print("Found satisfying a task")
@@ -1170,9 +1169,8 @@ class PyBulletDominoEnv(PyBulletEnv):
             "yaw": rot,
         }
 
-    def _move_intermediate_objects_to_unfinished_state(
-            self,
-            obj_dict: Dict) -> Dict:
+    def _move_intermediate_objects_to_unfinished_state(self,
+                                                       obj_dict: Dict) -> Dict:
         """Move all intermediate dominoes and pivots to the lower end of the
         table in a row, keeping only the start domino and targets in their
         original positions.

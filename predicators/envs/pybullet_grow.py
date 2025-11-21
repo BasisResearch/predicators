@@ -702,8 +702,8 @@ if __name__ == "__main__":
 
     env = PyBulletGrowEnv(use_gui=True)
     rng = np.random.default_rng(CFG.seed)
-    task = env._get_tasks(1, CFG.grow_num_cups_test, 
-                          CFG.grow_num_jugs_test, rng)[0]
+    task = env._get_tasks(1, CFG.grow_num_cups_test, CFG.grow_num_jugs_test,
+                          rng)[0]
     env._reset_state(task.init)
 
     while True:

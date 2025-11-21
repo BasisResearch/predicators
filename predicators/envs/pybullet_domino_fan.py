@@ -161,7 +161,8 @@ class PyBulletDominoFanEnv(PyBulletEnv):
     domino_mass: ClassVar[float] = 0.1
     domino_friction: ClassVar[float] = 0.5
     turn_shift_frac: ClassVar[float] = 0.6  # For turning dominoes
-    pos_gap: ClassVar[float] = domino_width * 1.4  # Distance between grid positions 0.07 * 1.4=0.098
+    pos_gap: ClassVar[
+        float] = domino_width * 1.4  # Distance between grid positions 0.07 * 1.4=0.098
 
     # Domino Colors
     start_domino_color: ClassVar[Tuple[float, float, float,
@@ -872,7 +873,8 @@ class PyBulletDominoFanEnv(PyBulletEnv):
         ]
 
     def _reposition_domino_stairs(self, state: State) -> None:
-        """Create stairs under dominoes when CFG.domino_domino_on_stairs is True."""
+        """Create stairs under dominoes when CFG.domino_domino_on_stairs is
+        True."""
         # Remove existing stairs
         for stair_id in self._stair_ids:
             if stair_id >= 0:
@@ -894,13 +896,13 @@ class PyBulletDominoFanEnv(PyBulletEnv):
             domino_y = state.get(domino_obj, "y")
 
             # Calculate stair height based on domino index
-            stair_height = self.obstacle_wall_height + (i * self.stair_height_increment)
+            stair_height = self.obstacle_wall_height + (
+                i * self.stair_height_increment)
 
             # Create stair block under the domino
             stair_id = create_pybullet_block(
                 color=self.stair_color,
-                half_extents=(self.wall_x_len / 2,
-                              self.wall_y_len / 2,
+                half_extents=(self.wall_x_len / 2, self.wall_y_len / 2,
                               stair_height / 2),
                 mass=self.wall_mass,
                 friction=self.wall_friction,
@@ -1236,8 +1238,12 @@ class PyBulletDominoFanEnv(PyBulletEnv):
             y_start = cls.loc_y_mid - num_pos_y * cls.pos_gap / 2 + cls.pos_gap / 2
 
         # Round to 5 decimals to match movement calculations
-        x_coords = [round(x_start + i * cls.pos_gap, 5) for i in range(num_pos_x)]
-        y_coords = [round(y_start + i * cls.pos_gap, 5) for i in range(num_pos_y)]
+        x_coords = [
+            round(x_start + i * cls.pos_gap, 5) for i in range(num_pos_x)
+        ]
+        y_coords = [
+            round(y_start + i * cls.pos_gap, 5) for i in range(num_pos_y)
+        ]
 
         return x_coords, y_coords
 
@@ -1514,13 +1520,14 @@ class PyBulletDominoFanEnv(PyBulletEnv):
             rng=self._test_rng)
 
     def _make_tasks(self, num_tasks: int, possible_num_dominos: List[int],
-                    possible_num_walls: List[int], 
-                    possible_num_targets: List[int],
-                    grid_size: Tuple[int, int],
+                    possible_num_walls: List[int],
+                    possible_num_targets: List[int], grid_size: Tuple[int,
+                                                                      int],
                     rng: np.random.Generator) -> List[EnvironmentTask]:
         """Generate tasks with either domino goals OR ball goals.
 
-        All assets (fans, switches, ball, dominoes) are present in every task.
+        All assets (fans, switches, ball, dominoes) are present in every
+        task.
         """
         tasks = []
         num_pos_x, num_pos_y = grid_size
@@ -1534,7 +1541,7 @@ class PyBulletDominoFanEnv(PyBulletEnv):
                                    ])
 
             task = self._generate_task(i_task, task_type, possible_num_dominos,
-                                       possible_num_walls, 
+                                       possible_num_walls,
                                        possible_num_targets, num_pos_x,
                                        num_pos_y, rng)
 
@@ -1592,7 +1599,8 @@ class PyBulletDominoFanEnv(PyBulletEnv):
         # Place the first domino (start block).
         # Calculate z position with stair height if stairs are enabled
         if CFG.domino_domino_on_stairs:
-            stair_height = self.obstacle_wall_height + (domino_count * self.stair_height_increment)
+            stair_height = self.obstacle_wall_height + (
+                domino_count * self.stair_height_increment)
             domino_z = self.table_height + stair_height + self.domino_height / 2
         else:
             domino_z = self.z_lb + self.domino_height / 2
@@ -1617,8 +1625,11 @@ class PyBulletDominoFanEnv(PyBulletEnv):
         total_domino_blocks = n_dominos + n_targets
 
         if log_debug:
-            print(f"  Grid: {num_pos_x}x{num_pos_y} = {len(grid_pos)} positions")
-            print(f"  Need to place: {total_domino_blocks} dominoes ({n_dominos} regular + {n_targets} targets)")
+            print(
+                f"  Grid: {num_pos_x}x{num_pos_y} = {len(grid_pos)} positions")
+            print(
+                f"  Need to place: {total_domino_blocks} dominoes ({n_dominos} regular + {n_targets} targets)"
+            )
 
         # Main placement loop.
         while domino_count < total_domino_blocks:
@@ -1633,8 +1644,11 @@ class PyBulletDominoFanEnv(PyBulletEnv):
             next_y = round(curr_y + dy, 5)
 
             if log_debug:
-                print(f"  Domino {domino_count}: at ({curr_x:.3f}, {curr_y:.3f}), rot={curr_rot:.2f}")
-                print(f"    Checking straight: ({next_x:.3f}, {next_y:.3f})", end="")
+                print(
+                    f"  Domino {domino_count}: at ({curr_x:.3f}, {curr_y:.3f}), rot={curr_rot:.2f}"
+                )
+                print(f"    Checking straight: ({next_x:.3f}, {next_y:.3f})",
+                      end="")
 
             if (next_x, next_y) in grid_coords_set and \
             (next_x, next_y) not in used_coords:
@@ -1709,9 +1723,15 @@ class PyBulletDominoFanEnv(PyBulletEnv):
             if not possible_moves:
                 # No valid moves, generation failed for this attempt.
                 if log_debug:
-                    print(f"  ✗ Failed: No valid moves from ({curr_x}, {curr_y}) with rot={curr_rot:.2f}")
-                    print(f"     Placed {domino_count}/{total_domino_blocks} dominoes so far")
-                    print(f"     Grid coords set size: {len(grid_coords_set)}, Used: {len(used_coords)}")
+                    print(
+                        f"  ✗ Failed: No valid moves from ({curr_x}, {curr_y}) with rot={curr_rot:.2f}"
+                    )
+                    print(
+                        f"     Placed {domino_count}/{total_domino_blocks} dominoes so far"
+                    )
+                    print(
+                        f"     Grid coords set size: {len(grid_coords_set)}, Used: {len(used_coords)}"
+                    )
                 return None
 
             # Choose a random valid move and get its placement plan.
@@ -1756,7 +1776,8 @@ class PyBulletDominoFanEnv(PyBulletEnv):
                     # Check if target should be glued
                     should_be_glued = False
                     if CFG.domino_fan_has_glued_dominoes:
-                        should_be_glued = rng.random() < 0.5  # 50% chance of glued
+                        should_be_glued = rng.random(
+                        ) < 0.5  # 50% chance of glued
 
                     if should_be_glued:
                         color = self.glued_domino_color
@@ -1768,7 +1789,8 @@ class PyBulletDominoFanEnv(PyBulletEnv):
                 # Place the domino block.
                 # Calculate z position with stair height if stairs are enabled
                 if CFG.domino_domino_on_stairs:
-                    stair_height = self.obstacle_wall_height + (domino_count * self.stair_height_increment)
+                    stair_height = self.obstacle_wall_height + (
+                        domino_count * self.stair_height_increment)
                     domino_z = self.table_height + stair_height + self.domino_height / 2
                 else:
                     domino_z = self.z_lb + self.domino_height / 2
@@ -1803,11 +1825,12 @@ class PyBulletDominoFanEnv(PyBulletEnv):
 
     def _generate_task(self, task_idx: int, task_type: str,
                        possible_num_dominos: List[int],
-                       possible_num_walls: List[int], 
+                       possible_num_walls: List[int],
                        possible_num_targets: List[int], num_pos_x: int,
                        num_pos_y: int,
                        rng: np.random.Generator) -> Optional[EnvironmentTask]:
-        """Generate a task with either domino toppling or ball-at-location goal.
+        """Generate a task with either domino toppling or ball-at-location
+        goal.
 
         Args:
             task_type: Either "domino" or "ball"
@@ -1897,8 +1920,7 @@ class PyBulletDominoFanEnv(PyBulletEnv):
                 num_pos_x=num_pos_x,
                 num_pos_y=num_pos_y,
                 log_debug=(attempt < 3),  # Debug first 3 attempts
-                task_idx=task_idx
-            )
+                task_idx=task_idx)
             if result is not None:
                 domino_obj_dict, used_coords = result
                 break
@@ -1919,9 +1941,8 @@ class PyBulletDominoFanEnv(PyBulletEnv):
         used_position_coords = used_coords.copy()
 
         # Get available grid positions (not used by dominoes)
-        available_positions = [
-            (x, y) for (x, y) in grid_pos if (x, y) not in used_position_coords
-        ]
+        available_positions = [(x, y) for (x, y) in grid_pos
+                               if (x, y) not in used_position_coords]
 
         # Ensure we have enough positions for walls, ball, and target
         if len(available_positions) < n_walls + 2:  # +2 for ball and target
@@ -2003,14 +2024,13 @@ class PyBulletDominoFanEnv(PyBulletEnv):
                 b = init_state.get(domino_obj, "b")
 
                 # Check if it's a target domino (pink or red/glued)
-                is_target = (
-                    (abs(r - self.target_domino_color[0]) < eps and
-                     abs(g - self.target_domino_color[1]) < eps and
-                     abs(b - self.target_domino_color[2]) < eps) or
-                    (abs(r - self.glued_domino_color[0]) < eps and
-                     abs(g - self.glued_domino_color[1]) < eps and
-                     abs(b - self.glued_domino_color[2]) < eps)
-                )
+                is_target = ((abs(r - self.target_domino_color[0]) < eps
+                              and abs(g - self.target_domino_color[1]) < eps
+                              and abs(b - self.target_domino_color[2]) < eps)
+                             or
+                             (abs(r - self.glued_domino_color[0]) < eps
+                              and abs(g - self.glued_domino_color[1]) < eps
+                              and abs(b - self.glued_domino_color[2]) < eps))
 
                 if is_target:
                     goal_atoms.add(GroundAtom(self._Toppled, [domino_obj]))
@@ -2066,18 +2086,18 @@ class PyBulletDominoFanEnv(PyBulletEnv):
 
                 # Check if it's a target domino (pink or red/glued color)
                 is_target_domino = (abs(
-                    domino_data.get("r", 0.0) - self.target_domino_color[0]
-                ) < eps and abs(
-                    domino_data.get("g", 0.0) -
-                    self.target_domino_color[1]) < eps and abs(
-                        domino_data.get("b", 0.0) -
-                        self.target_domino_color[2]) < eps) or (abs(
-                            domino_data.get("r", 0.0) -
-                            self.glued_domino_color[0]) < eps and abs(
-                                domino_data.get("g", 0.0) -
-                                self.glued_domino_color[1]) < eps and abs(
-                                    domino_data.get("b", 0.0) -
-                                    self.glued_domino_color[2]) < eps)
+                    domino_data.get("r", 0.0) -
+                    self.target_domino_color[0]) < eps and abs(
+                        domino_data.get("g", 0.0) -
+                        self.target_domino_color[1]) < eps and abs(
+                            domino_data.get("b", 0.0) -
+                            self.target_domino_color[2]) < eps) or (abs(
+                                domino_data.get("r", 0.0) -
+                                self.glued_domino_color[0]) < eps and abs(
+                                    domino_data.get("g", 0.0) -
+                                    self.glued_domino_color[1]) < eps and abs(
+                                        domino_data.get("b", 0.0) -
+                                        self.glued_domino_color[2]) < eps)
 
                 # Only move dominoes that are neither start nor target dominoes
                 if not is_start_domino and not is_target_domino:
