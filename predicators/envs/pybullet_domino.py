@@ -707,9 +707,8 @@ class PyBulletDominoEnv(PyBulletEnv):
         success = True
 
         # Initial domino position and orientation
-        x = rng.uniform(self.x_lb, self.x_ub)
-        y = rng.uniform(self.y_lb + self.domino_width,
-                        self.y_ub - 3 * self.domino_width)
+        x = rng.uniform(self.domino_x_lb, self.domino_x_ub)
+        y = rng.uniform(self.domino_y_lb, self.domino_y_ub)
         rot = rng.choice([0, np.pi / 2, -np.pi / 2])
         gap = self.pos_gap
 
