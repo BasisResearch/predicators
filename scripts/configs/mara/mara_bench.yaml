@@ -257,7 +257,7 @@ ENVS:
   #     pybullet_ik_validate: False
   #     option_model_terminate_on_repeat: False
   domino:
-    NAME: "pybullet_domino"
+    NAME: "pybullet_domino_grid"
     ARGS:
       - "video_not_break_on_exception"
     FLAGS:
@@ -277,7 +277,7 @@ ENVS:
       domino_num_targets_max: 1
       domino_num_targets_min: 1
   # domino_cf:
-  #   NAME: "pybullet_domino"
+  #   NAME: "pybullet_domino_grid"
   #   ARGS:
   #     - "video_not_break_on_exception"
   #   FLAGS:

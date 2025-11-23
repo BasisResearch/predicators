@@ -605,7 +605,7 @@ def _skeleton_generator_with_processes(
                                                node.atoms))
 
             # Domain-specific pruning for domino environment
-            if CFG.env == "pybullet_domino" and CFG.domino_prune_actions:
+            if CFG.env == "pybullet_domino_grid" and CFG.domino_prune_actions:
                 # Filter out backwards placements and redundant picks
                 filtered_actions = []
                 placed_dominos = set()  # Track which dominos have been placed

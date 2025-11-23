@@ -78,7 +78,7 @@ PLOT_GROUPS = [
     ("Coffee", pd_create_equal_selector("ENV", "pybullet_coffee")),
     ("Grow", pd_create_equal_selector("ENV", "pybullet_grow")),
     ("Fan", pd_create_equal_selector("ENV", "pybullet_fan")),
-    ("Domino", pd_create_equal_selector("ENV", "pybullet_domino")),
+    ("Domino", pd_create_equal_selector("ENV", "pybullet_domino_grid")),
 ]
 
 # See PLOT_GROUPS comment.

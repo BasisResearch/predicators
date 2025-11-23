@@ -79,7 +79,7 @@ APPROACHES:
   #     skip_test_until_last_ite_or_early_stopping: True
 ENVS:
   domino:
-    NAME: "pybullet_domino"
+    NAME: "pybullet_domino_grid"
     FLAGS:
       excluded_predicates: "InFrontDirection,InFront"
       excluded_objects_in_state_str: "loc,rot,angle,direction"

@@ -170,7 +170,7 @@ ENVS:
       terminate_on_goal_reached: True # maybe required for successful eval
       horizon: 500
   domino:
-    NAME: "pybullet_domino"
+    NAME: "pybullet_domino_grid"
     FLAGS:
       excluded_objects_in_state_str: "loc,rot,angle,direction"
       horizon: 200

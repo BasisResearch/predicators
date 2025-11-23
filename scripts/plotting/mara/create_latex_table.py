@@ -52,7 +52,7 @@ ROW_GROUPS = [
     ("Coffee", pd_create_equal_selector("ENV", "pybullet_coffee")),
     ("Grow", pd_create_equal_selector("ENV", "pybullet_grow")),
     ("Boil", pd_create_equal_selector("ENV", "pybullet_boil")),
-    ("Domino", pd_create_equal_selector("ENV", "pybullet_domino")),
+    ("Domino", pd_create_equal_selector("ENV", "pybullet_domino_grid")),
     ("Fan", pd_create_equal_selector("ENV", "pybullet_fan")),
 ]
 

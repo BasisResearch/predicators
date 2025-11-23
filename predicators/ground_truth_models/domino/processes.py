@@ -18,7 +18,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
 
     @classmethod
     def get_env_names(cls) -> Set[str]:
-        return {"pybullet_domino"}
+        return {"pybullet_domino_grid"}
 
     @classmethod
     def get_processes(

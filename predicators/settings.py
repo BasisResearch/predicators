@@ -958,7 +958,7 @@ class GlobalSettings:
                     "pybullet_grow": 2000,
                     "pybullet_circuit": 2000,
                     "pybullet_float": 2000,
-                    "pybullet_domino": 2000,
+                    "pybullet_domino_grid": 2000,
                     "pybullet_laser": 2000,
                     "pybullet_ants": 2000,
                     "pybullet_fan": 2000,

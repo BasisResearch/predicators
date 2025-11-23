@@ -374,7 +374,7 @@ ENVS:
       horizon: 500
       grammar_search_task_planning_timeout: 5
   domino:
-    NAME: "pybullet_domino"
+    NAME: "pybullet_domino_grid"
     FLAGS:
       excluded_predicates: "InFront,DominoNotGlued"
       excluded_objects_in_state_str: "loc,rot,angle,direction"
