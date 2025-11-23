@@ -33,7 +33,8 @@ def _get_pybullet_robot() -> SingleArmPyBulletRobot:
 class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
     """Ground-truth options for the grow environment."""
 
-    env_cls: ClassVar[TypingType[PyBulletDominoGridEnv]] = PyBulletDominoGridEnv
+    env_cls: ClassVar[
+        TypingType[PyBulletDominoGridEnv]] = PyBulletDominoGridEnv
     _move_to_pose_tol: ClassVar[float] = 1e-4
     _finger_action_nudge_magnitude: ClassVar[float] = 1e-3
     _transport_z: ClassVar[float] = env_cls.table_height +\

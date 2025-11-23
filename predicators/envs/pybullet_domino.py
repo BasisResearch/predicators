@@ -239,10 +239,11 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         return base_predicates
 
-    def generate_grid_position_predicates(
-            self, grid_gap: float, num_x_cells: int,
-            num_y_cells: int) -> Set[Predicate]:
-        """Generate predicates for grid positions centered on the initial domino.
+    def generate_grid_position_predicates(self, grid_gap: float,
+                                          num_x_cells: int,
+                                          num_y_cells: int) -> Set[Predicate]:
+        """Generate predicates for grid positions centered on the initial
+        domino.
 
         This creates predicates that represent a discretized grid for domino
         positions. The grid is centered on the initial (start) domino and
@@ -264,7 +265,8 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         # Generate predicate for initial position (0, 0)
         def AtX0Y0_holds(state: State, objects: Sequence[Object]) -> bool:
-            """Check if domino is at the initial position (the start domino)."""
+            """Check if domino is at the initial position (the start
+            domino)."""
             curr_domino, = objects
             return self._StartBlock_holds(state, [curr_domino])
 
@@ -277,9 +279,11 @@ class PyBulletDominoEnv(PyBulletEnv):
                     continue  # Already handled above
 
                 # Create a closure to capture offset_x, offset_y, and grid_gap
-                def make_at_position_holds(ox: int, oy: int, gap: float
-                        ) -> Callable[[State, Sequence[Object]], bool]:
-                    """Create a predicate checking function for a specific grid position."""
+                def make_at_position_holds(
+                        ox: int, oy: int, gap: float
+                ) -> Callable[[State, Sequence[Object]], bool]:
+                    """Create a predicate checking function for a specific grid
+                    position."""
 
                     def at_position_holds(state: State,
                                           objects: Sequence[Object]) -> bool:
@@ -1667,12 +1671,11 @@ if __name__ == "__main__":
 
     # Generate grid predicates with a 3x3 grid
     grid_gap = env.pos_gap  # Use the default gap
-    grid_predicates = env.generate_grid_position_predicates(
-        grid_gap=grid_gap, num_x_cells=2, num_y_cells=2)
+    grid_predicates = env.generate_grid_position_predicates(grid_gap=grid_gap,
+                                                            num_x_cells=2,
+                                                            num_y_cells=2)
 
-    print(
-        f"\nGenerated {len(grid_predicates)} grid position predicates with:"
-    )
+    print(f"\nGenerated {len(grid_predicates)} grid position predicates with:")
     print(f"  grid_gap: {grid_gap:.4f}")
     print(f"  num_x_cells: 2 (range: [-2, 2])")
     print(f"  num_y_cells: 2 (range: [-2, 2])")
