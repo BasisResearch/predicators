@@ -1664,17 +1664,53 @@ if __name__ == "__main__":
     CFG.num_test_tasks = 2
     env = PyBulletDominoEnv(use_gui=True)
 
+    # Generate grid predicates with a 3x3 grid
+    grid_gap = env.pos_gap  # Use the default gap
+    grid_predicates = env.generate_grid_position_predicates(
+        grid_gap=grid_gap, num_x_cells=2, num_y_cells=2)
+
+    print(
+        f"\nGenerated {len(grid_predicates)} grid position predicates with:"
+    )
+    print(f"  grid_gap: {grid_gap:.4f}")
+    print(f"  num_x_cells: 2 (range: [-2, 2])")
+    print(f"  num_y_cells: 2 (range: [-2, 2])")
+    print(f"\nPredicate names:")
+    for pred in sorted(grid_predicates, key=lambda p: p.name):
+        print(f"  - {pred.name}")
+
     tasks = env._generate_train_tasks()
 
     for task in tasks:
         env._reset_state(task.init)
+        print("\n" + "=" * 60)
+        print("Task State Information")
+        print("=" * 60)
         print(
-            f"init state: {pformat(utils.abstract(task.init, env.predicates))}\n"
+            f"\ninit state: {pformat(utils.abstract(task.init, env.predicates))}\n"
         )
         print(f"goal: {task.goal}\n")
-        print(pformat(task.init.pretty_str()), '\n')
 
-        for i in range(100):
+        # Test grid predicates on the initial state
+        print("\n" + "=" * 60)
+        print("Grid Position Predicate Evaluation")
+        print("=" * 60)
+        dominos = task.init.get_objects(env._domino_type)
+        print(f"\nEvaluating grid predicates for {len(dominos)} dominoes:")
+        for domino in dominos:
+            print(f"\n  Domino: {domino.name}")
+            print(f"    Position: ({task.init.get(domino, 'x'):.4f}, "
+                  f"{task.init.get(domino, 'y'):.4f})")
+            print(f"    Rotation: {task.init.get(domino, 'yaw'):.4f}")
+            print(f"    Grid predicates that hold:")
+            for pred in sorted(grid_predicates, key=lambda p: p.name):
+                if pred.holds(task.init, [domino]):
+                    print(f"      ✓ {pred.name}")
+
+        print("\n" + "=" * 60)
+        print("Running simulation")
+        print("=" * 60)
+        for i in range(10000):
             action = Action(
                 np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)
