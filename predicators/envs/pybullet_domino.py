@@ -1088,15 +1088,28 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         # Turn 45° twice (total 90° turn)
         turn_direction = rng.choice([-1, 1])
-        half_turn_angle = np.pi / 4 * turn_direction
 
-        # First 45° turn
-        rotation += half_turn_angle
+        # First domino: one step forward with 45° rotation
+        # Calculate base position (one step forward)
         dx = gap * np.sin(rotation)
         dy = gap * np.cos(rotation)
-        first_x, first_y = x + dx, y + dy
+        d1_base_x, d1_base_y = x + dx, y + dy
 
-        if not _in_bounds(first_x, first_y):
+        # Calculate the first domino's rotation (45° toward turn direction)
+        d1_rot = rotation - turn_direction * np.pi / 4
+
+        # Calculate the shift vector to pull the turning domino inward
+        shift_magnitude = self.domino_width * self.turn_shift_frac
+        shift_dx = shift_magnitude * (turn_direction * np.cos(rotation) -
+                                      np.sin(rotation))
+        shift_dy = shift_magnitude * (-turn_direction * np.sin(rotation) -
+                                      np.cos(rotation))
+
+        # The physical position is the base position plus the shift
+        d1_x = d1_base_x + shift_dx
+        d1_y = d1_base_y + shift_dy
+
+        if not _in_bounds(d1_x, d1_y):
             return PlacementResult(success=False,
                                    x=x,
                                    y=y,
@@ -1105,24 +1118,28 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         obj_dict[self.dominos[domino_count]] = self._place_domino(
             domino_count,
-            first_x,
-            first_y,
-            rotation + np.pi / 2,
+            d1_x,
+            d1_y,
+            d1_rot,
             is_start_block=False,
             rng=rng,
             task_idx=task_idx)
         domino_count += 1
 
-        # Second 45° turn
-        side_offset = self.domino_width / 2
-        rotation += half_turn_angle
-        dx = gap * np.sin(rotation) - turn_direction * side_offset * np.cos(
-            rotation)
-        dy = gap * np.cos(rotation) + turn_direction * side_offset * np.sin(
-            rotation)
-        second_x, second_y = first_x + dx, first_y + dy
+        # Second domino: completes the turn with another 45° rotation
+        d2_rot = d1_rot - turn_direction * np.pi / 4
 
-        if not _in_bounds(second_x, second_y):
+        # Calculate d2's physical position relative to d1's
+        sin_d1 = np.sin(d1_rot)
+        cos_d1 = np.cos(d1_rot)
+        disp_x = (gap * turn_direction * cos_d1 +
+                  (2 * shift_magnitude - gap) * sin_d1) / np.sqrt(2)
+        disp_y = (-gap * turn_direction * sin_d1 +
+                  (2 * shift_magnitude - gap) * cos_d1) / np.sqrt(2)
+        d2_x = d1_x + disp_x
+        d2_y = d1_y + disp_y
+
+        if not _in_bounds(d2_x, d2_y):
             return PlacementResult(success=False,
                                    x=x,
                                    y=y,
@@ -1132,9 +1149,9 @@ class PyBulletDominoEnv(PyBulletEnv):
         # Place second block - can be a target if requested
         obj_dict[self.dominos[domino_count]] = self._place_domino(
             domino_count,
-            second_x,
-            second_y,
-            rotation,
+            d2_x,
+            d2_y,
+            d2_rot,
             is_start_block=False,
             is_target_block=should_place_target_at_end,
             rng=rng,
@@ -1142,9 +1159,9 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         target_count_increment = 1 if should_place_target_at_end else 0
         return PlacementResult(success=True,
-                               x=second_x,
-                               y=second_y,
-                               rotation=rotation,
+                               x=d2_x,
+                               y=d2_y,
+                               rotation=d2_rot,
                                domino_count=domino_count + 1,
                                target_count=target_count_increment,
                                just_turned_90=True,
