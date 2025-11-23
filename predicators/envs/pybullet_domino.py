@@ -215,6 +215,9 @@ class PyBulletDominoEnv(PyBulletEnv):
         self._DominoNotGlued = Predicate("DominoNotGlued", [self._domino_type],
                                          self._DominoNotGlued_holds)
 
+        # Grid position predicates (initialized as empty, populated on demand)
+        self._grid_position_predicates: Set[Predicate] = set()
+
     @classmethod
     def get_name(cls) -> str:
         return "pybullet_domino"
@@ -232,8 +235,122 @@ class PyBulletDominoEnv(PyBulletEnv):
         }
         if CFG.domino_has_glued_dominos:
             base_predicates.add(self._DominoNotGlued)
+        base_predicates.update(self._grid_position_predicates)
 
         return base_predicates
+
+    def generate_grid_position_predicates(
+            self, grid_gap: float, num_x_cells: int,
+            num_y_cells: int) -> Set[Predicate]:
+        """Generate predicates for grid positions centered on the initial domino.
+
+        This creates predicates that represent a discretized grid for domino
+        positions. The grid is centered on the initial (start) domino and
+        oriented according to its rotation.
+
+        Args:
+            grid_gap: Distance that corresponds to one grid step
+            num_x_cells: Number of cells in the x direction (forward/backward
+                        from initial domino). The range will be
+                        [-num_x_cells, num_x_cells].
+            num_y_cells: Number of cells in the y direction (left/right from
+                        initial domino). The range will be
+                        [-num_y_cells, num_y_cells].
+
+        Returns:
+            Set of Predicate objects for each grid position.
+        """
+        predicates = set()
+
+        # Generate predicate for initial position (0, 0)
+        def AtX0Y0_holds(state: State, objects: Sequence[Object]) -> bool:
+            """Check if domino is at the initial position (the start domino)."""
+            curr_domino, = objects
+            return self._StartBlock_holds(state, [curr_domino])
+
+        predicates.add(Predicate("AtX0Y0", [self._domino_type], AtX0Y0_holds))
+
+        # Generate predicates for other grid positions
+        for offset_x in range(-num_x_cells, num_x_cells + 1):
+            for offset_y in range(-num_y_cells, num_y_cells + 1):
+                if offset_x == 0 and offset_y == 0:
+                    continue  # Already handled above
+
+                # Create a closure to capture offset_x, offset_y, and grid_gap
+                def make_at_position_holds(ox: int, oy: int, gap: float):
+                    """Create a predicate checking function for a specific grid position."""
+
+                    def at_position_holds(state: State,
+                                          objects: Sequence[Object]) -> bool:
+                        """Check if domino is at grid position (ox, oy)."""
+                        curr_domino, = objects
+
+                        # Find the initial domino
+                        initial_domino = None
+                        for domino in state.get_objects(self._domino_type):
+                            if self._StartBlock_holds(state, [domino]):
+                                initial_domino = domino
+                                break
+
+                        if initial_domino is None:
+                            return False
+
+                        # Get initial domino position and rotation
+                        id_x = state.get(initial_domino, "x")
+                        id_y = state.get(initial_domino, "y")
+                        id_rot = state.get(initial_domino, "yaw")
+
+                        # Get current domino position
+                        cd_x = state.get(curr_domino, "x")
+                        cd_y = state.get(curr_domino, "y")
+
+                        # Calculate expected position based on initial domino's orientation
+                        # Transform from local grid coordinates to world coordinates
+                        # ox is forward/backward in the direction the domino faces
+                        # oy is left/right perpendicular to the domino's facing direction
+                        exp_x = id_x + np.cos(id_rot) * ox * gap - np.sin(
+                            id_rot) * oy * gap
+                        exp_y = id_y + np.sin(id_rot) * ox * gap + np.cos(
+                            id_rot) * oy * gap
+
+                        # Check if current domino is close to expected position
+                        return np.isclose(cd_x, exp_x, atol=gap / 2) and \
+                               np.isclose(cd_y, exp_y, atol=gap / 2)
+
+                    return at_position_holds
+
+                # Create predicate name
+                # Use "Xm" for negative values, "X" for positive
+                if offset_x < 0:
+                    x_str = f"Xm{abs(offset_x)}"
+                else:
+                    x_str = f"X{offset_x}"
+
+                if offset_y < 0:
+                    y_str = f"Ym{abs(offset_y)}"
+                else:
+                    y_str = f"Y{offset_y}"
+
+                pred_name = f"At{x_str}{y_str}"
+
+                # Create the predicate
+                holds_func = make_at_position_holds(offset_x, offset_y,
+                                                    grid_gap)
+                predicates.add(
+                    Predicate(pred_name, [self._domino_type], holds_func))
+
+        # Store for later access
+        self._grid_position_predicates = predicates
+        return predicates
+
+    @property
+    def grid_position_predicates(self) -> Set[Predicate]:
+        """Return the grid position predicates.
+
+        Note: These predicates must be generated first using
+        generate_grid_position_predicates() before they can be accessed.
+        """
+        return self._grid_position_predicates
 
     @property
     def goal_predicates(self) -> Set[Predicate]:
