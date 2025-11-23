@@ -277,7 +277,8 @@ class PyBulletDominoEnv(PyBulletEnv):
                     continue  # Already handled above
 
                 # Create a closure to capture offset_x, offset_y, and grid_gap
-                def make_at_position_holds(ox: int, oy: int, gap: float):
+                def make_at_position_holds(ox: int, oy: int, gap: float
+                        ) -> Callable[[State, Sequence[Object]], bool]:
                     """Create a predicate checking function for a specific grid position."""
 
                     def at_position_holds(state: State,
