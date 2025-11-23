@@ -217,6 +217,8 @@ class PyBulletDominoEnv(PyBulletEnv):
 
         # Grid position predicates (initialized as empty, populated on demand)
         self._grid_position_predicates: Set[Predicate] = set()
+        # Rotation predicates (initialized as empty, populated on demand)
+        self._rotation_predicates: Set[Predicate] = set()
 
     @classmethod
     def get_name(cls) -> str:
@@ -236,6 +238,7 @@ class PyBulletDominoEnv(PyBulletEnv):
         if CFG.domino_has_glued_dominos:
             base_predicates.add(self._DominoNotGlued)
         base_predicates.update(self._grid_position_predicates)
+        base_predicates.update(self._rotation_predicates)
 
         return base_predicates
 
@@ -356,6 +359,76 @@ class PyBulletDominoEnv(PyBulletEnv):
         generate_grid_position_predicates() before they can be accessed.
         """
         return self._grid_position_predicates
+
+    def generate_rotation_predicates(self, n: int) -> Set[Predicate]:
+        """Generate predicates for discretized yaw rotations.
+
+        This creates predicates that represent discretized yaw rotations
+        for dominoes. The rotation range [-π, π] is divided into n equal
+        intervals.
+
+        Args:
+            n: Number of rotation intervals to create. The rotation range
+               [-π, π] will be divided into n equal intervals.
+
+        Returns:
+            Set of Predicate objects for each rotation interval.
+        """
+        predicates = set()
+
+        # Divide the rotation range [-π, π] into n intervals
+        interval_size = 2 * np.pi / n
+
+        for i in range(n):
+            # Calculate interval bounds first (needed for predicate name)
+            lower_bound = -np.pi + i * interval_size
+            upper_bound = lower_bound + interval_size
+
+            # Create a closure to capture the rotation interval bounds
+            def make_at_rotation_holds(
+                interval_idx: int, interval_sz: float
+            ) -> Callable[[State, Sequence[Object]], bool]:
+                """Create a predicate checking function for a specific rotation
+                interval."""
+
+                def at_rotation_holds(state: State,
+                                      objects: Sequence[Object]) -> bool:
+                    """Check if domino is at rotation interval i."""
+                    domino, = objects
+                    yaw = state.get(domino, "yaw")
+
+                    # Normalize yaw to [-π, π]
+                    yaw = utils.wrap_angle(yaw)
+
+                    # Calculate interval bounds
+                    lower_bound = -np.pi + interval_idx * interval_sz
+                    upper_bound = lower_bound + interval_sz
+
+                    # Check if yaw is in this interval
+                    return lower_bound < yaw <= upper_bound
+
+                return at_rotation_holds
+
+            # Create predicate name with interval range
+            pred_name = f"AtRot({lower_bound:.1f},{upper_bound:.1f}]"
+
+            # Create the predicate
+            holds_func = make_at_rotation_holds(i, interval_size)
+            predicates.add(
+                Predicate(pred_name, [self._domino_type], holds_func))
+
+        # Store for later access
+        self._rotation_predicates = predicates
+        return predicates
+
+    @property
+    def rotation_predicates(self) -> Set[Predicate]:
+        """Return the rotation predicates.
+
+        Note: These predicates must be generated first using
+        generate_rotation_predicates() before they can be accessed.
+        """
+        return self._rotation_predicates
 
     @property
     def goal_predicates(self) -> Set[Predicate]:
@@ -1674,6 +1747,7 @@ if __name__ == "__main__":
     grid_predicates = env.generate_grid_position_predicates(grid_gap=grid_gap,
                                                             num_x_cells=2,
                                                             num_y_cells=2)
+    rot_predicates = env.generate_rotation_predicates(8)
 
     print(f"\nGenerated {len(grid_predicates)} grid position predicates with:")
     print(f"  grid_gap: {grid_gap:.4f}")
