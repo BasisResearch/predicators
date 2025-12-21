@@ -761,10 +761,8 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
             first_domino = self.dominos[0]
             if first_domino in obj_dict:
                 # Place ball offset from first domino to the side
-                offset_angle = rng.uniform(-np.pi/4, np.pi/4)
-                offset_dist = 0.15
-                ball_x = obj_dict[first_domino]["x"] + offset_dist * np.cos(offset_angle)
-                ball_y = obj_dict[first_domino]["y"] + offset_dist * np.sin(offset_angle)
+                ball_x = rng.uniform(self.x_lb, self.x_ub)
+                ball_y = rng.uniform(self.y_lb + 0.1, self.y_ub)
                 init_dict[self._ball] = {
                     "x": ball_x,
                     "y": ball_y,
