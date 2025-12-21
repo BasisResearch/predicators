@@ -732,11 +732,12 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
             if log_debug:
                 print(f"\nAttempt {attempt_num} for task {task_idx}")
             obj_dict = self._generate_domino_sequence(rng,
-                                                      n_dominos,
-                                                      n_targets,
-                                                      n_pivots,
-                                                      log_debug=log_debug,
-                                                      task_idx=task_idx)
+                                    n_dominos,
+                                    n_targets,
+                                    n_pivots,
+                                    log_debug=log_debug,
+                                    task_idx=task_idx,
+                                    domino_in_upper_half=include_active_ball)
             if obj_dict is not None:
                 if log_debug:
                     print("Found satisfying domino sequence")
@@ -1075,7 +1076,7 @@ if __name__ == "__main__":
     CFG.seed = 0
     CFG.env = "pybullet_domino_fan"
     CFG.num_train_tasks = 0
-    CFG.num_test_tasks = 4  # Generate more tasks to see different types
+    CFG.num_test_tasks = 10  # Generate more tasks to see different types
 
     # Domino configuration
     CFG.domino_initialize_at_finished_state = True
@@ -1092,22 +1093,11 @@ if __name__ == "__main__":
     CFG.fan_fans_blow_opposite_direction = False
 
     # Create environment
-    print("Creating PyBulletDominoFanEnv...")
     env = PyBulletDominoFanEnv(use_gui=True)
 
-    print(f"\n{'=' * 60}")
-    print("Environment Information")
-    print(f"{'=' * 60}")
-    print(f"Environment name: {env.get_name()}")
-    print(f"Types: {len(env.types)}")
-    print(f"Predicates: {len(env.predicates)}")
-    print(f"Goal predicates: {env.goal_predicates}")
-    print()
 
     # Generate test tasks
-    print("Generating test tasks...")
     tasks = env._generate_test_tasks()
-    print(f"Generated {len(tasks)} tasks\n")
 
     # Test each task
     for i, task in enumerate(tasks):
@@ -1121,74 +1111,18 @@ if __name__ == "__main__":
         has_domino_goal = any(
             atom.predicate == env._Toppled for atom in task.goal)
 
-        if has_ball_goal and has_domino_goal:
-            print("Task Type: COMBINED GOAL ⭐")
-            print(f"Goals:")
-            print(f"  1. Topple all target dominoes")
-            print(f"  2. Move ball to target (tolerance: {CFG.domino_fan_ball_position_tolerance})")
-        elif has_ball_goal:
-            # Check if dominoes are present (obstacles)
-            dominoes = task.init.get_objects(env._domino_type)
-            if len(dominoes) > 0:
-                print("Task Type: BALL GOAL with Domino Obstacles 🎯")
-                print(f"Goal: Navigate ball around {len(dominoes)} dominoes to reach target")
-            else:
-                print("Task Type: BALL GOAL ONLY 🎯")
-                print(f"Goal: Move ball to target position")
-        elif has_domino_goal:
-            # Check ball position - if near dominoes, it can help
-            ball_x = task.init.get(env._ball, 'x')
-            ball_y = task.init.get(env._ball, 'y')
-            dominoes = task.init.get_objects(env._domino_type)
-            near_dominoes = False
-            if len(dominoes) > 0:
-                first_dom_x = task.init.get(dominoes[0], 'x')
-                first_dom_y = task.init.get(dominoes[0], 'y')
-                dist = np.sqrt((ball_x - first_dom_x)**2 + (ball_y - first_dom_y)**2)
-                near_dominoes = dist < 0.2
-
-            if near_dominoes:
-                print("Task Type: DOMINO GOAL (Ball can help!) 🎳")
-                print(f"Goal: Topple all dominoes (ball can knock them down)")
-            else:
-                print("Task Type: DOMINO GOAL ONLY 🎳")
-                print(f"Goal: Topple all target dominoes")
 
         # Reset to initial state
         env._reset_state(task.init)
 
-        # Print state information
-        print(f"\nInitial State:")
-        print(f"  Ball position: ({task.init.get(env._ball, 'x'):.3f}, "
-              f"{task.init.get(env._ball, 'y'):.3f}, "
-              f"{task.init.get(env._ball, 'z'):.3f})")
-        print(
-            f"  Ball target: ({task.init.get(env._ball_target, 'x'):.3f}, "
-            f"{task.init.get(env._ball_target, 'y'):.3f})")
-
-        # Count dominoes
-        dominoes = task.init.get_objects(env._domino_type)
-        print(f"  Dominoes: {len(dominoes)}")
-
-        # Fan status
-        print(f"\nFan Status:")
-        for fan_obj in env._fans:
-            side_name = env._switch_sides[fan_obj.side_idx]
-            is_on = task.init.get(fan_obj, "is_on")
-            print(f"  {side_name.capitalize()} fan: {'ON' if is_on > 0.5 else 'OFF'}")
 
         print(f"\nGoal atoms:")
         for atom in task.goal:
             print(f"  {atom}")
 
-        # Run simulation
-        print(f"\n{'=' * 60}")
-        print(f"Running simulation for Task {i + 1}")
-        print(f"{'=' * 60}")
-        print("Press Ctrl+C to skip to next task\n")
 
         try:
-            for step in range(1000):
+            for step in range(100):
                 # Use null action (stay in place)
                 action = Action(
                     np.array(env._pybullet_robot.initial_joint_positions))
@@ -1196,17 +1130,9 @@ if __name__ == "__main__":
 
                 # Check if goal is reached
                 if all(atom.holds(state) for atom in task.goal):
-                    print(
-                        f"\n🎉 Goal reached at step {step}! Moving to next task..."
-                    )
                     time.sleep(2)
                     break
 
                 time.sleep(0.01)
         except KeyboardInterrupt:
-            print("\nSkipping to next task...")
             continue
-
-    print(f"\n{'=' * 60}")
-    print("All tasks completed!")
-    print(f"{'=' * 60}")

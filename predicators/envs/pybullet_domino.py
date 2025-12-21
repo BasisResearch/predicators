@@ -70,6 +70,7 @@ class PyBulletDominoEnv(PyBulletEnv):
     domino_x_ub: ClassVar[float] = x_ub
     domino_y_lb: ClassVar[float] = y_lb + domino_width
     domino_y_ub: ClassVar[float] = y_ub - 3 * domino_width
+    domino_in_upper_half_shift: ClassVar[float] = 0.4
     turn_shift_frac: ClassVar[float] = 0.6
     # domino_mass: ClassVar[float] = 0.3
     domino_mass: ClassVar[float] = 0.1
@@ -499,37 +500,6 @@ class PyBulletDominoEnv(PyBulletEnv):
                            parentObjectUniqueId=-1,
                            parentLinkIndex=-1)
 
-        # Draw boundary rectangle for domino placement area
-        debug_height = cls.table_height + 0.002
-        # Bottom edge (y_lb)
-        p.addUserDebugLine([cls.domino_x_lb, cls.domino_y_lb, debug_height],
-                           [cls.domino_x_ub, cls.domino_y_lb, debug_height],
-                           [0, 1, 0],
-                           2,
-                           parentObjectUniqueId=-1,
-                           parentLinkIndex=-1)
-        # Top edge (y_ub)
-        p.addUserDebugLine([cls.domino_x_lb, cls.domino_y_ub, debug_height],
-                           [cls.domino_x_ub, cls.domino_y_ub, debug_height],
-                           [0, 1, 0],
-                           2,
-                           parentObjectUniqueId=-1,
-                           parentLinkIndex=-1)
-        # Left edge (x_lb)
-        p.addUserDebugLine([cls.domino_x_lb, cls.domino_y_lb, debug_height],
-                           [cls.domino_x_lb, cls.domino_y_ub, debug_height],
-                           [0, 1, 0],
-                           2,
-                           parentObjectUniqueId=-1,
-                           parentLinkIndex=-1)
-        # Right edge (x_ub)
-        p.addUserDebugLine([cls.domino_x_ub, cls.domino_y_lb, debug_height],
-                           [cls.domino_x_ub, cls.domino_y_ub, debug_height],
-                           [0, 1, 0],
-                           2,
-                           parentObjectUniqueId=-1,
-                           parentLinkIndex=-1)
-
         # Create a fixed number of dominoes and targets here
         domino_ids = []
         target_ids = []
@@ -930,16 +900,13 @@ class PyBulletDominoEnv(PyBulletEnv):
             n_targets: int,
             n_pivots: int,
             log_debug: bool = False,
-            task_idx: Optional[int] = None) -> Optional[Dict]:
+            task_idx: Optional[int] = None,
+            domino_in_upper_half: bool = False) -> Optional[Dict]:
         """Generate a sequence of dominoes, targets, and pivots.
 
         Returns:
             Dict mapping objects to their placement parameters, or None if failed
         """
-
-        def _in_bounds(nx: float, ny: float) -> bool:
-            """Check if (nx, ny) is within table boundaries."""
-            return self.x_lb < nx < self.x_ub and self.y_lb < ny < self.y_ub
 
         # Initialize placement state
         obj_dict = {}
@@ -949,9 +916,42 @@ class PyBulletDominoEnv(PyBulletEnv):
         just_placed_target = False
         just_turned_90 = False
 
+        y_lb, y_ub = self.y_lb, self.y_ub
+        x_lb, x_ub = self.x_lb, self.x_ub
+        if domino_in_upper_half:
+            y_lb += self.domino_in_upper_half_shift
+            y_ub += self.domino_in_upper_half_shift
+
+        def _in_bounds(nx: float, ny: float) -> bool:
+            """Check if (nx, ny) is within table boundaries."""
+            return x_lb < nx < x_ub and y_lb < ny < y_ub
+
+        # Draw boundary rectangle for domino placement area
+        debug_height = self.table_height + 0.002
+        # Bottom edge (y_lb)
+        p.addUserDebugLine([x_lb, y_lb, debug_height], 
+                           [x_ub, y_lb, debug_height], [0, 1, 0], 2,
+                           parentObjectUniqueId=-1,
+                           parentLinkIndex=-1)
+        # Top edge (y_ub)
+        p.addUserDebugLine([x_lb, y_ub, debug_height], 
+                           [x_ub, y_ub, debug_height], [0, 1, 0], 2,
+                           parentObjectUniqueId=-1,
+                           parentLinkIndex=-1)
+        # Left edge (x_lb)
+        p.addUserDebugLine([x_lb, y_lb, debug_height], 
+                           [x_lb, y_ub, debug_height], [0, 1, 0], 2,
+                           parentObjectUniqueId=-1,
+                           parentLinkIndex=-1)
+        # Right edge (x_ub)
+        p.addUserDebugLine([x_ub, y_lb, debug_height], 
+                           [x_ub, y_ub, debug_height], [0, 1, 0], 2,
+                           parentObjectUniqueId=-1,
+                           parentLinkIndex=-1)
+
         # Initial domino position and orientation
-        x = rng.uniform(self.domino_x_lb, self.domino_x_ub)
-        y = rng.uniform(self.domino_y_lb, self.domino_y_ub)
+        x = rng.uniform(x_lb, x_ub)
+        y = rng.uniform(y_lb, y_ub)
         rotation = rng.choice([0, np.pi / 2, -np.pi / 2])
         gap = self.pos_gap
 
