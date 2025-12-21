@@ -929,23 +929,27 @@ class PyBulletDominoEnv(PyBulletEnv):
         # Draw boundary rectangle for domino placement area
         debug_height = self.table_height + 0.002
         # Bottom edge (y_lb)
-        p.addUserDebugLine([x_lb, y_lb, debug_height], 
-                           [x_ub, y_lb, debug_height], [0, 1, 0], 2,
+        p.addUserDebugLine([x_lb, y_lb, debug_height],
+                           [x_ub, y_lb, debug_height], [0, 1, 0],
+                           2,
                            parentObjectUniqueId=-1,
                            parentLinkIndex=-1)
         # Top edge (y_ub)
-        p.addUserDebugLine([x_lb, y_ub, debug_height], 
-                           [x_ub, y_ub, debug_height], [0, 1, 0], 2,
+        p.addUserDebugLine([x_lb, y_ub, debug_height],
+                           [x_ub, y_ub, debug_height], [0, 1, 0],
+                           2,
                            parentObjectUniqueId=-1,
                            parentLinkIndex=-1)
         # Left edge (x_lb)
-        p.addUserDebugLine([x_lb, y_lb, debug_height], 
-                           [x_lb, y_ub, debug_height], [0, 1, 0], 2,
+        p.addUserDebugLine([x_lb, y_lb, debug_height],
+                           [x_lb, y_ub, debug_height], [0, 1, 0],
+                           2,
                            parentObjectUniqueId=-1,
                            parentLinkIndex=-1)
         # Right edge (x_ub)
-        p.addUserDebugLine([x_ub, y_lb, debug_height], 
-                           [x_ub, y_ub, debug_height], [0, 1, 0], 2,
+        p.addUserDebugLine([x_ub, y_lb, debug_height],
+                           [x_ub, y_ub, debug_height], [0, 1, 0],
+                           2,
                            parentObjectUniqueId=-1,
                            parentLinkIndex=-1)
 

@@ -72,10 +72,14 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
     down_fan_y: ClassVar[float] = PyBulletDominoEnv.y_lb + 0.2 * 0.08 / 2 + 0.1
 
     # Fan placement boundaries
-    fan_y_lb: ClassVar[float] = down_fan_y + 0.2 * 0.08 / 2 + 1.5 * 0.08 / 2 + 0.01
-    fan_y_ub: ClassVar[float] = up_fan_y - 0.2 * 0.08 / 2 - 1.5 * 0.08 / 2 - 0.01
-    fan_x_lb: ClassVar[float] = left_fan_x + 0.2 * 0.08 / 2 + 1.5 * 0.08 / 2 + 0.01
-    fan_x_ub: ClassVar[float] = right_fan_x - 0.2 * 0.08 / 2 - 1.5 * 0.08 / 2 - 0.01
+    fan_y_lb: ClassVar[
+        float] = down_fan_y + 0.2 * 0.08 / 2 + 1.5 * 0.08 / 2 + 0.01
+    fan_y_ub: ClassVar[
+        float] = up_fan_y - 0.2 * 0.08 / 2 - 1.5 * 0.08 / 2 - 0.01
+    fan_x_lb: ClassVar[
+        float] = left_fan_x + 0.2 * 0.08 / 2 + 1.5 * 0.08 / 2 + 0.01
+    fan_x_ub: ClassVar[
+        float] = right_fan_x - 0.2 * 0.08 / 2 - 1.5 * 0.08 / 2 - 0.01
 
     # =========================================================================
     # SWITCH CONFIGURATION
@@ -87,19 +91,23 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
     switch_height: ClassVar[float] = 0.08
 
     # Switch positioning
-    switch_y: ClassVar[float] = (PyBulletDominoEnv.y_lb + PyBulletDominoEnv.y_ub) * 0.5 - 0.25
+    switch_y: ClassVar[float] = (PyBulletDominoEnv.y_lb +
+                                 PyBulletDominoEnv.y_ub) * 0.5 - 0.25
     switch_base_x: ClassVar[float] = 0.60
     switch_x_spacing: ClassVar[float] = 0.08
 
     # =========================================================================
     # BALL CONFIGURATION
     # =========================================================================
-    ball_radius: ClassVar[float] = 0.05  # 50% larger for better collision impact
+    ball_radius: ClassVar[
+        float] = 0.05  # 50% larger for better collision impact
     ball_mass: ClassVar[float] = 0.5  # Heavy enough to topple dominoes
     ball_friction: ClassVar[float] = 0.5  # Moderate friction to control speed
-    ball_restitution: ClassVar[float] = 0.3  # Some bounciness for collision energy
+    ball_restitution: ClassVar[
+        float] = 0.3  # Some bounciness for collision energy
     ball_height_offset: ClassVar[float] = ball_radius
-    ball_linear_damping: ClassVar[float] = 0.5  # Moderate damping for controlled movement
+    ball_linear_damping: ClassVar[
+        float] = 0.5  # Moderate damping for controlled movement
     ball_angular_damping: ClassVar[float] = 0.3  # Some damping for stability
     ball_color: ClassVar[Tuple[float, float, float,
                                float]] = (0.0, 0.0, 1.0, 1)
@@ -108,8 +116,7 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
     target_thickness: ClassVar[float] = 0.00001
     target_mass: ClassVar[float] = 0.0
     target_friction: ClassVar[float] = 0.04
-    target_color: ClassVar[Tuple[float, float, float,
-                                 float]] = (0, 1, 0, 1.0)
+    target_color: ClassVar[Tuple[float, float, float, float]] = (0, 1, 0, 1.0)
 
     def __init__(self, use_gui: bool = True) -> None:
         """Initialize the domino-fan environment."""
@@ -170,10 +177,9 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         self._Controls = Predicate("Controls",
                                    [self._switch_type, self._fan_type],
                                    self._Controls_holds)
-        self._BallAtTarget = Predicate("BallAtTarget",
-                                       [self._ball_type,
-                                        self._ball_target_type],
-                                       self._BallAtTarget_holds)
+        self._BallAtTarget = Predicate(
+            "BallAtTarget", [self._ball_type, self._ball_target_type],
+            self._BallAtTarget_holds)
 
     @classmethod
     def get_name(cls) -> str:
@@ -287,13 +293,14 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
             position=(0.75, 1.35, cls.table_height + cls.ball_height_offset),
             orientation=p.getQuaternionFromEuler([0, 0, 0]),
             physics_client_id=physics_client_id)
-        p.changeDynamics(ball_id,
-                         -1,
-                         linearDamping=cls.ball_linear_damping,
-                         angularDamping=cls.ball_angular_damping,
-                         restitution=cls.ball_restitution,
-                         ccdSweptSphereRadius=cls.ball_radius * 0.9,  # Enable CCD
-                         physicsClientId=physics_client_id)
+        p.changeDynamics(
+            ball_id,
+            -1,
+            linearDamping=cls.ball_linear_damping,
+            angularDamping=cls.ball_angular_damping,
+            restitution=cls.ball_restitution,
+            ccdSweptSphereRadius=cls.ball_radius * 0.9,  # Enable CCD
+            physicsClientId=physics_client_id)
         bodies["ball_id"] = ball_id
 
         # Create ball target (flat green marker)
@@ -432,9 +439,8 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         joint_id = self._get_joint_id(switch_id, "joint_0")
         if joint_id < 0:
             return False
-        j_pos, _, _, _ = p.getJointState(switch_id,
-                                         joint_id,
-                                         physicsClientId=self._physics_client_id)
+        j_pos, _, _, _ = p.getJointState(
+            switch_id, joint_id, physicsClientId=self._physics_client_id)
         info = p.getJointInfo(switch_id,
                               joint_id,
                               physicsClientId=self._physics_client_id)
@@ -472,7 +478,8 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         return final_state
 
     def _simulate_fans(self) -> None:
-        """Spin fans and apply forces to ball (ball can then collide with dominoes)."""
+        """Spin fans and apply forces to ball (ball can then collide with
+        dominoes)."""
         for ctrl_fan_idx, switch_obj in enumerate(self._switches):
             on = self._is_switch_on(switch_obj.id)
             fan_obj = self._fans[ctrl_fan_idx]
@@ -511,7 +518,8 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
                         )
 
     def _apply_fan_force_to_ball(self, fan_id: int, ball_id: int) -> None:
-        """Apply wind force from fan to ball (ball can then collide with dominoes)."""
+        """Apply wind force from fan to ball (ball can then collide with
+        dominoes)."""
         _, orn_fan = p.getBasePositionAndOrientation(
             fan_id, physicsClientId=self._physics_client_id)
 
@@ -631,19 +639,21 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
 
     def _generate_train_tasks(self) -> List[EnvironmentTask]:
         """Generate training tasks."""
-        return self._make_tasks(num_tasks=CFG.num_train_tasks,
-                                possible_num_dominos=CFG.domino_train_num_dominos,
-                                possible_num_targets=CFG.domino_train_num_targets,
-                                possible_num_pivots=CFG.domino_train_num_pivots,
-                                rng=self._train_rng)
+        return self._make_tasks(
+            num_tasks=CFG.num_train_tasks,
+            possible_num_dominos=CFG.domino_train_num_dominos,
+            possible_num_targets=CFG.domino_train_num_targets,
+            possible_num_pivots=CFG.domino_train_num_pivots,
+            rng=self._train_rng)
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         """Generate test tasks."""
-        return self._make_tasks(num_tasks=CFG.num_test_tasks,
-                                possible_num_dominos=CFG.domino_test_num_dominos,
-                                possible_num_targets=CFG.domino_test_num_targets,
-                                possible_num_pivots=CFG.domino_test_num_pivots,
-                                rng=self._test_rng)
+        return self._make_tasks(
+            num_tasks=CFG.num_test_tasks,
+            possible_num_dominos=CFG.domino_test_num_dominos,
+            possible_num_targets=CFG.domino_test_num_targets,
+            possible_num_pivots=CFG.domino_test_num_pivots,
+            rng=self._test_rng)
 
     def _make_tasks(self,
                     num_tasks: int,
@@ -664,8 +674,9 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
 
         for i_task in range(num_tasks):
             # Decide task type with multiple options
-            task_types = ["domino_only", "ball_only", "combined", 
-                          "ball_helps_domino"]
+            task_types = [
+                "domino_only", "ball_only", "combined", "ball_helps_domino"
+            ]
             # Weighted selection - adjust these weights as needed
             # weights = [0.3, 0.3, 0.2, 0.2]
             weights = [0, 0, 0, 1]
@@ -673,12 +684,19 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
 
             if task_type == "domino_only":
                 task = self._generate_domino_goal_task(
-                    i_task, possible_num_dominos, possible_num_targets,
-                    possible_num_pivots, rng, log_debug,
+                    i_task,
+                    possible_num_dominos,
+                    possible_num_targets,
+                    possible_num_pivots,
+                    rng,
+                    log_debug,
                     include_active_ball=False)
             elif task_type == "ball_only":
                 task = self._generate_ball_goal_task(
-                    i_task, possible_num_dominos, rng, log_debug,
+                    i_task,
+                    possible_num_dominos,
+                    rng,
+                    log_debug,
                     include_dominoes_as_obstacles=True)
             elif task_type == "combined":
                 task = self._generate_combined_goal_task(
@@ -686,8 +704,12 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
                     possible_num_pivots, rng, log_debug)
             else:  # ball_helps_domino
                 task = self._generate_domino_goal_task(
-                    i_task, possible_num_dominos, possible_num_targets,
-                    possible_num_pivots, rng, log_debug,
+                    i_task,
+                    possible_num_dominos,
+                    possible_num_targets,
+                    possible_num_pivots,
+                    rng,
+                    log_debug,
                     include_active_ball=True)
 
             if task is not None:
@@ -696,8 +718,11 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         return self._add_pybullet_state_to_tasks(tasks)
 
     def _generate_domino_goal_task(
-            self, task_idx: int, possible_num_dominos: List[int],
-            possible_num_targets: List[int], possible_num_pivots: List[int],
+            self,
+            task_idx: int,
+            possible_num_dominos: List[int],
+            possible_num_targets: List[int],
+            possible_num_pivots: List[int],
             rng: np.random.Generator,
             log_debug: bool,
             include_active_ball: bool = False) -> Optional[EnvironmentTask]:
@@ -734,13 +759,14 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         for attempt_num in range(max_attempts):
             if log_debug:
                 print(f"\nAttempt {attempt_num} for task {task_idx}")
-            obj_dict = self._generate_domino_sequence(rng,
-                                    n_dominos,
-                                    n_targets,
-                                    n_pivots,
-                                    log_debug=log_debug,
-                                    task_idx=task_idx,
-                                    domino_in_upper_half=include_active_ball)
+            obj_dict = self._generate_domino_sequence(
+                rng,
+                n_dominos,
+                n_targets,
+                n_pivots,
+                log_debug=log_debug,
+                task_idx=task_idx,
+                domino_in_upper_half=include_active_ball)
             if obj_dict is not None:
                 if log_debug:
                     print("Found satisfying domino sequence")
@@ -759,7 +785,9 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         # Add fan/switch/ball objects
         if include_active_ball:
             # Place ball near the start of domino sequence where it can knock them down
-            self._add_fan_ball_objects_to_init_dict(init_dict, rng, all_off=True)
+            self._add_fan_ball_objects_to_init_dict(init_dict,
+                                                    rng,
+                                                    all_off=True)
             # Get first domino position
             first_domino = self.dominos[0]
             if first_domino in obj_dict:
@@ -773,7 +801,9 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
                 }
         else:
             # Ball in corner, out of the way
-            self._add_fan_ball_objects_to_init_dict(init_dict, rng, all_off=True)
+            self._add_fan_ball_objects_to_init_dict(init_dict,
+                                                    rng,
+                                                    all_off=True)
 
         init_state = utils.create_state_from_dict(init_dict)
 
@@ -793,11 +823,13 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         return EnvironmentTask(init_state, goal_atoms)
 
     def _generate_ball_goal_task(
-            self, task_idx: int,
-            possible_num_dominos: List[int],
-            rng: np.random.Generator,
-            log_debug: bool = False,
-            include_dominoes_as_obstacles: bool = False) -> Optional[EnvironmentTask]:
+        self,
+        task_idx: int,
+        possible_num_dominos: List[int],
+        rng: np.random.Generator,
+        log_debug: bool = False,
+        include_dominoes_as_obstacles: bool = False
+    ) -> Optional[EnvironmentTask]:
         """Generate task with ball-at-target goal.
 
         Ball must reach target position by controlling fans via switches.
@@ -842,8 +874,7 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         target_x = rng.uniform(self.x_lb + 0.05, self.x_ub - 0.05)
         target_y = rng.uniform(self.y_lb + 0.05, self.y_ub - 0.05)
         # Ensure target is far enough from start
-        while np.sqrt((target_x - ball_x)**2 +
-                      (target_y - ball_y)**2) < 0.15:
+        while np.sqrt((target_x - ball_x)**2 + (target_y - ball_y)**2) < 0.15:
             target_x = rng.uniform(self.x_lb + 0.05, self.x_ub - 0.05)
             target_y = rng.uniform(self.y_lb + 0.05, self.y_ub - 0.05)
 
@@ -863,8 +894,9 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
                 dom_x = rng.uniform(self.x_lb + 0.1, self.x_ub - 0.1)
                 dom_y = rng.uniform(self.y_lb + 0.1, self.y_ub - 0.1)
                 # Avoid placing too close to ball or target
-                while (np.sqrt((dom_x - ball_x)**2 + (dom_y - ball_y)**2) < 0.1 or
-                       np.sqrt((dom_x - target_x)**2 + (dom_y - target_y)**2) < 0.1):
+                while (np.sqrt((dom_x - ball_x)**2 + (dom_y - ball_y)**2) < 0.1
+                       or np.sqrt((dom_x - target_x)**2 +
+                                  (dom_y - target_y)**2) < 0.1):
                     dom_x = rng.uniform(self.x_lb + 0.1, self.x_ub - 0.1)
                     dom_y = rng.uniform(self.y_lb + 0.1, self.y_ub - 0.1)
 
@@ -882,13 +914,18 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
                 }
 
         init_state = utils.create_state_from_dict(init_dict)
-        goal = {GroundAtom(self._BallAtTarget, [self._ball, self._ball_target])}
+        goal = {
+            GroundAtom(self._BallAtTarget, [self._ball, self._ball_target])
+        }
 
         return EnvironmentTask(init_state, goal)
 
     def _generate_combined_goal_task(
-            self, task_idx: int, possible_num_dominos: List[int],
-            possible_num_targets: List[int], possible_num_pivots: List[int],
+            self,
+            task_idx: int,
+            possible_num_dominos: List[int],
+            possible_num_targets: List[int],
+            possible_num_pivots: List[int],
             rng: np.random.Generator,
             log_debug: bool = False) -> Optional[EnvironmentTask]:
         """Generate task with BOTH domino and ball goals.
@@ -975,7 +1012,8 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         goal_atoms = set()
 
         # Add ball goal
-        goal_atoms.add(GroundAtom(self._BallAtTarget, [self._ball, self._ball_target]))
+        goal_atoms.add(
+            GroundAtom(self._BallAtTarget, [self._ball, self._ball_target]))
 
         # Add domino goals
         if CFG.domino_use_domino_blocks_as_target:
@@ -1029,19 +1067,13 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         # Switches
         for switch_obj in self._switches:
             init_dict[switch_obj] = {
-                "x":
-                self.switch_base_x +
+                "x": self.switch_base_x +
                 self.switch_x_spacing * switch_obj.side_idx,
-                "y":
-                self.switch_y,
-                "z":
-                self.table_height,
-                "rot":
-                np.pi / 2,
-                "controls_fan":
-                float(switch_obj.side_idx),
-                "is_on":
-                0.0 if all_off else float(rng.random() > 0.5),
+                "y": self.switch_y,
+                "z": self.table_height,
+                "rot": np.pi / 2,
+                "controls_fan": float(switch_obj.side_idx),
+                "is_on": 0.0 if all_off else float(rng.random() > 0.5),
             }
 
         # Sides
@@ -1096,7 +1128,6 @@ if __name__ == "__main__":
     # Create environment
     env = PyBulletDominoFanEnv(use_gui=True)
 
-
     # Generate test tasks
     tasks = env._generate_test_tasks()
 
@@ -1107,20 +1138,17 @@ if __name__ == "__main__":
         print(f"{'=' * 60}")
 
         # Determine task type
-        has_ball_goal = any(
-            atom.predicate == env._BallAtTarget for atom in task.goal)
-        has_domino_goal = any(
-            atom.predicate == env._Toppled for atom in task.goal)
-
+        has_ball_goal = any(atom.predicate == env._BallAtTarget
+                            for atom in task.goal)
+        has_domino_goal = any(atom.predicate == env._Toppled
+                              for atom in task.goal)
 
         # Reset to initial state
         env._reset_state(task.init)
 
-
         print(f"\nGoal atoms:")
         for atom in task.goal:
             print(f"  {atom}")
-
 
         try:
             for step in range(1000):

@@ -2,8 +2,8 @@
 
 from .nsrts import PyBulletDominoGroundTruthNSRTFactory
 from .options import PyBulletDominoGroundTruthOptionFactory
-from .processes_grid import PyBulletDominoGridGroundTruthProcessFactory
 from .processes import PyBulletDominoGroundTruthProcessFactory
+from .processes_grid import PyBulletDominoGridGroundTruthProcessFactory
 
 __all__ = [
     "PyBulletDominoGroundTruthNSRTFactory",
