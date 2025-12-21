@@ -2,8 +2,8 @@
 
 This environment extends PyBulletDominoEnv with:
 - Dominoes that can topple through collisions (from base domino env)
-- A ball that can be blown by fans (fans do NOT affect dominoes)
-- Fans controlled by switches
+- A ball that can be blown by fans AND can knock down dominoes through collisions
+- Fans controlled by switches (fans affect ball only, not dominoes directly)
 - Continuous positioning for the ball (not grid-based)
 - All assets (fans, switches, ball, dominoes) are loaded in every task
 - Tasks have ONE goal type: either all dominoes toppled OR ball at target
@@ -35,8 +35,8 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
     """A PyBullet environment combining dominoes and fan-blown ball.
 
     Extends PyBulletDominoEnv with:
-    - Ball that is blown by fans (from fan env)
-    - Fans do NOT affect dominoes
+    - Ball that is blown by fans and can knock down dominoes through collisions
+    - Fans affect ball only (not dominoes directly)
     - Continuous positioning for ball (not grid-based)
     - All assets (fans, switches, ball, dominoes) present in every task
     - Tasks can have domino goals OR ball goals (one type per task)
@@ -60,7 +60,7 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
 
     # Fan Motor & Physics
     fan_spin_velocity: ClassVar[float] = 100.0
-    wind_force_magnitude: ClassVar[float] = 0.4
+    wind_force_magnitude: ClassVar[float] = 2  # Balanced for controlled speed
     joint_motor_force: ClassVar[float] = 20.0
 
     # Fan Positioning (calculated based on parent workspace)
@@ -94,12 +94,13 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
     # =========================================================================
     # BALL CONFIGURATION
     # =========================================================================
-    ball_radius: ClassVar[float] = 0.04
-    ball_mass: ClassVar[float] = 0.01
-    ball_friction: ClassVar[float] = 10.0
+    ball_radius: ClassVar[float] = 0.05  # 50% larger for better collision impact
+    ball_mass: ClassVar[float] = 0.5  # Heavy enough to topple dominoes
+    ball_friction: ClassVar[float] = 0.5  # Moderate friction to control speed
+    ball_restitution: ClassVar[float] = 0.3  # Some bounciness for collision energy
     ball_height_offset: ClassVar[float] = ball_radius
-    ball_linear_damping: ClassVar[float] = 10.0
-    ball_angular_damping: ClassVar[float] = 10.0
+    ball_linear_damping: ClassVar[float] = 0.5  # Moderate damping for controlled movement
+    ball_angular_damping: ClassVar[float] = 0.3  # Some damping for stability
     ball_color: ClassVar[Tuple[float, float, float,
                                float]] = (0.0, 0.0, 1.0, 1)
 
@@ -290,6 +291,8 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
                          -1,
                          linearDamping=cls.ball_linear_damping,
                          angularDamping=cls.ball_angular_damping,
+                         restitution=cls.ball_restitution,
+                         ccdSweptSphereRadius=cls.ball_radius * 0.9,  # Enable CCD
                          physicsClientId=physics_client_id)
         bodies["ball_id"] = ball_id
 
@@ -469,7 +472,7 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         return final_state
 
     def _simulate_fans(self) -> None:
-        """Spin fans and apply forces to ball ONLY (not dominoes)."""
+        """Spin fans and apply forces to ball (ball can then collide with dominoes)."""
         for ctrl_fan_idx, switch_obj in enumerate(self._switches):
             on = self._is_switch_on(switch_obj.id)
             fan_obj = self._fans[ctrl_fan_idx]
@@ -490,7 +493,7 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
                             force=self.joint_motor_force,
                             physicsClientId=self._physics_client_id,
                         )
-                # Apply force ONLY to ball (not dominoes)
+                # Apply force to ball (ball can collide with and topple dominoes)
                 self._apply_fan_force_to_ball(fan_obj.fan_ids[0],
                                               self._ball.id)
             else:
@@ -508,7 +511,7 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
                         )
 
     def _apply_fan_force_to_ball(self, fan_id: int, ball_id: int) -> None:
-        """Apply wind force from fan to ball ONLY."""
+        """Apply wind force from fan to ball (ball can then collide with dominoes)."""
         _, orn_fan = p.getBasePositionAndOrientation(
             fan_id, physicsClientId=self._physics_client_id)
 
@@ -1120,7 +1123,7 @@ if __name__ == "__main__":
 
 
         try:
-            for step in range(100):
+            for step in range(1000):
                 # Use null action (stay in place)
                 action = Action(
                     np.array(env._pybullet_robot.initial_joint_positions))
@@ -1131,6 +1134,6 @@ if __name__ == "__main__":
                     time.sleep(2)
                     break
 
-                time.sleep(0.01)
+                time.sleep(0.03)
         except KeyboardInterrupt:
             continue
