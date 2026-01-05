@@ -31,7 +31,7 @@ class StairsComponent(DominoEnvComponent):
     stair_width: ClassVar[float] = 0.078  # Slightly larger than domino width
     stair_depth: ClassVar[float] = 0.078  # Square base
     base_stair_height: ClassVar[float] = 0.02  # Base height for first stair
-    stair_height_increment: ClassVar[float] = 0.005  # Height increase per domino
+    stair_height_increment: ClassVar[float] = 0.008  # Height increase per domino
     
     stair_mass: ClassVar[float] = 0.0  # Static
     stair_friction: ClassVar[float] = 0.5
