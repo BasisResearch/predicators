@@ -686,7 +686,7 @@ if __name__ == "__main__":
             print(f"  {atom}")
 
         try:
-            for step in range(500):
+            for step in range(100000):
                 action = Action(
                     np.array(env._pybullet_robot.initial_joint_positions))
                 state = env.step(action)
