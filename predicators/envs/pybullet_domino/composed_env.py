@@ -20,6 +20,8 @@ from predicators.envs.pybullet_domino.components.fan_component import \
     FanComponent
 from predicators.envs.pybullet_domino.components.ramp_component import \
     RampComponent
+from predicators.envs.pybullet_domino.components.stairs_component import \
+    StairsComponent
 from predicators.envs.pybullet_domino.task_generators.domino_task_generator import \
     DominoTaskGenerator
 from predicators.envs.pybullet_env import PyBulletEnv
@@ -543,13 +545,84 @@ class PyBulletDominoFanRampEnv(PyBulletDominoComposedEnv):
         return preds
 
 
+class PyBulletDominoFanRampStairsEnv(PyBulletDominoComposedEnv):
+    """Domino + fan + ball + ramp + stairs environment class."""
+
+    def __init__(self, use_gui: bool = True) -> None:
+        workspace_bounds = {
+            "x_lb": self.x_lb,
+            "x_ub": self.x_ub,
+            "y_lb": self.y_lb,
+            "y_ub": self.y_ub,
+            "z_lb": self.z_lb,
+            "z_ub": self.z_ub,
+        }
+
+        max_dominos = max(max(CFG.domino_train_num_dominos),
+                          max(CFG.domino_test_num_dominos))
+        max_targets = max(max(CFG.domino_train_num_targets),
+                          max(CFG.domino_test_num_targets))
+        max_pivots = max(max(CFG.domino_train_num_pivots),
+                         max(CFG.domino_test_num_pivots))
+
+        domino_comp = DominoComponent(num_dominos_max=max_dominos,
+                                      num_targets_max=max_targets,
+                                      num_pivots_max=max_pivots,
+                                      workspace_bounds=workspace_bounds)
+
+        fan_comp = FanComponent(workspace_bounds=workspace_bounds,
+                                table_height=self.table_height,
+                                table_width=self.table_width)
+
+        ball_comp = BallComponent(workspace_bounds=workspace_bounds,
+                                  table_height=self.table_height)
+
+        ramp_comp = RampComponent(workspace_bounds=workspace_bounds,
+                                  table_height=self.table_height,
+                                  max_ramps=5)
+
+        # Stairs component needs reference to domino type for positioning
+        stairs_comp = StairsComponent(workspace_bounds=workspace_bounds,
+                                      table_height=self.table_height,
+                                      domino_type=domino_comp.domino_type,
+                                      enabled=True)
+
+        super().__init__(components=[
+            domino_comp, fan_comp, ball_comp, ramp_comp, stairs_comp
+        ],
+                         use_gui=use_gui)
+
+        # Store reference to stairs component
+        self._stairs_component = stairs_comp
+
+    @classmethod
+    def get_name(cls) -> str:
+        return "pybullet_domino_fan_ramp_stairs"
+
+    @property
+    def predicates(self) -> Set[Predicate]:
+        """Include BallAtTarget in predicates."""
+        preds = super().predicates
+        if self._ball_component is not None:
+            preds.add(self._ball_component.BallAtTarget)
+        return preds
+
+    @property
+    def goal_predicates(self) -> Set[Predicate]:
+        """Goals can be ball at target OR dominoes toppled."""
+        preds = super().goal_predicates
+        if self._ball_component is not None:
+            preds.add(self._ball_component.BallAtTarget)
+        return preds
+
+
 if __name__ == "__main__":
     import sys
     import time
 
     # Choose which environment to test
-    # Options: "domino", "domino_fan", "domino_fan_ramp"
-    test_env = "domino_fan_ramp"  # Change this to test different environments
+    # Options: "domino", "domino_fan", "domino_fan_ramp", "domino_fan_ramp_stairs"
+    test_env = "domino_fan_ramp_stairs"  # Change this to test different environments
     if len(sys.argv) > 1:
         test_env = sys.argv[1]
 
@@ -584,6 +657,10 @@ if __name__ == "__main__":
         print("Creating PyBulletDominoFanRampEnv...")
         CFG.env = "pybullet_domino_fan_ramp"
         env = PyBulletDominoFanRampEnv(use_gui=True)
+    elif test_env == "domino_fan_ramp_stairs":
+        print("Creating PyBulletDominoFanRampStairsEnv...")
+        CFG.env = "pybullet_domino_fan_ramp_stairs"
+        env = PyBulletDominoFanRampStairsEnv(use_gui=True)
     else:
         raise ValueError(f"Unknown environment: {test_env}")
 
