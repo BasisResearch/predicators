@@ -19,14 +19,16 @@ from predicators.structs import Object, Predicate, State, Type
 class DominoEnvComponent(ABC):
     """Abstract base class for all domino environment components.
 
-    Components encapsulate specific functionality (e.g., dominoes, fans, balls)
-    and can be composed together to create different environment configurations.
+    Components encapsulate specific functionality (e.g., dominoes, fans,
+    balls) and can be composed together to create different environment
+    configurations.
     """
 
     def __init__(self) -> None:
         """Initialize the component.
 
-        Subclasses should create their types, predicates, and objects here.
+        Subclasses should create their types, predicates, and objects
+        here.
         """
         self._physics_client_id: Optional[int] = None
 
@@ -46,7 +48,8 @@ class DominoEnvComponent(ABC):
     def get_predicates(self) -> Set[Predicate]:
         """Return the predicates introduced by this component.
 
-        These predicates will be added to the environment's predicate set.
+        These predicates will be added to the environment's predicate
+        set.
         """
         raise NotImplementedError
 
@@ -123,15 +126,16 @@ class DominoEnvComponent(ABC):
     def set_physics_client_id(self, physics_client_id: int) -> None:
         """Set the physics client ID for this component.
 
-        Called by the composed environment after PyBullet initialization.
+        Called by the composed environment after PyBullet
+        initialization.
         """
         self._physics_client_id = physics_client_id
 
     def step(self) -> None:
         """Called each simulation step.
 
-        Override this method to add per-step physics updates (e.g., wind forces
-        from fans). By default, does nothing.
+        Override this method to add per-step physics updates (e.g., wind
+        forces from fans). By default, does nothing.
         """
         pass
 

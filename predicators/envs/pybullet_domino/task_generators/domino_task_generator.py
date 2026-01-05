@@ -39,17 +39,17 @@ class DominoTaskGenerator(TaskGenerator):
         self.robot_init_state = robot_init_state
         self.additional_components = additional_components or []
 
-    def generate_tasks(self,
-                       num_tasks: int,
-                       rng: np.random.Generator,
-                       log_debug: bool = False,
-                       possible_num_dominos: Optional[List[int]] = None,
-                       possible_num_targets: Optional[List[int]] = None,
-                       possible_num_pivots: Optional[List[int]] = None,
-                       domino_in_upper_half: bool = False
-                       ) -> List[EnvironmentTask]:
+    def generate_tasks(
+            self,
+            num_tasks: int,
+            rng: np.random.Generator,
+            log_debug: bool = False,
+            possible_num_dominos: Optional[List[int]] = None,
+            possible_num_targets: Optional[List[int]] = None,
+            possible_num_pivots: Optional[List[int]] = None,
+            domino_in_upper_half: bool = False) -> List[EnvironmentTask]:
         """Generate domino sequence tasks.
-        
+
         Args:
             domino_in_upper_half: If True, shift dominoes to upper half of workspace
                                  (useful when ball needs space in lower half).
@@ -63,9 +63,11 @@ class DominoTaskGenerator(TaskGenerator):
 
         tasks = []
         for i_task in range(num_tasks):
-            task = self._generate_single_task(
-                i_task, rng, possible_num_dominos, possible_num_targets,
-                possible_num_pivots, log_debug, domino_in_upper_half)
+            task = self._generate_single_task(i_task, rng,
+                                              possible_num_dominos,
+                                              possible_num_targets,
+                                              possible_num_pivots, log_debug,
+                                              domino_in_upper_half)
             if task is not None:
                 tasks.append(task)
 
@@ -100,9 +102,10 @@ class DominoTaskGenerator(TaskGenerator):
         for attempt_num in range(max_attempts):
             if log_debug:
                 print(f"\nAttempt {attempt_num} for task {task_idx}")
-            obj_dict = self._generate_domino_sequence(rng, n_dominos, n_targets,
-                                                      n_pivots, log_debug,
-                                                      task_idx, domino_in_upper_half)
+            obj_dict = self._generate_domino_sequence(rng, n_dominos,
+                                                      n_targets, n_pivots,
+                                                      log_debug, task_idx,
+                                                      domino_in_upper_half)
             if obj_dict is not None:
                 if log_debug:
                     print("Found satisfying domino sequence")
@@ -139,15 +142,15 @@ class DominoTaskGenerator(TaskGenerator):
 
         return EnvironmentTask(init_state, goal_atoms)
 
-    def _generate_domino_sequence(self,
-                                  rng: np.random.Generator,
-                                  n_dominos: int,
-                                  n_targets: int,
-                                  n_pivots: int,
-                                  log_debug: bool = False,
-                                  task_idx: Optional[int] = None,
-                                  domino_in_upper_half: bool = False
-                                  ) -> Optional[Dict]:
+    def _generate_domino_sequence(
+            self,
+            rng: np.random.Generator,
+            n_dominos: int,
+            n_targets: int,
+            n_pivots: int,
+            log_debug: bool = False,
+            task_idx: Optional[int] = None,
+            domino_in_upper_half: bool = False) -> Optional[Dict]:
         """Generate a sequence of dominoes, targets, and pivots."""
         obj_dict: Dict[Object, Dict[str, Any]] = {}
         domino_count = 0
@@ -173,7 +176,12 @@ class DominoTaskGenerator(TaskGenerator):
 
         # Place first domino (start block)
         obj_dict[self.domino.dominos[domino_count]] = self.domino.place_domino(
-            domino_count, x, y, rotation, is_start_block=True, rng=rng,
+            domino_count,
+            x,
+            y,
+            rotation,
+            is_start_block=True,
+            rng=rng,
             task_idx=task_idx)
         domino_count += 1
 
@@ -182,10 +190,12 @@ class DominoTaskGenerator(TaskGenerator):
                                               n_dominos, n_targets):
             can_place_target = (domino_count >= 2 and target_count < n_targets
                                 and not just_placed_target)
-            expected_count = self._get_expected_domino_count(n_dominos, n_targets)
+            expected_count = self._get_expected_domino_count(
+                n_dominos, n_targets)
             can_place_domino = domino_count < expected_count
 
-            should_place_domino = (not can_place_target or rng.random() > 0.5) and can_place_domino
+            should_place_domino = (not can_place_target
+                                   or rng.random() > 0.5) and can_place_domino
 
             if should_place_domino:
                 result = self._place_next_domino(
@@ -201,9 +211,10 @@ class DominoTaskGenerator(TaskGenerator):
                 just_turned_90 = result.just_turned_90
                 just_placed_target = result.just_placed_target
             else:
-                result = self._place_next_target(
-                    rng, obj_dict, x, y, rotation, gap, domino_count,
-                    target_count, _in_bounds, task_idx)
+                result = self._place_next_target(rng, obj_dict, x, y, rotation,
+                                                 gap, domino_count,
+                                                 target_count, _in_bounds,
+                                                 task_idx)
                 if not result.success:
                     return None
                 x, y, rotation = result.x, result.y, result.rotation
@@ -212,12 +223,14 @@ class DominoTaskGenerator(TaskGenerator):
                 just_placed_target = True
                 just_turned_90 = False
 
-        if self._check_placement_complete(domino_count, target_count, pivot_count,
-                                          n_dominos, n_targets, n_pivots):
+        if self._check_placement_complete(domino_count, target_count,
+                                          pivot_count, n_dominos, n_targets,
+                                          n_pivots):
             return obj_dict
         return None
 
-    def _get_expected_domino_count(self, n_dominos: int, n_targets: int) -> int:
+    def _get_expected_domino_count(self, n_dominos: int,
+                                   n_targets: int) -> int:
         if CFG.domino_use_domino_blocks_as_target:
             return n_dominos + n_targets
         return n_dominos
@@ -242,12 +255,18 @@ class DominoTaskGenerator(TaskGenerator):
     def _place_next_domino(self,
                            rng: np.random.Generator,
                            obj_dict: Dict,
-                           x: float, y: float, rotation: float,
+                           x: float,
+                           y: float,
+                           rotation: float,
                            gap: float,
-                           domino_count: int, pivot_count: int,
-                           target_count: int, n_pivots: int,
-                           n_dominos: int, n_targets: int,
-                           just_placed_target: bool, just_turned_90: bool,
+                           domino_count: int,
+                           pivot_count: int,
+                           target_count: int,
+                           n_pivots: int,
+                           n_dominos: int,
+                           n_targets: int,
+                           just_placed_target: bool,
+                           just_turned_90: bool,
                            _in_bounds: Callable[[float, float], bool],
                            task_idx: Optional[int] = None) -> PlacementResult:
         """Place the next domino using various strategies."""
@@ -262,7 +281,9 @@ class DominoTaskGenerator(TaskGenerator):
         choice = rng.choice(turn_choices)
 
         should_place_target_at_end = False
-        if CFG.domino_use_domino_blocks_as_target and choice in ["turn90", "pivot180"]:
+        if CFG.domino_use_domino_blocks_as_target and choice in [
+                "turn90", "pivot180"
+        ]:
             if target_count < n_targets and rng.random() > 0.5:
                 should_place_target_at_end = True
 
@@ -280,30 +301,42 @@ class DominoTaskGenerator(TaskGenerator):
                                                gap, domino_count, pivot_count,
                                                _in_bounds, task_idx,
                                                should_place_target_at_end)
-        return self._place_straight_domino(rng, obj_dict, x, y, rotation,
-                                           gap, domino_count, _in_bounds,
-                                           task_idx)
+        return self._place_straight_domino(rng, obj_dict, x, y, rotation, gap,
+                                           domino_count, _in_bounds, task_idx)
 
     def _place_straight_domino(self, rng, obj_dict, x, y, rotation, gap,
-                               domino_count, _in_bounds, task_idx) -> PlacementResult:
+                               domino_count, _in_bounds,
+                               task_idx) -> PlacementResult:
         dx = gap * np.sin(rotation)
         dy = gap * np.cos(rotation)
         new_x, new_y = x + dx, y + dy
 
         if not _in_bounds(new_x, new_y):
-            return PlacementResult(success=False, x=x, y=y, rotation=rotation,
+            return PlacementResult(success=False,
+                                   x=x,
+                                   y=y,
+                                   rotation=rotation,
                                    domino_count=domino_count)
 
         obj_dict[self.domino.dominos[domino_count]] = self.domino.place_domino(
-            domino_count, new_x, new_y, rotation, is_start_block=False,
-            rng=rng, task_idx=task_idx)
+            domino_count,
+            new_x,
+            new_y,
+            rotation,
+            is_start_block=False,
+            rng=rng,
+            task_idx=task_idx)
 
-        return PlacementResult(success=True, x=new_x, y=new_y, rotation=rotation,
+        return PlacementResult(success=True,
+                               x=new_x,
+                               y=new_y,
+                               rotation=rotation,
                                domino_count=domino_count + 1)
 
     def _place_turn90_domino(self, rng, obj_dict, x, y, rotation, gap,
                              domino_count, n_dominos, n_targets, _in_bounds,
-                             task_idx, should_place_target_at_end) -> PlacementResult:
+                             task_idx,
+                             should_place_target_at_end) -> PlacementResult:
         expected_count = self._get_expected_domino_count(n_dominos, n_targets)
         if domino_count + 1 >= expected_count:
             return self._place_straight_domino(rng, obj_dict, x, y, rotation,
@@ -317,45 +350,70 @@ class DominoTaskGenerator(TaskGenerator):
         d1_rot = rotation - turn_direction * np.pi / 4
 
         shift_magnitude = self.domino.domino_width * self.domino.turn_shift_frac
-        shift_dx = shift_magnitude * (turn_direction * np.cos(rotation) - np.sin(rotation))
-        shift_dy = shift_magnitude * (-turn_direction * np.sin(rotation) - np.cos(rotation))
+        shift_dx = shift_magnitude * (turn_direction * np.cos(rotation) -
+                                      np.sin(rotation))
+        shift_dy = shift_magnitude * (-turn_direction * np.sin(rotation) -
+                                      np.cos(rotation))
         d1_x = d1_base_x + shift_dx
         d1_y = d1_base_y + shift_dy
 
         if not _in_bounds(d1_x, d1_y):
-            return PlacementResult(success=False, x=x, y=y, rotation=rotation,
+            return PlacementResult(success=False,
+                                   x=x,
+                                   y=y,
+                                   rotation=rotation,
                                    domino_count=domino_count)
 
         obj_dict[self.domino.dominos[domino_count]] = self.domino.place_domino(
-            domino_count, d1_x, d1_y, d1_rot, is_start_block=False,
-            rng=rng, task_idx=task_idx)
+            domino_count,
+            d1_x,
+            d1_y,
+            d1_rot,
+            is_start_block=False,
+            rng=rng,
+            task_idx=task_idx)
         domino_count += 1
 
         d2_rot = d1_rot - turn_direction * np.pi / 4
         sin_d1 = np.sin(d1_rot)
         cos_d1 = np.cos(d1_rot)
-        disp_x = (gap * turn_direction * cos_d1 + (2 * shift_magnitude - gap) * sin_d1) / np.sqrt(2)
-        disp_y = (-gap * turn_direction * sin_d1 + (2 * shift_magnitude - gap) * cos_d1) / np.sqrt(2)
+        disp_x = (gap * turn_direction * cos_d1 +
+                  (2 * shift_magnitude - gap) * sin_d1) / np.sqrt(2)
+        disp_y = (-gap * turn_direction * sin_d1 +
+                  (2 * shift_magnitude - gap) * cos_d1) / np.sqrt(2)
         d2_x = d1_x + disp_x
         d2_y = d1_y + disp_y
 
         if not _in_bounds(d2_x, d2_y):
-            return PlacementResult(success=False, x=x, y=y, rotation=rotation,
+            return PlacementResult(success=False,
+                                   x=x,
+                                   y=y,
+                                   rotation=rotation,
                                    domino_count=domino_count)
 
         obj_dict[self.domino.dominos[domino_count]] = self.domino.place_domino(
-            domino_count, d2_x, d2_y, d2_rot, is_start_block=False,
-            is_target_block=should_place_target_at_end, rng=rng, task_idx=task_idx)
+            domino_count,
+            d2_x,
+            d2_y,
+            d2_rot,
+            is_start_block=False,
+            is_target_block=should_place_target_at_end,
+            rng=rng,
+            task_idx=task_idx)
 
         target_inc = 1 if should_place_target_at_end else 0
-        return PlacementResult(success=True, x=d2_x, y=d2_y, rotation=d2_rot,
+        return PlacementResult(success=True,
+                               x=d2_x,
+                               y=d2_y,
+                               rotation=d2_rot,
                                domino_count=domino_count + 1,
-                               target_count=target_inc, just_turned_90=True,
+                               target_count=target_inc,
+                               just_turned_90=True,
                                just_placed_target=should_place_target_at_end)
 
     def _place_pivot180_domino(self, rng, obj_dict, x, y, rotation, gap,
-                               domino_count, pivot_count, _in_bounds,
-                               task_idx, should_place_target_at_end) -> PlacementResult:
+                               domino_count, pivot_count, _in_bounds, task_idx,
+                               should_place_target_at_end) -> PlacementResult:
         pivot_direction = rng.choice([-1, 1])
         side_offset = self.domino.pivot_width / 2
 
@@ -365,11 +423,16 @@ class DominoTaskGenerator(TaskGenerator):
         pivot_y -= pivot_direction * side_offset * np.sin(rotation)
 
         if not _in_bounds(pivot_x, pivot_y):
-            return PlacementResult(success=False, x=x, y=y, rotation=rotation,
-                                   domino_count=domino_count, pivot_count=pivot_count)
+            return PlacementResult(success=False,
+                                   x=x,
+                                   y=y,
+                                   rotation=rotation,
+                                   domino_count=domino_count,
+                                   pivot_count=pivot_count)
 
-        obj_dict[self.domino.pivots[pivot_count]] = self.domino.place_pivot_or_target(
-            pivot_x, pivot_y, rotation)
+        obj_dict[self.domino.
+                 pivots[pivot_count]] = self.domino.place_pivot_or_target(
+                     pivot_x, pivot_y, rotation)
 
         domino_x = pivot_x - (gap * (2 / 3)) * np.sin(rotation)
         domino_y = pivot_y - (gap * (2 / 3)) * np.cos(rotation)
@@ -377,18 +440,32 @@ class DominoTaskGenerator(TaskGenerator):
         domino_y += pivot_direction * side_offset * -np.sin(rotation)
 
         if not _in_bounds(domino_x, domino_y):
-            return PlacementResult(success=False, x=x, y=y, rotation=rotation,
-                                   domino_count=domino_count, pivot_count=pivot_count)
+            return PlacementResult(success=False,
+                                   x=x,
+                                   y=y,
+                                   rotation=rotation,
+                                   domino_count=domino_count,
+                                   pivot_count=pivot_count)
 
         new_rotation = rotation + np.pi
         obj_dict[self.domino.dominos[domino_count]] = self.domino.place_domino(
-            domino_count, domino_x, domino_y, new_rotation, is_start_block=False,
-            is_target_block=should_place_target_at_end, rng=rng, task_idx=task_idx)
+            domino_count,
+            domino_x,
+            domino_y,
+            new_rotation,
+            is_start_block=False,
+            is_target_block=should_place_target_at_end,
+            rng=rng,
+            task_idx=task_idx)
 
         target_inc = 1 if should_place_target_at_end else 0
-        return PlacementResult(success=True, x=domino_x, y=domino_y,
-                               rotation=new_rotation, domino_count=domino_count + 1,
-                               pivot_count=pivot_count + 1, target_count=target_inc,
+        return PlacementResult(success=True,
+                               x=domino_x,
+                               y=domino_y,
+                               rotation=new_rotation,
+                               domino_count=domino_count + 1,
+                               pivot_count=pivot_count + 1,
+                               target_count=target_inc,
                                just_placed_target=should_place_target_at_end)
 
     def _place_next_target(self, rng, obj_dict, x, y, rotation, gap,
@@ -399,24 +476,42 @@ class DominoTaskGenerator(TaskGenerator):
         target_x, target_y = x + dx, y + dy
 
         if not _in_bounds(target_x, target_y):
-            return PlacementResult(success=False, x=x, y=y, rotation=rotation,
-                                   domino_count=domino_count, target_count=target_count)
+            return PlacementResult(success=False,
+                                   x=x,
+                                   y=y,
+                                   rotation=rotation,
+                                   domino_count=domino_count,
+                                   target_count=target_count)
 
         if CFG.domino_use_domino_blocks_as_target:
-            obj_dict[self.domino.dominos[domino_count]] = self.domino.place_domino(
-                domino_count, target_x, target_y, rotation,
-                is_target_block=True, rng=rng, task_idx=task_idx)
-            return PlacementResult(success=True, x=target_x, y=target_y,
-                                   rotation=rotation, domino_count=domino_count + 1,
+            obj_dict[
+                self.domino.dominos[domino_count]] = self.domino.place_domino(
+                    domino_count,
+                    target_x,
+                    target_y,
+                    rotation,
+                    is_target_block=True,
+                    rng=rng,
+                    task_idx=task_idx)
+            return PlacementResult(success=True,
+                                   x=target_x,
+                                   y=target_y,
+                                   rotation=rotation,
+                                   domino_count=domino_count + 1,
                                    target_count=target_count + 1)
         else:
-            obj_dict[self.domino.targets[target_count]] = self.domino.place_pivot_or_target(
-                target_x, target_y, rotation)
-            return PlacementResult(success=True, x=target_x, y=target_y,
-                                   rotation=rotation, domino_count=domino_count,
+            obj_dict[self.domino.targets[
+                target_count]] = self.domino.place_pivot_or_target(
+                    target_x, target_y, rotation)
+            return PlacementResult(success=True,
+                                   x=target_x,
+                                   y=target_y,
+                                   rotation=rotation,
+                                   domino_count=domino_count,
                                    target_count=target_count + 1)
 
-    def _move_intermediate_objects_to_unfinished_state(self, obj_dict: Dict) -> Dict:
+    def _move_intermediate_objects_to_unfinished_state(self,
+                                                       obj_dict: Dict) -> Dict:
         """Move intermediate dominoes and pivots to unfinished positions."""
         intermediate_objects = []
         eps = 1e-3
@@ -424,20 +519,33 @@ class DominoTaskGenerator(TaskGenerator):
         for domino in self.domino.dominos:
             if domino in obj_dict:
                 data = obj_dict[domino]
-                is_start = (abs(data.get("r", 0.0) - self.domino.start_domino_color[0]) < eps and
-                            abs(data.get("g", 0.0) - self.domino.start_domino_color[1]) < eps and
-                            abs(data.get("b", 0.0) - self.domino.start_domino_color[2]) < eps)
+                is_start = (abs(
+                    data.get("r", 0.0) -
+                    self.domino.start_domino_color[0]) < eps and abs(
+                        data.get("g", 0.0) - self.domino.start_domino_color[1])
+                            < eps and abs(
+                                data.get("b", 0.0) -
+                                self.domino.start_domino_color[2]) < eps)
 
                 is_target = False
                 if CFG.domino_use_domino_blocks_as_target:
                     is_target = (
-                        (abs(data.get("r", 0.0) - self.domino.target_domino_color[0]) < eps and
-                         abs(data.get("g", 0.0) - self.domino.target_domino_color[1]) < eps and
-                         abs(data.get("b", 0.0) - self.domino.target_domino_color[2]) < eps) or
-                        (abs(data.get("r", 0.0) - self.domino.glued_domino_color[0]) < eps and
-                         abs(data.get("g", 0.0) - self.domino.glued_domino_color[1]) < eps and
-                         abs(data.get("b", 0.0) - self.domino.glued_domino_color[2]) < eps)
-                    )
+                        (abs(
+                            data.get("r", 0.0) -
+                            self.domino.target_domino_color[0]) < eps and abs(
+                                data.get("g", 0.0) -
+                                self.domino.target_domino_color[1]) < eps
+                         and abs(
+                             data.get("b", 0.0) -
+                             self.domino.target_domino_color[2]) < eps)
+                        or (abs(
+                            data.get("r", 0.0) -
+                            self.domino.glued_domino_color[0]) < eps and abs(
+                                data.get("g", 0.0) -
+                                self.domino.glued_domino_color[1]) < eps
+                            and abs(
+                                data.get("b", 0.0) -
+                                self.domino.glued_domino_color[2]) < eps))
 
                 if not is_start and not is_target:
                     intermediate_objects.append((domino, "domino"))

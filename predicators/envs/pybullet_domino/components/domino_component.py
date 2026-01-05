@@ -410,10 +410,10 @@ class DominoComponent(DominoEnvComponent):
         """Check if domino is the start block (light green)."""
         domino, = objects
         eps = 1e-3
-        return (abs(state.get(domino, "r") - self.start_domino_color[0]) < eps
-                and abs(state.get(domino, "g") - self.start_domino_color[1]) <
-                eps and abs(state.get(domino, "b") -
-                            self.start_domino_color[2]) < eps)
+        return (
+            abs(state.get(domino, "r") - self.start_domino_color[0]) < eps
+            and abs(state.get(domino, "g") - self.start_domino_color[1]) < eps
+            and abs(state.get(domino, "b") - self.start_domino_color[2]) < eps)
 
     def _MovableBlock_holds(self, state: State,
                             objects: Sequence[Object]) -> bool:
@@ -425,14 +425,14 @@ class DominoComponent(DominoEnvComponent):
                 and abs(state.get(domino, "b") - self.domino_color[2]) < eps)
 
     def _TargetDomino_holds(self, state: State,
-                           objects: Sequence[Object]) -> bool:
+                            objects: Sequence[Object]) -> bool:
         """Check if domino is a target (pink or glued red)."""
         domino, = objects
         eps = 1e-3
         return (self._DominoGlued_holds(state, objects)) or (
-            abs(state.get(domino, "r") - self.target_domino_color[0]) < eps
-            and abs(state.get(domino, "g") - self.target_domino_color[1]) < eps
-            and abs(state.get(domino, "b") - self.target_domino_color[2]) < eps)
+            abs(state.get(domino, "r") - self.target_domino_color[0]) < eps and
+            abs(state.get(domino, "g") - self.target_domino_color[1]) < eps and
+            abs(state.get(domino, "b") - self.target_domino_color[2]) < eps)
 
     def _DominoNotGlued_holds(self, state: State,
                               objects: Sequence[Object]) -> bool:
@@ -513,7 +513,9 @@ class DominoComponent(DominoEnvComponent):
             "is_held": 0.0,
         }
 
-    def place_pivot_or_target(self, x: float, y: float,
+    def place_pivot_or_target(self,
+                              x: float,
+                              y: float,
                               rot: float = 0.0) -> Dict:
         """Create a dictionary with placement parameters for a pivot/target."""
         return {
@@ -549,23 +551,23 @@ class DominoComponent(DominoEnvComponent):
 
 
 def create_domino_block(
-        color: Tuple[float, float, float, float],
-        half_extents: Tuple[float, float, float],
-        mass: float,
-        friction: float,
-        position: Pose3D = (0.0, 0.0, 0.0),
-        orientation: Quaternion = (0.0, 0.0, 0.0, 1.0),
-        physics_client_id: int = 0,
-        add_top_triangle: bool = False,
-        *,
-        restitution: float = 0.02,
-        rolling_friction: float = 0.006,
-        spinning_friction: Optional[float] = None,
-        linear_damping: float = 0.0,
-        angular_damping: float = 0.03,
-        friction_anchor: bool = True,
-        ccd: bool = True,
-        ccd_swept_radius: Optional[float] = None,
+    color: Tuple[float, float, float, float],
+    half_extents: Tuple[float, float, float],
+    mass: float,
+    friction: float,
+    position: Pose3D = (0.0, 0.0, 0.0),
+    orientation: Quaternion = (0.0, 0.0, 0.0, 1.0),
+    physics_client_id: int = 0,
+    add_top_triangle: bool = False,
+    *,
+    restitution: float = 0.02,
+    rolling_friction: float = 0.006,
+    spinning_friction: Optional[float] = None,
+    linear_damping: float = 0.0,
+    angular_damping: float = 0.03,
+    friction_anchor: bool = True,
+    ccd: bool = True,
+    ccd_swept_radius: Optional[float] = None,
 ) -> int:
     """Create a domino-tuned block with appropriate physics settings."""
     block_id = create_pybullet_block(

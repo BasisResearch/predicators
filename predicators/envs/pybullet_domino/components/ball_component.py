@@ -39,8 +39,8 @@ class BallComponent(DominoEnvComponent):
     ball_restitution: ClassVar[float] = 0.3
     ball_linear_damping: ClassVar[float] = 0.5
     ball_angular_damping: ClassVar[float] = 0.3
-    ball_color: ClassVar[Tuple[float, float, float, float]] = (0.0, 0.0, 1.0,
-                                                               1.0)
+    ball_color: ClassVar[Tuple[float, float, float,
+                               float]] = (0.0, 0.0, 1.0, 1.0)
 
     # =========================================================================
     # TARGET CONFIGURATION
@@ -48,8 +48,8 @@ class BallComponent(DominoEnvComponent):
     target_thickness: ClassVar[float] = 0.00001
     target_mass: ClassVar[float] = 0.0
     target_friction: ClassVar[float] = 0.04
-    target_color: ClassVar[Tuple[float, float, float, float]] = (0.0, 1.0, 0.0,
-                                                                 1.0)
+    target_color: ClassVar[Tuple[float, float, float,
+                                 float]] = (0.0, 1.0, 0.0, 1.0)
 
     def __init__(self,
                  workspace_bounds: Optional[Dict[str, float]] = None,
@@ -267,7 +267,8 @@ class BallComponent(DominoEnvComponent):
             min_distance: float = 0.15
             target_x = rng.uniform(self.x_lb + 0.05, self.x_ub - 0.05)
             target_y = rng.uniform(self.y_lb + 0.05, self.y_ub - 0.05)
-            while np.sqrt((target_x - ball_x)**2 + (target_y - ball_y)**2) < min_distance:
+            while np.sqrt((target_x - ball_x)**2 +
+                          (target_y - ball_y)**2) < min_distance:
                 target_x = rng.uniform(self.x_lb + 0.05, self.x_ub - 0.05)
                 target_y = rng.uniform(self.y_lb + 0.05, self.y_ub - 0.05)
         else:

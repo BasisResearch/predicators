@@ -10,16 +10,16 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.envs.pybullet_domino.components.base_component import \
-    DominoEnvComponent
 from predicators.envs.pybullet_domino.components.ball_component import \
     BallComponent
+from predicators.envs.pybullet_domino.components.base_component import \
+    DominoEnvComponent
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.envs.pybullet_domino.components.fan_component import \
     FanComponent
-from predicators.envs.pybullet_domino.task_generators.domino_task_generator \
-    import DominoTaskGenerator
+from predicators.envs.pybullet_domino.task_generators.domino_task_generator import \
+    DominoTaskGenerator
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.camera import create_gui_connection
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
@@ -201,9 +201,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
 
         # Load robot
         robot_ee_orn = cls.get_robot_ee_home_orn()
-        ee_home = Pose(
-            (cls.robot_init_x, cls.robot_init_y, cls.robot_init_z),
-            robot_ee_orn)
+        ee_home = Pose((cls.robot_init_x, cls.robot_init_y, cls.robot_init_z),
+                       robot_ee_orn)
         base_pose = Pose(cls.robot_base_pos,
                          cls.robot_base_orn) if cls.robot_base_pos else None
         pybullet_robot = create_single_arm_pybullet_robot(
@@ -221,14 +220,14 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                                  physics_client_id=physics_client_id)
 
         # Add second table for more space
-        create_object(
-            asset_path="urdf/table.urdf",
-            position=(cls.table_pos[0], cls.table_pos[1] + cls.table_width / 2,
-                      cls.table_pos[2]),
-            orientation=cls.table_orn,
-            scale=1.0,
-            use_fixed_base=True,
-            physics_client_id=physics_client_id)
+        create_object(asset_path="urdf/table.urdf",
+                      position=(cls.table_pos[0],
+                                cls.table_pos[1] + cls.table_width / 2,
+                                cls.table_pos[2]),
+                      orientation=cls.table_orn,
+                      scale=1.0,
+                      use_fixed_base=True,
+                      physics_client_id=physics_client_id)
 
         bodies = {"table_id": table_id}
         return physics_client_id, pybullet_robot, bodies

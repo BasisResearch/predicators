@@ -239,10 +239,8 @@ class FanComponent(DominoEnvComponent):
     def store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
         """Store PyBullet body IDs on fan and switch objects."""
         fan_ids_by_side = [
-            pybullet_bodies["fan_ids_left"],
-            pybullet_bodies["fan_ids_right"],
-            pybullet_bodies["fan_ids_back"],
-            pybullet_bodies["fan_ids_front"]
+            pybullet_bodies["fan_ids_left"], pybullet_bodies["fan_ids_right"],
+            pybullet_bodies["fan_ids_back"], pybullet_bodies["fan_ids_front"]
         ]
 
         for side_idx, fan_obj in enumerate(self._fans):
@@ -487,7 +485,8 @@ class FanComponent(DominoEnvComponent):
     # -------------------------------------------------------------------------
 
     def get_init_dict_entries(
-            self, rng: "np.random.Generator",
+            self,
+            rng: "np.random.Generator",
             all_off: bool = True) -> Dict[Object, Dict[str, Any]]:
         """Return initial state dict entries for fans, switches, and sides."""
         init_dict: Dict[Object, Dict[str, Any]] = {}

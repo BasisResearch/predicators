@@ -11,10 +11,8 @@ Example usage:
     env = PyBulletDominoFanEnv(use_gui=True)
 """
 
-from predicators.envs.pybullet_domino.composed_env import (
-    PyBulletDominoEnvNew,
-    PyBulletDominoFanEnvNew,
-)
+from predicators.envs.pybullet_domino.composed_env import \
+    PyBulletDominoEnvNew, PyBulletDominoFanEnvNew
 
 # Backward-compatible aliases
 PyBulletDominoEnv = PyBulletDominoEnvNew
