@@ -98,10 +98,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         # Create robot object
         self._robot = Object("robot", self._robot_type)
 
-        # Create predicates for robot (HandEmpty, Holding)
-        self._create_robot_predicates()
-
         # Find specific component types for convenience
+        # (must be done before _create_robot_predicates)
         self._domino_component: Optional[DominoComponent] = None
         self._fan_component: Optional[FanComponent] = None
         self._ball_component: Optional[BallComponent] = None
@@ -113,6 +111,9 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 self._fan_component = comp
             elif isinstance(comp, BallComponent):
                 self._ball_component = comp
+
+        # Create predicates for robot (HandEmpty, Holding)
+        self._create_robot_predicates()
 
         # Wire up fan -> ball wind connection if both present
         # (done after PyBullet init in _store_pybullet_bodies)
