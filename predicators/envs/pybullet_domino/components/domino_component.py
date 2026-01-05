@@ -121,6 +121,13 @@ class DominoComponent(DominoEnvComponent):
         self.z_lb = workspace_bounds["z_lb"]
         self.z_ub = workspace_bounds["z_ub"]
 
+        # Domino-specific placement bounds (narrower than workspace)
+        # to avoid placing dominoes too close to edges
+        self.domino_y_lb = self.y_lb + self.domino_width  # 1.1 + 0.07 = 1.17
+        self.domino_y_ub = self.y_ub - 3 * self.domino_width  # 1.6 - 0.21 = 1.39
+        self.domino_x_lb = self.x_lb
+        self.domino_x_ub = self.x_ub
+
         # Create types
         self._domino_type = Type(
             "domino",

@@ -373,13 +373,18 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             robot_init_state=robot_init_state,
             additional_components=additional_components)
 
+        # If ball component is present, place dominoes in upper half
+        # to leave space for ball in lower half
+        domino_in_upper_half = self._ball_component is not None
+
         tasks = generator.generate_tasks(
             num_tasks=num_tasks,
             rng=rng,
             log_debug=log_debug,
             possible_num_dominos=possible_num_dominos,
             possible_num_targets=possible_num_targets,
-            possible_num_pivots=possible_num_pivots)
+            possible_num_pivots=possible_num_pivots,
+            domino_in_upper_half=domino_in_upper_half)
 
         return self._add_pybullet_state_to_tasks(tasks)
 

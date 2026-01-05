@@ -250,8 +250,8 @@ class BallComponent(DominoEnvComponent):
 
         # Ball position
         if ball_position is None:
-            ball_x = self.x_lb + 0.05
-            ball_y = self.y_lb + 0.05
+            ball_x = rng.uniform(self.x_lb + 0.05, self.x_ub - 0.05)
+            ball_y = rng.uniform(self.y_lb + 0.05, self.y_ub - 0.05)
         else:
             ball_x, ball_y = ball_position
 
@@ -263,8 +263,13 @@ class BallComponent(DominoEnvComponent):
 
         # Target position
         if target_position is None:
-            target_x = self.x_ub - 0.05
-            target_y = self.y_ub - 0.05
+            # Random target position (ensure far enough from ball)
+            min_distance: float = 0.15
+            target_x = rng.uniform(self.x_lb + 0.05, self.x_ub - 0.05)
+            target_y = rng.uniform(self.y_lb + 0.05, self.y_ub - 0.05)
+            while np.sqrt((target_x - ball_x)**2 + (target_y - ball_y)**2) < min_distance:
+                target_x = rng.uniform(self.x_lb + 0.05, self.x_ub - 0.05)
+                target_y = rng.uniform(self.y_lb + 0.05, self.y_ub - 0.05)
         else:
             target_x, target_y = target_position
 

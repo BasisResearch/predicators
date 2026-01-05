@@ -45,9 +45,15 @@ class DominoTaskGenerator(TaskGenerator):
                        log_debug: bool = False,
                        possible_num_dominos: Optional[List[int]] = None,
                        possible_num_targets: Optional[List[int]] = None,
-                       possible_num_pivots: Optional[List[int]] = None
+                       possible_num_pivots: Optional[List[int]] = None,
+                       domino_in_upper_half: bool = False
                        ) -> List[EnvironmentTask]:
-        """Generate domino sequence tasks."""
+        """Generate domino sequence tasks.
+        
+        Args:
+            domino_in_upper_half: If True, shift dominoes to upper half of workspace
+                                 (useful when ball needs space in lower half).
+        """
         if possible_num_dominos is None:
             possible_num_dominos = CFG.domino_test_num_dominos
         if possible_num_targets is None:
@@ -59,7 +65,7 @@ class DominoTaskGenerator(TaskGenerator):
         for i_task in range(num_tasks):
             task = self._generate_single_task(
                 i_task, rng, possible_num_dominos, possible_num_targets,
-                possible_num_pivots, log_debug)
+                possible_num_pivots, log_debug, domino_in_upper_half)
             if task is not None:
                 tasks.append(task)
 
@@ -72,7 +78,8 @@ class DominoTaskGenerator(TaskGenerator):
             possible_num_dominos: List[int],
             possible_num_targets: List[int],
             possible_num_pivots: List[int],
-            log_debug: bool = False) -> Optional[EnvironmentTask]:
+            log_debug: bool = False,
+            domino_in_upper_half: bool = False) -> Optional[EnvironmentTask]:
         """Generate a single domino task."""
         init_dict: Dict[Object, Dict[str, Any]] = {}
 
@@ -95,7 +102,7 @@ class DominoTaskGenerator(TaskGenerator):
                 print(f"\nAttempt {attempt_num} for task {task_idx}")
             obj_dict = self._generate_domino_sequence(rng, n_dominos, n_targets,
                                                       n_pivots, log_debug,
-                                                      task_idx)
+                                                      task_idx, domino_in_upper_half)
             if obj_dict is not None:
                 if log_debug:
                     print("Found satisfying domino sequence")
@@ -149,8 +156,8 @@ class DominoTaskGenerator(TaskGenerator):
         just_placed_target = False
         just_turned_90 = False
 
-        y_lb, y_ub = self.domino.y_lb, self.domino.y_ub
-        x_lb, x_ub = self.domino.x_lb, self.domino.x_ub
+        y_lb, y_ub = self.domino.domino_y_lb, self.domino.domino_y_ub
+        x_lb, x_ub = self.domino.domino_x_lb, self.domino.domino_x_ub
         if domino_in_upper_half:
             y_lb += 0.4  # domino_in_upper_half_shift
             y_ub += 0.4
@@ -442,9 +449,9 @@ class DominoTaskGenerator(TaskGenerator):
         if not intermediate_objects:
             return obj_dict
 
-        start_x = self.domino.x_lb + self.domino.domino_width
+        start_x = self.domino.domino_x_lb + self.domino.domino_width
         spacing = self.domino.domino_width * 1.5
-        y_position = (self.domino.y_lb + self.domino.y_ub) / 2
+        y_position = (self.domino.domino_y_lb + self.domino.domino_y_ub) / 2
 
         for i, (obj, obj_type) in enumerate(intermediate_objects):
             new_x = start_x + i * spacing
