@@ -203,6 +203,10 @@ class GlobalSettings:
             "pybullet_switch": {
                 "fetch": (0.5, -0.5, -0.5, -0.5),
                 "panda": (0.7071, 0.7071, 0.0, 0.0),
+            },
+            "pybullet_barrier": {
+                "fetch": (0.5, -0.5, -0.5, -0.5),
+                "panda": (0.7071, 0.7071, 0.0, 0.0),
             }
         })
     pybullet_ik_validate = True
@@ -967,6 +971,7 @@ class GlobalSettings:
                     "pybullet_ants": 2000,
                     "pybullet_fan": 2000,
                     "pybullet_switch": 2000,
+                    "pybullet_barrier": 2000,
                     "doors": 1000,
                     "coffee": 1000,
                     "kitchen": 1000,
@@ -985,6 +990,7 @@ class GlobalSettings:
                     # horizon.
                     "stick_button": 50,
                     "pybullet_switch": 2000,
+                    "pybullet_barrier": 2000,
                 })[args.get("env", "")],
 
             # In SeSamE, when to propagate failures back up to the high level
