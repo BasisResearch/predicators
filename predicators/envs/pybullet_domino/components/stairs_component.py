@@ -31,12 +31,13 @@ class StairsComponent(DominoEnvComponent):
     stair_width: ClassVar[float] = 0.078  # Slightly larger than domino width
     stair_depth: ClassVar[float] = 0.078  # Square base
     base_stair_height: ClassVar[float] = 0.02  # Base height for first stair
-    stair_height_increment: ClassVar[float] = 0.008  # Height increase per domino
-    
+    stair_height_increment: ClassVar[
+        float] = 0.008  # Height increase per domino
+
     stair_mass: ClassVar[float] = 0.0  # Static
     stair_friction: ClassVar[float] = 0.5
-    stair_color: ClassVar[Tuple[float, float, float, float]] = (0.7, 0.6, 0.5,
-                                                                 1.0)
+    stair_color: ClassVar[Tuple[float, float, float,
+                                float]] = (0.7, 0.6, 0.5, 1.0)
 
     def __init__(self,
                  workspace_bounds: Optional[Dict[str, float]] = None,
