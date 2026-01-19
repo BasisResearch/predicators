@@ -1,6 +1,20 @@
 """Base class for a PyBullet environment.
 
-Contains useful common code.
+Provides common functionality for PyBullet-based robotic manipulation
+environments including robot control, state synchronization, grasp detection,
+and rendering.
+
+For a comprehensive guide on creating new PyBullet environments, see:
+    docs/pybullet_env_guide.md
+
+Quick reference - required methods to implement:
+    - get_name() -> str
+    - initialize_pybullet(using_gui) -> (physics_id, robot, bodies_dict)
+    - _store_pybullet_bodies(bodies_dict)
+    - _get_object_ids_for_held_check() -> List[int]
+    - _create_task_specific_objects(state)
+    - _reset_custom_env_state(state)
+    - _extract_feature(obj, feature) -> float
 """
 
 import abc
