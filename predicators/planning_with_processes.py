@@ -9,7 +9,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from itertools import islice
 from pprint import pformat
-from typing import Callable, Collection, Dict, FrozenSet, Iterator, List, \
+from typing import Callable, Collection, Dict, Iterator, List, \
     Optional, Set, Tuple
 
 import numpy as np
@@ -199,6 +199,8 @@ class ProcessWorldModel:
         self.objects = objects
 
         # --- Use provided indexes or build them if not provided ---
+        self._precondition_to_exogenous_processes: Dict[
+            Predicate, List[_GroundExogenousProcess]]
         if precondition_to_exogenous_processes is not None:
             self._precondition_to_exogenous_processes = precondition_to_exogenous_processes
         elif CFG.build_exogenous_process_index_for_planning:
@@ -207,15 +209,14 @@ class ProcessWorldModel:
                 self.ground_processes)
         else:
             # Don't build the index
-            self._precondition_to_exogenous_processes: Dict[
-                Predicate, List[_GroundExogenousProcess]] = defaultdict(list)
+            self._precondition_to_exogenous_processes = defaultdict(list)
 
+        self._dep_to_derived_preds: Dict[Predicate, List[DerivedPredicate]]
         if dep_to_derived_preds is not None:
             self._dep_to_derived_preds = dep_to_derived_preds
         else:
             # Fallback: build the index if not provided
-            self._dep_to_derived_preds: Dict[
-                Predicate, List[DerivedPredicate]] = defaultdict(list)
+            self._dep_to_derived_preds = defaultdict(list)
             for der_pred in self.derived_predicates:
                 for aux_pred in der_pred.auxiliary_predicates:
                     self._dep_to_derived_preds[aux_pred].append(der_pred)
@@ -490,12 +491,13 @@ def _skeleton_generator_with_processes(
             logging.debug("")
 
             if log_sucessful_small_steps:
-                prev_state = None
+                prev_state: Optional[Set[GroundAtom]] = None
                 for i, (state, action) in enumerate(
                         zip(node.state_history, node.action_history)):
-                    if prev_state is None:
+                    if i == 0:
                         logging.debug(f"State {i}: {sorted(state)}")
                     else:
+                        assert prev_state is not None
                         logging.debug(
                             f"State {i}: "
                             f"Add atoms: {sorted(state - prev_state)} "
@@ -504,11 +506,14 @@ def _skeleton_generator_with_processes(
                                     if action is not None else None
                     logging.info(f"Action {i}: {action_str}\n")
                     prev_state = state
-                logging.debug(
-                    f"State {len(node.state_history)}: "
-                    f"Add atoms: {sorted(node.state_history[-1] - prev_state)} "
-                    f"Del atoms: {sorted(prev_state - node.state_history[-1])}"
-                )
+                if prev_state is not None:
+                    logging.debug(
+                        f"State {len(node.state_history)}: "
+                        f"Add atoms: "
+                        f"{sorted(node.state_history[-1] - prev_state)} "
+                        f"Del atoms: "
+                        f"{sorted(prev_state - node.state_history[-1])}"
+                    )
 
             # Log heuristic timing stats when a solution is found
             if time_heuristic:
@@ -753,7 +758,7 @@ def _skeleton_generator_with_processes(
 
 def task_plan_from_task(
     task: Task,
-    predicates: Set[Predicate],
+    predicates: Collection[Predicate],
     processes: Set[CausalProcess],
     seed: int,
     timeout: float,
@@ -764,11 +769,8 @@ def task_plan_from_task(
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]],
                     Metrics]]:
     # TODO: Expand the concept predicates to include all dependencies
-    if isinstance(predicates, FrozenSet):
-        predicates = set(predicates)
-    assert isinstance(predicates, set), \
-        f"Expected predicates to be a set, got {type(predicates)}"
-    all_predicates = utils.add_in_auxiliary_predicates(predicates)
+    predicates_set = set(predicates)
+    all_predicates = utils.add_in_auxiliary_predicates(predicates_set)
     derived_predicates = utils.get_derived_predicates(all_predicates)
 
     init_atoms = utils.abstract(task.init, all_predicates)
@@ -1358,7 +1360,7 @@ def create_h_max_heuristic(
                         # would need to know the specific atoms that satisfy
                         # the 'holds' condition. We find the supporters by
                         # checking the auxiliary predicates.
-                        supporter_atoms = set()
+                        supporter_atoms: Set[GroundAtom] = set()
                         for p in derived_atom.predicate.auxiliary_predicates:
                             supporter_atoms.update(
                                 a for a in current_facts_for_eval
@@ -1463,7 +1465,7 @@ if __name__ == "__main__":
                   if p.name == 'SwitchFaucetOff'][0]
     noop = [p for p in action_processes if p.name == 'NoOp'][0]
 
-    plan = [
+    plan: List[_GroundEndogenousProcess] = [
         switch_on.ground([robot, faucet]),
         switch_off.ground([robot, faucet]),
         noop.ground([robot]),
@@ -1473,7 +1475,7 @@ if __name__ == "__main__":
     # Predicates
     predicates = env.predicates
 
-    def policy():
+    def policy() -> Optional[_GroundEndogenousProcess]:
         global plan
         if len(plan) > 0:
             return plan.pop(0)
@@ -1483,7 +1485,7 @@ if __name__ == "__main__":
     # Task
     rng = np.random.default_rng(CFG.seed)
     task = env._make_tasks(1, rng)[0]
-    ground_processes, _ = process_task_plan_grounding(
+    ground_processes, _reachable_atoms = process_task_plan_grounding(
         init_atoms=task.init,
         objects=set(task.init),
         cps=processes,
