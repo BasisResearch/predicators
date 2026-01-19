@@ -58,7 +58,7 @@ from predicators.ground_truth_models import get_gt_options, \
 from predicators.perception import create_perceiver
 from predicators.settings import CFG, get_allowed_query_type_names
 from predicators.structs import Dataset, InteractionRequest, \
-    InteractionResult, Metrics, Response, Task, Video
+    InteractionResult, Metrics, Response, Task, Video, Observation, Action
 from predicators.teacher import Teacher, TeacherInteractionMonitorWithVideo
 
 assert os.environ.get("PYTHONHASHSEED") == "0", \
@@ -562,7 +562,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         task_idx: int,
         env_task: Task,
         monitor: Optional[utils.VideoMonitor] = None
-    ) -> Tuple[bool, bool, float, int, float]:
+    ) -> Tuple[bool, bool, float, int, Tuple[List[Observation], List[Action]]]:
         """Execute the cogman policy in the environment to see if the goal is
         solved.
 
