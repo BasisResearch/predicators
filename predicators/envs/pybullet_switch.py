@@ -287,28 +287,8 @@ class PyBulletSwitchEnv(PyBulletEnv):
 
         # Get updated state with correct light values
         final_state = self._get_state()
-        # final_state = self._build_state_with_color(color_index, power_on)
         self._current_observation = final_state
         return final_state
-
-    def _build_state_with_color(self, color_index: int,
-                                power_on: bool) -> State:
-        """Build state with updated color_index."""
-        base_state = self._get_state()
-        state_dict = {}
-
-        for obj in base_state:
-            obj_dict = {}
-            for feat in obj.type.feature_names:
-                if obj == self._light and feat == "color_index":
-                    obj_dict[feat] = float(color_index)
-                elif obj == self._light and feat == "is_on":
-                    obj_dict[feat] = float(power_on)
-                else:
-                    obj_dict[feat] = base_state.get(obj, feat)
-            state_dict[obj] = obj_dict
-
-        return utils.create_state_from_dict(state_dict)
 
     # -------------------------------------------------------------------------
     # Switch helpers
