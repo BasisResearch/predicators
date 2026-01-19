@@ -11,7 +11,6 @@ python predicators/main.py --approach oracle --env pybullet_circuit \
 --terminate_on_goal_reached False --sesame_check_expected_atoms False
 """
 
-import logging
 from typing import Any, ClassVar, Dict, List, Sequence, Set, Tuple
 
 import numpy as np
@@ -552,8 +551,10 @@ if __name__ == "__main__":
 
     # Make a task
     CFG.seed = 0
+    CFG.env = "pybullet_circuit"
+    CFG.num_train_tasks = 1
     env = PyBulletCircuitEnv(use_gui=True)
-    task = env._make_tasks(1, CFG.seed)[0]
+    task = env._generate_train_tasks()[0]
     env._reset_state(task.init)
 
     while True:
