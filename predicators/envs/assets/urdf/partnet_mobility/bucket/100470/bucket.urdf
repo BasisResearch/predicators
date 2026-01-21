@@ -44,30 +44,30 @@
 		</collision>
 		<!-- Wall: positive x side -->
 		<collision name="wall_px">
-			<origin xyz="0.4 0.3 0"/>
+			<origin xyz="0.4 0.05 0"/>
 			<geometry>
-				<box size="0.1 1.2 0.8"/>
+				<box size="0.1 0.8 0.8"/>
 			</geometry>
 		</collision>
 		<!-- Wall: negative x side -->
 		<collision name="wall_nx">
-			<origin xyz="-0.4 0.3 0"/>
+			<origin xyz="-0.4 0.05 0"/>
 			<geometry>
-				<box size="0.1 1.2 0.8"/>
+				<box size="0.1 0.8 0.8"/>
 			</geometry>
 		</collision>
 		<!-- Wall: positive z side -->
 		<collision name="wall_pz">
-			<origin xyz="0 0.3 0.4"/>
+			<origin xyz="0 0.05 0.4"/>
 			<geometry>
-				<box size="0.8 1.2 0.1"/>
+				<box size="0.8 0.8 0.1"/>
 			</geometry>
 		</collision>
 		<!-- Wall: negative z side -->
 		<collision name="wall_nz">
-			<origin xyz="0 0.3 -0.4"/>
+			<origin xyz="0 0.05 -0.4"/>
 			<geometry>
-				<box size="0.8 1.2 0.1"/>
+				<box size="0.8 0.8 0.1"/>
 			</geometry>
 		</collision>
 	</link>
