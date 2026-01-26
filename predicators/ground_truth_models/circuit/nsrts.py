@@ -23,7 +23,7 @@ class PyBulletCircuitGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         robot_type = types["robot"]
         wire_type = types["wire"]
         light_type = types["light"]
-        battery_type = types["battery"]
+        battery_type = types["switch_box"]
 
         # Predicates
         HandEmpty = predicates["HandEmpty"]

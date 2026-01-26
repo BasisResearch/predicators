@@ -11,7 +11,7 @@ import pybullet as p
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.envs.pybullet_domino_grid import PyBulletDominoGridEnv
+from predicators.envs.pybullet_domino.old.pybullet_domino_grid import PyBulletDominoGridEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.pybullet_helpers.controllers import \

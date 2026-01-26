@@ -81,6 +81,13 @@ class PyBulletCircuitEnv(PyBulletEnv):
     battery_snap_length: ClassVar[float] = 0.2
     bulb_snap_length: ClassVar[float] = 0.2
 
+    # Battery box bounds (approximate, centered around battery position)
+    battery_box_x_offset: ClassVar[float] = 0.1  # offset from battery x position
+    battery_box_x_width: ClassVar[float] = 0.15  # width of box in x direction
+    battery_box_y_center: ClassVar[float] = 1.3  # center y position of box
+    battery_box_y_width: ClassVar[float] = 0.18  # width of box in y direction
+    battery_box_z_max: ClassVar[float] = 0.08  # max height above table
+
     # Camera parameters
     _camera_distance: ClassVar[float] = 1.3
     _camera_yaw: ClassVar[float] = 70
@@ -90,9 +97,10 @@ class PyBulletCircuitEnv(PyBulletEnv):
     # Types
     _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
     _wire_type = Type("wire", ["x", "y", "z", "rot", "is_held"])
-    _battery_type = Type("battery", ["x", "y", "z", "rot", "is_on"],
+    _switch_box_type = Type("switch_box", ["x", "y", "z", "rot", "is_on"],
                          sim_features=["id", "joint_id", "joint_scale"])
     _light_type = Type("light", ["x", "y", "z", "rot", "is_on"])
+    _c_battery_type = Type("c_battery", ["x", "y", "z", "yaw", "pitch", "roll"])
 
     def __init__(self, use_gui: bool = True) -> None:
 
@@ -100,8 +108,16 @@ class PyBulletCircuitEnv(PyBulletEnv):
         self._robot = Object("robot", self._robot_type)
         self._wire1 = Object("wire1", self._wire_type)
         self._wire2 = Object("wire2", self._wire_type)
-        self._battery = Object("battery", self._battery_type)
+        self._battery = Object("battery", self._switch_box_type)
         self._light = Object("light", self._light_type)
+
+        # C battery objects (only used when circuit_battery_in_box is False)
+        if not CFG.circuit_battery_in_box:
+            self._c_battery1 = Object("c_battery1", self._c_battery_type)
+            self._c_battery2 = Object("c_battery2", self._c_battery_type)
+        else:
+            self._c_battery1 = None
+            self._c_battery2 = None
 
         super().__init__(use_gui)
 
@@ -115,7 +131,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
                                            [self._wire_type, self._light_type],
                                            self._ConnectedToLight_holds)
         self._ConnectedToBattery = Predicate(
-            "ConnectedToBattery", [self._wire_type, self._battery_type],
+            "ConnectedToBattery", [self._wire_type, self._switch_box_type],
             self._ConnectedToBattery_holds)
         # Ultimatly, we probably want a predicate for Connected(Light,
         # BatteryPositiveTerminal) and Connected(Light, BatteryNegativeTerminal)
@@ -125,15 +141,20 @@ class PyBulletCircuitEnv(PyBulletEnv):
 
         # Normal version used in the simulator
         self._CircuitClosed = Predicate("CircuitClosed",
-                                        [self._light_type, self._battery_type],
+                                        [self._light_type, self._switch_box_type],
                                         self._CircuitClosed_holds)
         # self._CircuitClosed_abs = ConceptPredicate("CircuitClosed",
         #                             [self._wire_type, self._wire_type],
         #                             self._CircuitClosed_CP_holds)
         self._LightOn = Predicate("LightOn", [self._light_type],
                                   self._LightOn_holds)
-        self._SwitchedOn = Predicate("SwitchedOn", [self._battery_type],
+        self._SwitchedOn = Predicate("SwitchedOn", [self._switch_box_type],
                                      self._SwitchedOn_holds)
+
+        # Predicate to check if a C battery is in the battery box
+        if not CFG.circuit_battery_in_box:
+            self._InBatteryBox = Predicate("InBatteryBox", [self._c_battery_type],
+                                          self._InBatteryBox_holds)
 
     @classmethod
     def get_name(cls) -> str:
@@ -141,7 +162,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
 
     @property
     def predicates(self) -> Set[Predicate]:
-        return {
+        preds = {
             self._Holding,
             self._HandEmpty,
             self._LightOn,
@@ -151,6 +172,9 @@ class PyBulletCircuitEnv(PyBulletEnv):
             # self._CircuitClosed_abs,
             self._SwitchedOn,
         }
+        if not CFG.circuit_battery_in_box:
+            preds.add(self._InBatteryBox)
+        return preds
 
     @property
     def goal_predicates(self) -> Set[Predicate]:
@@ -158,12 +182,15 @@ class PyBulletCircuitEnv(PyBulletEnv):
 
     @property
     def types(self) -> Set[Type]:
-        return {
+        types_set = {
             self._robot_type,
             self._wire_type,
-            self._battery_type,
+            self._switch_box_type,
             self._light_type,
         }
+        if not CFG.circuit_battery_in_box:
+            types_set.add(self._c_battery_type)
+        return types_set
 
     # -------------------------------------------------------------------------
     # PyBullet Initialization
@@ -185,15 +212,34 @@ class PyBulletCircuitEnv(PyBulletEnv):
         )
         bodies["table_id"] = table_id
 
-        # Create the battery
+        # Create the battery box/switch assembly
+        if CFG.circuit_battery_in_box:
+            # Load without box, just switch and snap
+            battery_urdf = "urdf/partnet_mobility/switch/102812/battery_switch_snap.urdf"
+        else:
+            # Load with box, switch and snap
+            battery_urdf = "urdf/partnet_mobility/switch/102812/battery_box_switch_snap.urdf"
+
         battery_id = create_object(
-            asset_path="urdf/partnet_mobility/switch/102812/" +
-            "battery_switch_snap.urdf",
+            asset_path=battery_urdf,
             physics_client_id=physics_client_id,
             scale=1,
             use_fixed_base=True,
         )
         bodies["battery_id"] = battery_id
+
+        # Create C battery objects if not using battery_in_box mode
+        if not CFG.circuit_battery_in_box:
+            c_battery_ids = []
+            for _ in range(2):
+                c_battery_id = create_object(
+                    asset_path="urdf/c_battery.urdf",
+                    physics_client_id=physics_client_id,
+                    mass=0.05,
+                    scale=2
+                )
+                c_battery_ids.append(c_battery_id)
+            bodies["c_battery_ids"] = c_battery_ids
 
         # Create the light socket (with a bulb)
         light_id = create_object(
@@ -235,6 +281,12 @@ class PyBulletCircuitEnv(PyBulletEnv):
         self._wire1.id = pybullet_bodies["wire_ids"][0]
         self._wire2.id = pybullet_bodies["wire_ids"][1]
 
+        # Store C battery IDs if they exist
+        if not CFG.circuit_battery_in_box and self._c_battery1 is not None \
+                and self._c_battery2 is not None:
+            self._c_battery1.id = pybullet_bodies["c_battery_ids"][0]
+            self._c_battery2.id = pybullet_bodies["c_battery_ids"][1]
+
     # -------------------------------------------------------------------------
     # State Management
     def _get_object_ids_for_held_check(self) -> List[int]:
@@ -245,7 +297,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
         """Extract features for creating the State object."""
         if obj.type == self._light_type and feature == "is_on":
             return int(self._is_bulb_on(obj.id))
-        elif obj.type == self._battery_type and feature == "is_on":
+        elif obj.type == self._switch_box_type and feature == "is_on":
             return int(self._is_switch_on())
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
@@ -270,16 +322,34 @@ class PyBulletCircuitEnv(PyBulletEnv):
         """
         next_state = super().step(action, render_obs=render_obs)
 
-        # Check if the CircuitClosed predicate is satisfied => turn the light on
-        if self._SwitchedOn_holds(next_state, [self._battery]) and\
+        # Check basic conditions for turning on the bulb
+        basic_conditions = self._SwitchedOn_holds(next_state, [self._battery]) and\
             (CFG.circuit_light_doesnt_need_battery or
             self._CircuitClosed_holds(next_state, [self._light,
-                                                    self._battery])):
+                                                    self._battery]))
+
+        # Additional condition: if not using battery_in_box mode,
+        # both C batteries must be in the battery box
+        if not CFG.circuit_battery_in_box and self._c_battery1 is not None \
+                and self._c_battery2 is not None:
+            both_batteries_in_box = (
+                self._InBatteryBox_holds(next_state, [self._c_battery1]) and
+                self._InBatteryBox_holds(next_state, [self._c_battery2])
+            )
+            can_turn_on = basic_conditions and both_batteries_in_box
+        else:
+            can_turn_on = basic_conditions
+
+        if can_turn_on:
             self._turn_bulb_on()
         else:
             self._turn_bulb_off()
 
         final_state = self._get_state()
+
+        # Draw debug lines to visualize battery box region
+        self._draw_battery_box_debug_lines(final_state)
+
         self._current_observation = final_state
         return final_state
 
@@ -401,6 +471,88 @@ class PyBulletCircuitEnv(PyBulletEnv):
         """Check if the battery is switched on."""
         battery, = objects
         return state.get(battery, "is_on") > 0.5
+
+    def _InBatteryBox_holds(self, state: State,
+                           objects: Sequence[Object]) -> bool:
+        """Check if a C battery is in the battery box."""
+        c_battery, = objects
+
+        # Get battery box position (based on the switch box position)
+        switch_box_x = state.get(self._battery, "x")
+        switch_box_y = state.get(self._battery, "y")
+        box_x_min = switch_box_x - self.battery_box_x_offset - self.battery_box_x_width / 2
+        box_x_max = switch_box_x - self.battery_box_x_offset + self.battery_box_x_width / 2
+        box_y_min = switch_box_y - self.battery_box_y_width / 2
+        box_y_max = switch_box_y + self.battery_box_y_width / 2
+        box_z_min = self.z_lb
+        box_z_max = self.z_lb + self.battery_box_z_max
+
+        # Get C battery position
+        c_x = state.get(c_battery, "x")
+        c_y = state.get(c_battery, "y")
+        c_z = state.get(c_battery, "z")
+
+        # Check if battery is within box bounds
+        in_box = (box_x_min <= c_x <= box_x_max and
+                  box_y_min <= c_y <= box_y_max and
+                  box_z_min <= c_z <= box_z_max)
+
+        return in_box
+
+    def _draw_battery_box_debug_lines(self, state: State) -> None:
+        """Draw debug lines to visualize the battery box region."""
+        if not CFG.circuit_battery_in_box:
+            # Get battery box position (based on the switch box position)
+            switch_box_x = state.get(self._battery, "x")
+            switch_box_y = state.get(self._battery, "y")
+            box_x_min = switch_box_x - self.battery_box_x_offset - self.battery_box_x_width / 2
+            box_x_max = switch_box_x - self.battery_box_x_offset + self.battery_box_x_width / 2
+            box_y_min = switch_box_y - self.battery_box_y_width / 2
+            box_y_max = switch_box_y + self.battery_box_y_width / 2
+            box_z_min = self.z_lb
+            box_z_max = self.z_lb + self.battery_box_z_max
+
+            # Define 8 corners of the box
+            corners = [
+                [box_x_min, box_y_min, box_z_min],
+                [box_x_max, box_y_min, box_z_min],
+                [box_x_max, box_y_max, box_z_min],
+                [box_x_min, box_y_max, box_z_min],
+                [box_x_min, box_y_min, box_z_max],
+                [box_x_max, box_y_min, box_z_max],
+                [box_x_max, box_y_max, box_z_max],
+                [box_x_min, box_y_max, box_z_max],
+            ]
+
+            # Draw bottom rectangle
+            p.addUserDebugLine(corners[0], corners[1], [0, 1, 0], 2, 0,
+                             physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[1], corners[2], [0, 1, 0], 2, 0,
+                             physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[2], corners[3], [0, 1, 0], 2, 0,
+                             physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[3], corners[0], [0, 1, 0], 2, 0,
+                             physicsClientId=self._physics_client_id)
+
+            # Draw top rectangle
+            p.addUserDebugLine(corners[4], corners[5], [0, 1, 0], 2, 0,
+                             physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[5], corners[6], [0, 1, 0], 2, 0,
+                             physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[6], corners[7], [0, 1, 0], 2, 0,
+                             physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[7], corners[4], [0, 1, 0], 2, 0,
+                             physicsClientId=self._physics_client_id)
+
+            # Draw vertical edges
+            p.addUserDebugLine(corners[0], corners[4], [0, 1, 0], 2, 0,
+                             physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[1], corners[5], [0, 1, 0], 2, 0,
+                             physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[2], corners[6], [0, 1, 0], 2, 0,
+                             physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[3], corners[7], [0, 1, 0], 2, 0,
+                             physicsClientId=self._physics_client_id)
 
     @staticmethod
     def _CircuitClosed_CP_holds(atoms: Set[GroundAtom],
@@ -528,6 +680,30 @@ class PyBulletCircuitEnv(PyBulletEnv):
                 self._wire1: wire1_dict,
                 self._wire2: wire2_dict,
             }
+
+            # Add C battery objects if not using battery_in_box mode
+            if not CFG.circuit_battery_in_box and self._c_battery1 is not None \
+                    and self._c_battery2 is not None:
+                # Place batteries in/near the box
+                c_battery1_dict = {
+                    "x": battery_x + 0.1,
+                    "y": 1.25,
+                    "z": self.z_lb + 0.05,
+                    "yaw": 0.0,
+                    "pitch": 0.0,
+                    "roll": 0.0,
+                }
+                c_battery2_dict = {
+                    "x": battery_x + 0.1,
+                    "y": 1.35,
+                    "z": self.z_lb + 0.05,
+                    "yaw": 0.0,
+                    "pitch": 0.0,
+                    "roll": 0.0,
+                }
+                init_dict[self._c_battery1] = c_battery1_dict
+                init_dict[self._c_battery2] = c_battery2_dict
+
             init_state = utils.create_state_from_dict(init_dict)
 
             # The goal can be that the light is on.

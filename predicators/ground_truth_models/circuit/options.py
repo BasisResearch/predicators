@@ -60,7 +60,7 @@ class PyBulletCircuitGroundTruthOptionFactory(GroundTruthOptionFactory):
         robot_type = types["robot"]
         wire_type = types["wire"]
         light_type = types["light"]
-        battery_type = types["battery"]
+        battery_type = types["switch_box"]
 
         def get_current_fingers(state: State) -> float:
             robot, = state.get_objects(robot_type)

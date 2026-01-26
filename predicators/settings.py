@@ -439,6 +439,7 @@ class GlobalSettings:
 
     # circuit
     circuit_light_doesnt_need_battery = False
+    circuit_battery_in_box = False
 
     # fan env
     fan_fans_blow_opposite_direction = False
