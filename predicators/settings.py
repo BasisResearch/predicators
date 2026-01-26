@@ -562,6 +562,12 @@ class GlobalSettings:
     scripted_option_dir = "scripted_options"
     script_option_file_name = "scripted_plan.txt"
 
+    # parameters for the human_low_level_control_approach
+    # Note: actual movement is limited by pybullet_max_vel_norm (default 0.05)
+    # For faster response, also increase pybullet_max_vel_norm
+    human_control_move_speed = 0.15  # meters per step (target delta)
+    human_control_rot_speed = 0.2  # radians per step
+
     # SeSamE parameters
     sesame_task_planner = "astar"  # "astar" or "fdopt" or "fdsat"
     sesame_task_planning_heuristic = "lmcut"

@@ -531,7 +531,11 @@ class PyBulletEnv(BaseEnv):
         #     breakpoint()
         joint_positions = self._pybullet_robot.get_joints()
         pyb_state = PyBulletState(
-            state.data, simulator_state={"joint_positions": joint_positions})
+            state.data,
+            simulator_state={
+                "joint_positions": joint_positions,
+                "physics_client_id": self._physics_client_id
+            })
         return pyb_state
 
     @abc.abstractmethod
