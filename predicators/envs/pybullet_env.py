@@ -517,7 +517,7 @@ class PyBulletEnv(BaseEnv):
             # Additional features
             for feature in obj_features:
                 if feature not in [
-                        "x", "y", "z", "rot", "yaw", "roll", "pitch", 
+                        "x", "y", "z", "rot", "yaw", "roll", "pitch",
                         "is_held", "r", "g", "b"
                 ]:
                     obj_dict[feature] = self._extract_feature(obj, feature)
@@ -530,13 +530,14 @@ class PyBulletEnv(BaseEnv):
         # except:
         #     breakpoint()
         joint_positions = self._pybullet_robot.get_joints()
-        pyb_state = PyBulletState(
-            state.data,
-            simulator_state={
-                "joint_positions": joint_positions,
-                "physics_client_id": self._physics_client_id,
-                "robot_id": self._pybullet_robot.robot_id,
-            })
+        pyb_state = PyBulletState(state.data,
+                                  simulator_state={
+                                      "joint_positions": joint_positions,
+                                      "physics_client_id":
+                                      self._physics_client_id,
+                                      "robot_id":
+                                      self._pybullet_robot.robot_id,
+                                  })
         return pyb_state
 
     @abc.abstractmethod

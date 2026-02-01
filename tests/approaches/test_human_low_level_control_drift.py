@@ -1,6 +1,7 @@
 """Test to verify robot doesn't drift when no keys are pressed."""
 
 import numpy as np
+
 from predicators import utils
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv
 from predicators.structs import Action
@@ -33,12 +34,13 @@ for obj in state.data.keys():
 initial_x = state.get(robot_obj, "x")
 initial_y = state.get(robot_obj, "y")
 initial_z = state.get(robot_obj, "z")
-print(f"\nInitial position: ({initial_x:.4f}, {initial_y:.4f}, {initial_z:.4f})")
+print(
+    f"\nInitial position: ({initial_x:.4f}, {initial_y:.4f}, {initial_z:.4f})")
 
 # Test: Apply NO movement (zero deltas) for 20 steps
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST: No-op actions (robot should stay still)")
-print("="*60)
+print("=" * 60)
 
 print("\nApplying 20 no-op actions (maintaining current joint positions)...")
 current_state = state
@@ -55,7 +57,9 @@ for i in range(20):
     action = Action(action_arr)
 
     if i % 5 == 0:
-        print(f"  [Step {i+1}] Pos: ({current_x:.4f}, {current_y:.4f}, {current_z:.4f})")
+        print(
+            f"  [Step {i+1}] Pos: ({current_x:.4f}, {current_y:.4f}, {current_z:.4f})"
+        )
 
     # Apply action
     current_state = env.step(action)
@@ -65,9 +69,9 @@ final_x = current_state.get(robot_obj, "x")
 final_y = current_state.get(robot_obj, "y")
 final_z = current_state.get(robot_obj, "z")
 
-print(f"\n" + "="*60)
+print(f"\n" + "=" * 60)
 print("RESULTS (with no-op fix):")
-print("="*60)
+print("=" * 60)
 print(f"Initial position: ({initial_x:.4f}, {initial_y:.4f}, {initial_z:.4f})")
 print(f"Final position:   ({final_x:.4f}, {final_y:.4f}, {final_z:.4f})")
 
@@ -82,14 +86,18 @@ print(f"Total drift magnitude: {total_drift:.4f}")
 # Check if drift is acceptable (less than 1mm)
 DRIFT_THRESHOLD = 0.001  # 1mm
 if total_drift < DRIFT_THRESHOLD:
-    print(f"\n✓ PASS: Robot drift ({total_drift:.6f}) is below threshold ({DRIFT_THRESHOLD})")
+    print(
+        f"\n✓ PASS: Robot drift ({total_drift:.6f}) is below threshold ({DRIFT_THRESHOLD})"
+    )
 else:
-    print(f"\n✗ FAIL: Robot drift ({total_drift:.4f}) exceeds threshold ({DRIFT_THRESHOLD})")
+    print(
+        f"\n✗ FAIL: Robot drift ({total_drift:.4f}) exceeds threshold ({DRIFT_THRESHOLD})"
+    )
 
 # Now test with the actual approach
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST: Using actual approach policy")
-print("="*60)
+print("=" * 60)
 
 from predicators.approaches import create_approach
 
@@ -100,7 +108,8 @@ state = obs
 initial_x = state.get(robot_obj, "x")
 initial_y = state.get(robot_obj, "y")
 initial_z = state.get(robot_obj, "z")
-print(f"\nInitial position: ({initial_x:.4f}, {initial_y:.4f}, {initial_z:.4f})")
+print(
+    f"\nInitial position: ({initial_x:.4f}, {initial_y:.4f}, {initial_z:.4f})")
 
 # Create approach (use empty sets for predicates/options since not needed)
 approach = create_approach(
@@ -109,8 +118,7 @@ approach = create_approach(
     set(),  # options
     env.types,
     env.action_space,
-    []
-)
+    [])
 
 # Get task and create policy
 task = env.get_task("test", 0)
@@ -134,7 +142,9 @@ for i in range(20):
     current_z = current_state.get(robot_obj, "z")
 
     if i % 5 == 0:
-        print(f"  [Step {i+1}] Pos: ({current_x:.4f}, {current_y:.4f}, {current_z:.4f})")
+        print(
+            f"  [Step {i+1}] Pos: ({current_x:.4f}, {current_y:.4f}, {current_z:.4f})"
+        )
 
     # Get action from approach (should be no-op since no key pressed)
     action = policy(current_state)
@@ -157,8 +167,12 @@ print(f"Drift: dx={drift_x:.4f}, dy={drift_y:.4f}, dz={drift_z:.4f}")
 print(f"Total drift magnitude: {total_drift:.6f}")
 
 if total_drift < DRIFT_THRESHOLD:
-    print(f"\n✓ PASS: Approach no-op drift ({total_drift:.6f}) is below threshold ({DRIFT_THRESHOLD})")
+    print(
+        f"\n✓ PASS: Approach no-op drift ({total_drift:.6f}) is below threshold ({DRIFT_THRESHOLD})"
+    )
 else:
-    print(f"\n✗ FAIL: Approach no-op drift ({total_drift:.4f}) exceeds threshold ({DRIFT_THRESHOLD})")
+    print(
+        f"\n✗ FAIL: Approach no-op drift ({total_drift:.4f}) exceeds threshold ({DRIFT_THRESHOLD})"
+    )
 
 print("\nTest complete!")

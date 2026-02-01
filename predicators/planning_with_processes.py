@@ -9,8 +9,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 from itertools import islice
 from pprint import pformat
-from typing import Callable, Collection, Dict, Iterator, List, \
-    Optional, Set, Tuple
+from typing import Callable, Collection, Dict, Iterator, List, Optional, Set, \
+    Tuple
 
 import numpy as np
 
@@ -512,8 +512,7 @@ def _skeleton_generator_with_processes(
                         f"Add atoms: "
                         f"{sorted(node.state_history[-1] - prev_state)} "
                         f"Del atoms: "
-                        f"{sorted(prev_state - node.state_history[-1])}"
-                    )
+                        f"{sorted(prev_state - node.state_history[-1])}")
 
             # Log heuristic timing stats when a solution is found
             if time_heuristic:

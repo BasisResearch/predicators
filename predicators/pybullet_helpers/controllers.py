@@ -55,10 +55,10 @@ def _compute_arm_joint_positions(robot: SingleArmPyBulletRobot,
                                     set_joints=True)
 
 
-def _build_action_from_joints(robot: SingleArmPyBulletRobot,
-                              joint_positions: JointPositions,
-                              base_delta: Optional[np.ndarray] = None
-                              ) -> Action:
+def _build_action_from_joints(
+        robot: SingleArmPyBulletRobot,
+        joint_positions: JointPositions,
+        base_delta: Optional[np.ndarray] = None) -> Action:
     action_arr = np.array(joint_positions, dtype=np.float32)
     if _robot_supports_base_action(robot):
         base_dim = _get_base_action_dim(robot)
@@ -92,8 +92,7 @@ def get_move_end_effector_to_pose_action(
     if _robot_supports_base_action(robot):
         max_base_vel_norm = getattr(robot, "default_base_vel_norm",
                                     max_vel_norm)
-        max_base_rot_vel = getattr(robot, "default_base_rot_vel",
-                                   max_vel_norm)
+        max_base_rot_vel = getattr(robot, "default_base_rot_vel", max_vel_norm)
         arm_reach_radius = getattr(robot, "default_arm_reach_radius", 0.8)
         return get_move_end_effector_to_pose_with_base_action(
             robot=robot,

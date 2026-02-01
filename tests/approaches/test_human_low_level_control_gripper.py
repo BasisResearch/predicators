@@ -1,6 +1,7 @@
 """Test to verify gripper open/close is instant."""
 
 import numpy as np
+
 from predicators import utils
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv
 
@@ -22,9 +23,9 @@ print("Resetting environment...")
 obs = env.reset("test", 0)
 state = obs
 
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST: Gripper toggle should be instant (1 step)")
-print("="*60)
+print("=" * 60)
 
 from predicators.approaches import create_approach
 
@@ -35,8 +36,7 @@ approach = create_approach(
     set(),  # options
     env.types,
     env.action_space,
-    []
-)
+    [])
 
 # Get task and create policy
 task = env.get_task("test", 0)
@@ -49,6 +49,7 @@ policy = approach.solve(task, timeout=10)
 
 # Get robot for checking finger positions
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv as CircuitEnv
+
 _, shadow_robot, _ = CircuitEnv.initialize_pybullet(using_gui=False)
 
 print(f"\nFully open position: {shadow_robot.open_fingers}")
@@ -71,7 +72,9 @@ if abs(final_finger_pos - shadow_robot.closed_fingers) < 0.001:
     print("✓ PASS: Gripper closed instantly in 1 step")
     test1_pass = True
 else:
-    print(f"✗ FAIL: Gripper not fully closed. Distance from target: {abs(final_finger_pos - shadow_robot.closed_fingers):.4f}")
+    print(
+        f"✗ FAIL: Gripper not fully closed. Distance from target: {abs(final_finger_pos - shadow_robot.closed_fingers):.4f}"
+    )
     test1_pass = False
 
 # Test 2: Toggle back to open
@@ -88,7 +91,9 @@ if abs(final_finger_pos - shadow_robot.open_fingers) < 0.001:
     print("✓ PASS: Gripper opened instantly in 1 step")
     test2_pass = True
 else:
-    print(f"✗ FAIL: Gripper not fully open. Distance from target: {abs(final_finger_pos - shadow_robot.open_fingers):.4f}")
+    print(
+        f"✗ FAIL: Gripper not fully open. Distance from target: {abs(final_finger_pos - shadow_robot.open_fingers):.4f}"
+    )
     test2_pass = False
 
 # Test 3: Verify no drift when not pressing keys after gripper toggle
@@ -105,12 +110,14 @@ if abs(drift_finger_pos - final_finger_pos) < 0.001:
     print("✓ PASS: No finger drift after gripper toggle")
     test3_pass = True
 else:
-    print(f"✗ FAIL: Finger drifted by {abs(drift_finger_pos - final_finger_pos):.4f}")
+    print(
+        f"✗ FAIL: Finger drifted by {abs(drift_finger_pos - final_finger_pos):.4f}"
+    )
     test3_pass = False
 
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("RESULTS:")
-print("="*60)
+print("=" * 60)
 if test1_pass and test2_pass and test3_pass:
     print("✓ ALL TESTS PASSED: Gripper is instant and doesn't drift")
 else:

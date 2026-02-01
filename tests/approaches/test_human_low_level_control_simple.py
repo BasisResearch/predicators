@@ -1,7 +1,9 @@
 """Simple test to debug human control issues using pybullet_circuit env."""
 
 import time
+
 import numpy as np
+
 from predicators import utils
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv
 from predicators.structs import Action
@@ -53,18 +55,21 @@ else:
     print("WARNING: State doesn't have joint_positions attribute")
 
 # Test: Apply actions manually and see robot move
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST: Manual action application")
-print("="*60)
+print("=" * 60)
 
-from predicators.settings import CFG
-from predicators.pybullet_helpers.geometry import Pose
-from predicators.pybullet_helpers.controllers import get_move_end_effector_to_pose_action
 import pybullet as p
+
+from predicators.pybullet_helpers.controllers import \
+    get_move_end_effector_to_pose_action
+from predicators.pybullet_helpers.geometry import Pose
+from predicators.settings import CFG
 
 # Get robot for IK - need to use the same env's robot or create a shadow one
 print("\nGetting shadow robot for IK...")
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv as CircuitEnv
+
 _, shadow_robot, _ = CircuitEnv.initialize_pybullet(using_gui=False)
 print(f"Shadow robot: {shadow_robot}")
 print(f"Shadow robot action space: {shadow_robot.action_space}")
@@ -78,8 +83,10 @@ for i in range(5):
     current_z = current_state.get(robot_obj, "z")
 
     # Get tilt and wrist if available
-    current_tilt = current_state.get(robot_obj, "tilt") if "tilt" in robot_obj.type.feature_names else 0.0
-    current_wrist = current_state.get(robot_obj, "wrist") if "wrist" in robot_obj.type.feature_names else 0.0
+    current_tilt = current_state.get(
+        robot_obj, "tilt") if "tilt" in robot_obj.type.feature_names else 0.0
+    current_wrist = current_state.get(
+        robot_obj, "wrist") if "wrist" in robot_obj.type.feature_names else 0.0
 
     # Create target pose (move forward by 0.1)
     target_x = current_x + 0.1
@@ -126,16 +133,18 @@ final_x = current_state.get(robot_obj, "x")
 final_y = current_state.get(robot_obj, "y")
 final_z = current_state.get(robot_obj, "z")
 
-print(f"\n" + "="*60)
+print(f"\n" + "=" * 60)
 print("RESULTS:")
-print("="*60)
+print("=" * 60)
 print(f"Initial position: ({initial_x:.3f}, {initial_y:.3f}, {initial_z:.3f})")
 print(f"Final position:   ({final_x:.3f}, {final_y:.3f}, {final_z:.3f})")
 
 total_dx = final_x - initial_x
 total_dy = final_y - initial_y
 total_dz = final_z - initial_z
-print(f"Total movement:   dx={total_dx:.3f}, dy={total_dy:.3f}, dz={total_dz:.3f}")
+print(
+    f"Total movement:   dx={total_dx:.3f}, dy={total_dy:.3f}, dz={total_dz:.3f}"
+)
 print(f"Expected movement: dx~0.5 (5 steps × 0.1, limited by max_vel_norm)")
 
 if abs(total_dx) < 0.01 and abs(total_dy) < 0.01 and abs(total_dz) < 0.01:

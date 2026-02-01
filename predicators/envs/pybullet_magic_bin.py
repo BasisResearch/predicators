@@ -67,8 +67,10 @@ class PyBulletMagicBinEnv(PyBulletEnv):
 
     # Bin parameters
     bin_scale: ClassVar[float] = 0.15  # Scale down the bucket
-    bin_radius: ClassVar[float] = 0.08  # Approximate radius for collision check
-    bin_height: ClassVar[float] = 0.16  # Approximate height of bucket after scaling
+    bin_radius: ClassVar[
+        float] = 0.08  # Approximate radius for collision check
+    bin_height: ClassVar[
+        float] = 0.16  # Approximate height of bucket after scaling
 
     # Camera parameters
     _camera_distance: ClassVar[float] = 1.3
@@ -163,7 +165,7 @@ class PyBulletMagicBinEnv(PyBulletEnv):
         for i in range(cls.num_blocks):
             color = cls._obj_colors[i % len(cls._obj_colors)]
             half_extents = (cls.block_size / 2, cls.block_size / 2,
-                           cls.block_size / 2)
+                            cls.block_size / 2)
             block_id = create_pybullet_block(
                 color=color,
                 half_extents=half_extents,
@@ -310,10 +312,10 @@ class PyBulletMagicBinEnv(PyBulletEnv):
     # Switch helpers
     def _is_switch_on(self) -> bool:
         """Check if the switch is in the ON position."""
-        joint_state = p.getJointState(
-            self._switch.id,
-            self._switch.joint_id,
-            physicsClientId=self._physics_client_id)[0] / self._switch.joint_scale
+        joint_state = p.getJointState(self._switch.id,
+                                      self._switch.joint_id,
+                                      physicsClientId=self._physics_client_id
+                                      )[0] / self._switch.joint_scale
         joint_min = p.getJointInfo(self._switch.id,
                                    self._switch.joint_id,
                                    physicsClientId=self._physics_client_id)[8]
@@ -430,7 +432,8 @@ class PyBulletMagicBinEnv(PyBulletEnv):
             bin_dict = {
                 "x": bin_x,
                 "y": 1.35,
-                "z": self.table_height + 0.08,  # Offset to place bottom on table
+                "z":
+                self.table_height + 0.08,  # Offset to place bottom on table
                 "rot": 0.0,
             }
 

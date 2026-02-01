@@ -15,6 +15,7 @@ import tty
 from typing import Callable, List, Optional, Set
 
 import numpy as np
+import pybullet as p
 from gym.spaces import Box
 
 from predicators import utils
@@ -24,10 +25,8 @@ from predicators.pybullet_helpers.controllers import \
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
-from predicators.structs import Action, ParameterizedOption, Predicate, State, \
-    Task, Type
-
-import pybullet as p
+from predicators.structs import Action, ParameterizedOption, Predicate, \
+    State, Task, Type
 
 
 class HumanLowLevelControlApproach(BaseApproach):
@@ -143,8 +142,9 @@ class HumanLowLevelControlApproach(BaseApproach):
     def _get_pressed_key(self) -> Optional[str]:
         """Get the most recent pressed key from terminal (non-blocking).
 
-        Drains the entire input buffer and returns only the LAST key pressed.
-        This prevents input lag from buffered keystrokes when holding a key.
+        Drains the entire input buffer and returns only the LAST key
+        pressed. This prevents input lag from buffered keystrokes when
+        holding a key.
         """
         last_key: Optional[str] = None
 
@@ -232,8 +232,8 @@ class HumanLowLevelControlApproach(BaseApproach):
         current_joint_positions = state.joint_positions
 
         # Check if there's any spatial movement
-        spatial_movement = (dx != 0 or dy != 0 or dz != 0 or
-                           d_tilt != 0 or d_wrist != 0)
+        spatial_movement = (dx != 0 or dy != 0 or dz != 0 or d_tilt != 0
+                            or d_wrist != 0)
 
         # If only toggling gripper with no spatial movement, handle it directly
         if toggle_gripper and not spatial_movement:
@@ -276,8 +276,12 @@ class HumanLowLevelControlApproach(BaseApproach):
         current_x = state.get(robot_obj, "x")
         current_y = state.get(robot_obj, "y")
         current_z = state.get(robot_obj, "z")
-        current_tilt = state.get(robot_obj, "tilt") if "tilt" in robot_obj.type.feature_names else 0.0
-        current_wrist = state.get(robot_obj, "wrist") if "wrist" in robot_obj.type.feature_names else 0.0
+        current_tilt = state.get(
+            robot_obj,
+            "tilt") if "tilt" in robot_obj.type.feature_names else 0.0
+        current_wrist = state.get(
+            robot_obj,
+            "wrist") if "wrist" in robot_obj.type.feature_names else 0.0
 
         # Compute target pose
         target_x = current_x + dx
@@ -287,7 +291,8 @@ class HumanLowLevelControlApproach(BaseApproach):
         target_wrist = current_wrist + d_wrist
 
         # Create poses
-        current_orn = p.getQuaternionFromEuler([0, current_tilt, current_wrist])
+        current_orn = p.getQuaternionFromEuler(
+            [0, current_tilt, current_wrist])
         target_orn = p.getQuaternionFromEuler([0, target_tilt, target_wrist])
 
         current_pose = Pose((current_x, current_y, current_z), current_orn)
@@ -320,7 +325,9 @@ class HumanLowLevelControlApproach(BaseApproach):
 
         # Validate action is within action space bounds
         if not self._action_space.contains(action.arr):
-            print(f"[Step {self._step_count}] Warning: Action out of bounds, staying in place")
+            print(
+                f"[Step {self._step_count}] Warning: Action out of bounds, staying in place"
+            )
             action_arr = np.array(current_joint_positions, dtype=np.float32)
             action = self._pad_base_action(action_arr)
 
@@ -331,7 +338,8 @@ class HumanLowLevelControlApproach(BaseApproach):
         self._restore_terminal()
 
     def _pad_base_action(self, action_arr: np.ndarray) -> Action:
-        """Pad action with zero base deltas when the action space expects it."""
+        """Pad action with zero base deltas when the action space expects
+        it."""
         extra_dim = self._action_space.shape[0] - action_arr.shape[0]
         if extra_dim > 0:
             zeros = np.zeros(extra_dim, dtype=np.float32)
@@ -342,7 +350,8 @@ class HumanLowLevelControlApproach(BaseApproach):
 
 
 def _get_shadow_robot_for_env() -> SingleArmPyBulletRobot:
-    """Create a shadow robot for IK calculations based on current environment."""
+    """Create a shadow robot for IK calculations based on current
+    environment."""
     env_name = CFG.env
 
     # Map environment names to their classes

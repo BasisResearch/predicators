@@ -11,7 +11,8 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.envs.pybullet_domino.old.pybullet_domino import PyBulletDominoEnv
+from predicators.envs.pybullet_domino.old.pybullet_domino import \
+    PyBulletDominoEnv
 from predicators.settings import CFG
 from predicators.structs import Action, DerivedPredicate, EnvironmentTask, \
     GroundAtom, Object, Predicate, State, Type

@@ -81,8 +81,7 @@ class PyBulletSwitchEnv(PyBulletEnv):
 
     # Types
     _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
-    _power_switch_type = Type("power_switch",
-                              ["x", "y", "z", "rot", "is_on"],
+    _power_switch_type = Type("power_switch", ["x", "y", "z", "rot", "is_on"],
                               sim_features=["id", "joint_id", "joint_scale"])
     _color_switch_type = Type(
         "color_switch", ["x", "y", "z", "rot", "is_on"],
@@ -294,10 +293,10 @@ class PyBulletSwitchEnv(PyBulletEnv):
     # Switch helpers
     def _is_switch_on(self, switch_obj: Object) -> bool:
         """Check if a switch is in the ON position."""
-        joint_state = p.getJointState(
-            switch_obj.id,
-            switch_obj.joint_id,
-            physicsClientId=self._physics_client_id)[0] / switch_obj.joint_scale
+        joint_state = p.getJointState(switch_obj.id,
+                                      switch_obj.joint_id,
+                                      physicsClientId=self._physics_client_id
+                                      )[0] / switch_obj.joint_scale
         joint_min = p.getJointInfo(switch_obj.id,
                                    switch_obj.joint_id,
                                    physicsClientId=self._physics_client_id)[8]

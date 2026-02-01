@@ -57,8 +57,8 @@ from predicators.ground_truth_models import get_gt_options, \
     parse_config_included_options
 from predicators.perception import create_perceiver
 from predicators.settings import CFG, get_allowed_query_type_names
-from predicators.structs import Dataset, InteractionRequest, \
-    InteractionResult, Metrics, Response, Task, Video, Observation, Action
+from predicators.structs import Action, Dataset, InteractionRequest, \
+    InteractionResult, Metrics, Observation, Response, Task, Video
 from predicators.teacher import Teacher, TeacherInteractionMonitorWithVideo
 
 assert os.environ.get("PYTHONHASHSEED") == "0", \

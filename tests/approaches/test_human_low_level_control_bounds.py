@@ -1,6 +1,7 @@
 """Test to verify robot handles out-of-bounds actions gracefully."""
 
 import numpy as np
+
 from predicators import utils
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv
 from predicators.structs import Action
@@ -11,8 +12,8 @@ utils.reset_config({
     'approach': 'human_low_level_control',
     'seed': 0,
     'human_control_move_speed': 10.0,  # Extremely large to force out-of-bounds
-    'human_control_rot_speed': 10.0,   # Extremely large to force out-of-bounds
-    'pybullet_max_vel_norm': 10.0,     # Allow large movements
+    'human_control_rot_speed': 10.0,  # Extremely large to force out-of-bounds
+    'pybullet_max_vel_norm': 10.0,  # Allow large movements
     'pybullet_sim_steps_per_action': 5,
 })
 
@@ -33,11 +34,12 @@ for obj in state.data.keys():
 initial_x = state.get(robot_obj, "x")
 initial_y = state.get(robot_obj, "y")
 initial_z = state.get(robot_obj, "z")
-print(f"\nInitial position: ({initial_x:.4f}, {initial_y:.4f}, {initial_z:.4f})")
+print(
+    f"\nInitial position: ({initial_x:.4f}, {initial_y:.4f}, {initial_z:.4f})")
 
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("TEST: Extreme movements that may exceed action space bounds")
-print("="*60)
+print("=" * 60)
 
 from predicators.approaches import create_approach
 
@@ -48,8 +50,7 @@ approach = create_approach(
     set(),  # options
     env.types,
     env.action_space,
-    []
-)
+    [])
 
 # Get task and create policy
 task = env.get_task("test", 0)
@@ -105,15 +106,16 @@ final_x = current_state.get(robot_obj, "x")
 final_y = current_state.get(robot_obj, "y")
 final_z = current_state.get(robot_obj, "z")
 
-print(f"\n" + "="*60)
+print(f"\n" + "=" * 60)
 print("RESULTS:")
-print("="*60)
+print("=" * 60)
 print(f"Initial position: ({initial_x:.4f}, {initial_y:.4f}, {initial_z:.4f})")
 print(f"Final position:   ({final_x:.4f}, {final_y:.4f}, {final_z:.4f})")
 print(f"\nSuccessful actions: {success_count}/{len(test_keys)}")
 
 if success_count == len(test_keys):
-    print(f"\n✓ PASS: All extreme movements handled gracefully without crashes")
+    print(
+        f"\n✓ PASS: All extreme movements handled gracefully without crashes")
 else:
     print(f"\n✗ FAIL: Some movements caused crashes")
 

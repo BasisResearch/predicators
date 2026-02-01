@@ -208,8 +208,8 @@ class PyBulletBarrierEnv(PyBulletEnv):
             # Store the base_z position (when lowered, barrier hides in table)
             # When height=0: top is below table surface
             # When height=raised_height: bottom is at table surface
-            barrier.base_z = (self.z_lb - self.barrier_raised_height/2 +
-                             self.barrier_half_extents[2])
+            barrier.base_z = (self.z_lb - self.barrier_raised_height / 2 +
+                              self.barrier_half_extents[2])
 
     # -------------------------------------------------------------------------
     # State Management
@@ -304,10 +304,10 @@ class PyBulletBarrierEnv(PyBulletEnv):
 
             # Update barrier position
             new_z = barrier.base_z + new_height
-            p.resetBasePositionAndOrientation(barrier.id,
-                                              (pos[0], pos[1], new_z),
-                                              orn,
-                                              physicsClientId=self._physics_client_id)
+            p.resetBasePositionAndOrientation(
+                barrier.id, (pos[0], pos[1], new_z),
+                orn,
+                physicsClientId=self._physics_client_id)
 
         # Get updated state
         final_state = self._get_state()
@@ -318,10 +318,10 @@ class PyBulletBarrierEnv(PyBulletEnv):
     # Switch helpers
     def _is_switch_on(self, switch_obj: Object) -> bool:
         """Check if a switch is in the ON position."""
-        joint_state = p.getJointState(
-            switch_obj.id,
-            switch_obj.joint_id,
-            physicsClientId=self._physics_client_id)[0] / switch_obj.joint_scale
+        joint_state = p.getJointState(switch_obj.id,
+                                      switch_obj.joint_id,
+                                      physicsClientId=self._physics_client_id
+                                      )[0] / switch_obj.joint_scale
         joint_min = p.getJointInfo(switch_obj.id,
                                    switch_obj.joint_id,
                                    physicsClientId=self._physics_client_id)[8]
@@ -357,13 +357,13 @@ class PyBulletBarrierEnv(PyBulletEnv):
         return state.get(switch, "is_on") > 0.5
 
     def _BarrierUp_holds(self, state: State,
-                        objects: Sequence[Object]) -> bool:
+                         objects: Sequence[Object]) -> bool:
         barrier, = objects
         height = state.get(barrier, "height")
         return height >= self.barrier_raised_height - self.barrier_tolerance
 
     def _BarrierDown_holds(self, state: State,
-                          objects: Sequence[Object]) -> bool:
+                           objects: Sequence[Object]) -> bool:
         barrier, = objects
         height = state.get(barrier, "height")
         return height <= self.barrier_tolerance
@@ -406,8 +406,9 @@ class PyBulletBarrierEnv(PyBulletEnv):
             start_x = self.x_lb + 3 * self.init_padding
 
             # Random initial switch states and barrier heights
-            init_switch_states = [bool(rng.integers(0, 2))
-                                  for _ in range(self.num_barriers)]
+            init_switch_states = [
+                bool(rng.integers(0, 2)) for _ in range(self.num_barriers)
+            ]
 
             for i, switch in enumerate(self._switches):
                 switch_x = start_x + i * switch_spacing
@@ -440,13 +441,15 @@ class PyBulletBarrierEnv(PyBulletEnv):
             goal_atoms: Set[GroundAtom] = set()
 
             # Randomly select target states for barriers
-            target_states = [bool(rng.integers(0, 2))
-                             for _ in range(self.num_barriers)]
+            target_states = [
+                bool(rng.integers(0, 2)) for _ in range(self.num_barriers)
+            ]
 
             # Ensure at least one change is required
             while target_states == init_switch_states:
-                target_states = [bool(rng.integers(0, 2))
-                                 for _ in range(self.num_barriers)]
+                target_states = [
+                    bool(rng.integers(0, 2)) for _ in range(self.num_barriers)
+                ]
 
             for i, barrier in enumerate(self._barriers):
                 if target_states[i]:

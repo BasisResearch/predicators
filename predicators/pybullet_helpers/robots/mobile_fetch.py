@@ -30,14 +30,16 @@ class MobileFetchPyBulletRobot(FetchPyBulletRobot):
         """Action space includes arm joint targets + base deltas."""
         joint_low = np.array(self.joint_lower_limits, dtype=np.float32)
         joint_high = np.array(self.joint_upper_limits, dtype=np.float32)
-        base_low = np.array(
-            [-self.base_xy_delta_limit, -self.base_xy_delta_limit,
-             -self.base_yaw_delta_limit],
-            dtype=np.float32)
-        base_high = np.array(
-            [self.base_xy_delta_limit, self.base_xy_delta_limit,
-             self.base_yaw_delta_limit],
-            dtype=np.float32)
+        base_low = np.array([
+            -self.base_xy_delta_limit, -self.base_xy_delta_limit,
+            -self.base_yaw_delta_limit
+        ],
+                            dtype=np.float32)
+        base_high = np.array([
+            self.base_xy_delta_limit, self.base_xy_delta_limit,
+            self.base_yaw_delta_limit
+        ],
+                             dtype=np.float32)
         low = np.concatenate([joint_low, base_low])
         high = np.concatenate([joint_high, base_high])
         return Box(low, high, dtype=np.float32)

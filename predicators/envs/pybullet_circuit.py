@@ -82,7 +82,8 @@ class PyBulletCircuitEnv(PyBulletEnv):
     bulb_snap_length: ClassVar[float] = 0.2
 
     # Battery box bounds (approximate, centered around battery position)
-    battery_box_x_offset: ClassVar[float] = 0.1  # offset from battery x position
+    battery_box_x_offset: ClassVar[
+        float] = 0.1  # offset from battery x position
     battery_box_x_width: ClassVar[float] = 0.15  # width of box in x direction
     battery_box_y_center: ClassVar[float] = 1.3  # center y position of box
     battery_box_y_width: ClassVar[float] = 0.18  # width of box in y direction
@@ -98,9 +99,10 @@ class PyBulletCircuitEnv(PyBulletEnv):
     _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
     _wire_type = Type("wire", ["x", "y", "z", "rot", "is_held"])
     _switch_box_type = Type("switch_box", ["x", "y", "z", "rot", "is_on"],
-                         sim_features=["id", "joint_id", "joint_scale"])
+                            sim_features=["id", "joint_id", "joint_scale"])
     _light_type = Type("light", ["x", "y", "z", "rot", "is_on"])
-    _c_battery_type = Type("c_battery", ["x", "y", "z", "yaw", "pitch", "roll"])
+    _c_battery_type = Type("c_battery",
+                           ["x", "y", "z", "yaw", "pitch", "roll"])
 
     def __init__(self, use_gui: bool = True) -> None:
 
@@ -140,9 +142,9 @@ class PyBulletCircuitEnv(PyBulletEnv):
         # connected to the battery.
 
         # Normal version used in the simulator
-        self._CircuitClosed = Predicate("CircuitClosed",
-                                        [self._light_type, self._switch_box_type],
-                                        self._CircuitClosed_holds)
+        self._CircuitClosed = Predicate(
+            "CircuitClosed", [self._light_type, self._switch_box_type],
+            self._CircuitClosed_holds)
         # self._CircuitClosed_abs = ConceptPredicate("CircuitClosed",
         #                             [self._wire_type, self._wire_type],
         #                             self._CircuitClosed_CP_holds)
@@ -153,8 +155,9 @@ class PyBulletCircuitEnv(PyBulletEnv):
 
         # Predicate to check if a C battery is in the battery box
         if not CFG.circuit_battery_in_box:
-            self._InBatteryBox = Predicate("InBatteryBox", [self._c_battery_type],
-                                          self._InBatteryBox_holds)
+            self._InBatteryBox = Predicate("InBatteryBox",
+                                           [self._c_battery_type],
+                                           self._InBatteryBox_holds)
 
     @classmethod
     def get_name(cls) -> str:
@@ -236,8 +239,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
                     asset_path="urdf/c_battery.urdf",
                     physics_client_id=physics_client_id,
                     mass=0.05,
-                    scale=2
-                )
+                    scale=2)
                 c_battery_ids.append(c_battery_id)
             bodies["c_battery_ids"] = c_battery_ids
 
@@ -333,9 +335,8 @@ class PyBulletCircuitEnv(PyBulletEnv):
         if not CFG.circuit_battery_in_box and self._c_battery1 is not None \
                 and self._c_battery2 is not None:
             both_batteries_in_box = (
-                self._InBatteryBox_holds(next_state, [self._c_battery1]) and
-                self._InBatteryBox_holds(next_state, [self._c_battery2])
-            )
+                self._InBatteryBox_holds(next_state, [self._c_battery1])
+                and self._InBatteryBox_holds(next_state, [self._c_battery2]))
             can_turn_on = basic_conditions and both_batteries_in_box
         else:
             can_turn_on = basic_conditions
@@ -473,7 +474,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
         return state.get(battery, "is_on") > 0.5
 
     def _InBatteryBox_holds(self, state: State,
-                           objects: Sequence[Object]) -> bool:
+                            objects: Sequence[Object]) -> bool:
         """Check if a C battery is in the battery box."""
         c_battery, = objects
 
@@ -493,9 +494,9 @@ class PyBulletCircuitEnv(PyBulletEnv):
         c_z = state.get(c_battery, "z")
 
         # Check if battery is within box bounds
-        in_box = (box_x_min <= c_x <= box_x_max and
-                  box_y_min <= c_y <= box_y_max and
-                  box_z_min <= c_z <= box_z_max)
+        in_box = (box_x_min <= c_x <= box_x_max
+                  and box_y_min <= c_y <= box_y_max
+                  and box_z_min <= c_z <= box_z_max)
 
         return in_box
 
@@ -525,34 +526,70 @@ class PyBulletCircuitEnv(PyBulletEnv):
             ]
 
             # Draw bottom rectangle
-            p.addUserDebugLine(corners[0], corners[1], [0, 1, 0], 2, 0,
-                             physicsClientId=self._physics_client_id)
-            p.addUserDebugLine(corners[1], corners[2], [0, 1, 0], 2, 0,
-                             physicsClientId=self._physics_client_id)
-            p.addUserDebugLine(corners[2], corners[3], [0, 1, 0], 2, 0,
-                             physicsClientId=self._physics_client_id)
-            p.addUserDebugLine(corners[3], corners[0], [0, 1, 0], 2, 0,
-                             physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[0],
+                               corners[1], [0, 1, 0],
+                               2,
+                               0,
+                               physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[1],
+                               corners[2], [0, 1, 0],
+                               2,
+                               0,
+                               physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[2],
+                               corners[3], [0, 1, 0],
+                               2,
+                               0,
+                               physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[3],
+                               corners[0], [0, 1, 0],
+                               2,
+                               0,
+                               physicsClientId=self._physics_client_id)
 
             # Draw top rectangle
-            p.addUserDebugLine(corners[4], corners[5], [0, 1, 0], 2, 0,
-                             physicsClientId=self._physics_client_id)
-            p.addUserDebugLine(corners[5], corners[6], [0, 1, 0], 2, 0,
-                             physicsClientId=self._physics_client_id)
-            p.addUserDebugLine(corners[6], corners[7], [0, 1, 0], 2, 0,
-                             physicsClientId=self._physics_client_id)
-            p.addUserDebugLine(corners[7], corners[4], [0, 1, 0], 2, 0,
-                             physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[4],
+                               corners[5], [0, 1, 0],
+                               2,
+                               0,
+                               physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[5],
+                               corners[6], [0, 1, 0],
+                               2,
+                               0,
+                               physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[6],
+                               corners[7], [0, 1, 0],
+                               2,
+                               0,
+                               physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[7],
+                               corners[4], [0, 1, 0],
+                               2,
+                               0,
+                               physicsClientId=self._physics_client_id)
 
             # Draw vertical edges
-            p.addUserDebugLine(corners[0], corners[4], [0, 1, 0], 2, 0,
-                             physicsClientId=self._physics_client_id)
-            p.addUserDebugLine(corners[1], corners[5], [0, 1, 0], 2, 0,
-                             physicsClientId=self._physics_client_id)
-            p.addUserDebugLine(corners[2], corners[6], [0, 1, 0], 2, 0,
-                             physicsClientId=self._physics_client_id)
-            p.addUserDebugLine(corners[3], corners[7], [0, 1, 0], 2, 0,
-                             physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[0],
+                               corners[4], [0, 1, 0],
+                               2,
+                               0,
+                               physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[1],
+                               corners[5], [0, 1, 0],
+                               2,
+                               0,
+                               physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[2],
+                               corners[6], [0, 1, 0],
+                               2,
+                               0,
+                               physicsClientId=self._physics_client_id)
+            p.addUserDebugLine(corners[3],
+                               corners[7], [0, 1, 0],
+                               2,
+                               0,
+                               physicsClientId=self._physics_client_id)
 
     @staticmethod
     def _CircuitClosed_CP_holds(atoms: Set[GroundAtom],
