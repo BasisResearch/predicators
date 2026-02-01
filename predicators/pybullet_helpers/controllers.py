@@ -3,6 +3,7 @@ import logging
 from typing import Callable, Dict, Optional, Sequence, Set, Tuple, cast
 
 import numpy as np
+import pybullet as p
 from gym.spaces import Box
 
 from predicators import utils
@@ -16,7 +17,62 @@ from predicators.structs import Action, Array, Object, \
     ParameterizedInitiable, ParameterizedOption, ParameterizedTerminal, \
     State, Type
 
-_SUPPORTED_ROBOTS: Set[str] = {"fetch", "panda"}
+_SUPPORTED_ROBOTS: Set[str] = {"fetch", "mobile_fetch", "panda"}
+
+
+def _get_base_action_dim(robot: SingleArmPyBulletRobot) -> int:
+    base_dim = getattr(robot, "base_action_dim", 0)
+    return int(base_dim) if isinstance(base_dim, int) else 0
+
+
+def _robot_supports_base_action(robot: SingleArmPyBulletRobot) -> bool:
+    return _get_base_action_dim(robot) > 0 and \
+        hasattr(robot, "get_base_pose") and hasattr(robot, "set_base_pose")
+
+
+def _compute_ee_action_pose(current_pose: Pose, target_pose: Pose,
+                            max_vel_norm: float) -> Pose:
+    orn = target_pose.orientation
+    current = np.array(current_pose.position, dtype=np.float32)
+    target = np.array(target_pose.position, dtype=np.float32)
+    ee_delta = np.subtract(target, current)
+    ee_norm = np.linalg.norm(ee_delta)
+    if ee_norm > max_vel_norm:
+        ee_delta = ee_delta * max_vel_norm / ee_norm
+    dx, dy, dz = np.add(current, ee_delta)
+    return Pose((dx, dy, dz), orn)
+
+
+def _compute_arm_joint_positions(robot: SingleArmPyBulletRobot,
+                                 current_joint_positions: JointPositions,
+                                 ee_action: Pose,
+                                 validate: bool) -> JointPositions:
+    robot.set_joints(current_joint_positions)
+    if robot.get_name() == "panda":
+        validate = False
+    return robot.inverse_kinematics(ee_action,
+                                    validate=validate,
+                                    set_joints=True)
+
+
+def _build_action_from_joints(robot: SingleArmPyBulletRobot,
+                              joint_positions: JointPositions,
+                              base_delta: Optional[np.ndarray] = None
+                              ) -> Action:
+    action_arr = np.array(joint_positions, dtype=np.float32)
+    if _robot_supports_base_action(robot):
+        base_dim = _get_base_action_dim(robot)
+        if base_delta is None:
+            base_delta = np.zeros(base_dim, dtype=np.float32)
+        base_delta = np.asarray(base_delta, dtype=np.float32)
+        if base_delta.shape[0] != base_dim:
+            raise ValueError(
+                f"Expected base_delta dim {base_dim}, got {base_delta.shape}")
+        action_arr = np.concatenate([action_arr, base_delta])
+    action_arr = np.clip(action_arr, robot.action_space.low,
+                         robot.action_space.high)
+    assert robot.action_space.contains(action_arr)
+    return Action(action_arr)
 
 
 def get_move_end_effector_to_pose_action(
@@ -33,33 +89,31 @@ def get_move_end_effector_to_pose_action(
 
     See create_move_end_effector_to_pose_option() for more info.
     """
-    # Sync the joints.
-    robot.set_joints(current_joint_positions)
-    # First handle the main arm joints.
-    orn = target_pose.orientation
-    current = current_pose.position
-    target = target_pose.position
-    # Run IK to determine the target joint positions.
-    ee_delta = np.subtract(target, current)
-    # Reduce the target to conform to the max velocity constraint.
-    ee_norm = np.linalg.norm(ee_delta)
-    if ee_norm > max_vel_norm:
-        ee_delta = ee_delta * max_vel_norm / ee_norm
-    dx, dy, dz = np.add(current, ee_delta)
-    ee_action = Pose((dx, dy, dz), orn)
-    # Keep validate as False because validate=True would update the
-    # state of the robot during simulation, which overrides physics.
+    if _robot_supports_base_action(robot):
+        max_base_vel_norm = getattr(robot, "default_base_vel_norm",
+                                    max_vel_norm)
+        max_base_rot_vel = getattr(robot, "default_base_rot_vel",
+                                   max_vel_norm)
+        arm_reach_radius = getattr(robot, "default_arm_reach_radius", 0.8)
+        return get_move_end_effector_to_pose_with_base_action(
+            robot=robot,
+            current_joint_positions=current_joint_positions,
+            current_pose=current_pose,
+            target_pose=target_pose,
+            finger_status=finger_status,
+            max_vel_norm=max_vel_norm,
+            finger_action_nudge_magnitude=finger_action_nudge_magnitude,
+            max_base_vel_norm=max_base_vel_norm,
+            max_base_rot_vel=max_base_rot_vel,
+            arm_reach_radius=arm_reach_radius,
+            validate=validate,
+        )
+
+    ee_action = _compute_ee_action_pose(current_pose, target_pose,
+                                        max_vel_norm)
     try:
-        # For the panda, always set the joints after running IK because
-        # IKFast is very sensitive to initialization, and it's easier to
-        # find good solutions on subsequent calls if we are already near
-        # a solution from the previous call. The fetch robot does not
-        # use IKFast, and in fact gets screwed up if we set joints here.
-        if robot.get_name() == "panda":
-            validate = False
-        joint_positions = robot.inverse_kinematics(ee_action,
-                                                   validate=validate,
-                                                   set_joints=True)
+        joint_positions = _compute_arm_joint_positions(
+            robot, current_joint_positions, ee_action, validate)
     except InverseKinematicsError:
         raise utils.OptionExecutionFailure("Inverse kinematics failed.")
     # Handle the fingers. Fingers drift if left alone.
@@ -78,12 +132,68 @@ def get_move_end_effector_to_pose_action(
     # Override the meaningless finger values in joint_action.
     joint_positions[robot.left_finger_joint_idx] = f_action
     joint_positions[robot.right_finger_joint_idx] = f_action
-    action_arr = np.array(joint_positions, dtype=np.float32)
-    # This clipping is needed sometimes for the joint limits.
-    action_arr = np.clip(action_arr, robot.action_space.low,
-                         robot.action_space.high)
-    assert robot.action_space.contains(action_arr)
-    return Action(action_arr)
+    return _build_action_from_joints(robot, joint_positions)
+
+
+def get_move_end_effector_to_pose_with_base_action(
+    robot: SingleArmPyBulletRobot,
+    current_joint_positions: JointPositions,
+    current_pose: Pose,
+    target_pose: Pose,
+    finger_status: str,
+    max_vel_norm: float,
+    finger_action_nudge_magnitude: float,
+    max_base_vel_norm: float,
+    max_base_rot_vel: float,
+    arm_reach_radius: float,
+    validate: bool = True,
+) -> Action:
+    """Get a combined arm + base action for a mobile-base robot."""
+    if not _robot_supports_base_action(robot):
+        raise ValueError("Robot does not support base actions.")
+
+    ee_action = _compute_ee_action_pose(current_pose, target_pose,
+                                        max_vel_norm)
+
+    base_pose = robot.get_base_pose()
+    ee_delta = np.subtract(ee_action.position, current_pose.position)
+    base_delta_xy = np.array(ee_delta[:2], dtype=np.float32)
+    base_delta_norm = np.linalg.norm(base_delta_xy)
+    if base_delta_norm > max_base_vel_norm:
+        base_delta_xy = base_delta_xy * max_base_vel_norm / base_delta_norm
+    base_delta = np.array([base_delta_xy[0], base_delta_xy[1], 0.0],
+                          dtype=np.float32)
+
+    moved_base_pose = None
+    if not np.allclose(base_delta, 0.0):
+        current_yaw = p.getEulerFromQuaternion(base_pose.orientation)[2]
+        new_yaw = current_yaw + float(base_delta[2])
+        moved_base_pose = Pose(
+            (base_pose.position[0] + float(base_delta[0]),
+             base_pose.position[1] + float(base_delta[1]),
+             base_pose.position[2]),
+            p.getQuaternionFromEuler([0.0, 0.0, new_yaw]),
+        )
+        robot.set_base_pose(moved_base_pose)
+
+    try:
+        joint_positions = _compute_arm_joint_positions(
+            robot, current_joint_positions, ee_action, validate)
+    except InverseKinematicsError:
+        if moved_base_pose is not None:
+            robot.set_base_pose(base_pose)
+        raise utils.OptionExecutionFailure("Inverse kinematics failed.")
+    # Handle the fingers. Fingers drift if left alone.
+    if finger_status == "open":
+        finger_delta = finger_action_nudge_magnitude
+    else:
+        assert finger_status == "closed"
+        finger_delta = -finger_action_nudge_magnitude
+    finger_position = current_joint_positions[robot.left_finger_joint_idx]
+    f_action = finger_position + finger_delta
+    joint_positions[robot.left_finger_joint_idx] = f_action
+    joint_positions[robot.right_finger_joint_idx] = f_action
+    return _build_action_from_joints(robot, joint_positions, base_delta)
 
 
 def create_move_end_effector_to_pose_option(
@@ -168,10 +278,7 @@ def get_change_fingers_action(robot: SingleArmPyBulletRobot,
     target = np.array(current_joint_positions, dtype=np.float32)
     target[robot.left_finger_joint_idx] = f_action
     target[robot.right_finger_joint_idx] = f_action
-    # This clipping is needed sometimes for the joint limits.
-    target = np.clip(target, robot.action_space.low, robot.action_space.high)
-    assert robot.action_space.contains(target)
-    return Action(target)
+    return _build_action_from_joints(robot, target)
 
 
 def create_change_fingers_option(

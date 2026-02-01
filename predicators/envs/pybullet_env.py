@@ -268,7 +268,7 @@ class PyBulletEnv(BaseEnv):
         if CFG.pybullet_robot == "panda":
             # gripper rotated 90deg so parallel to x-axis
             normal = np.array([1., 0., 0.], dtype=np.float32)
-        elif CFG.pybullet_robot == "fetch":
+        elif CFG.pybullet_robot in {"fetch", "mobile_fetch"}:
             # gripper parallel to y-axis
             normal = np.array([0., 1., 0.], dtype=np.float32)
         else:  # pragma: no cover
@@ -534,7 +534,8 @@ class PyBulletEnv(BaseEnv):
             state.data,
             simulator_state={
                 "joint_positions": joint_positions,
-                "physics_client_id": self._physics_client_id
+                "physics_client_id": self._physics_client_id,
+                "robot_id": self._pybullet_robot.robot_id,
             })
         return pyb_state
 
@@ -704,8 +705,10 @@ class PyBulletEnv(BaseEnv):
             CFG.rgb_observation=True.
         """
         # Send the action to the robot.
-        target_joint_positions = action.arr.tolist()
-        self._pybullet_robot.set_motors(target_joint_positions)
+        target_joint_positions, base_delta = self._split_action(action)
+        if base_delta.size:
+            self._apply_base_delta(base_delta)
+        self._pybullet_robot.set_motors(target_joint_positions.tolist())
 
         # If we are setting the robot joints directly, and if there is a held
         # object, we need to reset the pose of the held object directly. This
@@ -853,9 +856,39 @@ class PyBulletEnv(BaseEnv):
     def _action_to_finger_delta(self, action: Action) -> float:
         assert isinstance(self._current_observation, State)
         finger_position = self._get_finger_position(self._current_observation)
-        target = action.arr[-1]
+        joint_positions, _ = self._split_action(action)
+        target = joint_positions[self._pybullet_robot.left_finger_joint_idx]
         # logging.debug(f"Finger position: {finger_position}, target: {target}")
         return target - finger_position
+
+    def _split_action(self, action: Action) -> Tuple[np.ndarray, np.ndarray]:
+        """Split an action into joint targets and an optional base delta."""
+        action_arr = action.arr
+        base_dim = int(getattr(self._pybullet_robot, "base_action_dim", 0))
+        if base_dim > 0:
+            expected = len(self._pybullet_robot.arm_joints) + base_dim
+            if action_arr.shape[0] == expected:
+                return action_arr[:-base_dim], action_arr[-base_dim:]
+            if action_arr.shape[0] == len(self._pybullet_robot.arm_joints):
+                zeros = np.zeros(base_dim, dtype=action_arr.dtype)
+                return action_arr, zeros
+            raise ValueError(
+                f"Unexpected action dim {action_arr.shape[0]}, expected "
+                f"{len(self._pybullet_robot.arm_joints)} or {expected}.")
+        return action_arr, np.zeros(0, dtype=action_arr.dtype)
+
+    def _apply_base_delta(self, base_delta: np.ndarray) -> None:
+        """Apply a delta (dx, dy, dtheta) to the robot base if supported."""
+        base_pose = self._pybullet_robot.get_base_pose()
+        current_yaw = p.getEulerFromQuaternion(base_pose.orientation)[2]
+        new_yaw = current_yaw + float(base_delta[2])
+        new_pose = Pose(
+            (base_pose.position[0] + float(base_delta[0]),
+             base_pose.position[1] + float(base_delta[1]),
+             base_pose.position[2]),
+            p.getQuaternionFromEuler([0.0, 0.0, new_yaw]),
+        )
+        self._pybullet_robot.set_base_pose(new_pose)
 
     def _add_pybullet_state_to_tasks(
             self, tasks: List[EnvironmentTask]) -> List[EnvironmentTask]:

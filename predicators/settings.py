@@ -187,6 +187,7 @@ class GlobalSettings:
         # Fetch and Panda gripper down and parallel to x-axis by default.
         lambda: {
             "fetch": (0.5, -0.5, -0.5, -0.5),
+            "mobile_fetch": (0.5, -0.5, -0.5, -0.5),
             "panda": (0.7071, 0.7071, 0.0, 0.0),
         },
         # In Blocks, Fetch gripper down since it's thin we don't need to
@@ -194,10 +195,12 @@ class GlobalSettings:
         {
             "pybullet_blocks": {
                 "fetch": (0.7071, 0.0, -0.7071, 0.0),
+                "mobile_fetch": (0.7071, 0.0, -0.7071, 0.0),
                 "panda": (0.7071, 0.7071, 0.0, 0.0),
             },
             "pybullet_balance": {
                 "fetch": (0.7071, 0.0, -0.7071, 0.0),
+                "mobile_fetch": (0.7071, 0.0, -0.7071, 0.0),
                 "panda": (0.7071, 0.7071, 0.0, 0.0),
             }
         })

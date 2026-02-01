@@ -3,6 +3,8 @@ from typing import Dict, Optional, Type
 
 from predicators.pybullet_helpers.geometry import Pose, Pose3D
 from predicators.pybullet_helpers.robots.fetch import FetchPyBulletRobot
+from predicators.pybullet_helpers.robots.mobile_fetch import \
+    MobileFetchPyBulletRobot
 from predicators.pybullet_helpers.robots.panda import PandaPyBulletRobot
 from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot
@@ -11,11 +13,13 @@ from predicators.settings import CFG
 # Note: these are static base poses which suffice for the current environments.
 _ROBOT_TO_BASE_POSE: Dict[str, Pose] = {
     "fetch": Pose(position=(0.75, 0.7441, 0.0)),
+    "mobile_fetch": Pose(position=(0.75, 0.7441, 0.0)),
     "panda": Pose(position=(0.8, 0.7441, 0.195)),
 }
 
 _ROBOT_TO_CLS: Dict[str, Type[SingleArmPyBulletRobot]] = {
     "fetch": FetchPyBulletRobot,
+    "mobile_fetch": MobileFetchPyBulletRobot,
     "panda": PandaPyBulletRobot,
 }
 

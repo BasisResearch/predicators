@@ -245,16 +245,22 @@ class HumanLowLevelControlApproach(BaseApproach):
             target_finger_pos = robot.open_fingers if self._gripper_open else robot.closed_fingers
             action_arr[robot.left_finger_joint_idx] = target_finger_pos
             action_arr[robot.right_finger_joint_idx] = target_finger_pos
-            return Action(action_arr)
+            return self._pad_base_action(action_arr)
 
         # If no movement at all, return true no-op to prevent drift
         if not spatial_movement and not toggle_gripper:
             # Return current joint positions as-is (no IK, no drift)
             action_arr = np.array(current_joint_positions, dtype=np.float32)
-            return Action(action_arr)
+            return self._pad_base_action(action_arr)
 
         # Get robot for IK
         robot = self._get_robot()
+        if hasattr(robot, "base_action_dim") and robot.base_action_dim > 0:
+            robot_id = state.simulator_state.get("robot_id")
+            if robot_id is not None:
+                base_pos, base_orn = p.getBasePositionAndOrientation(
+                    robot_id, physicsClientId=physics_client_id)
+                robot.set_base_pose(Pose(base_pos, base_orn))
 
         # Find robot object in state
         robot_obj = None
@@ -310,19 +316,29 @@ class HumanLowLevelControlApproach(BaseApproach):
         except utils.OptionExecutionFailure:
             # IK failed, return no-op action
             action_arr = np.array(current_joint_positions, dtype=np.float32)
-            action = Action(action_arr)
+            action = self._pad_base_action(action_arr)
 
         # Validate action is within action space bounds
         if not self._action_space.contains(action.arr):
             print(f"[Step {self._step_count}] Warning: Action out of bounds, staying in place")
             action_arr = np.array(current_joint_positions, dtype=np.float32)
-            action = Action(action_arr)
+            action = self._pad_base_action(action_arr)
 
         return action
 
     def __del__(self) -> None:
         """Restore terminal settings on cleanup."""
         self._restore_terminal()
+
+    def _pad_base_action(self, action_arr: np.ndarray) -> Action:
+        """Pad action with zero base deltas when the action space expects it."""
+        extra_dim = self._action_space.shape[0] - action_arr.shape[0]
+        if extra_dim > 0:
+            zeros = np.zeros(extra_dim, dtype=np.float32)
+            action_arr = np.concatenate([action_arr, zeros])
+        action_arr = np.clip(action_arr, self._action_space.low,
+                             self._action_space.high)
+        return Action(action_arr)
 
 
 def _get_shadow_robot_for_env() -> SingleArmPyBulletRobot:
