@@ -224,9 +224,7 @@ class DominoComponent(DominoEnvComponent):
     # -------------------------------------------------------------------------
 
     def get_types(self) -> Set[Type]:
-        return {
-            self._domino_type, self._target_type, self._pivot_type
-        }
+        return {self._domino_type, self._target_type, self._pivot_type}
 
     def get_predicates(self) -> Set[Predicate]:
         preds = {

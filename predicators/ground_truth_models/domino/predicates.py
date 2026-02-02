@@ -19,7 +19,7 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
 
     @classmethod
     def get_helper_predicates(cls, env_name: str,
-                            types: Dict[str, Type]) -> Set[Predicate]:
+                              types: Dict[str, Type]) -> Set[Predicate]:
         """Get helper predicates for the domino environment.
 
         Returns DominoAtPos, DominoAtRot, and InFront predicates.
@@ -33,27 +33,23 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
         direction_type = types["direction"]
 
         # DominoAtPos predicate
-        DominoAtPos = Predicate("DominoAtPos",
-                               [domino_type, position_type],
-                               cls._DominoAtPos_holds)
+        DominoAtPos = Predicate("DominoAtPos", [domino_type, position_type],
+                                cls._DominoAtPos_holds)
 
         # DominoAtRot predicate
-        DominoAtRot = Predicate("DominoAtRot",
-                               [domino_type, angle_type],
-                               cls._DominoAtRot_holds)
+        DominoAtRot = Predicate("DominoAtRot", [domino_type, angle_type],
+                                cls._DominoAtRot_holds)
 
         # InFrontDirection derived predicate
         InFrontDirection = DerivedPredicate(
-            "InFrontDirection",
-            [domino_type, domino_type, direction_type],
+            "InFrontDirection", [domino_type, domino_type, direction_type],
             cls._InFrontDirection_holds,
             auxiliary_predicates={DominoAtPos, DominoAtRot})
 
         # InFront derived predicate
-        InFront = DerivedPredicate(
-            "InFront", [domino_type, domino_type],
-            cls._InFront_holds,
-            auxiliary_predicates={InFrontDirection})
+        InFront = DerivedPredicate("InFront", [domino_type, domino_type],
+                                   cls._InFront_holds,
+                                   auxiliary_predicates={InFrontDirection})
 
         return {DominoAtPos, DominoAtRot, InFrontDirection, InFront}
 
@@ -177,14 +173,14 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
             for (x_back_idx, y_back_idx) in back_domino_positions:
                 for rot_back_rad in back_domino_rotations:
                     # Relationship only holds for cardinal rotations
-                    if not (abs(np.sin(rot_back_rad)) < tolerance or
-                            abs(np.cos(rot_back_rad)) < tolerance):
+                    if not (abs(np.sin(rot_back_rad)) < tolerance
+                            or abs(np.cos(rot_back_rad)) < tolerance):
                         continue
                     # Calculate expected position
                     dx_idx = round(np.sin(rot_back_rad))
                     dy_idx = round(np.cos(rot_back_rad))
                     expected_front_coords = (x_back_idx + dx_idx,
-                                           y_back_idx + dy_idx)
+                                             y_back_idx + dy_idx)
                     if expected_front_coords in front_domino_positions:
                         position_possible = True
                         break

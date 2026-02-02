@@ -69,6 +69,7 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
         seed = self._seed + self._num_calls
         processes = self._get_current_processes()
         preds = self._get_current_predicates()
+        breakpoint()
 
         abstract_policy = None
         if CFG.process_planning_use_abstract_policy:

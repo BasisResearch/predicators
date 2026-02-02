@@ -118,13 +118,14 @@ class GroundTruthPredicateFactory(abc.ABC):
     @classmethod
     @abc.abstractmethod
     def get_env_names(cls) -> Set[str]:
-        """Get the env names that this factory provides helper predicates for."""
+        """Get the env names that this factory provides helper predicates
+        for."""
         raise NotImplementedError("Override me!")
 
     @classmethod
     @abc.abstractmethod
     def get_helper_predicates(cls, env_name: str,
-                            types: Dict[str, Type]) -> Set[Predicate]:
+                              types: Dict[str, Type]) -> Set[Predicate]:
         """Get helper predicates for the given env name."""
         raise NotImplementedError("Override me!")
 
@@ -246,7 +247,8 @@ def get_gt_ldl_bridge_policy(env_name: str, types: Set[Type],
 def get_gt_helper_types(env_name: str) -> Set[Type]:
     """Get environment-specific helper types if defined.
 
-    Returns an empty set if no helper types are defined for this environment.
+    Returns an empty set if no helper types are defined for this
+    environment.
     """
     for cls in utils.get_all_subclasses(GroundTruthTypeFactory):
         if not cls.__abstractmethods__ and env_name in cls.get_env_names():
@@ -258,7 +260,8 @@ def get_gt_helper_types(env_name: str) -> Set[Type]:
 def get_gt_helper_predicates(env_name: str) -> Set[Predicate]:
     """Get environment-specific helper predicates if defined.
 
-    Returns an empty set if no helper predicates are defined for this environment.
+    Returns an empty set if no helper predicates are defined for this
+    environment.
     """
     for cls in utils.get_all_subclasses(GroundTruthPredicateFactory):
         if not cls.__abstractmethods__ and env_name in cls.get_env_names():

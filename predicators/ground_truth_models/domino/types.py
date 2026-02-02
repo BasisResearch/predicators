@@ -17,7 +17,8 @@ class PyBulletDominoGroundTruthTypeFactory(GroundTruthTypeFactory):
     def get_helper_types(cls, env_name: str) -> Set[Type]:
         """Get helper types for the domino environment.
 
-        Returns position and rotation types used for grid-based planning.
+        Returns position and rotation types used for grid-based
+        planning.
         """
         del env_name  # unused
 
