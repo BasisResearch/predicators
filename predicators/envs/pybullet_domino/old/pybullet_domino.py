@@ -223,7 +223,7 @@ class PyBulletDominoEnv(PyBulletEnv):
 
     @classmethod
     def get_name(cls) -> str:
-        return "pybullet_domino"
+        return "pybullet_domino_old"
 
     @property
     def predicates(self) -> Set[Predicate]:
