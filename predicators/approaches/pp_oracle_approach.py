@@ -4,7 +4,8 @@ from gym.spaces import Box
 
 from predicators.approaches.process_planning_approach import \
     BilevelProcessPlanningApproach
-from predicators.ground_truth_models import get_gt_processes
+from predicators.ground_truth_models import get_gt_helper_predicates, \
+    get_gt_helper_types, get_gt_processes
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import NSRT, CausalProcess, ParameterizedOption, \
@@ -34,6 +35,13 @@ class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):
                          max_skeletons_optimized,
                          bilevel_plan_without_sim,
                          option_model=option_model)
+        # Add optional helpful types and predicates (such as in dominoes the
+        # ones about positions and directions)
+        helper_types = get_gt_helper_types(CFG.env)
+        helper_predicates = get_gt_helper_predicates(CFG.env)
+        self._types = types | helper_types
+        self._initial_predicates = initial_predicates | helper_predicates
+
         if processes is None:
             # use only_endogenous for the no_invent baseline
             processes = get_gt_processes(

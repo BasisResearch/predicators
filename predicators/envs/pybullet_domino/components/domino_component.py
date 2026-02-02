@@ -4,13 +4,12 @@ This component handles:
 - Domino blocks (start, intermediate, target, glued)
 - Target objects (hinged targets)
 - Pivot objects (for 180-degree turns)
-- Direction objects (straight, left, right)
 - Related predicates (Toppled, Upright, Tilting, etc.)
 """
 
 from dataclasses import dataclass
-from typing import Any, Callable, ClassVar, Dict, List, Optional, Sequence, \
-    Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, \
+    Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -23,6 +22,10 @@ from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.objects import create_object, update_object
 from predicators.settings import CFG
 from predicators.structs import Object, Predicate, State, Type
+
+if TYPE_CHECKING:
+    from predicators.envs.pybullet_domino.composed_env import \
+        PyBulletDominoComposedEnv
 
 
 @dataclass
@@ -46,19 +49,19 @@ class DominoComponent(DominoEnvComponent):
     - Domino blocks with different colors for roles (start, target, intermediate, glued)
     - Target objects that can be toppled
     - Pivot objects for 180-degree direction changes
-    - Direction objects for sequence generation
+
+    Note: domino_width, domino_depth, domino_height, domino_mass, and
+    domino_friction are defined in PyBulletDominoComposedEnv.
     """
 
     # =========================================================================
     # DOMINO CONFIGURATION
     # =========================================================================
 
-    # Domino shape
-    domino_width: ClassVar[float] = 0.07
-    domino_depth: ClassVar[float] = 0.015
-    domino_height: ClassVar[float] = 0.15
-    domino_mass: ClassVar[float] = 0.1
-    domino_friction: ClassVar[float] = 0.5
+    # Domino shape properties - defined in PyBulletDominoComposedEnv
+    # domino_width, domino_depth, domino_height, domino_mass, domino_friction
+
+    # Domino thresholds
     domino_roll_threshold: ClassVar[float] = np.deg2rad(5)
     fallen_threshold: ClassVar[float] = np.pi * 2 / 5  # ~72 degrees
 
@@ -77,8 +80,35 @@ class DominoComponent(DominoEnvComponent):
     target_height: ClassVar[float] = 0.2
     pivot_width: ClassVar[float] = 0.2
 
-    # Grid configuration
-    pos_gap: ClassVar[float] = domino_width * 1.4  # 0.098
+    # Grid configuration - references domino_width from PyBulletDominoComposedEnv
+    @staticmethod
+    def _get_env_class() -> type:
+        """Get PyBulletDominoComposedEnv class to access shared config."""
+        from predicators.envs.pybullet_domino.composed_env import \
+            PyBulletDominoComposedEnv
+        return PyBulletDominoComposedEnv
+
+    @property
+    def domino_width(self) -> float:
+        return self._get_env_class().domino_width
+
+    @property
+    def domino_depth(self) -> float:
+        return self._get_env_class().domino_depth
+
+    @property
+    def domino_height(self) -> float:
+        return self._get_env_class().domino_height
+
+    @property
+    def domino_mass(self) -> float:
+        return self._get_env_class().domino_mass
+
+    @property
+    def domino_friction(self) -> float:
+        return self._get_env_class().domino_friction
+
+    pos_gap: ClassVar[float] = 0.098  # domino_width * 1.4, computed value
     turn_shift_frac: ClassVar[float] = 0.6
     turn_choices: ClassVar[List[str]] = ["straight", "turn90", "pivot180"]
 
@@ -137,7 +167,6 @@ class DominoComponent(DominoEnvComponent):
                                  sim_features=["id", "joint_id"])
         self._pivot_type = Type("pivot", ["x", "y", "z", "yaw"],
                                 sim_features=["id", "joint_id"])
-        self._direction_type = Type("direction", ["dir"])
 
         # Create objects
         use_domino_as_target = CFG.domino_use_domino_blocks_as_target
@@ -162,12 +191,6 @@ class DominoComponent(DominoEnvComponent):
         for i in range(self.num_pivots_max):
             obj = Object(f"pivot_{i}", self._pivot_type)
             self.pivots.append(obj)
-
-        self.directions: List[Object] = []
-        direction_names = ["straight", "left", "right"]
-        for name in direction_names:
-            obj = Object(name, self._direction_type)
-            self.directions.append(obj)
 
         # Constraint tracking for connected dominoes
         self.block_constraints: List[int] = []
@@ -202,8 +225,7 @@ class DominoComponent(DominoEnvComponent):
 
     def get_types(self) -> Set[Type]:
         return {
-            self._domino_type, self._target_type, self._pivot_type,
-            self._direction_type
+            self._domino_type, self._target_type, self._pivot_type
         }
 
     def get_predicates(self) -> Set[Predicate]:
@@ -222,7 +244,7 @@ class DominoComponent(DominoEnvComponent):
         return {self._Toppled}
 
     def get_objects(self) -> List[Object]:
-        return self.dominos + self.targets + self.pivots + self.directions
+        return self.dominos + self.targets + self.pivots
 
     def initialize_pybullet(self, physics_client_id: int) -> Dict[str, Any]:
         """Create PyBullet bodies for dominoes, targets, and pivots."""
@@ -360,16 +382,6 @@ class DominoComponent(DominoEnvComponent):
 
     def extract_feature(self, obj: Object, feature: str) -> Optional[float]:
         """Extract feature for domino-related objects."""
-        if obj.type == self._direction_type:
-            if feature == "dir":
-                if obj.name == "straight":
-                    return 0.0
-                elif obj.name == "left":
-                    return 1.0
-                elif obj.name == "right":
-                    return 2.0
-            return None
-
         # Let the base environment handle position/orientation extraction
         return None
 
@@ -540,10 +552,6 @@ class DominoComponent(DominoEnvComponent):
     @property
     def pivot_type(self) -> Type:
         return self._pivot_type
-
-    @property
-    def direction_type(self) -> Type:
-        return self._direction_type
 
     @property
     def Toppled(self) -> Predicate:

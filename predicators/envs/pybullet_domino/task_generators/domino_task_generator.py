@@ -88,10 +88,6 @@ class DominoTaskGenerator(TaskGenerator):
         # Robot initial state
         init_dict[self.robot] = self.robot_init_state.copy()
 
-        # Direction objects
-        for i, direction_obj in enumerate(self.domino.directions):
-            init_dict[direction_obj] = {"dir": float(i)}
-
         # Generate domino sequence
         n_dominos = rng.choice(possible_num_dominos)
         n_targets = rng.choice(possible_num_targets)

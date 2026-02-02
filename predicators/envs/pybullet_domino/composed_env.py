@@ -84,6 +84,16 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
     _camera_pitch: ClassVar[float] = -40
     _camera_target: ClassVar[Pose3D] = (0.75, 1.25, 0.42)
 
+    # =========================================================================
+    # DOMINO CONFIGURATION
+    # =========================================================================
+    # Domino shape properties
+    domino_width: ClassVar[float] = 0.07
+    domino_depth: ClassVar[float] = 0.015
+    domino_height: ClassVar[float] = 0.15
+    domino_mass: ClassVar[float] = 0.1
+    domino_friction: ClassVar[float] = 0.5
+
     # Type definitions
     _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
     _out_of_view_xy: ClassVar[Sequence[float]] = [10.0, 10.0]
