@@ -44,8 +44,8 @@ class PyBulletDominoGroundTruthTypeFactory(GroundTruthTypeFactory):
     def augment_task_with_helper_objects(cls, task: Task) -> Task:
         """Augment task with helper objects for positions, angles, directions.
 
-        Creates grid of location objects based on start and target domino
-        positions, discrete angle objects, and direction objects.
+        Creates grid of location objects based on start and target
+        domino positions, discrete angle objects, and direction objects.
         """
         # Get the helper types
         helper_types = cls.get_helper_types(env_name="")

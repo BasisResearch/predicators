@@ -1,15 +1,15 @@
-from typing import List, Optional, Set, Callable
+from typing import Callable, List, Optional, Set
 
 from gym.spaces import Box
 
 from predicators.approaches.process_planning_approach import \
     BilevelProcessPlanningApproach
-from predicators.ground_truth_models import get_gt_helper_predicates, \
-    get_gt_helper_types, get_gt_processes, augment_task_with_helper_objects
+from predicators.ground_truth_models import augment_task_with_helper_objects, \
+    get_gt_helper_predicates, get_gt_helper_types, get_gt_processes
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
-from predicators.structs import NSRT, CausalProcess, ParameterizedOption, \
-    Predicate, Task, Type, State, Action
+from predicators.structs import NSRT, Action, CausalProcess, \
+    ParameterizedOption, Predicate, State, Task, Type
 
 
 class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):

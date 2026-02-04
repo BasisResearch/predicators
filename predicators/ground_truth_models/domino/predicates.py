@@ -41,8 +41,7 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
                                 cls._DominoAtRot_holds)
 
         # PosClear predicate
-        PosClear = Predicate("PosClear", [position_type],
-                            cls._PosClear_holds)
+        PosClear = Predicate("PosClear", [position_type], cls._PosClear_holds)
 
         # InFrontDirection derived predicate
         InFrontDirection = DerivedPredicate(
@@ -57,9 +56,9 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
 
         # AdjacentTo derived predicate
         AdjacentTo = DerivedPredicate("AdjacentTo",
-                                     [position_type, domino_type],
-                                     cls._AdjacentTo_holds,
-                                     auxiliary_predicates={DominoAtPos})
+                                      [position_type, domino_type],
+                                      cls._AdjacentTo_holds,
+                                      auxiliary_predicates={DominoAtPos})
 
         return {
             DominoAtPos, DominoAtRot, InFrontDirection, InFront, PosClear,
@@ -129,7 +128,8 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
         _rot_rad_cache: Dict[Object, float] = {}
 
         def extract_coords(pos_obj: Object) -> tuple:
-            """Extract x, y coordinates from location name like 'loc_0.49_1.23'."""
+            """Extract x, y coordinates from location name like
+            'loc_0.49_1.23'."""
             if pos_obj in _pos_coord_cache:
                 return _pos_coord_cache[pos_obj]
             name_parts = pos_obj.name.split("_")
@@ -205,8 +205,8 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
 
                     # Check if any front position matches (within tolerance)
                     for (x_front, y_front) in front_domino_positions:
-                        if (abs(x_front - expected_x) < pos_gap * 0.3 and
-                            abs(y_front - expected_y) < pos_gap * 0.3):
+                        if (abs(x_front - expected_x) < pos_gap * 0.3
+                                and abs(y_front - expected_y) < pos_gap * 0.3):
                             position_possible = True
                             break
                     if position_possible:
@@ -343,7 +343,8 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
         _pos_coord_cache: Dict[Object, tuple] = {}
 
         def extract_coords(pos_obj: Object) -> tuple:
-            """Extract x, y coordinates from location name like 'loc_0.49_1.23'."""
+            """Extract x, y coordinates from location name like
+            'loc_0.49_1.23'."""
             if pos_obj in _pos_coord_cache:
                 return _pos_coord_cache[pos_obj]
             name_parts = pos_obj.name.split("_")

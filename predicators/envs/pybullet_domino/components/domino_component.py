@@ -446,9 +446,9 @@ class DominoComponent(DominoEnvComponent):
         domino, = objects
         eps = 1e-3
         return (cls._DominoGlued_holds(state, objects)) or (
-            abs(state.get(domino, "r") - cls.target_domino_color[0]) < eps and
-            abs(state.get(domino, "g") - cls.target_domino_color[1]) < eps and
-            abs(state.get(domino, "b") - cls.target_domino_color[2]) < eps)
+            abs(state.get(domino, "r") - cls.target_domino_color[0]) < eps
+            and abs(state.get(domino, "g") - cls.target_domino_color[1]) < eps
+            and abs(state.get(domino, "b") - cls.target_domino_color[2]) < eps)
 
     @classmethod
     def _DominoNotGlued_holds(cls, state: State,

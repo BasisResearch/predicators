@@ -115,8 +115,8 @@ class GroundTruthTypeFactory(abc.ABC):
     def augment_task_with_helper_objects(cls, task: Task) -> Task:
         """Augment task's initial state with helper objects and features.
 
-        By default, returns the task unchanged. Override this method to add
-        environment-specific helper objects to the initial state.
+        By default, returns the task unchanged. Override this method to
+        add environment-specific helper objects to the initial state.
         """
         return task
 
@@ -271,8 +271,8 @@ def get_gt_helper_types(env_name: str) -> Set[Type]:
 def augment_task_with_helper_objects(task: Task, env_name: str) -> Task:
     """Augment task with environment-specific helper objects if defined.
 
-    Returns the task unchanged if no helper object augmentation is defined
-    for this environment.
+    Returns the task unchanged if no helper object augmentation is
+    defined for this environment.
     """
     for cls in utils.get_all_subclasses(GroundTruthTypeFactory):
         if not cls.__abstractmethods__ and env_name in cls.get_env_names():
