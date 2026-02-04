@@ -683,13 +683,15 @@ def _skeleton_generator_with_processes(
                 # #                        'SwitchBurnerOn',
                 # #                        ]
                 # target_action_names = [
-                #                     'PickDomino(robot:robot, domino_2:domino, pos_y0_x2:loc, rot_0:rot)',
+                #                     # Update with new location naming format: loc_x.xx_y.yy
+                #                     # 'PickDomino(robot:robot, domino_1:domino, loc_0.49_1.23:loc, ang_0:angle)',
                 #                     # 'PlaceDomino(robot:robot, domino_2:domino, domino_3:domino, pos_y0_x2:loc, rot_135:rot)',
                 #                     # 'PickDomino(robot:robot, domino_1:domino, pos_y0_x0:loc, rot_0:rot)',
                 #                     # 'PlaceDomino(robot:robot, domino_1:domino, domino_0:domino, pos_y1_x2:loc, rot_180:rot',
                 #                     ]
-                # if action_names == target_action_names and \
-                #     action_process.name_and_objects_str() == 'PlaceDomino(robot:robot, domino_2:domino, domino_3:domino, pos_y0_x2:loc, rot_135:rot)':
+                # # if action_names == target_action_names:# and \
+                #     # action_process.name_and_objects_str() == 'PlaceDomino(robot:robot, domino_1:domino, domino_0:domino, loc_x1_y0:loc, ang_-90:angle)':
+                # if False:  # Update with actual action string when debugging
                 # # if action_names == target_action_names:
                 #     breakpoint()
                 world_model.big_step(action_process)
@@ -767,7 +769,6 @@ def task_plan_from_task(
     max_policy_guided_rollout: int = 0,
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]],
                     Metrics]]:
-    # TODO: Expand the concept predicates to include all dependencies
     predicates_set = set(predicates)
     all_predicates = utils.add_in_auxiliary_predicates(predicates_set)
     derived_predicates = utils.get_derived_predicates(all_predicates)
@@ -786,6 +787,7 @@ def task_plan_from_task(
         allow_noops=True,
         compute_reachable_atoms=True,
         derived_predicates=derived_predicates)
+    breakpoint()
 
     if CFG.process_task_planning_heuristic == "goal_count":
         heuristic = utils.create_task_planning_heuristic(

@@ -93,6 +93,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
     domino_height: ClassVar[float] = 0.15
     domino_mass: ClassVar[float] = 0.1
     domino_friction: ClassVar[float] = 0.5
+    pos_gap: ClassVar[float] = 0.098  # domino_width * 1.4, computed value
 
     # Type definitions
     _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])

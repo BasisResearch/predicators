@@ -1,15 +1,15 @@
-from typing import List, Optional, Set
+from typing import List, Optional, Set, Callable
 
 from gym.spaces import Box
 
 from predicators.approaches.process_planning_approach import \
     BilevelProcessPlanningApproach
 from predicators.ground_truth_models import get_gt_helper_predicates, \
-    get_gt_helper_types, get_gt_processes
+    get_gt_helper_types, get_gt_processes, augment_task_with_helper_objects
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import NSRT, CausalProcess, ParameterizedOption, \
-    Predicate, Task, Type
+    Predicate, Task, Type, State, Action
 
 
 class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):
@@ -80,3 +80,8 @@ class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):
     def _get_current_nsrts(self) -> Set[NSRT]:
         """Get the current set of NSRTs."""
         return set()
+
+    def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
+        # Augment task with helper objects if needed
+        task = augment_task_with_helper_objects(task, CFG.env)
+        return super()._solve(task, timeout)

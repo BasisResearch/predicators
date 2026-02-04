@@ -40,6 +40,10 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
         DominoAtRot = Predicate("DominoAtRot", [domino_type, angle_type],
                                 cls._DominoAtRot_holds)
 
+        # PosClear predicate
+        PosClear = Predicate("PosClear", [position_type],
+                            cls._PosClear_holds)
+
         # InFrontDirection derived predicate
         InFrontDirection = DerivedPredicate(
             "InFrontDirection", [domino_type, domino_type, direction_type],
@@ -51,7 +55,16 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
                                    cls._InFront_holds,
                                    auxiliary_predicates={InFrontDirection})
 
-        return {DominoAtPos, DominoAtRot, InFrontDirection, InFront}
+        # AdjacentTo derived predicate
+        AdjacentTo = DerivedPredicate("AdjacentTo",
+                                     [position_type, domino_type],
+                                     cls._AdjacentTo_holds,
+                                     auxiliary_predicates={DominoAtPos})
+
+        return {
+            DominoAtPos, DominoAtRot, InFrontDirection, InFront, PosClear,
+            AdjacentTo
+        }
 
     @staticmethod
     def _DominoAtPos_holds(state: State, objects: Sequence[Object]) -> bool:
@@ -109,17 +122,20 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
         """
         domino1, domino2, direction_obj = objects
 
+        # Note: No longer need to filter "loc_other_" positions since we use exact coordinates
+
         # Helper functions to parse object names and cache results
         _pos_coord_cache: Dict[Object, tuple] = {}
         _rot_rad_cache: Dict[Object, float] = {}
 
-        def extract_grid_coords(pos_obj: Object) -> tuple:
+        def extract_coords(pos_obj: Object) -> tuple:
+            """Extract x, y coordinates from location name like 'loc_0.49_1.23'."""
             if pos_obj in _pos_coord_cache:
                 return _pos_coord_cache[pos_obj]
             name_parts = pos_obj.name.split("_")
-            y_idx = int(name_parts[1][1:])
-            x_idx = int(name_parts[2][1:])
-            result = (x_idx, y_idx)
+            x_coord = float(name_parts[1])  # Extract from "0.49" part
+            y_coord = float(name_parts[2])  # Extract from "1.23" part
+            result = (x_coord, y_coord)
             _pos_coord_cache[pos_obj] = result
             return result
 
@@ -133,7 +149,7 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
 
         # Gather all possible states for each domino
         d1_positions_coords = {
-            extract_grid_coords(atom.objects[1])
+            extract_coords(atom.objects[1])
             for atom in atoms if atom.predicate.name == "DominoAtPos"
             and atom.objects[0] == domino1
         }
@@ -143,7 +159,7 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
             and atom.objects[0] == domino1
         }
         d2_positions_coords = {
-            extract_grid_coords(atom.objects[1])
+            extract_coords(atom.objects[1])
             for atom in atoms if atom.predicate.name == "DominoAtPos"
             and atom.objects[0] == domino2
         }
@@ -168,21 +184,32 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
             ]):
                 return False
 
+            # Import pos_gap for spatial calculations
+            from predicators.envs.pybullet_domino.composed_env import \
+                PyBulletDominoComposedEnv
+            pos_gap = PyBulletDominoComposedEnv.pos_gap
+
             # Positional Check: Is there ANY valid geometric placement?
             position_possible = False
-            for (x_back_idx, y_back_idx) in back_domino_positions:
+            for (x_back, y_back) in back_domino_positions:
                 for rot_back_rad in back_domino_rotations:
                     # Relationship only holds for cardinal rotations
                     if not (abs(np.sin(rot_back_rad)) < tolerance
                             or abs(np.cos(rot_back_rad)) < tolerance):
                         continue
-                    # Calculate expected position
-                    dx_idx = round(np.sin(rot_back_rad))
-                    dy_idx = round(np.cos(rot_back_rad))
-                    expected_front_coords = (x_back_idx + dx_idx,
-                                             y_back_idx + dy_idx)
-                    if expected_front_coords in front_domino_positions:
-                        position_possible = True
+                    # Calculate expected position using actual spatial offset
+                    dx = pos_gap * np.sin(rot_back_rad)
+                    dy = pos_gap * np.cos(rot_back_rad)
+                    expected_x = x_back + dx
+                    expected_y = y_back + dy
+
+                    # Check if any front position matches (within tolerance)
+                    for (x_front, y_front) in front_domino_positions:
+                        if (abs(x_front - expected_x) < pos_gap * 0.3 and
+                            abs(y_front - expected_y) < pos_gap * 0.3):
+                            position_possible = True
+                            break
+                    if position_possible:
                         break
                 if position_possible:
                     break
@@ -246,6 +273,114 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
             if (atom.predicate.name == "InFrontDirection"
                     and len(atom.objects) == 3 and atom.objects[0] == domino1
                     and atom.objects[1] == domino2):
+                return True
+
+        return False
+
+    @staticmethod
+    def _PosClear_holds(state: State, objects: Sequence[Object]) -> bool:
+        """Check if a position is clear (not occupied by any domino).
+
+        A position is considered clear if no domino is currently at that
+        position.
+        """
+        position, = objects
+
+        # Get the position coordinates
+        target_x = state.get(position, "xx")
+        target_y = state.get(position, "yy")
+
+        # Calculate grid spacing (minimum distance between positions)
+        position_type = position.type
+        positions = list(state.get_objects(position_type))
+
+        min_distance = float('inf')
+        for i, pos1 in enumerate(positions):
+            for pos2 in positions[i + 1:]:
+                x1 = state.get(pos1, "xx")
+                y1 = state.get(pos1, "yy")
+                x2 = state.get(pos2, "xx")
+                y2 = state.get(pos2, "yy")
+                distance = np.sqrt((x1 - x2)**2 + (y1 - y2)**2)
+                if distance > 1e-6:  # Skip identical positions
+                    min_distance = min(min_distance, distance)
+
+        # Use half the grid spacing as tolerance
+        position_tolerance = min_distance * 0.5 if min_distance != float(
+            'inf') else 0.1
+
+        # Check if any domino is at this position
+        for obj in state:
+            if obj.type.name == "domino":
+                domino_x = state.get(obj, "x")
+                domino_y = state.get(obj, "y")
+
+                # If domino is close enough to this position, position is not clear
+                if (abs(domino_x - target_x) <= position_tolerance
+                        and abs(domino_y - target_y) <= position_tolerance
+                        and not state.get(obj, "is_held")):
+                    return False
+
+        return True
+
+    @staticmethod
+    def _AdjacentTo_holds(atoms: Set[GroundAtom],
+                          objects: Sequence[Object]) -> bool:
+        """Check if a position is adjacent to a domino in cardinal directions.
+
+        This is similar to _InFrontDirection_holds but checks if a position
+        is adjacent to any position where the domino could be placed, considering
+        that the domino can be in multiple positions during heuristic computation.
+
+        Adjacent positions are those that are exactly one grid step away in
+        cardinal directions (up, down, left, right) but not diagonal.
+        """
+        position, domino = objects
+
+        # Note: No longer need to filter "loc_other_" positions since we use exact coordinates
+
+        # Helper functions to parse object names and cache results
+        _pos_coord_cache: Dict[Object, tuple] = {}
+
+        def extract_coords(pos_obj: Object) -> tuple:
+            """Extract x, y coordinates from location name like 'loc_0.49_1.23'."""
+            if pos_obj in _pos_coord_cache:
+                return _pos_coord_cache[pos_obj]
+            name_parts = pos_obj.name.split("_")
+            x_coord = float(name_parts[1])  # Extract from "0.49" part
+            y_coord = float(name_parts[2])  # Extract from "1.23" part
+            result = (x_coord, y_coord)
+            _pos_coord_cache[pos_obj] = result
+            return result
+
+        # Import pos_gap for spatial calculations
+        from predicators.envs.pybullet_domino.composed_env import \
+            PyBulletDominoComposedEnv
+        pos_gap = PyBulletDominoComposedEnv.pos_gap
+
+        # Get coordinates of the target position
+        target_coords = extract_coords(position)
+        target_x, target_y = target_coords
+
+        # Get all possible positions where the domino could be
+        domino_positions_coords = {
+            extract_coords(atom.objects[1])
+            for atom in atoms if atom.predicate.name == "DominoAtPos"
+            and atom.objects[0] == domino
+        }
+
+        # Check if the target position is adjacent to any domino position
+        # Adjacent means approximately one pos_gap away in cardinal directions
+        for domino_x, domino_y in domino_positions_coords:
+            # Calculate the actual distance in each dimension
+            dx = abs(target_x - domino_x)
+            dy = abs(target_y - domino_y)
+
+            # Adjacent in cardinal directions means:
+            # - Approximately pos_gap away in one direction AND close to 0 in the other
+            # Use 30% tolerance for matching pos_gap
+            if ((abs(dx - pos_gap) < pos_gap * 0.3 and dy < pos_gap * 0.3) or
+                (abs(dy - pos_gap) < pos_gap * 0.3 and dx < pos_gap * 0.3)):
                 return True
 
         return False

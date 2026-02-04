@@ -9,7 +9,7 @@ from predicators import utils
 from predicators.envs import BaseEnv, get_or_create_env
 from predicators.settings import CFG
 from predicators.structs import NSRT, CausalProcess, EndogenousProcess, \
-    LiftedDecisionList, ParameterizedOption, Predicate, Type
+    LiftedDecisionList, ParameterizedOption, Predicate, Task, Type
 
 
 class GroundTruthOptionFactory(abc.ABC):
@@ -111,6 +111,15 @@ class GroundTruthTypeFactory(abc.ABC):
         """Get helper types for the given env name."""
         raise NotImplementedError("Override me!")
 
+    @classmethod
+    def augment_task_with_helper_objects(cls, task: Task) -> Task:
+        """Augment task's initial state with helper objects and features.
+
+        By default, returns the task unchanged. Override this method to add
+        environment-specific helper objects to the initial state.
+        """
+        return task
+
 
 class GroundTruthPredicateFactory(abc.ABC):
     """Parent class for environment-specific helper predicates."""
@@ -194,6 +203,8 @@ def get_gt_processes(env_name: str,
     env_options = get_gt_options(env_name)
     helper_predicates = get_gt_helper_predicates(env_name)
     all_predicates = env.predicates | helper_predicates
+    helper_types = get_gt_helper_types(env_name)
+    all_types = env.types | helper_types
     assert predicates_to_keep.issubset(all_predicates)
     assert options_to_keep.issubset(env_options)
     for cls in utils.get_all_subclasses(GroundTruthProcessFactory):
@@ -202,7 +213,7 @@ def get_gt_processes(env_name: str,
             # Give all predicates and options, then filter based on kept ones
             # at the end of this function. This is easier than filtering within
             # the factory itself.
-            types = {t.name: t for t in env.types}
+            types = {t.name: t for t in all_types}
             predicates = {p.name: p for p in all_predicates}
             options = {o.name: o for o in env_options}
             processes = factory.get_processes(env_name, types, predicates,
@@ -255,6 +266,19 @@ def get_gt_helper_types(env_name: str) -> Set[Type]:
             factory = cls()
             return factory.get_helper_types(env_name)
     return set()
+
+
+def augment_task_with_helper_objects(task: Task, env_name: str) -> Task:
+    """Augment task with environment-specific helper objects if defined.
+
+    Returns the task unchanged if no helper object augmentation is defined
+    for this environment.
+    """
+    for cls in utils.get_all_subclasses(GroundTruthTypeFactory):
+        if not cls.__abstractmethods__ and env_name in cls.get_env_names():
+            factory = cls()
+            return factory.augment_task_with_helper_objects(task)
+    return task
 
 
 def get_gt_helper_predicates(env_name: str) -> Set[Predicate]:

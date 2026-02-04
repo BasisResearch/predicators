@@ -69,7 +69,6 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
         seed = self._seed + self._num_calls
         processes = self._get_current_processes()
         preds = self._get_current_predicates()
-        breakpoint()
 
         abstract_policy = None
         if CFG.process_planning_use_abstract_policy:
@@ -78,15 +77,16 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
         # Run task planning only and then greedily sample
         # and execute in the policy.
         if self._plan_without_sim:
-            process_plan, atoms_seq, metrics = self._run_task_plan(
-                task,
-                processes,
-                preds,
-                timeout,
-                seed,
-                abstract_policy=abstract_policy,
-                max_policy_guided_rollout=CFG.
-                process_planning_max_policy_guided_rollout)
+            process_plan, atoms_seq, metrics =\
+                self._run_task_plan_with_processes(
+                    task,
+                    processes,
+                    preds,
+                    timeout,
+                    seed,
+                    abstract_policy=abstract_policy,
+                    max_policy_guided_rollout=CFG.
+                    process_planning_max_policy_guided_rollout)
             self._last_process_plan = process_plan
             self._last_atoms_seq = atoms_seq
             policy = utils.process_plan_to_greedy_policy(
@@ -112,7 +112,7 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
 
         return _policy
 
-    def _run_task_plan(
+    def _run_task_plan_with_processes(
         self, task: Task, processes: Set[CausalProcess], preds: Set[Predicate],
         timeout: int, seed: int, **kwargs: Any
     ) -> Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]], Metrics]:

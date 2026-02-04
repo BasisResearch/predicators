@@ -108,7 +108,10 @@ class DominoComponent(DominoEnvComponent):
     def domino_friction(self) -> float:
         return self._get_env_class().domino_friction
 
-    pos_gap: ClassVar[float] = 0.098  # domino_width * 1.4, computed value
+    @property
+    def pos_gap(self) -> float:
+        return self._get_env_class().pos_gap
+
     turn_shift_frac: ClassVar[float] = 0.6
     turn_choices: ClassVar[List[str]] = ["straight", "turn90", "pivot180"]
 
@@ -415,50 +418,55 @@ class DominoComponent(DominoEnvComponent):
         roll_angle = abs(state.get(obj, "roll"))
         return self.domino_roll_threshold <= roll_angle < self.fallen_threshold
 
-    def _StartBlock_holds(self, state: State,
+    @classmethod
+    def _StartBlock_holds(cls, state: State,
                           objects: Sequence[Object]) -> bool:
         """Check if domino is the start block (light green)."""
         domino, = objects
         eps = 1e-3
         return (
-            abs(state.get(domino, "r") - self.start_domino_color[0]) < eps
-            and abs(state.get(domino, "g") - self.start_domino_color[1]) < eps
-            and abs(state.get(domino, "b") - self.start_domino_color[2]) < eps)
+            abs(state.get(domino, "r") - cls.start_domino_color[0]) < eps
+            and abs(state.get(domino, "g") - cls.start_domino_color[1]) < eps
+            and abs(state.get(domino, "b") - cls.start_domino_color[2]) < eps)
 
-    def _MovableBlock_holds(self, state: State,
+    @classmethod
+    def _MovableBlock_holds(cls, state: State,
                             objects: Sequence[Object]) -> bool:
         """Check if domino is a movable block (blue)."""
         domino, = objects
         eps = 1e-3
-        return (abs(state.get(domino, "r") - self.domino_color[0]) < eps
-                and abs(state.get(domino, "g") - self.domino_color[1]) < eps
-                and abs(state.get(domino, "b") - self.domino_color[2]) < eps)
+        return (abs(state.get(domino, "r") - cls.domino_color[0]) < eps
+                and abs(state.get(domino, "g") - cls.domino_color[1]) < eps
+                and abs(state.get(domino, "b") - cls.domino_color[2]) < eps)
 
-    def _TargetDomino_holds(self, state: State,
+    @classmethod
+    def _TargetDomino_holds(cls, state: State,
                             objects: Sequence[Object]) -> bool:
         """Check if domino is a target (pink or glued red)."""
         domino, = objects
         eps = 1e-3
-        return (self._DominoGlued_holds(state, objects)) or (
-            abs(state.get(domino, "r") - self.target_domino_color[0]) < eps and
-            abs(state.get(domino, "g") - self.target_domino_color[1]) < eps and
-            abs(state.get(domino, "b") - self.target_domino_color[2]) < eps)
+        return (cls._DominoGlued_holds(state, objects)) or (
+            abs(state.get(domino, "r") - cls.target_domino_color[0]) < eps and
+            abs(state.get(domino, "g") - cls.target_domino_color[1]) < eps and
+            abs(state.get(domino, "b") - cls.target_domino_color[2]) < eps)
 
-    def _DominoNotGlued_holds(self, state: State,
+    @classmethod
+    def _DominoNotGlued_holds(cls, state: State,
                               objects: Sequence[Object]) -> bool:
         """Check if domino is NOT glued."""
-        return not self._DominoGlued_holds(state, objects)
+        return not cls._DominoGlued_holds(state, objects)
 
-    def _DominoGlued_holds(self, state: State,
+    @classmethod
+    def _DominoGlued_holds(cls, state: State,
                            objects: Sequence[Object]) -> bool:
         """Check if domino is glued (red color)."""
         eps = 1e-3
         r_val = state.get(objects[0], "r")
         g_val = state.get(objects[0], "g")
         b_val = state.get(objects[0], "b")
-        return (abs(r_val - self.glued_domino_color[0]) < eps
-                and abs(g_val - self.glued_domino_color[1]) < eps
-                and abs(b_val - self.glued_domino_color[2]) < eps)
+        return (abs(r_val - cls.glued_domino_color[0]) < eps
+                and abs(g_val - cls.glued_domino_color[1]) < eps
+                and abs(b_val - cls.glued_domino_color[2]) < eps)
 
     # -------------------------------------------------------------------------
     # Helper methods
