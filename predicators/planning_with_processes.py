@@ -787,7 +787,6 @@ def task_plan_from_task(
         allow_noops=True,
         compute_reachable_atoms=True,
         derived_predicates=derived_predicates)
-    breakpoint()
 
     if CFG.process_task_planning_heuristic == "goal_count":
         heuristic = utils.create_task_planning_heuristic(

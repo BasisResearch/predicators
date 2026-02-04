@@ -354,7 +354,8 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             dz = state.get(domino_f, "z")
 
             # Compute dir_value based on rotation of domino2 and the rotation object
-            target_angle = state.get(rotation, "angle")  # degrees
+            # target_angle = state.get(rotation, "angle")  # degrees
+            target_angle = float(rotation.name.split("_")[-1])  # extract angle from name
             target_rot_rad = np.radians(target_angle)  # convert to radians
 
             # Calculate rotation difference (target - domino2)
@@ -383,8 +384,10 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             if dir_value == 0.0 or target_angle_is_cardinal:  # straight
                 # target_x = x2 + gap * np.sin(rot2)
                 # target_y = y2 + gap * np.cos(rot2)
-                target_x = state.get(tgt_pos, "xx")
-                target_y = state.get(tgt_pos, "yy")
+                # target_x = state.get(tgt_pos, "xx")
+                # target_y = state.get(tgt_pos, "yy")
+                target_x = float(tgt_pos.name.split("_")[1])  # extract x from name
+                target_y = float(tgt_pos.name.split("_")[2])  # extract y from
                 if abs(rot_diff) < np.pi / 8:
                     target_rot = rot2
                 else:
@@ -405,8 +408,10 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                     # First, calculate the position on the grid, one step forward.
                     # grid_x = x2 + gap * np.sin(rot2)
                     # grid_y = y2 + gap * np.cos(rot2)
-                    grid_x = state.get(tgt_pos, "xx")
-                    grid_y = state.get(tgt_pos, "yy")
+                    # grid_x = state.get(tgt_pos, "xx")
+                    # grid_y = state.get(tgt_pos, "yy")
+                    grid_x = float(tgt_pos.name.split("_")[1])  # extract x from name
+                    grid_y = float(tgt_pos.name.split("_")[2])  # extract y from
 
                     # Then, apply the diagonal shift from the generator for stability.
                     shift_magnitude = cls.env_cls.domino_width * cls.env_cls.turn_shift_frac
@@ -447,8 +452,10 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                     #     f"Unexpected domino rotation {rot2} in place option. ")
                     # The target domino will be turned by 45 degrees.
                     target_rot = rot2 - turn_dir * np.pi / 4
-                    grid_x = state.get(tgt_pos, "xx")
-                    grid_y = state.get(tgt_pos, "yy")
+                    # grid_x = state.get(tgt_pos, "xx")
+                    # grid_y = state.get(tgt_pos, "yy")
+                    grid_x = float(tgt_pos.name.split("_")[1])  # extract x from name
+                    grid_y = float(tgt_pos.name.split("_")[2])  # extract y from
                     shift_magnitude = cls.env_cls.domino_width * cls.env_cls.turn_shift_frac
                     shift_dx = shift_magnitude * (turn_dir * np.cos(rot2) -
                                                   np.sin(rot2))
