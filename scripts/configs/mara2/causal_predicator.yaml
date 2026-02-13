@@ -9,8 +9,14 @@ APPROACHES:
   #     human_interaction_approach_use_scripted_option: True
   #     scripted_option_dir: "scripted_option_policies"
   #     script_option_file_name: "domino.txt"
-  oracle:
-    NAME: "oracle_process_planning"
+  # oracle:
+  #   NAME: "oracle_process_planning"
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     bilevel_plan_without_sim: True
+  agent:
+    NAME: "agent_sdk_online_process_planning"
     FLAGS:
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True

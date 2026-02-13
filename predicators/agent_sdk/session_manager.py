@@ -1,0 +1,172 @@
+"""Agent session lifecycle management for Claude SDK."""
+import json
+import logging
+import os
+from typing import Any, Dict, List, Optional
+
+from predicators.settings import CFG
+
+
+class AgentSessionManager:
+    """Wraps ClaudeSDKClient for persistent sessions with custom MCP tools."""
+
+    def __init__(self, system_prompt: str, mcp_server: Any, log_dir: str,
+                 model_name: str) -> None:
+        self._system_prompt = system_prompt
+        self._mcp_server = mcp_server
+        self._log_dir = log_dir
+        self._model_name = model_name
+        self._client: Any = None
+        self._session_id: Optional[str] = None
+        self._total_cost_usd: float = 0.0
+        self._total_turns: int = 0
+        self._started = False
+
+    @property
+    def session_id(self) -> Optional[str]:
+        return self._session_id
+
+    @session_id.setter
+    def session_id(self, value: Optional[str]) -> None:
+        self._session_id = value
+
+    async def start_session(self) -> None:
+        """Start a new Claude SDK client session."""
+        from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+
+        tool_prefix = "mcp__predicator_tools__"
+        allowed_tools = [
+            f"{tool_prefix}inspect_types",
+            f"{tool_prefix}inspect_predicates",
+            f"{tool_prefix}inspect_processes",
+            f"{tool_prefix}inspect_options",
+            f"{tool_prefix}inspect_trajectories",
+            f"{tool_prefix}inspect_train_tasks",
+            f"{tool_prefix}inspect_planning_results",
+            f"{tool_prefix}inspect_iteration_history",
+            f"{tool_prefix}propose_types",
+            f"{tool_prefix}propose_predicates",
+            f"{tool_prefix}propose_object_augmentor",
+            f"{tool_prefix}propose_processes",
+            f"{tool_prefix}propose_options",
+            f"{tool_prefix}test_predicate_on_states",
+            f"{tool_prefix}test_planning",
+        ]
+
+        options = ClaudeAgentOptions(
+            allowed_tools=allowed_tools,
+            mcp_servers={"predicator_tools": self._mcp_server},
+            permission_mode="bypassPermissions",
+            system_prompt=self._system_prompt,
+            model=self._model_name,
+            max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
+        )
+
+        self._client = ClaudeSDKClient(options=options)
+        await self._client.connect()
+        self._started = True
+        logging.info("Agent SDK session started.")
+
+    async def query(self, message: str) -> List[Dict[str, Any]]:
+        """Send a message to the agent and collect all response messages.
+
+        Returns a list of dicts with message content for logging.
+        """
+        from claude_agent_sdk import AssistantMessage, ResultMessage, \
+            TextBlock, ToolUseBlock
+
+        if not self._started:
+            await self.start_session()
+
+        collected: List[Dict[str, Any]] = []
+
+        try:
+            await self._client.query(message)
+            async for msg in self._client.receive_response():
+                if isinstance(msg, AssistantMessage):
+                    entry: Dict[str, Any] = {"type": "assistant", "content": []}
+                    for block in msg.content:
+                        if isinstance(block, TextBlock):
+                            entry["content"].append({
+                                "type": "text",
+                                "text": block.text
+                            })
+                            logging.debug(
+                                f"Agent: {block.text[:200]}...")
+                        elif isinstance(block, ToolUseBlock):
+                            entry["content"].append({
+                                "type": "tool_use",
+                                "name": block.name,
+                                "input": str(block.input)[:500],
+                            })
+                            logging.debug(
+                                f"Agent tool call: {block.name}")
+                    collected.append(entry)
+                elif isinstance(msg, ResultMessage):
+                    result_entry = {
+                        "type": "result",
+                        "num_turns": getattr(msg, "num_turns", None),
+                        "total_cost_usd": getattr(msg, "total_cost_usd",
+                                                  None),
+                    }
+                    collected.append(result_entry)
+                    if hasattr(msg, "total_cost_usd") and \
+                            msg.total_cost_usd is not None:
+                        self._total_cost_usd += msg.total_cost_usd
+                    if hasattr(msg, "num_turns") and \
+                            msg.num_turns is not None:
+                        self._total_turns += msg.num_turns
+                    logging.info(
+                        f"Agent iteration complete. "
+                        f"Turns: {getattr(msg, 'num_turns', '?')}, "
+                        f"Cost: ${getattr(msg, 'total_cost_usd', '?')}")
+        except Exception as e:
+            logging.error(f"Agent session error: {e}")
+            collected.append({
+                "type": "error",
+                "error": str(e)
+            })
+            # Attempt recovery
+            await self._recover_session(message)
+
+        return collected
+
+    async def _recover_session(self, last_message: str) -> None:
+        """Attempt to recover from a session error."""
+        logging.warning("Attempting agent session recovery...")
+        try:
+            if self._client is not None:
+                try:
+                    await self._client.disconnect()
+                except Exception:
+                    pass
+            self._started = False
+            await self.start_session()
+            logging.info("Session recovered successfully.")
+        except Exception as e:
+            logging.error(f"Session recovery failed: {e}")
+
+    async def close(self) -> None:
+        """Close the agent session."""
+        if self._client is not None:
+            try:
+                await self._client.disconnect()
+            except Exception as e:
+                logging.warning(f"Error closing agent session: {e}")
+            finally:
+                self._client = None
+                self._started = False
+
+    def save_session_info(self) -> None:
+        """Save session metadata to log directory."""
+        os.makedirs(self._log_dir, exist_ok=True)
+        info = {
+            "session_id": self._session_id,
+            "total_cost_usd": self._total_cost_usd,
+            "total_turns": self._total_turns,
+            "model": self._model_name,
+        }
+        path = os.path.join(self._log_dir, "session_info.json")
+        with open(path, "w") as f:
+            json.dump(info, f, indent=2)
+        logging.info(f"Saved session info to {path}")

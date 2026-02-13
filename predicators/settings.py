@@ -943,6 +943,20 @@ class GlobalSettings:
     vlm_predicator_use_grammar = True
     vlm_predicator_num_proposal_batches = 1
 
+    # agent SDK online abstraction learning parameters
+    agent_sdk_model_name = "claude-sonnet-4-5"
+    agent_sdk_max_agent_turns_per_iteration = 20
+    agent_sdk_agent_timeout = 300  # seconds per iteration
+    agent_sdk_resume_session = True  # resume previous session if available
+    agent_sdk_propose_types = True
+    agent_sdk_propose_predicates = True
+    agent_sdk_propose_objects = True
+    agent_sdk_propose_processes = True
+    agent_sdk_propose_options = True
+    agent_sdk_auto_select_predicates = True  # run hill-climbing after proposals
+    agent_sdk_max_trajectories_in_context = 3
+    agent_sdk_log_agent_responses = True
+
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:
         """A workaround for global settings that are derived from the
