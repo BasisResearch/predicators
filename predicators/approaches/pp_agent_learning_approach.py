@@ -24,6 +24,8 @@ from predicators.approaches.pp_online_process_learning_approach import \
     OnlineProcessLearningAndPlanningApproach
 from predicators.approaches.pp_predicate_invention_approach import \
     PredicateInventionProcessPlanningApproach
+from predicators.explorers import create_explorer
+from predicators.explorers.base_explorer import BaseExplorer
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import Action, CausalProcess, Dataset, \
@@ -31,7 +33,7 @@ from predicators.structs import Action, CausalProcess, Dataset, \
     ParameterizedOption, Predicate, State, Task, Type
 
 
-class AgentSDKOnlineProcessPlanningApproach(
+class OnlineAgentProcessPlanningApproach(
         PredicateInventionProcessPlanningApproach,
         OnlineProcessLearningAndPlanningApproach):
     """Online process planning approach using Claude Agent SDK.
@@ -85,7 +87,7 @@ class AgentSDKOnlineProcessPlanningApproach(
 
     @classmethod
     def get_name(cls) -> str:
-        return "agent_sdk_online_process_planning"
+        return "online_agent_learning_process_planning"
 
     def _get_log_dir(self) -> str:
         """Get the log directory for agent SDK files."""
@@ -290,7 +292,6 @@ class AgentSDKOnlineProcessPlanningApproach(
             logging.info("Integrated new task augmentor")
 
         # Processes (agent-proposed, not data-driven)
-        if proposals.proposed_processes:
             self._agent_proposed_processes |= proposals.proposed_processes
             # Also update self._processes to reflect that we're using agent
             # proposals instead of learned processes
@@ -336,6 +337,26 @@ class AgentSDKOnlineProcessPlanningApproach(
                 logging.warning(f"Task augmentation failed: {e}. "
                                 f"Using original task.")
         return super()._solve(task, timeout)
+
+    def _create_explorer(self) -> BaseExplorer:
+        """Create explorer, passing agent context if using agent explorer."""
+        if CFG.explorer == "agent":
+            self._ensure_agent_session()
+            all_trajs = (self._offline_dataset.trajectories +
+                         self._online_dataset.trajectories)
+            self._sync_tool_context(all_trajs)
+            preds = self._get_current_predicates()
+            return create_explorer(
+                CFG.explorer,
+                preds,
+                self._initial_options | self._agent_proposed_options,
+                self._types,
+                self._action_space,
+                self._train_tasks,
+                tool_context=self._tool_context,
+                agent_session=self._agent_session,
+            )
+        return super()._create_explorer()
 
     def _build_iteration_summary(self,
                                  proposals: ProposalBundle) -> Dict[str, Any]:
