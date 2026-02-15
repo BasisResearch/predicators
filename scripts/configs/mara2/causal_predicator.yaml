@@ -16,11 +16,14 @@ APPROACHES:
   #     terminate_on_goal_reached_and_option_terminated: True
   #     bilevel_plan_without_sim: True
   agent:
-    NAME: "agent_sdk_online_process_planning"
+    NAME: "online_agent_learning_process_planning"
     FLAGS:
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
       bilevel_plan_without_sim: True
+      max_initial_demos: 0
+      domino_use_continuous_place: True
+      explorer: "agent"
   # predicate_invention:
   #   NAME: "online_predicate_invention_and_process_planning"
   #   # ARGS:

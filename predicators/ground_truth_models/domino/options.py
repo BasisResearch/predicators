@@ -171,27 +171,55 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
         ])
         options.add(Pick)
 
-        # Place
-        place_option_types = [
-            robot_type, domino_type, domino_type, position_type, rotation_type
-        ]
-        place_params_space = Box(0, 1, (0, ))
 
-        Place = utils.LinearChainParameterizedOption("Place", [
-            cls._create_domino_place_option(
-                "MoveToAbovePlacement", lambda _: cls._transport_z, "closed",
-                place_option_types, place_params_space),
-            cls._create_domino_place_option(
-                "MoveToPlacement", lambda _: cls._place_drop_z, "closed",
-                place_option_types, place_params_space),
-            create_change_fingers_option(
-                pybullet_robot, "OpenFingers", place_option_types,
-                place_params_space, open_fingers_func,
-                CFG.pybullet_max_vel_norm, PyBulletEnv.grasp_tol),
-            cls._create_domino_place_option(
-                "MoveAwayFromPlacement", lambda _: cls._transport_z, "open",
-                place_option_types, place_params_space),
-        ])
+        # Choose between discrete (Place) or continuous (PlaceContinuous) based on CFG
+        if CFG.domino_use_continuous_place:
+            # PlaceContinuous - continuous parameters version
+            place_continuous_option_types = [robot_type]
+            # Parameters: [x, y, rotation_radians]
+            place_continuous_params_space = Box(
+                low=np.array([cls.env_cls.x_lb, cls.env_cls.y_lb, -np.pi]),
+                high=np.array([cls.env_cls.x_ub, cls.env_cls.y_ub, np.pi]),
+                shape=(3,),
+                dtype=np.float32
+            )
+
+            Place = utils.LinearChainParameterizedOption("Place", [
+                cls._create_domino_place_continuous_option(
+                    "MoveToAbovePlacement", lambda _: cls._transport_z, "closed",
+                    place_continuous_option_types, place_continuous_params_space),
+                cls._create_domino_place_continuous_option(
+                    "MoveToPlacement", lambda _: cls._place_drop_z, "closed",
+                    place_continuous_option_types, place_continuous_params_space),
+                create_change_fingers_option(
+                    pybullet_robot, "OpenFingers", place_continuous_option_types,
+                    place_continuous_params_space, open_fingers_func,
+                    CFG.pybullet_max_vel_norm, PyBulletEnv.grasp_tol),
+                cls._create_domino_place_continuous_option(
+                    "MoveAwayFromPlacement", lambda _: cls._transport_z, "open",
+                    place_continuous_option_types, place_continuous_params_space),
+            ])
+        else:
+            # Place - discrete version with object parameters
+            place_option_types = [
+                robot_type, domino_type, domino_type, position_type, rotation_type
+            ]
+            place_params_space = Box(0, 1, (0, ))
+            Place = utils.LinearChainParameterizedOption("Place", [
+                cls._create_domino_place_option(
+                    "MoveToAbovePlacement", lambda _: cls._transport_z, "closed",
+                    place_option_types, place_params_space),
+                cls._create_domino_place_option(
+                    "MoveToPlacement", lambda _: cls._place_drop_z, "closed",
+                    place_option_types, place_params_space),
+                create_change_fingers_option(
+                    pybullet_robot, "OpenFingers", place_option_types,
+                    place_params_space, open_fingers_func,
+                    CFG.pybullet_max_vel_norm, PyBulletEnv.grasp_tol),
+                cls._create_domino_place_option(
+                    "MoveAwayFromPlacement", lambda _: cls._transport_z, "open",
+                    place_option_types, place_params_space),
+            ])
         options.add(Place)
 
         # NoOp
@@ -469,6 +497,53 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                                                   np.cos(rot2))
                     target_x = grid_x + shift_dx
                     target_y = grid_y + shift_dy
+
+            target_position = (target_x, target_y, z_func(dz))
+            target_orn = p.getQuaternionFromEuler(
+                [0, cls.env_cls.robot_init_tilt, target_rot])
+            target_pose = Pose(target_position, target_orn)
+            return current_pose, target_pose, finger_status
+
+        return create_move_end_effector_to_pose_option(
+            _get_pybullet_robot(),
+            name,
+            option_types,
+            params_space,
+            _get_current_and_target_pose_and_finger_status,
+            cls._move_to_pose_tol,
+            CFG.pybullet_max_vel_norm,
+            cls._finger_action_nudge_magnitude,
+            validate=CFG.pybullet_ik_validate)
+
+    @classmethod
+    def _create_domino_place_continuous_option(
+            cls, name: str, z_func: Callable[[float], float],
+            finger_status: str, option_types: List[Type],
+            params_space: Box) -> ParameterizedOption:
+        """Create a move-to-pose option for placing dominoes with continuous parameters.
+
+        This version accepts continuous parameters [x, y, rotation_radians] instead of
+        using position and rotation objects.
+        """
+
+        def _get_current_and_target_pose_and_finger_status(
+                state: State, objects: Sequence[Object], params: Array) -> \
+                Tuple[Pose, Pose, str]:
+            # params: [x, y, rotation_radians]
+            assert len(params) == 3
+            target_x, target_y, target_rot = params
+
+            robot = objects[0]
+            current_position = (state.get(robot, "x"), state.get(robot, "y"),
+                                state.get(robot, "z"))
+            ee_orn = p.getQuaternionFromEuler(
+                [0, state.get(robot, "tilt"),
+                 state.get(robot, "wrist")])
+            current_pose = Pose(current_position, ee_orn)
+
+            # Use a default z value (could be improved by tracking held domino)
+            # For now, use a reasonable z height
+            dz = cls._place_drop_z
 
             target_position = (target_x, target_y, z_func(dz))
             target_orn = p.getQuaternionFromEuler(

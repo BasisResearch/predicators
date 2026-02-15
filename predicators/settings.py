@@ -428,6 +428,7 @@ class GlobalSettings:
     domino_test_num_pos_x = 4  # 5 is too large for robot to reach sometimes
     domino_test_num_pos_y = 3
     domino_oracle_knows_glued_dominos = False
+    domino_use_continuous_place = False  # Use PlaceContinuous option instead of Place
 
     # burger env parameters
     burger_render_set_of_marks = True
@@ -956,6 +957,10 @@ class GlobalSettings:
     agent_sdk_auto_select_predicates = True  # run hill-climbing after proposals
     agent_sdk_max_trajectories_in_context = 3
     agent_sdk_log_agent_responses = True
+
+    # Agent explorer settings
+    agent_explorer_max_turns = 5  # max agent turns per exploration query
+    agent_explorer_fallback_to_random = True  # fall back to random on failure
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:
