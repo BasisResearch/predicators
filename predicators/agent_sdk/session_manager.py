@@ -11,11 +11,13 @@ class AgentSessionManager:
     """Wraps ClaudeSDKClient for persistent sessions with custom MCP tools."""
 
     def __init__(self, system_prompt: str, mcp_server: Any, log_dir: str,
-                 model_name: str) -> None:
+                 model_name: str,
+                 allowed_tools: Optional[List[str]] = None) -> None:
         self._system_prompt = system_prompt
         self._mcp_server = mcp_server
         self._log_dir = log_dir
         self._model_name = model_name
+        self._allowed_tools = allowed_tools
         self._client: Any = None
         self._session_id: Optional[str] = None
         self._total_cost_usd: float = 0.0
@@ -34,24 +36,27 @@ class AgentSessionManager:
         """Start a new Claude SDK client session."""
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
-        tool_prefix = "mcp__predicator_tools__"
-        allowed_tools = [
-            f"{tool_prefix}inspect_types",
-            f"{tool_prefix}inspect_predicates",
-            f"{tool_prefix}inspect_processes",
-            f"{tool_prefix}inspect_options",
-            f"{tool_prefix}inspect_trajectories",
-            f"{tool_prefix}inspect_train_tasks",
-            f"{tool_prefix}inspect_planning_results",
-            f"{tool_prefix}inspect_iteration_history",
-            f"{tool_prefix}propose_types",
-            f"{tool_prefix}propose_predicates",
-            f"{tool_prefix}propose_object_augmentor",
-            f"{tool_prefix}propose_processes",
-            f"{tool_prefix}propose_options",
-            f"{tool_prefix}test_predicate_on_states",
-            f"{tool_prefix}test_planning",
-        ]
+        if self._allowed_tools is not None:
+            allowed_tools = self._allowed_tools
+        else:
+            tool_prefix = "mcp__predicator_tools__"
+            allowed_tools = [
+                f"{tool_prefix}inspect_types",
+                f"{tool_prefix}inspect_predicates",
+                f"{tool_prefix}inspect_processes",
+                f"{tool_prefix}inspect_options",
+                f"{tool_prefix}inspect_trajectories",
+                f"{tool_prefix}inspect_train_tasks",
+                f"{tool_prefix}inspect_planning_results",
+                f"{tool_prefix}inspect_iteration_history",
+                f"{tool_prefix}propose_types",
+                f"{tool_prefix}propose_predicates",
+                f"{tool_prefix}propose_object_augmentor",
+                f"{tool_prefix}propose_processes",
+                f"{tool_prefix}propose_options",
+                f"{tool_prefix}test_predicate_on_states",
+                f"{tool_prefix}test_planning",
+            ]
 
         options = ClaudeAgentOptions(
             allowed_tools=allowed_tools,

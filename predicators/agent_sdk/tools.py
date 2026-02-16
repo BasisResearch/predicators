@@ -631,3 +631,154 @@ def create_mcp_tools(ctx: ToolContext) -> list:
         test_predicate_on_states,
         test_planning,
     ]
+
+
+def create_inspection_only_mcp_tools(ctx: ToolContext) -> list:
+    """Create only the read-only inspection MCP tools.
+
+    Returns a subset of tools (no propose/test tools) for model-free
+    approaches that only need to inspect environment data.
+    """
+    from claude_agent_sdk import tool
+
+    @tool("inspect_options",
+          "List all options with type signatures and parameter dimensions", {})
+    async def inspect_options(args: Dict[str, Any]) -> Dict[str, Any]:
+        lines = []
+        for opt in sorted(ctx.options, key=lambda o: o.name):
+            type_sig = ", ".join(t.name for t in opt.types)
+            dim = opt.params_space.shape[0] if opt.params_space.shape else 0
+            lines.append(f"- {opt.name}({type_sig}), params_dim={dim}")
+        if not lines:
+            return _text_result("No options defined.")
+        return _text_result("Current options:\n" + "\n".join(lines))
+
+    @tool(
+        "inspect_trajectories",
+        "Inspect trajectory data. Returns state features and/or atoms.",
+        {
+            "type": "object",
+            "properties": {
+                "traj_idx": {
+                    "type": "integer",
+                    "description": "Trajectory index (0-based)"
+                },
+                "include_states": {
+                    "type": "boolean",
+                    "description": "Include state feature dicts",
+                    "default": True
+                },
+                "include_atoms": {
+                    "type": "boolean",
+                    "description": "Include abstract atoms",
+                    "default": False
+                },
+                "max_timesteps": {
+                    "type": "integer",
+                    "description": "Max timesteps to show",
+                    "default": 10
+                },
+            },
+            "required": ["traj_idx"],
+        },
+    )
+    async def inspect_trajectories(args: Dict[str, Any]) -> Dict[str, Any]:
+        from predicators import utils
+
+        traj_idx = args["traj_idx"]
+        include_states = args.get("include_states", True)
+        include_atoms = args.get("include_atoms", False)
+        max_timesteps = args.get("max_timesteps", 10)
+
+        all_trajs = ctx.offline_trajectories + ctx.online_trajectories
+        if traj_idx < 0 or traj_idx >= len(all_trajs):
+            return _error_result(
+                f"Invalid traj_idx {traj_idx}. "
+                f"Available: 0-{len(all_trajs)-1}")
+
+        traj = all_trajs[traj_idx]
+        lines = [
+            f"Trajectory {traj_idx}: {len(traj.states)} states, "
+            f"{len(traj.actions)} actions"
+        ]
+
+        for t_step, state in enumerate(traj.states[:max_timesteps]):
+            lines.append(f"\n--- Timestep {t_step} ---")
+            if include_states:
+                state_dict = {}
+                for obj in sorted(state, key=lambda o: str(o)):
+                    obj_feats = {}
+                    for feat in obj.type.feature_names:
+                        val = state.get(obj, feat)
+                        obj_feats[feat] = round(float(val), 4) \
+                            if isinstance(val, (float, int)) else str(val)
+                    state_dict[str(obj)] = obj_feats
+                lines.append(
+                    f"State: {json.dumps(state_dict, indent=2)}")
+            if include_atoms:
+                atoms = utils.abstract(state, ctx.predicates)
+                atoms_str = ", ".join(str(a) for a in sorted(atoms))
+                lines.append(f"Atoms: {{{atoms_str}}}")
+            if t_step < len(traj.actions):
+                act = traj.actions[t_step]
+                opt = act.get_option()
+                lines.append(f"Action: {opt.name}({opt.objects})")
+
+        if len(traj.states) > max_timesteps:
+            lines.append(
+                f"\n... ({len(traj.states) - max_timesteps} more "
+                f"timesteps)")
+
+        return _text_result("\n".join(lines))
+
+    @tool(
+        "inspect_train_tasks",
+        "Inspect training tasks (goals, initial atoms, objects)",
+        {
+            "type": "object",
+            "properties": {
+                "task_idx": {
+                    "type": "integer",
+                    "description":
+                    "Task index (0-based). Omit to see summary of all.",
+                },
+            },
+        },
+    )
+    async def inspect_train_tasks(args: Dict[str, Any]) -> Dict[str, Any]:
+        from predicators import utils
+
+        task_idx = args.get("task_idx")
+
+        if task_idx is not None:
+            if task_idx < 0 or task_idx >= len(ctx.train_tasks):
+                return _error_result(
+                    f"Invalid task_idx {task_idx}. "
+                    f"Available: 0-{len(ctx.train_tasks)-1}")
+            task = ctx.train_tasks[task_idx]
+            goal_str = ", ".join(str(g) for g in sorted(task.goal))
+            init_atoms = utils.abstract(task.init, ctx.predicates)
+            atoms_str = ", ".join(str(a) for a in sorted(init_atoms))
+            objects = sorted(task.init, key=lambda o: str(o))
+            obj_str = ", ".join(
+                f"{o.name}:{o.type.name}" for o in objects)
+            return _text_result(
+                f"Task {task_idx}:\n"
+                f"  Goal: {{{goal_str}}}\n"
+                f"  Initial atoms: {{{atoms_str}}}\n"
+                f"  Objects: [{obj_str}]")
+        else:
+            lines = [f"Total tasks: {len(ctx.train_tasks)}"]
+            for i, task in enumerate(ctx.train_tasks[:10]):
+                goal_str = ", ".join(str(g) for g in sorted(task.goal))
+                lines.append(f"  Task {i}: goal={{{goal_str}}}")
+            if len(ctx.train_tasks) > 10:
+                lines.append(
+                    f"  ... ({len(ctx.train_tasks) - 10} more tasks)")
+            return _text_result("\n".join(lines))
+
+    return [
+        inspect_options,
+        inspect_trajectories,
+        inspect_train_tasks,
+    ]
