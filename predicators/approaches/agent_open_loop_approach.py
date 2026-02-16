@@ -10,9 +10,7 @@ Example command:
         --num_train_tasks 1 --num_test_tasks 1 \
         --num_online_learning_cycles 1 --explorer agent
 """
-import asyncio
 import logging
-import os
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
 import dill as pkl
@@ -20,10 +18,9 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.session_manager import AgentSessionManager
-from predicators.agent_sdk.tools import ToolContext, \
-    create_inspection_only_mcp_tools
+from predicators.agent_sdk.tools import create_inspection_only_mcp_tools
 from predicators.approaches import ApproachFailure
+from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.approaches.base_approach import BaseApproach
 from predicators.explorers import create_explorer
 from predicators.explorers.base_explorer import BaseExplorer
@@ -33,13 +30,15 @@ from predicators.structs import Action, Dataset, InteractionRequest, \
     State, Task, Type
 
 
-class AgentOpenLoopApproach(BaseApproach):
+class AgentOpenLoopApproach(AgentSessionMixin, BaseApproach):
     """Model-free open-loop planning via Claude Agent SDK.
 
     - Collects trajectories online using AgentExplorer
     - At solve time, queries the agent for an option plan
     - No predicate/process/type invention
     """
+
+    _log_subdir = "agent_open_loop"
 
     def __init__(self, initial_predicates: Set[Predicate],
                  initial_options: Set[ParameterizedOption], types: Set[Type],
@@ -51,17 +50,8 @@ class AgentOpenLoopApproach(BaseApproach):
         self._online_learning_cycle = 0
         self._requests_train_task_idxs: Optional[List[int]] = None
 
-        # Create ToolContext (shared state for MCP tools)
-        self._tool_context = ToolContext(
-            types=types,
-            predicates=initial_predicates,
-            options=initial_options,
-            train_tasks=train_tasks,
-        )
-
-        # Agent session manager (lazy init)
-        self._agent_session: Optional[AgentSessionManager] = None
-        self._agent_session_id: Optional[str] = None
+        self._init_agent_session_state(
+            types, initial_predicates, initial_options, train_tasks)
 
     @classmethod
     def get_name(cls) -> str:
@@ -70,6 +60,37 @@ class AgentOpenLoopApproach(BaseApproach):
     @property
     def is_learning_based(self) -> bool:
         return True
+
+    # ------------------------------------------------------------------ #
+    # AgentSessionMixin hooks
+    # ------------------------------------------------------------------ #
+
+    def _get_agent_model_name(self) -> str:
+        return CFG.agent_open_loop_model_name
+
+    def _get_agent_system_prompt(self) -> str:
+        return (
+            "You are a planning agent. You observe task environments through "
+            "inspection tools and generate option plans to achieve goals. "
+            "You have access to read-only tools to inspect types, predicates, "
+            "options, trajectories, and training tasks. Use these to "
+            "understand the environment and generate effective plans."
+        )
+
+    def _create_agent_mcp_tools(self) -> list:
+        return create_inspection_only_mcp_tools(self._tool_context)
+
+    def _get_agent_allowed_tools(self) -> Optional[List[str]]:
+        tool_prefix = "mcp__predicator_tools__"
+        return [
+            f"{tool_prefix}inspect_options",
+            f"{tool_prefix}inspect_trajectories",
+            f"{tool_prefix}inspect_train_tasks",
+        ]
+
+    # ------------------------------------------------------------------ #
+    # Learning
+    # ------------------------------------------------------------------ #
 
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         self._offline_dataset = dataset
@@ -115,6 +136,10 @@ class AgentOpenLoopApproach(BaseApproach):
 
         self.save(self._online_learning_cycle)
         self._online_learning_cycle += 1
+
+    # ------------------------------------------------------------------ #
+    # Solving
+    # ------------------------------------------------------------------ #
 
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
         try:
@@ -203,7 +228,7 @@ You can use the inspect tools to examine types, predicates, options, and past tr
 
 Based on the task information and any past trajectory data, output an option plan to achieve the goal.
 Output the plan with one option per line in this exact format:
-OptionName(obj1:type1, obj2:type2)[param1, param2]
+ OptionName(obj1:type1, obj2:type2)[param1, param2]
 
 If an option has no continuous parameters, use empty brackets: OptionName(obj1:type1)[]
 
@@ -240,66 +265,6 @@ Output ONLY the option plan lines at the end, after any analysis."""
                              f"{', '.join(str(a) for a in sorted(lost_atoms, key=str))}")
 
         return "\n".join(lines)
-
-    def _ensure_agent_session(self) -> None:
-        """Create the agent session manager if needed."""
-        if self._agent_session is not None:
-            return
-
-        from claude_agent_sdk import create_sdk_mcp_server
-
-        system_prompt = (
-            "You are a planning agent. You observe task environments through "
-            "inspection tools and generate option plans to achieve goals. "
-            "You have access to read-only tools to inspect types, predicates, "
-            "options, trajectories, and training tasks. Use these to "
-            "understand the environment and generate effective plans."
-        )
-        tools = create_inspection_only_mcp_tools(self._tool_context)
-        mcp_server = create_sdk_mcp_server(
-            name="predicator_tools",
-            version="1.0.0",
-            tools=tools,
-        )
-        tool_prefix = "mcp__predicator_tools__"
-        allowed_tools = [
-            f"{tool_prefix}inspect_types",
-            f"{tool_prefix}inspect_predicates",
-            f"{tool_prefix}inspect_options",
-            f"{tool_prefix}inspect_trajectories",
-            f"{tool_prefix}inspect_train_tasks",
-        ]
-        log_dir = self._get_log_dir()
-        self._agent_session = AgentSessionManager(
-            system_prompt=system_prompt,
-            mcp_server=mcp_server,
-            log_dir=log_dir,
-            model_name=CFG.agent_open_loop_model_name,
-            allowed_tools=allowed_tools,
-        )
-        if self._agent_session_id is not None:
-            self._agent_session.session_id = self._agent_session_id
-
-    def _get_log_dir(self) -> str:
-        base = CFG.log_file if hasattr(CFG, 'log_file') and CFG.log_file \
-            else "logs"
-        return os.path.join(base, "agent_open_loop")
-
-    def _query_agent_sync(self, message: str) -> List[Dict[str, Any]]:
-        """Synchronous wrapper for async agent query."""
-        self._ensure_agent_session()
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import nest_asyncio
-                nest_asyncio.apply()
-                return loop.run_until_complete(
-                    self._agent_session.query(message))
-            else:
-                return loop.run_until_complete(
-                    self._agent_session.query(message))
-        except RuntimeError:
-            return asyncio.run(self._agent_session.query(message))
 
     def _extract_option_plan_text(
             self, responses: List[Dict[str, Any]]) -> str:
@@ -343,21 +308,16 @@ Output ONLY the option plan lines at the end, after any analysis."""
         logging.info(f"Agent produced plan with {len(grounded)} options.")
         return grounded
 
+    # ------------------------------------------------------------------ #
+    # Explorer
+    # ------------------------------------------------------------------ #
+
     def _create_explorer(self) -> BaseExplorer:
         """Create explorer for interaction requests."""
         if CFG.explorer == "agent":
-            self._ensure_agent_session()
             self._sync_tool_context()
-            return create_explorer(
-                CFG.explorer,
-                self._initial_predicates,
-                self._initial_options,
-                self._types,
-                self._action_space,
-                self._train_tasks,
-                tool_context=self._tool_context,
-                agent_session=self._agent_session,
-            )
+            return self._create_agent_explorer(
+                self._initial_predicates, self._initial_options)
         return create_explorer(
             CFG.explorer,
             self._initial_predicates,
@@ -381,6 +341,10 @@ Output ONLY the option plan lines at the end, after any analysis."""
                      self._online_trajectories)
         if all_trajs:
             self._tool_context.example_state = all_trajs[0].states[0]
+
+    # ------------------------------------------------------------------ #
+    # Save / Load
+    # ------------------------------------------------------------------ #
 
     def save(self, online_learning_cycle: Optional[int] = None) -> None:
         save_path = utils.get_approach_save_path_str()

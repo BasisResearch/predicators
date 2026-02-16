@@ -4,7 +4,6 @@ Uses a persistent Claude Agent SDK session to iteratively propose
 abstractions (types, predicates, helper objects, processes, options) based
 on observed trajectory data and planning feedback.
 """
-import asyncio
 import json
 import logging
 import os
@@ -16,15 +15,14 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk.proposal_parser import ProposalBundle, \
     build_exec_context, exec_code_safely
-from predicators.agent_sdk.session_manager import AgentSessionManager
 from predicators.agent_sdk.system_prompt import build_iteration_message, \
     build_system_prompt
-from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
+from predicators.agent_sdk.tools import create_mcp_tools
+from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.approaches.pp_online_process_learning_approach import \
     OnlineProcessLearningAndPlanningApproach
 from predicators.approaches.pp_predicate_invention_approach import \
     PredicateInventionProcessPlanningApproach
-from predicators.explorers import create_explorer
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
@@ -34,6 +32,7 @@ from predicators.structs import Action, CausalProcess, Dataset, \
 
 
 class OnlineAgentProcessPlanningApproach(
+        AgentSessionMixin,
         PredicateInventionProcessPlanningApproach,
         OnlineProcessLearningAndPlanningApproach):
     """Online process planning approach using Claude Agent SDK.
@@ -43,6 +42,8 @@ class OnlineAgentProcessPlanningApproach(
     feedback. The agent cannot see environment source code -- it observes
     the world only through custom MCP tools.
     """
+
+    _log_subdir = "agent_sdk"
 
     def __init__(self,
                  initial_predicates: Set[Predicate],
@@ -63,17 +64,8 @@ class OnlineAgentProcessPlanningApproach(
         self._iteration_history: List[Dict[str, Any]] = []
         self._planning_results: Dict[str, Any] = {}
 
-        # Create ToolContext (shared state between approach and MCP tools)
-        self._tool_context = ToolContext(
-            types=types,
-            predicates=initial_predicates,
-            options=initial_options,
-            train_tasks=train_tasks,
-        )
-
-        # Agent session manager (lazy -- starts on first query)
-        self._agent_session: Optional[AgentSessionManager] = None
-        self._agent_session_id: Optional[str] = None
+        self._init_agent_session_state(
+            types, initial_predicates, initial_options, train_tasks)
 
         super().__init__(initial_predicates,
                          initial_options,
@@ -89,35 +81,22 @@ class OnlineAgentProcessPlanningApproach(
     def get_name(cls) -> str:
         return "online_agent_learning_process_planning"
 
-    def _get_log_dir(self) -> str:
-        """Get the log directory for agent SDK files."""
-        base = CFG.log_file if hasattr(CFG, 'log_file') and CFG.log_file \
-            else "logs"
-        return os.path.join(base, "agent_sdk")
+    # ------------------------------------------------------------------ #
+    # AgentSessionMixin hooks
+    # ------------------------------------------------------------------ #
 
-    def _ensure_agent_session(self) -> None:
-        """Create the agent session manager if it doesn't exist yet."""
-        if self._agent_session is not None:
-            return
+    def _get_agent_model_name(self) -> str:
+        return CFG.agent_sdk_model_name
 
-        from claude_agent_sdk import create_sdk_mcp_server
+    def _get_agent_system_prompt(self) -> str:
+        return build_system_prompt()
 
-        system_prompt = build_system_prompt()
-        tools = create_mcp_tools(self._tool_context)
-        mcp_server = create_sdk_mcp_server(
-            name="predicator_tools",
-            version="1.0.0",
-            tools=tools,
-        )
-        log_dir = self._get_log_dir()
-        self._agent_session = AgentSessionManager(
-            system_prompt=system_prompt,
-            mcp_server=mcp_server,
-            log_dir=log_dir,
-            model_name=CFG.agent_sdk_model_name,
-        )
-        if self._agent_session_id is not None:
-            self._agent_session.session_id = self._agent_session_id
+    def _create_agent_mcp_tools(self) -> list:
+        return create_mcp_tools(self._tool_context)
+
+    # ------------------------------------------------------------------ #
+    # Learning
+    # ------------------------------------------------------------------ #
 
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         """Store the offline dataset. Do NOT start agent session yet."""
@@ -198,7 +177,7 @@ class OnlineAgentProcessPlanningApproach(
 
     def _run_agent_iteration(self,
                              all_trajs: List[LowLevelTrajectory]) -> None:
-        """Bridge sync/async and query the Claude agent."""
+        """Build iteration message and query the Claude agent."""
         self._ensure_agent_session()
 
         # Build the iteration message
@@ -250,25 +229,8 @@ class OnlineAgentProcessPlanningApproach(
         # Save the context message
         self._last_context_message = message
 
-        # Run async query
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import nest_asyncio
-                nest_asyncio.apply()
-                self._last_agent_responses = loop.run_until_complete(
-                    self._async_query(message))
-            else:
-                self._last_agent_responses = loop.run_until_complete(
-                    self._async_query(message))
-        except RuntimeError:
-            self._last_agent_responses = asyncio.run(
-                self._async_query(message))
-
-    async def _async_query(self, message: str) -> List[Dict[str, Any]]:
-        """Async wrapper for agent query."""
-        assert self._agent_session is not None
-        return await self._agent_session.query(message)
+        # Run async query via mixin helper
+        self._last_agent_responses = self._query_agent_sync(message)
 
     def _integrate_proposals(self, proposals: ProposalBundle) -> None:
         """Integrate validated proposals into approach state."""
@@ -338,25 +300,24 @@ class OnlineAgentProcessPlanningApproach(
                                 f"Using original task.")
         return super()._solve(task, timeout)
 
+    # ------------------------------------------------------------------ #
+    # Explorer
+    # ------------------------------------------------------------------ #
+
     def _create_explorer(self) -> BaseExplorer:
         """Create explorer, passing agent context if using agent explorer."""
         if CFG.explorer == "agent":
-            self._ensure_agent_session()
             all_trajs = (self._offline_dataset.trajectories +
                          self._online_dataset.trajectories)
             self._sync_tool_context(all_trajs)
             preds = self._get_current_predicates()
-            return create_explorer(
-                CFG.explorer,
-                preds,
-                self._initial_options | self._agent_proposed_options,
-                self._types,
-                self._action_space,
-                self._train_tasks,
-                tool_context=self._tool_context,
-                agent_session=self._agent_session,
-            )
+            return self._create_agent_explorer(
+                preds, self._initial_options | self._agent_proposed_options)
         return super()._create_explorer()
+
+    # ------------------------------------------------------------------ #
+    # Iteration summary / logs
+    # ------------------------------------------------------------------ #
 
     def _build_iteration_summary(self,
                                  proposals: ProposalBundle) -> Dict[str, Any]:
@@ -424,6 +385,10 @@ class OnlineAgentProcessPlanningApproach(
         # Session info
         if self._agent_session is not None:
             self._agent_session.save_session_info()
+
+    # ------------------------------------------------------------------ #
+    # Save / Load
+    # ------------------------------------------------------------------ #
 
     def save(self, online_learning_cycle: Optional[int] = None) -> None:
         """Save approach state."""

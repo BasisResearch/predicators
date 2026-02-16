@@ -165,15 +165,5 @@ Output ONLY the single option line at the end, after any analysis."""
                      f"{ground_opt.simple_str()}")
         return ground_opt
 
-    def _ensure_agent_session(self) -> None:
-        """Create agent session, using closed-loop model setting."""
-        # Temporarily swap model name for session creation
-        orig = CFG.agent_open_loop_model_name
-        try:
-            object.__setattr__(
-                CFG, 'agent_open_loop_model_name',
-                CFG.agent_closed_loop_model_name)
-            super()._ensure_agent_session()
-        finally:
-            object.__setattr__(
-                CFG, 'agent_open_loop_model_name', orig)
+    def _get_agent_model_name(self) -> str:
+        return CFG.agent_closed_loop_model_name
