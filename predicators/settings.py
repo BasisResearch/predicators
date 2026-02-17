@@ -429,6 +429,7 @@ class GlobalSettings:
     domino_test_num_pos_y = 3
     domino_oracle_knows_glued_dominos = False
     domino_use_continuous_place = False  # Use PlaceContinuous option instead of Place
+    domino_restricted_push = False  # When True, Push only targets the start block (no domino arg)
 
     # burger env parameters
     burger_render_set_of_marks = True

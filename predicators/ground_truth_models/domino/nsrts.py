@@ -46,7 +46,6 @@ class PyBulletDominoGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             DominoNotGlued = predicates["DominoNotGlued"]
 
         # Options
-        Push = options["Push"]
         Pick = options["Pick"]
         Place = options["Place"]
         NoOp = options["NoOp"]
@@ -57,8 +56,12 @@ class PyBulletDominoGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         robot = Variable("?robot", robot_type)
         domino = Variable("?domino", domino_type)
         parameters = [robot, domino]
-        option_vars = [robot, domino]
-        option = Push
+        if CFG.domino_restricted_push:
+            option = options["PushRestricted"]
+            option_vars = [robot]
+        else:
+            option = options["Push"]
+            option_vars = [robot, domino]
         preconditions = {
             LiftedAtom(HandEmpty, [robot]),
             LiftedAtom(StartBlock, [domino]),

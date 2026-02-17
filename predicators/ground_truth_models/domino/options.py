@@ -87,51 +87,97 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             return current, target
 
         options: Set[ParameterizedOption] = set()
-        # Push
-        option_type = [robot_type, domino_type]
-        params_space = Box(0, 1, (0, ))
-        Push = utils.LinearChainParameterizedOption(
-            "Push",
-            [
-                create_change_fingers_option(
-                    pybullet_robot, "CloseFingers", option_type, params_space,
-                    close_fingers_func, CFG.pybullet_max_vel_norm,
-                    PyBulletEnv.grasp_tol_small),
-                cls._create_domino_move_to_push_domino_option(
-                    "MoveToAboveDomino",
-                    lambda x, rot: x - np.sin(rot) * cls._offset_x,
-                    lambda y, rot: y - np.cos(rot) * cls._offset_x,
-                    lambda _: cls._transport_z_push, "closed", option_type,
-                    params_space),
-                cls._create_domino_move_to_push_domino_option(
-                    "MoveToBehindDomino",
-                    lambda x, rot: x - np.sin(rot) * cls._offset_x,
-                    lambda y, rot: y - np.cos(rot) * cls._offset_x,
-                    lambda z: z + cls._offset_z, "closed", option_type,
-                    params_space),
-                cls._create_domino_move_to_push_domino_option(
-                    "PushDomino",
-                    lambda x, rot: x + np.sin(rot) * cls._offset_x / 4,
-                    lambda y, rot: y + np.cos(rot) * cls._offset_x / 4,
-                    lambda z: z + cls._offset_z, "closed", option_type,
-                    params_space),
-                cls._create_domino_move_to_push_domino_option(
-                    "BackUp", lambda _1, _2: cls.env_cls.robot_init_x,
-                    lambda _1, _2: cls.env_cls.robot_init_y,
-                    lambda _: cls.env_cls.robot_init_z, "closed", option_type,
-                    params_space),
-                create_change_fingers_option(
-                    pybullet_robot, "OpenFingers", option_type, params_space,
-                    open_fingers_func, CFG.pybullet_max_vel_norm,
-                    PyBulletEnv.grasp_tol_small),
-                # cls._create_domino_move_to_push_domino_option(
-                #     "MoveToBehindDomino",
-                #     lambda _: cls.env_cls.start_domino_x - cls._offset_x,
-                #     lambda z: z + cls._offset_z,
-                #     "closed",
-                #     option_type, params_space),
-            ])
-        options.add(Push)
+
+        if CFG.domino_restricted_push:
+            # PushRestricted - like Push but takes only robot (finds start block from state)
+            restricted_option_type = [robot_type]
+            restricted_params_space = Box(0, 1, (0, ))
+            PushRestricted = utils.LinearChainParameterizedOption(
+                "PushRestricted",
+                [
+                    create_change_fingers_option(
+                        pybullet_robot, "CloseFingers", restricted_option_type,
+                        restricted_params_space, close_fingers_func,
+                        CFG.pybullet_max_vel_norm, PyBulletEnv.grasp_tol_small),
+                    cls._create_domino_move_to_push_start_block_option(
+                        "MoveToAboveDomino",
+                        lambda x, rot: x - np.sin(rot) * cls._offset_x,
+                        lambda y, rot: y - np.cos(rot) * cls._offset_x,
+                        lambda _: cls._transport_z_push, "closed",
+                        restricted_option_type, restricted_params_space,
+                        domino_type),
+                    cls._create_domino_move_to_push_start_block_option(
+                        "MoveToBehindDomino",
+                        lambda x, rot: x - np.sin(rot) * cls._offset_x,
+                        lambda y, rot: y - np.cos(rot) * cls._offset_x,
+                        lambda z: z + cls._offset_z, "closed",
+                        restricted_option_type, restricted_params_space,
+                        domino_type),
+                    cls._create_domino_move_to_push_start_block_option(
+                        "PushDomino",
+                        lambda x, rot: x + np.sin(rot) * cls._offset_x / 4,
+                        lambda y, rot: y + np.cos(rot) * cls._offset_x / 4,
+                        lambda z: z + cls._offset_z, "closed",
+                        restricted_option_type, restricted_params_space,
+                        domino_type),
+                    cls._create_domino_move_to_push_start_block_option(
+                        "BackUp", lambda _1, _2: cls.env_cls.robot_init_x,
+                        lambda _1, _2: cls.env_cls.robot_init_y,
+                        lambda _: cls.env_cls.robot_init_z, "closed",
+                        restricted_option_type, restricted_params_space,
+                        domino_type),
+                    create_change_fingers_option(
+                        pybullet_robot, "OpenFingers", restricted_option_type,
+                        restricted_params_space, open_fingers_func,
+                        CFG.pybullet_max_vel_norm, PyBulletEnv.grasp_tol_small),
+                ])
+            options.add(PushRestricted)
+        else:
+            # Push
+            option_type = [robot_type, domino_type]
+            params_space = Box(0, 1, (0, ))
+            Push = utils.LinearChainParameterizedOption(
+                "Push",
+                [
+                    create_change_fingers_option(
+                        pybullet_robot, "CloseFingers", option_type, params_space,
+                        close_fingers_func, CFG.pybullet_max_vel_norm,
+                        PyBulletEnv.grasp_tol_small),
+                    cls._create_domino_move_to_push_domino_option(
+                        "MoveToAboveDomino",
+                        lambda x, rot: x - np.sin(rot) * cls._offset_x,
+                        lambda y, rot: y - np.cos(rot) * cls._offset_x,
+                        lambda _: cls._transport_z_push, "closed", option_type,
+                        params_space),
+                    cls._create_domino_move_to_push_domino_option(
+                        "MoveToBehindDomino",
+                        lambda x, rot: x - np.sin(rot) * cls._offset_x,
+                        lambda y, rot: y - np.cos(rot) * cls._offset_x,
+                        lambda z: z + cls._offset_z, "closed", option_type,
+                        params_space),
+                    cls._create_domino_move_to_push_domino_option(
+                        "PushDomino",
+                        lambda x, rot: x + np.sin(rot) * cls._offset_x / 4,
+                        lambda y, rot: y + np.cos(rot) * cls._offset_x / 4,
+                        lambda z: z + cls._offset_z, "closed", option_type,
+                        params_space),
+                    cls._create_domino_move_to_push_domino_option(
+                        "BackUp", lambda _1, _2: cls.env_cls.robot_init_x,
+                        lambda _1, _2: cls.env_cls.robot_init_y,
+                        lambda _: cls.env_cls.robot_init_z, "closed", option_type,
+                        params_space),
+                    create_change_fingers_option(
+                        pybullet_robot, "OpenFingers", option_type, params_space,
+                        open_fingers_func, CFG.pybullet_max_vel_norm,
+                        PyBulletEnv.grasp_tol_small),
+                    # cls._create_domino_move_to_push_domino_option(
+                    #     "MoveToBehindDomino",
+                    #     lambda _: cls.env_cls.start_domino_x - cls._offset_x,
+                    #     lambda z: z + cls._offset_z,
+                    #     "closed",
+                    #     option_type, params_space),
+                ])
+            options.add(Push)
 
         # Pick
         pick_option_types = [robot_type, domino_type]
@@ -288,6 +334,62 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                 Tuple[Pose, Pose, str]:
             assert not params
             robot, domino = objects
+            current_position = (state.get(robot, "x"), state.get(robot, "y"),
+                                state.get(robot, "z"))
+            ee_orn = p.getQuaternionFromEuler(
+                [0, state.get(robot, "tilt"),
+                 state.get(robot, "wrist")])
+            current_pose = Pose(current_position, ee_orn)
+            dx = state.get(domino, "x")
+            dy = state.get(domino, "y")
+            dz = state.get(domino, "z")
+            drot = state.get(domino, "yaw")
+            target_position = (x_func(dx, drot), y_func(dy, drot), z_func(dz))
+            target_orn = p.getQuaternionFromEuler(
+                [0, cls.env_cls.robot_init_tilt, drot + np.pi / 2])
+            target_pose = Pose(target_position, target_orn)
+            return current_pose, target_pose, finger_status
+
+        return create_move_end_effector_to_pose_option(
+            _get_pybullet_robot(),
+            name,
+            option_types,
+            params_space,
+            _get_current_and_target_pose_and_finger_status,
+            cls._move_to_pose_tol,
+            CFG.pybullet_max_vel_norm,
+            cls._finger_action_nudge_magnitude,
+            validate=CFG.pybullet_ik_validate)
+
+    @classmethod
+    def _find_start_block(cls, state: State, domino_type: Type) -> Object:
+        """Find the start block domino by matching its color in the state."""
+        eps = 1e-3
+        for domino in state.get_objects(domino_type):
+            if (abs(state.get(domino, "r") -
+                    cls.env_cls.start_domino_color[0]) < eps
+                    and abs(state.get(domino, "g") -
+                            cls.env_cls.start_domino_color[1]) < eps
+                    and abs(state.get(domino, "b") -
+                            cls.env_cls.start_domino_color[2]) < eps):
+                return domino
+        raise ValueError("No start block found in state")
+
+    @classmethod
+    def _create_domino_move_to_push_start_block_option(
+            cls, name: str, x_func: Callable[[float, float], float],
+            y_func: Callable[[float, float], float], z_func: Callable[[float],
+                                                                      float],
+            finger_status: str, option_types: List[Type], params_space: Box,
+            domino_type: Type) -> ParameterizedOption:
+        """Create a push option that automatically finds the start block."""
+
+        def _get_current_and_target_pose_and_finger_status(
+                state: State, objects: Sequence[Object], params: Array) -> \
+                Tuple[Pose, Pose, str]:
+            assert not params
+            robot, = objects
+            domino = cls._find_start_block(state, domino_type)
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
             ee_orn = p.getQuaternionFromEuler(
