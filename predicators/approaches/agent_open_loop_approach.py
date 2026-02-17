@@ -10,7 +10,9 @@ Example command:
         --num_train_tasks 1 --num_test_tasks 1 \
         --num_online_learning_cycles 1 --explorer agent
 """
+import datetime
 import logging
+import os
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set
 
 import dill as pkl
@@ -50,6 +52,9 @@ class AgentOpenLoopApproach(AgentSessionMixin, BaseApproach):
         self._online_learning_cycle = 0
         self._requests_train_task_idxs: Optional[List[int]] = None
 
+        # Create unique run identifier for this execution
+        self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
         self._init_agent_session_state(
             types, initial_predicates, initial_options, train_tasks)
 
@@ -60,6 +65,14 @@ class AgentOpenLoopApproach(AgentSessionMixin, BaseApproach):
     @property
     def is_learning_based(self) -> bool:
         return True
+
+    def _get_log_dir(self) -> str:
+        """Override to create separate directory for each run."""
+        base_log_dir = super()._get_log_dir()
+        run_log_dir = os.path.join(base_log_dir, f"run_{self._run_id}")
+        os.makedirs(run_log_dir, exist_ok=True)
+        logging.info(f"Logging agent queries/responses to: {run_log_dir}")
+        return run_log_dir
 
     # ------------------------------------------------------------------ #
     # AgentSessionMixin hooks
@@ -130,8 +143,8 @@ class AgentOpenLoopApproach(AgentSessionMixin, BaseApproach):
         self._sync_tool_context()
 
         logging.info(
-            f"Cycle {self._online_learning_cycle}: collected "
-            f"{len(results)} trajectories, "
+            f"[Run {self._run_id}] Cycle {self._online_learning_cycle}: "
+            f"collected {len(results)} trajectories, "
             f"{len(self._online_trajectories)} total online.")
 
         self.save(self._online_learning_cycle)
@@ -299,13 +312,14 @@ Output ONLY the option plan lines at the end, after any analysis."""
                 ground_opt = option.ground(objs, params_arr)
                 grounded.append(ground_opt)
             except Exception as e:
-                logging.warning(f"Failed to ground option "
+                logging.warning(f"[Run {self._run_id}] Failed to ground option "
                                 f"{option.name}: {e}")
                 break
 
         if not grounded:
             raise ApproachFailure("No options successfully grounded.")
-        logging.info(f"Agent produced plan with {len(grounded)} options.")
+        logging.info(f"[Run {self._run_id}] Agent produced plan with "
+                     f"{len(grounded)} options.")
         return grounded
 
     # ------------------------------------------------------------------ #
@@ -354,13 +368,14 @@ Output ONLY the option plan lines at the end, after any analysis."""
                 "offline_dataset": self._offline_dataset,
                 "online_trajectories": self._online_trajectories,
                 "online_learning_cycle": self._online_learning_cycle,
+                "run_id": self._run_id,
                 "agent_session_id": (
                     self._agent_session.session_id
                     if self._agent_session else None
                 ),
             }
             pkl.dump(save_dict, f)
-            logging.info(f"Saved approach to {save_path}_"
+            logging.info(f"[Run {self._run_id}] Saved approach to {save_path}_"
                          f"{online_learning_cycle}.AgentOpenLoop")
 
     def load(self, online_learning_cycle: Optional[int] = None) -> None:
@@ -375,9 +390,15 @@ Output ONLY the option plan lines at the end, after any analysis."""
             save_dict["online_learning_cycle"] + 1
         self._agent_session_id = save_dict.get("agent_session_id")
 
+        # Create new run_id for continued execution (each run gets own dir)
+        # but log the original run_id for reference
+        original_run_id = save_dict.get("run_id", "unknown")
+        self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
         # Re-sync tool context
         self._sync_tool_context()
 
         logging.info(
-            f"Loaded {len(self._offline_dataset.trajectories)} offline, "
+            f"[Run {self._run_id}] Loaded from previous run {original_run_id}: "
+            f"{len(self._offline_dataset.trajectories)} offline, "
             f"{len(self._online_trajectories)} online trajectories")

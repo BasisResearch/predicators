@@ -1,4 +1,5 @@
 """Agent session lifecycle management for Claude SDK."""
+import datetime
 import json
 import logging
 import os
@@ -23,6 +24,7 @@ class AgentSessionManager:
         self._total_cost_usd: float = 0.0
         self._total_turns: int = 0
         self._started = False
+        self._query_count: int = 0
 
     @property
     def session_id(self) -> Optional[str]:
@@ -72,13 +74,38 @@ class AgentSessionManager:
         self._started = True
         logging.info("Agent SDK session started.")
 
+    def _save_query_response_log(self, query: str,
+                                  response: List[Dict[str, Any]]) -> None:
+        """Save query and response to a timestamped JSON file."""
+        if not CFG.log_file:
+            return
+
+        self._query_count += 1
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"agent_query_{self._query_count:03d}_{timestamp}.json"
+        filepath = os.path.join(self._log_dir, filename)
+
+        log_data = {
+            "query_number": self._query_count,
+            "timestamp": timestamp,
+            "query": query,
+            "response": response,
+            "session_id": self._session_id,
+        }
+
+        os.makedirs(self._log_dir, exist_ok=True)
+        with open(filepath, "w") as f:
+            json.dump(log_data, f, indent=2)
+
+        logging.info(f"Saved agent query/response to {filepath}")
+
     async def query(self, message: str) -> List[Dict[str, Any]]:
         """Send a message to the agent and collect all response messages.
 
         Returns a list of dicts with message content for logging.
         """
         from claude_agent_sdk import AssistantMessage, ResultMessage, \
-            TextBlock, ToolUseBlock
+            TextBlock, ToolResultBlock, ToolUseBlock, UserMessage
 
         if not self._started:
             await self.start_session()
@@ -101,11 +128,39 @@ class AgentSessionManager:
                         elif isinstance(block, ToolUseBlock):
                             entry["content"].append({
                                 "type": "tool_use",
+                                "id": getattr(block, "id", None),
                                 "name": block.name,
-                                "input": str(block.input)[:500],
+                                "input": block.input,
                             })
                             logging.debug(
                                 f"Agent tool call: {block.name}")
+                        elif isinstance(block, ToolResultBlock):
+                            entry["content"].append({
+                                "type": "tool_result",
+                                "tool_use_id": getattr(block, "tool_use_id", None),
+                                "content": getattr(block, "content", None),
+                                "is_error": getattr(block, "is_error", False),
+                            })
+                            logging.debug(
+                                f"Tool result for {getattr(block, 'tool_use_id', '?')}")
+                    collected.append(entry)
+                elif isinstance(msg, UserMessage):
+                    entry: Dict[str, Any] = {"type": "user", "content": []}
+                    for block in msg.content:
+                        if isinstance(block, TextBlock):
+                            entry["content"].append({
+                                "type": "text",
+                                "text": block.text
+                            })
+                        elif isinstance(block, ToolResultBlock):
+                            entry["content"].append({
+                                "type": "tool_result",
+                                "tool_use_id": getattr(block, "tool_use_id", None),
+                                "content": getattr(block, "content", None),
+                                "is_error": getattr(block, "is_error", False),
+                            })
+                            logging.debug(
+                                f"Tool result: {getattr(block, 'tool_use_id', '?')}")
                     collected.append(entry)
                 elif isinstance(msg, ResultMessage):
                     result_entry = {
@@ -133,6 +188,9 @@ class AgentSessionManager:
             })
             # Attempt recovery
             await self._recover_session(message)
+
+        # Save the query and response to a log file
+        self._save_query_response_log(message, collected)
 
         return collected
 

@@ -15,8 +15,17 @@ APPROACHES:
   #     demonstrator: "oracle_process_planning"
   #     terminate_on_goal_reached_and_option_terminated: True
   #     bilevel_plan_without_sim: True
-  agent:
-    NAME: "online_agent_learning_process_planning"
+  # agent:
+  #   NAME: "online_agent_learning_process_planning"
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     bilevel_plan_without_sim: True
+  #     max_initial_demos: 0
+  #     domino_use_continuous_place: True
+  #     explorer: "agent"
+  mf_agent:
+    NAME: "agent_open_loop"
     FLAGS:
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
@@ -24,6 +33,8 @@ APPROACHES:
       max_initial_demos: 0
       domino_use_continuous_place: True
       explorer: "agent"
+      num_online_learning_cycles: 4
+      online_nsrt_learning_requests_per_cycle: 1
   # predicate_invention:
   #   NAME: "online_predicate_invention_and_process_planning"
   #   # ARGS:
