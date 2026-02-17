@@ -14,6 +14,8 @@ from predicators import utils
 # from predicators.envs.pybullet_domino.old.pybullet_domino_grid import \
 #     PyBulletDominoEnv
 from predicators.envs.pybullet_domino import PyBulletDominoEnv
+from predicators.envs.pybullet_domino.components.domino_component import \
+    DominoComponent
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.pybullet_helpers.controllers import \
@@ -93,7 +95,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             restricted_option_type = [robot_type]
             restricted_params_space = Box(0, 1, (0, ))
             PushRestricted = utils.LinearChainParameterizedOption(
-                "PushRestricted",
+                "Push",
                 [
                     create_change_fingers_option(
                         pybullet_robot, "CloseFingers", restricted_option_type,
@@ -363,15 +365,9 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
     @classmethod
     def _find_start_block(cls, state: State, domino_type: Type) -> Object:
-        """Find the start block domino by matching its color in the state."""
-        eps = 1e-3
+        """Find the start block domino using the InitialBlock classifier."""
         for domino in state.get_objects(domino_type):
-            if (abs(state.get(domino, "r") -
-                    cls.env_cls.start_domino_color[0]) < eps
-                    and abs(state.get(domino, "g") -
-                            cls.env_cls.start_domino_color[1]) < eps
-                    and abs(state.get(domino, "b") -
-                            cls.env_cls.start_domino_color[2]) < eps):
+            if DominoComponent._StartBlock_holds(state, [domino]):
                 return domino
         raise ValueError("No start block found in state")
 

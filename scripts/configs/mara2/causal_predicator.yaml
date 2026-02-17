@@ -35,6 +35,7 @@ APPROACHES:
       explorer: "agent"
       num_online_learning_cycles: 4
       online_nsrt_learning_requests_per_cycle: 1
+      domino_restricted_push: True
   # predicate_invention:
   #   NAME: "online_predicate_invention_and_process_planning"
   #   # ARGS:
