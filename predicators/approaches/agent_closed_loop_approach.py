@@ -17,6 +17,7 @@ from typing import Callable, List
 import numpy as np
 
 from predicators import utils
+from predicators.agent_sdk.tools import create_mcp_tools
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_open_loop_approach import \
     AgentOpenLoopApproach
@@ -34,6 +35,13 @@ class AgentClosedLoopApproach(AgentOpenLoopApproach):
     @classmethod
     def get_name(cls) -> str:
         return "agent_closed_loop"
+
+    def _create_agent_mcp_tools(self) -> list:
+        return create_mcp_tools(
+            self._tool_context,
+            tool_names=["inspect_options", "inspect_trajectories",
+                        "inspect_train_tasks"],
+        )
 
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
         step_history: List[str] = []

@@ -20,7 +20,7 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.tools import create_inspection_only_mcp_tools
+from predicators.agent_sdk.tools import create_mcp_tools
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.approaches.base_approach import BaseApproach
@@ -85,13 +85,17 @@ class AgentOpenLoopApproach(AgentSessionMixin, BaseApproach):
         return (
             "You are a planning agent. You observe task environments through "
             "inspection tools and generate option plans to achieve goals. "
-            "You have access to read-only tools to inspect types, predicates, "
+            "You have access to read-only tools to inspect predicates, "
             "options, trajectories, and training tasks. Use these to "
             "understand the environment and generate effective plans."
         )
 
     def _create_agent_mcp_tools(self) -> list:
-        return create_inspection_only_mcp_tools(self._tool_context)
+        return create_mcp_tools(
+            self._tool_context,
+            tool_names=["inspect_options", "inspect_trajectories",
+                        "inspect_train_tasks"],
+        )
 
     def _get_agent_allowed_tools(self) -> Optional[List[str]]:
         tool_prefix = "mcp__predicator_tools__"
@@ -237,7 +241,7 @@ class AgentOpenLoopApproach(AgentSessionMixin, BaseApproach):
 {chr(10).join(option_strs)}
 {traj_summary}
 ## Instructions
-You can use the inspect tools to examine types, predicates, options, and past trajectories in more detail.
+You can use the inspect tools to examine predicates, options, and past trajectories in more detail.
 
 Based on the task information and any past trajectory data, output an option plan to achieve the goal.
 Output the plan with one option per line in this exact format:
