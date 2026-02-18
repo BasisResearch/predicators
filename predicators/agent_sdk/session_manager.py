@@ -134,15 +134,6 @@ class AgentSessionManager:
                             })
                             logging.debug(
                                 f"Agent tool call: {block.name}")
-                        elif isinstance(block, ToolResultBlock):
-                            entry["content"].append({
-                                "type": "tool_result",
-                                "tool_use_id": getattr(block, "tool_use_id", None),
-                                "content": getattr(block, "content", None),
-                                "is_error": getattr(block, "is_error", False),
-                            })
-                            logging.debug(
-                                f"Tool result for {getattr(block, 'tool_use_id', '?')}")
                     collected.append(entry)
                 elif isinstance(msg, UserMessage):
                     entry: Dict[str, Any] = {"type": "user", "content": []}
