@@ -256,9 +256,9 @@ class OnlineAgentProcessPlanningApproach(
         # Processes (agent-proposed, not data-driven)
         if proposals.proposed_processes:
             self._agent_proposed_processes |= proposals.proposed_processes
-            self._processes = set(self._agent_proposed_processes)  # type: ignore
             logging.info(f"Integrated {len(proposals.proposed_processes)} "
-                         f"new processes (total: {len(self._processes)})")
+                         f"new processes (total: "
+                         f"{len(self._get_current_processes())})")
 
         # Options
         if proposals.proposed_options:
@@ -295,7 +295,6 @@ class OnlineAgentProcessPlanningApproach(
                 p for p in self._agent_proposed_processes
                 if p.name not in proposals.retract_process_names
             }
-            self._processes = set(self._agent_proposed_processes)  # type: ignore
             logging.info(f"Retracted "
                          f"{before - len(self._agent_proposed_processes)} "
                          f"processes")
