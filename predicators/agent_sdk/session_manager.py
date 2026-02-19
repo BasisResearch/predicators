@@ -38,30 +38,8 @@ class AgentSessionManager:
         """Start a new Claude SDK client session."""
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
-        if self._allowed_tools is not None:
-            allowed_tools = self._allowed_tools
-        else:
-            tool_prefix = "mcp__predicator_tools__"
-            allowed_tools = [
-                f"{tool_prefix}inspect_types",
-                f"{tool_prefix}inspect_predicates",
-                f"{tool_prefix}inspect_processes",
-                f"{tool_prefix}inspect_options",
-                f"{tool_prefix}inspect_trajectories",
-                f"{tool_prefix}inspect_train_tasks",
-                f"{tool_prefix}inspect_planning_results",
-                f"{tool_prefix}inspect_iteration_history",
-                f"{tool_prefix}propose_types",
-                f"{tool_prefix}propose_predicates",
-                f"{tool_prefix}propose_object_augmentor",
-                f"{tool_prefix}propose_processes",
-                f"{tool_prefix}propose_options",
-                f"{tool_prefix}test_predicate_on_states",
-                f"{tool_prefix}test_planning",
-            ]
-
         options = ClaudeAgentOptions(
-            allowed_tools=allowed_tools,
+            allowed_tools=self._allowed_tools,
             mcp_servers={"predicator_tools": self._mcp_server},
             permission_mode="bypassPermissions",
             system_prompt=self._system_prompt,

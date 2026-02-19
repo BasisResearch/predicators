@@ -9,7 +9,8 @@ import os
 from typing import Any, Dict, List, Optional, Set
 
 from predicators.agent_sdk.session_manager import AgentSessionManager
-from predicators.agent_sdk.tools import ToolContext
+from predicators.agent_sdk.tools import ToolContext, create_mcp_tools, \
+    get_allowed_tool_list
 from predicators.explorers import create_explorer
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.settings import CFG
@@ -19,13 +20,12 @@ from predicators.structs import ParameterizedOption, Predicate, Task, Type
 class AgentSessionMixin:
     """Mixin that provides shared agent session infrastructure.
 
-    Subclasses must override the abstract hooks:
+    Subclasses must override:
       - _get_agent_model_name()
       - _get_agent_system_prompt()
-      - _create_agent_mcp_tools()
 
     And may optionally override:
-      - _get_agent_allowed_tools()
+      - _get_agent_tool_names()  -- return a subset of ALL_TOOL_NAMES (None = all)
     """
 
     _log_subdir: str = "agent"
@@ -63,12 +63,8 @@ class AgentSessionMixin:
         """Return the system prompt for the agent session."""
         raise NotImplementedError
 
-    def _create_agent_mcp_tools(self) -> list:
-        """Return the MCP tools list for the agent session."""
-        raise NotImplementedError
-
-    def _get_agent_allowed_tools(self) -> Optional[List[str]]:
-        """Return optional tool whitelist. None means allow all."""
+    def _get_agent_tool_names(self) -> Optional[List[str]]:
+        """Return tool name filter. None means all tools; override to subset."""
         return None
 
     # ------------------------------------------------------------------ #
@@ -82,26 +78,21 @@ class AgentSessionMixin:
 
         from claude_agent_sdk import create_sdk_mcp_server
 
-        system_prompt = self._get_agent_system_prompt()
-        tools = self._create_agent_mcp_tools()
+        tool_names = self._get_agent_tool_names()
+        tools = create_mcp_tools(self._tool_context, tool_names=tool_names)
         mcp_server = create_sdk_mcp_server(
             name="predicator_tools",
             version="1.0.0",
             tools=tools,
         )
-        log_dir = self._get_log_dir()
-        allowed_tools = self._get_agent_allowed_tools()
 
-        kwargs: Dict[str, Any] = dict(
-            system_prompt=system_prompt,
+        self._agent_session = AgentSessionManager(
+            system_prompt=self._get_agent_system_prompt(),
             mcp_server=mcp_server,
-            log_dir=log_dir,
+            log_dir=self._get_log_dir(),
             model_name=self._get_agent_model_name(),
+            allowed_tools=get_allowed_tool_list(tool_names),
         )
-        if allowed_tools is not None:
-            kwargs["allowed_tools"] = allowed_tools
-
-        self._agent_session = AgentSessionManager(**kwargs)
         if self._agent_session_id is not None:
             self._agent_session.session_id = self._agent_session_id
 

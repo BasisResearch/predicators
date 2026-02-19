@@ -20,12 +20,12 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.tools import create_mcp_tools
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.approaches.base_approach import BaseApproach
 from predicators.explorers import create_explorer
 from predicators.explorers.base_explorer import BaseExplorer
+from predicators.option_model import create_option_model
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, InteractionRequest, \
     InteractionResult, LowLevelTrajectory, ParameterizedOption, Predicate, \
@@ -49,6 +49,7 @@ class AgentOpenLoopApproach(AgentSessionMixin, BaseApproach):
                          action_space, train_tasks)
         self._offline_dataset = Dataset([])
         self._online_trajectories: List[LowLevelTrajectory] = []
+        self._option_model = create_option_model(CFG.option_model_name)
         self._online_learning_cycle = 0
         self._requests_train_task_idxs: Optional[List[int]] = None
 
@@ -90,20 +91,9 @@ class AgentOpenLoopApproach(AgentSessionMixin, BaseApproach):
             "understand the environment and generate effective plans."
         )
 
-    def _create_agent_mcp_tools(self) -> list:
-        return create_mcp_tools(
-            self._tool_context,
-            tool_names=["inspect_options", "inspect_trajectories",
-                        "inspect_train_tasks"],
-        )
-
-    def _get_agent_allowed_tools(self) -> Optional[List[str]]:
-        tool_prefix = "mcp__predicator_tools__"
-        return [
-            f"{tool_prefix}inspect_options",
-            f"{tool_prefix}inspect_trajectories",
-            f"{tool_prefix}inspect_train_tasks",
-        ]
+    def _get_agent_tool_names(self) -> Optional[List[str]]:
+        return ["inspect_options", "inspect_trajectories",
+                "inspect_train_tasks", "test_option_plan"]
 
     # ------------------------------------------------------------------ #
     # Learning
@@ -355,6 +345,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
             self._offline_dataset.trajectories
         self._tool_context.online_trajectories = self._online_trajectories
 
+        self._tool_context.option_model = self._option_model
         all_trajs = (self._offline_dataset.trajectories +
                      self._online_trajectories)
         if all_trajs:

@@ -8,8 +8,11 @@ from typing import Any, Callable, Dict, List, Optional, Set
 from predicators.agent_sdk.proposal_parser import ProposalBundle, \
     build_exec_context, exec_code_safely, validate_predicate
 from predicators.settings import CFG
+from predicators.option_model import _OptionModelBase
 from predicators.structs import CausalProcess, LowLevelTrajectory, \
     ParameterizedOption, Predicate, State, Task, Type
+
+MCP_SERVER_NAME = "predicator_tools"
 
 INSPECTION_TOOL_NAMES = [
     "inspect_types", "inspect_predicates", "inspect_processes",
@@ -21,9 +24,23 @@ PROPOSAL_TOOL_NAMES = [
     "propose_processes", "propose_options",
 ]
 TESTING_TOOL_NAMES = [
-    "test_predicate_on_states", "test_planning",
+    "test_predicate_on_states", "test_planning", "test_option_plan",
 ]
 ALL_TOOL_NAMES = INSPECTION_TOOL_NAMES + PROPOSAL_TOOL_NAMES + TESTING_TOOL_NAMES
+
+
+def get_allowed_tool_list(
+        tool_names: Optional[List[str]] = None) -> List[str]:
+    """Compute the allowed_tools list for the agent SDK.
+
+    Args:
+        tool_names: If provided, only include these tool names.
+            If None, include all tools.
+    """
+    prefix = f"mcp__{MCP_SERVER_NAME}__"
+    names = ALL_TOOL_NAMES if tool_names is None else \
+        [n for n in tool_names if n in set(ALL_TOOL_NAMES)]
+    return [f"{prefix}{n}" for n in names]
 
 
 @dataclass
@@ -39,6 +56,7 @@ class ToolContext:
     online_trajectories: List[LowLevelTrajectory] = field(
         default_factory=list)
     example_state: Optional[State] = None
+    option_model: Optional[_OptionModelBase] = None
     iteration_proposals: ProposalBundle = field(
         default_factory=ProposalBundle)
     planning_results: Dict[str, Any] = field(default_factory=dict)
@@ -634,6 +652,170 @@ def create_mcp_tools(ctx: ToolContext,
                 f"Planning failed for task {task_idx}.\n"
                 f"Reason: {type(e).__name__}: {e}")
 
+    @tool(
+        "test_option_plan",
+        "Execute a sequence of grounded options on a task via the option model "
+        "and report the result at each step. Use include_states and/or "
+        "include_atoms to control what is shown at each step.",
+        {
+            "type": "object",
+            "properties": {
+                "task_idx": {
+                    "type": "integer",
+                    "description": "Task index to test on"
+                },
+                "option_plan": {
+                    "type": "array",
+                    "description":
+                    "Ordered list of options to execute",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "option_name": {
+                                "type": "string",
+                                "description": "Name of the ParameterizedOption"
+                            },
+                            "object_names": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Object names to ground the option on"
+                            },
+                            "params": {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "description":
+                                "Continuous parameters (empty list if none)"
+                            },
+                        },
+                        "required": ["option_name", "object_names", "params"],
+                    },
+                },
+                "include_states": {
+                    "type": "boolean",
+                    "description":
+                    "Include the full low-level state feature dict after each "
+                    "step",
+                    "default": False
+                },
+                "include_atoms": {
+                    "type": "boolean",
+                    "description":
+                    "Include atoms added/deleted after each step",
+                    "default": True
+                },
+            },
+            "required": ["task_idx", "option_plan"],
+        },
+    )
+    async def test_option_plan(args: Dict[str, Any]) -> Dict[str, Any]:
+        import numpy as np
+
+        from predicators import utils
+
+        if ctx.option_model is None:
+            return _error_result("No option model available in ToolContext.")
+
+        task_idx = args["task_idx"]
+        option_plan_spec = args["option_plan"]
+        include_states = args.get("include_states", False)
+        include_atoms = args.get("include_atoms", True)
+
+        if task_idx < 0 or task_idx >= len(ctx.train_tasks):
+            return _error_result(
+                f"Invalid task_idx {task_idx}. "
+                f"Available: 0-{len(ctx.train_tasks)-1}")
+
+        task = ctx.train_tasks[task_idx]
+        opt_map = {o.name: o for o in ctx.options}
+
+        state = task.init
+        lines = [f"Testing option plan on task {task_idx}:"]
+
+        for step_idx, opt_spec in enumerate(option_plan_spec):
+            opt_name = opt_spec["option_name"]
+            obj_names = opt_spec["object_names"]
+            params = opt_spec["params"]
+
+            if opt_name not in opt_map:
+                return _error_result(
+                    f"Unknown option '{opt_name}'. "
+                    f"Available: {sorted(opt_map.keys())}")
+
+            param_opt = opt_map[opt_name]
+
+            obj_name_to_obj = {o.name: o for o in state}
+            objects = []
+            for name in obj_names:
+                if name not in obj_name_to_obj:
+                    return _error_result(
+                        f"Object '{name}' not found in state at step "
+                        f"{step_idx}. Available: "
+                        f"{sorted(obj_name_to_obj.keys())}")
+                objects.append(obj_name_to_obj[name])
+
+            try:
+                params_arr = np.array(params, dtype=np.float32)
+                option = param_opt.ground(objects, params_arr)
+            except Exception as e:
+                return _error_result(
+                    f"Failed to ground option '{opt_name}' at step "
+                    f"{step_idx}: {e}")
+
+            if not option.initiable(state):
+                atoms = utils.abstract(state, ctx.predicates)
+                atoms_str = ", ".join(str(a) for a in sorted(atoms))
+                lines.append(
+                    f"Step {step_idx}: {opt_name}({obj_names}) - "
+                    f"NOT INITIABLE\n"
+                    f"  Current atoms: {{{atoms_str}}}")
+                return _text_result(
+                    "\n".join(lines) +
+                    "\n\nPlan FAILED: option not initiable.")
+
+            try:
+                next_state, num_actions = \
+                    ctx.option_model.get_next_state_and_num_actions(
+                        state, option)
+            except Exception as e:
+                lines.append(
+                    f"Step {step_idx}: {opt_name}({obj_names}) - "
+                    f"EXECUTION ERROR: {e}")
+                return _text_result(
+                    "\n".join(lines) + "\n\nPlan FAILED: execution error.")
+
+            step_line = (f"Step {step_idx}: {opt_name}({obj_names}) "
+                         f"({num_actions} actions)")
+            if include_atoms:
+                atoms_before = utils.abstract(state, ctx.predicates)
+                atoms_after = utils.abstract(next_state, ctx.predicates)
+                added = atoms_after - atoms_before
+                deleted = atoms_before - atoms_after
+                step_line += (
+                    f"\n  Added:   {{{', '.join(str(a) for a in sorted(added))}}}"
+                    f"\n  Deleted: {{{', '.join(str(a) for a in sorted(deleted))}}}"
+                )
+            if include_states:
+                state_dict = {}
+                for obj in sorted(next_state, key=lambda o: str(o)):
+                    obj_feats = {}
+                    for feat in obj.type.feature_names:
+                        val = next_state.get(obj, feat)
+                        obj_feats[feat] = round(float(val), 4) \
+                            if isinstance(val, (float, int)) else str(val)
+                    state_dict[str(obj)] = obj_feats
+                step_line += f"\n  State: {json.dumps(state_dict, indent=4)}"
+            lines.append(step_line)
+            state = next_state
+
+        final_atoms = utils.abstract(state, ctx.predicates)
+        goal_achieved = task.goal.issubset(final_atoms)
+        goal_str = ", ".join(str(g) for g in sorted(task.goal))
+        final_atoms_str = ", ".join(str(a) for a in sorted(final_atoms))
+        lines.append(f"\nFinal atoms: {{{final_atoms_str}}}")
+        lines.append(f"Goal: {{{goal_str}}}")
+        lines.append(f"Goal achieved: {goal_achieved}")
+        return _text_result("\n".join(lines))
+
     _all = {
         "inspect_types": inspect_types,
         "inspect_predicates": inspect_predicates,
@@ -650,6 +832,7 @@ def create_mcp_tools(ctx: ToolContext,
         "propose_options": propose_options,
         "test_predicate_on_states": test_predicate_on_states,
         "test_planning": test_planning,
+        "test_option_plan": test_option_plan,
     }
     if tool_names is None:
         return list(_all.values())

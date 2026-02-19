@@ -17,7 +17,6 @@ from predicators.agent_sdk.proposal_parser import ProposalBundle, \
     build_exec_context, exec_code_safely
 from predicators.agent_sdk.system_prompt import build_iteration_message, \
     build_system_prompt
-from predicators.agent_sdk.tools import create_mcp_tools
 from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.approaches.pp_online_process_learning_approach import \
     OnlineProcessLearningAndPlanningApproach
@@ -90,9 +89,6 @@ class OnlineAgentProcessPlanningApproach(
 
     def _get_agent_system_prompt(self) -> str:
         return build_system_prompt()
-
-    def _create_agent_mcp_tools(self) -> list:
-        return create_mcp_tools(self._tool_context)
 
     # ------------------------------------------------------------------ #
     # Learning
@@ -168,6 +164,7 @@ class OnlineAgentProcessPlanningApproach(
             self._online_dataset.trajectories
         self._tool_context.planning_results = self._planning_results
         self._tool_context.iteration_history = self._iteration_history
+        self._tool_context.option_model = self._option_model
 
         if all_trajs:
             self._tool_context.example_state = all_trajs[0].states[0]
