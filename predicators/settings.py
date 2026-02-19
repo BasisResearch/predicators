@@ -963,8 +963,8 @@ class GlobalSettings:
     agent_explorer_max_turns = 5  # max agent turns per exploration query
     agent_explorer_fallback_to_random = True  # fall back to random on failure
 
-    # Agent open-loop approach settings
-    agent_open_loop_model_name = "claude-sonnet-4-5"
+    # Agent planner approach settings
+    agent_planner_model_name = "claude-sonnet-4-5"
 
     # Agent closed-loop approach settings
     agent_closed_loop_model_name = "claude-sonnet-4-5"

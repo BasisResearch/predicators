@@ -101,7 +101,7 @@ Replace your current agent creation code:
 
 ### Before (Potentially Unsafe):
 ```python
-# Your current code in agent_open_loop_approach.py
+# Your current code in agent_planner_approach.py
 tools = create_inspection_only_mcp_tools(self._tool_context)
 # ... create agent ...
 ```

@@ -95,7 +95,7 @@ def create_agent_with_secure_file_access(
         system_prompt=system_prompt,
         mcp_server=mcp_server,
         log_dir=log_dir,
-        model_name=CFG.agent_open_loop_model_name,
+        model_name=CFG.agent_planner_model_name,
         allowed_tools=allowed_tools,
     )
 

@@ -1,4 +1,4 @@
-"""Model-free open-loop agent planning approach.
+"""Agent planner approach: fixed-vocabulary open-loop planning.
 
 Combines online trajectory collection (via AgentExplorer) with open-loop
 option plan generation (via Claude Agent SDK). No predicate/process/type
@@ -6,7 +6,7 @@ invention — just stores trajectories and generates plans.
 
 Example command:
     python predicators/main.py --env pybullet_domino \
-        --approach agent_open_loop --seed 0 \
+        --approach agent_planner --seed 0 \
         --num_train_tasks 1 --num_test_tasks 1 \
         --num_online_learning_cycles 1 --explorer agent
 """
@@ -32,15 +32,15 @@ from predicators.structs import Action, Dataset, InteractionRequest, \
     State, Task, Type
 
 
-class AgentOpenLoopApproach(AgentSessionMixin, BaseApproach):
-    """Model-free open-loop planning via Claude Agent SDK.
+class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
+    """Fixed-vocabulary open-loop planning via Claude Agent SDK.
 
     - Collects trajectories online using AgentExplorer
     - At solve time, queries the agent for an option plan
     - No predicate/process/type invention
     """
 
-    _log_subdir = "agent_open_loop"
+    _log_subdir = "agent_planner"
 
     def __init__(self, initial_predicates: Set[Predicate],
                  initial_options: Set[ParameterizedOption], types: Set[Type],
@@ -61,7 +61,7 @@ class AgentOpenLoopApproach(AgentSessionMixin, BaseApproach):
 
     @classmethod
     def get_name(cls) -> str:
-        return "agent_open_loop"
+        return "agent_planner"
 
     @property
     def is_learning_based(self) -> bool:
@@ -80,7 +80,7 @@ class AgentOpenLoopApproach(AgentSessionMixin, BaseApproach):
     # ------------------------------------------------------------------ #
 
     def _get_agent_model_name(self) -> str:
-        return CFG.agent_open_loop_model_name
+        return CFG.agent_planner_model_name
 
     def _get_agent_system_prompt(self) -> str:
         return (
@@ -367,7 +367,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
     def save(self, online_learning_cycle: Optional[int] = None) -> None:
         save_path = utils.get_approach_save_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentOpenLoop",
+        with open(f"{save_path}_{online_learning_cycle}.AgentPlanner",
                   "wb") as f:
             save_dict = {
                 "offline_dataset": self._offline_dataset,
@@ -381,11 +381,11 @@ Output ONLY the option plan lines at the end, after any analysis."""
             }
             pkl.dump(save_dict, f)
             logging.info(f"[Run {self._run_id}] Saved approach to {save_path}_"
-                         f"{online_learning_cycle}.AgentOpenLoop")
+                         f"{online_learning_cycle}.AgentPlanner")
 
     def load(self, online_learning_cycle: Optional[int] = None) -> None:
         save_path = utils.get_approach_load_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentOpenLoop",
+        with open(f"{save_path}_{online_learning_cycle}.AgentPlanner",
                   "rb") as f:
             save_dict = pkl.load(f)
 

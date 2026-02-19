@@ -1,6 +1,6 @@
-"""Model-free closed-loop agent planning approach.
+"""Agent closed-loop planning approach.
 
-Like AgentOpenLoopApproach, but instead of generating the full option plan
+Like AgentPlannerApproach, but instead of generating the full option plan
 upfront, the agent is queried at each option boundary to decide the next
 single option based on the current state. This makes the approach reactive
 to actual execution outcomes.
@@ -19,14 +19,14 @@ import numpy as np
 from predicators import utils
 from predicators.agent_sdk.tools import create_mcp_tools
 from predicators.approaches import ApproachFailure
-from predicators.approaches.agent_open_loop_approach import \
-    AgentOpenLoopApproach
+from predicators.approaches.agent_planner_approach import \
+    AgentPlannerApproach
 from predicators.settings import CFG
 from predicators.structs import Action, State, Task, _Option
 
 
-class AgentClosedLoopApproach(AgentOpenLoopApproach):
-    """Model-free closed-loop planning via Claude Agent SDK.
+class AgentClosedLoopApproach(AgentPlannerApproach):
+    """Closed-loop planning via Claude Agent SDK.
 
     At each option boundary, queries the agent for the next single option
     based on the current state, goal, and execution history.

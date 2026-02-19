@@ -16,7 +16,7 @@ APPROACHES:
   #     terminate_on_goal_reached_and_option_terminated: True
   #     bilevel_plan_without_sim: True
   mb_agent:
-    NAME: "online_agent_learning_process_planning"
+    NAME: "agent_abstraction_learning"
     FLAGS:
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
@@ -28,7 +28,7 @@ APPROACHES:
       online_nsrt_learning_requests_per_cycle: 1
       domino_restricted_push: True
   # mf_agent:
-  #   NAME: "agent_open_loop"
+  #   NAME: "agent_planner"
   #   FLAGS:
   #     demonstrator: "oracle_process_planning"
   #     terminate_on_goal_reached_and_option_terminated: True

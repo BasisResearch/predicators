@@ -110,7 +110,7 @@ from predicators.agent_sdk.example_secure_agent import (
 
 self._agent_session = create_agent_with_secure_file_access(
     tool_context=self._tool_context,
-    log_dir="logs/agent_open_loop",
+    log_dir="logs/agent_planner",
     system_prompt=system_prompt,
     allow_file_access=True,       # Enable file tools
     restrict_to_results=True,      # Most secure mode

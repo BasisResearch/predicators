@@ -1,4 +1,4 @@
-"""Agent SDK online process planning approach.
+"""Agent abstraction learning approach: online process and predicate invention.
 
 Uses a persistent Claude Agent SDK session to iteratively propose
 abstractions (types, predicates, helper objects, processes, options) based
@@ -30,11 +30,11 @@ from predicators.structs import Action, CausalProcess, Dataset, \
     ParameterizedOption, Predicate, State, Task, Type
 
 
-class OnlineAgentProcessPlanningApproach(
+class AgentAbstractionLearningApproach(
         AgentSessionMixin,
         PredicateInventionProcessPlanningApproach,
         OnlineProcessLearningAndPlanningApproach):
-    """Online process planning approach using Claude Agent SDK.
+    """Abstraction-learning planning approach using Claude Agent SDK.
 
     Maintains a persistent Claude agent session that iteratively refines
     abstraction proposals based on observed trajectory data and planning
@@ -42,7 +42,7 @@ class OnlineAgentProcessPlanningApproach(
     the world only through custom MCP tools.
     """
 
-    _log_subdir = "agent_sdk"
+    _log_subdir = "agent_abstraction_learning"
 
     def __init__(self,
                  initial_predicates: Set[Predicate],
@@ -79,7 +79,7 @@ class OnlineAgentProcessPlanningApproach(
 
     @classmethod
     def get_name(cls) -> str:
-        return "online_agent_learning_process_planning"
+        return "agent_abstraction_learning"
 
     # ------------------------------------------------------------------ #
     # AgentSessionMixin hooks
@@ -458,7 +458,7 @@ class OnlineAgentProcessPlanningApproach(
     def save(self, online_learning_cycle: Optional[int] = None) -> None:
         """Save approach state."""
         save_path = utils.get_approach_save_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentSDK", "wb") as f:
+        with open(f"{save_path}_{online_learning_cycle}.AgentAbstractionLearning", "wb") as f:
             save_dict = {
                 "processes": self._processes,
                 "learned_predicates": self._learned_predicates,
@@ -477,12 +477,12 @@ class OnlineAgentProcessPlanningApproach(
             }
             pkl.dump(save_dict, f)
             logging.info(f"Saved approach to {save_path}_"
-                         f"{online_learning_cycle}.AgentSDK")
+                         f"{online_learning_cycle}.AgentAbstractionLearning")
 
     def load(self, online_learning_cycle: Optional[int] = None) -> None:
         """Load previously saved approach state."""
         save_path = utils.get_approach_load_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentSDK", "rb") as f:
+        with open(f"{save_path}_{online_learning_cycle}.AgentAbstractionLearning", "rb") as f:
             save_dict = pkl.load(f)
 
         self._processes = save_dict["processes"]
