@@ -22,8 +22,7 @@ class AgentExplorer(BaseExplorer):
     def __init__(self, predicates: Set[Predicate],
                  options: Set[ParameterizedOption], types: Set[Type],
                  action_space: Box, train_tasks: List[Task],
-                 max_steps_before_termination: int,
-                 tool_context: ToolContext,
+                 max_steps_before_termination: int, tool_context: ToolContext,
                  agent_session: AgentSessionManager) -> None:
         super().__init__(predicates, options, types, action_space, train_tasks,
                          max_steps_before_termination)
@@ -117,8 +116,8 @@ class AgentExplorer(BaseExplorer):
         # Available tools
         tools_str = ""
         if self._agent_session.tool_names:
-            tool_list = "\n".join(
-                f"  - {t}" for t in self._agent_session.tool_names)
+            tool_list = "\n".join(f"  - {t}"
+                                  for t in self._agent_session.tool_names)
             tools_str = f"\n## Available Tools\n{tool_list}\n"
 
         prompt = f"""You are exploring a task environment. Generate an option plan to explore task {train_task_idx}.
@@ -156,8 +155,10 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
         max_trajs = CFG.agent_sdk_max_trajectories_in_context
         recent = all_trajs[-max_trajs:]
-        lines = [f"\n## Trajectory Summary ({len(all_trajs)} total, "
-                 f"showing last {len(recent)})"]
+        lines = [
+            f"\n## Trajectory Summary ({len(all_trajs)} total, "
+            f"showing last {len(recent)})"
+        ]
 
         for i, traj in enumerate(recent):
             n_steps = len(traj.actions)
@@ -167,9 +168,13 @@ Output ONLY the option plan lines at the end, after any analysis."""
             lost_atoms = init_atoms - final_atoms
             lines.append(f"\nTrajectory {i}: {n_steps} steps")
             if new_atoms:
-                lines.append(f"  Gained: {', '.join(str(a) for a in sorted(new_atoms, key=str))}")
+                lines.append(
+                    f"  Gained: {', '.join(str(a) for a in sorted(new_atoms, key=str))}"
+                )
             if lost_atoms:
-                lines.append(f"  Lost: {', '.join(str(a) for a in sorted(lost_atoms, key=str))}")
+                lines.append(
+                    f"  Lost: {', '.join(str(a) for a in sorted(lost_atoms, key=str))}"
+                )
 
         return "\n".join(lines)
 
@@ -188,19 +193,19 @@ Output ONLY the option plan lines at the end, after any analysis."""
         except RuntimeError:
             return asyncio.run(self._agent_session.query(message))
 
-    def _extract_option_plan_text(self,
-                                  responses: List[Dict[str, Any]]) -> str:
+    def _extract_option_plan_text(self, responses: List[Dict[str,
+                                                             Any]]) -> str:
         """Extract plan text from the last assistant text response.
 
-        Only uses the final assistant message to avoid including intermediate
-        reasoning/tool-call text that precedes the actual option plan.
+        Only uses the final assistant message to avoid including
+        intermediate reasoning/tool-call text that precedes the actual
+        option plan.
         """
         last_text_parts: List[str] = []
         for resp in responses:
             if resp.get("type") == "assistant":
                 parts = [
-                    block.get("text", "")
-                    for block in resp.get("content", [])
+                    block.get("text", "") for block in resp.get("content", [])
                     if isinstance(block, dict) and block.get("type") == "text"
                 ]
                 if parts:
@@ -211,7 +216,10 @@ Output ONLY the option plan lines at the end, after any analysis."""
         """Parse option plan text and ground into executable options."""
         objects = list(task.init)
         parsed = utils.parse_model_output_into_option_plan(
-            plan_text, objects, self._types, self._options,
+            plan_text,
+            objects,
+            self._types,
+            self._options,
             parse_continuous_params=True)
         if not parsed:
             logging.info("Agent explorer: parsed empty option plan.")
@@ -221,8 +229,8 @@ Output ONLY the option plan lines at the end, after any analysis."""
         grounded = []
         for option, objs, params in parsed:
             try:
-                ground_opt = option.ground(
-                    objs, np.array(params, dtype=np.float32))
+                ground_opt = option.ground(objs,
+                                           np.array(params, dtype=np.float32))
                 grounded.append(ground_opt)
             except Exception as e:
                 logging.info(f"Agent explorer: failed to ground option "

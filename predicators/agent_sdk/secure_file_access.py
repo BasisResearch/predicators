@@ -60,15 +60,11 @@ class FileAccessValidator:
             allow_hidden_files: Whether to allow access to hidden files (starting with .).
         """
         self.workspace_root = Path(workspace_root).resolve()
-        self.allowed_dirs = (
-            [self.workspace_root / d for d in allowed_dirs]
-            if allowed_dirs
-            else None
-        )
-        self.blocked_patterns = (
-            blocked_patterns if blocked_patterns is not None
-            else self.DEFAULT_BLOCKED_PATTERNS.copy()
-        )
+        self.allowed_dirs = ([self.workspace_root / d
+                              for d in allowed_dirs] if allowed_dirs else None)
+        self.blocked_patterns = (blocked_patterns
+                                 if blocked_patterns is not None else
+                                 self.DEFAULT_BLOCKED_PATTERNS.copy())
         self.allow_hidden_files = allow_hidden_files
 
         # Compile regex patterns for efficiency
@@ -77,7 +73,9 @@ class FileAccessValidator:
             for pattern in self.blocked_patterns
         ]
 
-    def validate_path(self, file_path: str, operation: str = "read") -> tuple[bool, str]:
+    def validate_path(self,
+                      file_path: str,
+                      operation: str = "read") -> tuple[bool, str]:
         """Validate if a file path is safe to access.
 
         Args:
@@ -127,12 +125,16 @@ class FileAccessValidator:
         # Additional write validation
         if operation == "write":
             # Prevent writing to critical files
-            if abs_path.name in ["setup.py", "requirements.txt", "pyproject.toml"]:
+            if abs_path.name in [
+                    "setup.py", "requirements.txt", "pyproject.toml"
+            ]:
                 return False, f"Access denied: Cannot modify critical file: {abs_path}"
 
         return True, ""
 
-    def get_safe_path(self, file_path: str, operation: str = "read") -> Optional[Path]:
+    def get_safe_path(self,
+                      file_path: str,
+                      operation: str = "read") -> Optional[Path]:
         """Get a validated absolute path, or None if invalid.
 
         Args:
@@ -178,28 +180,47 @@ def create_secure_file_tools(validator: FileAccessValidator) -> list:
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Path to the file (relative to workspace root)"
+                    "description":
+                    "Path to the file (relative to workspace root)"
                 }
             },
             "required": ["file_path"]
-        }
-    )
+        })
     async def secure_read_file(args: dict) -> dict:
         file_path = args["file_path"]
-        
+
         is_valid, error = validator.validate_path(file_path, "read")
         if not is_valid:
-            return {"content": [{"type": "text", "text": f"Error: {error}"}], "is_error": True}
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Error: {error}"
+                }],
+                "is_error": True
+            }
 
         safe_path = validator.get_safe_path(file_path, "read")
         if safe_path is None or not safe_path.exists():
-            return {"content": [{"type": "text", "text": f"Error: File not found: {file_path}"}], "is_error": True}
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Error: File not found: {file_path}"
+                }],
+                "is_error":
+                True
+            }
 
         try:
             content = safe_path.read_text(encoding="utf-8")
             return {"content": [{"type": "text", "text": content}]}
         except Exception as e:
-            return {"content": [{"type": "text", "text": f"Error reading file: {e}"}], "is_error": True}
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Error reading file: {e}"
+                }],
+                "is_error": True
+            }
 
     @tool(
         "secure_list_directory",
@@ -208,26 +229,47 @@ def create_secure_file_tools(validator: FileAccessValidator) -> list:
             "type": "object",
             "properties": {
                 "dir_path": {
-                    "type": "string",
-                    "description": "Path to the directory (relative to workspace root)"
+                    "type":
+                    "string",
+                    "description":
+                    "Path to the directory (relative to workspace root)"
                 }
             },
             "required": ["dir_path"]
-        }
-    )
+        })
     async def secure_list_directory(args: dict) -> dict:
         dir_path = args["dir_path"]
-        
+
         is_valid, error = validator.validate_path(dir_path, "read")
         if not is_valid:
-            return {"content": [{"type": "text", "text": f"Error: {error}"}], "is_error": True}
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Error: {error}"
+                }],
+                "is_error": True
+            }
 
         safe_path = validator.get_safe_path(dir_path, "read")
         if safe_path is None or not safe_path.exists():
-            return {"content": [{"type": "text", "text": f"Error: Directory not found: {dir_path}"}], "is_error": True}
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Error: Directory not found: {dir_path}"
+                }],
+                "is_error":
+                True
+            }
 
         if not safe_path.is_dir():
-            return {"content": [{"type": "text", "text": f"Error: Not a directory: {dir_path}"}], "is_error": True}
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Error: Not a directory: {dir_path}"
+                }],
+                "is_error":
+                True
+            }
 
         try:
             entries = []
@@ -236,12 +278,21 @@ def create_secure_file_tools(validator: FileAccessValidator) -> list:
                 item_is_valid, _ = validator.validate_path(str(item), "read")
                 if item_is_valid:
                     rel_path = item.relative_to(validator.workspace_root)
-                    entries.append(f"{'[DIR]' if item.is_dir() else '[FILE]'} {rel_path}")
-            
-            result = "\n".join(entries) if entries else "(empty or no accessible files)"
+                    entries.append(
+                        f"{'[DIR]' if item.is_dir() else '[FILE]'} {rel_path}")
+
+            result = "\n".join(
+                entries) if entries else "(empty or no accessible files)"
             return {"content": [{"type": "text", "text": result}]}
         except Exception as e:
-            return {"content": [{"type": "text", "text": f"Error listing directory: {e}"}], "is_error": True}
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Error listing directory: {e}"
+                }],
+                "is_error":
+                True
+            }
 
     @tool(
         "secure_write_file",
@@ -251,7 +302,8 @@ def create_secure_file_tools(validator: FileAccessValidator) -> list:
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Path to the file (relative to workspace root)"
+                    "description":
+                    "Path to the file (relative to workspace root)"
                 },
                 "content": {
                     "type": "string",
@@ -259,34 +311,56 @@ def create_secure_file_tools(validator: FileAccessValidator) -> list:
                 }
             },
             "required": ["file_path", "content"]
-        }
-    )
+        })
     async def secure_write_file(args: dict) -> dict:
         file_path = args["file_path"]
         content = args["content"]
-        
+
         is_valid, error = validator.validate_path(file_path, "write")
         if not is_valid:
-            return {"content": [{"type": "text", "text": f"Error: {error}"}], "is_error": True}
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Error: {error}"
+                }],
+                "is_error": True
+            }
 
         safe_path = validator.get_safe_path(file_path, "write")
         if safe_path is None:
-            return {"content": [{"type": "text", "text": f"Error: Invalid path: {file_path}"}], "is_error": True}
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Error: Invalid path: {file_path}"
+                }],
+                "is_error":
+                True
+            }
 
         try:
             safe_path.parent.mkdir(parents=True, exist_ok=True)
             safe_path.write_text(content, encoding="utf-8")
-            return {"content": [{"type": "text", "text": f"Successfully wrote to {file_path}"}]}
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Successfully wrote to {file_path}"
+                }]
+            }
         except Exception as e:
-            return {"content": [{"type": "text", "text": f"Error writing file: {e}"}], "is_error": True}
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": f"Error writing file: {e}"
+                }],
+                "is_error": True
+            }
 
     return [secure_read_file, secure_list_directory, secure_write_file]
 
 
 def create_validator_for_predicators_workspace(
-    workspace_root: str,
-    restrict_to_results: bool = True
-) -> FileAccessValidator:
+        workspace_root: str,
+        restrict_to_results: bool = True) -> FileAccessValidator:
     """Create a validator configured for the predicators workspace.
 
     Args:
@@ -298,7 +372,9 @@ def create_validator_for_predicators_workspace(
     """
     if restrict_to_results:
         # Most restrictive: only results and logs
-        allowed_dirs = ["results", "logs", "saved_approaches", "saved_datasets"]
+        allowed_dirs = [
+            "results", "logs", "saved_approaches", "saved_datasets"
+        ]
     else:
         # Allow access to source and test directories, but not sensitive areas
         allowed_dirs = ["predicators", "tests", "scripts", "results", "logs"]
@@ -312,7 +388,8 @@ def create_validator_for_predicators_workspace(
     validator = FileAccessValidator(
         workspace_root=workspace_root,
         allowed_dirs=allowed_dirs,
-        blocked_patterns=FileAccessValidator.DEFAULT_BLOCKED_PATTERNS + additional_blocks,
+        blocked_patterns=FileAccessValidator.DEFAULT_BLOCKED_PATTERNS +
+        additional_blocks,
         allow_hidden_files=False,
     )
 

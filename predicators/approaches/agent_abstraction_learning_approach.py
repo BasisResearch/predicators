@@ -1,8 +1,8 @@
 """Agent abstraction learning approach: online process and predicate invention.
 
 Uses a persistent Claude Agent SDK session to iteratively propose
-abstractions (types, predicates, helper objects, processes, options) based
-on observed trajectory data and planning feedback.
+abstractions (types, predicates, helper objects, processes, options)
+based on observed trajectory data and planning feedback.
 """
 import json
 import logging
@@ -31,15 +31,14 @@ from predicators.structs import Action, CausalProcess, Dataset, \
 
 
 class AgentAbstractionLearningApproach(
-        AgentSessionMixin,
-        PredicateInventionProcessPlanningApproach,
+        AgentSessionMixin, PredicateInventionProcessPlanningApproach,
         OnlineProcessLearningAndPlanningApproach):
     """Abstraction-learning planning approach using Claude Agent SDK.
 
     Maintains a persistent Claude agent session that iteratively refines
     abstraction proposals based on observed trajectory data and planning
-    feedback. The agent cannot see environment source code -- it observes
-    the world only through custom MCP tools.
+    feedback. The agent cannot see environment source code -- it
+    observes the world only through custom MCP tools.
     """
 
     _log_subdir = "agent_abstraction_learning"
@@ -64,8 +63,8 @@ class AgentAbstractionLearningApproach(
         self._planning_results: Dict[str, Any] = {}
         self._option_model = create_option_model(CFG.option_model_name)
 
-        self._init_agent_session_state(
-            types, initial_predicates, initial_options, train_tasks)
+        self._init_agent_session_state(types, initial_predicates,
+                                       initial_options, train_tasks)
 
         super().__init__(initial_predicates,
                          initial_options,
@@ -96,7 +95,10 @@ class AgentAbstractionLearningApproach(
     # ------------------------------------------------------------------ #
 
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
-        """Store the offline dataset. Do NOT start agent session yet."""
+        """Store the offline dataset.
+
+        Do NOT start agent session yet.
+        """
         self._offline_dataset = dataset
         self._tool_context.offline_trajectories = dataset.trajectories
         # Set example state from first trajectory
@@ -150,8 +152,7 @@ class AgentAbstractionLearningApproach(
         # 9. Increment cycle
         self._online_learning_cycle += 1
 
-    def _sync_tool_context(self,
-                           all_trajs: List[LowLevelTrajectory]) -> None:
+    def _sync_tool_context(self, all_trajs: List[LowLevelTrajectory]) -> None:
         """Synchronize ToolContext with current approach state."""
         self._tool_context.types = self._types
         self._tool_context.predicates = self._get_current_predicates()
@@ -187,13 +188,14 @@ class AgentAbstractionLearningApproach(
             f"{t.name}[{','.join(t.feature_names)}]"
             for t in sorted(self._types, key=lambda t: t.name))
         preds = self._get_current_predicates()
-        pred_str = ", ".join(
-            f"{p.name}({','.join(t.name for t in p.types)})"
-            for p in sorted(preds, key=lambda p: p.name))
+        pred_str = ", ".join(f"{p.name}({','.join(t.name for t in p.types)})"
+                             for p in sorted(preds, key=lambda p: p.name))
         procs = self._get_current_processes()
-        proc_str = ", ".join(p.name for p in sorted(procs, key=lambda p: p.name))
-        opt_str = ", ".join(o.name for o in sorted(
-            self._initial_options, key=lambda o: o.name))
+        proc_str = ", ".join(p.name
+                             for p in sorted(procs, key=lambda p: p.name))
+        opt_str = ", ".join(
+            o.name
+            for o in sorted(self._initial_options, key=lambda o: o.name))
 
         plan_success = self._planning_results.get("success_str",
                                                   "Not yet evaluated")
@@ -268,8 +270,11 @@ class AgentAbstractionLearningApproach(
 
         # Retractions
         if proposals.retract_type_names:
-            removed = {t for t in self._helper_types
-                       if t.name in proposals.retract_type_names}
+            removed = {
+                t
+                for t in self._helper_types
+                if t.name in proposals.retract_type_names
+            }
             self._helper_types -= removed
             self._types -= removed
             logging.info(f"Retracted {len(removed)} helper types: "
@@ -278,11 +283,13 @@ class AgentAbstractionLearningApproach(
         if proposals.retract_predicate_names:
             before = len(self._learned_predicates)
             self._learned_predicates = {
-                p for p in self._learned_predicates
+                p
+                for p in self._learned_predicates
                 if p.name not in proposals.retract_predicate_names
             }
-            logging.info(f"Retracted "
-                         f"{before - len(self._learned_predicates)} predicates")
+            logging.info(
+                f"Retracted "
+                f"{before - len(self._learned_predicates)} predicates")
 
         if proposals.retract_object_augmentor:
             self._augment_task_fn = None
@@ -292,7 +299,8 @@ class AgentAbstractionLearningApproach(
         if proposals.retract_process_names:
             before = len(self._agent_proposed_processes)
             self._agent_proposed_processes = {
-                p for p in self._agent_proposed_processes
+                p
+                for p in self._agent_proposed_processes
                 if p.name not in proposals.retract_process_names
             }
             logging.info(f"Retracted "
@@ -302,7 +310,8 @@ class AgentAbstractionLearningApproach(
         if proposals.retract_option_names:
             before = len(self._agent_proposed_options)
             self._agent_proposed_options = {
-                o for o in self._agent_proposed_options
+                o
+                for o in self._agent_proposed_options
                 if o.name not in proposals.retract_option_names
             }
             logging.info(f"Retracted "
@@ -313,8 +322,8 @@ class AgentAbstractionLearningApproach(
         """Get current processes including agent-proposed ones."""
         return self._processes | self._agent_proposed_processes
 
-    def _compute_task_success_rate(
-            self, trajs: List[LowLevelTrajectory]) -> float:
+    def _compute_task_success_rate(self,
+                                   trajs: List[LowLevelTrajectory]) -> float:
         """Compute fraction of trajectories that achieved their task goal."""
         if not trajs:
             return 0.0
@@ -366,16 +375,12 @@ class AgentAbstractionLearningApproach(
         return {
             "cycle": self._online_learning_cycle,
             "proposed_types": [t.name for t in proposals.proposed_types],
-            "proposed_predicates": [
-                p.name for p in proposals.proposed_predicates
-            ],
+            "proposed_predicates":
+            [p.name for p in proposals.proposed_predicates],
             "proposed_augmentor": proposals.augment_task_code is not None,
-            "proposed_processes": [
-                p.name for p in proposals.proposed_processes
-            ],
-            "proposed_options": [
-                o.name for o in proposals.proposed_options
-            ],
+            "proposed_processes":
+            [p.name for p in proposals.proposed_processes],
+            "proposed_options": [o.name for o in proposals.proposed_options],
             "retracted_types": sorted(proposals.retract_type_names),
             "retracted_predicates": sorted(proposals.retract_predicate_names),
             "retracted_augmentor": proposals.retract_object_augmentor,
@@ -411,26 +416,31 @@ class AgentAbstractionLearningApproach(
         proposals = self._tool_context.iteration_proposals
         if proposals.proposed_types:
             with open(os.path.join(proposals_dir, "types.json"), "w") as f:
-                json.dump([t.name for t in proposals.proposed_types], f,
+                json.dump([t.name for t in proposals.proposed_types],
+                          f,
                           indent=2)
         if proposals.proposed_predicates:
-            with open(os.path.join(proposals_dir,
-                                   "predicates_validated.json"), "w") as f:
-                json.dump([p.name for p in proposals.proposed_predicates], f,
+            with open(os.path.join(proposals_dir, "predicates_validated.json"),
+                      "w") as f:
+                json.dump([p.name for p in proposals.proposed_predicates],
+                          f,
                           indent=2)
         if proposals.augment_task_code:
-            with open(os.path.join(proposals_dir,
-                                   "augmentor_code.py"), "w") as f:
+            with open(os.path.join(proposals_dir, "augmentor_code.py"),
+                      "w") as f:
                 f.write(proposals.augment_task_code)
         if proposals.proposed_processes:
-            with open(os.path.join(proposals_dir,
-                                   "processes_code.json"), "w") as f:
-                json.dump([p.name for p in proposals.proposed_processes], f,
+            with open(os.path.join(proposals_dir, "processes_code.json"),
+                      "w") as f:
+                json.dump([p.name for p in proposals.proposed_processes],
+                          f,
                           indent=2)
 
         any_retractions = any([
-            proposals.retract_type_names, proposals.retract_predicate_names,
-            proposals.retract_object_augmentor, proposals.retract_process_names,
+            proposals.retract_type_names,
+            proposals.retract_predicate_names,
+            proposals.retract_object_augmentor,
+            proposals.retract_process_names,
             proposals.retract_option_names,
         ])
         if any_retractions:
@@ -439,7 +449,8 @@ class AgentAbstractionLearningApproach(
                 json.dump(
                     {
                         "types": sorted(proposals.retract_type_names),
-                        "predicates": sorted(proposals.retract_predicate_names),
+                        "predicates": sorted(
+                            proposals.retract_predicate_names),
                         "augmentor": proposals.retract_object_augmentor,
                         "processes": sorted(proposals.retract_process_names),
                         "options": sorted(proposals.retract_option_names),
@@ -458,22 +469,32 @@ class AgentAbstractionLearningApproach(
     def save(self, online_learning_cycle: Optional[int] = None) -> None:
         """Save approach state."""
         save_path = utils.get_approach_save_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentAbstractionLearning", "wb") as f:
+        with open(
+                f"{save_path}_{online_learning_cycle}.AgentAbstractionLearning",
+                "wb") as f:
             save_dict = {
-                "processes": self._processes,
-                "learned_predicates": self._learned_predicates,
-                "offline_dataset": self._offline_dataset,
-                "online_dataset": self._online_dataset,
-                "online_learning_cycle": self._online_learning_cycle,
-                "helper_types": self._helper_types,
-                "augment_task_code": self._augment_task_code,
-                "agent_proposed_options": self._agent_proposed_options,
-                "agent_proposed_processes": self._agent_proposed_processes,
-                "iteration_history": self._iteration_history,
-                "agent_session_id": (
-                    self._agent_session.session_id
-                    if self._agent_session else None
-                ),
+                "processes":
+                self._processes,
+                "learned_predicates":
+                self._learned_predicates,
+                "offline_dataset":
+                self._offline_dataset,
+                "online_dataset":
+                self._online_dataset,
+                "online_learning_cycle":
+                self._online_learning_cycle,
+                "helper_types":
+                self._helper_types,
+                "augment_task_code":
+                self._augment_task_code,
+                "agent_proposed_options":
+                self._agent_proposed_options,
+                "agent_proposed_processes":
+                self._agent_proposed_processes,
+                "iteration_history":
+                self._iteration_history,
+                "agent_session_id": (self._agent_session.session_id
+                                     if self._agent_session else None),
             }
             pkl.dump(save_dict, f)
             logging.info(f"Saved approach to {save_path}_"
@@ -482,7 +503,9 @@ class AgentAbstractionLearningApproach(
     def load(self, online_learning_cycle: Optional[int] = None) -> None:
         """Load previously saved approach state."""
         save_path = utils.get_approach_load_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentAbstractionLearning", "rb") as f:
+        with open(
+                f"{save_path}_{online_learning_cycle}.AgentAbstractionLearning",
+                "rb") as f:
             save_dict = pkl.load(f)
 
         self._processes = save_dict["processes"]
@@ -492,8 +515,8 @@ class AgentAbstractionLearningApproach(
         self._online_learning_cycle = save_dict["online_learning_cycle"] + 1
         self._helper_types = save_dict.get("helper_types", set())
         self._augment_task_code = save_dict.get("augment_task_code", "")
-        self._agent_proposed_options = save_dict.get(
-            "agent_proposed_options", set())
+        self._agent_proposed_options = save_dict.get("agent_proposed_options",
+                                                     set())
         self._agent_proposed_processes = save_dict.get(
             "agent_proposed_processes", set())
         self._iteration_history = save_dict.get("iteration_history", [])
@@ -501,11 +524,11 @@ class AgentAbstractionLearningApproach(
 
         # Re-exec augment_task_code to restore the function
         if self._augment_task_code:
-            exec_ctx = build_exec_context(
-                self._types, self._get_current_predicates(),
-                self._initial_options)
-            result, error = exec_code_safely(
-                self._augment_task_code, exec_ctx, "augment_task")
+            exec_ctx = build_exec_context(self._types,
+                                          self._get_current_predicates(),
+                                          self._initial_options)
+            result, error = exec_code_safely(self._augment_task_code, exec_ctx,
+                                             "augment_task")
             if error:
                 logging.warning(
                     f"Failed to restore augment_task function: {error}")

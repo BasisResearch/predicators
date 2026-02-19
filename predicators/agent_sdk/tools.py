@@ -7,34 +7,43 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from predicators.agent_sdk.proposal_parser import ProposalBundle, \
     build_exec_context, exec_code_safely, validate_predicate
-from predicators.settings import CFG
 from predicators.option_model import _OptionModelBase
+from predicators.settings import CFG
 from predicators.structs import CausalProcess, LowLevelTrajectory, \
     ParameterizedOption, Predicate, State, Task, Type
 
 MCP_SERVER_NAME = "predicator_tools"
 
 INSPECTION_TOOL_NAMES = [
-    "inspect_types", "inspect_predicates", "inspect_processes",
-    "inspect_options", "inspect_trajectories", "inspect_train_tasks",
-    "inspect_planning_results", "inspect_iteration_history",
+    "inspect_types",
+    "inspect_predicates",
+    "inspect_processes",
+    "inspect_options",
+    "inspect_trajectories",
+    "inspect_train_tasks",
+    "inspect_planning_results",
+    "inspect_iteration_history",
 ]
 PROPOSAL_TOOL_NAMES = [
-    "propose_types", "propose_predicates", "propose_object_augmentor",
-    "propose_processes", "propose_options",
+    "propose_types",
+    "propose_predicates",
+    "propose_object_augmentor",
+    "propose_processes",
+    "propose_options",
 ]
 RETRACTION_TOOL_NAMES = [
     "retract_abstractions",
 ]
 TESTING_TOOL_NAMES = [
-    "test_predicate_on_states", "test_planning", "test_option_plan",
+    "test_predicate_on_states",
+    "test_planning",
+    "test_option_plan",
 ]
 ALL_TOOL_NAMES = (INSPECTION_TOOL_NAMES + PROPOSAL_TOOL_NAMES +
                   RETRACTION_TOOL_NAMES + TESTING_TOOL_NAMES)
 
 
-def get_allowed_tool_list(
-        tool_names: Optional[List[str]] = None) -> List[str]:
+def get_allowed_tool_list(tool_names: Optional[List[str]] = None) -> List[str]:
     """Compute the allowed_tools list for the agent SDK.
 
     Args:
@@ -57,12 +66,10 @@ class ToolContext:
     train_tasks: List[Task] = field(default_factory=list)
     offline_trajectories: List[LowLevelTrajectory] = field(
         default_factory=list)
-    online_trajectories: List[LowLevelTrajectory] = field(
-        default_factory=list)
+    online_trajectories: List[LowLevelTrajectory] = field(default_factory=list)
     example_state: Optional[State] = None
     option_model: Optional[_OptionModelBase] = None
-    iteration_proposals: ProposalBundle = field(
-        default_factory=ProposalBundle)
+    iteration_proposals: ProposalBundle = field(default_factory=ProposalBundle)
     planning_results: Dict[str, Any] = field(default_factory=dict)
     iteration_history: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -96,15 +103,16 @@ def create_mcp_tools(ctx: ToolContext,
     async def inspect_types(args: Dict[str, Any]) -> Dict[str, Any]:
         lines = []
         for t in sorted(ctx.types, key=lambda t: t.name):
-            features = ", ".join(t.feature_names) if t.feature_names else "(no features)"
+            features = ", ".join(
+                t.feature_names) if t.feature_names else "(no features)"
             parent_str = f" (parent: {t.parent.name})" if t.parent else ""
             lines.append(f"- {t.name}{parent_str}: [{features}]")
         if not lines:
             return _text_result("No types defined.")
         return _text_result("Current types:\n" + "\n".join(lines))
 
-    @tool("inspect_predicates", "List all predicates and their type signatures",
-          {})
+    @tool("inspect_predicates",
+          "List all predicates and their type signatures", {})
     async def inspect_predicates(args: Dict[str, Any]) -> Dict[str, Any]:
         lines = []
         for p in sorted(ctx.predicates, key=lambda p: p.name):
@@ -122,12 +130,11 @@ def create_mcp_tools(ctx: ToolContext,
             conds = ", ".join(str(a) for a in sorted(proc.condition_at_start))
             adds = ", ".join(str(a) for a in sorted(proc.add_effects))
             dels = ", ".join(str(a) for a in sorted(proc.delete_effects))
-            lines.append(
-                f"- {proc.name}\n"
-                f"    Conditions: {{{conds}}}\n"
-                f"    Add effects: {{{adds}}}\n"
-                f"    Delete effects: {{{dels}}}\n"
-                f"    Delay: {proc.delay_distribution}")
+            lines.append(f"- {proc.name}\n"
+                         f"    Conditions: {{{conds}}}\n"
+                         f"    Add effects: {{{adds}}}\n"
+                         f"    Delete effects: {{{dels}}}\n"
+                         f"    Delay: {proc.delay_distribution}")
         if not lines:
             return _text_result("No processes defined.")
         return _text_result("Current processes:\n" + "\n".join(lines))
@@ -183,9 +190,8 @@ def create_mcp_tools(ctx: ToolContext,
 
         all_trajs = ctx.offline_trajectories + ctx.online_trajectories
         if traj_idx < 0 or traj_idx >= len(all_trajs):
-            return _error_result(
-                f"Invalid traj_idx {traj_idx}. "
-                f"Available: 0-{len(all_trajs)-1}")
+            return _error_result(f"Invalid traj_idx {traj_idx}. "
+                                 f"Available: 0-{len(all_trajs)-1}")
 
         traj = all_trajs[traj_idx]
         lines = [
@@ -227,7 +233,8 @@ def create_mcp_tools(ctx: ToolContext,
             "type": "object",
             "properties": {
                 "task_idx": {
-                    "type": "integer",
+                    "type":
+                    "integer",
                     "description":
                     "Task index (0-based). Omit to see summary of all.",
                 },
@@ -241,41 +248,37 @@ def create_mcp_tools(ctx: ToolContext,
 
         if task_idx is not None:
             if task_idx < 0 or task_idx >= len(ctx.train_tasks):
-                return _error_result(
-                    f"Invalid task_idx {task_idx}. "
-                    f"Available: 0-{len(ctx.train_tasks)-1}")
+                return _error_result(f"Invalid task_idx {task_idx}. "
+                                     f"Available: 0-{len(ctx.train_tasks)-1}")
             task = ctx.train_tasks[task_idx]
             goal_str = ", ".join(str(g) for g in sorted(task.goal))
             init_atoms = utils.abstract(task.init, ctx.predicates)
             atoms_str = ", ".join(str(a) for a in sorted(init_atoms))
             objects = sorted(task.init, key=lambda o: str(o))
             obj_str = ", ".join(f"{o.name}:{o.type.name}" for o in objects)
-            return _text_result(
-                f"Task {task_idx}:\n"
-                f"  Goal: {{{goal_str}}}\n"
-                f"  Initial atoms: {{{atoms_str}}}\n"
-                f"  Objects: [{obj_str}]")
+            return _text_result(f"Task {task_idx}:\n"
+                                f"  Goal: {{{goal_str}}}\n"
+                                f"  Initial atoms: {{{atoms_str}}}\n"
+                                f"  Objects: [{obj_str}]")
         else:
             lines = [f"Total tasks: {len(ctx.train_tasks)}"]
             for i, task in enumerate(ctx.train_tasks[:10]):
                 goal_str = ", ".join(str(g) for g in sorted(task.goal))
                 lines.append(f"  Task {i}: goal={{{goal_str}}}")
             if len(ctx.train_tasks) > 10:
-                lines.append(
-                    f"  ... ({len(ctx.train_tasks) - 10} more tasks)")
+                lines.append(f"  ... ({len(ctx.train_tasks) - 10} more tasks)")
             return _text_result("\n".join(lines))
 
     @tool("inspect_planning_results",
           "Get latest planning performance metrics", {})
-    async def inspect_planning_results(
-            args: Dict[str, Any]) -> Dict[str, Any]:
+    async def inspect_planning_results(args: Dict[str, Any]) -> Dict[str, Any]:
         if not ctx.planning_results:
             return _text_result("No planning results available yet.")
         return _text_result(
             json.dumps(ctx.planning_results, indent=2, default=str))
 
-    @tool("inspect_iteration_history",
-          "Get summaries of all past iterations", {})
+    @tool("inspect_iteration_history", "Get summaries of all past iterations",
+          {})
     async def inspect_iteration_history(
             args: Dict[str, Any]) -> Dict[str, Any]:
         if not ctx.iteration_history:
@@ -352,8 +355,7 @@ def create_mcp_tools(ctx: ToolContext,
             return _error_result("Predicate proposals are disabled.")
         code = args["code"]
         exec_ctx = build_exec_context(ctx.types, ctx.predicates, ctx.options)
-        result, error = exec_code_safely(code, exec_ctx,
-                                         "proposed_predicates")
+        result, error = exec_code_safely(code, exec_ctx, "proposed_predicates")
         if error:
             return _error_result(f"Code execution failed:\n{error}")
         if not isinstance(result, (list, set)):
@@ -392,7 +394,8 @@ def create_mcp_tools(ctx: ToolContext,
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "string",
+                    "type":
+                    "string",
                     "description":
                     "Python code defining augment_task(task) -> Task"
                 },
@@ -404,8 +407,7 @@ def create_mcp_tools(ctx: ToolContext,
             "required": ["code", "description"],
         },
     )
-    async def propose_object_augmentor(
-            args: Dict[str, Any]) -> Dict[str, Any]:
+    async def propose_object_augmentor(args: Dict[str, Any]) -> Dict[str, Any]:
         if not CFG.agent_sdk_propose_objects:
             return _error_result("Object augmentor proposals are disabled.")
         code = args["code"]
@@ -426,9 +428,8 @@ def create_mcp_tools(ctx: ToolContext,
                 new_objs = set(augmented.init) - orig_objs
                 obj_names = [str(o) for o in sorted(new_objs, key=str)]
             except Exception:
-                return _error_result(
-                    f"augment_task failed on test task:\n"
-                    f"{traceback.format_exc()}")
+                return _error_result(f"augment_task failed on test task:\n"
+                                     f"{traceback.format_exc()}")
         else:
             obj_names = ["(no tasks to test on)"]
 
@@ -436,7 +437,8 @@ def create_mcp_tools(ctx: ToolContext,
         ctx.iteration_proposals.augment_task_code = code
         logging.info(f"Agent proposed augmentor adding objects: {obj_names}")
         return _text_result(
-            f"Successfully proposed augmentor. Test added objects: {obj_names}")
+            f"Successfully proposed augmentor. Test added objects: {obj_names}"
+        )
 
     @tool(
         "propose_processes",
@@ -447,8 +449,7 @@ def create_mcp_tools(ctx: ToolContext,
             "properties": {
                 "code": {
                     "type": "string",
-                    "description":
-                    "Python code defining proposed_processes"
+                    "description": "Python code defining proposed_processes"
                 },
                 "description": {
                     "type": "string",
@@ -463,8 +464,7 @@ def create_mcp_tools(ctx: ToolContext,
             return _error_result("Process proposals are disabled.")
         code = args["code"]
         exec_ctx = build_exec_context(ctx.types, ctx.predicates, ctx.options)
-        result, error = exec_code_safely(code, exec_ctx,
-                                         "proposed_processes")
+        result, error = exec_code_safely(code, exec_ctx, "proposed_processes")
         if error:
             return _error_result(f"Code execution failed:\n{error}")
         if not isinstance(result, (list, set)):
@@ -490,8 +490,7 @@ def create_mcp_tools(ctx: ToolContext,
             "properties": {
                 "code": {
                     "type": "string",
-                    "description":
-                    "Python code defining proposed_options"
+                    "description": "Python code defining proposed_options"
                 },
                 "description": {
                     "type": "string",
@@ -536,27 +535,36 @@ def create_mcp_tools(ctx: ToolContext,
             "properties": {
                 "predicate_names": {
                     "type": "array",
-                    "items": {"type": "string"},
+                    "items": {
+                        "type": "string"
+                    },
                     "description": "Names of predicates to remove",
                 },
                 "process_names": {
                     "type": "array",
-                    "items": {"type": "string"},
+                    "items": {
+                        "type": "string"
+                    },
                     "description": "Names of processes to remove",
                 },
                 "option_names": {
                     "type": "array",
-                    "items": {"type": "string"},
+                    "items": {
+                        "type": "string"
+                    },
                     "description": "Names of options to remove",
                 },
                 "type_names": {
                     "type": "array",
-                    "items": {"type": "string"},
+                    "items": {
+                        "type": "string"
+                    },
                     "description": "Names of helper types to remove",
                 },
                 "clear_object_augmentor": {
                     "type": "boolean",
-                    "description": "Set to true to remove the object augmentor",
+                    "description":
+                    "Set to true to remove the object augmentor",
                 },
                 "reason": {
                     "type": "string",
@@ -573,8 +581,8 @@ def create_mcp_tools(ctx: ToolContext,
         type_names = set(args.get("type_names") or [])
         clear_augmentor = bool(args.get("clear_object_augmentor", False))
 
-        if not any([pred_names, proc_names, opt_names, type_names,
-                    clear_augmentor]):
+        if not any(
+            [pred_names, proc_names, opt_names, type_names, clear_augmentor]):
             return _text_result("Nothing to retract.")
 
         lines = [f"Retracting abstractions. Reason: {args['reason']}"]
@@ -586,8 +594,7 @@ def create_mcp_tools(ctx: ToolContext,
             ctx.iteration_proposals.retract_predicate_names |= valid
             lines.append(f"Predicates to retract: {sorted(valid)}")
             if unknown:
-                lines.append(
-                    f"  (unknown, ignored: {sorted(unknown)})")
+                lines.append(f"  (unknown, ignored: {sorted(unknown)})")
 
         if proc_names:
             existing = {p.name for p in ctx.processes}
@@ -596,8 +603,7 @@ def create_mcp_tools(ctx: ToolContext,
             ctx.iteration_proposals.retract_process_names |= valid
             lines.append(f"Processes to retract: {sorted(valid)}")
             if unknown:
-                lines.append(
-                    f"  (unknown, ignored: {sorted(unknown)})")
+                lines.append(f"  (unknown, ignored: {sorted(unknown)})")
 
         if opt_names:
             existing = {o.name for o in ctx.options}
@@ -606,8 +612,7 @@ def create_mcp_tools(ctx: ToolContext,
             ctx.iteration_proposals.retract_option_names |= valid
             lines.append(f"Options to retract: {sorted(valid)}")
             if unknown:
-                lines.append(
-                    f"  (unknown, ignored: {sorted(unknown)})")
+                lines.append(f"  (unknown, ignored: {sorted(unknown)})")
 
         if type_names:
             existing = {t.name for t in ctx.types}
@@ -616,8 +621,7 @@ def create_mcp_tools(ctx: ToolContext,
             ctx.iteration_proposals.retract_type_names |= valid
             lines.append(f"Helper types to retract: {sorted(valid)}")
             if unknown:
-                lines.append(
-                    f"  (unknown, ignored: {sorted(unknown)})")
+                lines.append(f"  (unknown, ignored: {sorted(unknown)})")
 
         if clear_augmentor:
             ctx.iteration_proposals.retract_object_augmentor = True
@@ -644,15 +648,16 @@ def create_mcp_tools(ctx: ToolContext,
                 },
                 "object_names": {
                     "type": "array",
-                    "items": {"type": "string"},
+                    "items": {
+                        "type": "string"
+                    },
                     "description": "Object names to ground the predicate on"
                 },
             },
             "required": ["predicate_name", "traj_idx", "object_names"],
         },
     )
-    async def test_predicate_on_states(
-            args: Dict[str, Any]) -> Dict[str, Any]:
+    async def test_predicate_on_states(args: Dict[str, Any]) -> Dict[str, Any]:
         pred_name = args["predicate_name"]
         traj_idx = args["traj_idx"]
         object_names = args["object_names"]
@@ -669,9 +674,8 @@ def create_mcp_tools(ctx: ToolContext,
 
         all_trajs = ctx.offline_trajectories + ctx.online_trajectories
         if traj_idx < 0 or traj_idx >= len(all_trajs):
-            return _error_result(
-                f"Invalid traj_idx {traj_idx}. "
-                f"Available: 0-{len(all_trajs)-1}")
+            return _error_result(f"Invalid traj_idx {traj_idx}. "
+                                 f"Available: 0-{len(all_trajs)-1}")
 
         traj = all_trajs[traj_idx]
 
@@ -730,9 +734,8 @@ def create_mcp_tools(ctx: ToolContext,
         timeout = args.get("timeout", 30)
 
         if task_idx < 0 or task_idx >= len(ctx.train_tasks):
-            return _error_result(
-                f"Invalid task_idx {task_idx}. "
-                f"Available: 0-{len(ctx.train_tasks)-1}")
+            return _error_result(f"Invalid task_idx {task_idx}. "
+                                 f"Available: 0-{len(ctx.train_tasks)-1}")
 
         task = ctx.train_tasks[task_idx]
         all_preds = ctx.predicates | ctx.iteration_proposals.proposed_predicates
@@ -754,9 +757,8 @@ def create_mcp_tools(ctx: ToolContext,
                 f"Nodes expanded: {metrics.get('num_nodes_expanded', '?')}\n"
                 f"Plan: {plan_desc}")
         except (ApproachFailure, ApproachTimeout, Exception) as e:
-            return _text_result(
-                f"Planning failed for task {task_idx}.\n"
-                f"Reason: {type(e).__name__}: {e}")
+            return _text_result(f"Planning failed for task {task_idx}.\n"
+                                f"Reason: {type(e).__name__}: {e}")
 
     @tool(
         "test_option_plan",
@@ -772,23 +774,30 @@ def create_mcp_tools(ctx: ToolContext,
                 },
                 "option_plan": {
                     "type": "array",
-                    "description":
-                    "Ordered list of options to execute",
+                    "description": "Ordered list of options to execute",
                     "items": {
                         "type": "object",
                         "properties": {
                             "option_name": {
                                 "type": "string",
-                                "description": "Name of the ParameterizedOption"
+                                "description":
+                                "Name of the ParameterizedOption"
                             },
                             "object_names": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "Object names to ground the option on"
+                                "type":
+                                "array",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "description":
+                                "Object names to ground the option on"
                             },
                             "params": {
-                                "type": "array",
-                                "items": {"type": "number"},
+                                "type":
+                                "array",
+                                "items": {
+                                    "type": "number"
+                                },
                                 "description":
                                 "Continuous parameters (empty list if none)"
                             },
@@ -797,11 +806,13 @@ def create_mcp_tools(ctx: ToolContext,
                     },
                 },
                 "include_states": {
-                    "type": "boolean",
+                    "type":
+                    "boolean",
                     "description":
                     "Include the full low-level state feature dict after each "
                     "step",
-                    "default": False
+                    "default":
+                    False
                 },
                 "include_atoms": {
                     "type": "boolean",
@@ -827,9 +838,8 @@ def create_mcp_tools(ctx: ToolContext,
         include_atoms = args.get("include_atoms", True)
 
         if task_idx < 0 or task_idx >= len(ctx.train_tasks):
-            return _error_result(
-                f"Invalid task_idx {task_idx}. "
-                f"Available: 0-{len(ctx.train_tasks)-1}")
+            return _error_result(f"Invalid task_idx {task_idx}. "
+                                 f"Available: 0-{len(ctx.train_tasks)-1}")
 
         task = ctx.train_tasks[task_idx]
         opt_map = {o.name: o for o in ctx.options}
@@ -843,9 +853,8 @@ def create_mcp_tools(ctx: ToolContext,
             params = opt_spec["params"]
 
             if opt_name not in opt_map:
-                return _error_result(
-                    f"Unknown option '{opt_name}'. "
-                    f"Available: {sorted(opt_map.keys())}")
+                return _error_result(f"Unknown option '{opt_name}'. "
+                                     f"Available: {sorted(opt_map.keys())}")
 
             param_opt = opt_map[opt_name]
 
@@ -870,24 +879,21 @@ def create_mcp_tools(ctx: ToolContext,
             if not option.initiable(state):
                 atoms = utils.abstract(state, ctx.predicates)
                 atoms_str = ", ".join(str(a) for a in sorted(atoms))
-                lines.append(
-                    f"Step {step_idx}: {opt_name}({obj_names}) - "
-                    f"NOT INITIABLE\n"
-                    f"  Current atoms: {{{atoms_str}}}")
-                return _text_result(
-                    "\n".join(lines) +
-                    "\n\nPlan FAILED: option not initiable.")
+                lines.append(f"Step {step_idx}: {opt_name}({obj_names}) - "
+                             f"NOT INITIABLE\n"
+                             f"  Current atoms: {{{atoms_str}}}")
+                return _text_result("\n".join(lines) +
+                                    "\n\nPlan FAILED: option not initiable.")
 
             try:
                 next_state, num_actions = \
                     ctx.option_model.get_next_state_and_num_actions(
                         state, option)
             except Exception as e:
-                lines.append(
-                    f"Step {step_idx}: {opt_name}({obj_names}) - "
-                    f"EXECUTION ERROR: {e}")
-                return _text_result(
-                    "\n".join(lines) + "\n\nPlan FAILED: execution error.")
+                lines.append(f"Step {step_idx}: {opt_name}({obj_names}) - "
+                             f"EXECUTION ERROR: {e}")
+                return _text_result("\n".join(lines) +
+                                    "\n\nPlan FAILED: execution error.")
 
             step_line = (f"Step {step_idx}: {opt_name}({obj_names}) "
                          f"({num_actions} actions)")
@@ -944,5 +950,3 @@ def create_mcp_tools(ctx: ToolContext,
     if tool_names is None:
         return list(_all.values())
     return [_all[n] for n in tool_names if n in _all]
-
-

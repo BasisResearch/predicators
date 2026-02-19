@@ -56,8 +56,8 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         # Create unique run identifier for this execution
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        self._init_agent_session_state(
-            types, initial_predicates, initial_options, train_tasks)
+        self._init_agent_session_state(types, initial_predicates,
+                                       initial_options, train_tasks)
 
     @classmethod
     def get_name(cls) -> str:
@@ -88,12 +88,13 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
             "inspection tools and generate option plans to achieve goals. "
             "You have access to read-only tools to inspect predicates, "
             "options, trajectories, and training tasks. Use these to "
-            "understand the environment and generate effective plans."
-        )
+            "understand the environment and generate effective plans.")
 
     def _get_agent_tool_names(self) -> Optional[List[str]]:
-        return ["inspect_options", "inspect_trajectories",
-                "inspect_train_tasks", "test_option_plan"]
+        return [
+            "inspect_options", "inspect_trajectories", "inspect_train_tasks",
+            "test_option_plan"
+        ]
 
     # ------------------------------------------------------------------ #
     # Learning
@@ -114,11 +115,10 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
             task_idx = self._rng.choice(len(self._train_tasks))
             policy, termination_function = explorer.get_exploration_strategy(
                 task_idx, CFG.timeout)
-            req = InteractionRequest(
-                train_task_idx=task_idx,
-                act_policy=policy,
-                query_policy=lambda s: None,
-                termination_function=termination_function)
+            req = InteractionRequest(train_task_idx=task_idx,
+                                     act_policy=policy,
+                                     query_policy=lambda s: None,
+                                     termination_function=termination_function)
             requests.append(req)
             self._requests_train_task_idxs.append(task_idx)
         return requests
@@ -152,8 +152,7 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         try:
             option_plan = self._query_agent_for_option_plan(task)
         except Exception as e:
-            raise ApproachFailure(
-                f"Agent failed to produce option plan: {e}")
+            raise ApproachFailure(f"Agent failed to produce option plan: {e}")
 
         policy = utils.option_plan_to_policy(option_plan)
 
@@ -259,8 +258,10 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
         max_trajs = CFG.agent_sdk_max_trajectories_in_context
         recent = all_trajs[-max_trajs:]
-        lines = [f"\n## Trajectory Summary ({len(all_trajs)} total, "
-                 f"showing last {len(recent)})"]
+        lines = [
+            f"\n## Trajectory Summary ({len(all_trajs)} total, "
+            f"showing last {len(recent)})"
+        ]
 
         for i, traj in enumerate(recent):
             n_steps = len(traj.actions)
@@ -272,27 +273,30 @@ Output ONLY the option plan lines at the end, after any analysis."""
             lost_atoms = init_atoms - final_atoms
             lines.append(f"\nTrajectory {i}: {n_steps} steps")
             if new_atoms:
-                lines.append(f"  Gained: "
-                             f"{', '.join(str(a) for a in sorted(new_atoms, key=str))}")
+                lines.append(
+                    f"  Gained: "
+                    f"{', '.join(str(a) for a in sorted(new_atoms, key=str))}")
             if lost_atoms:
-                lines.append(f"  Lost: "
-                             f"{', '.join(str(a) for a in sorted(lost_atoms, key=str))}")
+                lines.append(
+                    f"  Lost: "
+                    f"{', '.join(str(a) for a in sorted(lost_atoms, key=str))}"
+                )
 
         return "\n".join(lines)
 
-    def _extract_option_plan_text(
-            self, responses: List[Dict[str, Any]]) -> str:
+    def _extract_option_plan_text(self, responses: List[Dict[str,
+                                                             Any]]) -> str:
         """Extract plan text from the last assistant text response.
 
-        Only uses the final assistant message to avoid including intermediate
-        reasoning/tool-call text that precedes the actual option plan.
+        Only uses the final assistant message to avoid including
+        intermediate reasoning/tool-call text that precedes the actual
+        option plan.
         """
         last_text_parts: List[str] = []
         for resp in responses:
             if resp.get("type") == "assistant":
                 parts = [
-                    block.get("text", "")
-                    for block in resp.get("content", [])
+                    block.get("text", "") for block in resp.get("content", [])
                     if isinstance(block, dict) and block.get("type") == "text"
                 ]
                 if parts:
@@ -303,7 +307,10 @@ Output ONLY the option plan lines at the end, after any analysis."""
         """Parse option plan text and ground into executable options."""
         objects = list(task.init)
         parsed = utils.parse_model_output_into_option_plan(
-            plan_text, objects, self._types, self._initial_options,
+            plan_text,
+            objects,
+            self._types,
+            self._initial_options,
             parse_continuous_params=True)
         if not parsed:
             raise ApproachFailure("Parsed empty option plan from agent.")
@@ -311,13 +318,14 @@ Output ONLY the option plan lines at the end, after any analysis."""
         grounded = []
         for option, objs, params in parsed:
             try:
-                params_arr = ([] if len(params) == 0
-                              else np.array(params, dtype=np.float32))
+                params_arr = ([] if len(params) == 0 else np.array(
+                    params, dtype=np.float32))
                 ground_opt = option.ground(objs, params_arr)
                 grounded.append(ground_opt)
             except Exception as e:
-                logging.warning(f"[Run {self._run_id}] Failed to ground option "
-                                f"{option.name}: {e}")
+                logging.warning(
+                    f"[Run {self._run_id}] Failed to ground option "
+                    f"{option.name}: {e}")
                 break
 
         if not grounded:
@@ -334,8 +342,8 @@ Output ONLY the option plan lines at the end, after any analysis."""
         """Create explorer for interaction requests."""
         if CFG.explorer == "agent":
             self._sync_tool_context()
-            return self._create_agent_explorer(
-                self._initial_predicates, self._initial_options)
+            return self._create_agent_explorer(self._initial_predicates,
+                                               self._initial_options)
         return create_explorer(
             CFG.explorer,
             self._initial_predicates,
@@ -370,14 +378,16 @@ Output ONLY the option plan lines at the end, after any analysis."""
         with open(f"{save_path}_{online_learning_cycle}.AgentPlanner",
                   "wb") as f:
             save_dict = {
-                "offline_dataset": self._offline_dataset,
-                "online_trajectories": self._online_trajectories,
-                "online_learning_cycle": self._online_learning_cycle,
-                "run_id": self._run_id,
-                "agent_session_id": (
-                    self._agent_session.session_id
-                    if self._agent_session else None
-                ),
+                "offline_dataset":
+                self._offline_dataset,
+                "online_trajectories":
+                self._online_trajectories,
+                "online_learning_cycle":
+                self._online_learning_cycle,
+                "run_id":
+                self._run_id,
+                "agent_session_id": (self._agent_session.session_id
+                                     if self._agent_session else None),
             }
             pkl.dump(save_dict, f)
             logging.info(f"[Run {self._run_id}] Saved approach to {save_path}_"

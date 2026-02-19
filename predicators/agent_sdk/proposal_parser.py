@@ -4,9 +4,9 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from predicators import utils
 from predicators.structs import CausalProcess, ParameterizedOption, \
     Predicate, State, Task, Type
-from predicators import utils
 
 
 @dataclass
@@ -31,7 +31,8 @@ def exec_code_safely(code: str, context: Dict[str, Any],
                      expected_var: str) -> Tuple[Any, Optional[str]]:
     """Execute code in the given context and return the expected variable.
 
-    Returns (result, None) on success, or (None, error_message) on failure.
+    Returns (result, None) on success, or (None, error_message) on
+    failure.
     """
     try:
         exec(code, context)  # pylint: disable=exec-used
@@ -53,10 +54,10 @@ def build_exec_context(types: Set[Type], predicates: Set[Predicate],
     import torch
     from gym.spaces import Box
 
-    from predicators.structs import CausalProcess, \
-        DerivedPredicate, EndogenousProcess, ExogenousProcess, GroundAtom, \
-        LiftedAtom, NSPredicate, Object, ParameterizedOption, Predicate, \
-        State, Task, Type, Variable
+    from predicators.structs import CausalProcess, DerivedPredicate, \
+        EndogenousProcess, ExogenousProcess, GroundAtom, LiftedAtom, \
+        NSPredicate, Object, ParameterizedOption, Predicate, State, Task, \
+        Type, Variable
     from predicators.utils import ConstantDelay, DiscreteGaussianDelay
 
     context: Dict[str, Any] = {}
@@ -86,7 +87,9 @@ def build_exec_context(types: Set[Type], predicates: Set[Predicate],
     context["DiscreteGaussianDelay"] = DiscreteGaussianDelay
 
     # Typing
-    from typing import List as ListT, Sequence, Set as SetT
+    from typing import List as ListT
+    from typing import Sequence
+    from typing import Set as SetT
     context["List"] = ListT
     context["Set"] = SetT
     context["Sequence"] = Sequence

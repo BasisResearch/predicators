@@ -11,7 +11,10 @@ from predicators.settings import CFG
 class AgentSessionManager:
     """Wraps ClaudeSDKClient for persistent sessions with custom MCP tools."""
 
-    def __init__(self, system_prompt: str, mcp_server: Any, log_dir: str,
+    def __init__(self,
+                 system_prompt: str,
+                 mcp_server: Any,
+                 log_dir: str,
                  model_name: str,
                  allowed_tools: Optional[List[str]] = None) -> None:
         self._system_prompt = system_prompt
@@ -36,8 +39,10 @@ class AgentSessionManager:
         if not self._allowed_tools:
             return []
         prefix = "mcp__predicator_tools__"
-        return [t[len(prefix):] if t.startswith(prefix) else t
-                for t in self._allowed_tools]
+        return [
+            t[len(prefix):] if t.startswith(prefix) else t
+            for t in self._allowed_tools
+        ]
 
     @session_id.setter
     def session_id(self, value: Optional[str]) -> None:
@@ -62,7 +67,7 @@ class AgentSessionManager:
         logging.info("Agent SDK session started.")
 
     def _save_query_response_log(self, query: str,
-                                  response: List[Dict[str, Any]]) -> None:
+                                 response: List[Dict[str, Any]]) -> None:
         """Save query and response to a timestamped JSON file."""
         if not CFG.log_file:
             return
@@ -103,24 +108,29 @@ class AgentSessionManager:
             await self._client.query(message)
             async for msg in self._client.receive_response():
                 if isinstance(msg, AssistantMessage):
-                    entry: Dict[str, Any] = {"type": "assistant", "content": []}
+                    entry: Dict[str, Any] = {
+                        "type": "assistant",
+                        "content": []
+                    }
                     for block in msg.content:
                         if isinstance(block, TextBlock):
                             entry["content"].append({
                                 "type": "text",
                                 "text": block.text
                             })
-                            logging.debug(
-                                f"Agent: {block.text[:200]}...")
+                            logging.debug(f"Agent: {block.text[:200]}...")
                         elif isinstance(block, ToolUseBlock):
                             entry["content"].append({
-                                "type": "tool_use",
-                                "id": getattr(block, "id", None),
-                                "name": block.name,
-                                "input": block.input,
+                                "type":
+                                "tool_use",
+                                "id":
+                                getattr(block, "id", None),
+                                "name":
+                                block.name,
+                                "input":
+                                block.input,
                             })
-                            logging.debug(
-                                f"Agent tool call: {block.name}")
+                            logging.debug(f"Agent tool call: {block.name}")
                     collected.append(entry)
                 elif isinstance(msg, UserMessage):
                     entry: Dict[str, Any] = {"type": "user", "content": []}
@@ -132,20 +142,24 @@ class AgentSessionManager:
                             })
                         elif isinstance(block, ToolResultBlock):
                             entry["content"].append({
-                                "type": "tool_result",
-                                "tool_use_id": getattr(block, "tool_use_id", None),
-                                "content": getattr(block, "content", None),
-                                "is_error": getattr(block, "is_error", False),
+                                "type":
+                                "tool_result",
+                                "tool_use_id":
+                                getattr(block, "tool_use_id", None),
+                                "content":
+                                getattr(block, "content", None),
+                                "is_error":
+                                getattr(block, "is_error", False),
                             })
                             logging.debug(
-                                f"Tool result: {getattr(block, 'tool_use_id', '?')}")
+                                f"Tool result: {getattr(block, 'tool_use_id', '?')}"
+                            )
                     collected.append(entry)
                 elif isinstance(msg, ResultMessage):
                     result_entry = {
                         "type": "result",
                         "num_turns": getattr(msg, "num_turns", None),
-                        "total_cost_usd": getattr(msg, "total_cost_usd",
-                                                  None),
+                        "total_cost_usd": getattr(msg, "total_cost_usd", None),
                     }
                     collected.append(result_entry)
                     if hasattr(msg, "total_cost_usd") and \
@@ -160,10 +174,7 @@ class AgentSessionManager:
                         f"Cost: ${getattr(msg, 'total_cost_usd', '?')}")
         except Exception as e:
             logging.error(f"Agent session error: {e}")
-            collected.append({
-                "type": "error",
-                "error": str(e)
-            })
+            collected.append({"type": "error", "error": str(e)})
             # Attempt recovery
             await self._recover_session(message)
 

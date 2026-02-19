@@ -95,12 +95,12 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             restricted_option_type = [robot_type]
             restricted_params_space = Box(0, 1, (0, ))
             PushRestricted = utils.LinearChainParameterizedOption(
-                "Push",
-                [
+                "Push", [
                     create_change_fingers_option(
                         pybullet_robot, "CloseFingers", restricted_option_type,
                         restricted_params_space, close_fingers_func,
-                        CFG.pybullet_max_vel_norm, PyBulletEnv.grasp_tol_small),
+                        CFG.pybullet_max_vel_norm,
+                        PyBulletEnv.grasp_tol_small),
                     cls._create_domino_move_to_push_start_block_option(
                         "MoveToAboveDomino",
                         lambda x, rot: x - np.sin(rot) * cls._offset_x,
@@ -131,7 +131,8 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                     create_change_fingers_option(
                         pybullet_robot, "OpenFingers", restricted_option_type,
                         restricted_params_space, open_fingers_func,
-                        CFG.pybullet_max_vel_norm, PyBulletEnv.grasp_tol_small),
+                        CFG.pybullet_max_vel_norm,
+                        PyBulletEnv.grasp_tol_small),
                 ])
             options.add(PushRestricted)
         else:
@@ -142,8 +143,9 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                 "Push",
                 [
                     create_change_fingers_option(
-                        pybullet_robot, "CloseFingers", option_type, params_space,
-                        close_fingers_func, CFG.pybullet_max_vel_norm,
+                        pybullet_robot, "CloseFingers", option_type,
+                        params_space, close_fingers_func,
+                        CFG.pybullet_max_vel_norm,
                         PyBulletEnv.grasp_tol_small),
                     cls._create_domino_move_to_push_domino_option(
                         "MoveToAboveDomino",
@@ -166,12 +168,13 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                     cls._create_domino_move_to_push_domino_option(
                         "BackUp", lambda _1, _2: cls.env_cls.robot_init_x,
                         lambda _1, _2: cls.env_cls.robot_init_y,
-                        lambda _: cls.env_cls.robot_init_z, "closed", option_type,
-                        params_space),
-                    create_change_fingers_option(
-                        pybullet_robot, "OpenFingers", option_type, params_space,
-                        open_fingers_func, CFG.pybullet_max_vel_norm,
-                        PyBulletEnv.grasp_tol_small),
+                        lambda _: cls.env_cls.robot_init_z, "closed",
+                        option_type, params_space),
+                    create_change_fingers_option(pybullet_robot, "OpenFingers",
+                                                 option_type, params_space,
+                                                 open_fingers_func,
+                                                 CFG.pybullet_max_vel_norm,
+                                                 PyBulletEnv.grasp_tol_small),
                     # cls._create_domino_move_to_push_domino_option(
                     #     "MoveToBehindDomino",
                     #     lambda _: cls.env_cls.start_domino_x - cls._offset_x,
@@ -219,7 +222,6 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
         ])
         options.add(Pick)
 
-
         # Choose between discrete (Place) or continuous (PlaceContinuous) based on CFG
         if CFG.domino_use_continuous_place:
             # PlaceContinuous - continuous parameters version
@@ -228,46 +230,52 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             place_continuous_params_space = Box(
                 low=np.array([cls.env_cls.x_lb, cls.env_cls.y_lb, -np.pi]),
                 high=np.array([cls.env_cls.x_ub, cls.env_cls.y_ub, np.pi]),
-                shape=(3,),
-                dtype=np.float32
-            )
+                shape=(3, ),
+                dtype=np.float32)
 
-            Place = utils.LinearChainParameterizedOption("Place", [
-                cls._create_domino_place_continuous_option(
-                    "MoveToAbovePlacement", lambda _: cls._transport_z, "closed",
-                    place_continuous_option_types, place_continuous_params_space),
-                cls._create_domino_place_continuous_option(
-                    "MoveToPlacement", lambda _: cls._place_drop_z, "closed",
-                    place_continuous_option_types, place_continuous_params_space),
-                create_change_fingers_option(
-                    pybullet_robot, "OpenFingers", place_continuous_option_types,
-                    place_continuous_params_space, open_fingers_func,
-                    CFG.pybullet_max_vel_norm, PyBulletEnv.grasp_tol),
-                cls._create_domino_place_continuous_option(
-                    "MoveAwayFromPlacement", lambda _: cls._transport_z, "open",
-                    place_continuous_option_types, place_continuous_params_space),
-            ])
+            Place = utils.LinearChainParameterizedOption(
+                "Place", [
+                    cls._create_domino_place_continuous_option(
+                        "MoveToAbovePlacement", lambda _: cls._transport_z,
+                        "closed", place_continuous_option_types,
+                        place_continuous_params_space),
+                    cls._create_domino_place_continuous_option(
+                        "MoveToPlacement", lambda _: cls._place_drop_z,
+                        "closed", place_continuous_option_types,
+                        place_continuous_params_space),
+                    create_change_fingers_option(
+                        pybullet_robot, "OpenFingers",
+                        place_continuous_option_types,
+                        place_continuous_params_space, open_fingers_func,
+                        CFG.pybullet_max_vel_norm, PyBulletEnv.grasp_tol),
+                    cls._create_domino_place_continuous_option(
+                        "MoveAwayFromPlacement", lambda _: cls._transport_z,
+                        "open", place_continuous_option_types,
+                        place_continuous_params_space),
+                ])
         else:
             # Place - discrete version with object parameters
             place_option_types = [
-                robot_type, domino_type, domino_type, position_type, rotation_type
+                robot_type, domino_type, domino_type, position_type,
+                rotation_type
             ]
             place_params_space = Box(0, 1, (0, ))
-            Place = utils.LinearChainParameterizedOption("Place", [
-                cls._create_domino_place_option(
-                    "MoveToAbovePlacement", lambda _: cls._transport_z, "closed",
-                    place_option_types, place_params_space),
-                cls._create_domino_place_option(
-                    "MoveToPlacement", lambda _: cls._place_drop_z, "closed",
-                    place_option_types, place_params_space),
-                create_change_fingers_option(
-                    pybullet_robot, "OpenFingers", place_option_types,
-                    place_params_space, open_fingers_func,
-                    CFG.pybullet_max_vel_norm, PyBulletEnv.grasp_tol),
-                cls._create_domino_place_option(
-                    "MoveAwayFromPlacement", lambda _: cls._transport_z, "open",
-                    place_option_types, place_params_space),
-            ])
+            Place = utils.LinearChainParameterizedOption(
+                "Place", [
+                    cls._create_domino_place_option(
+                        "MoveToAbovePlacement", lambda _: cls._transport_z,
+                        "closed", place_option_types, place_params_space),
+                    cls._create_domino_place_option(
+                        "MoveToPlacement", lambda _: cls._place_drop_z,
+                        "closed", place_option_types, place_params_space),
+                    create_change_fingers_option(
+                        pybullet_robot, "OpenFingers", place_option_types,
+                        place_params_space, open_fingers_func,
+                        CFG.pybullet_max_vel_norm, PyBulletEnv.grasp_tol),
+                    cls._create_domino_place_option(
+                        "MoveAwayFromPlacement", lambda _: cls._transport_z,
+                        "open", place_option_types, place_params_space),
+                ])
         options.add(Place)
 
         # NoOp
@@ -618,10 +626,12 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             cls, name: str, z_func: Callable[[float], float],
             finger_status: str, option_types: List[Type],
             params_space: Box) -> ParameterizedOption:
-        """Create a move-to-pose option for placing dominoes with continuous parameters.
+        """Create a move-to-pose option for placing dominoes with continuous
+        parameters.
 
-        This version accepts continuous parameters [x, y, rotation_radians] instead of
-        using position and rotation objects.
+        This version accepts continuous parameters [x, y,
+        rotation_radians] instead of using position and rotation
+        objects.
         """
 
         def _get_current_and_target_pose_and_finger_status(

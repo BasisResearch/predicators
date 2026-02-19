@@ -19,8 +19,7 @@ import numpy as np
 from predicators import utils
 from predicators.agent_sdk.tools import create_mcp_tools
 from predicators.approaches import ApproachFailure
-from predicators.approaches.agent_planner_approach import \
-    AgentPlannerApproach
+from predicators.approaches.agent_planner_approach import AgentPlannerApproach
 from predicators.settings import CFG
 from predicators.structs import Action, State, Task, _Option
 
@@ -28,8 +27,8 @@ from predicators.structs import Action, State, Task, _Option
 class AgentClosedLoopApproach(AgentPlannerApproach):
     """Closed-loop planning via Claude Agent SDK.
 
-    At each option boundary, queries the agent for the next single option
-    based on the current state, goal, and execution history.
+    At each option boundary, queries the agent for the next single
+    option based on the current state, goal, and execution history.
     """
 
     @classmethod
@@ -39,8 +38,10 @@ class AgentClosedLoopApproach(AgentPlannerApproach):
     def _create_agent_mcp_tools(self) -> list:
         return create_mcp_tools(
             self._tool_context,
-            tool_names=["inspect_options", "inspect_trajectories",
-                        "inspect_train_tasks"],
+            tool_names=[
+                "inspect_options", "inspect_trajectories",
+                "inspect_train_tasks"
+            ],
         )
 
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
@@ -152,7 +153,10 @@ Output ONLY the single option line at the end, after any analysis."""
 
         objects = list(task.init)
         parsed = utils.parse_model_output_into_option_plan(
-            text, objects, self._types, self._initial_options,
+            text,
+            objects,
+            self._types,
+            self._initial_options,
             parse_continuous_params=True)
 
         if not parsed:
@@ -162,8 +166,8 @@ Output ONLY the single option line at the end, after any analysis."""
         # Take the last parsed option (agent may include analysis before it)
         option, objs, params = parsed[-1]
         try:
-            params_arr = ([] if len(params) == 0
-                          else np.array(params, dtype=np.float32))
+            params_arr = ([] if len(params) == 0 else np.array(
+                params, dtype=np.float32))
             ground_opt = option.ground(objs, params_arr)
         except Exception as e:
             raise ApproachFailure(

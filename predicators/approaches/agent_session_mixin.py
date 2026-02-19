@@ -64,7 +64,10 @@ class AgentSessionMixin:
         raise NotImplementedError
 
     def _get_agent_tool_names(self) -> Optional[List[str]]:
-        """Return tool name filter. None means all tools; override to subset."""
+        """Return tool name filter.
+
+        None means all tools; override to subset.
+        """
         return None
 
     # ------------------------------------------------------------------ #

@@ -6,13 +6,11 @@ a model-free agent that can access files safely.
 import os
 from typing import Any, List, Optional
 
-from predicators.agent_sdk.secure_file_access import (
-    FileAccessValidator,
-    create_secure_file_tools,
-    create_validator_for_predicators_workspace,
-)
+from predicators.agent_sdk.secure_file_access import FileAccessValidator, \
+    create_secure_file_tools, create_validator_for_predicators_workspace
 from predicators.agent_sdk.session_manager import AgentSessionManager
-from predicators.agent_sdk.tools import ToolContext, create_inspection_only_mcp_tools
+from predicators.agent_sdk.tools import ToolContext, \
+    create_inspection_only_mcp_tools
 from predicators.settings import CFG
 
 
@@ -54,34 +52,33 @@ def create_agent_with_secure_file_access(
     if allow_file_access:
         # Get workspace root
         workspace_root = os.getenv("PREDICATORS_ROOT", os.getcwd())
-        
+
         # Create validator with security restrictions
         validator = create_validator_for_predicators_workspace(
             workspace_root=workspace_root,
             restrict_to_results=restrict_to_results,
         )
-        
+
         # Add custom blocked patterns if needed
         # validator.add_blocked_pattern(r"my_secret_file\.txt$")
-        
+
         # Create secure file tools
         file_tools = create_secure_file_tools(validator)
         tools.extend(file_tools)
-        
+
         # Add to allowed tools
         allowed_tools.extend([
             f"{tool_prefix}secure_read_file",
             f"{tool_prefix}secure_list_directory",
             f"{tool_prefix}secure_write_file",
         ])
-        
+
         # Update system prompt to inform agent of restrictions
         system_prompt += (
             "\n\nYou have access to secure file operations. "
             "File access is restricted to specific directories and "
             "sensitive files (like .env, credentials, secrets) are blocked. "
-            f"Workspace root: {workspace_root}"
-        )
+            f"Workspace root: {workspace_root}")
 
     # Create MCP server with tools
     mcp_server = create_sdk_mcp_server(

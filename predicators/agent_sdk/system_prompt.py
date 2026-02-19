@@ -123,13 +123,19 @@ Pay attention to:
 """
 
 
-def build_iteration_message(cycle: int, num_new_trajs: int,
-                            num_total_trajs: int, task_success_rate: float,
+def build_iteration_message(cycle: int,
+                            num_new_trajs: int,
+                            num_total_trajs: int,
+                            task_success_rate: float,
                             type_names_with_features: str,
-                            predicate_signatures: str, num_predicates: int,
-                            process_summaries: str, num_processes: int,
-                            option_names: str, num_options: int,
-                            planning_success: str, avg_nodes: str,
+                            predicate_signatures: str,
+                            num_predicates: int,
+                            process_summaries: str,
+                            num_processes: int,
+                            option_names: str,
+                            num_options: int,
+                            planning_success: str,
+                            avg_nodes: str,
                             failure_summaries: str,
                             previous_iteration_outcomes: str,
                             available_tools: list = None) -> str:
