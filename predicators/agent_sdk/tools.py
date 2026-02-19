@@ -23,10 +23,14 @@ PROPOSAL_TOOL_NAMES = [
     "propose_types", "propose_predicates", "propose_object_augmentor",
     "propose_processes", "propose_options",
 ]
+RETRACTION_TOOL_NAMES = [
+    "retract_abstractions",
+]
 TESTING_TOOL_NAMES = [
     "test_predicate_on_states", "test_planning", "test_option_plan",
 ]
-ALL_TOOL_NAMES = INSPECTION_TOOL_NAMES + PROPOSAL_TOOL_NAMES + TESTING_TOOL_NAMES
+ALL_TOOL_NAMES = (INSPECTION_TOOL_NAMES + PROPOSAL_TOOL_NAMES +
+                  RETRACTION_TOOL_NAMES + TESTING_TOOL_NAMES)
 
 
 def get_allowed_tool_list(
@@ -520,6 +524,108 @@ def create_mcp_tools(ctx: ToolContext,
         return _text_result(
             f"Successfully proposed {len(proposed)} options: {names}")
 
+    # ===== RETRACTION TOOLS =====
+
+    @tool(
+        "retract_abstractions",
+        "Remove previously proposed abstractions that are no longer needed. "
+        "Specify names of predicates, processes, options, or helper types to "
+        "remove, and/or set clear_object_augmentor to remove the augmentor.",
+        {
+            "type": "object",
+            "properties": {
+                "predicate_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Names of predicates to remove",
+                },
+                "process_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Names of processes to remove",
+                },
+                "option_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Names of options to remove",
+                },
+                "type_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Names of helper types to remove",
+                },
+                "clear_object_augmentor": {
+                    "type": "boolean",
+                    "description": "Set to true to remove the object augmentor",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Why these abstractions are being removed",
+                },
+            },
+            "required": ["reason"],
+        },
+    )
+    async def retract_abstractions(args: Dict[str, Any]) -> Dict[str, Any]:
+        pred_names = set(args.get("predicate_names") or [])
+        proc_names = set(args.get("process_names") or [])
+        opt_names = set(args.get("option_names") or [])
+        type_names = set(args.get("type_names") or [])
+        clear_augmentor = bool(args.get("clear_object_augmentor", False))
+
+        if not any([pred_names, proc_names, opt_names, type_names,
+                    clear_augmentor]):
+            return _text_result("Nothing to retract.")
+
+        lines = [f"Retracting abstractions. Reason: {args['reason']}"]
+
+        if pred_names:
+            existing = {p.name for p in ctx.predicates}
+            unknown = pred_names - existing
+            valid = pred_names & existing
+            ctx.iteration_proposals.retract_predicate_names |= valid
+            lines.append(f"Predicates to retract: {sorted(valid)}")
+            if unknown:
+                lines.append(
+                    f"  (unknown, ignored: {sorted(unknown)})")
+
+        if proc_names:
+            existing = {p.name for p in ctx.processes}
+            unknown = proc_names - existing
+            valid = proc_names & existing
+            ctx.iteration_proposals.retract_process_names |= valid
+            lines.append(f"Processes to retract: {sorted(valid)}")
+            if unknown:
+                lines.append(
+                    f"  (unknown, ignored: {sorted(unknown)})")
+
+        if opt_names:
+            existing = {o.name for o in ctx.options}
+            unknown = opt_names - existing
+            valid = opt_names & existing
+            ctx.iteration_proposals.retract_option_names |= valid
+            lines.append(f"Options to retract: {sorted(valid)}")
+            if unknown:
+                lines.append(
+                    f"  (unknown, ignored: {sorted(unknown)})")
+
+        if type_names:
+            existing = {t.name for t in ctx.types}
+            unknown = type_names - existing
+            valid = type_names & existing
+            ctx.iteration_proposals.retract_type_names |= valid
+            lines.append(f"Helper types to retract: {sorted(valid)}")
+            if unknown:
+                lines.append(
+                    f"  (unknown, ignored: {sorted(unknown)})")
+
+        if clear_augmentor:
+            ctx.iteration_proposals.retract_object_augmentor = True
+            lines.append("Object augmentor will be cleared.")
+
+        logging.info(f"Agent retraction request: {args}")
+        return _text_result("\n".join(lines))
+
     # ===== TESTING TOOLS =====
 
     @tool(
@@ -830,6 +936,7 @@ def create_mcp_tools(ctx: ToolContext,
         "propose_object_augmentor": propose_object_augmentor,
         "propose_processes": propose_processes,
         "propose_options": propose_options,
+        "retract_abstractions": retract_abstractions,
         "test_predicate_on_states": test_predicate_on_states,
         "test_planning": test_planning,
         "test_option_plan": test_option_plan,

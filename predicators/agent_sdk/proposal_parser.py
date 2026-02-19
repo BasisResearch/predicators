@@ -19,6 +19,12 @@ class ProposalBundle:
     proposed_processes: Set[CausalProcess] = field(default_factory=set)
     proposed_options: Set[ParameterizedOption] = field(default_factory=set)
     errors: List[str] = field(default_factory=list)
+    # Retractions: names of previously-proposed abstractions to remove
+    retract_type_names: Set[str] = field(default_factory=set)
+    retract_predicate_names: Set[str] = field(default_factory=set)
+    retract_object_augmentor: bool = False
+    retract_process_names: Set[str] = field(default_factory=set)
+    retract_option_names: Set[str] = field(default_factory=set)
 
 
 def exec_code_safely(code: str, context: Dict[str, Any],

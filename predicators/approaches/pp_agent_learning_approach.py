@@ -23,7 +23,7 @@ from predicators.approaches.pp_online_process_learning_approach import \
 from predicators.approaches.pp_predicate_invention_approach import \
     PredicateInventionProcessPlanningApproach
 from predicators.explorers.base_explorer import BaseExplorer
-from predicators.option_model import _OptionModelBase
+from predicators.option_model import _OptionModelBase, create_option_model
 from predicators.settings import CFG
 from predicators.structs import Action, CausalProcess, Dataset, \
     EndogenousProcess, InteractionResult, LowLevelTrajectory, \
@@ -62,6 +62,7 @@ class OnlineAgentProcessPlanningApproach(
         self._agent_proposed_processes: Set[CausalProcess] = set()
         self._iteration_history: List[Dict[str, Any]] = []
         self._planning_results: Dict[str, Any] = {}
+        self._option_model = create_option_model(CFG.option_model_name)
 
         self._init_agent_session_state(
             types, initial_predicates, initial_options, train_tasks)
@@ -253,10 +254,8 @@ class OnlineAgentProcessPlanningApproach(
             logging.info("Integrated new task augmentor")
 
         # Processes (agent-proposed, not data-driven)
+        if proposals.proposed_processes:
             self._agent_proposed_processes |= proposals.proposed_processes
-            # Also update self._processes to reflect that we're using agent
-            # proposals instead of learned processes
-            # Cast to the parent's expected type (Set[CausalProcess])
             self._processes = set(self._agent_proposed_processes)  # type: ignore
             logging.info(f"Integrated {len(proposals.proposed_processes)} "
                          f"new processes (total: {len(self._processes)})")
@@ -266,6 +265,50 @@ class OnlineAgentProcessPlanningApproach(
             self._agent_proposed_options |= proposals.proposed_options
             logging.info(f"Integrated {len(proposals.proposed_options)} "
                          f"new options")
+
+        # Retractions
+        if proposals.retract_type_names:
+            removed = {t for t in self._helper_types
+                       if t.name in proposals.retract_type_names}
+            self._helper_types -= removed
+            self._types -= removed
+            logging.info(f"Retracted {len(removed)} helper types: "
+                         f"{[t.name for t in removed]}")
+
+        if proposals.retract_predicate_names:
+            before = len(self._learned_predicates)
+            self._learned_predicates = {
+                p for p in self._learned_predicates
+                if p.name not in proposals.retract_predicate_names
+            }
+            logging.info(f"Retracted "
+                         f"{before - len(self._learned_predicates)} predicates")
+
+        if proposals.retract_object_augmentor:
+            self._augment_task_fn = None
+            self._augment_task_code = ""
+            logging.info("Retracted object augmentor")
+
+        if proposals.retract_process_names:
+            before = len(self._agent_proposed_processes)
+            self._agent_proposed_processes = {
+                p for p in self._agent_proposed_processes
+                if p.name not in proposals.retract_process_names
+            }
+            self._processes = set(self._agent_proposed_processes)  # type: ignore
+            logging.info(f"Retracted "
+                         f"{before - len(self._agent_proposed_processes)} "
+                         f"processes")
+
+        if proposals.retract_option_names:
+            before = len(self._agent_proposed_options)
+            self._agent_proposed_options = {
+                o for o in self._agent_proposed_options
+                if o.name not in proposals.retract_option_names
+            }
+            logging.info(f"Retracted "
+                         f"{before - len(self._agent_proposed_options)} "
+                         f"options")
 
     def _get_current_processes(self) -> Set[CausalProcess]:
         """Get current processes including agent-proposed ones."""
@@ -334,6 +377,11 @@ class OnlineAgentProcessPlanningApproach(
             "proposed_options": [
                 o.name for o in proposals.proposed_options
             ],
+            "retracted_types": sorted(proposals.retract_type_names),
+            "retracted_predicates": sorted(proposals.retract_predicate_names),
+            "retracted_augmentor": proposals.retract_object_augmentor,
+            "retracted_processes": sorted(proposals.retract_process_names),
+            "retracted_options": sorted(proposals.retract_option_names),
             "errors": proposals.errors,
             "total_predicates": len(self._get_current_predicates()),
             "total_processes": len(self._get_current_processes()),
@@ -380,6 +428,25 @@ class OnlineAgentProcessPlanningApproach(
                                    "processes_code.json"), "w") as f:
                 json.dump([p.name for p in proposals.proposed_processes], f,
                           indent=2)
+
+        any_retractions = any([
+            proposals.retract_type_names, proposals.retract_predicate_names,
+            proposals.retract_object_augmentor, proposals.retract_process_names,
+            proposals.retract_option_names,
+        ])
+        if any_retractions:
+            with open(os.path.join(proposals_dir, "retractions.json"),
+                      "w") as f:
+                json.dump(
+                    {
+                        "types": sorted(proposals.retract_type_names),
+                        "predicates": sorted(proposals.retract_predicate_names),
+                        "augmentor": proposals.retract_object_augmentor,
+                        "processes": sorted(proposals.retract_process_names),
+                        "options": sorted(proposals.retract_option_names),
+                    },
+                    f,
+                    indent=2)
 
         # Session info
         if self._agent_session is not None:
