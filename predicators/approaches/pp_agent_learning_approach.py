@@ -221,6 +221,8 @@ class OnlineAgentProcessPlanningApproach(
             avg_nodes=avg_nodes,
             failure_summaries=failures,
             previous_iteration_outcomes=prev_outcomes,
+            available_tools=self._agent_session.tool_names
+            if self._agent_session else None,
         )
 
         # Save the context message

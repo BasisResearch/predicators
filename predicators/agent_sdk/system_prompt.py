@@ -131,8 +131,14 @@ def build_iteration_message(cycle: int, num_new_trajs: int,
                             option_names: str, num_options: int,
                             planning_success: str, avg_nodes: str,
                             failure_summaries: str,
-                            previous_iteration_outcomes: str) -> str:
+                            previous_iteration_outcomes: str,
+                            available_tools: list = None) -> str:
     """Build the message sent to the agent at each iteration."""
+    tools_section = ""
+    if available_tools:
+        tool_list = "\n".join(f"  - {t}" for t in available_tools)
+        tools_section = f"\nAVAILABLE TOOLS:\n{tool_list}\n"
+
     return f"""\
 == Online Learning Iteration {cycle} ==
 
@@ -154,7 +160,7 @@ PLANNING PERFORMANCE:
 
 PREVIOUS ITERATION OUTCOMES:
 {previous_iteration_outcomes}
-
+{tools_section}
 YOUR TASK:
 Inspect the trajectory data and planning results. Propose new or improved \
 abstractions that will help the planner solve more tasks. Use the proposal \

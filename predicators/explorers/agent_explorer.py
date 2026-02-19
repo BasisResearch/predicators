@@ -114,6 +114,13 @@ class AgentExplorer(BaseExplorer):
                 f"Avg nodes expanded: {pr.get('avg_nodes_expanded', 'N/A')}\n"
                 f"Failures: {pr.get('failure_summaries', 'None')}\n")
 
+        # Available tools
+        tools_str = ""
+        if self._agent_session.tool_names:
+            tool_list = "\n".join(
+                f"  - {t}" for t in self._agent_session.tool_names)
+            tools_str = f"\n## Available Tools\n{tool_list}\n"
+
         prompt = f"""You are exploring a task environment. Generate an option plan to explore task {train_task_idx}.
 
 ## Goal
@@ -127,14 +134,16 @@ class AgentExplorer(BaseExplorer):
 
 ## Available Options
 {chr(10).join(option_strs)}
-{traj_summary}{planning_info}
+{traj_summary}{planning_info}{tools_str}
 ## Instructions
+Use your available tools to inspect the environment and test your plan before committing to it.
+
 Output an option plan, one option per line, in this exact format:
 OptionName(obj1:type1, obj2:type2)[param1, param2]
 
 If an option has no continuous parameters, use empty brackets: OptionName(obj1:type1)[]
 
-Output ONLY the option plan lines, no other text."""
+Output ONLY the option plan lines at the end, after any analysis."""
 
         return prompt
 
@@ -181,18 +190,22 @@ Output ONLY the option plan lines, no other text."""
 
     def _extract_option_plan_text(self,
                                   responses: List[Dict[str, Any]]) -> str:
-        """Extract plan text from agent responses."""
-        text_parts = []
+        """Extract plan text from the last assistant text response.
+
+        Only uses the final assistant message to avoid including intermediate
+        reasoning/tool-call text that precedes the actual option plan.
+        """
+        last_text_parts: List[str] = []
         for resp in responses:
-            if resp.get("type") == "text":
-                text_parts.append(resp.get("text", ""))
-            elif "content" in resp:
-                for block in resp.get("content", []):
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        text_parts.append(block.get("text", ""))
-                    elif isinstance(block, str):
-                        text_parts.append(block)
-        return "\n".join(text_parts)
+            if resp.get("type") == "assistant":
+                parts = [
+                    block.get("text", "")
+                    for block in resp.get("content", [])
+                    if isinstance(block, dict) and block.get("type") == "text"
+                ]
+                if parts:
+                    last_text_parts = parts
+        return "\n".join(last_text_parts)
 
     def _parse_and_ground_plan(self, plan_text: str, task: Task) -> list:
         """Parse option plan text and ground into executable options."""

@@ -30,6 +30,15 @@ class AgentSessionManager:
     def session_id(self) -> Optional[str]:
         return self._session_id
 
+    @property
+    def tool_names(self) -> List[str]:
+        """Return short tool names (without MCP prefix)."""
+        if not self._allowed_tools:
+            return []
+        prefix = "mcp__predicator_tools__"
+        return [t[len(prefix):] if t.startswith(prefix) else t
+                for t in self._allowed_tools]
+
     @session_id.setter
     def session_id(self, value: Optional[str]) -> None:
         self._session_id = value

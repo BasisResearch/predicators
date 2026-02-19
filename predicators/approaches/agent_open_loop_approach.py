@@ -213,6 +213,13 @@ class AgentOpenLoopApproach(AgentSessionMixin, BaseApproach):
         # State features (compact)
         state_str = init_state.dict_str(indent=2)
 
+        # Available tools
+        tool_names = self._get_agent_tool_names()
+        tools_str = ""
+        if tool_names:
+            tool_list = "\n".join(f"  - {t}" for t in tool_names)
+            tools_str = f"\n## Available Tools\n{tool_list}\n"
+
         prompt = f"""You are solving a task. Generate an option plan to achieve the goal.
 
 ## Goal
@@ -229,9 +236,9 @@ class AgentOpenLoopApproach(AgentSessionMixin, BaseApproach):
 
 ## Available Options
 {chr(10).join(option_strs)}
-{traj_summary}
+{traj_summary}{tools_str}
 ## Instructions
-You can use the inspect tools to examine predicates, options, and past trajectories in more detail.
+Use your available tools to inspect the environment and test your plan before committing to it.
 
 Based on the task information and any past trajectory data, output an option plan to achieve the goal.
 Output the plan with one option per line in this exact format:
