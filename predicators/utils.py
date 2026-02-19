@@ -2765,11 +2765,15 @@ def parse_model_output_into_option_plan(
             continue
         if option_name not in option_name_to_option.keys() or \
             "(" not in option_str:
-            logging.info(
-                f"Line {option_str} output by model doesn't "
-                "contain a valid option name. Terminating option plan "
-                "parsing.")
-            break
+            if option_plan:
+                # Already found some options; stop on first non-option line.
+                logging.info(
+                    f"Line {option_str} output by model doesn't "
+                    "contain a valid option name. Terminating option plan "
+                    "parsing.")
+                break
+            # Skip preamble lines (analysis text before the plan starts).
+            continue
         if parse_continuous_params and "[" not in option_str:
             logging.info(
                 f"Line {option_str} output by model doesn't contain a "

@@ -275,19 +275,22 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
     def _extract_option_plan_text(
             self, responses: List[Dict[str, Any]]) -> str:
-        """Extract plan text from agent responses."""
-        text_parts = []
+        """Extract plan text from the last assistant text response.
+
+        Only uses the final assistant message to avoid including intermediate
+        reasoning/tool-call text that precedes the actual option plan.
+        """
+        last_text_parts: List[str] = []
         for resp in responses:
-            if resp.get("type") == "text":
-                text_parts.append(resp.get("text", ""))
-            elif "content" in resp:
-                for block in resp.get("content", []):
-                    if isinstance(block, dict) and \
-                            block.get("type") == "text":
-                        text_parts.append(block.get("text", ""))
-                    elif isinstance(block, str):
-                        text_parts.append(block)
-        return "\n".join(text_parts)
+            if resp.get("type") == "assistant":
+                parts = [
+                    block.get("text", "")
+                    for block in resp.get("content", [])
+                    if isinstance(block, dict) and block.get("type") == "text"
+                ]
+                if parts:
+                    last_text_parts = parts
+        return "\n".join(last_text_parts)
 
     def _parse_and_ground_plan(self, plan_text: str, task: Task) -> list:
         """Parse option plan text and ground into executable options."""
