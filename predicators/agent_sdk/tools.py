@@ -39,8 +39,13 @@ TESTING_TOOL_NAMES = [
     "test_planning",
     "test_option_plan",
 ]
+PLANNING_TOOL_NAMES = [
+    "generate_bilevel_plan",
+    "generate_abstract_plan",
+]
 ALL_TOOL_NAMES = (INSPECTION_TOOL_NAMES + PROPOSAL_TOOL_NAMES +
-                  RETRACTION_TOOL_NAMES + TESTING_TOOL_NAMES)
+                  RETRACTION_TOOL_NAMES + TESTING_TOOL_NAMES +
+                  PLANNING_TOOL_NAMES)
 
 
 def get_allowed_tool_list(tool_names: Optional[List[str]] = None) -> List[str]:
@@ -69,6 +74,7 @@ class ToolContext:
     online_trajectories: List[LowLevelTrajectory] = field(default_factory=list)
     example_state: Optional[State] = None
     option_model: Optional[_OptionModelBase] = None
+    current_task: Optional[Task] = None
     iteration_proposals: ProposalBundle = field(default_factory=ProposalBundle)
     planning_results: Dict[str, Any] = field(default_factory=dict)
     iteration_history: List[Dict[str, Any]] = field(default_factory=list)
@@ -769,8 +775,11 @@ def create_mcp_tools(ctx: ToolContext,
             "type": "object",
             "properties": {
                 "task_idx": {
-                    "type": "integer",
-                    "description": "Task index to test on"
+                    "type":
+                    "integer",
+                    "description":
+                    "Train task index to test on. Omit to use "
+                    "the current solve-time task (if available)."
                 },
                 "option_plan": {
                     "type": "array",
@@ -821,7 +830,7 @@ def create_mcp_tools(ctx: ToolContext,
                     "default": True
                 },
             },
-            "required": ["task_idx", "option_plan"],
+            "required": ["option_plan"],
         },
     )
     async def test_option_plan(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -832,16 +841,22 @@ def create_mcp_tools(ctx: ToolContext,
         if ctx.option_model is None:
             return _error_result("No option model available in ToolContext.")
 
-        task_idx = args["task_idx"]
+        task_idx = args.get("task_idx")
         option_plan_spec = args["option_plan"]
         include_states = args.get("include_states", False)
         include_atoms = args.get("include_atoms", True)
 
-        if task_idx < 0 or task_idx >= len(ctx.train_tasks):
-            return _error_result(f"Invalid task_idx {task_idx}. "
-                                 f"Available: 0-{len(ctx.train_tasks)-1}")
-
-        task = ctx.train_tasks[task_idx]
+        if task_idx is not None:
+            if task_idx < 0 or task_idx >= len(ctx.train_tasks):
+                return _error_result(f"Invalid task_idx {task_idx}. "
+                                     f"Available: 0-{len(ctx.train_tasks)-1}")
+            task = ctx.train_tasks[task_idx]
+        elif ctx.current_task is not None:
+            task = ctx.current_task
+            task_idx = "current"
+        else:
+            return _error_result(
+                "No task_idx provided and no current_task set.")
         opt_map = {o.name: o for o in ctx.options}
 
         state = task.init
@@ -928,6 +943,246 @@ def create_mcp_tools(ctx: ToolContext,
         lines.append(f"Goal achieved: {goal_achieved}")
         return _text_result("\n".join(lines))
 
+    # ===== PLANNING TOOLS =====
+
+    @tool(
+        "generate_bilevel_plan",
+        "Generate a concrete option plan using the bilevel planner. Returns "
+        "grounded options with sampled continuous parameters, simulated "
+        "step-by-step via the option model.",
+        {
+            "type": "object",
+            "properties": {
+                "task_idx": {
+                    "type":
+                    "integer",
+                    "description":
+                    "Train task index. Omit to use the current "
+                    "solve-time task (if available)."
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Planning timeout in seconds",
+                    "default": 30
+                },
+            },
+        },
+    )
+    async def generate_bilevel_plan(args: Dict[str, Any]) -> Dict[str, Any]:
+        import numpy as np
+
+        from predicators import utils
+        from predicators.approaches import ApproachFailure, ApproachTimeout
+        from predicators.planning_with_processes import \
+            run_task_plan_with_processes_once
+
+        task_idx = args.get("task_idx")
+        timeout = args.get("timeout", 30)
+
+        # Resolve task
+        if task_idx is not None:
+            if task_idx < 0 or task_idx >= len(ctx.train_tasks):
+                return _error_result(f"Invalid task_idx {task_idx}. "
+                                     f"Available: 0-{len(ctx.train_tasks)-1}")
+            task = ctx.train_tasks[task_idx]
+            task_label = f"train task {task_idx}"
+        elif ctx.current_task is not None:
+            task = ctx.current_task
+            task_label = "current task"
+        else:
+            return _error_result(
+                "No task_idx provided and no current_task set.")
+
+        all_preds = ctx.predicates | ctx.iteration_proposals.proposed_predicates
+        all_procs = ctx.processes | ctx.iteration_proposals.proposed_processes
+        all_types = ctx.types | ctx.iteration_proposals.proposed_types
+
+        # Get abstract plan
+        try:
+            plan, atoms_seq, metrics = run_task_plan_with_processes_once(
+                task,
+                all_procs,
+                all_preds,
+                all_types,
+                timeout,
+                seed=CFG.seed,
+                task_planning_heuristic=CFG.process_task_planning_heuristic,
+                max_horizon=float(CFG.horizon))
+        except (ApproachFailure, ApproachTimeout, Exception) as e:
+            return _text_result(f"Planning failed for {task_label}.\n"
+                                f"Reason: {type(e).__name__}: {e}")
+
+        if not plan:
+            return _text_result(
+                f"Planner returned empty plan for {task_label}.")
+
+        # Sample options and simulate
+        rng = np.random.default_rng(CFG.seed)
+        state = task.init
+        lines = [
+            f"Bilevel plan for {task_label} "
+            f"({len(plan)} steps, "
+            f"{metrics.get('num_nodes_expanded', '?')} nodes expanded):"
+        ]
+
+        option_plan_lines = []
+        for step_idx, ground_proc in enumerate(plan):
+            try:
+                option = ground_proc.sample_option(state, task.goal, rng)
+            except Exception as e:
+                lines.append(
+                    f"Step {step_idx}: {ground_proc.name}"
+                    f"({', '.join(str(o) for o in ground_proc.objects)}) "
+                    f"- SAMPLE FAILED: {e}")
+                break
+
+            # Format option
+            obj_strs = ", ".join(f"{o.name}:{o.type.name}"
+                                 for o in option.objects)
+            params_str = ", ".join(f"{p:.4f}" for p in option.params)
+            option_line = f"{option.name}({obj_strs})[{params_str}]"
+            option_plan_lines.append(option_line)
+
+            # Simulate
+            if ctx.option_model is not None:
+                try:
+                    next_state, num_actions = \
+                        ctx.option_model.get_next_state_and_num_actions(
+                            state, option)
+                    atoms_before = utils.abstract(state, all_preds)
+                    atoms_after = utils.abstract(next_state, all_preds)
+                    added = atoms_after - atoms_before
+                    deleted = atoms_before - atoms_after
+                    lines.append(
+                        f"Step {step_idx}: {option_line} "
+                        f"({num_actions} actions)"
+                        f"\n  Added:   "
+                        f"{{{', '.join(str(a) for a in sorted(added))}}}"
+                        f"\n  Deleted: "
+                        f"{{{', '.join(str(a) for a in sorted(deleted))}}}")
+                    state = next_state
+                except Exception as e:
+                    lines.append(f"Step {step_idx}: {option_line} "
+                                 f"- SIMULATION ERROR: {e}")
+                    break
+            else:
+                lines.append(f"Step {step_idx}: {option_line}")
+
+        # Check goal
+        if ctx.option_model is not None:
+            final_atoms = utils.abstract(state, all_preds)
+            goal_achieved = task.goal.issubset(final_atoms)
+            lines.append(f"\nGoal achieved: {goal_achieved}")
+
+        lines.append(f"\n## Option Plan (copy-paste format):")
+        lines.extend(option_plan_lines)
+
+        return _text_result("\n".join(lines))
+
+    @tool(
+        "generate_abstract_plan",
+        "Generate an abstract plan skeleton without continuous parameters. "
+        "Returns option names and objects with parameter space info so you "
+        "can fill in continuous parameters yourself.",
+        {
+            "type": "object",
+            "properties": {
+                "task_idx": {
+                    "type":
+                    "integer",
+                    "description":
+                    "Train task index. Omit to use the current "
+                    "solve-time task (if available)."
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Planning timeout in seconds",
+                    "default": 30
+                },
+            },
+        },
+    )
+    async def generate_abstract_plan(args: Dict[str, Any]) -> Dict[str, Any]:
+        from predicators.approaches import ApproachFailure, ApproachTimeout
+        from predicators.planning_with_processes import \
+            run_task_plan_with_processes_once
+
+        task_idx = args.get("task_idx")
+        timeout = args.get("timeout", 30)
+
+        # Resolve task
+        if task_idx is not None:
+            if task_idx < 0 or task_idx >= len(ctx.train_tasks):
+                return _error_result(f"Invalid task_idx {task_idx}. "
+                                     f"Available: 0-{len(ctx.train_tasks)-1}")
+            task = ctx.train_tasks[task_idx]
+            task_label = f"train task {task_idx}"
+        elif ctx.current_task is not None:
+            task = ctx.current_task
+            task_label = "current task"
+        else:
+            return _error_result(
+                "No task_idx provided and no current_task set.")
+
+        all_preds = ctx.predicates | ctx.iteration_proposals.proposed_predicates
+        all_procs = ctx.processes | ctx.iteration_proposals.proposed_processes
+        all_types = ctx.types | ctx.iteration_proposals.proposed_types
+
+        try:
+            plan, atoms_seq, metrics = run_task_plan_with_processes_once(
+                task,
+                all_procs,
+                all_preds,
+                all_types,
+                timeout,
+                seed=CFG.seed,
+                task_planning_heuristic=CFG.process_task_planning_heuristic,
+                max_horizon=float(CFG.horizon))
+        except (ApproachFailure, ApproachTimeout, Exception) as e:
+            return _text_result(f"Planning failed for {task_label}.\n"
+                                f"Reason: {type(e).__name__}: {e}")
+
+        if not plan:
+            return _text_result(
+                f"Planner returned empty plan for {task_label}.")
+
+        lines = [
+            f"Abstract plan for {task_label} "
+            f"({len(plan)} steps, "
+            f"{metrics.get('num_nodes_expanded', '?')} nodes expanded):",
+            "",
+        ]
+
+        for step_idx, ground_proc in enumerate(plan):
+            obj_strs = ", ".join(f"{o.name}:{o.type.name}"
+                                 for o in ground_proc.option_objs)
+            option = ground_proc.option
+            params_dim = option.params_space.shape[0]
+            if params_dim > 0:
+                low = option.params_space.low.tolist()
+                high = option.params_space.high.tolist()
+                param_info = (f"  params_dim={params_dim}, "
+                              f"low={low}, high={high}")
+            else:
+                param_info = "  (no continuous params)"
+            lines.append(
+                f"Step {step_idx}: {option.name}({obj_strs})\n{param_info}")
+
+        # Include conditions for context
+        lines.append("\n## Process conditions:")
+        for step_idx, ground_proc in enumerate(plan):
+            conds = ", ".join(
+                str(a) for a in sorted(ground_proc.condition_at_start))
+            adds = ", ".join(str(a) for a in sorted(ground_proc.add_effects))
+            dels = ", ".join(
+                str(a) for a in sorted(ground_proc.delete_effects))
+            lines.append(f"Step {step_idx} ({ground_proc.name}):"
+                         f"\n  Conditions: {{{conds}}}"
+                         f"\n  Add effects: {{{adds}}}"
+                         f"\n  Delete effects: {{{dels}}}")
+
+        return _text_result("\n".join(lines))
+
     _all = {
         "inspect_types": inspect_types,
         "inspect_predicates": inspect_predicates,
@@ -946,6 +1201,8 @@ def create_mcp_tools(ctx: ToolContext,
         "test_predicate_on_states": test_predicate_on_states,
         "test_planning": test_planning,
         "test_option_plan": test_option_plan,
+        "generate_bilevel_plan": generate_bilevel_plan,
+        "generate_abstract_plan": generate_abstract_plan,
     }
     if tool_names is None:
         return list(_all.values())
