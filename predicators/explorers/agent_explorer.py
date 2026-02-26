@@ -82,9 +82,11 @@ class AgentExplorer(BaseExplorer):
         # Goal atoms
         goal_strs = [str(a) for a in sorted(task.goal, key=str)]
 
-        # Available options with signatures
+        # Available options with signatures (include any just-proposed options)
+        all_options = (self._options
+                       | self._tool_context.iteration_proposals.proposed_options)
         option_strs = []
-        for opt in sorted(self._options, key=lambda o: o.name):
+        for opt in sorted(all_options, key=lambda o: o.name):
             type_sig = ", ".join(t.name for t in opt.types)
             params_dim = opt.params_space.shape[0]
             if params_dim > 0:
@@ -215,11 +217,13 @@ Output ONLY the option plan lines at the end, after any analysis."""
     def _parse_and_ground_plan(self, plan_text: str, task: Task) -> list:
         """Parse option plan text and ground into executable options."""
         objects = list(task.init)
+        all_options = (self._options
+                       | self._tool_context.iteration_proposals.proposed_options)
         parsed = utils.parse_model_output_into_option_plan(
             plan_text,
             objects,
             self._types,
-            self._options,
+            all_options,
             parse_continuous_params=True)
         if not parsed:
             logging.info("Agent explorer: parsed empty option plan.")

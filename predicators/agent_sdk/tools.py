@@ -78,6 +78,8 @@ class ToolContext:
     iteration_proposals: ProposalBundle = field(default_factory=ProposalBundle)
     planning_results: Dict[str, Any] = field(default_factory=dict)
     iteration_history: List[Dict[str, Any]] = field(default_factory=list)
+    option_builder_context: Dict[str, Any] = field(default_factory=dict)
+    proposals_disabled: bool = False  # set True during test-time solving
 
 
 def _text_result(text: str) -> Dict[str, Any]:
@@ -509,8 +511,13 @@ def create_mcp_tools(ctx: ToolContext,
     async def propose_options(args: Dict[str, Any]) -> Dict[str, Any]:
         if not CFG.agent_sdk_propose_options:
             return _error_result("Option proposals are disabled.")
+        if ctx.proposals_disabled:
+            return _error_result(
+                "Proposals are disabled during test-time solving. "
+                "Options can only be proposed during learning.")
         code = args["code"]
-        exec_ctx = build_exec_context(ctx.types, ctx.predicates, ctx.options)
+        exec_ctx = build_exec_context(ctx.types, ctx.predicates, ctx.options,
+                                      extra_context=ctx.option_builder_context)
         result, error = exec_code_safely(code, exec_ctx, "proposed_options")
         if error:
             return _error_result(f"Code execution failed:\n{error}")
@@ -581,6 +588,10 @@ def create_mcp_tools(ctx: ToolContext,
         },
     )
     async def retract_abstractions(args: Dict[str, Any]) -> Dict[str, Any]:
+        if ctx.proposals_disabled:
+            return _error_result(
+                "Retractions are disabled during test-time solving. "
+                "Abstractions can only be retracted during learning.")
         pred_names = set(args.get("predicate_names") or [])
         proc_names = set(args.get("process_names") or [])
         opt_names = set(args.get("option_names") or [])
@@ -857,7 +868,8 @@ def create_mcp_tools(ctx: ToolContext,
         else:
             return _error_result(
                 "No task_idx provided and no current_task set.")
-        opt_map = {o.name: o for o in ctx.options}
+        all_options = ctx.options | ctx.iteration_proposals.proposed_options
+        opt_map = {o.name: o for o in all_options}
 
         state = task.init
         lines = [f"Testing option plan on task {task_idx}:"]

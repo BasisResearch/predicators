@@ -15,18 +15,18 @@ APPROACHES:
   #     demonstrator: "oracle_process_planning"
   #     terminate_on_goal_reached_and_option_terminated: True
   #     bilevel_plan_without_sim: True
-  mb_agent:
-    NAME: "agent_abstraction_learning"
-    FLAGS:
-      demonstrator: "oracle_process_planning"
-      terminate_on_goal_reached_and_option_terminated: True
-      bilevel_plan_without_sim: True
-      max_initial_demos: 0
-      domino_use_continuous_place: True
-      explorer: "agent"
-      num_online_learning_cycles: 4
-      online_nsrt_learning_requests_per_cycle: 1
-      domino_restricted_push: True
+  # mb_agent:
+  #   NAME: "agent_abstraction_learning"
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     bilevel_plan_without_sim: True
+  #     max_initial_demos: 0
+  #     domino_use_continuous_place: True
+  #     explorer: "agent"
+  #     num_online_learning_cycles: 4
+  #     online_nsrt_learning_requests_per_cycle: 1
+  #     domino_restricted_push: True
   # mf_agent:
   #   NAME: "agent_planner"
   #   FLAGS:
@@ -39,6 +39,19 @@ APPROACHES:
   #     num_online_learning_cycles: 4
   #     online_nsrt_learning_requests_per_cycle: 1
   #     domino_restricted_push: True
+  mf_option_learning_agent:
+    NAME: "agent_option_learning"
+    FLAGS:
+      demonstrator: "oracle_process_planning"
+      terminate_on_goal_reached_and_option_terminated: True
+      bilevel_plan_without_sim: True
+      max_initial_demos: 0
+      domino_use_continuous_place: True
+      explorer: "agent"
+      num_online_learning_cycles: 4
+      online_nsrt_learning_requests_per_cycle: 1
+      domino_restricted_push: True
+      option_learner: "agent"
   # predicate_invention:
   #   NAME: "online_predicate_invention_and_process_planning"
   #   # ARGS:

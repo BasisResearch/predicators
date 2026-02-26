@@ -966,6 +966,9 @@ class GlobalSettings:
     # Agent planner approach settings
     agent_planner_model_name = "claude-sonnet-4-5"
 
+    # Agent option learning approach settings
+    agent_option_learning_model_name = "claude-sonnet-4-5"
+
     # Agent closed-loop approach settings
     agent_closed_loop_model_name = "claude-sonnet-4-5"
 

@@ -165,6 +165,8 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
     # ------------------------------------------------------------------ #
 
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
+        self._sync_tool_context()
+        self._tool_context.current_task = task
         try:
             option_plan = self._query_agent_for_option_plan(task)
         except Exception as e:

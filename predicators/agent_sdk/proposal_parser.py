@@ -46,10 +46,18 @@ def exec_code_safely(code: str, context: Dict[str, Any],
     return context[expected_var], None
 
 
-def build_exec_context(types: Set[Type], predicates: Set[Predicate],
-                       options: Set[ParameterizedOption]) -> Dict[str, Any]:
+def build_exec_context(types: Set[Type],
+                       predicates: Set[Predicate],
+                       options: Set[ParameterizedOption],
+                       extra_context: Optional[Dict[str, Any]] = None
+                       ) -> Dict[str, Any]:
     """Build a namespace for exec() with standard imports and current
-    abstractions."""
+    abstractions.
+
+    Args:
+        extra_context: Additional bindings to inject (e.g. option builder
+            helpers). Merged after standard bindings so it can override them.
+    """
     import numpy as np
     import torch
     from gym.spaces import Box
@@ -107,6 +115,10 @@ def build_exec_context(types: Set[Type], predicates: Set[Predicate],
     # All current options by name
     for o in options:
         context[o.name] = o
+
+    # Inject any extra bindings (e.g. option builder helpers)
+    if extra_context:
+        context.update(extra_context)
 
     return context
 
