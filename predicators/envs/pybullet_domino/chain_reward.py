@@ -31,8 +31,9 @@ _COLOR_TOL = 0.1  # tolerance for RGB matching
 _MIN_SPREAD_PER_DOMINO = 3  # expected timesteps between consecutive topples
 
 
-def _color_matches(state: State, obj: Object, target_rgb: Tuple[float, float,
-                                                                 float],
+def _color_matches(state: State,
+                   obj: Object,
+                   target_rgb: Tuple[float, float, float],
                    tol: float = _COLOR_TOL) -> bool:
     r, g, b = state.get(obj, "r"), state.get(obj, "g"), state.get(obj, "b")
     return (abs(r - target_rgb[0]) < tol and abs(g - target_rgb[1]) < tol
@@ -95,6 +96,7 @@ def _spearman_corr(x: Sequence[float], y: Sequence[float]) -> float:
 # Main reward function
 # ------------------------------------------------------------------ #
 
+
 def domino_chain_reward(
     trajectory: LowLevelTrajectory,
     types: Set[Type],
@@ -149,7 +151,8 @@ def domino_chain_reward(
 
     # ---- 2. order_score: start topples before every target ----
     start_time = min(topple_times.get(s, len(states)) for s in start)
-    earliest_target = min(topple_times[t] for t in targets if t in topple_times)
+    earliest_target = min(topple_times[t] for t in targets
+                          if t in topple_times)
     order_score = 1.0 if start_time < earliest_target else 0.0
 
     # ---- 3. robot_dist_score: robot far from ALL dominoes when they topple --
@@ -179,7 +182,8 @@ def domino_chain_reward(
     if len(toppled_items) >= 3:
         dists_from_start = [
             np.hypot(states[0].get(d, "x") - start_xy[0],
-                     states[0].get(d, "y") - start_xy[1]) for d, _ in toppled_items
+                     states[0].get(d, "y") - start_xy[1])
+            for d, _ in toppled_items
         ]
         times = [float(tt) for _, tt in toppled_items]
         corr = _spearman_corr(dists_from_start, times)

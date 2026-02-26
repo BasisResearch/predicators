@@ -46,11 +46,11 @@ def exec_code_safely(code: str, context: Dict[str, Any],
     return context[expected_var], None
 
 
-def build_exec_context(types: Set[Type],
-                       predicates: Set[Predicate],
-                       options: Set[ParameterizedOption],
-                       extra_context: Optional[Dict[str, Any]] = None
-                       ) -> Dict[str, Any]:
+def build_exec_context(
+        types: Set[Type],
+        predicates: Set[Predicate],
+        options: Set[ParameterizedOption],
+        extra_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Build a namespace for exec() with standard imports and current
     abstractions.
 

@@ -516,7 +516,9 @@ def create_mcp_tools(ctx: ToolContext,
                 "Proposals are disabled during test-time solving. "
                 "Options can only be proposed during learning.")
         code = args["code"]
-        exec_ctx = build_exec_context(ctx.types, ctx.predicates, ctx.options,
+        exec_ctx = build_exec_context(ctx.types,
+                                      ctx.predicates,
+                                      ctx.options,
                                       extra_context=ctx.option_builder_context)
         result, error = exec_code_safely(code, exec_ctx, "proposed_options")
         if error:

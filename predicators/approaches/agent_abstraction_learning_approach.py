@@ -17,8 +17,7 @@ from predicators.agent_sdk.proposal_parser import ProposalBundle, \
     build_exec_context, exec_code_safely
 from predicators.agent_sdk.system_prompt import build_iteration_message, \
     build_system_prompt
-from predicators.approaches.agent_planner_approach import \
-    AgentPlannerApproach
+from predicators.approaches.agent_planner_approach import AgentPlannerApproach
 from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.approaches.pp_online_process_learning_approach import \
     OnlineProcessLearningAndPlanningApproach
@@ -33,8 +32,7 @@ from predicators.structs import Action, CausalProcess, Dataset, \
 
 
 class AgentAbstractionLearningApproach(
-        AgentPlannerApproach,
-        PredicateInventionProcessPlanningApproach,
+        AgentPlannerApproach, PredicateInventionProcessPlanningApproach,
         OnlineProcessLearningAndPlanningApproach):
     """Abstraction-learning planning approach using Claude Agent SDK.
 

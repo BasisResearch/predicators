@@ -84,7 +84,8 @@ class AgentExplorer(BaseExplorer):
 
         # Available options with signatures (include any just-proposed options)
         all_options = (self._options
-                       | self._tool_context.iteration_proposals.proposed_options)
+                       |
+                       self._tool_context.iteration_proposals.proposed_options)
         option_strs = []
         for opt in sorted(all_options, key=lambda o: o.name):
             type_sig = ", ".join(t.name for t in opt.types)
@@ -218,7 +219,8 @@ Output ONLY the option plan lines at the end, after any analysis."""
         """Parse option plan text and ground into executable options."""
         objects = list(task.init)
         all_options = (self._options
-                       | self._tool_context.iteration_proposals.proposed_options)
+                       |
+                       self._tool_context.iteration_proposals.proposed_options)
         parsed = utils.parse_model_output_into_option_plan(
             plan_text,
             objects,

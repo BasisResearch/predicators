@@ -119,10 +119,10 @@ def _get_pybullet_env_cls(env_name: Optional[str] = None):
         env_name: Environment name (e.g. ``"pybullet_domino"``).
             Falls back to ``CFG.env`` if not provided.
     """
-    from predicators.envs.base_env import BaseEnv
-    from predicators.envs.pybullet_env import PyBulletEnv
     # Trigger env submodule discovery so all subclasses are registered.
     import predicators.envs as _envs_pkg  # noqa: F401
+    from predicators.envs.base_env import BaseEnv
+    from predicators.envs.pybullet_env import PyBulletEnv
     if env_name is None:
         env_name = CFG.env
     for cls in utils.get_all_subclasses(BaseEnv):

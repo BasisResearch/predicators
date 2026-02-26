@@ -1,4 +1,5 @@
-"""Agent option learning approach: online option invention via Claude Agent SDK.
+"""Agent option learning approach: online option invention via Claude Agent
+SDK.
 
 Uses a persistent Claude agent session to iteratively propose/retract
 parameterized options based on observed trajectory data, then uses those
@@ -23,8 +24,7 @@ from predicators import utils
 from predicators.agent_sdk.option_builder import build_option_helpers
 from predicators.agent_sdk.proposal_parser import ProposalBundle, \
     build_exec_context, exec_code_safely
-from predicators.approaches.agent_planner_approach import \
-    AgentPlannerApproach
+from predicators.approaches.agent_planner_approach import AgentPlannerApproach
 from predicators.settings import CFG
 from predicators.structs import Action, InteractionResult, \
     LowLevelTrajectory, ParameterizedOption, Predicate, State, Task, Type
@@ -34,8 +34,9 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
     """Option-learning planning approach using Claude Agent SDK.
 
     Extends AgentPlannerApproach with the ability to invent and retract
-    parameterized options during online learning.  The agent writes Python
-    code that uses high-level option-builder helpers to define new options.
+    parameterized options during online learning.  The agent writes
+    Python code that uses high-level option-builder helpers to define
+    new options.
     """
 
     _log_subdir = "agent_option_learning"
@@ -121,9 +122,10 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
     def _solve(self, task: Task, timeout: int):
         """Override to use a fresh ephemeral session for test-time solving.
 
-        This prevents test task information from leaking into the learning
-        session.  The learning session is preserved and restored after
-        solving.  Proposals are also disabled during testing.
+        This prevents test task information from leaking into the
+        learning session.  The learning session is preserved and
+        restored after solving.  Proposals are also disabled during
+        testing.
         """
         self._tool_context.proposals_disabled = True
         # Swap out the learning session for a fresh test session
@@ -162,8 +164,8 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
 
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
-        """Learn from interaction results: collect trajectories, then run
-        an agent iteration to propose/retract options."""
+        """Learn from interaction results: collect trajectories, then run an
+        agent iteration to propose/retract options."""
         # 1. Convert results to trajectories
         assert self._requests_train_task_idxs is not None
         for i, result in enumerate(results):
