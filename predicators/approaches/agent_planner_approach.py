@@ -76,6 +76,22 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         return run_log_dir
 
     # ------------------------------------------------------------------ #
+    # Overridable helpers (for subclass customisation)
+    # ------------------------------------------------------------------ #
+
+    def _get_all_options(self) -> Set[ParameterizedOption]:
+        """Return the full set of options available for planning."""
+        return self._initial_options
+
+    def _get_all_predicates(self) -> Set[Predicate]:
+        """Return the full set of predicates for abstraction."""
+        return self._initial_predicates
+
+    def _get_all_trajectories(self) -> List[LowLevelTrajectory]:
+        """Return all trajectories (offline + online)."""
+        return self._offline_dataset.trajectories + self._online_trajectories
+
+    # ------------------------------------------------------------------ #
     # AgentSessionMixin hooks
     # ------------------------------------------------------------------ #
 
@@ -190,7 +206,7 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
 
         # Options
         option_strs = []
-        for opt in sorted(self._initial_options, key=lambda o: o.name):
+        for opt in sorted(self._get_all_options(), key=lambda o: o.name):
             type_sig = ", ".join(t.name for t in opt.types)
             params_dim = opt.params_space.shape[0]
             if params_dim > 0:
@@ -203,7 +219,7 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
             option_strs.append(f"  {opt.name}({type_sig}{param_info})")
 
         # Current atoms
-        atoms = utils.abstract(init_state, self._initial_predicates)
+        atoms = utils.abstract(init_state, self._get_all_predicates())
         atom_strs = [str(a) for a in sorted(atoms, key=str)]
 
         # Trajectory summary
@@ -251,13 +267,13 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
     def _build_trajectory_summary(self) -> str:
         """Summarize trajectory data for context."""
-        all_trajs = (self._offline_dataset.trajectories +
-                     self._online_trajectories)
+        all_trajs = self._get_all_trajectories()
         if not all_trajs:
             return ""
 
         max_trajs = CFG.agent_sdk_max_trajectories_in_context
         recent = all_trajs[-max_trajs:]
+        all_preds = self._get_all_predicates()
         lines = [
             f"\n## Trajectory Summary ({len(all_trajs)} total, "
             f"showing last {len(recent)})"
@@ -265,10 +281,8 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
         for i, traj in enumerate(recent):
             n_steps = len(traj.actions)
-            init_atoms = utils.abstract(traj.states[0],
-                                        self._initial_predicates)
-            final_atoms = utils.abstract(traj.states[-1],
-                                         self._initial_predicates)
+            init_atoms = utils.abstract(traj.states[0], all_preds)
+            final_atoms = utils.abstract(traj.states[-1], all_preds)
             new_atoms = final_atoms - init_atoms
             lost_atoms = init_atoms - final_atoms
             lines.append(f"\nTrajectory {i}: {n_steps} steps")
@@ -310,7 +324,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
             plan_text,
             objects,
             self._types,
-            self._initial_options,
+            self._get_all_options(),
             parse_continuous_params=True)
         if not parsed:
             raise ApproachFailure("Parsed empty option plan from agent.")

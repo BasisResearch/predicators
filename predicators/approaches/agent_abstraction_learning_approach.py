@@ -17,6 +17,8 @@ from predicators.agent_sdk.proposal_parser import ProposalBundle, \
     build_exec_context, exec_code_safely
 from predicators.agent_sdk.system_prompt import build_iteration_message, \
     build_system_prompt
+from predicators.approaches.agent_planner_approach import \
+    AgentPlannerApproach
 from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.approaches.pp_online_process_learning_approach import \
     OnlineProcessLearningAndPlanningApproach
@@ -31,7 +33,8 @@ from predicators.structs import Action, CausalProcess, Dataset, \
 
 
 class AgentAbstractionLearningApproach(
-        AgentSessionMixin, PredicateInventionProcessPlanningApproach,
+        AgentPlannerApproach,
+        PredicateInventionProcessPlanningApproach,
         OnlineProcessLearningAndPlanningApproach):
     """Abstraction-learning planning approach using Claude Agent SDK.
 
@@ -84,11 +87,29 @@ class AgentAbstractionLearningApproach(
     # AgentSessionMixin hooks
     # ------------------------------------------------------------------ #
 
+    def _get_log_dir(self) -> str:
+        """Use the mixin's simple log dir (no run_id subdirectory)."""
+        return AgentSessionMixin._get_log_dir(self)
+
     def _get_agent_model_name(self) -> str:
         return CFG.agent_sdk_model_name
 
     def _get_agent_system_prompt(self) -> str:
         return build_system_prompt()
+
+    # ------------------------------------------------------------------ #
+    # Overridable helpers (from AgentPlannerApproach)
+    # ------------------------------------------------------------------ #
+
+    def _get_all_options(self) -> Set[ParameterizedOption]:
+        return self._initial_options | self._agent_proposed_options
+
+    def _get_all_predicates(self) -> Set[Predicate]:
+        return self._get_current_predicates()
+
+    def _get_all_trajectories(self) -> list:
+        return (self._offline_dataset.trajectories +
+                self._online_dataset.trajectories)
 
     # ------------------------------------------------------------------ #
     # Learning
@@ -341,14 +362,114 @@ class AgentAbstractionLearningApproach(
         return successes / max(counted, 1)
 
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
-        """Solve by augmenting task with agent-proposed helper objects."""
+        """Solve via agent-driven option plan generation."""
         if self._augment_task_fn is not None:
             try:
                 task = self._augment_task_fn(task)
             except Exception as e:
                 logging.warning(f"Task augmentation failed: {e}. "
                                 f"Using original task.")
-        return super()._solve(task, timeout)
+
+        all_trajs = self._get_all_trajectories()
+        self._tool_context.current_task = task
+        self._sync_tool_context(all_trajs)
+        try:
+            return super()._solve(task, timeout)
+        finally:
+            self._tool_context.current_task = None
+
+    def _build_solve_prompt(self, task: Task) -> str:
+        """Build the prompt for generating an option plan."""
+        init_state = task.init
+        objects = list(init_state)
+
+        # Objects
+        obj_strs = []
+        for obj in sorted(objects, key=lambda o: o.name):
+            obj_strs.append(f"  {obj.name}: {obj.type.name}")
+
+        # Goal
+        goal_strs = [str(a) for a in sorted(task.goal, key=str)]
+
+        # Options (include agent-proposed)
+        option_strs = []
+        for opt in sorted(self._get_all_options(), key=lambda o: o.name):
+            type_sig = ", ".join(t.name for t in opt.types)
+            params_dim = opt.params_space.shape[0]
+            if params_dim > 0:
+                low = opt.params_space.low.tolist()
+                high = opt.params_space.high.tolist()
+                param_info = (f", params_dim={params_dim}, "
+                              f"low={low}, high={high}")
+            else:
+                param_info = ""
+            option_strs.append(f"  {opt.name}({type_sig}{param_info})")
+
+        # Current atoms (include learned predicates)
+        atoms = utils.abstract(init_state, self._get_all_predicates())
+        atom_strs = [str(a) for a in sorted(atoms, key=str)]
+
+        # Trajectory summary
+        traj_summary = self._build_trajectory_summary()
+
+        # State features
+        state_str = init_state.dict_str(indent=2)
+
+        # Processes summary
+        procs = self._get_current_processes()
+        proc_strs = []
+        for proc in sorted(procs, key=lambda p: p.name):
+            conds = ", ".join(str(a) for a in sorted(proc.condition_at_start))
+            adds = ", ".join(str(a) for a in sorted(proc.add_effects))
+            dels = ", ".join(str(a) for a in sorted(proc.delete_effects))
+            proc_strs.append(f"  {proc.name}: conds={{{conds}}}, "
+                             f"add={{{adds}}}, del={{{dels}}}")
+
+        proc_section = ""
+        if proc_strs:
+            proc_section = (f"\n## Processes ({len(procs)})\n" +
+                            "\n".join(proc_strs) + "\n")
+
+        prompt = f"""You are solving a task. Generate an option plan to achieve the goal.
+
+## Goal
+{chr(10).join(goal_strs)}
+
+## Initial State Atoms
+{chr(10).join(atom_strs)}
+
+## Initial State Features
+{state_str}
+
+## Objects
+{chr(10).join(obj_strs)}
+
+## Available Options
+{chr(10).join(option_strs)}
+{proc_section}{traj_summary}
+## Available Tools
+You have access to planning tools:
+  - generate_bilevel_plan: Get a complete plan with sampled params from the bilevel planner
+  - generate_abstract_plan: Get a plan skeleton with parameter space info
+  - test_option_plan: Test an option plan on the current task
+  - inspect_trajectories, inspect_options, inspect_predicates, etc.
+
+## Instructions
+Use your available tools to generate and test plans before committing.
+
+Recommended workflow:
+1. Call generate_bilevel_plan (no task_idx needed - uses current task) to get a baseline plan
+2. Optionally call test_option_plan to verify the plan works
+3. Adjust parameters if needed and test again
+
+Output the final plan with one option per line in this exact format:
+ OptionName(obj1:type1, obj2:type2)[param1, param2]
+
+If an option has no continuous parameters, use empty brackets: OptionName(obj1:type1)[]
+
+Output ONLY the option plan lines at the end, after any analysis."""
+
+        return prompt
 
     # ------------------------------------------------------------------ #
     # Explorer
