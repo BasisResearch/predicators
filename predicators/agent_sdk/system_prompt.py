@@ -1,4 +1,5 @@
 """System prompt construction for the Claude agent SDK session."""
+from typing import Any, List, Optional
 
 
 def build_system_prompt() -> str:
@@ -138,7 +139,7 @@ def build_iteration_message(cycle: int,
                             avg_nodes: str,
                             failure_summaries: str,
                             previous_iteration_outcomes: str,
-                            available_tools: list = None) -> str:
+                            available_tools: Optional[List[Any]] = None) -> str:
     """Build the message sent to the agent at each iteration."""
     tools_section = ""
     if available_tools:

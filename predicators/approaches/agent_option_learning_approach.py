@@ -25,6 +25,7 @@ from predicators.agent_sdk.option_builder import build_option_helpers
 from predicators.agent_sdk.proposal_parser import ProposalBundle, \
     build_exec_context, exec_code_safely
 from predicators.approaches.agent_planner_approach import AgentPlannerApproach
+from predicators.explorers.base_explorer import BaseExplorer
 from predicators.settings import CFG
 from predicators.structs import Action, InteractionResult, \
     LowLevelTrajectory, ParameterizedOption, Predicate, State, Task, Type
@@ -119,7 +120,7 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
     def _get_all_options(self) -> Set[ParameterizedOption]:
         return self._initial_options | self._agent_proposed_options
 
-    def _solve(self, task: Task, timeout: int):
+    def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
         """Override to use a fresh ephemeral session for test-time solving.
 
         This prevents test task information from leaking into the
@@ -147,7 +148,7 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                import nest_asyncio
+                import nest_asyncio  # type: ignore[import-not-found]
                 nest_asyncio.apply()
                 loop.run_until_complete(self._agent_session.close())
             else:
@@ -333,7 +334,7 @@ before committing."""
     # Explorer
     # ------------------------------------------------------------------ #
 
-    def _create_explorer(self):
+    def _create_explorer(self) -> BaseExplorer:
         """Create explorer, passing agent-proposed options."""
         if CFG.explorer == "agent":
             self._sync_tool_context()

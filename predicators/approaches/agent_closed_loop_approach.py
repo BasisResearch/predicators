@@ -166,8 +166,7 @@ Output ONLY the single option line at the end, after any analysis."""
         # Take the last parsed option (agent may include analysis before it)
         option, objs, params = parsed[-1]
         try:
-            params_arr = ([] if len(params) == 0 else np.array(
-                params, dtype=np.float32))
+            params_arr = np.array(params, dtype=np.float32)
             ground_opt = option.ground(objs, params_arr)
         except Exception as e:
             raise ApproachFailure(

@@ -33,6 +33,10 @@ class AgentSessionManager:
     def session_id(self) -> Optional[str]:
         return self._session_id
 
+    @session_id.setter
+    def session_id(self, value: Optional[str]) -> None:
+        self._session_id = value
+
     @property
     def tool_names(self) -> List[str]:
         """Return short tool names (without MCP prefix)."""
@@ -44,16 +48,12 @@ class AgentSessionManager:
             for t in self._allowed_tools
         ]
 
-    @session_id.setter
-    def session_id(self, value: Optional[str]) -> None:
-        self._session_id = value
-
     async def start_session(self) -> None:
         """Start a new Claude SDK client session."""
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
         options = ClaudeAgentOptions(
-            allowed_tools=self._allowed_tools,
+            allowed_tools=self._allowed_tools or [],
             mcp_servers={"predicator_tools": self._mcp_server},
             permission_mode="bypassPermissions",
             system_prompt=self._system_prompt,
@@ -133,15 +133,15 @@ class AgentSessionManager:
                             logging.debug(f"Agent tool call: {block.name}")
                     collected.append(entry)
                 elif isinstance(msg, UserMessage):
-                    entry: Dict[str, Any] = {"type": "user", "content": []}
-                    for block in msg.content:
+                    user_entry: Dict[str, Any] = {"type": "user", "content": []}
+                    for block in msg.content:  # type: ignore[assignment]
                         if isinstance(block, TextBlock):
-                            entry["content"].append({
+                            user_entry["content"].append({
                                 "type": "text",
                                 "text": block.text
                             })
                         elif isinstance(block, ToolResultBlock):
-                            entry["content"].append({
+                            user_entry["content"].append({
                                 "type":
                                 "tool_result",
                                 "tool_use_id":
@@ -154,7 +154,7 @@ class AgentSessionManager:
                             logging.debug(
                                 f"Tool result: {getattr(block, 'tool_use_id', '?')}"
                             )
-                    collected.append(entry)
+                    collected.append(user_entry)
                 elif isinstance(msg, ResultMessage):
                     result_entry = {
                         "type": "result",
