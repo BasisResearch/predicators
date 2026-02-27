@@ -11,7 +11,7 @@ from gym.spaces import Box
 from torch import Tensor
 from torch.optim import LBFGS, Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from tqdm.auto import tqdm
+from tqdm.auto import tqdm  # type: ignore[import-untyped]
 
 from predicators import utils
 from predicators.approaches.process_planning_approach import \
@@ -276,12 +276,13 @@ def learn_process_parameters(
     # ------------------- training loop ----------------------------- #
     iteration = 0
     for outer_step in range(num_steps):
+        current_optim: Optional[LBFGS] = None
         if use_lbfgs:
             current_optim = LBFGS(learnable_params_for_optim,
                                   max_iter=inner_lbfgs_max_iter,
                                   line_search_fn="strong_wolfe")
         else:
-            current_optim = optim
+            current_optim = optim  # type: ignore[assignment]
 
         assert current_optim is not None, "Optimizer not initialized"
 
@@ -368,7 +369,7 @@ def learn_process_parameters(
             if scheduler:
                 if debug_log:
                     prev_lr = scheduler.get_last_lr()
-                scheduler.step(loss)
+                scheduler.step(loss)  # type: ignore[arg-type]
                 if debug_log:
                     curr_lr = scheduler.get_last_lr()
                     if curr_lr != prev_lr:
@@ -384,8 +385,8 @@ def learn_process_parameters(
 
     # --- Restore best parameters before evaluation ---
     if best_params_state is not None:
-        for param, best_state in zip(learnable_params_for_optim,
-                                     best_params_state):
+        for param, best_state in zip(  # type: ignore[unreachable]
+                learnable_params_for_optim, best_params_state):
             param.data.copy_(best_state)
 
     # --- Persist Final Parameters and Evaluate ---
@@ -574,7 +575,7 @@ def elbo_torch(
                 if delay_values.numel() == 0:
                     continue
                 t_indices_for_guide = s_i + delay_values
-                all_delay_log_probs = gp_obj.delay_distribution.log_prob(
+                all_delay_log_probs = gp_obj.delay_distribution.log_prob(  # type: ignore[attr-defined]
                     delay_values)
                 q_dist_for_instance = guide.get(gp_obj, {}).get(s_i, None)
                 if q_dist_for_instance is None:
@@ -691,7 +692,8 @@ def learn_process_parameters_empirical(
     predicates: Set[Predicate],
     processes: Sequence[CausalProcess],
     use_empirical: bool = False,
-) -> Tuple[Sequence[CausalProcess], Dict[str, Tuple[float, float]]]:
+) -> Tuple[Sequence[CausalProcess], Dict[str, Tuple[Optional[float],
+                                                          Optional[float]]]]:
     """Learn process parameters using empirical estimation of delays.
 
     When use_empirical=True, directly computes mean and std from
@@ -706,7 +708,7 @@ def learn_process_parameters_empirical(
                                               processes)
 
     # Statistics dictionary to return
-    stats = {}
+    stats: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
 
     # Update each process with empirical parameters
     for process in processes:
@@ -732,7 +734,7 @@ def learn_process_parameters_empirical(
             ])
 
             # Update the process parameters
-            process._set_parameters(params)
+            process._set_parameters(params.tolist())
 
             # Store statistics
             stats[process.name] = (empirical_mean.item(), empirical_std.item())
@@ -796,7 +798,7 @@ def evaluate_model_on_dataset(
 
 
 def _set_process_parameters(processes: Sequence[CausalProcess],
-                            parameters: Tensor, **kwargs: Dict) -> None:
+                            parameters: Tensor, **kwargs: Any) -> None:
     # Parameters are for the CausalProcess types, not ground instances.
     # Assumes 3 parameters per CausalProcess type (e.g., for its delay distribution)
     num_causal_process_types = len(processes)
@@ -807,7 +809,7 @@ def _set_process_parameters(processes: Sequence[CausalProcess],
     # Loop through the CausalProcess types
     for i in range(num_causal_process_types):
         param_slice = parameters[i * 3:(i + 1) * 3]
-        processes[i]._set_parameters(param_slice, **kwargs)
+        processes[i]._set_parameters(param_slice.tolist(), **kwargs)
 
 
 def _compute_condition_cache_for_traj(

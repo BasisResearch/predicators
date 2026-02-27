@@ -1,4 +1,4 @@
-from typing import Any, ClassVar, Dict, List, Sequence, Set, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -109,7 +109,7 @@ class PyBulletAntsEnv(PyBulletEnv):
             self._ants.append(ant_obj)
 
         if CFG.ants_ants_attracted_to_points:
-            self._ants_to_xy = dict()
+            self._ants_to_xy: Dict[Object, Tuple[float, float]] = dict()
 
         super().__init__(use_gui)
         self._debug_layout = debug_layout
@@ -176,7 +176,7 @@ class PyBulletAntsEnv(PyBulletEnv):
                 half_extents=cls.food_half_extents,
                 mass=cls.food_mass,
                 friction=0.5,
-                orientation=[0.0, 0.0, 0.0],
+                orientation=tuple(p.getQuaternionFromEuler([0.0, 0.0, 0.0])),
                 physics_client_id=physics_client_id,
             )
             food_ids.append(fid)
@@ -189,7 +189,7 @@ class PyBulletAntsEnv(PyBulletEnv):
                 half_extents=cls.ant_half_extents,
                 mass=cls.ant_mass,
                 friction=0.5,
-                orientation=[0.0, 0.0, 0.0],
+                orientation=tuple(p.getQuaternionFromEuler([0.0, 0.0, 0.0])),
                 physics_client_id=physics_client_id,
             )
             ant_ids.append(aid)
@@ -230,7 +230,7 @@ class PyBulletAntsEnv(PyBulletEnv):
     def _reset_custom_env_state(self, state: State) -> None:
 
         if CFG.ants_ants_attracted_to_points:
-            self._ant_to_xy = dict()
+            self._ant_to_xy: Dict[Object, Tuple[float, float]] = dict()
             for ant_obj in state.get_objects(self._ant_type):
                 self._ants_to_xy[ant_obj] = (self._train_rng.uniform(
                     self.one_third_x, self.two_third_x),
@@ -390,7 +390,7 @@ class PyBulletAntsEnv(PyBulletEnv):
         return state.get(block, "attractive") > 0.5
 
     def _Clear_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        if self._Holding_holds(state, [self._robot] + objects):
+        if self._Holding_holds(state, [self._robot] + list(objects)):
             return False
         block, = objects
         for other_block in state.get_objects(self._food_type):
@@ -413,18 +413,22 @@ class PyBulletAntsEnv(PyBulletEnv):
                     rng: np.random.Generator) -> List[EnvironmentTask]:
         tasks = []
         for _ in range(num_tasks):
-            init_dict = {}
-            block_by_color = {}
-            attractive_food_objs = []
+            init_dict: Dict[Object, Any] = {}
+            block_by_color: Dict[Tuple[float, ...], List[Object]] = {}
+            attractive_food_objs: List[Object] = []
 
-            task_color_palette = rng.choice(self._obj_colors_main,
-                                            size=self.num_colors,
-                                            replace=False)
-            task_color_palette = [tuple(c) for c in task_color_palette]
-            attractive_colors = rng.choice(task_color_palette,
-                                           size=self.num_attractive_colors,
-                                           replace=False)
-            attractive_colors = [tuple(c) for c in attractive_colors]
+            raw_palette = rng.choice(self._obj_colors_main,
+                                     size=self.num_colors,
+                                     replace=False)
+            task_color_palette: List[Tuple[float, ...]] = [
+                tuple(c) for c in raw_palette
+            ]
+            raw_attractive = rng.choice(task_color_palette,
+                                        size=self.num_attractive_colors,
+                                        replace=False)
+            attractive_colors: List[Tuple[float, ...]] = [
+                tuple(c) for c in raw_attractive
+            ]
 
             # 1) Robot
             robot_dict = {

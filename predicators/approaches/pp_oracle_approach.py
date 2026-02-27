@@ -60,7 +60,7 @@ class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):
                 delay_params = torch.ones(
                     len(process.delay_distribution.get_parameters()))
                 process._set_parameters(
-                    torch.cat([strength_params, delay_params]))
+                    torch.cat([strength_params, delay_params]).tolist())
                 modified_processes.add(process)
             processes = modified_processes
 

@@ -134,8 +134,9 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
 
         return plan, atoms_seq, metrics
 
-    def _save_metrics(self, metrics: Metrics, processes: Set[CausalProcess],
-                      predicates: Set[Predicate]) -> None:
+    def _save_metrics(  # type: ignore[override]
+            self, metrics: Metrics, processes: Set[CausalProcess],
+            predicates: Set[Predicate]) -> None:
         for metric in [
                 "num_samples", "num_skeletons_optimized",
                 "num_failures_discovered", "num_nodes_expanded",
@@ -190,7 +191,7 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
         # Pre-compute dependencies for incremental derived predicates
         dep_to_derived_preds = defaultdict(list)
         for der_pred in derived_predicates:
-            for aux_pred in der_pred.auxiliary_predicates:
+            for aux_pred in (der_pred.auxiliary_predicates or set()):
                 dep_to_derived_preds[aux_pred].append(der_pred)
 
         for ground_process in vlm_process_plan:
@@ -248,7 +249,7 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
             assert self._vlm is not None
             vlm_output = self._vlm.sample_completions(
                 prompt,
-                imgs_for_vlm=None,  # No images for process planning.
+                imgs=None,  # No images for process planning.
                 temperature=CFG.vlm_temperature,
                 seed=CFG.seed,
                 num_completions=1)
@@ -265,7 +266,7 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
         # `parse_model_output_into_process_plan`, which should be analogous
         # to `parse_model_output_into_option_plan`.
         try:
-            parsed_process_plan = utils.parse_model_output_into_process_plan(
+            parsed_process_plan = utils.parse_model_output_into_process_plan(  # type: ignore[attr-defined]
                 parsable_plan_prediction, objects_list, self._types,
                 endogenous_processes)
             vlm_process_plan = [

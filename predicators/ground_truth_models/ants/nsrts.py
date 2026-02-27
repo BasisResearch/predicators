@@ -137,13 +137,13 @@ class PyBulletAntsGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             block = objs[0]
             attractive = state.get(block, "attractive")
             if attractive:
-                x_range = [2 / 3, 1]
+                x_low, x_high = 2 / 3, 1.0
             else:
-                x_range = [0, 1 / 3]
-            y_range = [1 / 4, 3 / 4]
+                x_low, x_high = 0.0, 1 / 3
+            y_low, y_high = 1 / 4, 3 / 4
             # Note: normalized coordinates w.r.t. workspace.
-            x = rng.uniform(*x_range)
-            y = rng.uniform(*y_range)
+            x = rng.uniform(x_low, x_high)
+            y = rng.uniform(y_low, y_high)
             return np.array([x, y], dtype=np.float32)
 
         putontable_nsrt = NSRT("PutOnTable", parameters, preconditions,

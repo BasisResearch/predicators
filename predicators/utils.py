@@ -1124,7 +1124,7 @@ class RawState(PyBulletState):
     prev_state: Optional[RawState] = None
     next_state: Optional[RawState] = None
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         # Convert the dictionary to a tuple of key-value pairs and hash it
         # data_hash = hash(tuple(sorted(self.data.items())))
         data_tuple = tuple((k, tuple(v)) for k, v in sorted(self.data.items()))
@@ -1143,7 +1143,7 @@ class RawState(PyBulletState):
         """Given an assertion and an image, queries a VLM and returns whether
         the assertion is true or false."""
         bbox, objs = image
-        return VLMQuery(assertion, bbox, objs)
+        return VLMQuery(assertion, bbox, list(objs))
 
     def generate_previous_option_message(self) -> str:
         """Generate the message for the previous option."""
@@ -1290,7 +1290,7 @@ class RawState(PyBulletState):
         dict_str += "}"
         return dict_str
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         # Compare the data and simulator_state
         assert isinstance(other, RawState)
 
@@ -1304,7 +1304,7 @@ class RawState(PyBulletState):
 
         return self.simulator_state == other.simulator_state
 
-    def label_all_objects(self):
+    def label_all_objects(self) -> None:
         state_ip = ImagePatch(self)
         # state_ip.cropped_image_in_PIL.save(f"images/obs_before_label_all.png")
         # labels = [obj.id for obj in self.obj_mask_dict.keys()]
@@ -1685,6 +1685,7 @@ def option_policy_to_policy(
         noop_terminate = False
         if CFG.noop_option_terminate_on_atom_change and cur_option.name == "NoOp":
             assert abstract_function is not None
+            assert last_state is not None
             cur_atoms = abstract_function(state)
             prev_atoms = abstract_function(last_state)
             if cur_atoms != prev_atoms:
@@ -4064,7 +4065,7 @@ def save_images_parallel(outfile_prefix: str, video: Video) -> None:
     os.makedirs(outdir, exist_ok=True)
     width = len(str(len(video)))
 
-    def _write_frame(i, image):
+    def _write_frame(i: int, image: Any) -> None:
         image_number = str(i).zfill(width)
         outfile = outfile_prefix + f"_image_{image_number}.png"
         outpath = os.path.join(outdir, outfile)
@@ -5124,7 +5125,7 @@ def get_base_supporter_predicates(
 
     # Use a worklist to process predicates in a breadth-first manner.
     predicates_to_process: List[Predicate] = list(
-        root_predicate.auxiliary_predicates)
+        root_predicate.auxiliary_predicates or [])
     processed_predicates: Set[Predicate] = {root_predicate}
 
     while predicates_to_process:
@@ -5136,7 +5137,7 @@ def get_base_supporter_predicates(
 
         # If the predicate is derived, add its auxiliaries to the worklist.
         if isinstance(pred, DerivedPredicate):
-            predicates_to_process.extend(pred.auxiliary_predicates)
+            predicates_to_process.extend(pred.auxiliary_predicates or [])
         # If it's a primitive predicate, we've found a base supporter.
         else:
             base_predicates.add(pred)
@@ -5146,6 +5147,6 @@ def get_base_supporter_predicates(
 
 class PredicateEvaluationError(Exception):
 
-    def __init__(self, message, pred):
+    def __init__(self, message: str, pred: Any) -> None:
         super().__init__(message)
         self.pred = pred

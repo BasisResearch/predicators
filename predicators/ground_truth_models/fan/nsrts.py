@@ -67,8 +67,10 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         nsrts = set()
 
         # Helper function to create fan/switch toggle NSRTs
-        def _make_fan_toggle_nsrt(name: str, start_predicate, add_predicate,
-                                  delete_predicate, selected_option):
+        def _make_fan_toggle_nsrt(name: str, start_predicate: Predicate,
+                                  add_predicate: Predicate,
+                                  delete_predicate: Predicate,
+                                  selected_option: ParameterizedOption) -> NSRT:
             robot = Variable("?robot", robot_type)
             if CFG.fan_known_controls_relation:
                 controlled_obj = Variable("?fan", fan_type)
@@ -76,13 +78,13 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                 controlled_obj = Variable("?switch", switch_type)
             parameters = [robot, controlled_obj]
             option_vars = [robot, controlled_obj]
-            preconditions = {
+            preconditions: Set[LiftedAtom] = {
                 LiftedAtom(start_predicate, [controlled_obj]),
             }
-            add_effects = {
+            add_effects: Set[LiftedAtom] = {
                 LiftedAtom(add_predicate, [controlled_obj]),
             }
-            delete_effects = {
+            delete_effects: Set[LiftedAtom] = {
                 LiftedAtom(delete_predicate, [controlled_obj]),
             }
             return NSRT(name,
@@ -93,6 +95,7 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         if CFG.fan_known_controls_relation:
             if CFG.fan_combine_switch_on_off:
                 # Combined switch option for both on/off
+                assert switch_option is not None
                 nsrts.add(
                     _make_fan_toggle_nsrt("TurnFanOn", FanOff, FanOn, FanOff,
                                           switch_option))
@@ -101,6 +104,8 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                                           switch_option))
             else:
                 # Separate switch options
+                assert switch_on_option is not None
+                assert switch_off_option is not None
                 nsrts.add(
                     _make_fan_toggle_nsrt("TurnFanOn", FanOff, FanOn, FanOff,
                                           switch_on_option))
@@ -110,6 +115,7 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         else:
             if CFG.fan_combine_switch_on_off:
                 # Combined switch option for both on/off
+                assert switch_option is not None
                 nsrts.add(
                     _make_fan_toggle_nsrt("TurnSwitchOn", SwitchOff, SwitchOn,
                                           SwitchOff, switch_option))
@@ -118,6 +124,8 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                                           SwitchOn, switch_option))
             else:
                 # Separate switch options
+                assert switch_on_option is not None
+                assert switch_off_option is not None
                 nsrts.add(
                     _make_fan_toggle_nsrt("TurnSwitchOn", SwitchOff, SwitchOn,
                                           SwitchOff, switch_on_option))
@@ -129,16 +137,17 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         robot = Variable("?robot", robot_type)
         parameters = [robot]
         option_vars = [robot]
-        preconditions = set()
-        add_effects = set()
-        delete_effects = set()
+        preconditions: Set[LiftedAtom] = set()
+        add_effects: Set[LiftedAtom] = set()
+        delete_effects: Set[LiftedAtom] = set()
         noop_nsrt = NSRT("NoOp", parameters, preconditions, add_effects,
                          delete_effects, set(), NoOp, option_vars,
                          null_sampler)
         nsrts.add(noop_nsrt)
 
         # Helper function to create movement NSRTs that use appropriate switch options
-        def _make_movement_nsrt(name: str, option_to_use):
+        def _make_movement_nsrt(name: str,
+                                option_to_use: ParameterizedOption) -> NSRT:
             robot = Variable("?robot", robot_type)
             pos1 = Variable("?pos1", position_type)
             pos2 = Variable("?pos2", position_type)
@@ -166,12 +175,14 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         # Movement NSRTs using appropriate switch options
         if CFG.fan_combine_switch_on_off:
             # Use combined switch option
+            assert switch_option is not None
             nsrts.add(_make_movement_nsrt("MoveRight", switch_option))
             nsrts.add(_make_movement_nsrt("MoveLeft", switch_option))
             nsrts.add(_make_movement_nsrt("MoveDown", switch_option))
             nsrts.add(_make_movement_nsrt("MoveUp", switch_option))
         else:
             # Use separate switch options - movement typically requires turning fan on
+            assert switch_on_option is not None
             nsrts.add(_make_movement_nsrt("MoveRight", switch_on_option))
             nsrts.add(_make_movement_nsrt("MoveLeft", switch_on_option))
             nsrts.add(_make_movement_nsrt("MoveDown", switch_on_option))

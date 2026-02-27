@@ -18,7 +18,7 @@ python predicators/main.py --env burger --approach vlm_open_loop --seed 0 \
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Sequence, Set
+from typing import Callable, Dict, List, Optional, Sequence, Set
 
 import numpy as np
 import PIL
@@ -29,6 +29,7 @@ from predicators.approaches import ApproachFailure
 from predicators.approaches.bilevel_planning_approach import \
     BilevelPlanningApproach
 from predicators.nsrt_learning.segmentation import segment_trajectory
+from predicators.pretrained_model_interface import PretrainedLargeModel
 from predicators.settings import CFG
 from predicators.structs import Action, Box, Dataset, LowLevelTrajectory, \
     ParameterizedOption, Predicate, Segment, State, Task, Type, _Option
@@ -41,6 +42,8 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
     that has rendering, and our current envs that have this are burger
     and kitchen, which are slow/untestable on GitHub remote...
     """
+
+    _vlm: Optional[PretrainedLargeModel]
 
     def __init__(self, initial_predicates: Set[Predicate],
                  initial_options: Set[ParameterizedOption], types: Set[Type],
@@ -232,6 +235,7 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
         return _policy
 
     def _query_vlm_for_option_plan(self, task: Task) -> Sequence[_Option]:
+        assert self._vlm is not None
         init_state = task.init
         assert init_state.simulator_state is not None
         if not CFG.vlm_open_loop_no_image:
