@@ -67,21 +67,25 @@ def build_option_helpers(env_name: str) -> Dict[str, Any]:
     # -- PyBullet helpers (only for pybullet envs) -------------------------
     if env_name.startswith("pybullet"):
 
-        def _bound_move_to_pose(name,
-                                types,
-                                params_space,
-                                pose_fn,
-                                finger_status="closed",
-                                tol=1e-4):
+        def _bound_move_to_pose(
+                name: str,
+                types: Sequence[Type],
+                params_space: Box,
+                pose_fn: Callable[[State, Sequence[Object], Array],
+                                  Tuple[float, float, float, float, float,
+                                        float]],
+                finger_status: str = "closed",
+                tol: float = 1e-4) -> ParameterizedOption:
             return _make_move_to_pose_option(name, types, params_space,
                                              pose_fn, finger_status, tol,
                                              env_name)
 
-        def _bound_finger(name,
-                          types,
-                          params_space,
-                          mode="open",
-                          grasp_tol=None):
+        def _bound_finger(name: str,
+                          types: Sequence[Type],
+                          params_space: Box,
+                          mode: str = "open",
+                          grasp_tol: Optional[float] = None
+                          ) -> ParameterizedOption:
             return _make_finger_option(name, types, params_space, mode,
                                        grasp_tol, env_name)
 
@@ -112,7 +116,7 @@ def _chain_options(
 
 
 @lru_cache(maxsize=1)
-def _get_pybullet_env_cls(env_name: Optional[str] = None):
+def _get_pybullet_env_cls(env_name: Optional[str] = None) -> Any:
     """Look up the concrete PyBulletEnv subclass by name.
 
     Args:
@@ -134,7 +138,7 @@ def _get_pybullet_env_cls(env_name: Optional[str] = None):
 
 
 @lru_cache(maxsize=1)
-def _get_robot(env_name: Optional[str] = None):
+def _get_robot(env_name: Optional[str] = None) -> Any:
     """Lazy-load the pybullet robot singleton for the given env."""
     env_cls = _get_pybullet_env_cls(env_name)
     _, robot, _ = env_cls.initialize_pybullet(using_gui=False)
@@ -175,7 +179,8 @@ def _make_move_to_pose_option(
 
     robot = _get_robot(env_name)
 
-    def _get_current_and_target(state, objects, params):
+    def _get_current_and_target(state: State, objects: Sequence[Object],
+                               params: Array) -> Tuple[Pose, Pose, str]:
         # Current pose from state
         robot_obj = None
         for obj in objects:
@@ -255,7 +260,8 @@ def _make_finger_option(
         return env_cls._fingers_state_to_joint(robot,
                                                state.get(robot_obj, "fingers"))
 
-    def _get_current_and_target(state, objects, params):
+    def _get_current_and_target(state: State, objects: Sequence[Object],
+                               params: Array) -> Tuple[float, float]:
         current = _get_current_fingers(state)
         if mode == "open":
             target = robot.open_fingers - 0.01

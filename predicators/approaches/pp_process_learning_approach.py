@@ -13,8 +13,8 @@ from predicators.nsrt_learning.process_learning_main import \
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, Dataset, ExogenousProcess, \
-    GroundAtomTrajectory, LowLevelTrajectory, ParameterizedOption, Predicate, \
-    Task, Type
+    GroundAtomTrajectory, LiftedAtom, LowLevelTrajectory, ParameterizedOption, \
+    Predicate, Task, Type
 
 
 class ProcessLearningAndPlanningApproach(

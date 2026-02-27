@@ -60,7 +60,7 @@ def test_case(name: str, validator: FileAccessValidator, path: str,
             return False
 
 
-def run_red_team_tests():
+def run_red_team_tests() -> bool:
     """Run comprehensive red-teaming tests."""
     print(
         f"\n{Colors.BOLD}{Colors.BLUE}=== FILE ACCESS SECURITY RED-TEAMING ==={Colors.ENDC}\n"
@@ -282,7 +282,7 @@ def run_red_team_tests():
         return passed == total
 
 
-def demonstrate_attacks():
+def demonstrate_attacks() -> None:
     """Demonstrate example attack scenarios."""
     print(
         f"\n{Colors.BOLD}{Colors.YELLOW}=== EXAMPLE ATTACK SCENARIOS ==={Colors.ENDC}\n"

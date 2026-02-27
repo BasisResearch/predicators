@@ -7,6 +7,7 @@ iterations.
 """
 
 import os
+from typing import Any, Callable, List, Optional, Tuple
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -100,7 +101,7 @@ PLOT_ENVS = [
 #################### Should not need to change below here #####################
 
 
-def _convert_cycle_to_numeric(cycle_str):
+def _convert_cycle_to_numeric(cycle_str: Any) -> int:
     """Convert cycle string to numeric value, with None -> -1 for sorting."""
     if cycle_str == "None" or cycle_str is None:
         return -1
@@ -110,10 +111,12 @@ def _convert_cycle_to_numeric(cycle_str):
         return -1
 
 
-def _get_learning_curves_for_approach(df,
-                                      approach_selector,
-                                      env_selector,
-                                      max_iteration=None):
+def _get_learning_curves_for_approach(
+        df: Any,
+        approach_selector: Callable[..., Any],
+        env_selector: Callable[..., Any],
+        max_iteration: Optional[int] = None
+) -> Tuple[List[int], List[float], List[float]]:
     """Get learning curves for a specific approach and environment.
 
     For each seed, forward-fills missing iterations with the previous best performance.
@@ -195,7 +198,11 @@ def _get_learning_curves_for_approach(df,
     return x_values, y_means, y_stds
 
 
-def _get_final_performance_for_approach(df, approach_selector, env_selector):
+def _get_final_performance_for_approach(
+        df: Any,
+        approach_selector: Callable[..., Any],
+        env_selector: Callable[..., Any]
+) -> Tuple[Optional[float], Optional[float]]:
     """Get final performance (mean and std) for approaches that don't do online
     learning.
 
@@ -269,7 +276,7 @@ def _main() -> None:
                            color=color)
 
                 # Add error band around the horizontal line
-                if std > 0:
+                if std is not None and std > 0:
                     ax.fill_between([0, global_max_x],
                                     mean - std,
                                     mean + std,

@@ -334,8 +334,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
         grounded = []
         for option, objs, params in parsed:
             try:
-                params_arr = ([] if len(params) == 0 else np.array(
-                    params, dtype=np.float32))
+                params_arr = np.array(params, dtype=np.float32)
                 ground_opt = option.ground(objs, params_arr)
                 grounded.append(ground_opt)
             except Exception as e:

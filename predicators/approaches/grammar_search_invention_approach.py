@@ -38,21 +38,23 @@ def _create_grammar(dataset: Dataset,
                     given_predicates: Set[Predicate]) -> _PredicateGrammar:
     # We start with considering various ways to split either single or
     # two feature values across our dataset.
-    grammar = None
+    grammar: Optional[_PredicateGrammar] = None
     if CFG.grammar_search_grammar_use_single_feature:
-        grammar: _PredicateGrammar = _SingleFeatureInequalitiesPredicateGrammar(
-            dataset)
+        grammar = _SingleFeatureInequalitiesPredicateGrammar(dataset)
     if CFG.grammar_search_grammar_use_diff_features:
         diff_grammar = _FeatureDiffInequalitiesPredicateGrammar(dataset)
-        grammar = _ChainPredicateGrammar([grammar, diff_grammar],
-                                         alternate=True)
+        grammar = _ChainPredicateGrammar(
+            ([grammar] if grammar is not None else []) + [diff_grammar],
+            alternate=True)
     if CFG.grammar_search_grammar_use_euclidean_dist:
         for (t1_f1, t1_f2, t2_f1,
              t2_f2) in CFG.grammar_search_euclidean_feature_names:
             euclidean_dist_grammar = _EuclideanDistancePredicateGrammar(
                 dataset, t1_f1, t2_f1, t1_f2, t2_f2)
-            grammar = _ChainPredicateGrammar([grammar, euclidean_dist_grammar],
-                                             alternate=True)
+            grammar = _ChainPredicateGrammar(
+                ([grammar] if grammar is not None else []) +
+                [euclidean_dist_grammar],
+                alternate=True)
     # We next optionally add in the given predicates because we want to allow
     # negated and quantified versions of the given predicates, in
     # addition to negated and quantified versions of new predicates.
@@ -60,7 +62,7 @@ def _create_grammar(dataset: Dataset,
     # given predicates, then the single feature inequality ones.
     if CFG.grammar_search_grammar_includes_givens:
         given_grammar = _GivenPredicateGrammar(given_predicates)
-        if grammar:
+        if grammar is not None:
             grammar = _ChainPredicateGrammar([given_grammar, grammar])
         else:
             grammar = given_grammar
@@ -68,10 +70,12 @@ def _create_grammar(dataset: Dataset,
     # For each predicate enumerated by the grammar, we also
     # enumerate the negation of that predicate.
     if CFG.grammar_search_grammar_includes_negation:
+        assert grammar is not None
         grammar = _NegationPredicateGrammarWrapper(grammar)
     # For each predicate enumerated, we also optionally enumerate foralls
     # for that predicate, along with appropriate negations.
     if CFG.grammar_search_grammar_includes_foralls:
+        assert grammar is not None
         grammar = _ForallPredicateGrammarWrapper(grammar)
     # Prune proposed predicates by checking if they are equivalent to
     # any already-generated predicates with respect to the dataset.
@@ -83,6 +87,7 @@ def _create_grammar(dataset: Dataset,
     # predicates.
     if not CFG.grammar_search_use_handcoded_debug_grammar and \
         CFG.grammar_search_prune_redundant_preds:
+        assert grammar is not None
         grammar = _PrunedGrammar(dataset, grammar)
     # We don't actually need to enumerate the given predicates
     # because we already have them in the initial predicate set,
@@ -90,11 +95,14 @@ def _create_grammar(dataset: Dataset,
     # But remember that we do want to enumerate their negations
     # and foralls, which is why they're included originally.
     if CFG.grammar_search_grammar_use_skip_grammar:
+        assert grammar is not None
         grammar = _SkipGrammar(grammar, given_predicates)
     # If we're using the DebugGrammar, filter out all other predicates.
     if CFG.grammar_search_use_handcoded_debug_grammar:
+        assert grammar is not None
         grammar = _DebugGrammar(grammar)
     # We're done! Return the final grammar.
+    assert grammar is not None
     return grammar
 
 
@@ -1114,7 +1122,7 @@ class GrammarSearchInventionApproach(NSRTLearningApproach):
                 score_function = create_score_function(
                     CFG.grammar_search_score_function,
                     self._initial_predicates, atom_dataset, candidates,
-                    self._train_tasks)
+                    self._train_tasks, None)
                 self._learned_predicates = \
                     self._select_predicates_by_score_hillclimbing(
                     candidates, score_function, self._initial_predicates,

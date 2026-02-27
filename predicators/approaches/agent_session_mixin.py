@@ -112,7 +112,7 @@ class AgentSessionMixin:
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                import nest_asyncio
+                import nest_asyncio  # type: ignore[import-not-found]
                 nest_asyncio.apply()
                 return loop.run_until_complete(
                     self._agent_session.query(message))

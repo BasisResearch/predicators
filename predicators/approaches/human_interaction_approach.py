@@ -13,8 +13,8 @@ from predicators.approaches.process_planning_approach import \
 from predicators.ground_truth_models import get_gt_processes
 from predicators.settings import CFG
 from predicators.structs import NSRT, Action, CausalProcess, \
-    EndogenousProcess, GroundAtom, ParameterizedOption, Predicate, State, \
-    Task, Type, _GroundEndogenousProcess, _Option
+    EndogenousProcess, GroundAtom, Object, ParameterizedOption, Predicate, \
+    State, Task, Type, _GroundEndogenousProcess, _Option
 
 
 class HumanInteractionApproach(BilevelProcessPlanningApproach):
@@ -131,8 +131,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
         # Convert to grounded options
         for option_tuple in parsed_option_plan:
             # Convert empty params to list to avoid numpy boolean evaluation issues
-            params = [] if len(option_tuple[2]) == 0 else np.array(
-                option_tuple[2])
+            params = np.array(option_tuple[2], dtype=np.float32)
             option_plan.append(option_tuple[0].ground(option_tuple[1], params))
 
         return option_plan
@@ -228,7 +227,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
         Returns:
             List of selected objects matching the skill's parameters
         """
-        selected_objects = []
+        selected_objects: List[Object] = []
 
         # For each parameter in the skill
         for param_idx, param in enumerate(parent_skill.option_vars):
@@ -279,6 +278,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
                             "Invalid input. Please enter a number or 'q' to quit."
                         )
 
+            assert selected_obj is not None
             selected_objects.append(selected_obj)
 
         return selected_objects

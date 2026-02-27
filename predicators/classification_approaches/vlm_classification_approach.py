@@ -111,7 +111,7 @@ class VLMClassificationApproach:
 
         # --- Prepare the images ---
         # Create a directory to save the images.
-        imgs_dir = os.path.join(self.log_dir, "imgs")
+        imgs_dir = os.path.join(self.log_dir or "", "imgs")
 
         # Save for later inspection
         support_videos = [
@@ -175,7 +175,7 @@ class VLMClassificationApproach:
 
     def _save_text_to_logdir(self, response_text: str, fname: str) -> None:
         """Save VLM response to file for debugging purposes."""
-        response_path = os.path.join(self.log_dir, fname)
+        response_path = os.path.join(self.log_dir or "", fname)
         os.makedirs(os.path.dirname(response_path), exist_ok=True)
         with open(response_path, "w") as f:
             f.write(response_text)
