@@ -1050,7 +1050,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         return table_id
 
     @classmethod
-    def _add_pybullet_cord(cls, physics_client_id: int) -> List[int]:
+    def _add_pybullet_cord(cls, physics_client_id: int) -> Tuple[List[int], List[int]]:
         """First segment connects the machine, last connects to the wall."""
         # Rope parameters
         base_position = [cls.cord_start_x, cls.cord_start_y, cls.cord_start_z]
@@ -1071,11 +1071,11 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
             # Set color: Red for the first link, Blue for the last link, and
             # Black for others
             if i == 0:
-                color = [0, 0, 0, 1]  # Black
+                color = [0.0, 0.0, 0.0, 1.0]  # Black
             elif i == cls.num_cord_links - 1:
-                color = [1, 0, 0, 1]  # Red
+                color = [1.0, 0.0, 0.0, 1.0]  # Red
             else:
-                color = [0.5, 0, 0, 1]  # Black
+                color = [0.5, 0.0, 0.0, 1.0]  # Black
 
             # Create collision and visual shapes
             if i == cls.num_cord_links - 1:
@@ -1267,7 +1267,7 @@ if __name__ == "__main__":
     CFG.pybullet_sim_steps_per_action = 1
     env = PyBulletCoffeeEnv(use_gui=True)
     rng = np.random.default_rng(CFG.seed)
-    task = env._make_tasks(1, rng)[0]
+    task = env._make_tasks(1, rng)[0]  # type: ignore[attr-defined]
     env._reset_state(task.init)
 
     while True:

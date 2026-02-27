@@ -81,7 +81,7 @@ class PyBulletCircuitGroundTruthOptionFactory(GroundTruthOptionFactory):
             target = pybullet_robot.closed_fingers
             return current, target
 
-        options = set()
+        options: Set[ParameterizedOption] = set()
         # PickWire
         option_type = [robot_type, wire_type]
         params_space = Box(0, 1, (0, ))

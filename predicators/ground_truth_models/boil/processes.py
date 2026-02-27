@@ -1,7 +1,7 @@
 """Ground-truth processes for the boil environments."""
 import logging
 from pprint import pformat
-from typing import Dict, Set
+from typing import Dict, Set, cast
 
 import numpy as np
 import torch
@@ -102,8 +102,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             LiftedAtom(HandEmpty, [robot]),
             LiftedAtom(JugAtFaucet, [jug, faucet]),
         }
-        delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(4.0),
-                                                   sigma=torch.tensor(0.1))
+        delay_distribution: DelayDistribution = DiscreteGaussianDelay(
+            mu=torch.tensor(4.0), sigma=torch.tensor(0.1))
         pick_jug_from_faucet_process = EndogenousProcess(
             "PickJugFromFaucet", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
@@ -342,7 +342,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         parameters = [robot]
         option_vars = [robot]
         option = NoOp
-        delay_distribution: DelayDistribution = ConstantDelay(1)
+        delay_distribution = ConstantDelay(1)
         noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
                                          set(), set(),
                                          set(), delay_distribution,

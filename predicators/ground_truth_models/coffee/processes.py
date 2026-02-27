@@ -1,6 +1,6 @@
 """Ground-truth processes for the coffee environments."""
 
-from typing import Dict, Set
+from typing import Dict, Set, cast
 
 import numpy as np
 import torch
@@ -77,8 +77,8 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
                 LiftedAtom(PluggedIn, [plug]),
             }
             delete_effects: Set[LiftedAtom] = set()
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
-                                                       sigma=torch.tensor(0.1))
+            delay_distribution: DelayDistribution = DiscreteGaussianDelay(
+                mu=torch.tensor(2.0), sigma=torch.tensor(0.1))
             plug_in_process = EndogenousProcess("PlugIn",
                                                 parameters, condition_at_start,
                                                 set(), set(), add_effects,
@@ -330,7 +330,7 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
         parameters = [robot]
         option_vars = [robot]
         option = NoOp
-        delay_distribution: DelayDistribution = ConstantDelay(1)
+        delay_distribution = ConstantDelay(1)
         ignore_effects = {NotAboveCup, JugAboveCup}
         noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
                                          set(), set(),

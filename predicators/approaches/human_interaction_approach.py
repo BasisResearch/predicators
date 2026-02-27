@@ -175,6 +175,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
         lift_endo_processes = list(lift_processes.keys())
         print("\nAVAILABLE SKILLS:")
         for i, parent in enumerate(lift_endo_processes, 1):
+            assert isinstance(parent, EndogenousProcess)
             param_names = [p.name for p in parent.option_vars]
             print(f"  {i}. {parent.option.name}({', '.join(param_names)})")
 
@@ -200,7 +201,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
                 print("Invalid input. Please enter a number or 'q' to quit.")
 
         # Step 2: Prompt for arguments one-by-one
-        applicable_for_skill = lift_processes[selected_parent]
+        applicable_for_skill = lift_processes[selected_parent]  # type: ignore[unreachable]
         selected_objects = self._prompt_for_arguments(selected_parent,
                                                       applicable_for_skill,
                                                       state)

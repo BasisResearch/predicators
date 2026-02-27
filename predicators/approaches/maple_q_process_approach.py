@@ -101,7 +101,7 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
             self._action_space,
             self._train_tasks,
             # Endogenous processes are action-like
-            self._get_current_endogenous_processes(),
+            self._get_current_endogenous_processes(),  # type: ignore[arg-type]
             self._option_model,
             max_steps_before_termination=max_steps,
             maple_q_function=self._q_function)
@@ -120,7 +120,7 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
 
     def _learn_processes(self, trajectories: List[LowLevelTrajectory],
                          online_learning_cycle: Optional[int],
-                         annotations: Optional[List[Any]]) -> None:
+                         annotations: Optional[List[Any]] = None) -> None:
         # # Learn endogenous/exogenous processes via superclass.
         # super()._learn_processes(trajectories, online_learning_cycle,
         #                          annotations)
@@ -129,10 +129,10 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
         all_objects = {o for t in self._train_tasks for o in t.init}
         for process in self._get_current_endogenous_processes():
             all_ground_processes.update(
-                utils.all_ground_nsrts(process, all_objects))
+                utils.all_ground_nsrts(process, all_objects))  # type: ignore[arg-type]
         goals = [t.goal for t in self._train_tasks]
         self._q_function.set_grounding(all_objects, goals,
-                                       all_ground_processes)
+                                       all_ground_processes)  # type: ignore[arg-type]
         # Refresh segmentation by option changes.
         prev_segmenter = CFG.segmenter
         try:

@@ -424,7 +424,7 @@ class CoffeeGroundTruthOptionFactory(GroundTruthOptionFactory):
             tilt = state.get(robot, "tilt")
             jug_x = state.get(jug, "x")
             jug_y = state.get(jug, "y")
-            jug_z = cls.env_cls._get_jug_z(state, robot, jug)
+            jug_z = cls._get_jug_z(state, robot, jug)
             jug_pos = (jug_x, jug_y, jug_z)
             pour_x, pour_y, _ = pour_pos = cls._get_pour_position(state, cup)
             # If we're close enough to the pour position, pour.
@@ -751,6 +751,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
                     finger_delta = -cls._finger_action_nudge_magnitude
 
                 # nudge finger to the direction of the current state to counter
+                assert isinstance(state, utils.PyBulletState)
                 joint_positions = state.joint_positions.copy()
                 finger_position = joint_positions[
                     pybullet_robot.left_finger_joint_idx]

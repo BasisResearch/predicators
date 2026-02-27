@@ -121,8 +121,8 @@ class ImagePatch:
 
         image_tensor: th.Tensor
 
-        if isinstance(img, Image.Image):
-            image_tensor = transforms.ToTensor()(img)
+        if isinstance(img, Image.Image):  # type: ignore[unreachable]
+            image_tensor = transforms.ToTensor()(img)  # type: ignore[unreachable]
         elif isinstance(img, np.ndarray):
             # If img is shape (H, W, C) or (C, H, W), adjust as needed
             if img.ndim == 3 and img.shape[-1] in (1, 3, 4):

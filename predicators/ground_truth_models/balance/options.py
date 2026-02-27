@@ -1,6 +1,7 @@
 """Ground-truth options for the (non-pybullet) blocks environment."""
 
 from functools import lru_cache
+import logging
 from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
 
 import numpy as np
@@ -200,13 +201,8 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _TurnMachineOn_initiable(state: State, memory: Dict,
                                      objects: Sequence[Object],
                                      params: Array) -> bool:
+            del memory, params, objects, state  # unused
             return True
-            del memory, params  # unused
-            plate1, plate2 = objects
-            robot = state.get_objects(robot_type)[0]
-            # robot = [r for r in state if r.type.name == "robot"][0]
-            return GripperOpen.holds(state, [robot]) and\
-                    Balanced.holds(state, [plate1, plate2])
 
         def _TurnMachineOn_terminal(state: State, memory: Dict,
                                     objects: Sequence[Object],
@@ -355,6 +351,7 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
                          dwrist: float = 0.0,
                          finger_status: str = "open") -> Action:
         # Determine orientations.
+        assert isinstance(state, utils.PyBulletState)
         robots = [r for r in state if r.type.name == "robot"]
         assert len(robots) == 1
         robot = robots[0]
@@ -378,7 +375,6 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
         home_orn = PyBulletBalanceEnv.get_robot_ee_home_orn()
         current_pose = Pose(robot_pos, home_orn)
         target_pose = Pose(target_pos, home_orn)
-        assert isinstance(state, utils.PyBulletState)
 
         return get_move_end_effector_to_pose_action(
             pybullet_robot,

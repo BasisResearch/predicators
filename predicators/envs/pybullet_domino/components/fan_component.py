@@ -359,6 +359,7 @@ class FanComponent(DominoEnvComponent):
 
     def _position_fans_on_sides(self) -> None:
         """Position all PyBullet fan bodies on their respective sides."""
+        assert self._physics_client_id is not None
         left_coords = np.linspace(self.fan_y_lb, self.fan_y_ub,
                                   self.num_left_fans)
         right_coords = np.linspace(self.fan_y_lb, self.fan_y_ub,

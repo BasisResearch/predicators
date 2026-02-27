@@ -23,13 +23,15 @@ from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
     Predicate, State, Type
 
 
-def create_water_body(size_z,
-                      size_x=0.2,
-                      size_y=0.2,
-                      base_position=(0, 0, 0),
-                      color=[0, 0, 1, 0.8],
-                      physics_client_id=None):
+def create_water_body(size_z: float,
+                      size_x: float = 0.2,
+                      size_y: float = 0.2,
+                      base_position: Any = (0, 0, 0),
+                      color: Any = None,
+                      physics_client_id: Optional[int] = None) -> int:
     """Create a semi-transparent 'water' box in PyBullet."""
+    if color is None:
+        color = [0, 0, 1, 0.8]
     water_visual = p.createVisualShape(
         p.GEOM_BOX,
         halfExtents=[size_x / 2, size_y / 2, size_z / 2],
@@ -199,11 +201,12 @@ class PyBulletFloatEnv(PyBulletEnv):
         block_ids = []
         for _ in range(3):
             body_id = create_pybullet_block(
-                color=[1, 1, 1, 1],
-                half_extents=[cls.block_size / 2] * 3,
+                color=(1, 1, 1, 1),
+                half_extents=(cls.block_size / 2, cls.block_size / 2,
+                               cls.block_size / 2),
                 mass=cls.block_mass,
                 friction=cls.block_friction,
-                orientation=[0, 0, 0, 1],
+                orientation=(0, 0, 0, 1),
                 physics_client_id=physics_client_id)
             block_ids.append(body_id)
         bodies["block_ids"] = block_ids

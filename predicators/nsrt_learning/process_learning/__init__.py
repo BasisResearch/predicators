@@ -25,3 +25,4 @@ def learn_exogenous_processes(trajectories: List[LowLevelTrajectory],
         if not cls.__abstractmethods__ and \
             cls.get_name() == CFG.exogenous_process_learner:
             learner = cls(...)
+    raise NotImplementedError

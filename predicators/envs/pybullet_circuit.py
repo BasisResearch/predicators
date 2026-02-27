@@ -11,7 +11,7 @@ python predicators/main.py --approach oracle --env pybullet_circuit \
 --terminate_on_goal_reached False --sesame_check_expected_atoms False
 """
 
-from typing import Any, ClassVar, Dict, List, Sequence, Set, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -114,12 +114,11 @@ class PyBulletCircuitEnv(PyBulletEnv):
         self._light = Object("light", self._light_type)
 
         # C battery objects (only used when circuit_battery_in_box is False)
+        self._c_battery1: Optional[Object] = None
+        self._c_battery2: Optional[Object] = None
         if not CFG.circuit_battery_in_box:
             self._c_battery1 = Object("c_battery1", self._c_battery_type)
             self._c_battery2 = Object("c_battery2", self._c_battery_type)
-        else:
-            self._c_battery1 = None
-            self._c_battery2 = None
 
         super().__init__(use_gui)
 
@@ -272,6 +271,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
             joint_info = p.getJointInfo(obj_id, joint_index)
             if joint_info[1].decode('utf-8') == joint_name:
                 return joint_index
+        return -1
 
     def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
         """Store references to PyBullet IDs for environment assets."""
@@ -303,7 +303,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
             return int(self._is_switch_on())
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
-    def _create_task_specific_objects(self, state):
+    def _create_task_specific_objects(self, state: State) -> None:
         pass
 
     def _reset_custom_env_state(self, state: State) -> None:
@@ -604,14 +604,14 @@ class PyBulletCircuitEnv(PyBulletEnv):
         w2_connected_to_battery = False
         for atom in atoms:
             if atom.predicate == "ConnectedToLight":
-                if atom.args[0] == wire1 and atom.args[1] == objects[1]:
+                if atom.objects[0] == wire1 and atom.objects[1] == objects[1]:
                     w1_connected_to_light = True
-                elif atom.args[0] == wire2 and atom.args[1] == objects[1]:
+                elif atom.objects[0] == wire2 and atom.objects[1] == objects[1]:
                     w2_connected_to_light = True
             elif atom.predicate == "ConnectedToBattery":
-                if atom.args[0] == wire1 and atom.args[1] == objects[0]:
+                if atom.objects[0] == wire1 and atom.objects[1] == objects[0]:
                     w1_connected_to_battery = True
-                elif atom.args[0] == wire2 and atom.args[1] == objects[0]:
+                elif atom.objects[0] == wire2 and atom.objects[1] == objects[0]:
                     w2_connected_to_battery = True
         return w1_connected_to_light and w1_connected_to_battery and \
                 w2_connected_to_light and w2_connected_to_battery
@@ -634,7 +634,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
                 rgbaColor=self._bulb_off_color,
                 physicsClientId=self._physics_client_id)
 
-    def _is_bulb_on(self, light_id) -> bool:
+    def _is_bulb_on(self, light_id: int) -> bool:
         """Check if the bulb is on."""
         color = p.getVisualShapeData(
             light_id, physicsClientId=self._physics_client_id)[3][-1]

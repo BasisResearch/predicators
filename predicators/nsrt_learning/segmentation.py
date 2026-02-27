@@ -171,7 +171,7 @@ def _segment_with_oracle(ll_traj: LowLevelTrajectory,
     }
     atoms = atom_seq[0]
     all_expected_next_atoms = [
-        utils.apply_operator(n, atoms)
+        utils.apply_operator(n, atoms)  # type: ignore[type-var]
         for n in utils.get_applicable_operators(ground_nsrts, atoms)
     ]
 
@@ -187,7 +187,8 @@ def _segment_with_oracle(ll_traj: LowLevelTrajectory,
             applicable_nsrts = utils.get_applicable_operators(
                 ground_nsrts, next_atoms)
             all_expected_next_atoms = [
-                utils.apply_operator(n, next_atoms) for n in applicable_nsrts
+                utils.apply_operator(n, next_atoms)  # type: ignore[type-var]
+                for n in applicable_nsrts
             ]
             return True
         # Not yet time to segment.

@@ -28,7 +28,7 @@ from predicators.settings import CFG
 from predicators.structs import NSRT, AbstractPolicy, CausalProcess, \
     DefaultState, DummyOption, GroundAtom, Metrics, Object, OptionSpec, \
     ParameterizedOption, Predicate, State, STRIPSOperator, Task, Type, \
-    _GroundCausalProcess, _GroundNSRT
+    _GroundCausalProcess, _GroundNSRT, _GroundSTRIPSOperator, _Option
 from predicators.utils import EnvironmentFailure, _TaskPlanningHeuristic
 
 _NOT_CAUSES_FAILURE = "NotCausesFailure"
@@ -305,7 +305,7 @@ def task_plan_grounding(
         ]
     else:
         reachable_nsrts = ground_nsrts
-    return reachable_nsrts, reachable_atoms
+    return reachable_nsrts, reachable_atoms  # type: ignore[return-value]
 
 
 def task_plan(
@@ -474,12 +474,12 @@ def _skeleton_generator(
             # Generate primitive successors.
             for nsrt in utils.get_applicable_operators(ground_nsrts,
                                                        node.atoms):
-                child_atoms = utils.apply_operator(nsrt, set(node.atoms))
+                child_atoms = utils.apply_operator(nsrt, set(node.atoms))  # type: ignore[type-var]
                 if use_visited_state_set:
                     frozen_atoms = frozenset(child_atoms)
                     if frozen_atoms in visited_atom_sets:
                         continue
-                child_skeleton = node.skeleton + [nsrt]
+                child_skeleton = node.skeleton + [nsrt]  # type: ignore[list-item]
                 child_skeleton_tup = tuple(child_skeleton)
                 if child_skeleton_tup in visited_skeletons:  # pragma: no cover
                     continue
@@ -932,7 +932,7 @@ def task_plan_with_option_plan_constraint(
                                           allow_noops=True)
     heuristic = utils.create_task_planning_heuristic(
         CFG.sesame_task_planning_heuristic, init_atoms, goal, ground_nsrts,
-        predicates, objects)
+        predicates, objects)  # type: ignore[type-var]
 
     def _check_goal(
             searchnode_state: Tuple[FrozenSet[GroundAtom], int]) -> bool:
@@ -950,25 +950,25 @@ def task_plan_with_option_plan_constraint(
 
         gt_param_option = option_plan[idx_into_traj][0]
         gt_objects = option_plan[idx_into_traj][1]
-        for applicable_nsrt in utils.get_applicable_operators(
+        for applicable_nsrt in utils.get_applicable_operators(  # type: ignore[type-var]
                 ground_nsrts, atoms):
             # NOTE: we check that the ParameterizedOptions are equal before
             # attempting to ground because otherwise, we might
             # get a parameter mismatch and trigger an AssertionError
             # during grounding.
-            if applicable_nsrt.option != gt_param_option:
+            if applicable_nsrt.option != gt_param_option:  # type: ignore[attr-defined]
                 continue
-            if applicable_nsrt.option_objs != gt_objects:
+            if applicable_nsrt.option_objs != gt_objects:  # type: ignore[attr-defined]
                 continue
             if atoms_seq is not None and not \
-                applicable_nsrt.preconditions.issubset(
+                applicable_nsrt.preconditions.issubset(  # type: ignore[attr-defined]
                     atoms_seq[idx_into_traj]):
                 continue
-            next_atoms = utils.apply_operator(applicable_nsrt, set(atoms))
+            next_atoms = utils.apply_operator(applicable_nsrt, set(atoms))  # type: ignore[type-var]
             # The returned cost is uniform because we don't
             # actually care about finding the shortest path;
             # just one that matches!
-            yield (applicable_nsrt, (frozenset(next_atoms), idx_into_traj + 1),
+            yield (applicable_nsrt, (frozenset(next_atoms), idx_into_traj + 1),  # type: ignore[misc]
                    1.0)
 
     init_atoms_frozen = frozenset(init_atoms)
@@ -1233,13 +1233,13 @@ def run_task_plan_once(
         assert task_planning_heuristic is not None
         heuristic = utils.create_task_planning_heuristic(
             task_planning_heuristic, init_atoms, goal, ground_nsrts, preds,
-            objects)
+            objects)  # type: ignore[type-var]
         duration = time.perf_counter() - start_time
         timeout -= duration
         plan, atoms_seq, metrics = next(
             task_plan(init_atoms,
                       goal,
-                      ground_nsrts,
+                      ground_nsrts,  # type: ignore[arg-type]
                       reachable_atoms,
                       heuristic,
                       seed,

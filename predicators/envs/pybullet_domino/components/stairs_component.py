@@ -106,6 +106,7 @@ class StairsComponent(DominoEnvComponent):
 
     def reset_state(self, state: State) -> None:
         """Create stairs under dominoes based on current state."""
+        assert self._physics_client_id is not None
         # Remove existing stairs
         for stair_id in self._stair_ids:
             if stair_id >= 0:

@@ -1115,9 +1115,9 @@ BoundingBox = namedtuple('BoundingBox', 'left lower right upper')
 
 @dataclass
 class RawState(PyBulletState):
-    state_image: PIL.Image.Image = None
+    state_image: PIL.Image.Image = None  # type: ignore[assignment]
     obj_mask_dict: Dict[Object, Mask] = field(default_factory=dict)
-    labeled_image: Optional[PIL.Image.Image] = None
+    labeled_image: Optional[PIL.Image.Image] = None  # type: ignore[assignment]
     option_history: Optional[List[str]] = None
     bbox_features: Dict[Object, np.ndarray] = field(
         default_factory=lambda: defaultdict(lambda: np.zeros(4)))
@@ -1227,7 +1227,7 @@ class RawState(PyBulletState):
         else:
             return self.data[obj][idx]
 
-    def dict_str(self,
+    def dict_str(self,  # type: ignore[override]
                  indent: int = 0,
                  object_features: bool = True,
                  use_object_id: bool = False,
@@ -1901,7 +1901,7 @@ def sample_applicable_ground_nsrt(
     if len(applicable_nsrts) == 0:
         return None
     idx = rng.choice(len(applicable_nsrts))
-    return applicable_nsrts[idx]
+    return applicable_nsrts[idx]  # type: ignore[return-value]
 
 
 def action_arrs_to_policy(
@@ -2705,7 +2705,7 @@ def create_vlm_predicate(
             objects: Sequence[Object]) -> bool:  # pragma: no cover.
         raise Exception("VLM predicate classifier should never be called!")
 
-    return VLMPredicate(name, types, _stripped_classifier, get_vlm_query_str)
+    return VLMPredicate(name, types, _stripped_classifier, get_vlm_query_str)  # type: ignore[arg-type]
 
 
 def create_llm_by_name(
@@ -3090,9 +3090,9 @@ def all_ground_nsrts(nsrt: Union[NSRT, CausalProcess],
         # only return if there are no repeated arguments
         if CFG.no_repeated_arguments_in_grounding:
             if len(choice) == len(set(choice)):
-                yield nsrt.ground(tuple(choice))
+                yield nsrt.ground(tuple(choice))  # type: ignore[misc]
         else:
-            yield nsrt.ground(tuple(choice))
+            yield nsrt.ground(tuple(choice))  # type: ignore[misc]
 
 
 def all_ground_nsrts_fd_translator(
@@ -3621,7 +3621,7 @@ def get_successors_from_ground_ops(
     """
     seen_successors = set()
     for ground_op in get_applicable_operators(ground_ops, atoms):
-        next_atoms = apply_operator(ground_op, atoms)
+        next_atoms = apply_operator(ground_op, atoms)  # type: ignore[type-var]
         if unique:
             frozen_next_atoms = frozenset(next_atoms)
             if frozen_next_atoms in seen_successors:
@@ -4941,8 +4941,8 @@ def add_label_to_video(video: Video,
     new_video: Video = []
     for i, img in enumerate(video):
         img_name = prefix + f"frame_{i+1}"
-        labeled_img = add_label_to_image(img, img_name, imgs_dir, save=save)
-        new_video.append(labeled_img)
+        labeled_img = add_label_to_image(img, img_name, imgs_dir, save=save)  # type: ignore[arg-type]
+        new_video.append(labeled_img)  # type: ignore[arg-type]
     return new_video
 
 
@@ -4954,7 +4954,7 @@ def add_label_to_image(img: PIL.Image.Image,
     """Add a label to an image and potentially save."""
     img_copy = img.copy()
     draw = ImageDraw.Draw(img_copy)
-    font = ImageFont.load_default().font_variant(size=50)
+    font = ImageFont.load_default().font_variant(size=50)  # type: ignore[union-attr]
 
     # Get text dimensions
     bbox = draw.textbbox((0, 0), s_name, font=font)
@@ -4986,7 +4986,7 @@ def load_all_images_from_dir(dir_path: str) -> List[PIL.Image.Image]:
     return images
 
 
-def all_subsets(input_set: Iterable[Any]) -> Iterator[Set[Any, ...]]:
+def all_subsets(input_set: Iterable[Any]) -> Iterator[Set[Any]]:
     """Generates all subsets of a given set.
 
     Args:

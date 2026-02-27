@@ -179,6 +179,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
                     finger_delta = -cls._finger_action_nudge_magnitude
 
                 # nudge finger to the direction of the current state to counter
+                assert isinstance(state, utils.PyBulletState)
                 joint_positions = state.joint_positions.copy()
                 finger_position = joint_positions[
                     pybullet_robot.left_finger_joint_idx]

@@ -545,7 +545,7 @@ class OpenRouterVLM(VisionLanguageModel, OpenRouterModel):
             for img in imgs:
                 content.append({
                     "type": "image_url",
-                    "image_url": {
+                    "image_url": {  # type: ignore[dict-item]
                         "url": _to_data_url_png(img)
                     }
                 })

@@ -80,7 +80,7 @@ class PyBulletLaserGroundTruthOptionFactory(GroundTruthOptionFactory):
             target = pybullet_robot.closed_fingers
             return current, target
 
-        options = set()
+        options: Set[ParameterizedOption] = set()
         # PickMirror
         option_types = [robot_type, mirror_type]
         params_space = Box(0, 1, (0, ))

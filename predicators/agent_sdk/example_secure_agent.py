@@ -9,8 +9,7 @@ from typing import Any, List, Optional
 from predicators.agent_sdk.secure_file_access import FileAccessValidator, \
     create_secure_file_tools, create_validator_for_predicators_workspace
 from predicators.agent_sdk.session_manager import AgentSessionManager
-from predicators.agent_sdk.tools import ToolContext, \
-    create_inspection_only_mcp_tools
+from predicators.agent_sdk.tools import ToolContext, create_inspection_only_mcp_tools  # type: ignore[attr-defined]
 from predicators.settings import CFG
 
 

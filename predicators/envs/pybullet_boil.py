@@ -259,16 +259,16 @@ class PyBulletBoilEnv(PyBulletEnv):
             "NoJugAtFaucetOrAtFaucetAndReachedCapacity",
             [self._jug_type, self._faucet_type],
             self._NoJugAtFaucetOrJugAtFaucetAndReachedCapacity_holds,
-            auxiliary_predicates=[
+            auxiliary_predicates={
                 self._JugAtFaucet, self._JugAtCapacity, self._NoJugAtFaucet
-            ])
+            })
         self._NoJugAtFaucetOrJugAtFaucetAndFilled = DerivedPredicate(
             "NoJugAtFaucetOrAtFaucetAndFilled",
             [self._jug_type, self._faucet_type],
             self._NoJugAtFaucetOrJugAtFaucetAndFilled_holds,
-            auxiliary_predicates=[
+            auxiliary_predicates={
                 self._JugAtFaucet, self._JugFilled, self._NoJugAtFaucet
-            ])
+            })
 
     @classmethod
     def get_name(cls) -> str:
@@ -359,11 +359,11 @@ class PyBulletBoilEnv(PyBulletEnv):
         bodies["table_id"] = table_id
         # add another table for more space to place jugs and burners
         create_object(asset_path="urdf/table.urdf",
-                      position=[
+                      position=(
                           cls.table_pos[0],
                           cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2,
                           cls.table_pos[2]
-                      ],
+                      ),
                       orientation=cls.table_orn,
                       scale=1.0,
                       use_fixed_base=True,
@@ -1229,7 +1229,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             init_dict[self._robot] = robot_dict
 
             # For random placements
-            used_xy = set()
+            used_xy: Set[Tuple[float, float]] = set()
             burner_2_x = self.x_mid - self.small_gap * 6
 
             # Jugs (only place the number needed for this task)
@@ -1417,31 +1417,36 @@ if __name__ == "__main__":
     faucet = env._faucet
 
     env_predicates = env.predicates
+    assert pick is not None
+    assert place_under_faucet is not None
+    assert switch_faucet_on is not None
+    assert no_op is not None
+    assert switch_faucet_off is not None
+    _empty_params = np.zeros(0, dtype=np.float32)
     policy = utils.option_plan_to_policy(
         [
-            pick.ground([robot, jug1], []),
-            place_under_faucet.ground([robot, faucet], []),
-            switch_faucet_on.ground([robot, faucet], []),
-            no_op.ground([robot], []),
-            # switch_burner_on.ground([robot, burner1], []),
-            switch_faucet_off.ground([robot, faucet], []),
-            # pick.ground([robot, jug1], []),
-            # place_on_burner.ground([robot, burner2], []),
-            # switch_on.ground([robot, burner2], []),
-            # pick.ground([robot, jug1], []),
-            # place_under_faucet.ground([robot, faucet], []),
-            # switch_on.ground([robot, faucet], []),
-            # no_op.ground([robot], []),
-            # switch_off.ground([robot, faucet], []),
-            # pick.ground([robot, jug1], []),
-            # place_on_burner.ground([robot, burner1], []),
-            # switch_on.ground([robot, burner1], []),
-            # no_op.ground([robot], []),
-            # switch_off.ground([robot, burner2], []),
-            # no_op.ground([robot], []),
-            # switch_off.ground([robot, burner1], []),
+            pick.ground([robot, jug1], _empty_params),
+            place_under_faucet.ground([robot, faucet], _empty_params),
+            switch_faucet_on.ground([robot, faucet], _empty_params),
+            no_op.ground([robot], _empty_params),
+            # switch_burner_on.ground([robot, burner1], _empty_params),
+            switch_faucet_off.ground([robot, faucet], _empty_params),
+            # pick.ground([robot, jug1], _empty_params),
+            # place_on_burner.ground([robot, burner2], _empty_params),
+            # switch_on.ground([robot, burner2], _empty_params),
+            # pick.ground([robot, jug1], _empty_params),
+            # place_under_faucet.ground([robot, faucet], _empty_params),
+            # switch_on.ground([robot, faucet], _empty_params),
+            # no_op.ground([robot], _empty_params),
+            # switch_off.ground([robot, faucet], _empty_params),
+            # pick.ground([robot, jug1], _empty_params),
+            # place_on_burner.ground([robot, burner1], _empty_params),
+            # switch_on.ground([robot, burner1], _empty_params),
+            # no_op.ground([robot], _empty_params),
+            # switch_off.ground([robot, burner2], _empty_params),
+            # no_op.ground([robot], _empty_params),
+            # switch_off.ground([robot, burner1], _empty_params),
         ],
-        noop_option_terminate_on_atom_change=True,
         abstract_function=lambda s: utils.abstract(s, env_predicates))
 
     constant_noop = True

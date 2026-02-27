@@ -12,7 +12,7 @@ import select
 import sys
 import termios
 import tty
-from typing import Callable, List, Optional, Set
+from typing import Any, Callable, List, Optional, Set
 
 import numpy as np
 import pybullet as p
@@ -59,7 +59,7 @@ class HumanLowLevelControlApproach(BaseApproach):
         # Step counter for periodic status
         self._step_count = 0
         # Store original terminal settings for restoration
-        self._original_terminal_settings = None
+        self._original_terminal_settings: Optional[List[Any]] = None
         # Track last key to avoid repeated toggle
         self._last_gripper_toggle_step = -10
 
@@ -260,7 +260,7 @@ class HumanLowLevelControlApproach(BaseApproach):
             if robot_id is not None:
                 base_pos, base_orn = p.getBasePositionAndOrientation(
                     robot_id, physicsClientId=physics_client_id)
-                robot.set_base_pose(Pose(base_pos, base_orn))
+                robot.set_base_pose(Pose(base_pos, base_orn))  # type: ignore[attr-defined]
 
         # Find robot object in state
         robot_obj = None

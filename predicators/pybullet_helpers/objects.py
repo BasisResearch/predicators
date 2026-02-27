@@ -9,7 +9,7 @@ from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
 from predicators.utils import _Geom2D
 
 # import numpy as np
-default_orn: Sequence[float] = [0.0, 0.0, 0.0, 1.0]
+default_orn: Quaternion = (0.0, 0.0, 0.0, 1.0)
 
 
 def create_object(asset_path: str,
