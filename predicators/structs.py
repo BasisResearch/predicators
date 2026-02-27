@@ -1848,7 +1848,7 @@ class ClassificationDataset:
         self._current_idx: int = 0
         self._rng = random.Random(self.seed)  # Create a local random generator
 
-    def __iter__(self) -> Iterator["ClassificationDataset"]:
+    def __iter__(self) -> "Iterator[ClassificationEpisode]":
         self._current_idx = 0
         return self
 
@@ -2581,6 +2581,9 @@ class DelayDistribution:
         raise NotImplementedError
 
     def sample(self) -> int:
+        raise NotImplementedError
+
+    def log_prob(self, k: Union[int, torch.Tensor]) -> torch.Tensor:
         raise NotImplementedError
 
     def __str__(self) -> str:

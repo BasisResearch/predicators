@@ -57,8 +57,9 @@ from predicators.ground_truth_models import get_gt_options, \
     parse_config_included_options
 from predicators.perception import create_perceiver
 from predicators.settings import CFG, get_allowed_query_type_names
-from predicators.structs import Action, Dataset, InteractionRequest, \
-    InteractionResult, Metrics, Observation, Response, Task, Video
+from predicators.structs import Action, Dataset, EnvironmentTask, \
+    InteractionRequest, InteractionResult, Metrics, Observation, Response, \
+    Task, Video
 from predicators.teacher import Teacher, TeacherInteractionMonitorWithVideo
 
 assert os.environ.get("PYTHONHASHSEED") == "0", \
@@ -550,7 +551,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             raise e
         return total_num_solve_timeouts, total_num_solve_failures
 
-    def _solve_task(task_idx: int, env_task: Task) -> float:
+    def _solve_task(task_idx: int, env_task: EnvironmentTask) -> float:
         """Try to solve the given env_task using cogman, returning the solve
         time."""
         solve_start = time.perf_counter()
@@ -560,7 +561,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
 
     def _execute_policy(
         task_idx: int,
-        env_task: Task,
+        env_task: EnvironmentTask,
         monitor: Optional[utils.VideoMonitor] = None
     ) -> Tuple[bool, bool, float, int, Tuple[List[Observation], List[Action]]]:
         """Execute the cogman policy in the environment to see if the goal is
@@ -584,7 +585,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
                 monitor=monitor,
                 terminate_on_goal_reached=CFG.terminate_on_goal_reached)
             exec_time = execution_metrics["policy_call_time"]
-            num_options_executed = execution_metrics["num_options_executed"]
+            num_options_executed = int(execution_metrics["num_options_executed"])
 
             # Optionally save a successful trajectory
             if CFG.save_eval_trajs:

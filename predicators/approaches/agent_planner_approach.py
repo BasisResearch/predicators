@@ -25,7 +25,7 @@ from predicators.approaches.agent_session_mixin import AgentSessionMixin
 from predicators.approaches.base_approach import BaseApproach
 from predicators.explorers import create_explorer
 from predicators.explorers.base_explorer import BaseExplorer
-from predicators.option_model import create_option_model
+from predicators.option_model import _OptionModelBase, create_option_model
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, InteractionRequest, \
     InteractionResult, LowLevelTrajectory, ParameterizedOption, Predicate, \
@@ -44,12 +44,18 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
 
     def __init__(self, initial_predicates: Set[Predicate],
                  initial_options: Set[ParameterizedOption], types: Set[Type],
-                 action_space: Box, train_tasks: List[Task]) -> None:
+                 action_space: Box, train_tasks: List[Task],
+                 *args: Any,
+                 option_model: Optional[_OptionModelBase] = None,
+                 **kwargs: Any) -> None:
         super().__init__(initial_predicates, initial_options, types,
-                         action_space, train_tasks)
+                         action_space, train_tasks, *args, **kwargs)
         self._offline_dataset = Dataset([])
         self._online_trajectories: List[LowLevelTrajectory] = []
-        self._option_model = create_option_model(CFG.option_model_name)
+        if option_model is not None:
+            self._option_model = option_model
+        else:
+            self._option_model = create_option_model(CFG.option_model_name)
         self._online_learning_cycle = 0
         self._requests_train_task_idxs: Optional[List[int]] = None
 

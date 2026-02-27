@@ -7,9 +7,9 @@ import torch
 
 from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, EndogenousProcess, \
-    ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
-    Variable
+from predicators.structs import CausalProcess, DelayDistribution, \
+    EndogenousProcess, ExogenousProcess, LiftedAtom, ParameterizedOption, \
+    Predicate, Type, Variable
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
     null_sampler
 
@@ -330,7 +330,7 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
         parameters = [robot]
         option_vars = [robot]
         option = NoOp
-        delay_distribution = ConstantDelay(1)
+        delay_distribution: DelayDistribution = ConstantDelay(1)
         ignore_effects = {NotAboveCup, JugAboveCup}
         noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
                                          set(), set(),
