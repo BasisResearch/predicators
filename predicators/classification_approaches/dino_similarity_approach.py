@@ -1,12 +1,12 @@
 import logging
 import os
 import shutil
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 import torch
-import torchvision.transforms as transforms
-from tqdm import tqdm
+import torchvision.transforms as transforms  # type: ignore[import-untyped]
+from tqdm import tqdm  # type: ignore[import-untyped]
 
 from predicators import utils
 from predicators.settings import CFG
@@ -102,7 +102,7 @@ def _distance(seqA: np.ndarray,
         raise ValueError(f"Unknown distance method: {method}")
 
 
-def crop_to_multiple_of_patch_size(image, patch_size=14):
+def crop_to_multiple_of_patch_size(image: Any, patch_size: int = 14) -> Any:
     """Crops the image to the largest possible multiple of `patch_size` while
     keeping the aspect ratio."""
     _, _, H, W = image.shape  # Get original height and width
@@ -128,8 +128,8 @@ class DinoSimilarityApproach:
     def __init__(self) -> None:
         """Load a pretrained DINO model and set internal parameters."""
         # 1) Load the DINO model
-        self._dino = torch.hub.load("facebookresearch/dinov2",
-                                    CFG.dino_model_name)
+        self._dino = torch.hub.load(  # type: ignore[no-untyped-call]
+            "facebookresearch/dinov2", CFG.dino_model_name)
         self._max_video_len = 10  # Maximum frames to process per video
         self.log_dir: Optional[str] = None
 
@@ -232,7 +232,7 @@ class DinoSimilarityApproach:
             [T, E], where T is the number of frames in the video and E is the
             embedding dimension output by the DINO model.
         """
-        all_features = []
+        all_features: List[np.ndarray] = []
         for vid in tqdm(videos, desc="Processing videos", leave=False):
             embeddings_for_vid = []
             # Add progress bar for frames within each video
@@ -269,7 +269,7 @@ class DinoSimilarityApproach:
                 embeddings_for_vid.append(feat_np)
 
             # Convert to [T, E]
-            embeddings_for_vid = np.stack(embeddings_for_vid, axis=0)
-            all_features.append(embeddings_for_vid)
+            stacked: np.ndarray = np.stack(embeddings_for_vid, axis=0)
+            all_features.append(stacked)
 
         return all_features

@@ -6,7 +6,7 @@ from scipy.optimize import minimize
 
 from predicators.approaches.pp_process_learning_approach import \
     ProcessLearningAndPlanningApproach
-from predicators.explorers import create_explorer
+from predicators.explorers import BaseExplorer, create_explorer
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import Dataset, InteractionRequest, \
@@ -143,7 +143,7 @@ class OnlineProcessLearningAndPlanningApproach(
 
         self._online_learning_cycle += 1
 
-    def _create_explorer(self):
+    def _create_explorer(self) -> BaseExplorer:
         """Create a new explorer at the beginning of each interaction cycle."""
         # Note that greedy lookahead is not yet supported.
         preds = self._get_current_predicates()

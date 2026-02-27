@@ -49,8 +49,8 @@ class CoverEnv(BaseEnv):
                                   self._Holding_holds)
         # Static objects (always exist no matter the settings).
         self._robot = Object("robby", self._robot_type)
-        self._blocks = []
-        self._targets = []
+        self._blocks: List[Object] = []
+        self._targets: List[Object] = []
         self._create_blocks_and_targets()
 
     @classmethod
@@ -233,7 +233,7 @@ class CoverEnv(BaseEnv):
                  state.get(targ, "pose") + state.get(targ, "width") / 10))
         return hand_regions
 
-    def _create_blocks_and_targets(self) -> Tuple[List[Object], List[Object]]:
+    def _create_blocks_and_targets(self) -> None:
         for i in range(CFG.cover_num_blocks):
             self._blocks.append(Object(f"block{i}", self._block_type))
         for i in range(CFG.cover_num_targets):

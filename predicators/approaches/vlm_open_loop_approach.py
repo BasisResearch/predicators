@@ -308,8 +308,6 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
             parsable_plan_prediction, objects_list, self._types,
             self._initial_options, True)
         for option_tuple in parsed_option_plan:
-            # Convert empty params to list to avoid numpy boolean evaluation issues in domino
-            params = [] if len(option_tuple[2]) == 0 else np.array(
-                option_tuple[2])
+            params = np.array(option_tuple[2], dtype=np.float32)
             option_plan.append(option_tuple[0].ground(option_tuple[1], params))
         return option_plan

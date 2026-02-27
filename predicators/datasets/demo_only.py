@@ -273,9 +273,9 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                 if CFG.keep_failed_demos:
                     logging.info(
                         "Keeping failed demonstration from run_policy.")
-                    if CFG.make_demo_videos:
+                    if CFG.make_demo_videos and video_monitor is not None:
                         make_demo_videos(video_monitor, idx)
-                    if CFG.make_demo_images:
+                    if CFG.make_demo_images and video_monitor is not None:
                         make_demo_images(video_monitor, idx, num_tasks)
         except (ApproachTimeout, ApproachFailure,
                 utils.EnvironmentFailure) as e:
@@ -283,9 +283,9 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                             f"{e}")
             if CFG.keep_failed_demos:
                 logging.info("Keeping failed demonstration.")
-                if CFG.make_demo_videos:
+                if CFG.make_demo_videos and video_monitor is not None:
                     make_demo_videos(video_monitor, idx)
-                if CFG.make_demo_images:
+                if CFG.make_demo_images and video_monitor is not None:
                     make_demo_images(video_monitor, idx, num_tasks)
             else:
                 continue
@@ -319,9 +319,9 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         if annotate_with_gt_ops:
             last_nsrt_plan = oracle_approach.get_last_nsrt_plan()
             annotations.append(list(last_nsrt_plan))
-        if CFG.make_demo_videos:
+        if CFG.make_demo_videos and video_monitor is not None:
             make_demo_videos(video_monitor, idx)
-        if CFG.make_demo_images:
+        if CFG.make_demo_images and video_monitor is not None:
             make_demo_images(video_monitor, idx, num_tasks)
     if annotate_with_gt_ops:
         dataset = Dataset(trajectories, annotations)

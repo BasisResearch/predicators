@@ -73,7 +73,7 @@ class BlocksEnv(BaseEnv):
         self._Clear = Predicate("Clear", [self._block_type], self._Clear_holds)
         # Static objects (always exist no matter the settings).
         self._robot = Object("robby", self._robot_type)
-        self._blocks = []
+        self._blocks: List[Object] = []
         self._create_blocks()
         # Hyperparameters from CFG.
         self._block_size = CFG.blocks_block_size
