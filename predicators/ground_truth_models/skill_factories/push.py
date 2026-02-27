@@ -4,8 +4,10 @@ from typing import Callable, List, Sequence, Tuple
 
 from gym.spaces import Box
 
-from predicators.skills.base import Phase, PhaseAction, PhaseSkill, SkillConfig
-from predicators.skills.move_to_pose import make_move_to_pose_phase
+from predicators.ground_truth_models.skill_factories.base import Phase, \
+    PhaseAction, PhaseSkill, SkillConfig
+from predicators.ground_truth_models.skill_factories.move_to_pose import \
+    make_move_to_pose_phase
 from predicators.structs import Array, Object, State, Type
 
 

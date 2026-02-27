@@ -6,7 +6,8 @@ import pybullet as p
 from gym.spaces import Box
 
 from predicators.pybullet_helpers.geometry import Pose
-from predicators.skills.base import Phase, PhaseAction, PhaseSkill, SkillConfig
+from predicators.ground_truth_models.skill_factories.base import Phase, \
+    PhaseAction, PhaseSkill, SkillConfig
 from predicators.structs import Array, Object, State, Type
 
 
