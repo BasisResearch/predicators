@@ -18,6 +18,9 @@ from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
+from predicators.ground_truth_models.skill_factories import Phase, \
+    PhaseAction, PhaseSkill, SkillConfig, create_place_skill, \
+    create_push_skill, create_wait_option, make_move_to_pose_phase
 from predicators.pybullet_helpers.controllers import \
     create_change_fingers_option, create_move_end_effector_to_pose_option
 from predicators.pybullet_helpers.geometry import Pose
@@ -57,7 +60,18 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
     def get_options(cls, env_name: str, types: Dict[str, Type],
                     predicates: Dict[str, Predicate],
                     action_space: Box) -> Set[ParameterizedOption]:
-        """Get the ground-truth options for the grow environment."""
+        """Get the ground-truth options for the domino environment."""
+        if CFG.domino_use_skill_factories:
+            return cls._get_options_skill_factories(env_name, types,
+                                                    predicates, action_space)
+        return cls._get_options_legacy(env_name, types, predicates,
+                                       action_space)
+
+    @classmethod
+    def _get_options_legacy(cls, env_name: str, types: Dict[str, Type],
+                            predicates: Dict[str, Predicate],
+                            action_space: Box) -> Set[ParameterizedOption]:
+        """Original option implementation (legacy path)."""
         del env_name, predicates  # unused
 
         _, pybullet_robot, _ = \
@@ -669,3 +683,340 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             CFG.pybullet_max_vel_norm,
             cls._finger_action_nudge_magnitude,
             validate=CFG.pybullet_ik_validate)
+
+    # ------------------------------------------------------------------
+    # Skill-factories-based implementation
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _get_options_skill_factories(
+            cls, env_name: str, types: Dict[str, Type],
+            predicates: Dict[str, Predicate],
+            action_space: Box) -> Set[ParameterizedOption]:
+        """Option implementation built on skill_factories primitives."""
+        del env_name, predicates, action_space  # unused
+
+        _, pybullet_robot, _ = \
+            PyBulletDominoEnv.initialize_pybullet(using_gui=False)
+
+        robot_type = types["robot"]
+        domino_type = types["domino"]
+        rotation_type = types["angle"]
+        position_type = types["loc"]
+
+        cfg = cls._build_skill_config(pybullet_robot)
+
+        options: Set[ParameterizedOption] = set()
+
+        if CFG.domino_restricted_push:
+            options.add(
+                cls._create_sf_push_restricted(cfg, robot_type, domino_type))
+        else:
+            options.add(cls._create_sf_push(cfg, robot_type, domino_type))
+
+        options.add(cls._create_sf_pick(cfg, robot_type, domino_type))
+        options.add(
+            cls._create_sf_place(cfg, robot_type, domino_type, position_type,
+                                  rotation_type))
+        options.add(create_wait_option(cfg, robot_type))
+
+        return options
+
+    @classmethod
+    def _build_skill_config(
+            cls,
+            pybullet_robot: SingleArmPyBulletRobot) -> SkillConfig:
+        """Build the shared SkillConfig for domino skill_factories options."""
+        return SkillConfig(
+            robot=pybullet_robot,
+            open_fingers_joint=pybullet_robot.open_fingers,
+            closed_fingers_joint=pybullet_robot.closed_fingers,
+            fingers_state_to_joint=PyBulletDominoEnv._fingers_state_to_joint,
+            move_to_pose_tol=cls._move_to_pose_tol,
+            finger_action_nudge_magnitude=cls._finger_action_nudge_magnitude,
+            max_vel_norm=CFG.pybullet_max_vel_norm,
+            grasp_tol=PyBulletEnv.grasp_tol,
+            ik_validate=CFG.pybullet_ik_validate,
+            robot_init_tilt=cls.env_cls.robot_init_tilt,
+        )
+
+    @classmethod
+    def _create_sf_push(cls, cfg: SkillConfig, robot_type: Type,
+                        domino_type: Type) -> ParameterizedOption:
+        """Push option using create_push_skill."""
+        option_types = [robot_type, domino_type]
+        params_space = Box(0, 1, (0, ))
+
+        def _get_target(state: State, objects: Sequence[Object],
+                        params: Array) -> Tuple[float, float, float, float]:
+            del params
+            _, domino = objects
+            return (state.get(domino, "x"), state.get(domino, "y"),
+                    state.get(domino, "z"), state.get(domino, "yaw"))
+
+        offset_x = cls._offset_x
+        offset_z = cls._offset_z
+        transport_z_push = cls._transport_z_push
+        env_cls = cls.env_cls
+
+        def _waypoints(tx: float, ty: float, tz: float, tyaw: float,
+                       c: SkillConfig) -> List[Tuple[float, float, float,
+                                                     float, str]]:
+            del c
+            drot = tyaw
+            return [
+                (tx - np.sin(drot) * offset_x, ty - np.cos(drot) * offset_x,
+                 transport_z_push, drot + np.pi / 2, "closed"),
+                (tx - np.sin(drot) * offset_x, ty - np.cos(drot) * offset_x,
+                 tz + offset_z, drot + np.pi / 2, "closed"),
+                (tx + np.sin(drot) * offset_x / 4,
+                 ty + np.cos(drot) * offset_x / 4, tz + offset_z,
+                 drot + np.pi / 2, "closed"),
+                (env_cls.robot_init_x, env_cls.robot_init_y,
+                 env_cls.robot_init_z, drot + np.pi / 2, "closed"),
+            ]
+
+        return create_push_skill(name="Push",
+                                 types=option_types,
+                                 params_space=params_space,
+                                 config=cfg,
+                                 get_target_pose_fn=_get_target,
+                                 waypoints_fn=_waypoints).build()
+
+    @classmethod
+    def _create_sf_push_restricted(cls, cfg: SkillConfig, robot_type: Type,
+                                   domino_type: Type) -> ParameterizedOption:
+        """Push (restricted) option: finds start block from state."""
+        option_types = [robot_type]
+        params_space = Box(0, 1, (0, ))
+
+        def _get_target(state: State, objects: Sequence[Object],
+                        params: Array) -> Tuple[float, float, float, float]:
+            del objects, params
+            start = cls._find_start_block(state, domino_type)
+            return (state.get(start, "x"), state.get(start, "y"),
+                    state.get(start, "z"), state.get(start, "yaw"))
+
+        offset_x = cls._offset_x
+        offset_z = cls._offset_z
+        transport_z_push = cls._transport_z_push
+        env_cls = cls.env_cls
+
+        def _waypoints(tx: float, ty: float, tz: float, tyaw: float,
+                       c: SkillConfig) -> List[Tuple[float, float, float,
+                                                     float, str]]:
+            del c
+            drot = tyaw
+            return [
+                (tx - np.sin(drot) * offset_x, ty - np.cos(drot) * offset_x,
+                 transport_z_push, drot + np.pi / 2, "closed"),
+                (tx - np.sin(drot) * offset_x, ty - np.cos(drot) * offset_x,
+                 tz + offset_z, drot + np.pi / 2, "closed"),
+                (tx + np.sin(drot) * offset_x / 4,
+                 ty + np.cos(drot) * offset_x / 4, tz + offset_z,
+                 drot + np.pi / 2, "closed"),
+                (env_cls.robot_init_x, env_cls.robot_init_y,
+                 env_cls.robot_init_z, drot + np.pi / 2, "closed"),
+            ]
+
+        return create_push_skill(name="Push",
+                                 types=option_types,
+                                 params_space=params_space,
+                                 config=cfg,
+                                 get_target_pose_fn=_get_target,
+                                 waypoints_fn=_waypoints).build()
+
+    @classmethod
+    def _create_sf_pick(cls, cfg: SkillConfig, robot_type: Type,
+                        domino_type: Type) -> ParameterizedOption:
+        """Pick option using PhaseSkill directly.
+
+        Adds an explicit initial CloseFingers phase before moving, matching
+        the original domino pick which pre-closes fingers before transport.
+        """
+        option_types = [robot_type, domino_type]
+        params_space = Box(0, 1, (0, ))
+        transport_z = cls._transport_z
+        offset_z = cls._offset_z
+
+        def _close_target(state: State, objects: Sequence[Object],
+                          params: Array,
+                          c: SkillConfig) -> Tuple[float, float]:
+            del params
+            robot_obj = objects[0]
+            current = c.fingers_state_to_joint(c.robot,
+                                               state.get(robot_obj, "fingers"))
+            return current, c.closed_fingers_joint - 0.01
+
+        def _above_pos(state: State, objects: Sequence[Object], params: Array,
+                       c: SkillConfig) -> Tuple[float, float, float, float]:
+            del params, c
+            _, domino = objects
+            return (state.get(domino, "x"), state.get(domino, "y"),
+                    transport_z, state.get(domino, "yaw"))
+
+        def _grasp_pos(state: State, objects: Sequence[Object], params: Array,
+                       c: SkillConfig) -> Tuple[float, float, float, float]:
+            del params, c
+            _, domino = objects
+            return (state.get(domino, "x"), state.get(domino, "y"),
+                    state.get(domino, "z") + offset_z,
+                    state.get(domino, "yaw"))
+
+        def _lift_pos(state: State, objects: Sequence[Object], params: Array,
+                      c: SkillConfig) -> Tuple[float, float, float, float]:
+            del params, c
+            _, domino = objects
+            return (state.get(domino, "x"), state.get(domino, "y"),
+                    transport_z, state.get(domino, "yaw"))
+
+        def _grasp_terminal(state: State, objects: Sequence[Object],
+                            params: Array, c: SkillConfig) -> bool:
+            del params, c
+            return bool(
+                state.get(objects[0], "fingers") < PyBulletEnv.grasp_tol)
+
+        phases = [
+            Phase("CloseInitial",
+                  PhaseAction.CHANGE_FINGERS,
+                  _close_target,
+                  finger_tol=PyBulletEnv.grasp_tol),
+            make_move_to_pose_phase("MoveAbove", _above_pos, "closed"),
+            make_move_to_pose_phase("Descend", _grasp_pos, "open"),
+            Phase("Grasp",
+                  PhaseAction.CHANGE_FINGERS,
+                  _close_target,
+                  terminal_fn=_grasp_terminal),
+            make_move_to_pose_phase("Lift", _lift_pos, "closed"),
+        ]
+        return PhaseSkill("Pick", option_types, params_space, cfg,
+                          phases).build()
+
+    @classmethod
+    def _create_sf_place(cls, cfg: SkillConfig, robot_type: Type,
+                         domino_type: Type, position_type: Type,
+                         rotation_type: Type) -> ParameterizedOption:
+        """Place option using create_place_skill (discrete or continuous)."""
+        if CFG.domino_use_continuous_place:
+            return cls._create_sf_place_continuous(cfg, robot_type)
+        return cls._create_sf_place_discrete(cfg, robot_type, domino_type,
+                                              position_type, rotation_type)
+
+    @classmethod
+    def _create_sf_place_continuous(cls, cfg: SkillConfig,
+                                    robot_type: Type) -> ParameterizedOption:
+        """Continuous place: params = [x, y, rotation_radians]."""
+        params_space = Box(
+            low=np.array([cls.env_cls.x_lb, cls.env_cls.y_lb, -np.pi]),
+            high=np.array([cls.env_cls.x_ub, cls.env_cls.y_ub, np.pi]),
+            shape=(3, ),
+            dtype=np.float32)
+
+        def _get_placement(state: State, objects: Sequence[Object],
+                           params: Array,
+                           c: SkillConfig) -> Tuple[float, float, float, float]:
+            del state, objects, c
+            target_x, target_y, target_rot = params
+            return float(target_x), float(target_y), 0.0, float(target_rot)
+
+        return create_place_skill(name="Place",
+                                  types=[robot_type],
+                                  params_space=params_space,
+                                  config=cfg,
+                                  get_placement_pose_fn=_get_placement,
+                                  transport_z=cls._transport_z,
+                                  drop_z=cls._place_drop_z).build()
+
+    @classmethod
+    def _create_sf_place_discrete(cls, cfg: SkillConfig, robot_type: Type,
+                                   domino_type: Type, position_type: Type,
+                                   rotation_type: Type) -> ParameterizedOption:
+        """Discrete place: objects = [robot, domino_f, domino_b, loc, angle]."""
+        option_types = [
+            robot_type, domino_type, domino_type, position_type, rotation_type
+        ]
+        params_space = Box(0, 1, (0, ))
+
+        env_cls = cls.env_cls
+
+        def _get_placement(state: State, objects: Sequence[Object],
+                           params: Array,
+                           c: SkillConfig) -> Tuple[float, float, float, float]:
+            del params, c
+            _, domino_f, domino_b, tgt_pos, rotation = objects
+
+            x2, y2 = state.get(domino_b, "x"), state.get(domino_b, "y")
+            rot2 = state.get(domino_b, "yaw")
+
+            target_angle = float(rotation.name.split("_")[-1])
+            target_rot_rad = np.radians(target_angle)
+            rot_diff = utils.wrap_angle(target_rot_rad - rot2)
+
+            angle_tol = 2e-1
+            if abs(rot_diff) < np.pi / 8 or abs(
+                    abs(rot_diff) - np.pi / 2) < angle_tol:
+                dir_value = 0.0
+            elif rot_diff > np.pi / 8:
+                dir_value = 1.0
+            else:
+                dir_value = 2.0
+
+            gap = env_cls.pos_gap
+            target_angle_is_cardinal = abs(
+                np.sin(2 * target_rot_rad)) < angle_tol
+
+            if dir_value == 0.0 or target_angle_is_cardinal:
+                target_x = float(tgt_pos.name.split("_")[1])
+                target_y = float(tgt_pos.name.split("_")[2])
+                if abs(rot_diff) < np.pi / 8:
+                    target_rot = rot2
+                else:
+                    target_rot = target_rot_rad
+            else:
+                turn_dir = -1.0 if dir_value == 1.0 else 1.0
+                shift_mag = env_cls.domino_width * env_cls.turn_shift_frac
+
+                if abs(np.sin(2 * rot2)) < angle_tol:
+                    target_rot = rot2 - turn_dir * np.pi / 4
+                    grid_x = float(tgt_pos.name.split("_")[1])
+                    grid_y = float(tgt_pos.name.split("_")[2])
+                    shift_dx = shift_mag * (turn_dir * np.cos(rot2) -
+                                            np.sin(rot2))
+                    shift_dy = shift_mag * (-turn_dir * np.sin(rot2) -
+                                            np.cos(rot2))
+                    target_x = grid_x + shift_dx
+                    target_y = grid_y + shift_dy
+
+                elif abs(np.cos(2 * rot2)) < angle_tol:
+                    target_rot = rot2 - turn_dir * np.pi / 4
+                    sin_r, cos_r = np.sin(rot2), np.cos(rot2)
+                    disp_x = (gap * turn_dir * cos_r +
+                               (2 * shift_mag - gap) * sin_r) / np.sqrt(2)
+                    disp_y = (-gap * turn_dir * sin_r +
+                               (2 * shift_mag - gap) * cos_r) / np.sqrt(2)
+                    target_x = x2 + disp_x
+                    target_y = y2 + disp_y
+
+                else:
+                    logging.warning(
+                        f"Unexpected domino rotation {rot2} in place option. "
+                        "Defaulting to cardinal turn logic.")
+                    target_rot = rot2 - turn_dir * np.pi / 4
+                    grid_x = float(tgt_pos.name.split("_")[1])
+                    grid_y = float(tgt_pos.name.split("_")[2])
+                    shift_dx = shift_mag * (turn_dir * np.cos(rot2) -
+                                            np.sin(rot2))
+                    shift_dy = shift_mag * (-turn_dir * np.sin(rot2) -
+                                            np.cos(rot2))
+                    target_x = grid_x + shift_dx
+                    target_y = grid_y + shift_dy
+
+            return float(target_x), float(target_y), 0.0, float(target_rot)
+
+        return create_place_skill(name="Place",
+                                  types=option_types,
+                                  params_space=params_space,
+                                  config=cfg,
+                                  get_placement_pose_fn=_get_placement,
+                                  transport_z=cls._transport_z,
+                                  drop_z=cls._place_drop_z).build()
