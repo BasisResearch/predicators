@@ -880,7 +880,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         """Check if a switch's main joint is above a threshold."""
         if switch_id < 0:
             return False
-        j_id = self._get_joint_id(switch_id, "joint_0")
+        j_id = self._get_joint_id(switch_id, "joint_0",
+                                   self._physics_client_id)
         if j_id < 0:
             return False
         j_pos, _, _, _ = p.getJointState(
@@ -895,7 +896,8 @@ class PyBulletBoilEnv(PyBulletEnv):
     def _set_switch_on(self, switch_id: int, power_on: bool) -> None:
         """Programmatically toggle the switch to on/off by resetting its joint
         state."""
-        j_id = self._get_joint_id(switch_id, "joint_0")
+        j_id = self._get_joint_id(switch_id, "joint_0",
+                                   self._physics_client_id)
         if j_id < 0:
             return
         info = p.getJointInfo(switch_id,
@@ -909,11 +911,13 @@ class PyBulletBoilEnv(PyBulletEnv):
                           physicsClientId=self._physics_client_id)
 
     @staticmethod
-    def _get_joint_id(obj_id: int, joint_name: str) -> int:
+    def _get_joint_id(obj_id: int,
+                      joint_name: str,
+                      physics_client_id: int = 0) -> int:
         """Helper to find a joint by name in a URDF."""
-        num_joints = p.getNumJoints(obj_id)
+        num_joints = p.getNumJoints(obj_id, physicsClientId=physics_client_id)
         for j in range(num_joints):
-            info = p.getJointInfo(obj_id, j)
+            info = p.getJointInfo(obj_id, j, physicsClientId=physics_client_id)
             if info[1].decode("utf-8") == joint_name:
                 return j
         return -1

@@ -551,10 +551,11 @@ class PyBulletFanEnv(PyBulletEnv):
         return physics_client_id, pybullet_robot, bodies
 
     @staticmethod
-    def _get_joint_id(obj_id: int, joint_name: str) -> int:
-        num_joints = p.getNumJoints(obj_id)
+    def _get_joint_id(obj_id: int, joint_name: str,
+                      physics_client_id: int = 0) -> int:
+        num_joints = p.getNumJoints(obj_id, physicsClientId=physics_client_id)
         for j in range(num_joints):
-            info = p.getJointInfo(obj_id, j)
+            info = p.getJointInfo(obj_id, j, physicsClientId=physics_client_id)
             if info[1].decode("utf-8") == joint_name:
                 return j
         return -1
@@ -576,7 +577,8 @@ class PyBulletFanEnv(PyBulletEnv):
             fan_obj.side_idx = side_idx
             fan_obj.fan_ids = fan_ids_by_side[side_idx]
             fan_obj.joint_ids = [
-                self._get_joint_id(fid, "joint_0") for fid in fan_obj.fan_ids
+                self._get_joint_id(fid, "joint_0", self._physics_client_id)
+                for fid in fan_obj.fan_ids
             ]
             # Assign an arbitrary ID from the fans on this side (use the first one)
             fan_obj.id = fan_obj.fan_ids[0] if fan_obj.fan_ids else -1
@@ -584,7 +586,8 @@ class PyBulletFanEnv(PyBulletEnv):
         # Switches
         for i, switch_obj in enumerate(self._switches):
             switch_obj.id = pybullet_bodies["switch_ids"][i]
-            switch_obj.joint_id = self._get_joint_id(switch_obj.id, "joint_0")
+            switch_obj.joint_id = self._get_joint_id(switch_obj.id, "joint_0",
+                                                     self._physics_client_id)
             switch_obj.side_idx = i  # 0=left,1=right,2=back,3=front
 
         # Sides (no PyBullet bodies, just assign IDs for consistency)
@@ -1031,7 +1034,8 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     def _is_switch_on(self, switch_id: int) -> bool:
         """Check if a switch's joint is above the threshold."""
-        joint_id = self._get_joint_id(switch_id, "joint_0")
+        joint_id = self._get_joint_id(switch_id, "joint_0",
+                                      self._physics_client_id)
         if joint_id < 0:
             return False
         j_pos, _, _, _ = p.getJointState(
@@ -1045,7 +1049,8 @@ class PyBulletFanEnv(PyBulletEnv):
 
     def _set_switch_on(self, switch_id: int, power_on: bool) -> None:
         """Programmatically toggle a switch on/off."""
-        joint_id = self._get_joint_id(switch_id, "joint_0")
+        joint_id = self._get_joint_id(switch_id, "joint_0",
+                                      self._physics_client_id)
         if joint_id < 0:
             return
         info = p.getJointInfo(switch_id,

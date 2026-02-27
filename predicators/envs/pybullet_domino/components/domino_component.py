@@ -304,11 +304,13 @@ class DominoComponent(DominoEnvComponent):
 
         for target, id_ in zip(self.targets, pybullet_bodies["target_ids"]):
             target.id = id_
-            target.joint_id = self._get_joint_id(id_, "flap_hinge_joint")
+            target.joint_id = self._get_joint_id(id_, "flap_hinge_joint",
+                                                  self._physics_client_id)
 
         for pivot, id_ in zip(self.pivots, pybullet_bodies["pivot_ids"]):
             pivot.id = id_
-            pivot.joint_id = self._get_joint_id(id_, "flap_hinge_joint")
+            pivot.joint_id = self._get_joint_id(id_, "flap_hinge_joint",
+                                                 self._physics_client_id)
 
     def reset_state(self, state: State) -> None:
         """Reset dominoes, targets, and pivots to match state."""
@@ -473,11 +475,12 @@ class DominoComponent(DominoEnvComponent):
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _get_joint_id(obj_id: int, joint_name: str) -> int:
+    def _get_joint_id(obj_id: int, joint_name: str,
+                      physics_client_id: int = 0) -> int:
         """Get joint ID by name from PyBullet object."""
-        num_joints = p.getNumJoints(obj_id)
+        num_joints = p.getNumJoints(obj_id, physicsClientId=physics_client_id)
         for j in range(num_joints):
-            info = p.getJointInfo(obj_id, j)
+            info = p.getJointInfo(obj_id, j, physicsClientId=physics_client_id)
             if info[1].decode("utf-8") == joint_name:
                 return j
         return -1
