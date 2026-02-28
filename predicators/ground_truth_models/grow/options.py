@@ -14,6 +14,9 @@ from predicators.envs.pybullet_grow import PyBulletGrowEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.coffee.options import \
     PyBulletCoffeeGroundTruthOptionFactory
+from predicators.ground_truth_models.skill_factories import (
+    SkillConfig, create_pick_skill, create_place_skill, create_pour_skill,
+    create_wait_option)
 from predicators.pybullet_helpers.controllers import \
     create_change_fingers_option, create_move_end_effector_to_pose_option
 from predicators.pybullet_helpers.geometry import Pose
@@ -46,6 +49,18 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
     def get_options(cls, env_name: str, types: Dict[str, Type],
                     predicates: Dict[str, Predicate],
                     action_space: Box) -> Set[ParameterizedOption]:
+        """Get the ground-truth options for the grow environment."""
+        if CFG.grow_use_skill_factories:
+            return cls._get_options_skill_factories(env_name, types,
+                                                    predicates, action_space)
+        return cls._get_options_legacy(env_name, types, predicates,
+                                       action_space)
+
+    @classmethod
+    def _get_options_legacy(cls, env_name: str, types: Dict[str, Type],
+                            predicates: Dict[str, Predicate],
+                            action_space: Box) -> Set[ParameterizedOption]:
+        """Legacy option implementations."""
         _, pybullet_robot, _ = \
             PyBulletGrowEnv.initialize_pybullet(using_gui=False)
 
@@ -207,6 +222,162 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
         )
 
         return {PickJug, Pour, Place, NoOp}
+
+    # ------------------------------------------------------------------
+    # Skill-factory path
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _get_options_skill_factories(
+            cls, env_name: str, types: Dict[str, Type],
+            predicates: Dict[str, Predicate],
+            action_space: Box) -> Set[ParameterizedOption]:
+        """Skill-factory-based option implementations for the grow env.
+
+        PickJug and Place use the PhaseSkill framework.  Pour falls back
+        to the legacy implementation because it involves continuous tilting
+        that doesn't map directly to MOVE_TO_POSE / CHANGE_FINGERS phases.
+        """
+
+        _, pybullet_robot, _ = \
+            PyBulletGrowEnv.initialize_pybullet(using_gui=False)
+
+        robot_type = types["robot"]
+        jug_type = types["jug"]
+        cup_type = types["cup"]
+
+        env_cls = cls.env_cls
+
+        config = SkillConfig(
+            robot=pybullet_robot,
+            open_fingers_joint=pybullet_robot.open_fingers,
+            closed_fingers_joint=pybullet_robot.closed_fingers,
+            fingers_state_to_joint=PyBulletGrowEnv._fingers_state_to_joint,
+            robot_init_tilt=PyBulletGrowEnv.robot_init_tilt,
+            robot_init_wrist=PyBulletGrowEnv.robot_init_wrist,
+        )
+
+        # ---------------------------------------------------------------
+        # PickJug: grow uses a very permissive grasp tolerance (5e-2), so
+        # the default joint-value terminal is sufficient (no is_held check).
+        # ---------------------------------------------------------------
+        def _get_jug_pose(
+            state: State,
+            objects: Sequence[Object],
+            params: Array,
+        ) -> Tuple[float, float, float, float]:
+            del params
+            _, jug = objects
+            gz = env_cls.table_height + env_cls.jug_handle_height
+            return (state.get(jug, "x"), state.get(jug, "y"), gz,
+                    state.get(jug, "rot"))
+
+        PickJug = create_pick_skill(
+            name="PickJug",
+            types=[robot_type, jug_type],
+            params_space=Box(0, 1, (0, )),
+            config=config,
+            get_object_pose_fn=_get_jug_pose,
+            transport_z=env_cls.z_ub - 0.35,
+        ).build()
+
+        # ---------------------------------------------------------------
+        # Place: target location encoded as normalised (x_norm, y_norm).
+        # ---------------------------------------------------------------
+        _drop_z = env_cls.table_height + env_cls.jug_handle_height
+
+        def _get_placement_pose(state: State, objects: Sequence[Object],
+                                params: Array,
+                                cfg: SkillConfig) -> Tuple[float, float, float,
+                                                           float]:
+            del state, objects, cfg
+            x_norm, y_norm = params
+            tx = env_cls.x_lb + (env_cls.x_ub - env_cls.x_lb) * x_norm
+            ty = env_cls.y_lb + (env_cls.y_ub - env_cls.y_lb) * y_norm
+            return tx, ty, _drop_z, 0.0
+
+        Place = create_place_skill(
+            name="Place",
+            types=[robot_type, jug_type],
+            params_space=Box(0, 1, (2, )),
+            config=config,
+            get_placement_pose_fn=_get_placement_pose,
+            transport_z=env_cls.z_ub - 0.35,
+            drop_z=_drop_z,
+        ).build()
+
+        # ---------------------------------------------------------------
+        # Pour
+        # ---------------------------------------------------------------
+        Holding = predicates["Holding"]
+        Grown = predicates["Grown"]
+        HandTilted = predicates["HandTilted"]
+        JugAboveCup = predicates["JugAboveCup"]
+
+        def _get_pour_position(
+            state: State,
+            objects: Sequence[Object],
+            params: Array,
+            cfg: SkillConfig,
+        ) -> Tuple[float, float, float, float]:
+            del params
+            robot, jug, cup = objects
+            # Where the jug should be for pouring
+            pour_pos = PyBulletCoffeeEnv._get_pour_position(state, cup)
+            # Current jug position (when held, offset from EE by handle height)
+            jug_x = state.get(jug, "x")
+            jug_y = state.get(jug, "y")
+            jug_z = state.get(robot, "z") - \
+                PyBulletCoffeeEnv.jug_handle_height()
+            # Robot target = current_robot + (pour_target - current_jug)
+            dx = pour_pos[0] - jug_x
+            dy = pour_pos[1] - jug_y
+            dz = pour_pos[2] - jug_z
+            robot_x = state.get(robot, "x") + dx
+            robot_y = state.get(robot, "y") + dy
+            robot_z = state.get(robot, "z") + dz
+            return (robot_x, robot_y, robot_z, cfg.robot_init_wrist)
+
+        def _pour_tilt_terminal(
+            state: State,
+            objects: Sequence[Object],
+            params: Array,
+            cfg: SkillConfig,
+        ) -> bool:
+            del params, cfg
+            robot, jug, cup = objects
+            if CFG.grow_weak_pour_terminate_condition:
+                if not Holding.holds(state, [robot, jug]):
+                    return False
+                jug_x = state.get(jug, "x")
+                jug_y = state.get(jug, "y")
+                jug_z = state.get(robot, "z") - \
+                    PyBulletCoffeeEnv.jug_handle_height()
+                jug_pos = (jug_x, jug_y, jug_z)
+                pour_pos = PyBulletCoffeeEnv._get_pour_position(state, cup)
+                sq_dist = np.sum(np.subtract(jug_pos, pour_pos)**2)
+                jug_above_cup = sq_dist < env_cls.pour_pos_tol / \
+                    (env_cls.pour_pos_tol_factor * 2)
+                return jug_above_cup and HandTilted.holds(state, [robot])
+            return Grown.holds(state, [cup])
+
+        Pour = create_pour_skill(
+            name="Pour",
+            types=[robot_type, jug_type, cup_type],
+            params_space=Box(0, 1, (0, )),
+            config=config,
+            get_pour_position_fn=_get_pour_position,
+            pour_tilt=env_cls.tilt_ub,
+            transport_z=env_cls.z_ub - 0.35,
+            tilt_terminal_fn=_pour_tilt_terminal,
+        ).build()
+
+        # ---------------------------------------------------------------
+        # NoOp
+        # ---------------------------------------------------------------
+        NoOp = create_wait_option(config, robot_type)
+
+        return {PickJug, Place, Pour, NoOp}
 
     @classmethod
     def _create_move_to_place_location_option(

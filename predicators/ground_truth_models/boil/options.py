@@ -13,6 +13,9 @@ from predicators import utils
 from predicators.envs.pybullet_boil import PyBulletBoilEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
+from predicators.ground_truth_models.skill_factories import (
+    SkillConfig, create_pick_skill, create_place_skill, create_push_skill,
+    create_wait_option)
 from predicators.pybullet_helpers.controllers import \
     create_change_fingers_option, create_move_end_effector_to_pose_option
 from predicators.pybullet_helpers.geometry import Pose
@@ -48,7 +51,18 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
     def get_options(cls, env_name: str, types: Dict[str, Type],
                     predicates: Dict[str, Predicate],
                     action_space: Box) -> Set[ParameterizedOption]:
-        """Get the ground-truth options for the grow environment."""
+        """Get the ground-truth options for the boil environment."""
+        if CFG.boil_use_skill_factories:
+            return cls._get_options_skill_factories(env_name, types,
+                                                    predicates, action_space)
+        return cls._get_options_legacy(env_name, types, predicates,
+                                       action_space)
+
+    @classmethod
+    def _get_options_legacy(cls, env_name: str, types: Dict[str, Type],
+                            predicates: Dict[str, Predicate],
+                            action_space: Box) -> Set[ParameterizedOption]:
+        """Legacy option implementations."""
         del env_name  # unused
 
         _, pybullet_robot, _ = \
@@ -497,6 +511,287 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                         pybullet_robot=pybullet_robot,
                         option_types=option_types,
                         params_space=params_space),
+                ])
+            options.add(DeclareComplete)
+
+        return options
+
+    # ------------------------------------------------------------------
+    # Skill-factory path
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _get_options_skill_factories(
+            cls, env_name: str, types: Dict[str, Type],
+            predicates: Dict[str, Predicate],
+            action_space: Box) -> Set[ParameterizedOption]:
+        """Skill-factory-based option implementations for the boil env."""
+        del env_name, action_space  # unused
+
+        _, pybullet_robot, _ = \
+            PyBulletBoilEnv.initialize_pybullet(using_gui=False)
+
+        robot_type = types["robot"]
+        switch_type = types["switch"]
+        jug_type = types["jug"]
+        burner_type = types["burner"]
+        faucet_type = types["faucet"]
+
+        env_cls = cls.env_cls
+
+        config = SkillConfig(
+            robot=pybullet_robot,
+            open_fingers_joint=pybullet_robot.open_fingers,
+            closed_fingers_joint=pybullet_robot.closed_fingers,
+            fingers_state_to_joint=PyBulletBoilEnv._fingers_state_to_joint,
+            robot_init_tilt=PyBulletBoilEnv.robot_init_tilt,
+            robot_init_wrist=PyBulletBoilEnv.robot_init_wrist,
+        )
+
+        # Switch push constants (match legacy implementation).
+        _behind_factor = 1.9
+        _push_factor = 0.3
+        _push_above_factor = 1.3
+        _hand_z = cls._hand_empty_move_z  # z_ub - 0.3
+
+        # ---------------------------------------------------------------
+        # Helper: find the switch object associated with a faucet/burner.
+        # The env sets obj.switch_id in _reset_state.
+        # ---------------------------------------------------------------
+        def _get_switch_pose(
+            state: State,
+            objects: Sequence[Object],
+            params: Array,
+        ) -> Tuple[float, float, float, float]:
+            del params
+            _, obj = objects
+            switch = next(
+                (s for s in state.get_objects(switch_type)
+                 if s.id == obj.switch_id), None)
+            if switch is None:
+                raise utils.OptionExecutionFailure(
+                    f"No switch found for {obj} (switch_id={obj.switch_id})")
+            return (state.get(switch, "x"), state.get(switch, "y"),
+                    state.get(switch, "z"), state.get(switch, "rot"))
+
+        # ---------------------------------------------------------------
+        # Waypoints: SwitchOn — sweep in the +push_dir direction.
+        # push_dir = (cos(tyaw), sin(tyaw)) is the joint axis in world frame.
+        # ---------------------------------------------------------------
+        def _waypoints_on(tx: float, ty: float, tz: float, tyaw: float,
+                          cfg: SkillConfig) -> List[Tuple]:
+            del cfg
+            push_z = tz + env_cls.switch_height * _push_above_factor
+            push_dx = np.cos(tyaw)
+            push_dy = np.sin(tyaw)
+            behind_x = tx - push_dx * cls._y_offset * _behind_factor
+            behind_y = ty - push_dy * cls._y_offset * _behind_factor
+            push_x = tx - push_dx * cls._y_offset * _push_factor
+            push_y = ty - push_dy * cls._y_offset * _push_factor
+            return [
+                (behind_x, behind_y, _hand_z, 0.0, "closed"),
+                (behind_x, behind_y, push_z, 0.0, "closed"),
+                (push_x, push_y, push_z, 0.0, "closed"),
+                (behind_x, behind_y, _hand_z, 0.0, "closed"),
+            ]
+
+        # ---------------------------------------------------------------
+        # Waypoints: SwitchOff — sweep in the −push_dir direction.
+        # ---------------------------------------------------------------
+        def _waypoints_off(tx: float, ty: float, tz: float, tyaw: float,
+                           cfg: SkillConfig) -> List[Tuple]:
+            del cfg
+            push_z = tz + env_cls.switch_height * _push_above_factor
+            push_dx = np.cos(tyaw)
+            push_dy = np.sin(tyaw)
+            front_x = tx + push_dx * cls._y_offset * _behind_factor
+            front_y = ty + push_dy * cls._y_offset * _behind_factor
+            push_x = tx + push_dx * cls._y_offset * _push_factor
+            push_y = ty + push_dy * cls._y_offset * _push_factor
+            return [
+                (front_x, front_y, _hand_z, 0.0, "closed"),
+                (front_x, front_y, push_z, 0.0, "closed"),
+                (push_x, push_y, push_z, 0.0, "closed"),
+                (front_x, front_y, _hand_z, 0.0, "closed"),
+            ]
+
+        # ---------------------------------------------------------------
+        # PickJug: grasp at handle position with is_held terminal.
+        # ---------------------------------------------------------------
+        def _get_jug_pose(
+            state: State,
+            objects: Sequence[Object],
+            params: Array,
+        ) -> Tuple[float, float, float, float]:
+            del params
+            _, jug = objects
+            rot = state.get(jug, "rot")
+            gx = (state.get(jug, "x") +
+                  np.cos(rot) * env_cls.jug_handle_offset)
+            gy = (state.get(jug, "y") +
+                  np.sin(rot) * env_cls.jug_handle_offset)
+            gz = env_cls.table_height + env_cls.jug_handle_height
+            return gx, gy, gz, rot
+
+        def _is_held_terminal(state: State, objects: Sequence[Object],
+                              params: Array, cfg: SkillConfig) -> bool:
+            del params, cfg
+            _, jug = objects
+            return bool(state.get(jug, "is_held") > 0.5)
+
+        PickJug = create_pick_skill(
+            name="PickJug",
+            types=[robot_type, jug_type],
+            params_space=Box(0, 1, (0, )),
+            config=config,
+            get_object_pose_fn=_get_jug_pose,
+            transport_z=cls._transport_z,
+            grasp_terminal_fn=_is_held_terminal,
+        ).build()
+
+        # ---------------------------------------------------------------
+        # SwitchFaucetOn / SwitchFaucetOff (take [robot, faucet] objects)
+        # ---------------------------------------------------------------
+        _faucet_params = Box(0, 1, (0, ))
+        SwitchFaucetOn = create_push_skill(
+            name="SwitchFaucetOn",
+            types=[robot_type, faucet_type],
+            params_space=_faucet_params,
+            config=config,
+            get_target_pose_fn=_get_switch_pose,
+            waypoints_fn=_waypoints_on,
+        ).build()
+        SwitchFaucetOff = create_push_skill(
+            name="SwitchFaucetOff",
+            types=[robot_type, faucet_type],
+            params_space=_faucet_params,
+            config=config,
+            get_target_pose_fn=_get_switch_pose,
+            waypoints_fn=_waypoints_off,
+        ).build()
+
+        # ---------------------------------------------------------------
+        # SwitchBurnerOn / SwitchBurnerOff (take [robot, burner] objects)
+        # ---------------------------------------------------------------
+        _burner_params = Box(0, 1, (0, ))
+        SwitchBurnerOn = create_push_skill(
+            name="SwitchBurnerOn",
+            types=[robot_type, burner_type],
+            params_space=_burner_params,
+            config=config,
+            get_target_pose_fn=_get_switch_pose,
+            waypoints_fn=_waypoints_on,
+        ).build()
+        SwitchBurnerOff = create_push_skill(
+            name="SwitchBurnerOff",
+            types=[robot_type, burner_type],
+            params_space=_burner_params,
+            config=config,
+            get_target_pose_fn=_get_switch_pose,
+            waypoints_fn=_waypoints_off,
+        ).build()
+
+        # ---------------------------------------------------------------
+        # Place options — all drop at jug_handle_height above table.
+        # ---------------------------------------------------------------
+        _drop_z = env_cls.table_height + env_cls.jug_handle_height
+
+        def _faucet_placement(state: State, objects: Sequence[Object],
+                              params: Array,
+                              cfg: SkillConfig) -> Tuple[float, float, float,
+                                                         float]:
+            del params, cfg
+            _, faucet = objects
+            tx = state.get(faucet, "x")
+            ty = (state.get(faucet, "y") - env_cls.jug_handle_offset -
+                  env_cls.faucet_x_len)
+            return tx, ty, _drop_z, 0.0
+
+        PlaceUnderFaucet = create_place_skill(
+            name="PlaceUnderFaucet",
+            types=[robot_type, faucet_type],
+            params_space=Box(0, 1, (0, )),
+            config=config,
+            get_placement_pose_fn=_faucet_placement,
+            transport_z=cls._transport_z,
+            drop_z=_drop_z,
+        ).build()
+
+        def _burner_placement(state: State, objects: Sequence[Object],
+                              params: Array,
+                              cfg: SkillConfig) -> Tuple[float, float, float,
+                                                         float]:
+            del params, cfg
+            _, burner = objects
+            tx = state.get(burner, "x")
+            ty = state.get(burner, "y") - env_cls.jug_handle_offset
+            return tx, ty, _drop_z, 0.0
+
+        PlaceOnBurner = create_place_skill(
+            name="PlaceOnBurner",
+            types=[robot_type, burner_type],
+            params_space=Box(0, 1, (0, )),
+            config=config,
+            get_placement_pose_fn=_burner_placement,
+            transport_z=cls._transport_z,
+            drop_z=_drop_z,
+        ).build()
+
+        def _outside_placement(state: State, objects: Sequence[Object],
+                               params: Array,
+                               cfg: SkillConfig) -> Tuple[float, float, float,
+                                                          float]:
+            del state, objects, params, cfg
+            return env_cls.x_mid - 0.15, env_cls.y_mid + 0.10, _drop_z, 0.0
+
+        PlaceOutsideBurnerAndFaucet = create_place_skill(
+            name="PlaceOutsideBurnerAndFaucet",
+            types=[robot_type],
+            params_space=Box(0, 1, (0, )),
+            config=config,
+            get_placement_pose_fn=_outside_placement,
+            transport_z=cls._transport_z,
+            drop_z=_drop_z,
+        ).build()
+
+        # ---------------------------------------------------------------
+        # NoOp
+        # ---------------------------------------------------------------
+        NoOp = create_wait_option(config, robot_type)
+
+        options: Set[ParameterizedOption] = {
+            PickJug, SwitchFaucetOn, SwitchFaucetOff, SwitchBurnerOn,
+            SwitchBurnerOff, PlaceUnderFaucet, PlaceOnBurner,
+            PlaceOutsideBurnerAndFaucet, NoOp
+        }
+
+        if CFG.boil_goal == "task_completed":
+            # DeclareComplete: open fingers + move to initial robot position.
+            # Reuse the legacy helper since it depends on the pybullet_robot.
+            _, pybullet_robot2, _ = \
+                PyBulletBoilEnv.initialize_pybullet(using_gui=False)
+
+            def _open_func(state: State, objects: Sequence[Object],
+                           params: Array) -> Tuple[float, float]:
+                del objects, params
+                robot_obj2, = state.get_objects(robot_type)
+                current = PyBulletBoilEnv._fingers_state_to_joint(
+                    pybullet_robot2,
+                    state.get(robot_obj2, "fingers"))
+                return current, pybullet_robot2.open_fingers
+
+            DeclareComplete = utils.LinearChainParameterizedOption(
+                "DeclareComplete", [
+                    create_change_fingers_option(
+                        pybullet_robot2, "OpenFingers", [robot_type],
+                        Box(0, 1, (0, )), _open_func,
+                        CFG.pybullet_max_vel_norm, PyBulletBoilEnv.grasp_tol),
+                    cls._create_boil_move_to_init_option(
+                        name="MoveEndEffectorToInit",
+                        finger_status="open",
+                        pybullet_robot=pybullet_robot2,
+                        option_types=[robot_type],
+                        params_space=Box(0, 1, (0, ))),
                 ])
             options.add(DeclareComplete)
 

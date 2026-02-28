@@ -557,6 +557,17 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
     def get_options(cls, env_name: str, types: Dict[str, Type],
                     predicates: Dict[str, Predicate],
                     action_space: Box) -> Set[ParameterizedOption]:
+        if CFG.coffee_use_skill_factories:
+            return cls._get_options_skill_factories(env_name, types,
+                                                     predicates, action_space)
+        return cls._get_options_legacy(env_name, types, predicates,
+                                       action_space)
+
+    @classmethod
+    def _get_options_legacy(cls, env_name: str, types: Dict[str, Type],
+                            predicates: Dict[str, Predicate],
+                            action_space: Box) -> Set[ParameterizedOption]:
+        """Legacy option implementations."""
         options = super().get_options(env_name, types, predicates,
                                       action_space)
 
@@ -778,6 +789,224 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             terminal=lambda _1, _2, _3, _4: False,
         )
         options.add(NoOp)
+
+        return options
+
+    # ------------------------------------------------------------------
+    # Skill-factory path
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _get_options_skill_factories(
+            cls, env_name: str, types: Dict[str, Type],
+            predicates: Dict[str, Predicate],
+            action_space: Box) -> Set[ParameterizedOption]:
+        """Skill-factory-based option implementations for the coffee env.
+
+        PickJug, PlaceJugInMachine, TurnMachineOn, Pour, and NoOp use the
+        PhaseSkill framework.  Twist and PlugIn fall back to the legacy
+        implementations because they involve complex twisting/plugging logic
+        that doesn't map directly to the factory phases.
+        """
+        from predicators.ground_truth_models.skill_factories import (
+            SkillConfig, create_pick_skill, create_place_skill,
+            create_pour_skill, create_push_skill, create_wait_option)
+
+        _, pybullet_robot, _ = \
+            PyBulletCoffeeEnv.initialize_pybullet(using_gui=False)
+
+        robot_type = types["robot"]
+        jug_type = types["jug"]
+        machine_type = types["coffee_machine"]
+        cup_type = types["cup"]
+
+        Holding = predicates["Holding"]
+        HandTilted = predicates["HandTilted"]
+        CupFilled = predicates["CupFilled"]
+
+        env_cls = cls.env_cls
+
+        config = SkillConfig(
+            robot=pybullet_robot,
+            open_fingers_joint=pybullet_robot.open_fingers,
+            closed_fingers_joint=pybullet_robot.closed_fingers,
+            fingers_state_to_joint=PyBulletCoffeeEnv._fingers_state_to_joint,
+            robot_init_tilt=PyBulletCoffeeEnv.robot_init_tilt,
+            robot_init_wrist=PyBulletCoffeeEnv.robot_init_wrist,
+        )
+
+        # ---------------------------------------------------------------
+        # PickJug
+        # ---------------------------------------------------------------
+        def _get_jug_pose(
+            state: State,
+            objects: Sequence[Object],
+            params: Array,
+        ) -> Tuple[float, float, float, float]:
+            del params
+            _, jug = objects
+            hx, hy, hz = env_cls._get_jug_handle_grasp(state, jug)
+            return (hx, hy, hz, state.get(jug, "rot"))
+
+        def _pick_terminal(
+            state: State,
+            objects: Sequence[Object],
+            params: Array,
+            cfg: SkillConfig,
+        ) -> bool:
+            del params, cfg
+            robot, jug = objects
+            return Holding.holds(state, [robot, jug])
+
+        PickJug = create_pick_skill(
+            name="PickJug",
+            types=[robot_type, jug_type],
+            params_space=Box(0, 1, (0, )),
+            config=config,
+            get_object_pose_fn=_get_jug_pose,
+            transport_z=env_cls.z_ub - 0.1,
+            grasp_terminal_fn=_pick_terminal,
+        ).build()
+
+        # ---------------------------------------------------------------
+        # PlaceJugInMachine
+        # ---------------------------------------------------------------
+        _place_drop_z = env_cls.z_lb + env_cls.jug_handle_height()
+
+        def _get_machine_placement(
+            state: State,
+            objects: Sequence[Object],
+            params: Array,
+            cfg: SkillConfig,
+        ) -> Tuple[float, float, float, float]:
+            del state, objects, params
+            return (env_cls.dispense_area_x, env_cls.dispense_area_y,
+                    _place_drop_z, cfg.robot_init_wrist)
+
+        PlaceJugInMachine = create_place_skill(
+            name="PlaceJugInMachine",
+            types=[robot_type, jug_type, machine_type],
+            params_space=Box(0, 1, (0, )),
+            config=config,
+            get_placement_pose_fn=_get_machine_placement,
+            transport_z=env_cls.z_ub - 0.1,
+            drop_z=_place_drop_z,
+        ).build()
+
+        # ---------------------------------------------------------------
+        # TurnMachineOn (push-style skill to press button)
+        # ---------------------------------------------------------------
+        _behind_factor = 1.5
+        _push_above_factor = 1.3
+        _safe_z = env_cls.z_ub - 0.3
+
+        def _get_button_pose(
+            state: State,
+            objects: Sequence[Object],
+            params: Array,
+        ) -> Tuple[float, float, float, float]:
+            del state, objects, params
+            return (env_cls.button_x, env_cls.button_y, env_cls.button_z, 0.0)
+
+        def _button_waypoints(
+            x: float,
+            y: float,
+            z: float,
+            yaw: float,
+            cfg: SkillConfig,
+        ):
+            del cfg
+            y_offset = env_cls.button_radius * _behind_factor
+            return [
+                (x, y + y_offset, _safe_z, yaw, "closed"),
+                (x, y + y_offset, z, yaw, "closed"),
+                (x, y, z, yaw, "closed"),
+                (x, y + y_offset, _safe_z, yaw, "open"),
+            ]
+
+        TurnMachineOn = create_push_skill(
+            name="TurnMachineOn",
+            types=[robot_type, machine_type],
+            params_space=Box(0, 1, (0, )),
+            config=config,
+            get_target_pose_fn=_get_button_pose,
+            waypoints_fn=_button_waypoints,
+            use_motion_planning=False,
+        ).build()
+
+        # ---------------------------------------------------------------
+        # Pour
+        # ---------------------------------------------------------------
+        def _get_pour_position(
+            state: State,
+            objects: Sequence[Object],
+            params: Array,
+            cfg: SkillConfig,
+        ) -> Tuple[float, float, float, float]:
+            del params
+            robot, jug, cup = objects
+            # Where the jug should be for pouring
+            pour_pos = env_cls._get_pour_position(state, cup)
+            # Current jug position (when held, offset from EE by handle height)
+            jug_x = state.get(jug, "x")
+            jug_y = state.get(jug, "y")
+            jug_z = state.get(robot, "z") - env_cls.jug_handle_height()
+            # Robot target = current_robot + (pour_target - current_jug)
+            dx = pour_pos[0] - jug_x
+            dy = pour_pos[1] - jug_y
+            dz = pour_pos[2] - jug_z
+            robot_x = state.get(robot, "x") + dx
+            robot_y = state.get(robot, "y") + dy
+            robot_z = state.get(robot, "z") + dz
+            return (robot_x, robot_y, robot_z, cfg.robot_init_wrist)
+
+        def _pour_tilt_terminal(
+            state: State,
+            objects: Sequence[Object],
+            params: Array,
+            cfg: SkillConfig,
+        ) -> bool:
+            del params, cfg
+            robot, jug, cup = objects
+            if CFG.coffee_fill_jug_gradually:
+                jug_x = state.get(jug, "x")
+                jug_y = state.get(jug, "y")
+                jug_z = state.get(robot, "z") - env_cls.jug_handle_height()
+                jug_pos = (jug_x, jug_y, jug_z)
+                pour_pos = env_cls._get_pour_position(state, cup)
+                sq_dist = np.sum(np.subtract(jug_pos, pour_pos)**2)
+                at_pos = sq_dist < env_cls.pour_pos_tol / env_cls.pour_pos_tol_factor
+                return at_pos and HandTilted.holds(state, [robot])
+            return CupFilled.holds(state, [cup])
+
+        Pour = create_pour_skill(
+            name="Pour",
+            types=[robot_type, jug_type, cup_type],
+            params_space=Box(0, 1, (0, )),
+            config=config,
+            get_pour_position_fn=_get_pour_position,
+            pour_tilt=env_cls.tilt_ub,
+            transport_z=env_cls.z_ub - 0.1,
+            tilt_terminal_fn=_pour_tilt_terminal,
+        ).build()
+
+        # ---------------------------------------------------------------
+        # NoOp
+        # ---------------------------------------------------------------
+        NoOp = create_wait_option(config, robot_type)
+
+        # ---------------------------------------------------------------
+        # Twist and PlugIn: reuse legacy implementations
+        # ---------------------------------------------------------------
+        legacy_options = cls._get_options_legacy(env_name, types, predicates,
+                                                  action_space)
+        options = {PickJug, PlaceJugInMachine, TurnMachineOn, Pour, NoOp}
+
+        # Copy over legacy-only options (Twist/MoveToTwistJug, PlugIn, etc.)
+        factory_names = {o.name for o in options}
+        for opt in legacy_options:
+            if opt.name not in factory_names:
+                options.add(opt)
 
         return options
 

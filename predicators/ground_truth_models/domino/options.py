@@ -897,10 +897,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                          domino_type: Type, position_type: Type,
                          rotation_type: Type) -> ParameterizedOption:
         """Place option using create_place_skill (discrete or continuous)."""
-        if CFG.domino_use_continuous_place:
-            return cls._create_sf_place_continuous(cfg, robot_type)
-        return cls._create_sf_place_discrete(cfg, robot_type, domino_type,
-                                              position_type, rotation_type)
+        return cls._create_sf_place_continuous(cfg, robot_type)
 
     @classmethod
     def _create_sf_place_continuous(cls, cfg: SkillConfig,
@@ -921,100 +918,6 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         return create_place_skill(name="Place",
                                   types=[robot_type],
-                                  params_space=params_space,
-                                  config=cfg,
-                                  get_placement_pose_fn=_get_placement,
-                                  transport_z=cls._transport_z,
-                                  drop_z=cls._place_drop_z).build()
-
-    @classmethod
-    def _create_sf_place_discrete(cls, cfg: SkillConfig, robot_type: Type,
-                                   domino_type: Type, position_type: Type,
-                                   rotation_type: Type) -> ParameterizedOption:
-        """Discrete place: objects = [robot, domino_f, domino_b, loc, angle]."""
-        option_types = [
-            robot_type, domino_type, domino_type, position_type, rotation_type
-        ]
-        params_space = Box(0, 1, (0, ))
-
-        env_cls = cls.env_cls
-
-        def _get_placement(state: State, objects: Sequence[Object],
-                           params: Array,
-                           c: SkillConfig) -> Tuple[float, float, float, float]:
-            del params, c
-            _, domino_f, domino_b, tgt_pos, rotation = objects
-
-            x2, y2 = state.get(domino_b, "x"), state.get(domino_b, "y")
-            rot2 = state.get(domino_b, "yaw")
-
-            target_angle = float(rotation.name.split("_")[-1])
-            target_rot_rad = np.radians(target_angle)
-            rot_diff = utils.wrap_angle(target_rot_rad - rot2)
-
-            angle_tol = 2e-1
-            if abs(rot_diff) < np.pi / 8 or abs(
-                    abs(rot_diff) - np.pi / 2) < angle_tol:
-                dir_value = 0.0
-            elif rot_diff > np.pi / 8:
-                dir_value = 1.0
-            else:
-                dir_value = 2.0
-
-            gap = env_cls.pos_gap
-            target_angle_is_cardinal = abs(
-                np.sin(2 * target_rot_rad)) < angle_tol
-
-            if dir_value == 0.0 or target_angle_is_cardinal:
-                target_x = float(tgt_pos.name.split("_")[1])
-                target_y = float(tgt_pos.name.split("_")[2])
-                if abs(rot_diff) < np.pi / 8:
-                    target_rot = rot2
-                else:
-                    target_rot = target_rot_rad
-            else:
-                turn_dir = -1.0 if dir_value == 1.0 else 1.0
-                shift_mag = env_cls.domino_width * env_cls.turn_shift_frac
-
-                if abs(np.sin(2 * rot2)) < angle_tol:
-                    target_rot = rot2 - turn_dir * np.pi / 4
-                    grid_x = float(tgt_pos.name.split("_")[1])
-                    grid_y = float(tgt_pos.name.split("_")[2])
-                    shift_dx = shift_mag * (turn_dir * np.cos(rot2) -
-                                            np.sin(rot2))
-                    shift_dy = shift_mag * (-turn_dir * np.sin(rot2) -
-                                            np.cos(rot2))
-                    target_x = grid_x + shift_dx
-                    target_y = grid_y + shift_dy
-
-                elif abs(np.cos(2 * rot2)) < angle_tol:
-                    target_rot = rot2 - turn_dir * np.pi / 4
-                    sin_r, cos_r = np.sin(rot2), np.cos(rot2)
-                    disp_x = (gap * turn_dir * cos_r +
-                               (2 * shift_mag - gap) * sin_r) / np.sqrt(2)
-                    disp_y = (-gap * turn_dir * sin_r +
-                               (2 * shift_mag - gap) * cos_r) / np.sqrt(2)
-                    target_x = x2 + disp_x
-                    target_y = y2 + disp_y
-
-                else:
-                    logging.warning(
-                        f"Unexpected domino rotation {rot2} in place option. "
-                        "Defaulting to cardinal turn logic.")
-                    target_rot = rot2 - turn_dir * np.pi / 4
-                    grid_x = float(tgt_pos.name.split("_")[1])
-                    grid_y = float(tgt_pos.name.split("_")[2])
-                    shift_dx = shift_mag * (turn_dir * np.cos(rot2) -
-                                            np.sin(rot2))
-                    shift_dy = shift_mag * (-turn_dir * np.sin(rot2) -
-                                            np.cos(rot2))
-                    target_x = grid_x + shift_dx
-                    target_y = grid_y + shift_dy
-
-            return float(target_x), float(target_y), 0.0, float(target_rot)
-
-        return create_place_skill(name="Place",
-                                  types=option_types,
                                   params_space=params_space,
                                   config=cfg,
                                   get_placement_pose_fn=_get_placement,

@@ -96,6 +96,7 @@ class GlobalSettings:
     balance_wierd_balance = False
 
     # grow env parameters
+    grow_use_skill_factories = False  # Use skill-factory-based option implementations
     grow_plant_same_color_as_cup = False
     grow_weak_pour_terminate_condition = False
     grow_place_option_no_sampler = False
@@ -369,6 +370,7 @@ class GlobalSettings:
     coffee_use_pixelated_jug = False
     coffee_plug_break_after_plugged_in = False
     coffee_fill_jug_gradually = False
+    coffee_use_skill_factories = False  # Use skill-factory-based option implementations
 
     # satellites env parameters
     satellites_num_sat_train = [2, 3]
@@ -448,6 +450,7 @@ class GlobalSettings:
     circuit_battery_in_box = False
 
     # fan env
+    fan_use_skill_factories = False  # Use skill-factory-based option implementations
     fan_fans_blow_opposite_direction = False
     fan_known_controls_relation = True
     fan_combine_switch_on_off = False
@@ -478,6 +481,7 @@ class GlobalSettings:
     domino_fan_has_glued_dominoes = False  # Include immovable glued dominoes
 
     # boil env
+    boil_use_skill_factories = False  # Use skill-factory-based option implementations
     boil_use_constant_delay = False
     boil_use_normal_delay = True
     boil_use_cmp_delay = False

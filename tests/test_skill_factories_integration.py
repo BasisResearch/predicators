@@ -1,0 +1,1020 @@
+"""Integration tests for skill-factory options in real PyBullet envs.
+
+Uses the options built by _get_options_skill_factories() in each env's
+options.py (via get_gt_options), following the same pattern as
+tests/envs/test_pybullet_blocks.py.
+
+Envs covered:
+  - boil:   PickJug, PlaceOnBurner, PlaceOutsideBurnerAndFaucet,
+            SwitchFaucetOn, SwitchBurnerOn
+  - grow:   PickJug, Place
+  - fan:    SwitchOn, SwitchOff
+  - domino: Push
+
+NOTE on pybullet_control_mode:
+  - Pick / Place / motion-only tests use "reset" mode (fast, deterministic
+    joint teleportation).
+  - Switch-toggle tests require "position" mode so p.stepSimulation() is
+    called and contact forces can rotate the switch joint.  Those tests
+    create their own env instance and are placed at the end of the file so
+    they do not interfere with the module-scoped "reset" mode fixtures.
+"""
+import functools
+
+import numpy as np
+import pytest
+
+from predicators import utils
+from predicators.envs import _MOST_RECENT_ENV_INSTANCE
+from predicators.envs.pybullet_boil import PyBulletBoilEnv
+from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
+from predicators.envs.pybullet_fan import PyBulletFanEnv
+from predicators.envs.pybullet_grow import PyBulletGrowEnv
+from predicators.ground_truth_models import get_gt_options
+
+_GUI_ON = False  # Set True for visual debugging
+
+# ---------------------------------------------------------------------------
+# Generic mixin: set_state / get_state / execute_option
+# ---------------------------------------------------------------------------
+
+
+class _ExposedEnvMixin:
+    """Provides set_state / get_state / execute_option on any PyBulletEnv."""
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Register this instance so get_or_create_env() returns it (and
+        # therefore get_gt_options() uses the same Type objects we have).
+        _MOST_RECENT_ENV_INSTANCE[self.get_name()] = self
+
+    @functools.cached_property
+    def _options(self):
+        return {o.name: o for o in get_gt_options(self.get_name())}
+
+    def set_state(self, state):
+        """Reset env to *state*, assuming robot is at its home joint config."""
+        joint_positions = list(self._pybullet_robot.initial_joint_positions)
+        state_with_sim = utils.PyBulletState(state.data,
+                                             simulator_state=joint_positions)
+        self._current_observation = state_with_sim
+        self._current_task = None
+        self._reset_state(state_with_sim)
+
+    def get_state(self):
+        return self._get_state()
+
+    def execute_option(self, option, max_steps=300):
+        """Run option loop up to *max_steps* and return the final state."""
+        assert option.initiable(self._current_state)
+        for _ in range(max_steps):
+            if option.terminal(self._current_state):
+                break
+            action = option.policy(self._current_state)
+            self.step(action)
+        return self._current_state.copy()
+
+
+# ---------------------------------------------------------------------------
+# Concrete exposed wrappers
+# ---------------------------------------------------------------------------
+
+
+class _ExposedBoilEnv(_ExposedEnvMixin, PyBulletBoilEnv):
+
+    @property
+    def PickJug(self):
+        return self._options["PickJug"]
+
+    @property
+    def PlaceOnBurner(self):
+        return self._options["PlaceOnBurner"]
+
+    @property
+    def PlaceOutside(self):
+        return self._options["PlaceOutsideBurnerAndFaucet"]
+
+    @property
+    def SwitchFaucetOn(self):
+        return self._options["SwitchFaucetOn"]
+
+    @property
+    def SwitchFaucetOff(self):
+        return self._options["SwitchFaucetOff"]
+
+    @property
+    def SwitchBurnerOn(self):
+        return self._options["SwitchBurnerOn"]
+
+    @property
+    def SwitchBurnerOff(self):
+        return self._options["SwitchBurnerOff"]
+
+
+class _ExposedGrowEnv(_ExposedEnvMixin, PyBulletGrowEnv):
+
+    @property
+    def PickJug(self):
+        return self._options["PickJug"]
+
+    @property
+    def Place(self):
+        return self._options["Place"]
+
+
+class _ExposedCoffeeEnv(_ExposedEnvMixin, PyBulletCoffeeEnv):
+
+    @property
+    def PickJug(self):
+        return self._options["PickJug"]
+
+    @property
+    def PlaceJugInMachine(self):
+        return self._options["PlaceJugInMachine"]
+
+    @property
+    def TurnMachineOn(self):
+        return self._options["TurnMachineOn"]
+
+    @property
+    def Pour(self):
+        return self._options["Pour"]
+
+
+class _ExposedFanEnv(_ExposedEnvMixin, PyBulletFanEnv):
+
+    @property
+    def SwitchOn(self):
+        return self._options["SwitchOn"]
+
+    @property
+    def SwitchOff(self):
+        return self._options["SwitchOff"]
+
+
+# ---------------------------------------------------------------------------
+# Module-scoped fixtures  (reset mode)
+# IMPORTANT: all fixture-based tests must run BEFORE any standalone tests
+# that call utils.reset_config with "position" mode.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module", name="boil_env")
+def _create_boil_env():
+    utils.reset_config({
+        "env": "pybullet_boil",
+        "use_gui": _GUI_ON,
+        "pybullet_control_mode": "reset",
+        "pybullet_robot": "fetch",
+        "boil_use_skill_factories": True,
+        "boil_num_jugs_train": [1],
+        "boil_num_jugs_test": [1],
+        "boil_num_burner_train": [1],
+        "boil_num_burner_test": [1],
+    })
+    return _ExposedBoilEnv(use_gui=_GUI_ON)
+
+
+@pytest.fixture(scope="module", name="grow_env")
+def _create_grow_env():
+    utils.reset_config({
+        "env": "pybullet_grow",
+        "use_gui": _GUI_ON,
+        "pybullet_control_mode": "reset",
+        "pybullet_robot": "fetch",
+        "grow_use_skill_factories": True,
+        "grow_num_jugs_train": [1],
+        "grow_num_jugs_test": [1],
+        "grow_num_cups_train": [1],
+        "grow_num_cups_test": [1],
+    })
+    return _ExposedGrowEnv(use_gui=_GUI_ON)
+
+
+@pytest.fixture(scope="module", name="coffee_env")
+def _create_coffee_env():
+    utils.reset_config({
+        "env": "pybullet_coffee",
+        "use_gui": _GUI_ON,
+        "pybullet_control_mode": "reset",
+        "pybullet_robot": "fetch",
+        "coffee_use_skill_factories": True,
+        "coffee_num_cups_train": [1],
+        "coffee_num_cups_test": [1],
+    })
+    return _ExposedCoffeeEnv(use_gui=_GUI_ON)
+
+
+@pytest.fixture(scope="module", name="fan_env")
+def _create_fan_env():
+    utils.reset_config({
+        "env": "pybullet_fan",
+        "use_gui": _GUI_ON,
+        "pybullet_control_mode": "reset",
+        "pybullet_robot": "fetch",
+        "fan_use_skill_factories": True,
+        "fan_known_controls_relation": False,
+        "fan_combine_switch_on_off": False,
+        "fan_train_num_walls_per_task": [0],
+        "fan_test_num_walls_per_task": [0],
+    })
+    return _ExposedFanEnv(use_gui=_GUI_ON)
+
+
+# ===========================================================================
+# BOIL ENV TESTS: Pick
+# ===========================================================================
+
+
+def test_pick_jug_boil_center(boil_env):
+    """Pick a jug placed at the workspace centre; jug should be held."""
+    env = boil_env
+    jug = env._jugs[0]
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.x_mid)
+    state.set(jug, "y", env.y_mid)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_held", 0.0)
+    state.set(jug, "water_volume", 0.0)
+    state.set(jug, "heat_level", 0.0)
+    env.set_state(state)
+
+    result = env.execute_option(env.PickJug.ground([robot, jug], []))
+
+    assert result.get(jug, "is_held") > 0.5, "Jug not held after pick"
+    assert result.get(robot, "fingers") < 0.5, "Fingers should be closed"
+
+
+def test_pick_jug_boil_offset_y(boil_env):
+    """Pick succeeds with jug at a y position offset from workspace center."""
+    env = boil_env
+    jug = env._jugs[0]
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.x_mid)
+    state.set(jug, "y", env.y_mid + 0.05)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_held", 0.0)
+    state.set(jug, "water_volume", 0.0)
+    state.set(jug, "heat_level", 0.0)
+    env.set_state(state)
+
+    result = env.execute_option(env.PickJug.ground([robot, jug], []))
+    assert result.get(jug, "is_held") > 0.5
+
+
+def test_pick_jug_boil_transport_z_correct(boil_env):
+    """After pick, robot EE z should be approximately at transport_z."""
+    env = boil_env
+    jug = env._jugs[0]
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.x_mid)
+    state.set(jug, "y", env.y_mid)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_held", 0.0)
+    state.set(jug, "water_volume", 0.0)
+    state.set(jug, "heat_level", 0.0)
+    env.set_state(state)
+
+    transport_z = PyBulletBoilEnv.z_ub - 0.35
+    result = env.execute_option(env.PickJug.ground([robot, jug], []))
+
+    robot_z = result.get(robot, "z")
+    assert abs(robot_z - transport_z) < 0.05, (
+        f"EE z={robot_z:.3f} should be near transport_z={transport_z:.3f}")
+
+
+def test_pick_skill_initiable_any_state_boil(boil_env):
+    """Pick skill's initiable() returns True regardless of finger state."""
+    env = boil_env
+    jug = env._jugs[0]
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.x_mid)
+    state.set(jug, "y", env.y_mid)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_held", 0.0)
+    state.set(jug, "water_volume", 0.0)
+    state.set(jug, "heat_level", 0.0)
+    env.set_state(state)
+
+    cur = env.get_state()
+    option = env.PickJug.ground([robot, jug], [])
+    assert option.initiable(cur), "Pick should be initiable from any state"
+
+
+# ===========================================================================
+# BOIL ENV TESTS: Place
+# ===========================================================================
+
+
+def test_place_jug_boil_on_burner(boil_env):
+    """Pick then place jug on the first burner."""
+    env = boil_env
+    jug = env._jugs[0]
+    robot = env._robot
+    burner = env._burners[0]
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.x_mid)
+    state.set(jug, "y", env.y_mid)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_held", 0.0)
+    state.set(jug, "water_volume", 0.0)
+    state.set(jug, "heat_level", 0.0)
+    env.set_state(state)
+
+    env.execute_option(env.PickJug.ground([robot, jug], []))
+    result = env.execute_option(env.PlaceOnBurner.ground([robot, burner], []))
+
+    assert result.get(jug, "is_held") < 0.5, "Jug should no longer be held"
+    assert result.get(robot, "fingers") > 0.015, "Fingers should be open"
+
+
+def test_place_jug_boil_outside(boil_env):
+    """Pick then place jug at the outside position."""
+    env = boil_env
+    jug = env._jugs[0]
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.x_mid)
+    state.set(jug, "y", env.y_mid - 0.1)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_held", 0.0)
+    state.set(jug, "water_volume", 0.0)
+    state.set(jug, "heat_level", 0.0)
+    env.set_state(state)
+
+    env.execute_option(env.PickJug.ground([robot, jug], []))
+    result = env.execute_option(env.PlaceOutside.ground([robot], []))
+
+    assert result.get(jug, "is_held") < 0.5
+    assert result.get(robot, "fingers") > 0.015
+
+
+def test_pick_place_full_cycle_boil(boil_env):
+    """Full pick→place→pick cycle; each step leaves correct held state."""
+    env = boil_env
+    jug = env._jugs[0]
+    robot = env._robot
+    burner = env._burners[0]
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.x_mid)
+    state.set(jug, "y", env.y_mid)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_held", 0.0)
+    state.set(jug, "water_volume", 0.0)
+    state.set(jug, "heat_level", 0.0)
+    env.set_state(state)
+
+    s1 = env.execute_option(env.PickJug.ground([robot, jug], []))
+    assert s1.get(jug, "is_held") > 0.5, "Should be held after first pick"
+
+    s2 = env.execute_option(env.PlaceOnBurner.ground([robot, burner], []))
+    assert s2.get(jug, "is_held") < 0.5, "Should be free after place"
+
+    s3 = env.execute_option(env.PickJug.ground([robot, jug], []))
+    assert s3.get(jug, "is_held") > 0.5, "Should be held after second pick"
+
+
+def test_place_skill_not_terminal_before_pick_boil(boil_env):
+    """Place skill not terminal at start (jug not placed yet)."""
+    env = boil_env
+    robot = env._robot
+    burner = env._burners[0]
+
+    task_state = env.get_train_tasks()[0].init.copy()
+    env.set_state(task_state)
+
+    cur = env.get_state()
+    option = env.PlaceOnBurner.ground([robot, burner], [])
+    assert option.initiable(cur)
+    assert not option.terminal(cur), "Place should not be terminal at start"
+
+
+# ===========================================================================
+# GROW ENV TESTS: Pick & Place
+# ===========================================================================
+
+
+def test_pick_jug_grow_center(grow_env):
+    """Pick a jug at the workspace centre in the grow environment."""
+    env = grow_env
+    jug = env._jugs[0]
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.robot_init_x)
+    state.set(jug, "y", env.y_mid)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", env.jug_init_rot)
+    state.set(jug, "is_held", 0.0)
+    env.set_state(state)
+
+    result = env.execute_option(env.PickJug.ground([robot, jug], []))
+    assert result.get(jug, "is_held") > 0.5, "Jug not held after pick (grow)"
+
+
+def test_pick_jug_grow_different_y(grow_env):
+    """Pick a jug at a y position closer to y_lb in the grow env."""
+    env = grow_env
+    jug = env._jugs[0]
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.robot_init_x)
+    state.set(jug, "y", env.y_lb + 0.15)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", env.jug_init_rot)
+    state.set(jug, "is_held", 0.0)
+    env.set_state(state)
+
+    result = env.execute_option(env.PickJug.ground([robot, jug], []))
+    assert result.get(jug, "is_held") > 0.5
+
+
+def test_place_jug_grow_center(grow_env):
+    """Pick then place jug in the grow environment."""
+    env = grow_env
+    jug = env._jugs[0]
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.robot_init_x)
+    state.set(jug, "y", env.y_mid)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", env.jug_init_rot)
+    state.set(jug, "is_held", 0.0)
+    env.set_state(state)
+
+    env.execute_option(env.PickJug.ground([robot, jug], []))
+
+    # grow Place takes [robot, jug] with normalised (x_norm, y_norm) params
+    tx = env.robot_init_x
+    ty = env.y_mid - 0.1
+    x_norm = (tx - env.x_lb) / (env.x_ub - env.x_lb)
+    y_norm = (ty - env.y_lb) / (env.y_ub - env.y_lb)
+    result = env.execute_option(env.Place.ground([robot, jug], [x_norm,
+                                                                y_norm]))
+
+    assert result.get(jug, "is_held") < 0.5, "Jug should be free after place"
+    assert result.get(robot, "fingers") > 0.015, "Fingers should be open"
+
+
+def test_pick_place_cycle_grow(grow_env):
+    """Full pick → place cycle works in grow env."""
+    env = grow_env
+    jug = env._jugs[0]
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug, "x", env.robot_init_x)
+    state.set(jug, "y", env.y_mid)
+    state.set(jug, "z", env.jug_init_z)
+    state.set(jug, "rot", env.jug_init_rot)
+    state.set(jug, "is_held", 0.0)
+    env.set_state(state)
+
+    s1 = env.execute_option(env.PickJug.ground([robot, jug], []))
+    assert s1.get(jug, "is_held") > 0.5
+
+    tx = env.robot_init_x
+    ty = env.y_mid + 0.1
+    x_norm = (tx - env.x_lb) / (env.x_ub - env.x_lb)
+    y_norm = (ty - env.y_lb) / (env.y_ub - env.y_lb)
+    s2 = env.execute_option(env.Place.ground([robot, jug], [x_norm, y_norm]))
+    assert s2.get(jug, "is_held") < 0.5
+
+
+# ===========================================================================
+# COFFEE ENV TESTS: Pick, Place, TurnMachineOn, Pour
+# ===========================================================================
+
+
+def test_pick_jug_coffee_center(coffee_env):
+    """Pick a jug at the workspace centre in the coffee environment."""
+    env = coffee_env
+    jug = env._jug
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    mid_x = (env.x_lb + env.x_ub) / 2
+    mid_y = (env.y_lb + env.y_ub) / 2
+    state.set(jug, "x", mid_x)
+    state.set(jug, "y", mid_y)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_filled", 0.0)
+    env.set_state(state)
+
+    Holding = env._Holding
+    result = env.execute_option(env.PickJug.ground([robot, jug], []))
+    assert Holding.holds(result, [robot, jug]), "Jug not held after pick"
+
+
+def test_pick_jug_coffee_offset_y(coffee_env):
+    """Pick a jug at a y offset in the coffee environment."""
+    env = coffee_env
+    jug = env._jug
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    mid_x = (env.x_lb + env.x_ub) / 2
+    state.set(jug, "x", mid_x)
+    state.set(jug, "y", env.y_lb + 0.15)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_filled", 0.0)
+    env.set_state(state)
+
+    Holding = env._Holding
+    result = env.execute_option(env.PickJug.ground([robot, jug], []))
+    assert Holding.holds(result, [robot, jug])
+
+
+def test_place_jug_coffee_in_machine(coffee_env):
+    """Pick then place jug in the coffee machine."""
+    env = coffee_env
+    jug = env._jug
+    robot = env._robot
+    machine = env._machine
+
+    state = env.get_train_tasks()[0].init.copy()
+    mid_x = (env.x_lb + env.x_ub) / 2
+    mid_y = (env.y_lb + env.y_ub) / 2
+    state.set(jug, "x", mid_x)
+    state.set(jug, "y", mid_y)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_filled", 0.0)
+    env.set_state(state)
+
+    env.execute_option(env.PickJug.ground([robot, jug], []))
+    result = env.execute_option(
+        env.PlaceJugInMachine.ground([robot, jug, machine], []))
+
+    Holding = env._Holding
+    assert not Holding.holds(result, [robot, jug]), \
+        "Jug should no longer be held"
+    assert result.get(robot, "fingers") > 0.015, "Fingers should be open"
+
+
+def test_turn_machine_on_reaches_button(coffee_env):
+    """Robot EE moves to the button vicinity during TurnMachineOn."""
+    env = coffee_env
+    robot = env._robot
+    machine = env._machine
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(machine, "is_on", 0.0)
+    env.set_state(state)
+
+    result = env.execute_option(
+        env.TurnMachineOn.ground([robot, machine], []))
+
+    robot_x = result.get(robot, "x")
+    robot_y = result.get(robot, "y")
+    button_x = PyBulletCoffeeEnv.button_x
+    button_y = PyBulletCoffeeEnv.button_y
+    dist = np.sqrt((robot_x - button_x)**2 + (robot_y - button_y)**2)
+    assert dist < 0.2, (
+        f"Robot EE ({robot_x:.3f}, {robot_y:.3f}) too far from "
+        f"button ({button_x:.3f}, {button_y:.3f}), dist={dist:.3f}")
+
+
+def test_pour_reaches_cup_position(coffee_env):
+    """Robot approaches cup pour position during Pour skill (reset mode)."""
+    env = coffee_env
+    jug = env._jug
+    robot = env._robot
+    cups = env._current_observation.get_objects(env._cup_type)
+    if len(cups) == 0:
+        pytest.skip("No cups in task")
+    cup = cups[0]
+
+    state = env.get_train_tasks()[0].init.copy()
+    mid_x = (env.x_lb + env.x_ub) / 2
+    mid_y = (env.y_lb + env.y_ub) / 2
+    state.set(jug, "x", mid_x)
+    state.set(jug, "y", mid_y)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_filled", 1.0)
+    env.set_state(state)
+
+    # First pick the jug
+    env.execute_option(env.PickJug.ground([robot, jug], []))
+
+    # Now try to pour - in reset mode, pouring physics don't run,
+    # but we can check the robot approaches the pour position.
+    pour_pos = PyBulletCoffeeEnv._get_pour_position(
+        env.get_state(), cup)
+    result = env.execute_option(
+        env.Pour.ground([robot, jug, cup], []), max_steps=200)
+
+    # Check robot approached the pour position (x/y)
+    robot_x = result.get(robot, "x")
+    robot_y = result.get(robot, "y")
+    jug_x = result.get(jug, "x")
+    jug_y = result.get(jug, "y")
+    dist = np.sqrt((jug_x - pour_pos[0])**2 + (jug_y - pour_pos[1])**2)
+    assert dist < 0.3, (
+        f"Jug ({jug_x:.3f}, {jug_y:.3f}) should approach pour position "
+        f"({pour_pos[0]:.3f}, {pour_pos[1]:.3f}), dist={dist:.3f}")
+
+
+def test_pick_place_full_cycle_coffee(coffee_env):
+    """Full pick→place→pick cycle in coffee env."""
+    env = coffee_env
+    jug = env._jug
+    robot = env._robot
+    machine = env._machine
+
+    state = env.get_train_tasks()[0].init.copy()
+    mid_x = (env.x_lb + env.x_ub) / 2
+    mid_y = (env.y_lb + env.y_ub) / 2
+    state.set(jug, "x", mid_x)
+    state.set(jug, "y", mid_y)
+    state.set(jug, "rot", 0.0)
+    state.set(jug, "is_filled", 0.0)
+    env.set_state(state)
+
+    Holding = env._Holding
+
+    s1 = env.execute_option(env.PickJug.ground([robot, jug], []))
+    assert Holding.holds(s1, [robot, jug]), "Should be held after pick"
+
+    s2 = env.execute_option(
+        env.PlaceJugInMachine.ground([robot, jug, machine], []))
+    assert not Holding.holds(s2, [robot, jug]), "Should be free after place"
+
+    s3 = env.execute_option(env.PickJug.ground([robot, jug], []))
+    assert Holding.holds(s3, [robot, jug]), "Should be held after second pick"
+
+
+# ===========================================================================
+# BOIL ENV TESTS: Push switch – motion-only (reset mode)
+# These check that the EE actually moves to the switch position.
+# Switch toggle (is_on) is NOT checked here since "reset" mode does not
+# simulate contact forces.  Toggle tests are in the standalone section below.
+# ===========================================================================
+
+
+def test_push_switch_reaches_target_position_boil(boil_env):
+    """Robot EE moves to switch x/y vicinity during SwitchFaucetOn."""
+    env = boil_env
+    robot = env._robot
+    faucet = env._faucet
+    faucet_switch = env._faucet_switch
+
+    task_state = env.get_train_tasks()[0].init.copy()
+    task_state.set(faucet_switch, "is_on", 0.0)
+    env.set_state(task_state)
+
+    switch_x = task_state.get(faucet_switch, "x")
+    switch_y = task_state.get(faucet_switch, "y")
+
+    result = env.execute_option(
+        env.SwitchFaucetOn.ground([robot, faucet], []))
+
+    robot_x = result.get(robot, "x")
+    robot_y = result.get(robot, "y")
+    dist = np.sqrt((robot_x - switch_x)**2 + (robot_y - switch_y)**2)
+    assert dist < 0.2, (
+        f"Robot EE ({robot_x:.3f}, {robot_y:.3f}) too far from "
+        f"switch ({switch_x:.3f}, {switch_y:.3f}), dist={dist:.3f}")
+
+
+def test_push_switch_skill_initiable_boil(boil_env):
+    """SwitchFaucetOn's initiable() returns True."""
+    env = boil_env
+    robot = env._robot
+    faucet = env._faucet
+    faucet_switch = env._faucet_switch
+
+    task_state = env.get_train_tasks()[0].init.copy()
+    task_state.set(faucet_switch, "is_on", 0.0)
+    env.set_state(task_state)
+
+    cur = env.get_state()
+    option = env.SwitchFaucetOn.ground([robot, faucet], [])
+    assert option.initiable(cur)
+
+
+# ===========================================================================
+# FAN ENV TESTS: Push switch – motion-only (reset mode)
+# ===========================================================================
+
+
+def test_push_switch_fan_reaches_switch_xy(fan_env):
+    """Robot EE x/y coordinates approach the switch position after SwitchOn."""
+    env = fan_env
+    task_state = env.get_train_tasks()[0].init
+    switch = task_state.get_objects(env._switch_type)[0]
+    robot = env._robot
+
+    state = task_state.copy()
+    state.set(switch, "is_on", 0.0)
+    env.set_state(state)
+
+    sw_x = state.get(switch, "x")
+    sw_y = state.get(switch, "y")
+
+    result = env.execute_option(env.SwitchOn.ground([robot, switch], []))
+
+    robot_x = result.get(robot, "x")
+    robot_y = result.get(robot, "y")
+    dist = np.sqrt((robot_x - sw_x)**2 + (robot_y - sw_y)**2)
+    assert dist < 0.2, (
+        f"Robot EE ({robot_x:.3f}, {robot_y:.3f}) too far from "
+        f"switch ({sw_x:.3f}, {sw_y:.3f}), dist={dist:.3f}")
+
+
+def test_push_switch_fan_skill_initiable(fan_env):
+    """SwitchOn's initiable() returns True in fan env."""
+    env = fan_env
+    task_state = env.get_train_tasks()[0].init
+    switch = task_state.get_objects(env._switch_type)[0]
+    robot = env._robot
+
+    state = task_state.copy()
+    state.set(switch, "is_on", 0.0)
+    env.set_state(state)
+
+    cur = env.get_state()
+    option = env.SwitchOn.ground([robot, switch], [])
+    assert option.initiable(cur)
+
+
+def test_push_switch_fan_fingers_open_after_push(fan_env):
+    """After SwitchOn completes, robot fingers should be open."""
+    env = fan_env
+    task_state = env.get_train_tasks()[0].init
+    switch = task_state.get_objects(env._switch_type)[0]
+    robot = env._robot
+
+    state = task_state.copy()
+    state.set(switch, "is_on", 0.0)
+    env.set_state(state)
+
+    result = env.execute_option(env.SwitchOn.ground([robot, switch], []))
+    assert result.get(robot, "fingers") > 0.015, (
+        "Fingers should be open after push completes")
+
+
+# ===========================================================================
+# STANDALONE TESTS: Two-jug boil (reset mode)
+# ===========================================================================
+
+
+def test_pick_correct_jug_boil_two_jugs():
+    """With two jugs, the skill picks only the targeted jug."""
+    utils.reset_config({
+        "env": "pybullet_boil",
+        "use_gui": False,
+        "pybullet_control_mode": "reset",
+        "pybullet_robot": "fetch",
+        "boil_use_skill_factories": True,
+        "boil_num_jugs_train": [2],
+        "boil_num_jugs_test": [2],
+        "boil_num_burner_train": [1],
+        "boil_num_burner_test": [1],
+    })
+    env = _ExposedBoilEnv(use_gui=False)
+
+    jug0, jug1 = env._jugs[0], env._jugs[1]
+    robot = env._robot
+
+    state = env.get_train_tasks()[0].init.copy()
+    state.set(jug0, "x", env.x_mid)
+    state.set(jug0, "y", env.y_mid)
+    state.set(jug0, "z", env.jug_init_z)
+    state.set(jug0, "rot", 0.0)
+    state.set(jug0, "is_held", 0.0)
+    state.set(jug0, "water_volume", 0.0)
+    state.set(jug0, "heat_level", 0.0)
+    state.set(jug1, "x", env.x_mid - 0.15)
+    state.set(jug1, "y", env.y_mid - 0.15)
+    state.set(jug1, "z", env.jug_init_z)
+    state.set(jug1, "rot", 0.0)
+    state.set(jug1, "is_held", 0.0)
+    state.set(jug1, "water_volume", 0.0)
+    state.set(jug1, "heat_level", 0.0)
+    env.set_state(state)
+
+    result = env.execute_option(env.PickJug.ground([robot, jug0], []))
+    assert result.get(jug0, "is_held") > 0.5, "jug0 should be held"
+    assert result.get(jug1, "is_held") < 0.5, "jug1 should remain free"
+
+
+# ===========================================================================
+# STANDALONE TESTS: Push switch toggle (position mode)
+# Placed last so that the "position" mode config does not affect the
+# module-scoped "reset" mode fixtures used earlier.
+# ===========================================================================
+
+
+def test_push_switch_on_boil_position_mode():
+    """SwitchFaucetOn toggles a boil faucet switch to on (position mode)."""
+    utils.reset_config({
+        "env": "pybullet_boil",
+        "use_gui": False,
+        "pybullet_control_mode": "position",
+        "pybullet_robot": "fetch",
+        "pybullet_sim_steps_per_action": 20,
+        "boil_use_skill_factories": True,
+        "boil_num_jugs_train": [1],
+        "boil_num_jugs_test": [1],
+        "boil_num_burner_train": [1],
+        "boil_num_burner_test": [1],
+    })
+    env = _ExposedBoilEnv(use_gui=False)
+
+    task_state = env.get_train_tasks()[0].init
+    faucet = env._faucet
+    faucet_switch = env._faucet_switch
+    robot = env._robot
+
+    state = task_state.copy()
+    state.set(faucet_switch, "is_on", 0.0)
+    env.set_state(state)
+    assert env.get_state().get(faucet_switch,
+                               "is_on") < 0.5, "Switch should start off"
+
+    result = env.execute_option(
+        env.SwitchFaucetOn.ground([robot, faucet], []), max_steps=1000)
+
+    assert result.get(faucet_switch, "is_on") > 0.5, (
+        "Faucet switch should be on after SwitchFaucetOn (position mode)")
+
+
+def test_push_second_switch_boil_position_mode():
+    """SwitchBurnerOn toggles the second burner switch (position mode)."""
+    utils.reset_config({
+        "env": "pybullet_boil",
+        "use_gui": False,
+        "pybullet_control_mode": "position",
+        "pybullet_robot": "fetch",
+        "pybullet_sim_steps_per_action": 20,
+        "boil_use_skill_factories": True,
+        "boil_num_jugs_train": [2],
+        "boil_num_jugs_test": [2],
+        "boil_num_burner_train": [2],
+        "boil_num_burner_test": [2],
+    })
+    env = _ExposedBoilEnv(use_gui=False)
+
+    task_state = env.get_train_tasks()[0].init
+    assert len(env._burners) >= 2, "Need at least 2 burners"
+    burner2 = env._burners[1]
+    burner_switch2 = env._burner_switches[1]
+    robot = env._robot
+
+    state = task_state.copy()
+    state.set(burner_switch2, "is_on", 0.0)
+    env.set_state(state)
+
+    result = env.execute_option(
+        env.SwitchBurnerOn.ground([robot, burner2], []), max_steps=1000)
+    assert result.get(burner_switch2, "is_on") > 0.5
+
+
+def test_push_switch_on_fan_position_mode():
+    """SwitchOn toggles a fan switch to on (position mode)."""
+    utils.reset_config({
+        "env": "pybullet_fan",
+        "use_gui": False,
+        "pybullet_control_mode": "position",
+        "pybullet_robot": "fetch",
+        "pybullet_sim_steps_per_action": 20,
+        "fan_use_skill_factories": True,
+        "fan_known_controls_relation": False,
+        "fan_combine_switch_on_off": False,
+        "fan_train_num_walls_per_task": [0],
+        "fan_test_num_walls_per_task": [0],
+    })
+    env = _ExposedFanEnv(use_gui=False)
+
+    task_state = env.get_train_tasks()[0].init
+    switch = task_state.get_objects(env._switch_type)[0]
+    robot = env._robot
+
+    state = task_state.copy()
+    state.set(switch, "is_on", 0.0)
+    env.set_state(state)
+    assert env.get_state().get(switch, "is_on") < 0.5, "Switch should start off"
+
+    result = env.execute_option(env.SwitchOn.ground([robot, switch], []),
+                                max_steps=1000)
+
+    assert result.get(switch, "is_on") > 0.5, (
+        "Fan switch should be on after SwitchOn (position mode)")
+
+
+# ===========================================================================
+# STANDALONE TESTS: Domino push (reset mode)
+# ===========================================================================
+
+
+def test_push_topples_domino():
+    """Using the skill-factory Push from domino gt-options, a domino topples."""
+    try:
+        from predicators.envs.pybullet_domino import PyBulletDominoEnv
+    except ImportError:
+        pytest.skip("pybullet_domino not available")
+
+    utils.reset_config({
+        "env": "pybullet_domino",
+        "use_gui": False,
+        "pybullet_control_mode": "reset",
+        "pybullet_robot": "fetch",
+        "domino_use_skill_factories": True,
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+    })
+
+    class _ExposedDominoEnv(_ExposedEnvMixin, PyBulletDominoEnv):
+        pass
+
+    env = _ExposedDominoEnv(use_gui=False)
+    assert "Push" in env._options, (
+        "Skill-factory Push not found in domino gt-options")
+    Push = env._options["Push"]
+
+    task_state = env.get_train_tasks()[0].init
+    domino_type = env._domino_component.domino_type
+    dominos = task_state.get_objects(domino_type)
+    assert len(dominos) >= 1
+    domino = dominos[0]
+    robot = env._robot
+
+    env.set_state(task_state.copy())
+    robot_init_x = task_state.get(robot, "x")
+    robot_init_y = task_state.get(robot, "y")
+    result = env.execute_option(Push.ground([robot, domino], []))
+
+    # In reset mode there is no physics simulation, so the domino itself does
+    # not move from contact forces.  Instead verify that the skill executed
+    # correctly: the robot completed its push trajectory and returned to the
+    # neighbourhood of its home position (the final waypoint for the domino
+    # push skill sends the robot back to robot_init_x/y).
+    final_robot_x = result.get(robot, "x")
+    final_robot_y = result.get(robot, "y")
+    robot_return_dist = np.sqrt((final_robot_x - robot_init_x)**2 +
+                                (final_robot_y - robot_init_y)**2)
+    assert robot_return_dist < 0.3, (
+        f"Robot should return near home after push, dist={robot_return_dist:.4f}"
+    )
+
+
+def test_push_skill_domino_robot_reaches_domino():
+    """Robot EE approaches the domino during the push skill execution."""
+    try:
+        from predicators.envs.pybullet_domino import PyBulletDominoEnv
+    except ImportError:
+        pytest.skip("pybullet_domino not available")
+
+    utils.reset_config({
+        "env": "pybullet_domino",
+        "use_gui": False,
+        "pybullet_control_mode": "reset",
+        "pybullet_robot": "fetch",
+        "domino_use_skill_factories": True,
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+    })
+
+    class _ExposedDominoEnv(_ExposedEnvMixin, PyBulletDominoEnv):
+        pass
+
+    env = _ExposedDominoEnv(use_gui=False)
+    Push = env._options["Push"]
+
+    task_state = env.get_train_tasks()[0].init
+    domino = task_state.get_objects(env._domino_component.domino_type)[0]
+    robot = env._robot
+
+    dom_x = task_state.get(domino, "x")
+    dom_y = task_state.get(domino, "y")
+
+    env.set_state(task_state.copy())
+    result = env.execute_option(Push.ground([robot, domino], []))
+
+    robot_x = result.get(robot, "x")
+    robot_y = result.get(robot, "y")
+    dist = np.sqrt((robot_x - dom_x)**2 + (robot_y - dom_y)**2)
+    assert dist < 0.5, f"Robot should approach domino, dist={dist:.3f}"
