@@ -10,7 +10,7 @@ from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
-def create_move_to_pose_skill(
+def create_move_to_skill(
     name: str,
     types: Sequence[Type],
     params_space: Box,
@@ -34,7 +34,7 @@ def create_move_to_pose_skill(
     Returns:
         A ParameterizedOption implementing the move-to-pose skill.
     """
-    phase = make_move_to_pose_phase(name, get_target_position_fn)
+    phase = make_move_to_phase(name, get_target_position_fn)
     return PhaseSkill(name, types, params_space, config, [phase]).build()
 
 def _get_current_ee_pose(state: State, robot_obj: Object) -> Pose:
@@ -59,7 +59,7 @@ def _get_finger_status(state: State, robot_obj: Object,
     return "closed"
 
 
-def make_move_to_pose_phase(
+def make_move_to_phase(
     name: str,
     get_target_position_fn: Callable[
         [State, Sequence[Object], Array, SkillConfig], Tuple[float, float,
@@ -103,4 +103,3 @@ def make_move_to_pose_phase(
         action_type=PhaseAction.MOVE_TO_POSE,
         target_fn=_target_fn,
     )
-

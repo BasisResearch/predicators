@@ -20,7 +20,7 @@ from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.skill_factories import Phase, \
     PhaseAction, PhaseSkill, SkillConfig, create_place_skill, \
-    create_push_skill, create_wait_option, make_move_to_pose_phase
+    create_push_skill, create_wait_option, make_move_to_phase
 from predicators.pybullet_helpers.controllers import \
     create_change_fingers_option, create_move_end_effector_to_pose_option
 from predicators.pybullet_helpers.geometry import Pose
@@ -881,13 +881,13 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                   PhaseAction.CHANGE_FINGERS,
                   _close_target,
                   finger_tol=PyBulletEnv.grasp_tol),
-            make_move_to_pose_phase("MoveAbove", _above_pos, "closed"),
-            make_move_to_pose_phase("Descend", _grasp_pos, "open"),
+            make_move_to_phase("MoveAbove", _above_pos, "closed"),
+            make_move_to_phase("Descend", _grasp_pos, "open"),
             Phase("Grasp",
                   PhaseAction.CHANGE_FINGERS,
                   _close_target,
                   terminal_fn=_grasp_terminal),
-            make_move_to_pose_phase("Lift", _lift_pos, "closed"),
+            make_move_to_phase("Lift", _lift_pos, "closed"),
         ]
         return PhaseSkill("Pick", option_types, params_space, cfg,
                           phases).build()

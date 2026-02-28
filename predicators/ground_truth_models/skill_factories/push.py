@@ -6,8 +6,8 @@ from gym.spaces import Box
 
 from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig
-from predicators.ground_truth_models.skill_factories.move_to_pose import \
-    make_move_to_pose_phase
+from predicators.ground_truth_models.skill_factories.move_to import \
+    make_move_to_phase
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 
@@ -101,7 +101,7 @@ def create_push_skill(
     for i in range(num_waypoints):
         _, _, _, _, finger_status = dummy_waypoints[i]
         phases.append(
-            make_move_to_pose_phase(
+            make_move_to_phase(
                 name=f"Waypoint_{i}",
                 get_target_position_fn=_make_waypoint_position_fn(i),
                 finger_status=finger_status,

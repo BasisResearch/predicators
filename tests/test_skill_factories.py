@@ -1,7 +1,7 @@
 """Tests for predicators/ground_truth_models/skill_factories/.
 
 Covers: SkillConfig, Phase, PhaseSkill, create_wait_option,
-        make_move_to_pose_phase, create_move_to_pose_skill,
+        make_move_to_phase, create_move_to_skill,
         create_pick_skill, create_place_skill, create_push_skill.
 """
 import numpy as np
@@ -18,9 +18,9 @@ from predicators.ground_truth_models.skill_factories.base import (
     _BIRRT_STEP_KEY,
     _BIRRT_TRAJ_KEY,
 )
-from predicators.ground_truth_models.skill_factories.move_to_pose import (
-    create_move_to_pose_skill,
-    make_move_to_pose_phase,
+from predicators.ground_truth_models.skill_factories.move_to import (
+    create_move_to_skill,
+    make_move_to_phase,
 )
 from predicators.ground_truth_models.skill_factories.pick import (
     create_pick_skill,
@@ -731,13 +731,13 @@ class TestWaitOption:
 
 
 # ===========================================================================
-# 6. make_move_to_pose_phase
+# 6. make_move_to_phase
 # ===========================================================================
 
 class TestMakeMoveToPosePhase:
 
     def test_returns_phase_with_move_action_type(self):
-        phase = make_move_to_pose_phase(
+        phase = make_move_to_phase(
             "MoveTest",
             get_target_position_fn=lambda s, o, p_, c: (1.0, 2.0, 3.0, 0.0),
             finger_status="open",
@@ -751,7 +751,7 @@ class TestMakeMoveToPosePhase:
         _, robot = robot_scene
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
-        phase = make_move_to_pose_phase(
+        phase = make_move_to_phase(
             "OpenMove",
             get_target_position_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
             finger_status="open",
@@ -765,7 +765,7 @@ class TestMakeMoveToPosePhase:
         _, robot = robot_scene
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
-        phase = make_move_to_pose_phase(
+        phase = make_move_to_phase(
             "ClosedMove",
             get_target_position_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
             finger_status="closed",
@@ -780,7 +780,7 @@ class TestMakeMoveToPosePhase:
         _, robot = robot_scene
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
-        phase = make_move_to_pose_phase(
+        phase = make_move_to_phase(
             "InferOpen",
             get_target_position_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
             finger_status=None,
@@ -795,7 +795,7 @@ class TestMakeMoveToPosePhase:
         _, robot = robot_scene
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
-        phase = make_move_to_pose_phase(
+        phase = make_move_to_phase(
             "InferClosed",
             get_target_position_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
             finger_status=None,
@@ -811,7 +811,7 @@ class TestMakeMoveToPosePhase:
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
         custom_target = (1.1, 2.2, 3.3, 0.5)
-        phase = make_move_to_pose_phase(
+        phase = make_move_to_phase(
             "TargetCheck",
             get_target_position_fn=lambda s, o, p_, c: custom_target,
         )
@@ -821,7 +821,7 @@ class TestMakeMoveToPosePhase:
 
 
 # ===========================================================================
-# 7. create_move_to_pose_skill
+# 7. create_move_to_skill
 # ===========================================================================
 
 class TestCreateMoveToPoseSkill:
@@ -829,7 +829,7 @@ class TestCreateMoveToPoseSkill:
     def test_returns_parameterized_option(self, robot_scene):
         _, robot = robot_scene
         config = _make_config(robot)
-        opt = create_move_to_pose_skill(
+        opt = create_move_to_skill(
             "Move",
             [_ROBOT_TYPE],
             Box(0, 1, (0,)),
@@ -844,7 +844,7 @@ class TestCreateMoveToPoseSkill:
         utils.reset_config({"seed": 123})
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
-        opt = create_move_to_pose_skill(
+        opt = create_move_to_skill(
             "Move",
             [_ROBOT_TYPE],
             Box(0, 1, (0,)),
