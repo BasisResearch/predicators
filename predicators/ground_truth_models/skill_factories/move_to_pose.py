@@ -39,7 +39,6 @@ def make_move_to_pose_phase(
         [State, Sequence[Object], Array, SkillConfig], Tuple[float, float,
                                                              float, float]],
     finger_status: Optional[str] = None,
-    use_motion_planning: bool = True,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase.
 
@@ -49,9 +48,6 @@ def make_move_to_pose_phase(
             from (state, objects, params, config).
         finger_status: "open" or "closed". If None, preserves the current
             finger status from state.
-        use_motion_planning: If True (default), use BiRRT to plan a
-            joint-space trajectory. If False, use incremental IK stepping,
-            which provides sustained contact force useful for push skills.
 
     Returns:
         A Phase that can be included in a PhaseSkill.
@@ -80,7 +76,6 @@ def make_move_to_pose_phase(
         name=name,
         action_type=PhaseAction.MOVE_TO_POSE,
         target_fn=_target_fn,
-        use_motion_planning=use_motion_planning,
     )
 
 

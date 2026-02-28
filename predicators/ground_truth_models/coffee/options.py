@@ -931,7 +931,6 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             config=config,
             get_target_pose_fn=_get_button_pose,
             waypoints_fn=_button_waypoints,
-            use_motion_planning=False,
         )
 
         # ---------------------------------------------------------------

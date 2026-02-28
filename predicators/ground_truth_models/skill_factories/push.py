@@ -20,7 +20,6 @@ def create_push_skill(
                                  Tuple[float, float, float, float]],
     waypoints_fn: Callable[[float, float, float, float, SkillConfig],
                            List[Tuple[float, float, float, float, str]]],
-    use_motion_planning: bool = True,
 ) -> ParameterizedOption:
     """Create a push skill from target extraction and waypoint functions.
 
@@ -34,10 +33,6 @@ def create_push_skill(
         waypoints_fn: Computes a list of (x, y, z, yaw, finger_status)
             waypoints from (target_x, target_y, target_z, target_yaw,
             config). The robot will move through these sequentially.
-        use_motion_planning: If True (default), use BiRRT for waypoint
-            phases. If False, use incremental IK stepping, which provides
-            sustained contact force when the EE is blocked (useful for
-            pushing against resistive joints).
 
     Returns:
         A ParameterizedOption implementing the push skill.
@@ -110,7 +105,6 @@ def create_push_skill(
                 name=f"Waypoint_{i}",
                 get_target_position_fn=_make_waypoint_position_fn(i),
                 finger_status=finger_status,
-                use_motion_planning=use_motion_planning,
             ))
 
     # Phase N+1: Open fingers.

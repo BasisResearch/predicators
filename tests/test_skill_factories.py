@@ -826,30 +826,16 @@ class TestMakeMoveToPosePhase:
 
 class TestCreateMoveToPoseSkill:
 
-    def test_returns_phase_skill_with_one_phase(self, robot_scene):
+    def test_returns_parameterized_option(self, robot_scene):
         _, robot = robot_scene
         config = _make_config(robot)
-        skill = create_move_to_pose_skill(
+        opt = create_move_to_pose_skill(
             "Move",
             [_ROBOT_TYPE],
             Box(0, 1, (0,)),
             config,
             get_target_position_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
         )
-        assert isinstance(skill, PhaseSkill)
-        assert len(skill._phases) == 1
-
-    def test_builds_parameterized_option(self, robot_scene):
-        _, robot = robot_scene
-        config = _make_config(robot)
-        skill = create_move_to_pose_skill(
-            "Move",
-            [_ROBOT_TYPE],
-            Box(0, 1, (0,)),
-            config,
-            get_target_position_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
-        )
-        opt = skill.build()
         assert isinstance(opt, ParameterizedOption)
         assert opt.name == "Move"
 
@@ -858,14 +844,13 @@ class TestCreateMoveToPoseSkill:
         utils.reset_config({"seed": 123})
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
-        skill = create_move_to_pose_skill(
+        opt = create_move_to_pose_skill(
             "Move",
             [_ROBOT_TYPE],
             Box(0, 1, (0,)),
             config,
             get_target_position_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
         )
-        opt = skill.build()
         grounded = opt.ground([robot_obj], np.zeros(0))
         state = _make_home_state(robot_obj, robot)
         grounded.initiable(state)
@@ -894,95 +879,11 @@ class TestCreatePickSkill:
             grasp_terminal_fn=grasp_fn,
         )
 
-    def test_returns_phase_skill(self, robot_scene):
+    def test_returns_parameterized_option(self, robot_scene):
         _, robot = robot_scene
-        skill = self._make_pick(robot)
-        assert isinstance(skill, PhaseSkill)
-
-    def test_builds_parameterized_option(self, robot_scene):
-        _, robot = robot_scene
-        skill = self._make_pick(robot)
-        opt = skill.build()
+        opt = self._make_pick(robot)
         assert isinstance(opt, ParameterizedOption)
         assert opt.name == "Pick"
-
-    def test_four_phases(self, robot_scene):
-        _, robot = robot_scene
-        skill = self._make_pick(robot)
-        assert len(skill._phases) == 4
-
-    def test_phase_names(self, robot_scene):
-        _, robot = robot_scene
-        skill = self._make_pick(robot)
-        names = [ph.name for ph in skill._phases]
-        assert names == ["MoveAbove", "Descend", "Grasp", "Lift"]
-
-    def test_phase_action_types(self, robot_scene):
-        _, robot = robot_scene
-        skill = self._make_pick(robot)
-        types = [ph.action_type for ph in skill._phases]
-        assert types == [
-            PhaseAction.MOVE_TO_POSE,
-            PhaseAction.MOVE_TO_POSE,
-            PhaseAction.CHANGE_FINGERS,
-            PhaseAction.MOVE_TO_POSE,
-        ]
-
-    def test_default_no_grasp_terminal_fn(self, robot_scene):
-        _, robot = robot_scene
-        skill = self._make_pick(robot)
-        grasp_phase = skill._phases[2]
-        assert grasp_phase.terminal_fn is None
-
-    def test_custom_grasp_terminal_fn_stored(self, robot_scene):
-        _, robot = robot_scene
-        skill = self._make_pick(robot, with_grasp_terminal=True)
-        grasp_phase = skill._phases[2]
-        assert grasp_phase.terminal_fn is not None
-
-    def test_move_above_target_uses_transport_z(self, robot_scene):
-        """MoveAbove phase target should be at transport_z height."""
-        _, robot = robot_scene
-        config = _make_config(robot)
-        transport_z = 0.9
-        skill = create_pick_skill(
-            name="Pick",
-            types=[_ROBOT_TYPE, _OBJ_TYPE],
-            params_space=Box(0, 1, (0,)),
-            config=config,
-            get_object_pose_fn=lambda s, o, p_: (1.2, 0.6, 0.4, 0.0),
-            transport_z=transport_z,
-        )
-        robot_obj = _make_robot_obj()
-        obj = _make_obj()
-        state = _build_state(robot_obj, robot, *_EE_HOME, obj=obj,
-                              obj_xyz=(1.2, 0.6, 0.4))
-        _, target_pose, _ = skill._phases[0].target_fn(
-            state, [robot_obj, obj], np.zeros(0), config)
-        assert target_pose.position[2] == pytest.approx(transport_z)
-
-    def test_descend_target_uses_grasp_z_offset(self, robot_scene):
-        """Descend phase target z = obj_z + grasp_z_offset."""
-        _, robot = robot_scene
-        config = _make_config(robot)
-        obj_z = 0.4
-        grasp_z_offset = 0.05
-        skill = create_pick_skill(
-            name="Pick",
-            types=[_ROBOT_TYPE, _OBJ_TYPE],
-            params_space=Box(0, 1, (0,)),
-            config=config,
-            get_object_pose_fn=lambda s, o, p_: (1.2, 0.6, obj_z, 0.0),
-            transport_z=0.8,
-            grasp_z_offset=grasp_z_offset,
-        )
-        robot_obj = _make_robot_obj()
-        obj = _make_obj()
-        state = _build_state(robot_obj, robot, *_EE_HOME, obj=obj,
-                              obj_xyz=(1.2, 0.6, obj_z))
-        _, target_pose, _ = skill._phases[1].target_fn(
-            state, [robot_obj, obj], np.zeros(0), config)
-        assert target_pose.position[2] == pytest.approx(obj_z + grasp_z_offset)
 
     def test_pick_policy_returns_valid_action(self, robot_scene):
         _, robot = robot_scene
@@ -990,7 +891,7 @@ class TestCreatePickSkill:
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
         obj = _make_obj()
-        skill = create_pick_skill(
+        opt = create_pick_skill(
             name="Pick",
             types=[_ROBOT_TYPE, _OBJ_TYPE],
             params_space=Box(0, 1, (0,)),
@@ -998,7 +899,6 @@ class TestCreatePickSkill:
             get_object_pose_fn=lambda s, o, p_: (1.35, 0.75, 0.4, 0.0),
             transport_z=0.8,
         )
-        opt = skill.build()
         grounded = opt.ground([robot_obj, obj], np.zeros(0))
         state = _make_home_state(robot_obj, robot, obj=obj,
                                  obj_xyz=(1.35, 0.75, 0.4))
@@ -1026,54 +926,18 @@ class TestCreatePlaceSkill:
             drop_z=0.45,
         )
 
-    def test_returns_phase_skill(self, robot_scene):
+    def test_returns_parameterized_option(self, robot_scene):
         _, robot = robot_scene
-        assert isinstance(self._make_place(robot), PhaseSkill)
-
-    def test_four_phases(self, robot_scene):
-        _, robot = robot_scene
-        assert len(self._make_place(robot)._phases) == 4
-
-    def test_phase_names(self, robot_scene):
-        _, robot = robot_scene
-        names = [ph.name for ph in self._make_place(robot)._phases]
-        assert names == ["MoveAbove", "Descend", "OpenFingers", "Retreat"]
-
-    def test_phase_action_types(self, robot_scene):
-        _, robot = robot_scene
-        types = [ph.action_type for ph in self._make_place(robot)._phases]
-        assert types == [
-            PhaseAction.MOVE_TO_POSE,
-            PhaseAction.MOVE_TO_POSE,
-            PhaseAction.CHANGE_FINGERS,
-            PhaseAction.MOVE_TO_POSE,
-        ]
-
-    def test_descend_target_uses_drop_z(self, robot_scene):
-        _, robot = robot_scene
-        config = _make_config(robot)
-        drop_z = 0.42
-        skill = create_place_skill(
-            name="Place",
-            types=[_ROBOT_TYPE],
-            params_space=Box(0, 1, (0,)),
-            config=config,
-            get_placement_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.5, 0.0),
-            transport_z=0.8,
-            drop_z=drop_z,
-        )
-        robot_obj = _make_robot_obj()
-        state = _build_state(robot_obj, robot, *_EE_HOME)
-        _, target_pose, _ = skill._phases[1].target_fn(
-            state, [robot_obj], np.zeros(0), config)
-        assert target_pose.position[2] == pytest.approx(drop_z)
+        opt = self._make_place(robot)
+        assert isinstance(opt, ParameterizedOption)
+        assert opt.name == "Place"
 
     def test_place_policy_returns_valid_action(self, robot_scene):
         _, robot = robot_scene
         utils.reset_config({"seed": 123})
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
-        skill = create_place_skill(
+        opt = create_place_skill(
             name="Place",
             types=[_ROBOT_TYPE],
             params_space=Box(0, 1, (0,)),
@@ -1082,7 +946,6 @@ class TestCreatePlaceSkill:
             transport_z=0.8,
             drop_z=0.45,
         )
-        opt = skill.build()
         grounded = opt.ground([robot_obj], np.zeros(0))
         state = _make_home_state(robot_obj, robot)
         grounded.initiable(state)
@@ -1109,59 +972,21 @@ class TestCreatePushSkill:
             waypoints_fn=lambda x, y, z, yaw, cfg: waypoints,
         )
 
-    def test_zero_waypoints_gives_two_phases(self, robot_scene):
+    def test_returns_parameterized_option(self, robot_scene):
         _, robot = robot_scene
-        skill = self._make_push(robot, [])
-        # CloseFingers + OpenFingers
-        assert len(skill._phases) == 2
-
-    def test_two_waypoints_gives_four_phases(self, robot_scene):
-        _, robot = robot_scene
-        wps = [(1.0, 2.0, 3.0, 0.0, "closed"),
-               (1.5, 2.5, 3.5, 0.0, "closed")]
-        skill = self._make_push(robot, wps)
-        assert len(skill._phases) == 4  # CF + wp0 + wp1 + OF
-
-    def test_three_waypoints_gives_five_phases(self, robot_scene):
-        _, robot = robot_scene
-        wps = [(1.0, 2.0, 3.0, 0.0, "closed")] * 3
-        skill = self._make_push(robot, wps)
-        assert len(skill._phases) == 5
-
-    def test_first_phase_is_close_fingers(self, robot_scene):
-        _, robot = robot_scene
-        wps = [(1.0, 2.0, 3.0, 0.0, "closed")]
-        skill = self._make_push(robot, wps)
-        assert skill._phases[0].name == "CloseFingers"
-        assert skill._phases[0].action_type == PhaseAction.CHANGE_FINGERS
-
-    def test_last_phase_is_open_fingers(self, robot_scene):
-        _, robot = robot_scene
-        wps = [(1.0, 2.0, 3.0, 0.0, "closed")]
-        skill = self._make_push(robot, wps)
-        assert skill._phases[-1].name == "OpenFingers"
-        assert skill._phases[-1].action_type == PhaseAction.CHANGE_FINGERS
-
-    def test_middle_phases_are_waypoints(self, robot_scene):
-        _, robot = robot_scene
-        wps = [(1.0, 2.0, 3.0, 0.0, "closed"),
-               (1.5, 2.5, 3.5, 0.0, "open")]
-        skill = self._make_push(robot, wps)
-        # Phases 1 and 2 are waypoints.
-        assert skill._phases[1].name == "Waypoint_0"
-        assert skill._phases[2].name == "Waypoint_1"
-        assert skill._phases[1].action_type == PhaseAction.MOVE_TO_POSE
-        assert skill._phases[2].action_type == PhaseAction.MOVE_TO_POSE
+        opt = self._make_push(robot, [])
+        assert isinstance(opt, ParameterizedOption)
+        assert opt.name == "Push"
 
     def test_push_policy_close_fingers_returns_valid_action(self, robot_scene):
-        """First call lands in CloseFingers phase → action within bounds."""
+        """First call lands in CloseFingers phase -> action within bounds."""
         _, robot = robot_scene
         utils.reset_config({"seed": 123})
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
         obj = _make_obj()
         wps = [(1.35, 0.75, 0.4, 0.0, "closed")]
-        skill = create_push_skill(
+        opt = create_push_skill(
             name="Push",
             types=[_ROBOT_TYPE, _OBJ_TYPE],
             params_space=Box(0, 1, (0,)),
@@ -1169,7 +994,6 @@ class TestCreatePushSkill:
             get_target_pose_fn=lambda s, o, p_: (1.35, 0.75, 0.4, 0.0),
             waypoints_fn=lambda x, y, z, yaw, cfg: wps,
         )
-        opt = skill.build()
         grounded = opt.ground([robot_obj, obj], np.zeros(0))
         state = _build_state(robot_obj, robot, *_EE_HOME,
                               finger_state=_OPEN_STATE, obj=obj,
@@ -1178,29 +1002,3 @@ class TestCreatePushSkill:
         action = grounded.policy(state)
         assert isinstance(action, Action)
         assert robot.action_space.contains(action.arr)
-
-    def test_push_waypoint_target_computed_correctly(self, robot_scene):
-        """Waypoint phases use the correct (x,y,z,yaw) from waypoints_fn."""
-        _, robot = robot_scene
-        config = _make_config(robot)
-        robot_obj = _make_robot_obj()
-        obj = _make_obj()
-        wp_x, wp_y, wp_z = 1.1, 0.8, 0.5
-        wps = [(wp_x, wp_y, wp_z, 0.0, "closed")]
-        skill = create_push_skill(
-            name="Push",
-            types=[_ROBOT_TYPE, _OBJ_TYPE],
-            params_space=Box(0, 1, (0,)),
-            config=config,
-            get_target_pose_fn=lambda s, o, p_: (1.35, 0.75, 0.4, 0.0),
-            waypoints_fn=lambda x, y, z, yaw, cfg: wps,
-        )
-        state = _build_state(robot_obj, robot, *_EE_HOME, obj=obj,
-                              obj_xyz=(1.35, 0.75, 0.4))
-        # Phase 1 is Waypoint_0; target_fn returns (current_pose, target_pose, finger_status).
-        waypoint_phase = skill._phases[1]
-        _, target_pose, _ = waypoint_phase.target_fn(
-            state, [robot_obj, obj], np.zeros(0), config)
-        assert target_pose.position[0] == pytest.approx(wp_x)
-        assert target_pose.position[1] == pytest.approx(wp_y)
-        assert target_pose.position[2] == pytest.approx(wp_z)
