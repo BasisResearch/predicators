@@ -312,8 +312,9 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
                 state: State,
                 objects: Sequence[Object],
                 params: Array,
+                config: SkillConfig,
             ) -> Tuple[float, float, float, float]:
-                del params
+                del params, config
                 _, fan = objects
                 switch = next(
                     (s for s in state.get_objects(switch_type)
@@ -333,8 +334,9 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
                 state: State,
                 objects: Sequence[Object],
                 params: Array,
+                config: SkillConfig,
             ) -> Tuple[float, float, float, float]:
-                del params
+                del params, config
                 _, switch = objects
                 return (state.get(switch, "x"), state.get(switch, "y"),
                         state.get(switch, "z"), state.get(switch, "rot"))
@@ -385,7 +387,7 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
                 (front_x, front_y, _hand_z, 0.0, "closed"),
             ]
 
-        NoOp = create_wait_option(config, robot_type)
+        NoOp = create_wait_option("NoOp", config, robot_type)
 
         if CFG.fan_combine_switch_on_off:
             # Combined SwitchOnOff: do both on and off sweeps.

@@ -718,7 +718,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
         options.add(
             cls._create_sf_place(cfg, robot_type, domino_type, position_type,
                                   rotation_type))
-        options.add(create_wait_option(cfg, robot_type))
+        options.add(create_wait_option("NoOp", cfg, robot_type))
 
         return options
 
@@ -748,8 +748,10 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
         params_space = Box(0, 1, (0, ))
 
         def _get_target(state: State, objects: Sequence[Object],
-                        params: Array) -> Tuple[float, float, float, float]:
-            del params
+                        params: Array,
+                        config: SkillConfig) -> Tuple[float, float, float,
+                                                      float]:
+            del params, config
             _, domino = objects
             return (state.get(domino, "x"), state.get(domino, "y"),
                     state.get(domino, "z"), state.get(domino, "yaw"))
@@ -791,8 +793,10 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
         params_space = Box(0, 1, (0, ))
 
         def _get_target(state: State, objects: Sequence[Object],
-                        params: Array) -> Tuple[float, float, float, float]:
-            del objects, params
+                        params: Array,
+                        config: SkillConfig) -> Tuple[float, float, float,
+                                                      float]:
+            del objects, params, config
             start = cls._find_start_block(state, domino_type)
             return (state.get(start, "x"), state.get(start, "y"),
                     state.get(start, "z"), state.get(start, "yaw"))
@@ -920,6 +924,6 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                                   types=[robot_type],
                                   params_space=params_space,
                                   config=cfg,
-                                  get_placement_pose_fn=_get_placement,
+                                  get_target_pose_fn=_get_placement,
                                   transport_z=cls._transport_z,
                                   drop_z=cls._place_drop_z)

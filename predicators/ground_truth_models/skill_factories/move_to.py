@@ -1,41 +1,73 @@
-"""MoveToTarget skill and reusable move-to-pose phase builder."""
+"""Move-to-pose skill factory and reusable phase builder.
+
+This module provides:
+
+- ``create_move_to_skill`` -- A single-phase skill that moves the EE to
+  a target pose while preserving the current finger state.
+- ``make_move_to_phase`` -- A lower-level helper that creates a single
+  ``Phase`` object for use in custom ``PhaseSkill`` compositions (used
+  internally by ``create_push_skill`` and available for building custom
+  multi-phase skills).
+
+Example::
+
+    from predicators.ground_truth_models.skill_factories import (
+        SkillConfig, create_move_to_skill,
+    )
+
+    def _get_home_pose(state, objects, params, config):
+        return (1.35, 0.75, 0.75, 0.0)
+
+    MoveHome = create_move_to_skill(
+        name="MoveHome",
+        types=[robot_type],
+        params_space=Box(0, 1, (0,)),
+        config=config,
+        get_target_pose_fn=_get_home_pose,
+    )
+"""
 
 from typing import Callable, Optional, Sequence, Tuple
 
 import pybullet as p
 from gym.spaces import Box
 
-from predicators.pybullet_helpers.geometry import Pose
 from predicators.ground_truth_models.skill_factories.base import Phase, \
-    PhaseAction, PhaseSkill, SkillConfig
+    PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn
+from predicators.pybullet_helpers.geometry import Pose
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
+
 
 def create_move_to_skill(
     name: str,
     types: Sequence[Type],
     params_space: Box,
     config: SkillConfig,
-    get_target_position_fn: Callable[
-        [State, Sequence[Object], Array, SkillConfig], Tuple[float, float,
-                                                             float, float]],
+    get_target_pose_fn: TargetPoseFn,
 ) -> ParameterizedOption:
     """Create a single-phase move-to-pose skill.
 
     Preserves the current finger status (open/closed) from state.
 
+    Phases:
+        0. **Move** -- Move end-effector to the target pose, preserving
+           the current finger state.
+
     Args:
         name: Option name.
-        types: Object types for the option signature.
-        params_space: Parameter space for the option.
-        config: Skill configuration with robot and tolerances.
-        get_target_position_fn: Returns (x, y, z, yaw) for the target
-            from (state, objects, params, config).
+        types: Ordered object types.  The first element **must** be the
+            robot type.
+        params_space: Continuous parameter space.
+        config: Shared skill configuration.  See ``SkillConfig``.
+        get_target_pose_fn: Callback that returns the target as
+            ``(x, y, z, yaw)`` from ``(state, objects, params, config)``.
 
     Returns:
-        A ParameterizedOption implementing the move-to-pose skill.
+        A ``ParameterizedOption`` implementing the move-to-pose skill.
     """
-    phase = make_move_to_phase(name, get_target_position_fn)
+    phase = make_move_to_phase(name, get_target_pose_fn)
     return PhaseSkill(name, types, params_space, config, [phase]).build()
+
 
 def _get_current_ee_pose(state: State, robot_obj: Object) -> Pose:
     """Extract current end-effector pose from state."""
@@ -61,22 +93,47 @@ def _get_finger_status(state: State, robot_obj: Object,
 
 def make_move_to_phase(
     name: str,
-    get_target_position_fn: Callable[
-        [State, Sequence[Object], Array, SkillConfig], Tuple[float, float,
-                                                             float, float]],
+    get_target_pose_fn: TargetPoseFn,
     finger_status: Optional[str] = None,
 ) -> Phase:
-    """Create a MOVE_TO_POSE phase.
+    """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
+
+    This is a building block for composing custom multi-phase skills.
+    For example, ``create_push_skill`` uses this internally to create
+    each waypoint phase.
 
     Args:
-        name: Phase name.
-        get_target_position_fn: Returns (x, y, z, yaw) for the target
-            from (state, objects, params, config).
-        finger_status: "open" or "closed". If None, preserves the current
-            finger status from state.
+        name: Phase name (for logging).
+        get_target_pose_fn: Callback that returns ``(x, y, z, yaw)``
+            from ``(state, objects, params, config)``.
+        finger_status: ``"open"`` or ``"closed"``.  If ``None``, preserves
+            the current finger status from state.
 
     Returns:
-        A Phase that can be included in a PhaseSkill.
+        A ``Phase`` that can be included in a ``PhaseSkill``.
+
+    Example::
+
+        from predicators.ground_truth_models.skill_factories import (
+            Phase, PhaseAction, PhaseSkill, SkillConfig, make_move_to_phase,
+        )
+
+        def _above_target(state, objects, params, config):
+            _, obj = objects
+            return (state.get(obj, "x"), state.get(obj, "y"),
+                    0.8, state.get(obj, "yaw"))
+
+        def _at_target(state, objects, params, config):
+            _, obj = objects
+            return (state.get(obj, "x"), state.get(obj, "y"),
+                    state.get(obj, "z"), state.get(obj, "yaw"))
+
+        phases = [
+            make_move_to_phase("MoveAbove", _above_target, "closed"),
+            make_move_to_phase("Descend",   _at_target,    "open"),
+        ]
+        skill = PhaseSkill("Custom", types, params_space, config, phases)
+        option = skill.build()
     """
 
     def _target_fn(
@@ -88,7 +145,7 @@ def make_move_to_phase(
         robot_obj = objects[0]
         current_pose = _get_current_ee_pose(state, robot_obj)
 
-        tx, ty, tz, tyaw = get_target_position_fn(state, objects, params, cfg)
+        tx, ty, tz, tyaw = get_target_pose_fn(state, objects, params, cfg)
         target_orn = p.getQuaternionFromEuler([0, cfg.robot_init_tilt, tyaw])
         target_pose = Pose((tx, ty, tz), target_orn)
 

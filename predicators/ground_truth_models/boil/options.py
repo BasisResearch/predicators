@@ -562,8 +562,9 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             state: State,
             objects: Sequence[Object],
             params: Array,
+            config: SkillConfig,
         ) -> Tuple[float, float, float, float]:
-            del params
+            del params, config
             _, obj = objects
             switch = next(
                 (s for s in state.get_objects(switch_type)
@@ -622,8 +623,9 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             state: State,
             objects: Sequence[Object],
             params: Array,
+            config: SkillConfig,
         ) -> Tuple[float, float, float, float]:
-            del params
+            del params, config
             _, jug = objects
             rot = state.get(jug, "rot")
             gx = (state.get(jug, "x") +
@@ -644,7 +646,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             types=[robot_type, jug_type],
             params_space=Box(0, 1, (0, )),
             config=config,
-            get_object_pose_fn=_get_jug_pose,
+            get_target_pose_fn=_get_jug_pose,
             transport_z=cls._transport_z,
             grasp_terminal_fn=_is_held_terminal,
         )
@@ -712,7 +714,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             types=[robot_type, faucet_type],
             params_space=Box(0, 1, (0, )),
             config=config,
-            get_placement_pose_fn=_faucet_placement,
+            get_target_pose_fn=_faucet_placement,
             transport_z=cls._transport_z,
             drop_z=_drop_z,
         )
@@ -732,7 +734,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             types=[robot_type, burner_type],
             params_space=Box(0, 1, (0, )),
             config=config,
-            get_placement_pose_fn=_burner_placement,
+            get_target_pose_fn=_burner_placement,
             transport_z=cls._transport_z,
             drop_z=_drop_z,
         )
@@ -749,7 +751,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             types=[robot_type],
             params_space=Box(0, 1, (0, )),
             config=config,
-            get_placement_pose_fn=_outside_placement,
+            get_target_pose_fn=_outside_placement,
             transport_z=cls._transport_z,
             drop_z=_drop_z,
         )
@@ -757,7 +759,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         # ---------------------------------------------------------------
         # NoOp
         # ---------------------------------------------------------------
-        NoOp = create_wait_option(config, robot_type)
+        NoOp = create_wait_option("NoOp", config, robot_type)
 
         options: Set[ParameterizedOption] = {
             PickJug, SwitchFaucetOn, SwitchFaucetOff, SwitchBurnerOn,

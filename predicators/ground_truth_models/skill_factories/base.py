@@ -31,24 +31,47 @@ class PhaseAction(Enum):
 
 @dataclass(frozen=True)
 class SkillConfig:
-    """All domain-varying constants. Domain factories create one and inject it.
+    """Configuration shared across all skill factories for one environment.
+
+    Every skill factory function (``create_pick_skill``, ``create_place_skill``,
+    etc.) takes a ``SkillConfig`` as its fourth argument.  Each environment
+    options file creates one ``SkillConfig`` and passes it to all its skill
+    factory calls.
+
+    Example::
+
+        config = SkillConfig(
+            robot=pybullet_robot,
+            open_fingers_joint=pybullet_robot.open_fingers,
+            closed_fingers_joint=pybullet_robot.closed_fingers,
+            fingers_state_to_joint=MyEnv._fingers_state_to_joint,
+            robot_init_tilt=MyEnv.robot_init_tilt,   # default 0.0
+            robot_init_wrist=MyEnv.robot_init_wrist,  # default 0.0
+        )
 
     Attributes:
         robot: The PyBullet robot instance.
         open_fingers_joint: Joint value for fully open fingers.
         closed_fingers_joint: Joint value for fully closed fingers.
-        fingers_state_to_joint: Maps state finger feature to joint value.
+        fingers_state_to_joint: Callable that maps the finger *state feature*
+            value to the corresponding joint value.  Signature:
+            ``(robot, finger_state_value) -> joint_value``.  Typically
+            ``MyEnv._fingers_state_to_joint``.
         collision_bodies: PyBullet body IDs to treat as obstacles during
-            BiRRT planning. Defaults to empty (no collision checking).
+            BiRRT planning.  Defaults to empty (no collision checking).
         move_to_pose_tol: Squared-distance tolerance for move-to-pose
             terminal (used when BiRRT falls back to incremental IK).
-        finger_action_nudge_magnitude: Nudge magnitude for finger drift.
+        finger_action_nudge_magnitude: Nudge magnitude for finger drift
+            resistance in the wait option and during move phases.
         max_vel_norm: Maximum velocity norm for incremental IK EE movement.
-        grasp_tol: Squared-distance tolerance for finger change terminal.
+        grasp_tol: Squared-distance tolerance for CHANGE_FINGERS terminal.
         ik_validate: Whether to validate IK solutions.
-        robot_init_tilt: Default EE tilt (pitch) angle.
-        robot_init_wrist: Default EE wrist (yaw) angle.
-        extra: Additional domain-specific constants.
+        robot_init_tilt: Default EE tilt (pitch) angle — the second Euler
+            angle in ``[roll=0, pitch, yaw]``.
+        robot_init_wrist: Default EE wrist (yaw) angle — the third Euler
+            angle.  Usually 0.0 or ``-pi``.
+        extra: Arbitrary dict for environment-specific constants that
+            callbacks may need.  Access via ``config.extra["key"]``.
     """
     robot: SingleArmPyBulletRobot
     open_fingers_joint: float
@@ -65,7 +88,19 @@ class SkillConfig:
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
-# Type aliases for phase target functions.
+# ---------------------------------------------------------------------------
+# Public type aliases
+# ---------------------------------------------------------------------------
+
+# Callback signature shared by ALL skill factory ``get_target_pose_fn`` args.
+# (state, objects, params, config) -> (x, y, z, yaw)
+TargetPoseFn = Callable[[State, Sequence[Object], Array, SkillConfig],
+                         Tuple[float, float, float, float]]
+
+# ---------------------------------------------------------------------------
+# Internal type aliases for Phase target functions
+# ---------------------------------------------------------------------------
+
 # For MOVE_TO_POSE: returns (current_pose, target_pose, finger_status)
 MoveToPoseTargetFn = Callable[[State, Sequence[Object], Array, SkillConfig],
                               Tuple[Pose, Pose, str]]

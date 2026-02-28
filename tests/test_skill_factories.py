@@ -643,7 +643,7 @@ class TestWaitOption:
     def test_wait_always_initiable(self, robot_scene):
         _, robot = robot_scene
         config = _make_config(robot)
-        opt = create_wait_option(config, _ROBOT_TYPE)
+        opt = create_wait_option("NoOp", config, _ROBOT_TYPE)
         robot_obj = _make_robot_obj()
         grounded = opt.ground([robot_obj], np.zeros(0))
         state = _build_state(robot_obj, robot, *_EE_HOME)
@@ -652,7 +652,7 @@ class TestWaitOption:
     def test_wait_never_terminal(self, robot_scene):
         _, robot = robot_scene
         config = _make_config(robot)
-        opt = create_wait_option(config, _ROBOT_TYPE)
+        opt = create_wait_option("NoOp", config, _ROBOT_TYPE)
         robot_obj = _make_robot_obj()
         grounded = opt.ground([robot_obj], np.zeros(0))
         state = _build_state(robot_obj, robot, *_EE_HOME)
@@ -662,20 +662,20 @@ class TestWaitOption:
     def test_wait_custom_name(self, robot_scene):
         _, robot = robot_scene
         config = _make_config(robot)
-        opt = create_wait_option(config, _ROBOT_TYPE, name="Idle")
+        opt = create_wait_option("Idle", config, _ROBOT_TYPE)
         assert opt.name == "Idle"
 
     def test_wait_default_name_is_noop(self, robot_scene):
         _, robot = robot_scene
         config = _make_config(robot)
-        opt = create_wait_option(config, _ROBOT_TYPE)
+        opt = create_wait_option("NoOp", config, _ROBOT_TYPE)
         assert opt.name == "NoOp"
 
     def test_wait_policy_nudges_fingers_open(self, robot_scene):
         """When fingers are open, the action should nudge them more open."""
         _, robot = robot_scene
         config = _make_config(robot)
-        opt = create_wait_option(config, _ROBOT_TYPE)
+        opt = create_wait_option("NoOp", config, _ROBOT_TYPE)
         robot_obj = _make_robot_obj()
         grounded = opt.ground([robot_obj], np.zeros(0))
         state = _build_state(robot_obj, robot, *_EE_HOME,
@@ -690,7 +690,7 @@ class TestWaitOption:
         """When fingers are closed, the action should nudge them more closed."""
         _, robot = robot_scene
         config = _make_config(robot)
-        opt = create_wait_option(config, _ROBOT_TYPE)
+        opt = create_wait_option("NoOp", config, _ROBOT_TYPE)
         robot_obj = _make_robot_obj()
         grounded = opt.ground([robot_obj], np.zeros(0))
         state = _build_state(robot_obj, robot, *_EE_HOME,
@@ -705,7 +705,7 @@ class TestWaitOption:
         """The action returned by wait must lie within the robot's action space."""
         _, robot = robot_scene
         config = _make_config(robot)
-        opt = create_wait_option(config, _ROBOT_TYPE)
+        opt = create_wait_option("NoOp", config, _ROBOT_TYPE)
         robot_obj = _make_robot_obj()
         grounded = opt.ground([robot_obj], np.zeros(0))
         state = _build_state(robot_obj, robot, *_EE_HOME)
@@ -716,7 +716,7 @@ class TestWaitOption:
         """Wait must not move any joints except the two finger joints."""
         _, robot = robot_scene
         config = _make_config(robot)
-        opt = create_wait_option(config, _ROBOT_TYPE)
+        opt = create_wait_option("NoOp", config, _ROBOT_TYPE)
         robot_obj = _make_robot_obj()
         grounded = opt.ground([robot_obj], np.zeros(0))
         state = _build_state(robot_obj, robot, *_EE_HOME)
@@ -739,7 +739,7 @@ class TestMakeMoveToPosePhase:
     def test_returns_phase_with_move_action_type(self):
         phase = make_move_to_phase(
             "MoveTest",
-            get_target_position_fn=lambda s, o, p_, c: (1.0, 2.0, 3.0, 0.0),
+            get_target_pose_fn=lambda s, o, p_, c: (1.0, 2.0, 3.0, 0.0),
             finger_status="open",
         )
         assert isinstance(phase, Phase)
@@ -753,7 +753,7 @@ class TestMakeMoveToPosePhase:
         robot_obj = _make_robot_obj()
         phase = make_move_to_phase(
             "OpenMove",
-            get_target_position_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
+            get_target_pose_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
             finger_status="open",
         )
         state = _build_state(robot_obj, robot, *_EE_HOME,
@@ -767,7 +767,7 @@ class TestMakeMoveToPosePhase:
         robot_obj = _make_robot_obj()
         phase = make_move_to_phase(
             "ClosedMove",
-            get_target_position_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
+            get_target_pose_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
             finger_status="closed",
         )
         state = _build_state(robot_obj, robot, *_EE_HOME,
@@ -782,7 +782,7 @@ class TestMakeMoveToPosePhase:
         robot_obj = _make_robot_obj()
         phase = make_move_to_phase(
             "InferOpen",
-            get_target_position_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
+            get_target_pose_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
             finger_status=None,
         )
         state = _build_state(robot_obj, robot, *_EE_HOME,
@@ -797,7 +797,7 @@ class TestMakeMoveToPosePhase:
         robot_obj = _make_robot_obj()
         phase = make_move_to_phase(
             "InferClosed",
-            get_target_position_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
+            get_target_pose_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
             finger_status=None,
         )
         state = _build_state(robot_obj, robot, *_EE_HOME,
@@ -806,14 +806,14 @@ class TestMakeMoveToPosePhase:
         assert returned_status == "closed"
 
     def test_target_position_is_forwarded(self, robot_scene):
-        """The target (x, y, z, yaw) from get_target_position_fn is used."""
+        """The target (x, y, z, yaw) from get_target_pose_fn is used."""
         _, robot = robot_scene
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
         custom_target = (1.1, 2.2, 3.3, 0.5)
         phase = make_move_to_phase(
             "TargetCheck",
-            get_target_position_fn=lambda s, o, p_, c: custom_target,
+            get_target_pose_fn=lambda s, o, p_, c: custom_target,
         )
         state = _build_state(robot_obj, robot, *_EE_HOME)
         _, target_pose, _ = phase.target_fn(state, [robot_obj], np.zeros(0), config)
@@ -834,7 +834,7 @@ class TestCreateMoveToPoseSkill:
             [_ROBOT_TYPE],
             Box(0, 1, (0,)),
             config,
-            get_target_position_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
+            get_target_pose_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
         )
         assert isinstance(opt, ParameterizedOption)
         assert opt.name == "Move"
@@ -849,7 +849,7 @@ class TestCreateMoveToPoseSkill:
             [_ROBOT_TYPE],
             Box(0, 1, (0,)),
             config,
-            get_target_position_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
+            get_target_pose_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
         )
         grounded = opt.ground([robot_obj], np.zeros(0))
         state = _make_home_state(robot_obj, robot)
@@ -873,7 +873,7 @@ class TestCreatePickSkill:
             types=[_ROBOT_TYPE, _OBJ_TYPE],
             params_space=Box(0, 1, (0,)),
             config=config,
-            get_object_pose_fn=lambda s, o, p_: (1.35, 0.75, 0.4, 0.0),
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
             transport_z=0.8,
             grasp_z_offset=0.02,
             grasp_terminal_fn=grasp_fn,
@@ -896,7 +896,7 @@ class TestCreatePickSkill:
             types=[_ROBOT_TYPE, _OBJ_TYPE],
             params_space=Box(0, 1, (0,)),
             config=config,
-            get_object_pose_fn=lambda s, o, p_: (1.35, 0.75, 0.4, 0.0),
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
             transport_z=0.8,
         )
         grounded = opt.ground([robot_obj, obj], np.zeros(0))
@@ -921,7 +921,7 @@ class TestCreatePlaceSkill:
             types=[_ROBOT_TYPE],
             params_space=Box(0, 1, (0,)),
             config=config,
-            get_placement_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
             transport_z=0.8,
             drop_z=0.45,
         )
@@ -942,7 +942,7 @@ class TestCreatePlaceSkill:
             types=[_ROBOT_TYPE],
             params_space=Box(0, 1, (0,)),
             config=config,
-            get_placement_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
             transport_z=0.8,
             drop_z=0.45,
         )
@@ -968,7 +968,7 @@ class TestCreatePushSkill:
             types=[_ROBOT_TYPE, _OBJ_TYPE],
             params_space=Box(0, 1, (0,)),
             config=config,
-            get_target_pose_fn=lambda s, o, p_: (1.35, 0.75, 0.4, 0.0),
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
             waypoints_fn=lambda x, y, z, yaw, cfg: waypoints,
         )
 
@@ -991,7 +991,7 @@ class TestCreatePushSkill:
             types=[_ROBOT_TYPE, _OBJ_TYPE],
             params_space=Box(0, 1, (0,)),
             config=config,
-            get_target_pose_fn=lambda s, o, p_: (1.35, 0.75, 0.4, 0.0),
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
             waypoints_fn=lambda x, y, z, yaw, cfg: wps,
         )
         grounded = opt.ground([robot_obj, obj], np.zeros(0))

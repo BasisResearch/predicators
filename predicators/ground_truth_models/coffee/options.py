@@ -842,8 +842,9 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             state: State,
             objects: Sequence[Object],
             params: Array,
+            config: SkillConfig,
         ) -> Tuple[float, float, float, float]:
-            del params
+            del params, config
             _, jug = objects
             hx, hy, hz = env_cls._get_jug_handle_grasp(state, jug)
             return (hx, hy, hz, state.get(jug, "rot"))
@@ -863,7 +864,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             types=[robot_type, jug_type],
             params_space=Box(0, 1, (0, )),
             config=config,
-            get_object_pose_fn=_get_jug_pose,
+            get_target_pose_fn=_get_jug_pose,
             transport_z=env_cls.z_ub - 0.1,
             grasp_terminal_fn=_pick_terminal,
         )
@@ -888,7 +889,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             types=[robot_type, jug_type, machine_type],
             params_space=Box(0, 1, (0, )),
             config=config,
-            get_placement_pose_fn=_get_machine_placement,
+            get_target_pose_fn=_get_machine_placement,
             transport_z=env_cls.z_ub - 0.1,
             drop_z=_place_drop_z,
         )
@@ -904,8 +905,9 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             state: State,
             objects: Sequence[Object],
             params: Array,
+            config: SkillConfig,
         ) -> Tuple[float, float, float, float]:
-            del state, objects, params
+            del state, objects, params, config
             return (env_cls.button_x, env_cls.button_y, env_cls.button_z, 0.0)
 
         def _button_waypoints(
@@ -983,7 +985,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             types=[robot_type, jug_type, cup_type],
             params_space=Box(0, 1, (0, )),
             config=config,
-            get_pour_position_fn=_get_pour_position,
+            get_target_pose_fn=_get_pour_position,
             pour_tilt=env_cls.tilt_ub,
             transport_z=env_cls.z_ub - 0.1,
             tilt_terminal_fn=_pour_tilt_terminal,
@@ -992,7 +994,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         # ---------------------------------------------------------------
         # NoOp
         # ---------------------------------------------------------------
-        NoOp = create_wait_option(config, robot_type)
+        NoOp = create_wait_option("NoOp", config, robot_type)
 
         # ---------------------------------------------------------------
         # Twist and PlugIn: reuse legacy implementations

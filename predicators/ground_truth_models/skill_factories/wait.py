@@ -1,4 +1,18 @@
-"""Wait (NoOp) option: holds current joint positions with a finger nudge."""
+"""Wait (NoOp) skill factory: holds current pose with finger drift resistance.
+
+This module provides ``create_wait_option``, which builds a
+``ParameterizedOption`` that holds the robot's current joint positions
+while nudging fingers toward their current open/closed state to resist
+drift.  The option is always initiable and never terminates.
+
+Example::
+
+    from predicators.ground_truth_models.skill_factories import (
+        SkillConfig, create_wait_option,
+    )
+
+    NoOp = create_wait_option("NoOp", config, robot_type)
+"""
 
 from typing import Dict, Sequence, cast
 
@@ -12,9 +26,9 @@ from predicators.structs import Action, Array, Object, ParameterizedOption, \
 
 
 def create_wait_option(
+    name: str,
     config: SkillConfig,
     robot_type: Type,
-    name: str = "NoOp",
 ) -> ParameterizedOption:
     """Create a wait (no-op) option that holds the robot's current pose.
 
@@ -22,12 +36,17 @@ def create_wait_option(
     keeps all other joints at their current positions, and never terminates.
 
     Args:
-        config: Skill configuration (robot, nudge magnitude, finger joints).
-        robot_type: The robot Type object.
-        name: Option name (default "NoOp").
+        name: Option name (e.g. "NoOp", "Wait").
+        config: Shared skill configuration.  See ``SkillConfig``.
+        robot_type: The robot ``Type`` object.
 
     Returns:
-        A ParameterizedOption with initiable=True, terminal=False always.
+        A ``ParameterizedOption`` with ``initiable=True`` and
+        ``terminal=False`` always.
+
+    Example::
+
+        noop = create_wait_option("NoOp", config, robot_type)
     """
     robot = config.robot
     mid_point = (config.open_fingers_joint + config.closed_fingers_joint) / 2
@@ -39,9 +58,9 @@ def create_wait_option(
 
         current_joint = config.fingers_state_to_joint(
             robot, state.get(robot_obj, "fingers"))
-        if current_joint > mid_point:  # currently open — nudge open
+        if current_joint > mid_point:  # currently open -- nudge open
             finger_delta = config.finger_action_nudge_magnitude
-        else:  # currently closed — nudge closed
+        else:  # currently closed -- nudge closed
             finger_delta = -config.finger_action_nudge_magnitude
 
         pb_state = cast(utils.PyBulletState, state)

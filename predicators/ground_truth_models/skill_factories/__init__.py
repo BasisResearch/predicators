@@ -1,7 +1,80 @@
-"""Reusable parameterized skills for PyBullet environments."""
+"""Reusable parameterized skill factories for PyBullet environments.
+
+This package provides factory functions that build ``ParameterizedOption``
+instances for common robot manipulation primitives.  Each factory encapsulates
+the multi-phase motion logic (move, grasp, release, etc.) and delegates
+environment-specific target computation to a caller-supplied callback.
+
+Available factories
+-------------------
+- ``create_pick_skill``   -- Pick up an object (move above, descend, grasp, lift).
+- ``create_place_skill``  -- Place a held object (move above, descend, release, retreat).
+- ``create_push_skill``   -- Push through waypoints (close fingers, waypoints, open).
+- ``create_pour_skill``   -- Pour from a held container (move above, descend, tilt).
+- ``create_move_to_skill``-- Move end-effector to a target pose.
+- ``create_wait_option``  -- Hold current pose (no-op with finger drift resistance).
+
+Shared signature pattern
+------------------------
+All factory functions (except ``create_wait_option``) share the same first
+four arguments::
+
+    create_<X>_skill(
+        name: str,            # Option name for logging/matching
+        types: Sequence[Type],# Object types (robot first)
+        params_space: Box,    # Continuous parameter space
+        config: SkillConfig,  # Shared environment configuration
+        ...                   # Skill-specific arguments
+    )
+
+``create_wait_option`` uses ``(name, config, robot_type)`` since it always
+operates on a single robot type with no parameters.
+
+Callback convention
+-------------------
+Every factory takes a ``get_target_pose_fn`` callback (typed as
+``TargetPoseFn``) with the uniform signature::
+
+    def get_target_pose_fn(
+        state: State,
+        objects: Sequence[Object],
+        params: Array,
+        config: SkillConfig,
+    ) -> Tuple[float, float, float, float]:
+        '''Return (x, y, z, yaw) for the skill target.'''
+
+Building blocks for custom skills
+----------------------------------
+- ``make_move_to_phase`` -- Create a single MOVE_TO_POSE phase for use
+  in custom ``PhaseSkill`` compositions.
+- ``Phase``, ``PhaseAction``, ``PhaseSkill`` -- Low-level primitives for
+  building skills with non-standard phase sequences.
+
+Quick start example::
+
+    from predicators.ground_truth_models.skill_factories import (
+        SkillConfig, create_pick_skill, create_place_skill, create_wait_option,
+    )
+
+    config = SkillConfig(
+        robot=pybullet_robot,
+        open_fingers_joint=pybullet_robot.open_fingers,
+        closed_fingers_joint=pybullet_robot.closed_fingers,
+        fingers_state_to_joint=MyEnv._fingers_state_to_joint,
+    )
+
+    def _get_obj_pose(state, objects, params, config):
+        _, obj = objects
+        return (state.get(obj, "x"), state.get(obj, "y"),
+                state.get(obj, "z"), 0.0)
+
+    Pick = create_pick_skill("Pick", [robot_type, obj_type],
+                             Box(0, 1, (0,)), config, _get_obj_pose,
+                             transport_z=0.8)
+"""
 
 from predicators.ground_truth_models.skill_factories.base import Phase, \
-    PhaseAction, PhaseSkill, SkillConfig
+    PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn
 from predicators.ground_truth_models.skill_factories.move_to import \
     create_move_to_skill, make_move_to_phase
 from predicators.ground_truth_models.skill_factories.pick import \
@@ -20,6 +93,7 @@ __all__ = [
     "PhaseAction",
     "PhaseSkill",
     "SkillConfig",
+    "TargetPoseFn",
     "create_move_to_skill",
     "make_move_to_phase",
     "create_pick_skill",

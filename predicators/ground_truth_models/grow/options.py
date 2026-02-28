@@ -265,8 +265,9 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             state: State,
             objects: Sequence[Object],
             params: Array,
+            config: SkillConfig,
         ) -> Tuple[float, float, float, float]:
-            del params
+            del params, config
             _, jug = objects
             gz = env_cls.table_height + env_cls.jug_handle_height
             return (state.get(jug, "x"), state.get(jug, "y"), gz,
@@ -277,7 +278,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             types=[robot_type, jug_type],
             params_space=Box(0, 1, (0, )),
             config=config,
-            get_object_pose_fn=_get_jug_pose,
+            get_target_pose_fn=_get_jug_pose,
             transport_z=env_cls.z_ub - 0.35,
         )
 
@@ -301,7 +302,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             types=[robot_type, jug_type],
             params_space=Box(0, 1, (2, )),
             config=config,
-            get_placement_pose_fn=_get_placement_pose,
+            get_target_pose_fn=_get_placement_pose,
             transport_z=env_cls.z_ub - 0.35,
             drop_z=_drop_z,
         )
@@ -366,7 +367,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             types=[robot_type, jug_type, cup_type],
             params_space=Box(0, 1, (0, )),
             config=config,
-            get_pour_position_fn=_get_pour_position,
+            get_target_pose_fn=_get_pour_position,
             pour_tilt=env_cls.tilt_ub,
             transport_z=env_cls.z_ub - 0.35,
             tilt_terminal_fn=_pour_tilt_terminal,
@@ -375,7 +376,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
         # ---------------------------------------------------------------
         # NoOp
         # ---------------------------------------------------------------
-        NoOp = create_wait_option(config, robot_type)
+        NoOp = create_wait_option("NoOp", config, robot_type)
 
         return {PickJug, Place, Pour, NoOp}
 
