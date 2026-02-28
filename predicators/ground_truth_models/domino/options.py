@@ -781,7 +781,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                                  params_space=params_space,
                                  config=cfg,
                                  get_target_pose_fn=_get_target,
-                                 waypoints_fn=_waypoints).build()
+                                 waypoints_fn=_waypoints)
 
     @classmethod
     def _create_sf_push_restricted(cls, cfg: SkillConfig, robot_type: Type,
@@ -824,7 +824,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                                  params_space=params_space,
                                  config=cfg,
                                  get_target_pose_fn=_get_target,
-                                 waypoints_fn=_waypoints).build()
+                                 waypoints_fn=_waypoints)
 
     @classmethod
     def _create_sf_pick(cls, cfg: SkillConfig, robot_type: Type,
@@ -922,4 +922,4 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                                   config=cfg,
                                   get_placement_pose_fn=_get_placement,
                                   transport_z=cls._transport_z,
-                                  drop_z=cls._place_drop_z).build()
+                                  drop_z=cls._place_drop_z)

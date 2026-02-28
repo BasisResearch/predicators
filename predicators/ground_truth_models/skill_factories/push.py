@@ -8,7 +8,7 @@ from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig
 from predicators.ground_truth_models.skill_factories.move_to_pose import \
     make_move_to_pose_phase
-from predicators.structs import Array, Object, State, Type
+from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 
 def create_push_skill(
@@ -21,7 +21,7 @@ def create_push_skill(
     waypoints_fn: Callable[[float, float, float, float, SkillConfig],
                            List[Tuple[float, float, float, float, str]]],
     use_motion_planning: bool = True,
-) -> PhaseSkill:
+) -> ParameterizedOption:
     """Create a push skill from target extraction and waypoint functions.
 
     Args:
@@ -40,7 +40,7 @@ def create_push_skill(
             pushing against resistive joints).
 
     Returns:
-        A PhaseSkill whose .build() produces a ParameterizedOption.
+        A ParameterizedOption implementing the push skill.
     """
 
     def _close_fingers_target(
@@ -121,4 +121,4 @@ def create_push_skill(
             target_fn=_open_fingers_target,
         ))
 
-    return PhaseSkill(name, types, params_space, config, phases)
+    return PhaseSkill(name, types, params_space, config, phases).build()

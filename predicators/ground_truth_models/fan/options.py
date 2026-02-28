@@ -420,7 +420,7 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
                 config=config,
                 get_target_pose_fn=_get_switch_pose,
                 waypoints_fn=_waypoints_onoff,
-            ).build()
+            )
             return {SwitchOnOff, NoOp}
 
         SwitchOn = create_push_skill(
@@ -430,7 +430,7 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
             config=config,
             get_target_pose_fn=_get_switch_pose,
             waypoints_fn=_waypoints_on,
-        ).build()
+        )
         SwitchOff = create_push_skill(
             name="SwitchOff",
             types=option_type,
@@ -438,7 +438,7 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
             config=config,
             get_target_pose_fn=_get_switch_pose,
             waypoints_fn=_waypoints_off,
-        ).build()
+        )
         return {SwitchOn, SwitchOff, NoOp}
 
     @classmethod

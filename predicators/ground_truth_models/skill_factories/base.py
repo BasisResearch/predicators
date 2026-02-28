@@ -125,8 +125,7 @@ class PhaseSkill:
     to incremental IK delta-stepping.
 
     Usage:
-        skill = PhaseSkill("Pick", types, params_space, config, phases)
-        option = skill.build()
+        option = PhaseSkill("Pick", types, params_space, config, phases).build()
     """
 
     def __init__(self, name: str, types: Sequence[Type], params_space: Box,

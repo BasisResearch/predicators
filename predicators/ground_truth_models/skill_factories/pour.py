@@ -8,7 +8,7 @@ from gym.spaces import Box
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig
-from predicators.structs import Array, Object, State, Type
+from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 
 def create_pour_skill(
@@ -23,7 +23,7 @@ def create_pour_skill(
     transport_z: float,
     tilt_terminal_fn: Optional[Callable[
         [State, Sequence[Object], Array, SkillConfig], bool]] = None,
-) -> PhaseSkill:
+) -> ParameterizedOption:
     """Create a pour skill.
 
     A multi-phase skill for pouring liquid from a held container (e.g. jug)
@@ -46,7 +46,7 @@ def create_pour_skill(
             target pose (default distance-based terminal).
 
     Returns:
-        A PhaseSkill whose .build() produces a ParameterizedOption.
+        A ParameterizedOption implementing the pour skill.
     """
 
     def _get_current_pose(
@@ -123,4 +123,4 @@ def create_pour_skill(
         ),
     ]
 
-    return PhaseSkill(name, types, params_space, config, phases)
+    return PhaseSkill(name, types, params_space, config, phases).build()

@@ -279,7 +279,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             config=config,
             get_object_pose_fn=_get_jug_pose,
             transport_z=env_cls.z_ub - 0.35,
-        ).build()
+        )
 
         # ---------------------------------------------------------------
         # Place: target location encoded as normalised (x_norm, y_norm).
@@ -304,7 +304,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             get_placement_pose_fn=_get_placement_pose,
             transport_z=env_cls.z_ub - 0.35,
             drop_z=_drop_z,
-        ).build()
+        )
 
         # ---------------------------------------------------------------
         # Pour
@@ -370,7 +370,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             pour_tilt=env_cls.tilt_ub,
             transport_z=env_cls.z_ub - 0.35,
             tilt_terminal_fn=_pour_tilt_terminal,
-        ).build()
+        )
 
         # ---------------------------------------------------------------
         # NoOp

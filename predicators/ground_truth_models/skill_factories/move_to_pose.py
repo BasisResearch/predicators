@@ -8,7 +8,7 @@ from gym.spaces import Box
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig
-from predicators.structs import Array, Object, State, Type
+from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 
 def _get_current_ee_pose(state: State, robot_obj: Object) -> Pose:
@@ -92,7 +92,7 @@ def create_move_to_pose_skill(
     get_target_position_fn: Callable[
         [State, Sequence[Object], Array, SkillConfig], Tuple[float, float,
                                                              float, float]],
-) -> PhaseSkill:
+) -> ParameterizedOption:
     """Create a single-phase move-to-pose skill.
 
     Preserves the current finger status (open/closed) from state.
@@ -106,7 +106,7 @@ def create_move_to_pose_skill(
             from (state, objects, params, config).
 
     Returns:
-        A PhaseSkill whose .build() produces a ParameterizedOption.
+        A ParameterizedOption implementing the move-to-pose skill.
     """
     phase = make_move_to_pose_phase(name, get_target_position_fn)
-    return PhaseSkill(name, types, params_space, config, [phase])
+    return PhaseSkill(name, types, params_space, config, [phase]).build()

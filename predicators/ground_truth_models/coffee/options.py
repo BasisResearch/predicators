@@ -866,7 +866,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             get_object_pose_fn=_get_jug_pose,
             transport_z=env_cls.z_ub - 0.1,
             grasp_terminal_fn=_pick_terminal,
-        ).build()
+        )
 
         # ---------------------------------------------------------------
         # PlaceJugInMachine
@@ -891,7 +891,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             get_placement_pose_fn=_get_machine_placement,
             transport_z=env_cls.z_ub - 0.1,
             drop_z=_place_drop_z,
-        ).build()
+        )
 
         # ---------------------------------------------------------------
         # TurnMachineOn (push-style skill to press button)
@@ -932,7 +932,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             get_target_pose_fn=_get_button_pose,
             waypoints_fn=_button_waypoints,
             use_motion_planning=False,
-        ).build()
+        )
 
         # ---------------------------------------------------------------
         # Pour
@@ -988,7 +988,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             pour_tilt=env_cls.tilt_ub,
             transport_z=env_cls.z_ub - 0.1,
             tilt_terminal_fn=_pour_tilt_terminal,
-        ).build()
+        )
 
         # ---------------------------------------------------------------
         # NoOp

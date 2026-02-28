@@ -8,7 +8,7 @@ from gym.spaces import Box
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig
-from predicators.structs import Array, Object, State, Type
+from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 
 def create_pick_skill(
@@ -22,7 +22,7 @@ def create_pick_skill(
     grasp_z_offset: float = 0.0,
     grasp_terminal_fn: Optional[Callable[
         [State, Sequence[Object], Array, SkillConfig], bool]] = None,
-) -> PhaseSkill:
+) -> ParameterizedOption:
     """Create a pick skill.
 
     Args:
@@ -38,7 +38,7 @@ def create_pick_skill(
             Signature: (state, objects, params, config) -> bool.
 
     Returns:
-        A PhaseSkill whose .build() produces a ParameterizedOption.
+        A ParameterizedOption implementing the pick skill.
     """
 
     def _close_fingers_target(
@@ -135,4 +135,4 @@ def create_pick_skill(
         ),
     ]
 
-    return PhaseSkill(name, types, params_space, config, phases)
+    return PhaseSkill(name, types, params_space, config, phases).build()

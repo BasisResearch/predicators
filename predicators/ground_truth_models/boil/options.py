@@ -647,7 +647,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             get_object_pose_fn=_get_jug_pose,
             transport_z=cls._transport_z,
             grasp_terminal_fn=_is_held_terminal,
-        ).build()
+        )
 
         # ---------------------------------------------------------------
         # SwitchFaucetOn / SwitchFaucetOff (take [robot, faucet] objects)
@@ -660,7 +660,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             config=config,
             get_target_pose_fn=_get_switch_pose,
             waypoints_fn=_waypoints_on,
-        ).build()
+        )
         SwitchFaucetOff = create_push_skill(
             name="SwitchFaucetOff",
             types=[robot_type, faucet_type],
@@ -668,7 +668,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             config=config,
             get_target_pose_fn=_get_switch_pose,
             waypoints_fn=_waypoints_off,
-        ).build()
+        )
 
         # ---------------------------------------------------------------
         # SwitchBurnerOn / SwitchBurnerOff (take [robot, burner] objects)
@@ -681,7 +681,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             config=config,
             get_target_pose_fn=_get_switch_pose,
             waypoints_fn=_waypoints_on,
-        ).build()
+        )
         SwitchBurnerOff = create_push_skill(
             name="SwitchBurnerOff",
             types=[robot_type, burner_type],
@@ -689,7 +689,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             config=config,
             get_target_pose_fn=_get_switch_pose,
             waypoints_fn=_waypoints_off,
-        ).build()
+        )
 
         # ---------------------------------------------------------------
         # Place options — all drop at jug_handle_height above table.
@@ -715,7 +715,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             get_placement_pose_fn=_faucet_placement,
             transport_z=cls._transport_z,
             drop_z=_drop_z,
-        ).build()
+        )
 
         def _burner_placement(state: State, objects: Sequence[Object],
                               params: Array,
@@ -735,7 +735,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             get_placement_pose_fn=_burner_placement,
             transport_z=cls._transport_z,
             drop_z=_drop_z,
-        ).build()
+        )
 
         def _outside_placement(state: State, objects: Sequence[Object],
                                params: Array,
@@ -752,7 +752,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             get_placement_pose_fn=_outside_placement,
             transport_z=cls._transport_z,
             drop_z=_drop_z,
-        ).build()
+        )
 
         # ---------------------------------------------------------------
         # NoOp

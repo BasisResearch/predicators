@@ -8,7 +8,7 @@ from gym.spaces import Box
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig
-from predicators.structs import Array, Object, State, Type
+from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 
 def create_place_skill(
@@ -21,7 +21,7 @@ def create_place_skill(
                                                              float, float]],
     transport_z: float,
     drop_z: float,
-) -> PhaseSkill:
+) -> ParameterizedOption:
     """Create a place skill.
 
     Args:
@@ -35,7 +35,7 @@ def create_place_skill(
         drop_z: Z height at which to release the object.
 
     Returns:
-        A PhaseSkill whose .build() produces a ParameterizedOption.
+        A ParameterizedOption implementing the place skill.
     """
 
     def _open_fingers_target(
@@ -127,4 +127,4 @@ def create_place_skill(
         ),
     ]
 
-    return PhaseSkill(name, types, params_space, config, phases)
+    return PhaseSkill(name, types, params_space, config, phases).build()
