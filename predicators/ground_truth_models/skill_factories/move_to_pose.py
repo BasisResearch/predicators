@@ -10,6 +10,32 @@ from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
+def create_move_to_pose_skill(
+    name: str,
+    types: Sequence[Type],
+    params_space: Box,
+    config: SkillConfig,
+    get_target_position_fn: Callable[
+        [State, Sequence[Object], Array, SkillConfig], Tuple[float, float,
+                                                             float, float]],
+) -> ParameterizedOption:
+    """Create a single-phase move-to-pose skill.
+
+    Preserves the current finger status (open/closed) from state.
+
+    Args:
+        name: Option name.
+        types: Object types for the option signature.
+        params_space: Parameter space for the option.
+        config: Skill configuration with robot and tolerances.
+        get_target_position_fn: Returns (x, y, z, yaw) for the target
+            from (state, objects, params, config).
+
+    Returns:
+        A ParameterizedOption implementing the move-to-pose skill.
+    """
+    phase = make_move_to_pose_phase(name, get_target_position_fn)
+    return PhaseSkill(name, types, params_space, config, [phase]).build()
 
 def _get_current_ee_pose(state: State, robot_obj: Object) -> Pose:
     """Extract current end-effector pose from state."""
@@ -78,30 +104,3 @@ def make_move_to_pose_phase(
         target_fn=_target_fn,
     )
 
-
-def create_move_to_pose_skill(
-    name: str,
-    types: Sequence[Type],
-    params_space: Box,
-    config: SkillConfig,
-    get_target_position_fn: Callable[
-        [State, Sequence[Object], Array, SkillConfig], Tuple[float, float,
-                                                             float, float]],
-) -> ParameterizedOption:
-    """Create a single-phase move-to-pose skill.
-
-    Preserves the current finger status (open/closed) from state.
-
-    Args:
-        name: Option name.
-        types: Object types for the option signature.
-        params_space: Parameter space for the option.
-        config: Skill configuration with robot and tolerances.
-        get_target_position_fn: Returns (x, y, z, yaw) for the target
-            from (state, objects, params, config).
-
-    Returns:
-        A ParameterizedOption implementing the move-to-pose skill.
-    """
-    phase = make_move_to_pose_phase(name, get_target_position_fn)
-    return PhaseSkill(name, types, params_space, config, [phase]).build()
