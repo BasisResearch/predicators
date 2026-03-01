@@ -716,8 +716,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         options.add(cls._create_sf_pick(cfg, robot_type, domino_type))
         options.add(
-            cls._create_sf_place(cfg, robot_type, domino_type, position_type,
-                                  rotation_type))
+            cls._create_sf_place(cfg, robot_type))
         options.add(create_wait_option("NoOp", cfg, robot_type))
 
         return options
@@ -897,9 +896,8 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                           phases).build()
 
     @classmethod
-    def _create_sf_place(cls, cfg: SkillConfig, robot_type: Type,
-                         domino_type: Type, position_type: Type,
-                         rotation_type: Type) -> ParameterizedOption:
+    def _create_sf_place(cls, cfg: SkillConfig, robot_type: Type
+                         ) -> ParameterizedOption:
         """Place option using create_place_skill (discrete or continuous)."""
         return cls._create_sf_place_continuous(cfg, robot_type)
 
