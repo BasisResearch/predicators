@@ -112,6 +112,7 @@ ChangeFingersTargetFn = Callable[[State, Sequence[Object], Array, SkillConfig],
 # Memory keys used per phase, keyed by phase object id.
 _BIRRT_TRAJ_KEY = "birrt_traj_{}"  # stores List[JointPositions] or None
 _BIRRT_STEP_KEY = "birrt_step_{}"  # stores int index into trajectory
+_BIRRT_FINGER_KEY = "birrt_finger_{}"  # stores finger_status str
 
 
 @dataclass
@@ -301,23 +302,28 @@ class PhaseSkill:
           1. Compute the target joint positions via IK.
           2. Run BiRRT from the current joint positions to the target.
           3. Cache the resulting trajectory (or None on failure).
+          4. Cache the finger_status for nudging during trajectory replay.
 
         On subsequent calls, pop the next waypoint from the cached trajectory
-        and return the corresponding joint-position action.
+        and return the corresponding joint-position action, applying a small
+        finger nudge matching the phase's finger_status (same as incremental
+        IK) to prevent drift and allow finger transitions during movement.
 
         Falls back to incremental IK if BiRRT planning fails.
         """
         pid = id(phase)
         traj_key = _BIRRT_TRAJ_KEY.format(pid)
         step_key = _BIRRT_STEP_KEY.format(pid)
+        finger_key = _BIRRT_FINGER_KEY.format(pid)
 
         pb_state = cast(utils.PyBulletState, state)
         robot = self._config.robot
 
         if traj_key not in memory:
             # --- First call: plan the trajectory. ---
-            _, target_pose, _ = phase.target_fn(state, objects, params,
-                                                self._config)
+            _, target_pose, finger_status = phase.target_fn(
+                state, objects, params, self._config)
+            memory[finger_key] = finger_status
 
             robot.set_joints(pb_state.joint_positions)
             try:
@@ -357,15 +363,22 @@ class PhaseSkill:
         target_joints = traj[min(step, len(traj) - 1)]
         memory[step_key] = step + 1
 
-        # Build the action: set finger positions to their current value
-        # (no change during a trajectory waypoint step).
+        # Apply finger nudge matching the phase's finger_status, identical
+        # to what incremental IK does in controllers.py.  This prevents
+        # finger drift and allows finger transitions (e.g. open→closed)
+        # to happen gradually during BiRRT trajectory replay.
         joint_action = list(target_joints)
-        # Preserve current finger state to avoid unintended opening/closing.
         finger_idx_l = robot.left_finger_joint_idx
         finger_idx_r = robot.right_finger_joint_idx
         current_fingers = pb_state.joint_positions[finger_idx_l]
-        joint_action[finger_idx_l] = current_fingers
-        joint_action[finger_idx_r] = current_fingers
+        finger_status = memory[finger_key]
+        if finger_status == "open":
+            finger_delta = self._config.finger_action_nudge_magnitude
+        else:
+            finger_delta = -self._config.finger_action_nudge_magnitude
+        f_action = current_fingers + finger_delta
+        joint_action[finger_idx_l] = f_action
+        joint_action[finger_idx_r] = f_action
 
         action_arr = np.clip(
             np.array(joint_action, dtype=np.float32),
