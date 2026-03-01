@@ -151,11 +151,6 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
             Selected option
         """
         predicates = self._get_current_predicates()
-        applicable_processes = self._get_applicable_processes_at_state(
-            state, self._get_current_processes(), predicates)
-
-        if not applicable_processes:
-            raise ApproachFailure("No applicable processes available!")
 
         # Display current state
         current_atoms = utils.abstract(state, predicates)
@@ -163,6 +158,110 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
         print("CURRENT STATE:")
         for atom in sorted(current_atoms, key=str):
             print(f"  {atom}")
+
+        if CFG.human_interaction_approach_use_all_options:
+            return self._prompt_user_for_option_from_all(state, goal)
+
+        return self._prompt_user_for_option_from_processes(state, goal,
+                                                           predicates)
+
+    def _prompt_user_for_option_from_all(self, state: State,
+                                         goal: Set[GroundAtom]) -> _Option:
+        """Present all initial parameterized options without process
+        filtering."""
+        options_list = sorted(self._initial_options, key=lambda o: o.name)
+
+        if not options_list:
+            raise ApproachFailure("No parameterized options available!")
+
+        # Step 1: Prompt for parameterized option selection
+        print("\nAVAILABLE OPTIONS (all):")
+        for i, option in enumerate(options_list, 1):
+            type_names = [t.name for t in option.types]
+            print(f"  {i}. {option.name}({', '.join(type_names)})")
+
+        selected_option = None
+        while selected_option is None:
+            user_input = input(
+                f"\nSelect option (1-{len(options_list)}, or 'q' to quit): "
+            ).strip().lower()
+
+            if user_input == 'q':
+                raise ApproachFailure("User quit option selection")
+
+            try:
+                selection = int(user_input)
+                if 1 <= selection <= len(options_list):
+                    selected_option = options_list[selection - 1]
+                    print(f"Selected option: {selected_option.name}")
+                else:
+                    print(f"Invalid selection. Please enter a number "
+                          f"between 1 and {len(options_list)}")
+            except ValueError:
+                print("Invalid input. Please enter a number or 'q' to quit.")
+
+        # Step 2: Prompt for object arguments one-by-one
+        objects = sorted(state.data.keys(), key=str)
+        selected_objects: List[Object] = []
+        for param_idx, param_type in enumerate(selected_option.types):
+            valid_objects = [
+                o for o in objects if o.is_instance(param_type)
+                and o not in selected_objects
+            ]
+            valid_objects = sorted(valid_objects, key=str)
+
+            print(f"\nSelect argument {param_idx + 1} "
+                  f"(type: {param_type.name}):")
+            for i, obj in enumerate(valid_objects, 1):
+                print(f"  {i}. {obj.name}")
+
+            if len(valid_objects) == 1:
+                selected_obj = valid_objects[0]
+                print(f"Only one valid object. "
+                      f"Automatically selected: {selected_obj}")
+            elif not valid_objects:
+                raise ApproachFailure(
+                    f"No valid objects for type {param_type.name}")
+            else:
+                selected_obj = None
+                while selected_obj is None:
+                    user_input = input(
+                        f"Select object (1-{len(valid_objects)}, "
+                        f"or 'q' to quit): ").strip().lower()
+
+                    if user_input == 'q':
+                        raise ApproachFailure(
+                            "User quit argument selection")
+
+                    try:
+                        sel = int(user_input)
+                        if 1 <= sel <= len(valid_objects):
+                            selected_obj = valid_objects[sel - 1]
+                            print(f"Selected: {selected_obj.name}")
+                        else:
+                            print(f"Invalid selection. Please enter a "
+                                  f"number between 1 and "
+                                  f"{len(valid_objects)}")
+                    except ValueError:
+                        print("Invalid input. Please enter a number "
+                              "or 'q' to quit.")
+
+            selected_objects.append(selected_obj)
+
+        # Step 3: Sample random params from the option's params_space
+        params = self._rng.uniform(selected_option.params_space.low,
+                                   selected_option.params_space.high)
+        return selected_option.ground(selected_objects, params)
+
+    def _prompt_user_for_option_from_processes(
+            self, state: State, goal: Set[GroundAtom],
+            predicates: Set[Predicate]) -> _Option:
+        """Present options filtered by applicable processes."""
+        applicable_processes = self._get_applicable_processes_at_state(
+            state, self._get_current_processes(), predicates)
+
+        if not applicable_processes:
+            raise ApproachFailure("No applicable processes available!")
 
         # Group applicable processes by their parent (parameterized skill)
         from collections import defaultdict

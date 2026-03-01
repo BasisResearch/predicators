@@ -432,7 +432,7 @@ class GlobalSettings:
     domino_oracle_knows_glued_dominos = False
     domino_use_continuous_place = False  # Use PlaceContinuous option instead of Place
     domino_restricted_push = False  # When True, Push only targets the start block (no domino arg)
-    domino_use_skill_factories = False  # Use skill_factories-based option implementations
+    domino_use_skill_factories = True  # Use skill_factories-based option implementations
 
     # burger env parameters
     burger_render_set_of_marks = True
@@ -569,6 +569,7 @@ class GlobalSettings:
 
     # parameters for the human_interaction_approach
     human_interaction_approach_use_scripted_option = False
+    human_interaction_approach_use_all_options = False
     scripted_option_dir = "scripted_options"
     script_option_file_name = "scripted_plan.txt"
 
