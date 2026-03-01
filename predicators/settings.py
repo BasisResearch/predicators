@@ -354,6 +354,9 @@ class GlobalSettings:
     exit_garage_motion_planning_ignore_obstacles = False
     exit_garage_raise_environment_failure = False
 
+    # skill phase parameters
+    skill_phase_use_motion_planning = False
+
     # coffee env parameters
     coffee_num_cups_train = [1, 2]
     coffee_num_cups_test = [2, 3]

@@ -144,7 +144,8 @@ class Phase:
     terminal_fn: Optional[Callable[
         [State, Sequence[Object], Array, SkillConfig], bool]] = None
     finger_tol: Optional[float] = None
-    use_motion_planning: bool = True
+    use_motion_planning: bool = field(
+        default_factory=lambda: CFG.skill_phase_use_motion_planning)
 
 
 class PhaseSkill:
