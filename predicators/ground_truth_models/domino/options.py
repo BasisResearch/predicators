@@ -19,8 +19,9 @@ from predicators.envs.pybullet_domino.components.domino_component import \
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.skill_factories import Phase, \
-    PhaseAction, PhaseSkill, SkillConfig, create_place_skill, \
-    create_push_skill, create_wait_option, make_move_to_phase
+    PhaseAction, PhaseSkill, SkillConfig, create_pick_skill, \
+    create_place_skill, create_push_skill, create_wait_option, \
+    make_move_to_phase
 from predicators.pybullet_helpers.controllers import \
     create_change_fingers_option, create_move_end_effector_to_pose_option
 from predicators.pybullet_helpers.geometry import Pose
@@ -734,7 +735,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             move_to_pose_tol=cls._move_to_pose_tol,
             finger_action_nudge_magnitude=cls._finger_action_nudge_magnitude,
             max_vel_norm=CFG.pybullet_max_vel_norm,
-            grasp_tol=PyBulletEnv.grasp_tol,
+            grasp_tol=PyBulletEnv.grasp_tol_small,
             ik_validate=CFG.pybullet_ik_validate,
             robot_init_tilt=cls.env_cls.robot_init_tilt,
         )
@@ -832,46 +833,16 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
     @classmethod
     def _create_sf_pick(cls, cfg: SkillConfig, robot_type: Type,
                         domino_type: Type) -> ParameterizedOption:
-        """Pick option using PhaseSkill directly.
+        """Pick option using create_pick_skill."""
 
-        Adds an explicit initial CloseFingers phase before moving, matching
-        the original domino pick which pre-closes fingers before transport.
-        """
-        option_types = [robot_type, domino_type]
-        params_space = Box(0, 1, (0, ))
-        transport_z = cls._transport_z
-        offset_z = cls._offset_z
-
-        def _close_target(state: State, objects: Sequence[Object],
-                          params: Array,
-                          c: SkillConfig) -> Tuple[float, float]:
-            del params
-            robot_obj = objects[0]
-            current = c.fingers_state_to_joint(c.robot,
-                                               state.get(robot_obj, "fingers"))
-            return current, c.closed_fingers_joint - 0.01
-
-        def _above_pos(state: State, objects: Sequence[Object], params: Array,
-                       c: SkillConfig) -> Tuple[float, float, float, float]:
+        def _get_domino_pose(
+            state: State, objects: Sequence[Object], params: Array,
+            c: SkillConfig
+        ) -> Tuple[float, float, float, float]:
             del params, c
             _, domino = objects
             return (state.get(domino, "x"), state.get(domino, "y"),
-                    transport_z, state.get(domino, "yaw"))
-
-        def _grasp_pos(state: State, objects: Sequence[Object], params: Array,
-                       c: SkillConfig) -> Tuple[float, float, float, float]:
-            del params, c
-            _, domino = objects
-            return (state.get(domino, "x"), state.get(domino, "y"),
-                    state.get(domino, "z") + offset_z,
-                    state.get(domino, "yaw"))
-
-        def _lift_pos(state: State, objects: Sequence[Object], params: Array,
-                      c: SkillConfig) -> Tuple[float, float, float, float]:
-            del params, c
-            _, domino = objects
-            return (state.get(domino, "x"), state.get(domino, "y"),
-                    transport_z, state.get(domino, "yaw"))
+                    state.get(domino, "z"), state.get(domino, "yaw"))
 
         def _grasp_terminal(state: State, objects: Sequence[Object],
                             params: Array, c: SkillConfig) -> bool:
@@ -879,21 +850,16 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             return bool(
                 state.get(objects[0], "fingers") < PyBulletEnv.grasp_tol)
 
-        phases = [
-            Phase("CloseInitial",
-                  PhaseAction.CHANGE_FINGERS,
-                  _close_target,
-                  finger_tol=PyBulletEnv.grasp_tol),
-            make_move_to_phase("MoveAbove", _above_pos, "closed"),
-            make_move_to_phase("Descend", _grasp_pos, "open"),
-            Phase("Grasp",
-                  PhaseAction.CHANGE_FINGERS,
-                  _close_target,
-                  terminal_fn=_grasp_terminal),
-            make_move_to_phase("Lift", _lift_pos, "closed"),
-        ]
-        return PhaseSkill("Pick", option_types, params_space, cfg,
-                          phases).build()
+        return create_pick_skill(
+            name="Pick",
+            types=[robot_type, domino_type],
+            params_space=Box(0, 1, (0,)),
+            config=cfg,
+            get_target_pose_fn=_get_domino_pose,
+            transport_z=cls._transport_z,
+            grasp_z_offset=cls._offset_z,
+            grasp_terminal_fn=_grasp_terminal,
+        )
 
     @classmethod
     def _create_sf_place(cls, cfg: SkillConfig, robot_type: Type
