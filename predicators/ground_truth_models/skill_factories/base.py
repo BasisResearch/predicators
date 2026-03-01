@@ -268,8 +268,14 @@ class PhaseSkill:
             # BiRRT failed; use distance-based terminal (IK fallback mode).
             return self._ik_phase_is_terminal(phase, state, objects, params)
 
-        # Terminal when all waypoints have been executed.
-        return bool(memory[step_key] >= len(traj))
+        # All waypoints consumed — fall back to position-based terminal so
+        # the phase doesn't end until the robot has actually converged to the
+        # target (position control may lag behind the commanded trajectory,
+        # and IK inaccuracy means the final waypoint may not exactly match
+        # the target Cartesian pose).
+        if memory[step_key] >= len(traj):
+            return self._ik_phase_is_terminal(phase, state, objects, params)
+        return False
 
     def _ik_phase_is_terminal(self, phase: Phase, state: State,
                               objects: Sequence[Object],
@@ -353,6 +359,10 @@ class PhaseSkill:
                 memory[traj_key] = list(traj)
             memory[step_key] = 0
 
+            # Restore robot joints — run_motion_planning leaves them at an
+            # arbitrary configuration used during collision checking.
+            robot.set_joints(pb_state.joint_positions)
+
         traj = memory[traj_key]
         if traj is None:
             # BiRRT failed — fall back to incremental IK.
@@ -360,8 +370,14 @@ class PhaseSkill:
 
         # --- Pop next waypoint from cached trajectory. ---
         step = memory[step_key]
-        # Clamp to last waypoint in case of over-stepping.
-        target_joints = traj[min(step, len(traj) - 1)]
+
+        if step >= len(traj):
+            # Trajectory fully consumed — use incremental IK to converge
+            # to the exact target pose (BiRRT's IK solution may be slightly
+            # off from the target Cartesian pose).
+            return self._execute_move_ik(phase, state, objects, params)
+
+        target_joints = traj[step]
         memory[step_key] = step + 1
 
         # Apply finger nudge matching the phase's finger_status, identical

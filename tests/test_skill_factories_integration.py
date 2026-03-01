@@ -1018,3 +1018,170 @@ def test_push_skill_domino_robot_reaches_domino():
     robot_y = result.get(robot, "y")
     dist = np.sqrt((robot_x - dom_x)**2 + (robot_y - dom_y)**2)
     assert dist < 0.5, f"Robot should approach domino, dist={dist:.3f}"
+
+
+def test_pick_holds_domino_with_motion_planning():
+    """Pick option with motion planning should result in the domino being held.
+
+    Uses position control mode to match the production setup where the bug
+    manifests: with motion planning the robot grasps at a corner instead of
+    the center.
+    """
+    try:
+        from predicators.envs.pybullet_domino import PyBulletDominoEnv
+    except ImportError:
+        pytest.skip("pybullet_domino not available")
+
+    utils.reset_config({
+        "env": "pybullet_domino",
+        "use_gui": False,
+        "pybullet_control_mode": "position",
+        "pybullet_robot": "fetch",
+        "domino_use_skill_factories": True,
+        "skill_phase_use_motion_planning": True,
+        "pybullet_ik_validate": False,
+        "domino_use_grid": True,
+        "domino_use_domino_blocks_as_target": True,
+        "domino_restricted_push": True,
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+    })
+
+    class _ExposedDominoEnv(_ExposedEnvMixin, PyBulletDominoEnv):
+        pass
+
+    env = _ExposedDominoEnv(use_gui=False)
+    Pick = env._options["Pick"]
+
+    task_state = env.get_train_tasks()[0].init
+    domino_type = env._domino_component.domino_type
+    dominos = task_state.get_objects(domino_type)
+    assert len(dominos) >= 1
+    domino = dominos[0]
+    robot = env._robot
+
+    dom_x = task_state.get(domino, "x")
+    dom_y = task_state.get(domino, "y")
+    dom_z = task_state.get(domino, "z")
+    print(f"\nDomino position: ({dom_x:.4f}, {dom_y:.4f}, {dom_z:.4f})")
+
+    env.set_state(task_state.copy())
+    option = Pick.ground([robot, domino], [])
+    assert option.initiable(env._current_state)
+
+    # Run option with step-by-step logging
+    prev_phase = None
+    for step_i in range(600):
+        if option.terminal(env._current_state):
+            print(f"Step {step_i}: Option terminal")
+            break
+        state = env._current_state
+        # Log phase transitions
+        phase_idx = option.memory.get("phase_idx", 0)
+        if phase_idx != prev_phase:
+            rx = state.get(robot, "x")
+            ry = state.get(robot, "y")
+            rz = state.get(robot, "z")
+            rf = state.get(robot, "fingers")
+            ee_dist = np.sqrt((rx - dom_x)**2 + (ry - dom_y)**2)
+            print(f"Step {step_i}: Phase {phase_idx}, "
+                  f"robot=({rx:.4f}, {ry:.4f}, {rz:.4f}), "
+                  f"fingers={rf:.4f}, ee_dist_xy={ee_dist:.4f}")
+            prev_phase = phase_idx
+        action = option.policy(state)
+        env.step(action)
+    else:
+        print("WARNING: option did not terminate in 600 steps")
+
+    result = env._current_state
+    is_held = result.get(domino, "is_held")
+    rx = result.get(robot, "x")
+    ry = result.get(robot, "y")
+    rz = result.get(robot, "z")
+    print(f"Final: robot=({rx:.4f}, {ry:.4f}, {rz:.4f}), "
+          f"is_held={is_held}")
+
+    assert is_held > 0.5, (
+        f"Domino should be held after Pick with motion planning, "
+        f"is_held={is_held}"
+    )
+
+
+def test_pick_holds_domino_without_motion_planning():
+    """Pick option WITHOUT motion planning should hold the domino (baseline)."""
+    try:
+        from predicators.envs.pybullet_domino import PyBulletDominoEnv
+    except ImportError:
+        pytest.skip("pybullet_domino not available")
+
+    utils.reset_config({
+        "env": "pybullet_domino",
+        "use_gui": False,
+        "pybullet_control_mode": "position",
+        "pybullet_robot": "fetch",
+        "domino_use_skill_factories": True,
+        "skill_phase_use_motion_planning": False,
+        "pybullet_ik_validate": False,
+        "domino_use_grid": True,
+        "domino_use_domino_blocks_as_target": True,
+        "domino_restricted_push": True,
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+    })
+
+    class _ExposedDominoEnv(_ExposedEnvMixin, PyBulletDominoEnv):
+        pass
+
+    env = _ExposedDominoEnv(use_gui=False)
+    Pick = env._options["Pick"]
+
+    task_state = env.get_train_tasks()[0].init
+    domino_type = env._domino_component.domino_type
+    dominos = task_state.get_objects(domino_type)
+    assert len(dominos) >= 1
+    domino = dominos[0]
+    robot = env._robot
+
+    dom_x = task_state.get(domino, "x")
+    dom_y = task_state.get(domino, "y")
+    dom_z = task_state.get(domino, "z")
+    print(f"\nDomino position: ({dom_x:.4f}, {dom_y:.4f}, {dom_z:.4f})")
+
+    env.set_state(task_state.copy())
+    option = Pick.ground([robot, domino], [])
+    assert option.initiable(env._current_state)
+
+    prev_phase = None
+    for step_i in range(600):
+        if option.terminal(env._current_state):
+            print(f"Step {step_i}: Option terminal")
+            break
+        state = env._current_state
+        phase_idx = option.memory.get("phase_idx", 0)
+        if phase_idx != prev_phase:
+            rx = state.get(robot, "x")
+            ry = state.get(robot, "y")
+            rz = state.get(robot, "z")
+            rf = state.get(robot, "fingers")
+            ee_dist = np.sqrt((rx - dom_x)**2 + (ry - dom_y)**2)
+            print(f"Step {step_i}: Phase {phase_idx}, "
+                  f"robot=({rx:.4f}, {ry:.4f}, {rz:.4f}), "
+                  f"fingers={rf:.4f}, ee_dist_xy={ee_dist:.4f}")
+            prev_phase = phase_idx
+        action = option.policy(state)
+        env.step(action)
+    else:
+        print("WARNING: option did not terminate in 600 steps")
+
+    result = env._current_state
+    is_held = result.get(domino, "is_held")
+    rx = result.get(robot, "x")
+    ry = result.get(robot, "y")
+    rz = result.get(robot, "z")
+    print(f"Final: robot=({rx:.4f}, {ry:.4f}, {rz:.4f}), "
+          f"is_held={is_held}")
+
+    assert is_held > 0.5, (
+        f"Domino should be held after Pick without motion planning, "
+        f"is_held={is_held}"
+    )

@@ -41,6 +41,8 @@ from gym.spaces import Box
 
 from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn
+from predicators.ground_truth_models.skill_factories.move_to import \
+    make_move_to_phase
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
@@ -106,44 +108,14 @@ def create_pour_skill(
         )
     """
 
-    def _get_current_pose(
-        state: State,
-        objects: Sequence[Object],
-    ) -> Pose:
-        robot_obj = objects[0]
-        current_position = (state.get(robot_obj,
-                                      "x"), state.get(robot_obj, "y"),
-                            state.get(robot_obj, "z"))
-        ee_orn = p.getQuaternionFromEuler(
-            [0, state.get(robot_obj, "tilt"),
-             state.get(robot_obj, "wrist")])
-        return Pose(current_position, ee_orn)
-
-    def _move_above_target(
+    def _above_pose(
         state: State,
         objects: Sequence[Object],
         params: Array,
         cfg: SkillConfig,
-    ) -> Tuple[Pose, Pose, str]:
-        current_pose = _get_current_pose(state, objects)
-        tx, ty, _, tyaw = get_target_pose_fn(state, objects, params, cfg)
-        target_orn = p.getQuaternionFromEuler(
-            [0, cfg.robot_init_tilt, tyaw])
-        target_pose = Pose((tx, ty, transport_z), target_orn)
-        return current_pose, target_pose, "closed"
-
-    def _descend_target(
-        state: State,
-        objects: Sequence[Object],
-        params: Array,
-        cfg: SkillConfig,
-    ) -> Tuple[Pose, Pose, str]:
-        current_pose = _get_current_pose(state, objects)
-        tx, ty, tz, tyaw = get_target_pose_fn(state, objects, params, cfg)
-        target_orn = p.getQuaternionFromEuler(
-            [0, cfg.robot_init_tilt, tyaw])
-        target_pose = Pose((tx, ty, tz), target_orn)
-        return current_pose, target_pose, "closed"
+    ) -> Tuple[float, float, float, float]:
+        x, y, _, yaw = get_target_pose_fn(state, objects, params, cfg)
+        return x, y, transport_z, yaw
 
     def _tilt_target(
         state: State,
@@ -151,7 +123,14 @@ def create_pour_skill(
         params: Array,
         cfg: SkillConfig,
     ) -> Tuple[Pose, Pose, str]:
-        current_pose = _get_current_pose(state, objects)
+        robot_obj = objects[0]
+        current_position = (state.get(robot_obj, "x"),
+                            state.get(robot_obj, "y"),
+                            state.get(robot_obj, "z"))
+        current_orn = p.getQuaternionFromEuler(
+            [0, state.get(robot_obj, "tilt"),
+             state.get(robot_obj, "wrist")])
+        current_pose = Pose(current_position, current_orn)
         tx, ty, tz, tyaw = get_target_pose_fn(state, objects, params, cfg)
         target_orn = p.getQuaternionFromEuler([0, pour_tilt, tyaw])
         target_pose = Pose((tx, ty, tz), target_orn)
@@ -159,17 +138,9 @@ def create_pour_skill(
 
     phases = [
         # Phase 0: Move above pour position at normal tilt
-        Phase(
-            name="MoveAbovePour",
-            action_type=PhaseAction.MOVE_TO_POSE,
-            target_fn=_move_above_target,
-        ),
+        make_move_to_phase("MoveAbovePour", _above_pose, "closed"),
         # Phase 1: Descend to pour height at normal tilt
-        Phase(
-            name="DescendToPour",
-            action_type=PhaseAction.MOVE_TO_POSE,
-            target_fn=_descend_target,
-        ),
+        make_move_to_phase("DescendToPour", get_target_pose_fn, "closed"),
         # Phase 2: Tilt EE to pour angle (incremental IK for fine control)
         Phase(
             name="Tilt",

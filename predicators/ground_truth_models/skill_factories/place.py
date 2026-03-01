@@ -36,12 +36,12 @@ Example::
 
 from typing import Sequence, Tuple
 
-import pybullet as p
 from gym.spaces import Box
 
 from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn
-from predicators.pybullet_helpers.geometry import Pose
+from predicators.ground_truth_models.skill_factories.move_to import \
+    make_move_to_phase
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 
@@ -113,68 +113,29 @@ def create_place_skill(
         target = cfg.open_fingers_joint - 0.01
         return current, target
 
-    def _get_current_pose(
-        state: State,
-        objects: Sequence[Object],
-    ) -> Pose:
-        robot_obj = objects[0]
-        current_position = (state.get(robot_obj,
-                                      "x"), state.get(robot_obj, "y"),
-                            state.get(robot_obj, "z"))
-        ee_orn = p.getQuaternionFromEuler(
-            [0, state.get(robot_obj, "tilt"),
-             state.get(robot_obj, "wrist")])
-        return Pose(current_position, ee_orn)
-
-    def _move_above_target(
+    def _above_pose(
         state: State,
         objects: Sequence[Object],
         params: Array,
         cfg: SkillConfig,
-    ) -> Tuple[Pose, Pose, str]:
-        current_pose = _get_current_pose(state, objects)
-        tx, ty, _, tyaw = get_target_pose_fn(state, objects, params, cfg)
-        target_orn = p.getQuaternionFromEuler([0, cfg.robot_init_tilt, tyaw])
-        target_pose = Pose((tx, ty, transport_z), target_orn)
-        return current_pose, target_pose, "closed"
+    ) -> Tuple[float, float, float, float]:
+        x, y, _, yaw = get_target_pose_fn(state, objects, params, cfg)
+        return x, y, transport_z, yaw
 
-    def _descend_target(
+    def _drop_pose(
         state: State,
         objects: Sequence[Object],
         params: Array,
         cfg: SkillConfig,
-    ) -> Tuple[Pose, Pose, str]:
-        current_pose = _get_current_pose(state, objects)
-        tx, ty, _, tyaw = get_target_pose_fn(state, objects, params, cfg)
-        target_orn = p.getQuaternionFromEuler([0, cfg.robot_init_tilt, tyaw])
-        target_pose = Pose((tx, ty, drop_z), target_orn)
-        return current_pose, target_pose, "closed"
-
-    def _retreat_target(
-        state: State,
-        objects: Sequence[Object],
-        params: Array,
-        cfg: SkillConfig,
-    ) -> Tuple[Pose, Pose, str]:
-        current_pose = _get_current_pose(state, objects)
-        tx, ty, _, tyaw = get_target_pose_fn(state, objects, params, cfg)
-        target_orn = p.getQuaternionFromEuler([0, cfg.robot_init_tilt, tyaw])
-        target_pose = Pose((tx, ty, transport_z), target_orn)
-        return current_pose, target_pose, "open"
+    ) -> Tuple[float, float, float, float]:
+        x, y, _, yaw = get_target_pose_fn(state, objects, params, cfg)
+        return x, y, drop_z, yaw
 
     phases = [
         # Phase 0: Move above placement
-        Phase(
-            name="MoveAbove",
-            action_type=PhaseAction.MOVE_TO_POSE,
-            target_fn=_move_above_target,
-        ),
+        make_move_to_phase("MoveAbove", _above_pose, "closed"),
         # Phase 1: Descend to drop height
-        Phase(
-            name="Descend",
-            action_type=PhaseAction.MOVE_TO_POSE,
-            target_fn=_descend_target,
-        ),
+        make_move_to_phase("Descend", _drop_pose, "closed"),
         # Phase 2: Open fingers to release
         Phase(
             name="OpenFingers",
@@ -182,11 +143,7 @@ def create_place_skill(
             target_fn=_open_fingers_target,
         ),
         # Phase 3: Retreat upward
-        Phase(
-            name="Retreat",
-            action_type=PhaseAction.MOVE_TO_POSE,
-            target_fn=_retreat_target,
-        ),
+        make_move_to_phase("Retreat", _above_pose, "open"),
     ]
 
     return PhaseSkill(name, types, params_space, config, phases).build()
