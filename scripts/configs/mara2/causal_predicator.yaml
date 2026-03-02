@@ -7,8 +7,11 @@ APPROACHES:
   #   NAME: "human_interaction"
   #   FLAGS:
   #     human_interaction_approach_use_scripted_option: True
+  #     human_interaction_approach_use_all_options: True
   #     scripted_option_dir: "scripted_option_policies"
-  #     script_option_file_name: "domino.txt"
+  #     script_option_file_name: "domino2.txt"
+  #     domino_restricted_push: True
+  #     skill_phase_use_motion_planning: False
   # oracle:
   #   NAME: "oracle_process_planning"
   #   FLAGS:
@@ -27,20 +30,8 @@ APPROACHES:
   #     num_online_learning_cycles: 4
   #     online_nsrt_learning_requests_per_cycle: 1
   #     domino_restricted_push: True
-  # mf_agent:
-  #   NAME: "agent_planner"
-  #   FLAGS:
-  #     demonstrator: "oracle_process_planning"
-  #     terminate_on_goal_reached_and_option_terminated: True
-  #     bilevel_plan_without_sim: True
-  #     max_initial_demos: 0
-  #     domino_use_continuous_place: True
-  #     explorer: "agent"
-  #     num_online_learning_cycles: 4
-  #     online_nsrt_learning_requests_per_cycle: 1
-  #     domino_restricted_push: True
-  mf_option_learning_agent:
-    NAME: "agent_option_learning"
+  mf_agent:
+    NAME: "agent_planner"
     FLAGS:
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
@@ -51,7 +42,21 @@ APPROACHES:
       num_online_learning_cycles: 4
       online_nsrt_learning_requests_per_cycle: 1
       domino_restricted_push: True
-      option_learner: "agent"
+      skill_phase_use_motion_planning: False
+      agent_planner_isolate_test_session: False
+  # mf_option_learning_agent:
+  #   NAME: "agent_option_learning"
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     bilevel_plan_without_sim: True
+  #     max_initial_demos: 0
+  #     domino_use_continuous_place: True
+  #     explorer: "agent"
+  #     num_online_learning_cycles: 4
+  #     online_nsrt_learning_requests_per_cycle: 1
+  #     domino_restricted_push: True
+  #     option_learner: "agent"
   # predicate_invention:
   #   NAME: "online_predicate_invention_and_process_planning"
   #   # ARGS:
@@ -144,8 +149,8 @@ ARGS:
   - "debug"
   - "use_gui"
   # - "make_demo_videos"
-  # - "make_failure_videos"
-  # - "make_test_videos"
+  - "make_failure_videos"
+  - "make_test_videos"
   # - "make_demo_images"  # support images
   # - "make_failure_images"  # query images
   # - "make_test_images"  # query images
