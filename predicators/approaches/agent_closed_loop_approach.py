@@ -92,8 +92,13 @@ class AgentClosedLoopApproach(AgentPlannerApproach):
             if params_dim > 0:
                 low = opt.params_space.low.tolist()
                 high = opt.params_space.high.tolist()
-                param_info = (f", params_dim={params_dim}, "
-                              f"low={low}, high={high}")
+                if opt.params_description:
+                    desc = ", ".join(opt.params_description)
+                    param_info = (f", params=[{desc}], "
+                                  f"low={low}, high={high}")
+                else:
+                    param_info = (f", params_dim={params_dim}, "
+                                  f"low={low}, high={high}")
             else:
                 param_info = ""
             option_strs.append(f"  {opt.name}({type_sig}{param_info})")

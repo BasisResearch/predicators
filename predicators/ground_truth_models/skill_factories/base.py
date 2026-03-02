@@ -166,13 +166,15 @@ class PhaseSkill:
     """
 
     def __init__(self, name: str, types: Sequence[Type], params_space: Box,
-                 config: SkillConfig, phases: List[Phase]) -> None:
+                 config: SkillConfig, phases: List[Phase],
+                 params_description: Optional[Tuple[str, ...]] = None) -> None:
         assert len(phases) > 0
         self._name = name
         self._types = types
         self._params_space = params_space
         self._config = config
         self._phases = phases
+        self._params_description = params_description
 
     def build(self) -> ParameterizedOption:
         """Build and return the ParameterizedOption."""
@@ -183,6 +185,7 @@ class PhaseSkill:
             policy=self._policy,
             initiable=self._initiable,
             terminal=self._terminal,
+            params_description=self._params_description,
         )
 
     def _initiable(self, state: State, memory: Dict, objects: Sequence[Object],

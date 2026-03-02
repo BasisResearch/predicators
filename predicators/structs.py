@@ -978,6 +978,7 @@ class ParameterizedOption:
     # terminate now. The objects' types will match those in
     # self.types. The parameters will be contained in params_space.
     terminal: ParameterizedTerminal = field(repr=False)
+    params_description: Optional[Tuple[str, ...]] = None
 
     @cached_property
     def _hash(self) -> int:

@@ -44,6 +44,7 @@ def create_move_to_skill(
     params_space: Box,
     config: SkillConfig,
     get_target_pose_fn: TargetPoseFn,
+    params_description: Optional[Tuple[str, ...]] = None,
 ) -> ParameterizedOption:
     """Create a single-phase move-to-pose skill.
 
@@ -66,7 +67,8 @@ def create_move_to_skill(
         A ``ParameterizedOption`` implementing the move-to-pose skill.
     """
     phase = make_move_to_phase(name, get_target_pose_fn)
-    return PhaseSkill(name, types, params_space, config, [phase]).build()
+    return PhaseSkill(name, types, params_space, config, [phase],
+                      params_description=params_description).build()
 
 
 def _get_current_ee_pose(state: State, robot_obj: Object) -> Pose:

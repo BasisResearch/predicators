@@ -57,6 +57,7 @@ def create_pour_skill(
     transport_z: float,
     tilt_terminal_fn: Optional[Callable[
         [State, Sequence[Object], Array, SkillConfig], bool]] = None,
+    params_description: Optional[Tuple[str, ...]] = None,
 ) -> ParameterizedOption:
     """Create a multi-phase pour skill that tilts to pour liquid.
 
@@ -151,4 +152,5 @@ def create_pour_skill(
         ),
     ]
 
-    return PhaseSkill(name, types, params_space, config, phases).build()
+    return PhaseSkill(name, types, params_space, config, phases,
+                      params_description=params_description).build()

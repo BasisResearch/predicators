@@ -14,7 +14,7 @@ Example::
     NoOp = create_wait_option("NoOp", config, robot_type)
 """
 
-from typing import Dict, Sequence, cast
+from typing import Dict, Optional, Sequence, Tuple, cast
 
 import numpy as np
 from gym.spaces import Box
@@ -29,6 +29,7 @@ def create_wait_option(
     name: str,
     config: SkillConfig,
     robot_type: Type,
+    params_description: Optional[Tuple[str, ...]] = None,
 ) -> ParameterizedOption:
     """Create a wait (no-op) option that holds the robot's current pose.
 
@@ -83,4 +84,5 @@ def create_wait_option(
         policy=_policy,
         initiable=lambda _1, _2, _3, _4: True,
         terminal=lambda _1, _2, _3, _4: False,
+        params_description=params_description,
     )

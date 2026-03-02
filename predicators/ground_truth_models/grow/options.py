@@ -305,6 +305,8 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             get_target_pose_fn=_get_placement_pose,
             transport_z=env_cls.z_ub - 0.35,
             drop_z=_drop_z,
+            params_description=("x_position_normalized",
+                                "y_position_normalized"),
         )
 
         # ---------------------------------------------------------------

@@ -45,7 +45,7 @@ Example::
     )
 """
 
-from typing import Callable, List, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 from gym.spaces import Box
 
@@ -64,6 +64,7 @@ def create_push_skill(
     get_target_pose_fn: TargetPoseFn,
     waypoints_fn: Callable[[float, float, float, float, SkillConfig],
                            List[Tuple[float, float, float, float, str]]],
+    params_description: Optional[Tuple[str, ...]] = None,
 ) -> ParameterizedOption:
     """Create a multi-phase push skill from target and waypoint callbacks.
 
@@ -200,4 +201,5 @@ def create_push_skill(
             target_fn=_open_fingers_target,
         ))
 
-    return PhaseSkill(name, types, params_space, config, phases).build()
+    return PhaseSkill(name, types, params_space, config, phases,
+                      params_description=params_description).build()

@@ -62,6 +62,7 @@ def create_pick_skill(
     grasp_z_offset: float = 0.0,
     grasp_terminal_fn: Optional[Callable[
         [State, Sequence[Object], Array, SkillConfig], bool]] = None,
+    params_description: Optional[Tuple[str, ...]] = None,
 ) -> ParameterizedOption:
     """Create a multi-phase pick skill that grasps and lifts an object.
 
@@ -164,4 +165,5 @@ def create_pick_skill(
         make_move_to_phase("Lift", _above_pose, "closed"),
     ]
 
-    return PhaseSkill(name, types, params_space, config, phases).build()
+    return PhaseSkill(name, types, params_space, config, phases,
+                      params_description=params_description).build()

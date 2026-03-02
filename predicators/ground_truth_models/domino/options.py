@@ -884,10 +884,13 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             target_x, target_y, target_rot = params
             return float(target_x), float(target_y), 0.0, float(target_rot)
 
-        return create_place_skill(name="Place",
-                                  types=[robot_type],
-                                  params_space=params_space,
-                                  config=cfg,
-                                  get_target_pose_fn=_get_placement,
-                                  transport_z=cls._transport_z,
-                                  drop_z=cls._place_drop_z)
+        return create_place_skill(
+            name="Place",
+            types=[robot_type],
+            params_space=params_space,
+            config=cfg,
+            get_target_pose_fn=_get_placement,
+            transport_z=cls._transport_z,
+            drop_z=cls._place_drop_z,
+            params_description=("x_position", "y_position", "yaw_angle"),
+        )

@@ -34,7 +34,7 @@ Example::
     )
 """
 
-from typing import Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 from gym.spaces import Box
 
@@ -53,6 +53,7 @@ def create_place_skill(
     get_target_pose_fn: TargetPoseFn,
     transport_z: float,
     drop_z: float,
+    params_description: Optional[Tuple[str, ...]] = None,
 ) -> ParameterizedOption:
     """Create a multi-phase place skill that releases a held object.
 
@@ -146,4 +147,5 @@ def create_place_skill(
         make_move_to_phase("Retreat", _above_pose, "open"),
     ]
 
-    return PhaseSkill(name, types, params_space, config, phases).build()
+    return PhaseSkill(name, types, params_space, config, phases,
+                      params_description=params_description).build()
