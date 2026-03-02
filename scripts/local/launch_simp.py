@@ -2,6 +2,12 @@
 opposed to submitting a slurm job."""
 import argparse
 import subprocess
+import sys
+from pathlib import Path
+
+# Add project root to sys.path so `scripts` is importable without PYTHONPATH=.
+# parents[0] = scripts/local, parents[1] = scripts, parents[2] = project root
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.cluster_utils import config_to_cmd_flags, generate_run_configs
 
