@@ -101,9 +101,9 @@ class AgentSessionMixin:
 
     def _get_log_dir(self) -> str:
         """Return the log directory, using ``_log_subdir`` class attribute."""
-        base = CFG.log_file if hasattr(CFG, 'log_file') and CFG.log_file \
-            else "logs"
-        return os.path.join(base, self._log_subdir)
+        if hasattr(CFG, 'log_file') and CFG.log_file:
+            return CFG.log_file
+        return os.path.join("logs", self._log_subdir)
 
     def _close_agent_session(self) -> None:
         """Close and discard the current agent session, if one exists."""
