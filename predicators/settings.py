@@ -968,6 +968,10 @@ class GlobalSettings:
     agent_sdk_max_trajectories_in_context = 3
     agent_sdk_log_agent_responses = True
 
+    # Docker sandbox settings for agent SDK
+    agent_sdk_use_docker_sandbox = False  # run agent inside Docker container
+    agent_sdk_docker_image = "predicators-sandbox"  # Docker image name
+
     # Agent explorer settings
     agent_explorer_max_turns = 5  # max agent turns per exploration query
     agent_explorer_fallback_to_random = True  # fall back to random on failure
