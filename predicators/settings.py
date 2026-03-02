@@ -974,6 +974,7 @@ class GlobalSettings:
 
     # Agent planner approach settings
     agent_planner_model_name = "claude-sonnet-4-5"
+    agent_planner_isolate_test_session = True
 
     # Agent option learning approach settings
     agent_option_learning_model_name = "claude-sonnet-4-5"

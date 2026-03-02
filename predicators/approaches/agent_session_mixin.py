@@ -105,6 +105,25 @@ class AgentSessionMixin:
             else "logs"
         return os.path.join(base, self._log_subdir)
 
+    def _close_agent_session(self) -> None:
+        """Close and discard the current agent session, if one exists."""
+        if self._agent_session is None:
+            return
+        session = self._agent_session
+        self._agent_session = None
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import nest_asyncio  # type: ignore[import-not-found]
+                nest_asyncio.apply()
+                loop.run_until_complete(session.close())
+            else:
+                loop.run_until_complete(session.close())
+        except RuntimeError:
+            asyncio.run(session.close())
+        except Exception:
+            pass
+
     def _query_agent_sync(self, message: str) -> List[Dict[str, Any]]:
         """Synchronous wrapper for async agent query."""
         self._ensure_agent_session()

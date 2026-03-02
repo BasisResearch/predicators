@@ -121,43 +121,15 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
         return self._initial_options | self._agent_proposed_options
 
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
-        """Override to use a fresh ephemeral session for test-time solving.
+        """Disable proposals during test-time solving.
 
-        This prevents test task information from leaking into the
-        learning session.  The learning session is preserved and
-        restored after solving.  Proposals are also disabled during
-        testing.
+        Session isolation is handled by the parent AgentPlannerApproach._solve.
         """
         self._tool_context.proposals_disabled = True
-        # Swap out the learning session for a fresh test session
-        learn_session = self._agent_session
-        self._agent_session = None  # forces _ensure_agent_session to create
         try:
             return super()._solve(task, timeout)
         finally:
             self._tool_context.proposals_disabled = False
-            # Discard the ephemeral test session and restore learning session
-            self._close_session_sync()
-            self._agent_session = learn_session
-
-    def _close_session_sync(self) -> None:
-        """Synchronously close the current agent session if open."""
-        import asyncio
-        if self._agent_session is None:
-            return
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import nest_asyncio  # type: ignore[import-not-found]
-                nest_asyncio.apply()
-                loop.run_until_complete(self._agent_session.close())
-            else:
-                loop.run_until_complete(self._agent_session.close())
-        except RuntimeError:
-            asyncio.run(self._agent_session.close())
-        except Exception as e:
-            logging.warning(f"Error closing test session: {e}")
-        self._agent_session = None
 
     # ------------------------------------------------------------------ #
     # Learning

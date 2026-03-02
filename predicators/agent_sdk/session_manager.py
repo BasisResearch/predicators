@@ -28,6 +28,7 @@ class AgentSessionManager:
         self._total_turns: int = 0
         self._started = False
         self._query_count: int = 0
+        self._conversation_log: List[Dict[str, Any]] = []
 
     @property
     def session_id(self) -> Optional[str]:
@@ -181,7 +182,18 @@ class AgentSessionManager:
         # Save the query and response to a log file
         self._save_query_response_log(message, collected)
 
+        # Track in-memory for conversation replay
+        self._conversation_log.append({
+            "query": message,
+            "response": collected,
+        })
+
         return collected
+
+    @property
+    def conversation_log(self) -> List[Dict[str, Any]]:
+        """Return the in-memory log of all query/response pairs."""
+        return self._conversation_log
 
     async def _recover_session(self, last_message: str) -> None:
         """Attempt to recover from a session error."""
