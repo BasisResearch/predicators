@@ -163,6 +163,7 @@ class BallComponent(DominoEnvComponent):
 
     def reset_state(self, state: State) -> None:
         """Reset ball and target to match state."""
+        assert self._physics_client_id is not None
         self._current_state = state
 
         # Position ball

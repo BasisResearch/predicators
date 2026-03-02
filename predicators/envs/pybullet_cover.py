@@ -7,7 +7,7 @@ python predicators/main.py --approach oracle --env pybullet_cover --seed 0 \
 # --sesame_check_expected_atoms False
 """
 import random
-from typing import Any, ClassVar, Dict, List, Sequence, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pybullet as p
@@ -42,7 +42,7 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
     # Object parameters
     _obj_len_hgt: ClassVar[float] = 0.045
     _max_obj_width: ClassVar[float] = 0.07  # highest width normalized to this
-    _block_cover_color: ClassVar[Array] = (1.0, 1.0, 1.0, 1.0)
+    _block_cover_color: ClassVar[Tuple[float, float, float, float]] = (1.0, 1.0, 1.0, 1.0)
 
     # Dimension and workspace parameters
     y_lb: ClassVar[float] = 0.4
@@ -80,7 +80,7 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
     @classmethod
     def initialize_pybullet(
             cls, using_gui: bool
-    ) -> tuple[int, SingleArmPyBulletRobot, dict[str, any]]:
+    ) -> Tuple[int, SingleArmPyBulletRobot, Dict[str, Any]]:
         """Create the world: plane, table, block IDs, etc."""
         # Call parent method first
         physics_client_id, pybullet_robot, bodies = super(
@@ -134,15 +134,17 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
 
         return physics_client_id, pybullet_robot, bodies
 
-    def _store_pybullet_bodies(self, pybullet_bodies: dict[str, any]) -> None:
+    def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
         """Store references to PyBullet IDs for environment assets."""
         self._table_id = pybullet_bodies["table_id"]
-        for blk, id in zip(self._blocks, pybullet_bodies["block_ids"]):
-            blk.id = id
+        blk_id: int
+        for blk, blk_id in zip(self._blocks, pybullet_bodies["block_ids"]):
+            blk.id = blk_id
         # self._block_ids = pybullet_bodies["block_ids"]
         # self._target_ids = pybullet_bodies["target_ids"]
-        for tgt, id in zip(self._targets, pybullet_bodies["target_ids"]):
-            tgt.id = id
+        tgt_id: int
+        for tgt, tgt_id in zip(self._targets, pybullet_bodies["target_ids"]):
+            tgt.id = tgt_id
 
     def _create_task_specific_objects(self, state: State) -> None:
         """No domain-specific extra creation needed here."""
@@ -186,7 +188,7 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
             color = self._obj_colors[self._train_rng.choice(
                 len(self._obj_colors))]
             update_object(block_obj.id,
-                          position=[bx, by, bz],
+                          position=(bx, by, bz),
                           color=color,
                           physics_client_id=self._physics_client_id)
 
@@ -198,8 +200,9 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
         # Put any leftover blocks out of view
         oov_x, oov_y = self._out_of_view_xy
         for i in range(len(block_objs), len(self._blocks)):
+            oov_x2, oov_y2 = self._out_of_view_xy
             update_object(self._blocks[i].id,
-                          position=[*self._out_of_view_xy, 2.0],
+                          position=(oov_x2, oov_y2, 2.0),
                           physics_client_id=self._physics_client_id)
 
         # 2) Reset targets
@@ -221,7 +224,7 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
                 len(self._obj_colors))]
             color = (color[0], color[1], color[2], 0.5)  # semi-transparent
             update_object(target_obj.id,
-                          position=[tx, ty, tz],
+                          position=(tx, ty, tz),
                           color=color,
                           physics_client_id=self._physics_client_id)
 

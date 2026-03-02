@@ -1,7 +1,7 @@
 """An explorer that uses bilevel planning with NSRTs."""
 
 import logging
-from typing import Dict, List, Set
+from typing import Dict, List, Set, cast
 
 from gym.spaces import Box
 
@@ -50,7 +50,7 @@ class BilevelPlanningExplorer(BaseExplorer):
                 plan_iterator = task_plan_with_processes(
                                         task,
                                         self._predicates,
-                                        self._nsrts,
+                                        cast(Set[CausalProcess], self._nsrts),
                                         seed,
                                         timeout,
                                         max_skeletons_optimized=\
@@ -89,13 +89,13 @@ class BilevelPlanningExplorer(BaseExplorer):
                     task, self._nsrts, self._predicates, self._types, timeout,
                     seed, CFG.sesame_task_planning_heuristic)
                 policy = utils.option_plan_to_policy(
-                    plan,
+                    plan,  # type: ignore[arg-type]
                     abstract_function=lambda s: utils.abstract(
                         s, self._predicates))
 
         else:
             assert not CFG.bilevel_plan_without_sim
-            plan, _, _ = sesame_plan(
+            plan, _, _ = sesame_plan(  # type: ignore[assignment]
                 task,
                 self._option_model,
                 self._nsrts,
@@ -108,7 +108,7 @@ class BilevelPlanningExplorer(BaseExplorer):
                 max_horizon=CFG.horizon,
                 allow_noops=CFG.sesame_allow_noops,
                 use_visited_state_set=CFG.sesame_use_visited_state_set)
-            policy = utils.option_plan_to_policy(plan)
+            policy = utils.option_plan_to_policy(plan)  # type: ignore[arg-type]
         termination_function = task.goal_holds
 
         return policy, termination_function

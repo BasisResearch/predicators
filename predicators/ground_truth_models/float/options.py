@@ -77,7 +77,7 @@ class PyBulletFloatGroundTruthOptionFactory(GroundTruthOptionFactory):
             target = pybullet_robot.closed_fingers
             return current, target
 
-        options = set()
+        options: Set[ParameterizedOption] = set()
         # PickBlock
         option_types = [robot_type, block_type]
         params_space = Box(0, 1, (0, ))

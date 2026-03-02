@@ -45,7 +45,7 @@ def create_score_function(
     if score_function_name == "hadd_match":
         return _RelaxationHeuristicMatchBasedScoreFunction(
             initial_predicates, atom_dataset, candidates, train_tasks,
-            ["hadd"])
+            ["hadd"])  # type: ignore[arg-type]
     match = re.match(r"([a-z\,]+)_(\w+)_lookaheaddepth(\d+)",
                      score_function_name)
     if match is not None:
@@ -66,7 +66,7 @@ def create_score_function(
                 atom_dataset,
                 candidates,
                 train_tasks,
-                heuristic_names,
+                heuristic_names,  # type: ignore[arg-type]
                 lookahead_depth=lookahead_depth)
         assert score_name == "count"
         return _RelaxationHeuristicCountBasedScoreFunction(
@@ -74,7 +74,7 @@ def create_score_function(
             atom_dataset,
             candidates,
             train_tasks,
-            heuristic_names,
+            heuristic_names,  # type: ignore[arg-type]
             lookahead_depth=lookahead_depth,
             demos_only=False)
     if score_function_name == "exact_energy":
@@ -164,7 +164,7 @@ class _OperatorLearningBasedScoreFunction(_PredicateSearchScoreFunction):
                     "Learning endogenous processes is not supported yet."
                 # We can currently use this because we are only learning
                 # exogenous processes; don't do sampler learning for actions.
-                processes = learn_processes_from_data(
+                processes = learn_processes_from_data(  # type: ignore[call-arg]
                     low_level_trajs,
                     self._train_tasks,
                     set(candidate_predicates | self._initial_predicates),
@@ -189,9 +189,9 @@ class _OperatorLearningBasedScoreFunction(_PredicateSearchScoreFunction):
         if self._use_processes:
             op_score = self.evaluate_with_operators(candidate_predicates,
                                                     low_level_trajs,
-                                                    segmented_trajs, processes,
+                                                    segmented_trajs, processes,  # type: ignore[arg-type]
                                                     [])
-            strips_ops = processes
+            strips_ops = processes  # type: ignore[assignment]
         else:
             logging.debug(
                 f"Learned {len(pnads)} operators for this predicate set.")
@@ -199,14 +199,14 @@ class _OperatorLearningBasedScoreFunction(_PredicateSearchScoreFunction):
                 logging.debug(
                     f"Operator {pnad.op.name} has {len(pnad.datastore)} datapoints."
                 )
-            strips_ops = [pnad.op for pnad in pnads]
+            strips_ops = [pnad.op for pnad in pnads]  # type: ignore[assignment]
             option_specs = [pnad.option_spec for pnad in pnads]
             op_score = self.evaluate_with_operators(candidate_predicates,
                                                     low_level_trajs,
                                                     segmented_trajs,
-                                                    strips_ops, option_specs)
+                                                    strips_ops, option_specs)  # type: ignore[arg-type]
         pred_penalty = self._get_predicate_penalty(candidate_predicates)
-        op_penalty = self._get_operator_penalty(strips_ops)
+        op_penalty = self._get_operator_penalty(strips_ops)  # type: ignore[arg-type]
         total_score = op_score + pred_penalty + op_penalty
         logging.info(
             f"\tTotal score: {total_score:.3f}, "
@@ -303,7 +303,7 @@ class _TaskPlanningScoreFunction(_OperatorLearningBasedScoreFunction):
             ground_nsrts, reachable_atoms = task_plan_grounding(
                 init_atoms, objects, dummy_nsrts)
             traj_goal = self._train_tasks[traj.train_task_idx].goal
-            heuristic = utils.create_task_planning_heuristic(
+            heuristic = utils.create_task_planning_heuristic(  # type: ignore[type-var]
                 CFG.sesame_task_planning_heuristic, init_atoms, traj_goal,
                 ground_nsrts, candidate_predicates | self._initial_predicates,
                 objects)
@@ -311,7 +311,7 @@ class _TaskPlanningScoreFunction(_OperatorLearningBasedScoreFunction):
                 _, _, metrics = next(
                     task_plan(init_atoms,
                               traj_goal,
-                              ground_nsrts,
+                              ground_nsrts,  # type: ignore[arg-type]
                               reachable_atoms,
                               heuristic,
                               CFG.seed,
@@ -378,7 +378,7 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                 generator = task_plan_with_processes(
                     self._train_tasks[ll_traj.train_task_idx],
                     candidate_predicates | self._initial_predicates,
-                    strips_ops,
+                    strips_ops,  # type: ignore[arg-type]
                     CFG.seed,
                     CFG.grammar_search_task_planning_timeout,
                     max_skeletons_optimized=max_skeletons,
@@ -394,13 +394,13 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                     objects,
                     dummy_nsrts,
                     allow_noops=CFG.grammar_search_expected_nodes_allow_noops)
-                heuristic = utils.create_task_planning_heuristic(
+                heuristic = utils.create_task_planning_heuristic(  # type: ignore[type-var]
                     CFG.sesame_task_planning_heuristic, init_atoms, goal,
                     ground_nsrts,
                     candidate_predicates | self._initial_predicates, objects)
-                generator = task_plan(init_atoms,
+                generator = task_plan(init_atoms,  # type: ignore[assignment]
                                       goal,
-                                      ground_nsrts,
+                                      ground_nsrts,  # type: ignore[arg-type]
                                       reachable_atoms,
                                       heuristic,
                                       CFG.seed,
@@ -792,7 +792,7 @@ class _ExactHeuristicBasedScoreFunction(_HeuristicBasedScoreFunction):
             strips_ops, option_specs)
         ground_nsrts, reachable_atoms = task_plan_grounding(
             init_atoms, objects, dummy_nsrts)
-        heuristic = utils.create_task_planning_heuristic(
+        heuristic = utils.create_task_planning_heuristic(  # type: ignore[type-var]
             CFG.sesame_task_planning_heuristic, init_atoms, goal, ground_nsrts,
             set(candidate_predicates) | self._initial_predicates, objects)
 
@@ -805,7 +805,7 @@ class _ExactHeuristicBasedScoreFunction(_HeuristicBasedScoreFunction):
                 skeleton, atoms_sequence, _ = next(
                     task_plan(atoms,
                               goal,
-                              ground_nsrts,
+                              ground_nsrts,  # type: ignore[arg-type]
                               reachable_atoms,
                               heuristic,
                               CFG.seed,

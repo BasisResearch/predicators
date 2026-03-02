@@ -141,9 +141,9 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             domino_type = self._domino_component.domino_type
             self._HandEmpty = Predicate("HandEmpty", [self._robot_type],
                                         self._HandEmpty_holds)
-            self._Holding = Predicate("Holding",
-                                      [self._robot_type, domino_type],
-                                      self._Holding_holds)
+            self._Holding: Optional[Predicate] = Predicate(
+                "Holding", [self._robot_type, domino_type],
+                self._Holding_holds)
         else:
             # Create dummy predicates if no domino component
             self._HandEmpty = Predicate("HandEmpty", [self._robot_type],
@@ -218,8 +218,11 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         robot_ee_orn = cls.get_robot_ee_home_orn()
         ee_home = Pose((cls.robot_init_x, cls.robot_init_y, cls.robot_init_z),
                        robot_ee_orn)
-        base_pose = Pose(cls.robot_base_pos,
-                         cls.robot_base_orn) if cls.robot_base_pos else None
+        if cls.robot_base_pos is not None and cls.robot_base_orn is not None:
+            base_pose: Optional[Pose] = Pose(cls.robot_base_pos,
+                                             cls.robot_base_orn)
+        else:
+            base_pose = None
         pybullet_robot = create_single_arm_pybullet_robot(
             CFG.pybullet_robot, physics_client_id, ee_home, base_pose)
 
@@ -656,6 +659,7 @@ if __name__ == "__main__":
     CFG.fan_fans_blow_opposite_direction = False
 
     # Create environment based on selection
+    env: PyBulletDominoComposedEnv
     if test_env == "domino":
         print("Creating PyBulletDominoEnvNew...")
         CFG.env = "pybullet_domino"

@@ -6,9 +6,9 @@ import torch
 
 from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, EndogenousProcess, \
-    ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
-    Variable
+from predicators.structs import CausalProcess, DelayDistribution, \
+    EndogenousProcess, ExogenousProcess, LiftedAtom, ParameterizedOption, \
+    Predicate, Type, Variable
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
     null_sampler
 
@@ -100,6 +100,7 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
                 else:
                     selected_option = switch_off_option
 
+            assert selected_option is not None
             return EndogenousProcess(name, parameters, condition_at_start,
                                      set(), set(), add_effects,
                                      delete_effects, delay_distribution,
@@ -128,7 +129,7 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
         parameters = [robot]
         option_vars = [robot]
         option = NoOp
-        delay_distribution = ConstantDelay(1)
+        delay_distribution: DelayDistribution = ConstantDelay(1)
         noop_process = EndogenousProcess("NoOp", parameters, set(), set(),
                                          set(), set(),
                                          set(), delay_distribution,
@@ -163,7 +164,7 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
             raise NotImplementedError
             # if not known, we add it here and let the agent to potentially
             # learn this
-            condition_at_start.add(LiftedAtom(SwitchOn, [switch]))
+            condition_at_start.add(LiftedAtom(SwitchOn, [switch]))  # type: ignore[unreachable]
             condition_at_start.add(LiftedAtom(Controls, [switch, fan]))
 
         condition_overall = set(condition_at_start)

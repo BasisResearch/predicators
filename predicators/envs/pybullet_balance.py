@@ -38,7 +38,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
     _table_mid_w = 0.1
     _table_side_w = 0.3
     _table_gap = 0.05
-    _table_mid_half_extents = [0.1, _table_mid_w / 2, _table_height / 2]
+    _table_mid_half_extents = (0.1, _table_mid_w / 2, _table_height / 2)
 
     # Plate
     _plate_height: ClassVar[float] = 0.02
@@ -55,12 +55,12 @@ class PyBulletBalanceEnv(PyBulletEnv):
     _beam2_pose: ClassVar[Pose3D] = (_table_x,
                                      (_plate3_pose[1] + _table2_pose[1]) / 2,
                                      _plate_z - 4 * _plate_height)
-    _beam_half_extents = [0.01, 0.15, _plate_height / 2]
+    _beam_half_extents = (0.01, 0.15, _plate_height / 2)
 
     # Button on table
     _button_radius = 0.04
-    _button_color_off = [1, 0, 0, 1]
-    _button_color_on = [0, 1, 0, 1]
+    _button_color_off = (1, 0, 0, 1)
+    _button_color_on = (0, 1, 0, 1)
     button_x, button_y, button_z = _table_x, _table2_y, _table_height
     button_press_threshold = 1e-3
 
@@ -157,25 +157,25 @@ class PyBulletBalanceEnv(PyBulletEnv):
 
         self._DirectlyOn_NSP = NSPredicate(
             "DirectlyOn", [self._block_type, self._block_type],
-            self._DirectlyOn_NSP_holds)
+            self._DirectlyOn_NSP_holds)  # type: ignore[arg-type, misc]
         self._DirectlyOnPlate_NSP = NSPredicate(
             "DirectlyOnPlate", [self._block_type],
-            self._DirectlyOnPlate_NSP_holds)
+            self._DirectlyOnPlate_NSP_holds)  # type: ignore[arg-type, misc]
         self._Holding_NSP = NSPredicate("Holding", [self._block_type],
                                         self._Holding_NSP_holds)
         self._GripperOpen_NSP = NSPredicate("GripperOpen", [self._robot_type],
                                             self._GripperOpen_NSP_holds)
         self._Clear_NSP = NSPredicate("Clear", [self._block_type],
-                                      self._Clear_NSP_holds)
+                                      self._Clear_NSP_holds)  # type: ignore[arg-type]
 
         # We track the correspondence between PyBullet object IDs and Object
         # instances for blocks. This correspondence changes with the task.
         self._block_id_to_block: Dict[int, Object] = {}
 
         self.ns_to_sym_predicates: Dict[Tuple[str], Predicate] = {
-            ("GripperOpen"): self._GripperOpen,
-            ("Holding"): self._Holding,
-            ("Clear"): self._Clear,
+            ("GripperOpen",): self._GripperOpen,
+            ("Holding",): self._Holding,
+            ("Clear",): self._Clear,
         }
 
     @property
@@ -270,7 +270,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
 
         button_id = create_pybullet_block(
             cls._button_color_off,
-            [cls._button_radius, cls._button_radius, cls._button_radius / 2],
+            (cls._button_radius, cls._button_radius, cls._button_radius / 2),
             0.0,
             1.0,
             (cls.button_x, cls.button_y, cls.button_z),
@@ -428,7 +428,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
         block_objs = state.get_objects(self._block_type)
         left_dropping = diff > 0
 
-        def shift_blocks(is_left: bool, dropping: bool):
+        def shift_blocks(is_left: bool, dropping: bool) -> None:
             """Shift blocks for one side, dropping or rising."""
             sign = -1 if dropping else 1
             midpoint_y = self._table2_y
@@ -451,7 +451,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
                         block_orn,
                         physicsClientId=self._physics_client_id)
 
-        def shift_plate(is_left: bool, dropping: bool):
+        def shift_plate(is_left: bool, dropping: bool) -> None:
             """Shift plate & beam, dropping or rising."""
             sign = -1 if dropping else 1
             if is_left:
@@ -555,7 +555,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
     # Function to count the number of blocks in the tower
     def count_num_blocks(self, state: State, table: Object) -> int:
 
-        def count_recursive(base_obj, count):
+        def count_recursive(base_obj: Object, count: int) -> int:  # type: ignore[no-untyped-def]
             for block in state.get_objects(self._block_type):
                 if base_obj.type == self._block_type and\
                         self._DirectlyOn_holds(state, [block, base_obj]):
@@ -566,7 +566,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
                     count = count_recursive(block, count + 1)
             return count
 
-        return count_recursive(table, 0)
+        return count_recursive(table, 0)  # type: ignore[no-untyped-call]
 
     def _Balanced_holds(self, state: State, objects: Sequence[Object]) -> bool:
         """Check if the blocks are balanced on the table."""
@@ -606,7 +606,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
         return True
 
         # Function to count the number of blocks in the tower
-        def count_num_blocks(table):
+        def count_num_blocks(table):  # type: ignore[unreachable]
 
             def count_recursive(base_obj, count):
                 for atom in atoms:
@@ -722,7 +722,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
 
         block_name = block.id_name
         attention_image = state.crop_to_objects([block, robot])
-        return state.evaluate_simple_assertion(
+        return state.evaluate_simple_assertion(  # type: ignore[return-value]
             f"{block_name} is held by the robot", attention_image)
 
     def _GripperOpen_NSP_holds(self, state: RawState, objects: Sequence[Object]) ->\
@@ -733,7 +733,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
         return finger_state > 0.03
 
 
-    def _DirectlyOnPlate_NSP_holds(state: RawState, objects:Sequence[Object]) ->\
+    def _DirectlyOnPlate_NSP_holds(self, state: RawState, objects: Sequence[Object]) ->\
             bool:
         """Determine if the block in objects is directly resting on the table's
         surface in the scene image."""
@@ -746,11 +746,11 @@ class PyBulletBalanceEnv(PyBulletEnv):
         # Crop the image to the smallest bounding box that include both objects.
         attention_image = state.crop_to_objects([block, plate])
 
-        return state.evaluate_simple_assertion(
+        return state.evaluate_simple_assertion(  # type: ignore[return-value]
             f"{block_name} is directly resting on {plate_name}'s surface.",
             attention_image)
 
-    def _DirectlyOn_NSP_holds(state: RawState,
+    def _DirectlyOn_NSP_holds(self, state: RawState,
                               objects: Sequence[Object]) -> bool:
         """Determine if the first block in objects is directly on top of the
         second block with no blocks in between in the scene image, by using a
@@ -775,7 +775,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
         # Crop the scene image to the smallest bounding box that include both
         # objects.
         attention_image = state.crop_to_objects([block1, block2])
-        return state.evaluate_simple_assertion(
+        return state.evaluate_simple_assertion(  # type: ignore[return-value]
             f"{block1_name} is directly on top of {block2_name} with no " +
             "blocks in between.", attention_image)
 

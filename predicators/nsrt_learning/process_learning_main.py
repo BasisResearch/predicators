@@ -1,6 +1,6 @@
 import logging
 from pprint import pformat
-from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple, cast
 
 from gym.spaces import Box
 
@@ -41,7 +41,8 @@ def learn_processes_from_data(
     # We will probably learn endogenous and exogenous processes separately.
     if CFG.only_learn_exogenous_processes:
         endogenous_processes = [
-            p for p in current_processes if isinstance(p, EndogenousProcess)
+            p for p in (current_processes or [])
+            if isinstance(p, EndogenousProcess)
         ]
     else:
         assert sampler_learner is not None, \
@@ -62,7 +63,7 @@ def learn_processes_from_data(
             ]
         else:
             segmented_trajs = [
-                segment_trajectory(traj, predicates, ground_atom_dataset[i])
+                segment_trajectory(traj, predicates, ground_atom_dataset[i][1])
                 for i, traj in enumerate(trajectories)
             ]
 
@@ -84,6 +85,8 @@ def learn_processes_from_data(
         CFG.option_learner != "no_learning":
             assert action_space is not None, \
                 "Action space must be provided for option learning."
+            assert known_options is not None, \
+                "Known options must be provided for option learning."
             # Updates the endo_papads in-place.
             _learn_pnad_options(pnads, known_options, action_space)
 
@@ -110,9 +113,10 @@ def learn_processes_from_data(
         for traj in trajectories
     ]
     # Filter out segments explained by endogenous processes.
-    remaining_segmented_trajs = filter_explained_segment(segmented_trajs,
-                                                         endogenous_processes,
-                                                         remove_options=False)
+    remaining_segmented_trajs = filter_explained_segment(
+        segmented_trajs,
+        cast(List[CausalProcess], endogenous_processes),
+        remove_options=False)
 
     # STEP 2: Learn the exogenous processes based on unexplained processes.
     #         This is different from STRIPS/endogenous processes, where these
@@ -193,7 +197,8 @@ def filter_explained_segment(
             if processes_type_str == "endogenous":
                 relevant_procs = [
                     p for p in processes
-                    if segment.get_option().parent == p.option
+                    if segment.get_option().parent == cast(
+                        EndogenousProcess, p).option
                 ]
             else:
                 # all exogenous; mixed cases all handle at the top.
@@ -213,25 +218,32 @@ def filter_explained_segment(
             # ground process.
             not_explained_by_any = True
             for proc in relevant_procs:
+                if processes_type_str == "endogenous":
+                    endo_proc = cast(EndogenousProcess, proc)
+                    option_vars = endo_proc.option_vars
+                    ignore_effects = endo_proc.ignore_effects
+                else:
+                    option_vars = []
+                    ignore_effects = set()
                 var_to_obj = {
                     v: o
-                    for v, o in zip(proc.option_vars,
+                    for v, o in zip(option_vars,
                                     segment.get_option().objects)
                 }
                 for g_proc in utils.all_ground_operators_given_partial(
-                        proc, objects, var_to_obj):
+                        proc, objects, var_to_obj):  # type: ignore[arg-type]
                     _add_atoms = add_atoms.copy()
                     _delete_atoms = delete_atoms.copy()
-                    if proc.ignore_effects:
+                    if ignore_effects:
                         _add_atoms = {
                             a
                             for a in add_atoms
-                            if a.predicate not in proc.ignore_effects
+                            if a.predicate not in ignore_effects
                         }
                         _delete_atoms = {
                             a
                             for a in delete_atoms
-                            if a.predicate not in proc.ignore_effects
+                            if a.predicate not in ignore_effects
                         }
                     if _add_atoms.issubset(g_proc.add_effects) and \
                         _delete_atoms.issubset(g_proc.delete_effects):

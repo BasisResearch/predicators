@@ -1,15 +1,15 @@
 """Ground-truth processes for the coffee environments."""
 
-from typing import Dict, Set
+from typing import Dict, Set, cast
 
 import numpy as np
 import torch
 
 from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, EndogenousProcess, \
-    ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
-    Variable
+from predicators.structs import CausalProcess, DelayDistribution, \
+    EndogenousProcess, ExogenousProcess, LiftedAtom, ParameterizedOption, \
+    Predicate, Type, Variable
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
     null_sampler
 
@@ -77,8 +77,8 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
                 LiftedAtom(PluggedIn, [plug]),
             }
             delete_effects: Set[LiftedAtom] = set()
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
-                                                       sigma=torch.tensor(0.1))
+            delay_distribution: DelayDistribution = DiscreteGaussianDelay(
+                mu=torch.tensor(2.0), sigma=torch.tensor(0.1))
             plug_in_process = EndogenousProcess("PlugIn",
                                                 parameters, condition_at_start,
                                                 set(), set(), add_effects,

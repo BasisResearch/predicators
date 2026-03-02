@@ -47,12 +47,12 @@ class ProcessLearningAndPlanningApproach(
                                                only_endogenous=True)
         else:
             # Learn all
-            self._processes: Set[ExogenousProcess] = set()
+            self._processes: Set[CausalProcess] = set()
         self._proc_name_to_results: Dict[str,
                                          List[Tuple[float,
                                                     FrozenSet[LiftedAtom],
                                                     Tuple,
-                                                    ExogenousProcess]]] = {}
+                                                    CausalProcess]]] = {}
 
     @classmethod
     def get_name(cls) -> str:

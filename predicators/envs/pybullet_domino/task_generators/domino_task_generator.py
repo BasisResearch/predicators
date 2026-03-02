@@ -300,7 +300,7 @@ class DominoTaskGenerator(TaskGenerator):
         return self._place_straight_domino(rng, obj_dict, x, y, rotation, gap,
                                            domino_count, _in_bounds, task_idx)
 
-    def _place_straight_domino(self, rng, obj_dict, x, y, rotation, gap,
+    def _place_straight_domino(self, rng, obj_dict, x, y, rotation, gap,  # type: ignore[no-untyped-def]
                                domino_count, _in_bounds,
                                task_idx) -> PlacementResult:
         dx = gap * np.sin(rotation)
@@ -329,7 +329,7 @@ class DominoTaskGenerator(TaskGenerator):
                                rotation=rotation,
                                domino_count=domino_count + 1)
 
-    def _place_turn90_domino(self, rng, obj_dict, x, y, rotation, gap,
+    def _place_turn90_domino(self, rng, obj_dict, x, y, rotation, gap,  # type: ignore[no-untyped-def]
                              domino_count, n_dominos, n_targets, _in_bounds,
                              task_idx,
                              should_place_target_at_end) -> PlacementResult:
@@ -407,7 +407,7 @@ class DominoTaskGenerator(TaskGenerator):
                                just_turned_90=True,
                                just_placed_target=should_place_target_at_end)
 
-    def _place_pivot180_domino(self, rng, obj_dict, x, y, rotation, gap,
+    def _place_pivot180_domino(self, rng, obj_dict, x, y, rotation, gap,  # type: ignore[no-untyped-def]
                                domino_count, pivot_count, _in_bounds, task_idx,
                                should_place_target_at_end) -> PlacementResult:
         pivot_direction = rng.choice([-1, 1])
@@ -464,7 +464,7 @@ class DominoTaskGenerator(TaskGenerator):
                                target_count=target_inc,
                                just_placed_target=should_place_target_at_end)
 
-    def _place_next_target(self, rng, obj_dict, x, y, rotation, gap,
+    def _place_next_target(self, rng, obj_dict, x, y, rotation, gap,  # type: ignore[no-untyped-def]
                            domino_count, target_count, _in_bounds,
                            task_idx) -> PlacementResult:
         dx = gap * np.sin(rotation)

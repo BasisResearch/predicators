@@ -171,7 +171,7 @@ class AgentAbstractionLearningApproach(
         # 9. Increment cycle
         self._online_learning_cycle += 1
 
-    def _sync_tool_context(self, all_trajs: List[LowLevelTrajectory]) -> None:
+    def _sync_tool_context(self, all_trajs: List[LowLevelTrajectory]) -> None:  # type: ignore[override]
         """Synchronize ToolContext with current approach state."""
         self._tool_context.types = self._types
         self._tool_context.predicates = self._get_current_predicates()

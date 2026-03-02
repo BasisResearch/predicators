@@ -9,7 +9,7 @@ This component handles:
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, \
-    Optional, Sequence, Set, Tuple
+    Optional, Sequence, Set, Tuple, Type as TypingType
 
 import numpy as np
 import pybullet as p
@@ -82,7 +82,7 @@ class DominoComponent(DominoEnvComponent):
 
     # Grid configuration - references domino_width from PyBulletDominoComposedEnv
     @staticmethod
-    def _get_env_class() -> type:
+    def _get_env_class() -> "TypingType[PyBulletDominoComposedEnv]":
         """Get PyBulletDominoComposedEnv class to access shared config."""
         from predicators.envs.pybullet_domino.composed_env import \
             PyBulletDominoComposedEnv
@@ -314,6 +314,7 @@ class DominoComponent(DominoEnvComponent):
 
     def reset_state(self, state: State) -> None:
         """Reset dominoes, targets, and pivots to match state."""
+        assert self._physics_client_id is not None
         domino_objs = state.get_objects(self._domino_type)
 
         # Remove old constraints

@@ -94,10 +94,6 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
         for blk, id in zip(self._blocks, self._block_ids):
             blk.id = id
 
-    @classmethod
-    def get_name(cls) -> str:
-        return "pybullet_blocks"
-
     def _create_task_specific_objects(self, state: State) -> None:
         """No additional environment assets needed per-task."""
         pass
@@ -298,15 +294,14 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
                     physicsClientId=self._physics_client_id)
         return
 
-    def _just_released_object(self, state: State) -> bool:
+    def _just_released_object(self, state: State) -> Optional[Object]:
         """Check if we just released an object in this step."""
         # return the block Object that just released
         if self._held_obj_id is None and self._prev_held_obj_id is not None:
             for block_obj in state.get_objects(self._block_type):
                 if block_obj.id == self._prev_held_obj_id:
                     return block_obj
-        else:
-            return None
+        return None
 
     # -----------------------------------------------------------------------
     # Task Generation

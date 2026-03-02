@@ -634,7 +634,7 @@ class PyBulletDominoGridFanEnv(PyBulletEnv):
         domino_ids = []
         for i in range(max_dominos):
             # Import the helper function from domino env
-            from predicators.envs.pybullet_domino import create_domino_block
+            from predicators.envs.pybullet_domino import create_domino_block  # type: ignore[attr-defined]
             domino_id = create_domino_block(
                 color=cls.start_domino_color if i == 0 else cls.domino_color,
                 half_extents=(cls.domino_width / 2, cls.domino_depth / 2,
@@ -1909,7 +1909,7 @@ class PyBulletDominoGridFanEnv(PyBulletEnv):
         # Generate domino sequence using the sequence generator
         # Try to generate a valid sequence (with retries)
         domino_obj_dict = None
-        used_coords = set()
+        used_coords: Set[Tuple[int, int]] = set()
         max_attempts = 100
 
         for attempt in range(max_attempts):

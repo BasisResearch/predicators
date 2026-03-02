@@ -24,7 +24,7 @@ class BaseSTRIPSLearner(abc.ABC):
                  verify_harmlessness: bool,
                  annotations: Optional[List[Any]],
                  verbose: bool = True,
-                 **kwargs) -> None:
+                 **kwargs: Any) -> None:
         self._trajectories = trajectories
         self._train_tasks = train_tasks
         self._predicates = predicates

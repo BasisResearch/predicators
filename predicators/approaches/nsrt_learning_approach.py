@@ -166,10 +166,10 @@ class NSRTLearningApproach(BilevelPlanningApproach):
                 init_atoms, objects, self._nsrts, allow_noops=True)
             heuristic = utils.create_task_planning_heuristic(
                 CFG.sesame_task_planning_heuristic, init_atoms, task.goal,
-                ground_nsrts, preds, objects)
+                ground_nsrts, preds, objects)  # type: ignore[type-var]
             for skeleton, _, _ in task_plan(init_atoms,
                                             task.goal,
-                                            ground_nsrts,
+                                            ground_nsrts,  # type: ignore[arg-type]
                                             reachable_atoms,
                                             heuristic,
                                             CFG.seed,

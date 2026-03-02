@@ -154,7 +154,7 @@ class OnlineProcessLearningAndPlanningApproach(
             self._types,
             self._action_space,
             self._train_tasks,
-            self._get_current_processes(),
+            self._get_current_processes(),  # type: ignore[arg-type]
             self._option_model,
         )
         return explorer

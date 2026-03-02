@@ -56,7 +56,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
             CFG.env, use_gui=False).target_predicates
         self._candidate_predicates: Set[Predicate] = set()
         self._llm = utils.create_llm_by_name(CFG.llm_model_name)
-        self._vlm = utils.create_vlm_by_name(CFG.llm_model_name)
+        self._vlm = utils.create_vlm_by_name(CFG.llm_model_name)  # type: ignore[assignment]
         super().__init__(initial_predicates,
                          initial_options,
                          types,
@@ -175,7 +175,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         if CFG.vlm_predicator_oracle_base_predicates:
             base_candidates = self._oracle_predicates - self._initial_predicates
         else:
-            base_candidates: Set[Predicate] = set()
+            base_candidates: Set[Predicate] = set()  # type: ignore[no-redef]
 
             # noisy_but_complete_proposal = True
             # if noisy_but_complete_proposal:
@@ -256,7 +256,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 images = load_images_from_directory(
                     CFG.log_file +
                     f"ite{self._online_learning_cycle}_b{b_id}_obs/")
-                spec_response = self._vlm.sample_completions(
+                spec_response = self._vlm.sample_completions(  # type: ignore[union-attr]
                     prompt,
                     images,
                     temperature=temperature,
@@ -387,7 +387,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
             else:
                 grammar = _GivenPredicateGrammar(self._candidate_predicates)
             all_candidates.update(
-                grammar.generate(max_num=CFG.grammar_search_max_predicates))
+                grammar.generate(max_num=CFG.grammar_search_max_predicates))  # type: ignore[arg-type]
 
             atom_dataset: List[GroundAtomTrajectory] =\
                         utils.create_ground_atom_dataset(all_trajs,
@@ -426,7 +426,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 logging.info("[Start] Predicate search.")
                 self._learned_predicates =\
                     self._select_predicates_by_score_optimization(
-                        train_tasks, all_candidates, self._processes,
+                        train_tasks, all_candidates, self._processes,  # type: ignore[arg-type]
                         all_trajs, atom_dataset)
             logging.info("[Finished] Predicate search.")
             logging.info("Total search time "
@@ -493,15 +493,15 @@ class OnlinePredicateInventionProcessPlanningApproach(
             candidate_exogenous_processes: FrozenSet[ExogenousProcess]
         ) -> float:
             process_score = score_func.evaluate_with_operators(
-                candidate_predicates=self._get_current_predicates(),
+                candidate_predicates=self._get_current_predicates(),  # type: ignore[arg-type]
                 low_level_trajs=self._offline_dataset.trajectories +
                 self._online_dataset.trajectories,
                 segmented_trajs=segmented_trajs,
-                strips_ops=candidate_exogenous_processes
+                strips_ops=candidate_exogenous_processes  # type: ignore[arg-type]
                 | endogenous_processes,
                 option_specs=[])
             process_penalty = _ExpectedNodesScoreFunction._get_operator_penalty(
-                candidate_exogenous_processes)
+                candidate_exogenous_processes)  # type: ignore[arg-type]
             return process_score + process_penalty
 
         # Set up the search.
@@ -664,7 +664,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
                         remaining_exogenous_processes.add(proc_copy)
             logging.debug(f"Remaining exogenous processes:\n"
                           f"{pformat(remaining_exogenous_processes)}")
-            return remaining_exogenous_processes
+            return remaining_exogenous_processes  # type: ignore[return-value]
 
         def _score_predicates(
                 candidate_predicates: FrozenSet[Predicate]) -> float:
@@ -677,11 +677,11 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 candidate_predicates=candidate_predicates,
                 low_level_trajs=all_trajs,
                 segmented_trajs=segmented_trajs,
-                strips_ops=remaining_exogenous_processes
+                strips_ops=remaining_exogenous_processes  # type: ignore[arg-type]
                 | endogenous_processes,
                 option_specs=[])
             process_penalty = _ExpectedNodesScoreFunction._get_operator_penalty(
-                remaining_exogenous_processes)
+                remaining_exogenous_processes)  # type: ignore[arg-type]
             final_score = process_score + process_penalty
             logging.debug(f"Candidate scores: {final_score:.4f}")
             return final_score
@@ -831,7 +831,7 @@ def get_false_positive_states_from_seg_trajs(
         if objects not in objects_to_ground_processes:
             ground_exogenous_processes, _ = process_task_plan_grounding(
                 set(),
-                objects,
+                objects,  # type: ignore[arg-type]
                 exogenous_processes,
                 allow_noops=True,
                 compute_reachable_atoms=False)
@@ -853,17 +853,17 @@ def get_false_positive_states_from_seg_trajs(
                     not condition.issubset(segment_init_atoms[i - 1])
 
                 if satisfy_condition and first_state_or_prev_state_doesnt_satisfy:
-                    false_positive_process_state[g_exo_process].append(
+                    false_positive_process_state[g_exo_process].append(  # type: ignore[index]
                         # segment.trajectory.states[0])
-                        segment.init_atoms)
+                        segment.init_atoms)  # type: ignore[arg-type]
 
                 # Check for removal condition
                 if (add_effects.issubset(segment.add_effects)
                         and delete_effects.issubset(segment.delete_effects)):
-                    if false_positive_process_state[g_exo_process]:
+                    if false_positive_process_state[g_exo_process]:  # type: ignore[index]
                         # TODO: we don't really know which one to remove, pop
                         # the first one is a bias.
-                        false_positive_process_state[g_exo_process].pop(0)
+                        false_positive_process_state[g_exo_process].pop(0)  # type: ignore[index]
     return false_positive_process_state
 
 
@@ -915,7 +915,7 @@ def get_true_positive_process_states(
 
     # Filter out segments explained by endogenous processes.
     filtered_segmented_trajs = filter_explained_segment(segmented_trajs,
-                                                        exogenous_processes,
+                                                        exogenous_processes,  # type: ignore[arg-type]
                                                         remove_options=True)
     true_positive_process_state: Dict[_GroundExogenousProcess,
                                       List[State]] = defaultdict(list)
@@ -1023,7 +1023,7 @@ def _get_transition_str(
             if use_abstract_state_str:
                 state_str = sorted(utils.abstract(state, predicates))
             else:
-                state_str = state.dict_str(indent=2,
+                state_str = state.dict_str(indent=2,  # type: ignore[assignment]
                                            use_object_id=CFG.rgb_observation)
 
             result_str.append(f"{state_str}")
@@ -1031,7 +1031,7 @@ def _get_transition_str(
             str_for_this_state.append(f"{state_str}")
             state_str_set.append("\n".join(str_for_this_state))
             if CFG.rgb_observation:
-                save_image_with_label(state.labeled_image.copy(), obs_name,
+                save_image_with_label(state.labeled_image.copy(), obs_name,  # type: ignore[union-attr]
                                       obs_dir)
 
             # Append action
@@ -1053,14 +1053,14 @@ def _get_transition_str(
         if use_abstract_state_str:
             state_str = sorted(utils.abstract(state, predicates))
         else:
-            state_str = state.dict_str(indent=2,
+            state_str = state.dict_str(indent=2,  # type: ignore[assignment]
                                        use_object_id=CFG.rgb_observation)
         result_str.append(f"{state_str}")
         str_for_this_state = [f"  {obs_name} with additional info:"]
         str_for_this_state.append(f"{state_str}")
         state_str_set.append("\n".join(str_for_this_state))
         if CFG.rgb_observation:
-            save_image_with_label(state.labeled_image.copy(), obs_name,
+            save_image_with_label(state.labeled_image.copy(), obs_name,  # type: ignore[attr-defined]
                                   obs_dir)
 
     return "\n".join(result_str), "\n\n".join(state_str_set)
@@ -1071,10 +1071,10 @@ def save_image_with_label(img_copy: Image,
                           obs_dir: str,
                           f_suffix: str = ".png") -> None:
     draw = ImageDraw.Draw(img_copy)
-    font = ImageFont.load_default().font_variant(size=50)
+    font = ImageFont.load_default().font_variant(size=50)  # type: ignore[union-attr]
     text_color = (0, 0, 0)  # white
     draw.text((0, 0), s_name, fill=text_color, font=font)
-    img_copy.save(os.path.join(obs_dir, s_name + f_suffix))
+    img_copy.save(os.path.join(obs_dir, s_name + f_suffix))  # type: ignore[attr-defined]
     logging.debug(f"Saved image {s_name}")
 
 
@@ -1091,7 +1091,7 @@ def load_images_from_directory(dir: str) -> List[PIL.Image.Image]:
 def traj_is_successful(traj: LowLevelTrajectory,
                        train_tasks: List[Task]) -> bool:
     """Check if the trajectory is successful for any of the train tasks."""
-    goal_atoms = train_tasks[traj._train_task_idx].goal
+    goal_atoms = train_tasks[traj._train_task_idx].goal  # type: ignore[index]
     goal_predicates = {atom.predicate for atom in goal_atoms}
     abstract_state = utils.abstract(traj.states[-1], goal_predicates)
     return goal_atoms.issubset(abstract_state)
@@ -1145,9 +1145,9 @@ def _parse_predicates_predictions(
     # --- Interpret the Python blocks ---
     for code_str in python_blocks:
         # Extract name from code block
-        match = re.search(r'(\w+)\s*=\s*(NS)?Predicate', code_str)
+        match = re.search(r'(\w+)\s*=\s*(NS)?Predicate', code_str)  # type: ignore[assignment]
         if match is None:
-            logging.warning("No predicate name found in the code block")
+            logging.warning("No predicate name found in the code block")  # type: ignore[unreachable]
             continue
         pred_name = match.group(1)
         logging.info(f"Found definition for predicate {pred_name}")
@@ -1199,7 +1199,7 @@ def _parse_predicates_predictions(
     # TODO: --- Convert the derived predicates to DerivedPredicate ---
     derived_predicates: Set[DerivedPredicate] = set()
 
-    return primitive_preds, derived_predicates
+    return primitive_preds, derived_predicates  # type: ignore[return-value]
 
 
 import_str = """

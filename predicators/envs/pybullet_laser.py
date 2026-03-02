@@ -35,7 +35,7 @@ from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
 # is evaluated. This results in the test videos being contaminated with the
 # beams generated during the planning phase. The current workaround is to use
 # bilevel_plan_without_sim=True.
-_laser_ids = []
+_laser_ids: List[Tuple[int, float, int]] = []
 
 
 class PyBulletLaserEnv(PyBulletEnv):
@@ -399,7 +399,7 @@ class PyBulletLaserEnv(PyBulletEnv):
         self._trace_beam(state, start_pt, beam_dir, max_depth)
 
     def _trace_beam(self, state: State, start: np.ndarray,
-                    direction: np.ndarray, depth: int):
+                    direction: np.ndarray, depth: int) -> None:
         """Recursively move a line forward until it hits a mirror or target."""
         if depth <= 0:
             return
@@ -533,7 +533,7 @@ class PyBulletLaserEnv(PyBulletEnv):
                     local_normal
         return reflect / (np.linalg.norm(reflect) + 1e-9)
 
-    def _clear_target_hits(self):
+    def _clear_target_hits(self) -> None:
         """Set all targets to not hit."""
         for target in self._targets:
             self._set_target_hit(target, False)
@@ -739,7 +739,7 @@ class PyBulletLaserEnv(PyBulletEnv):
         return self._add_pybullet_state_to_tasks(tasks)
 
 
-def create_laser_cylinder(start, end, color=(1, 0, 0, 1), radius=0.001) -> int:
+def create_laser_cylinder(start: Any, end: Any, color: Tuple[float, float, float, float] = (1, 0, 0, 1), radius: float = 0.001) -> int:
     """Create a thin cylinder from start -> end, visible in getCameraImage."""
     start = np.array(start, dtype=float)
     end = np.array(end, dtype=float)
@@ -818,7 +818,7 @@ if __name__ == "__main__":
     CFG.laser_use_debug_line_for_beams = False
     CFG.laser_zero_reflection_angle = True
     env = PyBulletLaserEnv(use_gui=True)
-    task = env._make_tasks(1, CFG.seed)[0]
+    task = env._make_tasks(1, np.random.default_rng(CFG.seed), True)[0]
     env._reset_state(task.init)
 
     while True:

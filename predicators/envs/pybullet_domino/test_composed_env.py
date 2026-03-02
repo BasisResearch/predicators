@@ -15,7 +15,7 @@ import numpy as np
 from predicators.settings import CFG
 
 
-def test_domino_fan_env():
+def test_domino_fan_env() -> None:
     """Test the domino + fan + ball environment."""
     # Configure environment
     CFG.seed = 0
@@ -78,6 +78,7 @@ def test_domino_fan_env():
         env._reset_state(task.init)
 
         print("\nObjects in state:")
+        assert env._domino_component is not None
         for obj in task.init.get_objects(env._domino_component.domino_type):
             print(f"  - {obj.name}")
 
@@ -111,7 +112,7 @@ def test_domino_fan_env():
     print(f"{'=' * 60}")
 
 
-def test_domino_only_env():
+def test_domino_only_env() -> None:
     """Test the domino-only environment."""
     # Configure environment
     CFG.seed = 0

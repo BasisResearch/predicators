@@ -62,12 +62,12 @@ class PyBulletEnv(BaseEnv):
     # Object parameters.
     _obj_mass: ClassVar[float] = 0.5
     _obj_friction: ClassVar[float] = 1.2
-    _obj_colors_main: ClassVar[Sequence[Tuple[float, float, float, float]]] = [
+    _obj_colors_main: ClassVar[List[Tuple[float, float, float, float]]] = [
         (0.95, 0.05, 0.1, 1.), (0.05, 0.95, 0.1, 1.), (0.1, 0.05, 0.95, 1.),
         (0.4, 0.05, 0.6, 1.), (0.6, 0.4, 0.05, 1.), (0.05, 0.04, 0.6, 1.),
         (0.95, 0.95, 0.1, 1.), (0.95, 0.05, 0.95, 1.), (0.05, 0.95, 0.95, 1.)
     ]
-    _obj_colors: ClassVar[Sequence[Tuple[float, float, float, float]]] =\
+    _obj_colors: ClassVar[List[Tuple[float, float, float, float]]] =\
         _obj_colors_main + [
         (0.941, 0.196, 0.196, 1.),  # Red
         (0.196, 0.941, 0.196, 1.),  # Green
@@ -95,6 +95,10 @@ class PyBulletEnv(BaseEnv):
 
     def __init__(self, use_gui: bool = True) -> None:
         super().__init__(use_gui)
+
+        # Forward declaration: subclasses must define _robot before using methods
+        # that access it (like _extract_robot_state, _get_robot_state_dict, etc.)
+        self._robot: Object
 
         # When an object is held, a constraint is created to prevent slippage.
         self._held_constraint_id: Optional[int] = None
@@ -197,7 +201,7 @@ class PyBulletEnv(BaseEnv):
     def _create_pybullet_robot(
             cls, physics_client_id: int) -> SingleArmPyBulletRobot:
         robot_ee_orn = cls.get_robot_ee_home_orn()
-        ee_home = Pose((cls.robot_init_x, cls.robot_init_y, cls.robot_init_z),
+        ee_home = Pose((cls.robot_init_x, cls.robot_init_y, cls.robot_init_z),  # type: ignore[attr-defined]
                        robot_ee_orn)
 
         if cls.robot_base_pos is None or cls.robot_base_orn is None:
@@ -218,7 +222,7 @@ class PyBulletEnv(BaseEnv):
         """
 
         # EE Position
-        def get_pos_feature(state, feature_name):
+        def get_pos_feature(state: State, feature_name: str) -> float:  # type: ignore[no-untyped-def]
             if feature_name in self._robot.type.feature_names:
                 return state.get(self._robot, feature_name)
             elif f"pose_{feature_name}" in self._robot.type.feature_names:
@@ -419,7 +423,7 @@ class PyBulletEnv(BaseEnv):
             orn = self._default_orn  # e.g. (0,0,0,1)
 
         # 2) Update the object’s position/orientation in PyBullet
-        update_object(obj.id, [px, py, pz],
+        update_object(obj.id, (px, py, pz),
                       orn,
                       physics_client_id=self._physics_client_id)
 
@@ -545,13 +549,13 @@ class PyBulletEnv(BaseEnv):
         """Called in _get_state() to extract a feature from an object."""
         raise NotImplementedError("Override me!")
 
-    def _get_robot_state_dict(self) -> None:
+    def _get_robot_state_dict(self) -> Dict[str, float]:
         """Get dict state of the robot."""
         r_dict = {}
         r_features = self._robot.type.feature_names
         if CFG.env == "pybullet_cover":
             rx, ry, rz, _, _, _, _, rf = self._pybullet_robot.get_state()
-            hand = (ry - self.y_lb) / (self.y_ub - self.y_lb)
+            hand = (ry - self.y_lb) / (self.y_ub - self.y_lb)  # type: ignore[attr-defined]
             r_dict.update({"hand": hand, "pose_x": rx, "pose_z": rz})
         elif CFG.env == "pybullet_blocks":
             rx, ry, rz, _, _, _, _, rf = self._pybullet_robot.get_state()
@@ -880,7 +884,7 @@ class PyBulletEnv(BaseEnv):
 
     def _apply_base_delta(self, base_delta: np.ndarray) -> None:
         """Apply a delta (dx, dy, dtheta) to the robot base if supported."""
-        base_pose = self._pybullet_robot.get_base_pose()
+        base_pose = self._pybullet_robot.get_base_pose()  # type: ignore[attr-defined]
         current_yaw = p.getEulerFromQuaternion(base_pose.orientation)[2]
         new_yaw = current_yaw + float(base_delta[2])
         new_pose = Pose(
@@ -889,7 +893,7 @@ class PyBulletEnv(BaseEnv):
              base_pose.position[2]),
             p.getQuaternionFromEuler([0.0, 0.0, new_yaw]),
         )
-        self._pybullet_robot.set_base_pose(new_pose)
+        self._pybullet_robot.set_base_pose(new_pose)  # type: ignore[attr-defined]
 
     def _add_pybullet_state_to_tasks(
             self, tasks: List[EnvironmentTask]) -> List[EnvironmentTask]:

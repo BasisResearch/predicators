@@ -5,7 +5,7 @@ import os
 import sys
 import time
 from collections import defaultdict
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Union
 
 import dill as pkl
 from PIL import Image
@@ -64,10 +64,13 @@ def main() -> None:
 
     # Create approach
     # approach = setup_approach(env, preds, approach_train_tasks)
+    approach: Union[VLMClassificationApproach, DinoSimilarityApproach]
     if CFG.approach == "vlm_classification":
         approach = VLMClassificationApproach()
     elif CFG.approach == "dino_similarity":
         approach = DinoSimilarityApproach()
+    else:
+        raise ValueError(f"Unknown approach: {CFG.approach}")
 
     _run_pipeline(approach, test_dataset)
 
@@ -76,7 +79,7 @@ def main() -> None:
     logging.info(f"\n\nMain script completed in {script_time:.2f} seconds.")
 
 
-def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
+def create_dataset() -> ClassificationDataset:
     """Create training and test datasets for classification.
 
     A dataset has many episodes. Each is 1-2 support videos with labels
@@ -159,7 +162,8 @@ def create_dataset() -> Tuple[ClassificationDataset, ClassificationDataset]:
                                  all_query_labels, CFG.seed)
 
 
-def _run_testing(approach: VLMClassificationApproach,
+def _run_testing(approach: Union[VLMClassificationApproach,
+                                 DinoSimilarityApproach],
                  test_dataset: ClassificationDataset) -> Metrics:
     num_correct = 0
     num_episodes = len(test_dataset)
@@ -210,7 +214,7 @@ def _save_test_results(results: Metrics,
 
 
 def _run_pipeline(
-        approach: VLMClassificationApproach,  # TODO: use base class
+        approach: Union[VLMClassificationApproach, DinoSimilarityApproach],
         test_dataset: ClassificationDataset) -> None:
     """Run the classification pipeline."""
     results = _run_testing(approach, test_dataset)

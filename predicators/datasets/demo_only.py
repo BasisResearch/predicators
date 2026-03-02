@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout
+from predicators.approaches.base_approach import BaseApproach
 from predicators.approaches.oracle_approach import OracleApproach
 from predicators.approaches.pp_oracle_approach import \
     OracleBilevelProcessPlanningApproach
@@ -140,7 +141,7 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         # demonstrator). This requires creating a perceiver and
         # execution monitor according to settings from CFG.
         options = get_gt_options(env.get_name())
-        oracle_approach = OracleApproach(
+        oracle_approach: BaseApproach = OracleApproach(
             env.predicates,
             options,
             env.types,
@@ -236,8 +237,8 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                     plan = []
                 else:
                     _, plan = max(partial_refinements, key=lambda x: len(x[1]))
-                policy = utils.option_plan_to_policy(plan)
-                termination_function = lambda s: False
+                policy = utils.option_plan_to_policy(plan)  # type: ignore[assignment]
+                termination_function = lambda s: False  # type: ignore[assignment, misc]
 
         # --- Execute the policy to generate a demonstration.
         try:
@@ -317,7 +318,7 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         # then get the last nsrt_plan and add the name of the
         # nsrt used to the list of annotations.
         if annotate_with_gt_ops:
-            last_nsrt_plan = oracle_approach.get_last_nsrt_plan()
+            last_nsrt_plan = oracle_approach.get_last_nsrt_plan()  # type: ignore[attr-defined]
             annotations.append(list(last_nsrt_plan))
         if CFG.make_demo_videos and video_monitor is not None:
             make_demo_videos(video_monitor, idx)

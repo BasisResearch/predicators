@@ -133,7 +133,7 @@ class VLMClassificationApproach:
             img for video in support_videos + query_videos for img in video
         ]
 
-        return prompt, imgs
+        return prompt, imgs  # type: ignore[return-value]
 
     def _save_and_parse_vlm_response(self,
                                      response_text: str) -> Dict[str, str]:

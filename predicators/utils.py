@@ -1115,16 +1115,16 @@ BoundingBox = namedtuple('BoundingBox', 'left lower right upper')
 
 @dataclass
 class RawState(PyBulletState):
-    state_image: PIL.Image.Image = None
+    state_image: PIL.Image.Image = None  # type: ignore[assignment]
     obj_mask_dict: Dict[Object, Mask] = field(default_factory=dict)
-    labeled_image: Optional[PIL.Image.Image] = None
+    labeled_image: Optional[PIL.Image.Image] = None  # type: ignore[assignment]
     option_history: Optional[List[str]] = None
     bbox_features: Dict[Object, np.ndarray] = field(
         default_factory=lambda: defaultdict(lambda: np.zeros(4)))
     prev_state: Optional[RawState] = None
     next_state: Optional[RawState] = None
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         # Convert the dictionary to a tuple of key-value pairs and hash it
         # data_hash = hash(tuple(sorted(self.data.items())))
         data_tuple = tuple((k, tuple(v)) for k, v in sorted(self.data.items()))
@@ -1143,7 +1143,7 @@ class RawState(PyBulletState):
         """Given an assertion and an image, queries a VLM and returns whether
         the assertion is true or false."""
         bbox, objs = image
-        return VLMQuery(assertion, bbox, objs)
+        return VLMQuery(assertion, bbox, list(objs))
 
     def generate_previous_option_message(self) -> str:
         """Generate the message for the previous option."""
@@ -1227,7 +1227,7 @@ class RawState(PyBulletState):
         else:
             return self.data[obj][idx]
 
-    def dict_str(self,
+    def dict_str(self,  # type: ignore[override]
                  indent: int = 0,
                  object_features: bool = True,
                  use_object_id: bool = False,
@@ -1290,7 +1290,7 @@ class RawState(PyBulletState):
         dict_str += "}"
         return dict_str
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         # Compare the data and simulator_state
         assert isinstance(other, RawState)
 
@@ -1304,7 +1304,7 @@ class RawState(PyBulletState):
 
         return self.simulator_state == other.simulator_state
 
-    def label_all_objects(self):
+    def label_all_objects(self) -> None:
         state_ip = ImagePatch(self)
         # state_ip.cropped_image_in_PIL.save(f"images/obs_before_label_all.png")
         # labels = [obj.id for obj in self.obj_mask_dict.keys()]
@@ -1685,6 +1685,7 @@ def option_policy_to_policy(
         noop_terminate = False
         if CFG.noop_option_terminate_on_atom_change and cur_option.name == "NoOp":
             assert abstract_function is not None
+            assert last_state is not None
             cur_atoms = abstract_function(state)
             prev_atoms = abstract_function(last_state)
             if cur_atoms != prev_atoms:
@@ -1900,7 +1901,7 @@ def sample_applicable_ground_nsrt(
     if len(applicable_nsrts) == 0:
         return None
     idx = rng.choice(len(applicable_nsrts))
-    return applicable_nsrts[idx]
+    return applicable_nsrts[idx]  # type: ignore[return-value]
 
 
 def action_arrs_to_policy(
@@ -2704,7 +2705,7 @@ def create_vlm_predicate(
             objects: Sequence[Object]) -> bool:  # pragma: no cover.
         raise Exception("VLM predicate classifier should never be called!")
 
-    return VLMPredicate(name, types, _stripped_classifier, get_vlm_query_str)
+    return VLMPredicate(name, types, _stripped_classifier, get_vlm_query_str)  # type: ignore[arg-type]
 
 
 def create_llm_by_name(
@@ -3089,9 +3090,9 @@ def all_ground_nsrts(nsrt: Union[NSRT, CausalProcess],
         # only return if there are no repeated arguments
         if CFG.no_repeated_arguments_in_grounding:
             if len(choice) == len(set(choice)):
-                yield nsrt.ground(tuple(choice))
+                yield nsrt.ground(tuple(choice))  # type: ignore[misc]
         else:
-            yield nsrt.ground(tuple(choice))
+            yield nsrt.ground(tuple(choice))  # type: ignore[misc]
 
 
 def all_ground_nsrts_fd_translator(
@@ -3620,7 +3621,7 @@ def get_successors_from_ground_ops(
     """
     seen_successors = set()
     for ground_op in get_applicable_operators(ground_ops, atoms):
-        next_atoms = apply_operator(ground_op, atoms)
+        next_atoms = apply_operator(ground_op, atoms)  # type: ignore[type-var]
         if unique:
             frozen_next_atoms = frozenset(next_atoms)
             if frozen_next_atoms in seen_successors:
@@ -4064,7 +4065,7 @@ def save_images_parallel(outfile_prefix: str, video: Video) -> None:
     os.makedirs(outdir, exist_ok=True)
     width = len(str(len(video)))
 
-    def _write_frame(i, image):
+    def _write_frame(i: int, image: Any) -> None:
         image_number = str(i).zfill(width)
         outfile = outfile_prefix + f"_image_{image_number}.png"
         outpath = os.path.join(outdir, outfile)
@@ -4940,8 +4941,8 @@ def add_label_to_video(video: Video,
     new_video: Video = []
     for i, img in enumerate(video):
         img_name = prefix + f"frame_{i+1}"
-        labeled_img = add_label_to_image(img, img_name, imgs_dir, save=save)
-        new_video.append(labeled_img)
+        labeled_img = add_label_to_image(img, img_name, imgs_dir, save=save)  # type: ignore[arg-type]
+        new_video.append(labeled_img)  # type: ignore[arg-type]
     return new_video
 
 
@@ -4953,7 +4954,7 @@ def add_label_to_image(img: PIL.Image.Image,
     """Add a label to an image and potentially save."""
     img_copy = img.copy()
     draw = ImageDraw.Draw(img_copy)
-    font = ImageFont.load_default().font_variant(size=50)
+    font = ImageFont.load_default().font_variant(size=50)  # type: ignore[union-attr]
 
     # Get text dimensions
     bbox = draw.textbbox((0, 0), s_name, font=font)
@@ -4985,7 +4986,7 @@ def load_all_images_from_dir(dir_path: str) -> List[PIL.Image.Image]:
     return images
 
 
-def all_subsets(input_set: Iterable[Any]) -> Iterator[Set[Any, ...]]:
+def all_subsets(input_set: Iterable[Any]) -> Iterator[Set[Any]]:
     """Generates all subsets of a given set.
 
     Args:
@@ -5124,7 +5125,7 @@ def get_base_supporter_predicates(
 
     # Use a worklist to process predicates in a breadth-first manner.
     predicates_to_process: List[Predicate] = list(
-        root_predicate.auxiliary_predicates)
+        root_predicate.auxiliary_predicates or [])
     processed_predicates: Set[Predicate] = {root_predicate}
 
     while predicates_to_process:
@@ -5136,7 +5137,7 @@ def get_base_supporter_predicates(
 
         # If the predicate is derived, add its auxiliaries to the worklist.
         if isinstance(pred, DerivedPredicate):
-            predicates_to_process.extend(pred.auxiliary_predicates)
+            predicates_to_process.extend(pred.auxiliary_predicates or [])
         # If it's a primitive predicate, we've found a base supporter.
         else:
             base_predicates.add(pred)
@@ -5146,6 +5147,6 @@ def get_base_supporter_predicates(
 
 class PredicateEvaluationError(Exception):
 
-    def __init__(self, message, pred):
+    def __init__(self, message: str, pred: Any) -> None:
         super().__init__(message)
         self.pred = pred

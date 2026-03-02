@@ -567,7 +567,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                         tgt_pos.name.split("_")[2])  # extract y from
 
                     # Then, apply the diagonal shift from the generator for stability.
-                    shift_magnitude = cls.env_cls.domino_width * cls.env_cls.turn_shift_frac
+                    shift_magnitude = cls.env_cls.domino_width * DominoComponent.turn_shift_frac
                     shift_dx = shift_magnitude * (turn_dir * np.cos(rot2) -
                                                   np.sin(rot2))
                     shift_dy = shift_magnitude * (-turn_dir * np.sin(rot2) -
@@ -582,7 +582,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                     target_rot = rot2 - turn_dir * np.pi / 4
 
                     # Calculate position relative to domino2 using the generator's formula.
-                    shift_magnitude = cls.env_cls.domino_width * cls.env_cls.turn_shift_frac
+                    shift_magnitude = cls.env_cls.domino_width * DominoComponent.turn_shift_frac
                     sin_rot2 = np.sin(rot2)
                     cos_rot2 = np.cos(rot2)
 
@@ -611,7 +611,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
                         tgt_pos.name.split("_")[1])  # extract x from name
                     grid_y = float(
                         tgt_pos.name.split("_")[2])  # extract y from
-                    shift_magnitude = cls.env_cls.domino_width * cls.env_cls.turn_shift_frac
+                    shift_magnitude = cls.env_cls.domino_width * DominoComponent.turn_shift_frac
                     shift_dx = shift_magnitude * (turn_dir * np.cos(rot2) -
                                                   np.sin(rot2))
                     shift_dy = shift_magnitude * (-turn_dir * np.sin(rot2) -

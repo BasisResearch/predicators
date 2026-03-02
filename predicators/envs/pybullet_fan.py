@@ -1,7 +1,7 @@
 import logging
 from collections import deque
 from itertools import product
-from typing import Any, ClassVar, Dict, List, Sequence, Set, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -290,7 +290,7 @@ class PyBulletFanEnv(PyBulletEnv):
             for i in range(max_walls_per_task)
         ]
         # Create positions based on maximum grid size to support both train and test
-        self.pos_dict = dict()
+        self.pos_dict: Dict[Object, Dict[str, float]] = dict()
 
         # Grid positions will be set dynamically in task generation
 
@@ -605,7 +605,7 @@ class PyBulletFanEnv(PyBulletEnv):
         self._target.id = pybullet_bodies["target_id"]
 
         # Initialize boundary wall IDs list (will be populated in _reset_custom_env_state)
-        self._boundary_wall_ids = []
+        self._boundary_wall_ids: List[int] = []
 
     # -------------------------------------------------------------------------
     # Read state from PyBullet
@@ -1535,7 +1535,7 @@ class PyBulletFanEnv(PyBulletEnv):
             self, ball_pos: Tuple[float, float],
             target_pos: Tuple[float, float], x_coords: List[float],
             y_coords: List[float], available_pos: List[Tuple[float, float]],
-            rng: np.random.Generator) -> Tuple[float, float]:
+            rng: np.random.Generator) -> Optional[Tuple[float, float]]:
         """Get a wall position that is between the ball and target."""
         # Find positions that are between ball and target
         between_positions = []

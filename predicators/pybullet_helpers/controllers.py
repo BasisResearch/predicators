@@ -2,6 +2,9 @@
 import logging
 from typing import Callable, Dict, Optional, Sequence, Set, Tuple, cast
 
+from predicators.pybullet_helpers.robots.mobile_fetch import \
+    MobileFetchPyBulletRobot
+
 import numpy as np
 import pybullet as p
 from gym.spaces import Box
@@ -151,10 +154,12 @@ def get_move_end_effector_to_pose_with_base_action(
     if not _robot_supports_base_action(robot):
         raise ValueError("Robot does not support base actions.")
 
+    mobile_robot = cast(MobileFetchPyBulletRobot, robot)
+
     ee_action = _compute_ee_action_pose(current_pose, target_pose,
                                         max_vel_norm)
 
-    base_pose = robot.get_base_pose()
+    base_pose = mobile_robot.get_base_pose()
     ee_delta = np.subtract(ee_action.position, current_pose.position)
     base_delta_xy = np.array(ee_delta[:2], dtype=np.float32)
     base_delta_norm = np.linalg.norm(base_delta_xy)
@@ -173,14 +178,14 @@ def get_move_end_effector_to_pose_with_base_action(
              base_pose.position[2]),
             p.getQuaternionFromEuler([0.0, 0.0, new_yaw]),
         )
-        robot.set_base_pose(moved_base_pose)
+        mobile_robot.set_base_pose(moved_base_pose)
 
     try:
         joint_positions = _compute_arm_joint_positions(
             robot, current_joint_positions, ee_action, validate)
     except InverseKinematicsError:
         if moved_base_pose is not None:
-            robot.set_base_pose(base_pose)
+            mobile_robot.set_base_pose(base_pose)
         raise utils.OptionExecutionFailure("Inverse kinematics failed.")
     # Handle the fingers. Fingers drift if left alone.
     if finger_status == "open":
@@ -277,7 +282,7 @@ def get_change_fingers_action(robot: SingleArmPyBulletRobot,
     target = np.array(current_joint_positions, dtype=np.float32)
     target[robot.left_finger_joint_idx] = f_action
     target[robot.right_finger_joint_idx] = f_action
-    return _build_action_from_joints(robot, target)
+    return _build_action_from_joints(robot, list(target))
 
 
 def create_change_fingers_option(

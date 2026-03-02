@@ -2,7 +2,7 @@
 
 import logging
 from functools import lru_cache
-from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
+from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple, cast
 from typing import Type as TypingType
 
 import numpy as np
@@ -97,7 +97,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             target = 0
             return current, target
 
-        options = set()
+        options: Set[ParameterizedOption] = set()
 
         # SwitchFaucetOn
         option_type = [robot_type, faucet_type]
@@ -464,7 +464,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                     finger_delta = -cls._finger_action_nudge_magnitude
 
                 # nudge finger to the direction of the current state to counter
-                joint_positions = state.joint_positions.copy()
+                pybullet_state = cast(utils.PyBulletState, state)
+                joint_positions = pybullet_state.joint_positions.copy()
                 finger_position = joint_positions[
                     pybullet_robot.left_finger_joint_idx]
                 # The finger action is an absolute joint position for the fingers.
@@ -952,6 +953,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             switch = next((s
                            for s in state.get_objects(cls.env_cls._switch_type)
                            if s.id == obj.switch_id), None)
+            assert switch is not None
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
             ee_orn = p.getQuaternionFromEuler(
