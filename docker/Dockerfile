@@ -13,8 +13,9 @@
 #   bash docker/build.sh
 #
 # Runtime bind-mounts (see docker_sandbox.py):
-#   -v <repo>:/workspace:ro     read-only predicators source
-#   -v <tmp_dir>:/data          shared data (pickled context + results)
+#   -v <repo>:/opt/predicators:ro   predicators source (for Python imports)
+#   -v <sandbox_dir>:/sandbox       curated sandbox with reference files
+#   -v <tmp_dir>:/data              shared data (pickled context + results)
 
 FROM node:20
 
@@ -27,7 +28,6 @@ ARG CLAUDE_CODE_VERSION=latest
 # System packages
 #   - git, sudo, curl: basic dev tools
 #   - jq, dnsutils (dig), aggregate, iptables, ipset, iproute2: firewall
-#   - python3, python3-venv, python3-dev: Python runtime
 # ---------------------------------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
@@ -39,13 +39,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         iproute2 \
         dnsutils \
         aggregate \
-        python3 \
-        python3-venv \
-        python3-dev \
-        python3-pip \
         build-essential \
+        libgl1 \
+        libglib2.0-0 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# Miniconda — provides Python 3.10 to match the host environment.
+# The node:20 base ships Python 3.11 which is incompatible with dill
+# pickles created by the host's Python 3.10 (CodeType arg count differs).
+# ---------------------------------------------------------------------------
+RUN ARCH=$(uname -m) \
+    && curl -fsSL "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${ARCH}.sh" \
+           -o /tmp/miniforge.sh \
+    && bash /tmp/miniforge.sh -b -p /opt/conda \
+    && rm /tmp/miniforge.sh \
+    && /opt/conda/bin/conda install -y python=3.10 \
+    && /opt/conda/bin/conda clean -afy
+
+ENV PATH="/opt/conda/bin:$PATH"
 
 # ---------------------------------------------------------------------------
 # npm-global directory (mirrors official devcontainer setup)
@@ -79,16 +92,16 @@ RUN mkdir -p /home/node/.claude \
 # ---------------------------------------------------------------------------
 # Python environment — install predicators dependencies
 #
-# We copy setup.py and install deps. The actual source code is mounted
-# read-only at /workspace at runtime, so code changes never require a
-# rebuild — only PyPI dependency changes do.
+# We copy setup.py and install deps only.  The actual source code is
+# mounted read-only at /opt/predicators at runtime via bind-mount, so
+# code changes never require a rebuild — only PyPI dependency changes do.
 # ---------------------------------------------------------------------------
 WORKDIR /build
 COPY setup.py ./
 RUN mkdir -p predicators && touch predicators/__init__.py \
-    && pip install --no-cache-dir --break-system-packages -e . || true
-RUN pip install --no-cache-dir --break-system-packages \
-    claude-agent-sdk dill nest_asyncio
+    && pip install --no-cache-dir -e . || true
+RUN pip install --no-cache-dir \
+    claude-agent-sdk dill nest_asyncio "setuptools<81"
 
 # ---------------------------------------------------------------------------
 # Cleanup and create directories

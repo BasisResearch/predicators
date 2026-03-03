@@ -39,7 +39,7 @@ APPROACHES:
       max_initial_demos: 0
       domino_use_continuous_place: True
       explorer: "agent"
-      num_online_learning_cycles: 4
+      num_online_learning_cycles: 1
       online_nsrt_learning_requests_per_cycle: 1
       domino_restricted_push: True
       skill_phase_use_motion_planning: True

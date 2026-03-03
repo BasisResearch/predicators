@@ -67,30 +67,33 @@ class AgentSessionManager:
         self._started = True
         logging.info("Agent SDK session started.")
 
-    def _save_query_response_log(self, query: str,
-                                 response: List[Dict[str, Any]]) -> None:
-        """Save query and response to a timestamped JSON file."""
+    def _init_incremental_log(self, query: str) -> Optional[str]:
+        """Initialize log file for incremental writing. Returns filepath."""
         if not CFG.log_file:
-            return
+            return None
 
         self._query_count += 1
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"agent_query_{self._query_count:03d}_{timestamp}.json"
         filepath = os.path.join(self._log_dir, filename)
+        os.makedirs(self._log_dir, exist_ok=True)
 
-        log_data = {
+        self._current_log_meta = {
             "query_number": self._query_count,
             "timestamp": timestamp,
             "query": query,
-            "response": response,
             "session_id": self._session_id,
         }
+        # Write initial state (empty response)
+        self._flush_log(filepath, [])
+        return filepath
 
-        os.makedirs(self._log_dir, exist_ok=True)
+    def _flush_log(self, filepath: str,
+                   response: List[Dict[str, Any]]) -> None:
+        """Rewrite log file with current accumulated response."""
+        log_data = {**self._current_log_meta, "response": response}
         with open(filepath, "w") as f:
-            json.dump(log_data, f, indent=2)
-
-        logging.info(f"Saved agent query/response to {filepath}")
+            json.dump(log_data, f, indent=2, default=str)
 
     async def query(self, message: str) -> List[Dict[str, Any]]:
         """Send a message to the agent and collect all response messages.
@@ -104,6 +107,7 @@ class AgentSessionManager:
             await self.start_session()
 
         collected: List[Dict[str, Any]] = []
+        log_path = self._init_incremental_log(message)
 
         try:
             await self._client.query(message)
@@ -173,14 +177,21 @@ class AgentSessionManager:
                         f"Agent iteration complete. "
                         f"Turns: {getattr(msg, 'num_turns', '?')}, "
                         f"Cost: ${getattr(msg, 'total_cost_usd', '?')}")
+
+                # Flush log after each message
+                if log_path:
+                    self._flush_log(log_path, collected)
+
         except Exception as e:
             logging.error(f"Agent session error: {e}")
             collected.append({"type": "error", "error": str(e)})
             # Attempt recovery
             await self._recover_session(message)
 
-        # Save the query and response to a log file
-        self._save_query_response_log(message, collected)
+        # Final flush to ensure everything is saved
+        if log_path:
+            self._flush_log(log_path, collected)
+            logging.info(f"Saved agent query/response to {log_path}")
 
         # Track in-memory for conversation replay
         self._conversation_log.append({

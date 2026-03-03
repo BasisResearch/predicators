@@ -919,8 +919,11 @@ def create_mcp_tools(ctx: ToolContext,
                     ctx.option_model.get_next_state_and_num_actions(
                         state, option)
             except Exception as e:
+                import traceback
+                tb = traceback.format_exc()
                 lines.append(f"Step {step_idx}: {opt_name}({obj_names}) - "
-                             f"EXECUTION ERROR: {e}")
+                             f"EXECUTION ERROR: {type(e).__name__}: {e}\n"
+                             f"  Traceback:\n{tb}")
                 return _text_result("\n".join(lines) +
                                     "\n\nPlan FAILED: execution error.")
 

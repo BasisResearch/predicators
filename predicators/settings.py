@@ -971,6 +971,8 @@ class GlobalSettings:
     # Docker sandbox settings for agent SDK
     agent_sdk_use_docker_sandbox = False  # run agent inside Docker container
     agent_sdk_docker_image = "predicators-sandbox"  # Docker image name
+    # Extra reference files to copy into /sandbox/reference/ (dict dest: src)
+    agent_sdk_sandbox_extra_reference_files: Dict[str, str] = {}
 
     # Agent explorer settings
     agent_explorer_max_turns = 5  # max agent turns per exploration query
