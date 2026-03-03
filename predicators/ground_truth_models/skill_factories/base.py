@@ -359,7 +359,15 @@ class PhaseSkill:
                                 "falling back to incremental IK.")
                 memory[traj_key] = None
             else:
-                memory[traj_key] = list(traj)
+                # Skip the first waypoint — BiRRT includes the start
+                # position (current joints) as traj[0].  Commanding the
+                # robot to stay at its current position is a no-op that
+                # triggers the option-model "option got stuck" check
+                # (option_model_terminate_on_repeat), aborting the option
+                # after a single step.
+                traj_list = list(traj)
+                memory[traj_key] = traj_list[1:] if len(traj_list) > 1 \
+                    else traj_list
             memory[step_key] = 0
 
             # Restore robot joints — run_motion_planning leaves them at an
