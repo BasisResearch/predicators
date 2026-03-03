@@ -42,8 +42,9 @@ APPROACHES:
       num_online_learning_cycles: 4
       online_nsrt_learning_requests_per_cycle: 1
       domino_restricted_push: True
-      skill_phase_use_motion_planning: False
-      agent_planner_isolate_test_session: False
+      skill_phase_use_motion_planning: True
+      agent_planner_isolate_test_session: True
+      agent_sdk_use_docker_sandbox: True
   # mf_option_learning_agent:
   #   NAME: "agent_option_learning"
   #   FLAGS:
