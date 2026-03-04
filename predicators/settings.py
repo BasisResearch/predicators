@@ -955,7 +955,7 @@ class GlobalSettings:
     vlm_predicator_num_proposal_batches = 1
 
     # agent SDK online abstraction learning parameters
-    agent_sdk_model_name = "claude-sonnet-4-5"
+    agent_sdk_model_name = "claude-sonnet-4-6"
     agent_sdk_max_agent_turns_per_iteration = 20
     agent_sdk_agent_timeout = 300  # seconds per iteration
     agent_sdk_resume_session = True  # resume previous session if available
@@ -971,22 +971,20 @@ class GlobalSettings:
     # Docker sandbox settings for agent SDK
     agent_sdk_use_docker_sandbox = False  # run agent inside Docker container
     agent_sdk_docker_image = "predicators-sandbox"  # Docker image name
-    # Extra reference files to copy into /sandbox/reference/ (dict dest: src)
-    agent_sdk_sandbox_extra_reference_files: Dict[str, str] = {}
 
     # Agent explorer settings
     agent_explorer_max_turns = 5  # max agent turns per exploration query
     agent_explorer_fallback_to_random = True  # fall back to random on failure
 
     # Agent planner approach settings
-    agent_planner_model_name = "claude-sonnet-4-5"
+    agent_planner_model_name = "claude-sonnet-4-6"
     agent_planner_isolate_test_session = True
 
     # Agent option learning approach settings
-    agent_option_learning_model_name = "claude-sonnet-4-5"
+    agent_option_learning_model_name = "claude-sonnet-4-6"
 
     # Agent closed-loop approach settings
-    agent_closed_loop_model_name = "claude-sonnet-4-5"
+    agent_closed_loop_model_name = "claude-sonnet-4-6"
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:
