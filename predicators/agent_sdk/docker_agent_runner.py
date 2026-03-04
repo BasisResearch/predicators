@@ -107,14 +107,18 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
             lines.append(query_input.get("message", ""))
             lines.append("\n")
             lines.append("## Conversation\n")
+            turn_num = 0
             for entry in collected:
                 etype = entry.get("type", "")
                 if etype == "assistant":
+                    turn_num += 1
+                    lines.append(f"### Turn {turn_num}\n")
                     for block in entry.get("content", []):
                         btype = block.get("type", "")
                         if btype == "ThinkingBlock":
                             thinking = block.get("thinking", "")
                             if thinking:
+                                lines.append("*[thinking]*")
                                 for tline in thinking.splitlines():
                                     lines.append(f"> {tline}")
                                 lines.append("")
@@ -185,10 +189,9 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
                     turns = entry.get("num_turns", "?")
                     cost = entry.get("total_cost_usd")
                     cost_str = f"${cost:.2f}" if cost is not None else "?"
-                    lines.append(f"**Result:** {turns} turns, {cost_str}\n")
+                    lines.append(f"---\n\n**Result:** {turns} turns, {cost_str}\n")
                 elif etype == "error":
                     lines.append(f"**Error:** {entry.get('error', '')}\n")
-                lines.append("---\n")
             with open(log_path, "w") as lf:
                 lf.write("\n".join(lines))
         except Exception:
