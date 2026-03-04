@@ -42,8 +42,6 @@ class AgentAbstractionLearningApproach(
     observes the world only through custom MCP tools.
     """
 
-    _log_subdir = "agent_abstraction_learning"
-
     def __init__(self,
                  initial_predicates: Set[Predicate],
                  initial_options: Set[ParameterizedOption],

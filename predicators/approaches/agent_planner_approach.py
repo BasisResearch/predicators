@@ -40,8 +40,6 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
     - No predicate/process/type invention
     """
 
-    _log_subdir = "agent_planner"
-
     def __init__(self, initial_predicates: Set[Predicate],
                  initial_options: Set[ParameterizedOption], types: Set[Type],
                  action_space: Box, train_tasks: List[Task],
@@ -470,19 +468,27 @@ Output ONLY the option plan lines at the end, after any analysis."""
         """Create explorer for interaction requests."""
         if CFG.explorer == "agent":
             self._sync_tool_context()
-            return self._create_agent_explorer(self._initial_predicates,
-                                               self._initial_options)
+            return self._create_agent_explorer(self._get_all_predicates(),
+                                               self._get_all_options())
         return create_explorer(
             CFG.explorer,
-            self._initial_predicates,
-            self._initial_options,
+            self._get_all_predicates(),
+            self._get_all_options(),
             self._types,
             self._action_space,
             self._train_tasks,
         )
 
     def _sync_tool_context(self) -> None:
-        """Synchronize ToolContext with current state."""
+        """Push current approach state into the shared ToolContext.
+
+        The MCP tools (inspect_options, test_option_plan, etc.) read from
+        the ToolContext dataclass, not from the approach directly.  This
+        method keeps them in sync after mutations (e.g. new trajectories
+        collected, options added).  Called before each solve and learning
+        interaction.  Subclasses should call super() and then set any
+        additional fields (e.g. skill_factory_context).
+        """
         self._tool_context.types = self._types
         self._tool_context.predicates = self._initial_predicates
         self._tool_context.options = self._initial_options

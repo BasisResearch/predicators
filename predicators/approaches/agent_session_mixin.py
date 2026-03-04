@@ -28,7 +28,7 @@ class AgentSessionMixin:
       - _get_agent_tool_names()  -- return a subset of ALL_TOOL_NAMES (None = all)
     """
 
-    _log_subdir: str = "agent"
+    _log_subdir: str = "agent"  # fallback; _get_log_dir prefers get_name()
 
     # ------------------------------------------------------------------ #
     # Initialization
@@ -71,6 +71,15 @@ class AgentSessionMixin:
         """
         return None
 
+    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+        """Return extra reference files for the docker sandbox.
+
+        Maps destination paths (relative to ``/sandbox/reference/``) to
+        source paths (relative to the repo root).  Override in subclasses
+        to provide approach-specific reference material.
+        """
+        return {}
+
     # ------------------------------------------------------------------ #
     # Shared implementations
     # ------------------------------------------------------------------ #
@@ -98,6 +107,7 @@ class AgentSessionMixin:
                 tool_context=self._tool_context,
                 tool_names=tool_names,
                 image=CFG.agent_sdk_docker_image,
+                extra_reference_files=self._get_sandbox_reference_files(),
             )
         else:
             from claude_agent_sdk import create_sdk_mcp_server
@@ -121,11 +131,20 @@ class AgentSessionMixin:
         if self._agent_session_id is not None:
             self._agent_session.session_id = self._agent_session_id
 
+        # Save system prompt to log directory
+        log_dir = self._get_log_dir()
+        os.makedirs(log_dir, exist_ok=True)
+        prompt_path = os.path.join(log_dir, "system_prompt.txt")
+        with open(prompt_path, "w") as f:
+            f.write(self._get_agent_system_prompt())
+
     def _get_log_dir(self) -> str:
-        """Return the log directory, using ``_log_subdir`` class attribute."""
+        """Return the log directory, using the approach name."""
         if hasattr(CFG, 'log_file') and CFG.log_file:
             return CFG.log_file
-        return os.path.join("logs", self._log_subdir)
+        name = (self.get_name()  # type: ignore[attr-defined]
+                if hasattr(self, 'get_name') else self._log_subdir)
+        return os.path.join("logs", name)
 
     def _close_agent_session(self) -> None:
         """Close and discard the current agent session, if one exists."""
