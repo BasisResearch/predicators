@@ -51,43 +51,6 @@ from predicators.settings import CFG
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Reference file registry
-# ---------------------------------------------------------------------------
-# Maps destination paths (relative to /sandbox/reference/) to source paths
-# (relative to the repo root).  These files are copied fresh from the host
-# at session start so they always reflect the latest code.
-REFERENCE_FILE_REGISTRY: Dict[str, str] = {
-    # # Core API
-    # "core/structs.py": "predicators/structs.py",
-    # "core/settings.py": "predicators/settings.py",
-    # # Planning
-    # "core/planning.py": "predicators/planning.py",
-    # "core/planning_with_processes.py":
-    #     "predicators/planning_with_processes.py",
-    # # Agent SDK
-    # "agent_sdk/tools.py": "predicators/agent_sdk/tools.py",
-    # "agent_sdk/option_builder.py": "predicators/agent_sdk/option_builder.py",
-    # # Skill factories
-    # "skill_factories/base.py":
-    #     "predicators/ground_truth_models/skill_factories/base.py",
-    # "skill_factories/pick.py":
-    #     "predicators/ground_truth_models/skill_factories/pick.py",
-    # "skill_factories/move_to.py":
-    #     "predicators/ground_truth_models/skill_factories/move_to.py",
-    # "skill_factories/place.py":
-    #     "predicators/ground_truth_models/skill_factories/place.py",
-    # "skill_factories/push.py":
-    #     "predicators/ground_truth_models/skill_factories/push.py",
-    # "skill_factories/pour.py":
-    #     "predicators/ground_truth_models/skill_factories/pour.py",
-    # "skill_factories/wait.py":
-    #     "predicators/ground_truth_models/skill_factories/wait.py",
-    # # Examples
-    # "examples/api_oo_state.py": "prompts/api_oo_state.py",
-    # "examples/api_sym_predicate.py": "prompts/api_sym_predicate.py",
-}
-
-# ---------------------------------------------------------------------------
 # Sandbox scaffolding (mirrors robocode's sandbox.py pattern)
 # ---------------------------------------------------------------------------
 
@@ -167,26 +130,8 @@ You can write and run test scripts in the sandbox:
     python3 my_experiment.py
 
 ## Reference Files
-Curated source files are available in ./reference/ for you to read:
-
-    reference/core/             - structs.py, settings.py, planning.py,
-                                  planning_with_processes.py
-    reference/agent_sdk/        - tools.py (MCP tool definitions),
-                                  option_builder.py (option construction)
-    reference/skill_factories/  - base.py, pick.py, move_to.py, place.py,
-                                  push.py, pour.py, wait.py
-    reference/examples/         - api_oo_state.py, api_sym_predicate.py
-
+Curated source files are available in ./reference/ for you to read.
 Read these to understand the APIs before writing code.
-
-## MCP Tools
-You have custom predicator MCP tools available:
-- inspect_* tools: inspect types, predicates, options, trajectories, tasks
-- propose_* tools: propose new types, predicates, processes, options
-- test_* tools: test predicates on states, test planning, test option plans
-- planning tools: generate abstract and bilevel plans
-
-Use these tools as your primary interface for interacting with the system.
 
 ## Rules
 - Do NOT attempt to read or browse files outside /sandbox/
@@ -219,20 +164,10 @@ from predicators.structs import ParameterizedOption, Action
 ```
 
 ### Reference Files
-Curated API reference files are in /sandbox/reference/:
-- reference/core/ — core data structures (structs.py), settings, planners
-- reference/agent_sdk/ — MCP tool definitions, option builder helpers
-- reference/skill_factories/ — reusable skill patterns (pick, place, etc.)
-- reference/examples/ — example predicate and state API usage
-
+Curated API reference files are in /sandbox/reference/.
 Read these files to understand the system APIs before writing code.
 
-### What to Use
-- Use MCP tools (inspect_*, propose_*, test_*) as your primary interface
-- Read reference files when you need to understand API details
-- Write test scripts in /sandbox/ to validate your ideas experimentally
-
-### What NOT to Do
+### Rules
 - Do NOT try to read or browse files outside /sandbox/
 - Do NOT modify files in /sandbox/reference/
 - Do NOT inspect predicators source code via `inspect.getsource()`,
@@ -307,6 +242,7 @@ class DockerSessionManager:
         tool_context: ToolContext,
         tool_names: Optional[List[str]] = None,
         image: str = "predicators-sandbox",
+        extra_reference_files: Optional[Dict[str, str]] = None,
     ) -> None:
         # Append sandbox instructions to the system prompt
         self._system_prompt = system_prompt + _SANDBOX_SYSTEM_PROMPT
@@ -315,6 +251,7 @@ class DockerSessionManager:
         self._tool_context = tool_context
         self._tool_names = tool_names
         self._image = image
+        self._extra_reference_files = extra_reference_files or {}
         self._repo_root = str(_find_repo_root())
 
         self._total_cost_usd: float = 0.0
@@ -377,11 +314,8 @@ class DockerSessionManager:
         sandbox = Path(self._sandbox_dir)
         logger.info("Setting up sandbox directory: %s", self._sandbox_dir)
 
-        # 1. Copy reference files from host repo
-        registry = dict(REFERENCE_FILE_REGISTRY)
-        extra = getattr(CFG, "agent_sdk_sandbox_extra_reference_files", {})
-        if extra:
-            registry.update(extra)
+        # 1. Copy reference files from host repo (defined per-approach)
+        registry = dict(self._extra_reference_files)
 
         ref_dir = sandbox / "reference"
         for dest_rel, src_rel in registry.items():
@@ -442,10 +376,26 @@ class DockerSessionManager:
         tmp_dir = tempfile.mkdtemp(prefix="pred-docker-")
         input_path = os.path.join(tmp_dir, "query_input.pkl")
         output_path = os.path.join(tmp_dir, "query_output.pkl")
-        incremental_log_path = os.path.join(tmp_dir, "query_log.json")
+
+        # Compute final log filename upfront so the container can write
+        # directly to the log directory (incremental updates visible on host).
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_filename = (f"docker_query_{self._query_count:03d}_"
+                        f"{timestamp}.md")
+        if self._log_dir:
+            os.makedirs(self._log_dir, exist_ok=True)
+            incremental_log_path = os.path.join(
+                self._log_dir, log_filename)
+        else:
+            incremental_log_path = os.path.join(tmp_dir, "query_log.md")
 
         try:
             # 2. Pickle QueryInput
+            # Tell the container where to write the incremental log.
+            # If _log_dir is set, it's mounted at /log inside the container.
+            container_log_path = (f"/log/{log_filename}"
+                                  if self._log_dir
+                                  else "/data/query_log.md")
             query_input = {
                 "tool_context": self._tool_context,
                 "message": message,
@@ -454,7 +404,7 @@ class DockerSessionManager:
                 "max_turns": CFG.agent_sdk_max_agent_turns_per_iteration,
                 "tool_names": self._tool_names,
                 "cfg_snapshot": dict(CFG.__dict__),
-                "log_path": "/data/query_log.json",
+                "log_path": container_log_path,
             }
             with open(input_path, "wb") as f:
                 pkl.dump(query_input, f)
@@ -559,33 +509,28 @@ class DockerSessionManager:
                     ),
                 }]
 
-            # 7. Save query log — copy the incremental log written by
-            # the Docker agent runner (already flushed per-message).
-            # Fall back to writing a batch log if no incremental file.
+            # 7. Finalize query log — the incremental log was written
+            # directly to _log_dir as markdown (updated per-message).
+            # Prepend host metadata header now that the container is done.
             if os.path.exists(incremental_log_path) and self._log_dir:
-                os.makedirs(self._log_dir, exist_ok=True)
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                dest = os.path.join(
-                    self._log_dir,
-                    f"docker_query_{self._query_count:03d}_"
-                    f"{timestamp}.json")
-                # Enrich the container's log with host metadata
                 try:
                     with open(incremental_log_path) as lf:
-                        log_data = json.load(lf)
-                    log_data.update({
-                        "query_number": self._query_count,
-                        "timestamp": timestamp,
-                        "query": message,
-                        "session_id": self._session_id,
-                        "docker_image": self._image,
-                    })
-                    with open(dest, "w") as lf:
-                        json.dump(log_data, lf, indent=2, default=str)
-                    logger.info("Saved docker query/response to %s", dest)
+                        existing = lf.read()
+                    header_lines = [
+                        f"- **Query:** {self._query_count}",
+                        f"- **Timestamp:** {timestamp}",
+                        f"- **Session:** {self._session_id}",
+                        f"- **Image:** {self._image}",
+                        "",
+                        "",
+                    ]
+                    with open(incremental_log_path, "w") as lf:
+                        lf.write("\n".join(header_lines) + existing)
+                    logger.info("Finalized docker query/response at %s",
+                                incremental_log_path)
                 except Exception:
-                    # Fallback: just copy the raw file
-                    shutil.copy2(incremental_log_path, dest)
+                    logger.warning("Failed to enrich log at %s",
+                                   incremental_log_path, exc_info=True)
             else:
                 self._save_query_response_log(message, responses)
 
@@ -666,6 +611,11 @@ class DockerSessionManager:
         # Mount data exchange directory
         cmd += ["-v", f"{tmp_dir}:/data"]
 
+        # Mount log directory for incremental log updates visible on host
+        if self._log_dir:
+            log_dir_abs = os.path.abspath(self._log_dir)
+            cmd += ["-v", f"{log_dir_abs}:/log"]
+
         # Working directory
         cmd += ["-w", "/sandbox"]
 
@@ -704,26 +654,36 @@ class DockerSessionManager:
 
     def _save_query_response_log(self, query: str,
                                  response: List[Dict[str, Any]]) -> None:
-        """Save query and response to a timestamped JSON file."""
+        """Save query and response to a timestamped markdown file."""
         if not self._log_dir:
             return
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = (f"docker_query_{self._query_count:03d}_"
-                    f"{timestamp}.json")
+                    f"{timestamp}.md")
         filepath = os.path.join(self._log_dir, filename)
 
-        log_data = {
-            "query_number": self._query_count,
-            "timestamp": timestamp,
-            "query": query,
-            "response": response,
-            "session_id": self._session_id,
-            "docker_image": self._image,
-        }
+        lines = [
+            f"- **Query:** {self._query_count}",
+            f"- **Timestamp:** {timestamp}",
+            f"- **Session:** {self._session_id}",
+            f"- **Image:** {self._image}",
+            "",
+            "# Docker Query",
+            "",
+            "## Prompt",
+            "",
+            query,
+            "",
+            "## Response",
+            "",
+        ]
+        for entry in response:
+            lines.append(f"```json\n{json.dumps(entry, indent=2, default=str)}\n```")
+            lines.append("")
 
         os.makedirs(self._log_dir, exist_ok=True)
         with open(filepath, "w") as f:
-            json.dump(log_data, f, indent=2, default=str)
+            f.write("\n".join(lines))
 
         logger.info("Saved docker query/response to %s", filepath)

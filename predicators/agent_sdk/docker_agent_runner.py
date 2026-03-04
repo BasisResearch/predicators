@@ -97,16 +97,100 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
     log_path = query_input.get("log_path")
 
     def _flush_log() -> None:
-        """Write current conversation state to the incremental log file."""
+        """Write current conversation state as markdown to the log file."""
         if not log_path:
             return
         try:
-            log_data = {
-                "query": query_input.get("message", "")[:500],
-                "response": collected,
-            }
+            lines: List[str] = []
+            lines.append("# Docker Query\n")
+            lines.append("## Prompt\n")
+            lines.append(query_input.get("message", ""))
+            lines.append("\n")
+            lines.append("## Conversation\n")
+            for entry in collected:
+                etype = entry.get("type", "")
+                if etype == "assistant":
+                    for block in entry.get("content", []):
+                        btype = block.get("type", "")
+                        if btype == "ThinkingBlock":
+                            thinking = block.get("thinking", "")
+                            if thinking:
+                                for tline in thinking.splitlines():
+                                    lines.append(f"> {tline}")
+                                lines.append("")
+                        elif btype == "text":
+                            lines.append(f"**Assistant:** {block.get('text', '')}\n")
+                        elif btype == "tool_use":
+                            name = block.get("name", "?")
+                            tool_id = block.get("id", "")
+                            inp = block.get("input", {})
+                            lines.append(f"**Tool Call:** `{name}` (id: `{tool_id}`)")
+                            lines.append("```json")
+                            lines.append(json.dumps(inp, indent=2, default=str))
+                            lines.append("```\n")
+                        else:
+                            # Preserve all attributes from unknown block types
+                            lines.append(f"**{btype}:**")
+                            extra = {k: v for k, v in block.items()
+                                     if k != "type" and v is not None}
+                            if extra:
+                                lines.append("```json")
+                                lines.append(json.dumps(
+                                    extra, indent=2, default=str))
+                                lines.append("```")
+                            lines.append("")
+                elif etype == "user":
+                    for block in entry.get("content", []):
+                        btype = block.get("type", "")
+                        if btype == "tool_result":
+                            tool_use_id = block.get("tool_use_id", "")
+                            content = block.get("content")
+                            is_error = block.get("is_error", False)
+                            label = "Tool Error" if is_error else "Tool Result"
+                            lines.append(
+                                f"**{label}** (tool_use_id: `{tool_use_id}`):")
+                            # content can be a list of {type, text} dicts
+                            # or a plain string
+                            if isinstance(content, list):
+                                for item in content:
+                                    if isinstance(item, dict):
+                                        lines.append("```")
+                                        lines.append(
+                                            item.get("text", str(item)))
+                                        lines.append("```")
+                                    else:
+                                        lines.append("```")
+                                        lines.append(str(item))
+                                        lines.append("```")
+                            elif content is not None:
+                                lines.append("```")
+                                lines.append(str(content))
+                                lines.append("```")
+                            lines.append("")
+                        elif btype == "text":
+                            lines.append(
+                                f"**User:** {block.get('text', '')}\n")
+                        else:
+                            # Preserve unknown user block types
+                            lines.append(f"**{btype}:**")
+                            extra = {k: v for k, v in block.items()
+                                     if k != "type" and v is not None}
+                            if extra:
+                                lines.append("```json")
+                                lines.append(json.dumps(
+                                    extra, indent=2, default=str))
+                                lines.append("```")
+                            lines.append("")
+                elif etype == "result":
+                    turns = entry.get("num_turns", "?")
+                    cost = entry.get("total_cost_usd")
+                    cost_str = f"${cost:.2f}" if cost is not None else "?"
+                    lines.append(f"**Result:** {turns} turns, {cost_str}\n")
+                elif etype == "error":
+                    lines.append(f"**Error:** {entry.get('error', '')}\n")
+                lines.append("---\n")
             with open(log_path, "w") as lf:
-                json.dump(log_data, lf, indent=2, default=str)
+                lf.write("\n".join(lines))
         except Exception:
             pass  # Don't let logging errors break the agent
 
@@ -148,7 +232,7 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
                         }
                         for attr in ("name", "input", "id", "text",
                                      "content", "tool_use_id",
-                                     "thinking", "signature"):
+                                     "thinking"):
                             val = getattr(block, attr, None)
                             if val is not None:
                                 block_dict[attr] = val
@@ -336,6 +420,11 @@ def main() -> None:
         logger.info("Recreating option model (%s) inside Docker...",
                     _cfg.option_model_name)
         ctx.option_model = create_option_model(_cfg.option_model_name)
+        # Sync with all options in context (GT + any previously proposed)
+        # after the model has its physics server set up.
+        ctx.option_model._name_to_parameterized_option = {
+            o.name: o for o in ctx.options
+        }
 
     logger.info("Loaded query input: message length=%d, model=%s",
                 len(query_input.get("message", "")),
