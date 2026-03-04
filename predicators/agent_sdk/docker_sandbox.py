@@ -485,6 +485,12 @@ class DockerSessionManager:
 
                 # 6. Merge proposals back into host ToolContext
                 if proposals is not None:
+                    logger.info(
+                        "Docker proposals: proposed_options=%s, "
+                        "retract=%s",
+                        [o.name for o in proposals.proposed_options],
+                        sorted(proposals.retract_option_names),
+                    )
                     self._tool_context.iteration_proposals = proposals
                     # Sync proposed/retracted options into ctx.options so
                     # the host-side parser can find them.
@@ -494,6 +500,15 @@ class DockerSessionManager:
                             o for o in self._tool_context.options
                             if o.name not in proposals.retract_option_names
                         }
+                    logger.info(
+                        "After Docker sync: tool_context.options=%s",
+                        sorted(o.name for o in self._tool_context.options),
+                    )
+                else:
+                    logger.warning(
+                        "Docker output has iteration_proposals=None; "
+                        "no proposals synced."
+                    )
 
                 # Track costs/turns
                 for resp in responses:

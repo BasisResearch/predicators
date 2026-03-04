@@ -151,8 +151,22 @@ current types/options are available by name in the exec context.
         # Include tool_context.options so newly proposed options (added by
         # propose_options tool during the agent query) are visible to the
         # parser before _agent_proposed_options is snapshotted.
-        return (self._initial_options | self._agent_proposed_options |
-                self._tool_context.options)
+        # Also include iteration_proposals.proposed_options as a fallback
+        # in case the Docker sync to tool_context.options was incomplete.
+        proposal_opts = self._tool_context.iteration_proposals.proposed_options
+        result = (self._initial_options | self._agent_proposed_options |
+                  self._tool_context.options | proposal_opts)
+        if not result:
+            logging.warning(
+                "_get_all_options() returning empty set. "
+                "initial=%d, agent_proposed=%d, ctx.options=%d, "
+                "proposal_opts=%d",
+                len(self._initial_options),
+                len(self._agent_proposed_options),
+                len(self._tool_context.options),
+                len(proposal_opts),
+            )
+        return result
 
     def _sync_tool_context(self) -> None:
         """Synchronize ToolContext with current state."""
