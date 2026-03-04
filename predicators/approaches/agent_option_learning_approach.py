@@ -1,57 +1,52 @@
-"""Agent option learning approach: online option invention via Claude Agent
+"""Agent option learning approach: skill invention + planning via Claude Agent
 SDK.
 
-Uses a persistent Claude agent session to iteratively propose/retract
-parameterized options based on observed trajectory data, then uses those
-options for open-loop planning.  No predicate/process/type invention.
+At solve time, the agent can invent new parameterized options (using skill
+factory reference files) and then plan with them.  Requires
+``agent_sdk_use_docker_sandbox=True`` so the agent can read skill factory
+source files in ``/sandbox/reference/``.
 
 Example command::
 
     python predicators/main.py --env pybullet_domino \\
         --approach agent_option_learning --seed 0 \\
         --num_train_tasks 1 --num_test_tasks 1 \\
-        --num_online_learning_cycles 3 --explorer agent
+        --agent_sdk_use_docker_sandbox True
 """
-import json
 import logging
-import os
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set
+from functools import lru_cache
+from typing import Any, Callable, Dict, List, Optional, Set
 
 import dill as pkl
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.option_builder import build_option_helpers
-from predicators.agent_sdk.proposal_parser import ProposalBundle, \
-    build_exec_context, exec_code_safely
+from predicators.agent_sdk.proposal_parser import ProposalBundle
 from predicators.approaches.agent_planner_approach import AgentPlannerApproach
-from predicators.explorers.base_explorer import BaseExplorer
 from predicators.settings import CFG
-from predicators.structs import Action, InteractionResult, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, State, Task, Type
+from predicators.structs import Action, ParameterizedOption, Predicate, \
+    State, Task, Type
 
 
 class AgentOptionLearningApproach(AgentPlannerApproach):
     """Option-learning planning approach using Claude Agent SDK.
 
     Extends AgentPlannerApproach with the ability to invent and retract
-    parameterized options during online learning.  The agent writes
-    Python code that uses high-level option-builder helpers to define
-    new options.
+    parameterized options at solve time.  The agent reads skill factory
+    reference files and writes Python code using skill factory functions
+    (create_pick_skill, create_place_skill, etc.) to define new options,
+    then plans with them in the same query.
     """
-
-    _log_subdir = "agent_option_learning"
 
     def __init__(self, initial_predicates: Set[Predicate],
                  initial_options: Set[ParameterizedOption], types: Set[Type],
-                 action_space: Box, train_tasks: List[Task]) -> None:
+                 action_space: Box, train_tasks: List[Task],
+                 *args: Any, **kwargs: Any) -> None:
         # Agent-specific state (before super().__init__)
         self._agent_proposed_options: Set[ParameterizedOption] = set()
-        self._option_proposal_code: Dict[str, str] = {}  # name -> code
-        self._iteration_history: List[Dict[str, Any]] = []
 
         super().__init__(initial_predicates, initial_options, types,
-                         action_space, train_tasks)
+                         action_space, train_tasks, *args, **kwargs)
 
     @classmethod
     def get_name(cls) -> str:
@@ -65,41 +60,56 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
         return CFG.agent_option_learning_model_name
 
     def _get_agent_system_prompt(self) -> str:
-        return (
-            "You are an option inventor for a robot planning system. Your "
-            "role is to propose new parameterized options (high-level "
-            "actions) that help achieve task goals, based on observed "
-            "trajectory data.\n\n"
-            "## What You Observe\n"
-            "- Trajectory data: sequences of states and actions\n"
-            "- Task goals: symbolic goal descriptions\n"
-            "- Current options: parameterized options currently available\n"
-            "- Iteration history: outcomes of previous proposals\n\n"
-            "## What You Can Do\n"
-            "1. **Propose options**: Write Python code defining "
-            "`proposed_options` (a list of ParameterizedOption objects)\n"
-            "2. **Retract options**: Remove previously proposed options "
-            "that aren't working\n"
-            "3. **Test option plans**: Execute option sequences to verify "
-            "they work\n\n"
-            "## Option Building Helpers (available in exec context)\n"
-            "- `make_move_to_pose_option(name, types, params_space, "
-            "pose_fn, finger_status)` — move EE to a target pose.  "
-            "`pose_fn(state, objects, params) -> (x, y, z, roll, pitch, "
-            "yaw)`\n"
-            "- `make_finger_option(name, types, params_space, mode)` — "
-            "open/close fingers.  `mode`: 'open' or 'close'\n"
-            "- `chain_options(name, children)` — chain options into a "
-            "sequence\n"
-            "All standard imports (np, Box, ParameterizedOption, State, "
-            "Type, etc.) and current types/options are available by name "
-            "in the exec context.\n\n"
-            "## Iteration Protocol\n"
-            "1. Inspect trajectory data and current options\n"
-            "2. Hypothesise what new options would help achieve task goals\n"
-            "3. Propose options via the propose_options tool\n"
-            "4. Test your proposals using test_option_plan\n"
-            "5. Retract options that don't work, propose improved versions")
+        return """\
+You are a robot planning agent that can also invent new skills. Your
+primary goal is to generate an option plan to achieve task goals. If the
+existing options are insufficient, you can propose new parameterized
+options before planning.
+
+## Workflow
+1. **Inspect** the task, available options, and trajectory data
+2. **Invent** new options if needed — either by writing and executing
+   Python code directly, or by using the `propose_options` tool
+3. **Test** — either write and run Python experiments to verify your
+   options, or use `test_option_plan` to check that a plan achieves
+   the goal. Use `retract_abstractions` to remove options that don't
+   work.
+4. **Plan** — output the final option plan
+
+## Skill Factories
+Read the reference files in /sandbox/reference/skill_factories/ for the
+full API. Key factory functions available in the exec context for
+propose_options:
+- `create_pick_skill(name, types, params_space, config, \
+get_target_pose_fn, transport_z, ...)` — pick up an object
+- `create_place_skill(name, types, params_space, config, \
+get_target_pose_fn, ...)` — place a held object
+- `create_push_skill(name, types, params_space, config, \
+get_target_pose_fn, waypoints_fn)` — push through waypoints
+- `create_pour_skill(name, types, params_space, config, \
+get_target_pose_fn, ...)` — pour from a held container
+- `create_move_to_skill(name, types, params_space, config, \
+pose_fn)` — move end-effector to a target pose
+- `create_wait_option(name, config, robot_type)` — hold current pose
+
+All factories take a `SkillConfig` (available as `skill_config` in the
+exec context) and a `get_target_pose_fn` callback with signature
+`(state, objects, params, config) -> (x, y, z, yaw)`.
+
+Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
+`make_move_to_phase` for building custom multi-phase skills, and
+`chain_options(name, children)` for chaining options.
+
+Standard imports (np, Box, ParameterizedOption, State, Type, etc.) and
+current types/options are available by name in the exec context.
+
+## Important
+- Only propose new options if existing ones cannot achieve the goal
+- You can invent and test options in two ways: (a) write and execute
+  Python code directly in the sandbox, or (b) use the `propose_options`,
+  `retract_abstractions`, and `test_option_plan` tools
+- Always test your plan before committing
+- Output the final plan in the standard format at the end"""
 
     def _get_agent_tool_names(self) -> Optional[List[str]]:
         return [
@@ -113,6 +123,26 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
             "test_option_plan",
         ]
 
+    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+        return {
+            "skill_factories/base.py":
+                "predicators/ground_truth_models/skill_factories/base.py",
+            "skill_factories/__init__.py":
+                "predicators/ground_truth_models/skill_factories/__init__.py",
+            "skill_factories/pick.py":
+                "predicators/ground_truth_models/skill_factories/pick.py",
+            "skill_factories/move_to.py":
+                "predicators/ground_truth_models/skill_factories/move_to.py",
+            "skill_factories/place.py":
+                "predicators/ground_truth_models/skill_factories/place.py",
+            "skill_factories/push.py":
+                "predicators/ground_truth_models/skill_factories/push.py",
+            "skill_factories/pour.py":
+                "predicators/ground_truth_models/skill_factories/pour.py",
+            "skill_factories/wait.py":
+                "predicators/ground_truth_models/skill_factories/wait.py",
+        }
+
     # ------------------------------------------------------------------ #
     # Overridable helpers (from AgentPlannerApproach)
     # ------------------------------------------------------------------ #
@@ -120,256 +150,138 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
     def _get_all_options(self) -> Set[ParameterizedOption]:
         return self._initial_options | self._agent_proposed_options
 
-    def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
-        """Disable proposals during test-time solving.
-
-        Session isolation is handled by the parent AgentPlannerApproach._solve.
-        """
-        self._tool_context.proposals_disabled = True
-        try:
-            return super()._solve(task, timeout)
-        finally:
-            self._tool_context.proposals_disabled = False
-
-    # ------------------------------------------------------------------ #
-    # Learning
-    # ------------------------------------------------------------------ #
-
-    def learn_from_interaction_results(
-            self, results: Sequence[InteractionResult]) -> None:
-        """Learn from interaction results: collect trajectories, then run an
-        agent iteration to propose/retract options."""
-        # 1. Convert results to trajectories
-        assert self._requests_train_task_idxs is not None
-        for i, result in enumerate(results):
-            task_idx = self._requests_train_task_idxs[i]
-            traj = LowLevelTrajectory(result.states,
-                                      result.actions,
-                                      _train_task_idx=task_idx)
-            self._online_trajectories.append(traj)
-
-        # 2. Sync tool context (including proposed options + builder helpers)
-        self._sync_tool_context()
-
-        # 3. Run agent iteration
-        self._run_agent_iteration()
-
-        # 4. Integrate proposals (options only)
-        proposals = self._tool_context.iteration_proposals
-        self._integrate_proposals(proposals)
-
-        # 5. Log iteration summary
-        summary = self._build_iteration_summary(proposals)
-        self._iteration_history.append(summary)
-        self._tool_context.iteration_history = self._iteration_history
-        logging.info(f"[Run {self._run_id}] Iteration "
-                     f"{self._online_learning_cycle} summary: "
-                     f"{json.dumps(summary, default=str)}")
-
-        # 6. Save iteration logs, save state, increment cycle
-        self._save_iteration_logs(self._online_learning_cycle)
-        self.save(self._online_learning_cycle)
-        self._online_learning_cycle += 1
-
     def _sync_tool_context(self) -> None:
         """Synchronize ToolContext with current state."""
-        # Call parent sync
         super()._sync_tool_context()
 
         # Override options to include agent-proposed ones
-        self._tool_context.options = (self._initial_options
-                                      | self._agent_proposed_options)
+        self._tool_context.options = self._get_all_options()
 
-        # Inject option builder helpers
-        self._tool_context.option_builder_context = build_option_helpers(
-            CFG.env)
+        # Inject skill factory functions + config into exec context
+        self._tool_context.skill_factory_context = \
+            self._build_skill_factory_context()
 
-        # Reset proposals for this iteration
+    # ------------------------------------------------------------------ #
+    # Skill factory context
+    # ------------------------------------------------------------------ #
+
+    def _build_skill_factory_context(self) -> Dict[str, Any]:
+        """Build exec context with skill factory functions for
+        propose_options."""
+        from predicators.ground_truth_models.skill_factories import (
+            Phase, PhaseAction, PhaseSkill, SkillConfig, create_move_to_skill,
+            create_pick_skill, create_place_skill, create_pour_skill,
+            create_push_skill, create_wait_option, make_move_to_phase)
+
+        context: Dict[str, Any] = {
+            # Skill factory functions
+            "create_pick_skill": create_pick_skill,
+            "create_place_skill": create_place_skill,
+            "create_push_skill": create_push_skill,
+            "create_pour_skill": create_pour_skill,
+            "create_move_to_skill": create_move_to_skill,
+            "create_wait_option": create_wait_option,
+            "make_move_to_phase": make_move_to_phase,
+            # Building blocks
+            "Phase": Phase,
+            "PhaseAction": PhaseAction,
+            "PhaseSkill": PhaseSkill,
+            "SkillConfig": SkillConfig,
+            # Generic helpers
+            "chain_options": utils.LinearChainParameterizedOption,
+        }
+
+        # For pybullet envs, provide a pre-built SkillConfig
+        if CFG.env.startswith("pybullet"):
+            try:
+                context["skill_config"] = self._get_skill_config()
+            except Exception as e:
+                logging.warning(
+                    f"Failed to build SkillConfig for {CFG.env}: {e}")
+
+        return context
+
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _get_skill_config() -> Any:
+        """Lazily build a SkillConfig for the current pybullet env."""
+        from predicators.ground_truth_models.skill_factories import SkillConfig
+
+        env_cls = _get_pybullet_env_cls(CFG.env)
+        _, robot, _ = env_cls.initialize_pybullet(using_gui=False)
+
+        return SkillConfig(
+            robot=robot,
+            open_fingers_joint=robot.open_fingers,
+            closed_fingers_joint=robot.closed_fingers,
+            fingers_state_to_joint=env_cls._fingers_state_to_joint,
+            max_vel_norm=CFG.pybullet_max_vel_norm,
+            ik_validate=CFG.pybullet_ik_validate,
+            robot_init_tilt=getattr(env_cls, 'robot_init_tilt', 0.0),
+            robot_init_wrist=getattr(env_cls, 'robot_init_wrist', 0.0),
+        )
+
+    # ------------------------------------------------------------------ #
+    # Solving (with option invention)
+    # ------------------------------------------------------------------ #
+
+    def _build_solve_prompt(self, task: Task) -> str:
+        """Build solve prompt that adds skill invention instructions."""
+        base_prompt = super()._build_solve_prompt(task)
+
+        skill_instructions = """
+
+## Skill Invention
+You can also invent new options before planning. Follow these steps:
+
+1. **Analyse** — Determine whether the existing options are sufficient \
+to achieve the goal.
+2. **Invent** — If not, read the skill factory reference files in \
+/sandbox/reference/skill_factories/ to understand how to build new \
+options. You can create options in two ways:
+   - **Python code**: Write and execute Python scripts that import the \
+skill factories and construct options directly.
+   - **MCP tools**: Use `propose_options` to create options via the \
+tool interface. Use `retract_abstractions` to remove options that \
+don't work.
+   A pre-built `skill_config` (SkillConfig) is available in the exec \
+context for pybullet environments.
+3. **Test** — Verify your options and plan work correctly:
+   - **Python code**: Write and run Python experiments to unit-test \
+individual options or full plans.
+   - **MCP tools**: Use `test_option_plan` to check that a plan \
+(including any new options) achieves the goal.
+   Iterate until the test passes.
+4. **Commit** — Once the test passes, output the final plan. Your \
+proposed options will be added to the option library for future tasks."""
+
+        return base_prompt + skill_instructions
+
+    def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
+        """Solve with option invention enabled.
+
+        The propose_options and retract_abstractions tools directly
+        update ctx.options during the agent query.  After solving we
+        snapshot the agent-proposed options for persistence.
+        """
         self._tool_context.iteration_proposals = ProposalBundle()
 
-    def _run_agent_iteration(self) -> None:
-        """Build iteration message and query the Claude agent."""
-        self._ensure_agent_session()
+        policy = super()._solve(task, timeout)
 
-        all_trajs = self._get_all_trajectories()
-        num_total = len(all_trajs)
-        task_success = self._compute_task_success_rate(all_trajs)
+        # Snapshot agent-proposed options (everything beyond initial)
+        self._agent_proposed_options = (
+            self._tool_context.options - self._initial_options)
 
-        # Current options summary
-        all_opts = self._get_all_options()
-        opt_strs = []
-        for opt in sorted(all_opts, key=lambda o: o.name):
-            type_sig = ", ".join(t.name for t in opt.types)
-            params_dim = opt.params_space.shape[0]
-            src = "initial" if opt in self._initial_options else "proposed"
-            opt_strs.append(
-                f"  {opt.name}({type_sig}), params_dim={params_dim} "
-                f"[{src}]")
-
-        # Previous iteration outcomes
-        prev_outcomes = (
-            "No previous iterations." if not self._iteration_history else
-            json.dumps(self._iteration_history[-1], default=str, indent=2))
-
-        # Trajectory summary
-        traj_summary = self._build_trajectory_summary()
-
-        message = f"""## Iteration {self._online_learning_cycle}
-
-### Data
-- Total trajectories: {num_total}
-- Task success rate: {task_success:.1%}
-{traj_summary}
-
-### Current Options ({len(all_opts)})
-{chr(10).join(opt_strs)}
-
-### Previous Iteration Outcomes
-{prev_outcomes}
-
-### Available Tools
-  - inspect_types, inspect_options, inspect_trajectories, inspect_train_tasks
-  - inspect_iteration_history
-  - propose_options (code defining `proposed_options`)
-  - retract_abstractions (remove options by name)
-  - test_option_plan (execute option sequences)
-
-### Instructions
-Analyse the trajectory data and task goals.  Propose new options that would \
-help achieve the goals, or retract options that are not working.  Use the \
-option builder helpers (make_move_to_pose_option, make_finger_option, \
-chain_options) in your code.  Test your proposed plans \
-before committing."""
-
-        self._last_context_message = message
-        self._last_agent_responses = self._query_agent_sync(message)
-
-    def _integrate_proposals(self, proposals: ProposalBundle) -> None:
-        """Integrate validated option proposals into approach state."""
-        # Add new options
-        if proposals.proposed_options:
-            self._agent_proposed_options |= proposals.proposed_options
-            names = [o.name for o in proposals.proposed_options]
-            logging.info(f"[Run {self._run_id}] Integrated "
-                         f"{len(proposals.proposed_options)} new options: "
-                         f"{names}")
-
-        # Retract options by name
-        if proposals.retract_option_names:
-            before = len(self._agent_proposed_options)
-            removed_names = set()
-            remaining = set()
-            for opt in self._agent_proposed_options:
-                if opt.name in proposals.retract_option_names:
-                    removed_names.add(opt.name)
-                    # Also remove saved code
-                    self._option_proposal_code.pop(opt.name, None)
-                else:
-                    remaining.add(opt)
-            self._agent_proposed_options = remaining
-            logging.info(
-                f"[Run {self._run_id}] Retracted "
-                f"{before - len(self._agent_proposed_options)} options: "
-                f"{sorted(removed_names)}")
-
-    def _compute_task_success_rate(self,
-                                   trajs: List[LowLevelTrajectory]) -> float:
-        """Compute fraction of trajectories that achieved their task goal."""
-        if not trajs:
-            return 0.0
-        successes = 0
-        counted = 0
-        for traj in trajs:
-            if (traj._train_task_idx is not None
-                    and traj._train_task_idx < len(self._train_tasks)):
-                task = self._train_tasks[traj._train_task_idx]
-                goal_preds = {a.predicate for a in task.goal}
-                final_atoms = utils.abstract(traj.states[-1], goal_preds)
-                if task.goal.issubset(final_atoms):
-                    successes += 1
-                counted += 1
-        return successes / max(counted, 1)
-
-    def _build_iteration_summary(self,
-                                 proposals: ProposalBundle) -> Dict[str, Any]:
-        """Build a summary dict of what happened this iteration."""
-        return {
+        # Record iteration summary (options only)
+        proposals = self._tool_context.iteration_proposals
+        summary = {
             "cycle": self._online_learning_cycle,
             "proposed_options": [o.name for o in proposals.proposed_options],
             "retracted_options": sorted(proposals.retract_option_names),
-            "errors": proposals.errors,
-            "total_options": len(self._get_all_options()),
-            "total_agent_proposed": len(self._agent_proposed_options),
         }
+        self._tool_context.iteration_history.append(summary)
 
-    # ------------------------------------------------------------------ #
-    # Explorer
-    # ------------------------------------------------------------------ #
-
-    def _create_explorer(self) -> BaseExplorer:
-        """Create explorer, passing agent-proposed options."""
-        if CFG.explorer == "agent":
-            self._sync_tool_context()
-            return self._create_agent_explorer(
-                self._initial_predicates,
-                self._initial_options | self._agent_proposed_options)
-        return super()._create_explorer()
-
-    # ------------------------------------------------------------------ #
-    # Iteration logs
-    # ------------------------------------------------------------------ #
-
-    def _save_iteration_logs(self, cycle: int) -> None:
-        """Save iteration-specific logs to disk."""
-        log_dir = os.path.join(self._get_log_dir(), f"iteration_{cycle}")
-        os.makedirs(log_dir, exist_ok=True)
-
-        # Context message
-        if hasattr(self, '_last_context_message'):
-            with open(os.path.join(log_dir, "context_message.txt"), "w") as f:
-                f.write(self._last_context_message)
-
-        # Agent responses
-        if (CFG.agent_sdk_log_agent_responses
-                and hasattr(self, '_last_agent_responses')):
-            resp_path = os.path.join(log_dir, "agent_responses.jsonl")
-            with open(resp_path, "w") as f:
-                for resp in self._last_agent_responses:
-                    f.write(json.dumps(resp, default=str) + "\n")
-
-        # Proposed options
-        proposals = self._tool_context.iteration_proposals
-        if proposals.proposed_options:
-            opts_dir = os.path.join(log_dir, "proposed_options")
-            os.makedirs(opts_dir, exist_ok=True)
-            with open(os.path.join(opts_dir, "options.json"), "w") as f:
-                json.dump([o.name for o in proposals.proposed_options],
-                          f,
-                          indent=2)
-
-        # Retractions
-        if proposals.retract_option_names:
-            with open(os.path.join(log_dir, "retractions.json"), "w") as f:
-                json.dump({"options": sorted(proposals.retract_option_names)},
-                          f,
-                          indent=2)
-
-        # Current full option inventory
-        all_opts = self._get_all_options()
-        with open(os.path.join(log_dir, "all_options.json"), "w") as f:
-            json.dump(
-                {
-                    "initial":
-                    sorted(o.name for o in self._initial_options),
-                    "agent_proposed":
-                    sorted(o.name for o in self._agent_proposed_options),
-                },
-                f,
-                indent=2)
-
-        # Session info
-        if self._agent_session is not None:
-            self._agent_session.save_session_info()
+        return policy
 
     # ------------------------------------------------------------------ #
     # Save / Load
@@ -390,10 +302,6 @@ before committing."""
                 self._run_id,
                 "agent_proposed_options":
                 self._agent_proposed_options,
-                "option_proposal_code":
-                self._option_proposal_code,
-                "iteration_history":
-                self._iteration_history,
                 "agent_session_id": (self._agent_session.session_id
                                      if self._agent_session else None),
             }
@@ -412,34 +320,12 @@ before committing."""
         self._online_learning_cycle = \
             save_dict["online_learning_cycle"] + 1
         self._agent_session_id = save_dict.get("agent_session_id")
-        self._iteration_history = save_dict.get("iteration_history", [])
-        self._option_proposal_code = save_dict.get("option_proposal_code", {})
-
-        # Restore run_id
-        import datetime
-        original_run_id = save_dict.get("run_id", "unknown")
-        self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # Try to restore agent-proposed options from saved objects
-        # (dill should handle the closures), falling back to re-exec
         self._agent_proposed_options = save_dict.get("agent_proposed_options",
                                                      set())
 
-        # If dill restoration failed, try re-executing code
-        if not self._agent_proposed_options and self._option_proposal_code:
-            helpers = build_option_helpers(CFG.env)
-            exec_ctx = build_exec_context(self._types,
-                                          self._initial_predicates,
-                                          self._initial_options,
-                                          extra_context=helpers)
-            for opt_name, code in self._option_proposal_code.items():
-                result, error = exec_code_safely(code, exec_ctx,
-                                                 "proposed_options")
-                if error:
-                    logging.warning(
-                        f"Failed to restore option '{opt_name}': {error}")
-                elif isinstance(result, (list, set)):
-                    self._agent_proposed_options |= set(result)
+        import datetime
+        original_run_id = save_dict.get("run_id", "unknown")
+        self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # Re-sync tool context
         self._sync_tool_context()
@@ -450,3 +336,22 @@ before committing."""
             f"{len(self._offline_dataset.trajectories)} offline, "
             f"{len(self._online_trajectories)} online trajectories, "
             f"{len(self._agent_proposed_options)} agent-proposed options")
+
+
+# --------------------------------------------------------------------------- #
+# Lazy pybullet env lookup (module-level, cached)
+# --------------------------------------------------------------------------- #
+
+
+@lru_cache(maxsize=1)
+def _get_pybullet_env_cls(env_name: str) -> Any:
+    """Look up the concrete PyBulletEnv subclass by name."""
+    import predicators.envs as _envs_pkg  # noqa: F401
+    from predicators.envs.base_env import BaseEnv
+    from predicators.envs.pybullet_env import PyBulletEnv
+    for cls in utils.get_all_subclasses(BaseEnv):
+        if not cls.__abstractmethods__ and cls.get_name() == env_name:
+            if issubclass(cls, PyBulletEnv):
+                return cls
+            break
+    raise RuntimeError(f"No PyBulletEnv subclass found for env '{env_name}'")
