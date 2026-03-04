@@ -486,6 +486,14 @@ class DockerSessionManager:
                 # 6. Merge proposals back into host ToolContext
                 if proposals is not None:
                     self._tool_context.iteration_proposals = proposals
+                    # Sync proposed/retracted options into ctx.options so
+                    # the host-side parser can find them.
+                    self._tool_context.options |= proposals.proposed_options
+                    if proposals.retract_option_names:
+                        self._tool_context.options = {
+                            o for o in self._tool_context.options
+                            if o.name not in proposals.retract_option_names
+                        }
 
                 # Track costs/turns
                 for resp in responses:

@@ -148,7 +148,11 @@ current types/options are available by name in the exec context.
     # ------------------------------------------------------------------ #
 
     def _get_all_options(self) -> Set[ParameterizedOption]:
-        return self._initial_options | self._agent_proposed_options
+        # Include tool_context.options so newly proposed options (added by
+        # propose_options tool during the agent query) are visible to the
+        # parser before _agent_proposed_options is snapshotted.
+        return (self._initial_options | self._agent_proposed_options |
+                self._tool_context.options)
 
     def _sync_tool_context(self) -> None:
         """Synchronize ToolContext with current state."""

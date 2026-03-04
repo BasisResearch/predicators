@@ -240,7 +240,12 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         plan_text = self._extract_option_plan_text(responses)
 
         if not plan_text:
-            raise ApproachFailure("Agent returned empty plan text.")
+            # Log the raw responses for debugging
+            n_responses = len(responses)
+            types = [r.get("type") for r in responses]
+            raise ApproachFailure(
+                f"Agent returned empty plan text. "
+                f"Got {n_responses} responses with types: {types}")
 
         return self._parse_and_ground_plan(plan_text, task)
 
@@ -430,17 +435,37 @@ Output ONLY the option plan lines at the end, after any analysis."""
                     last_text_parts = parts
         return "\n".join(last_text_parts)
 
+    @staticmethod
+    def _strip_code_fences(text: str) -> str:
+        """Strip markdown code fences wrapping the plan text."""
+        lines = text.split('\n')
+        # Remove leading/trailing ``` lines (with optional language tag)
+        while lines and lines[0].strip().startswith('```'):
+            lines.pop(0)
+        while lines and lines[-1].strip().startswith('```'):
+            lines.pop()
+        return '\n'.join(lines)
+
     def _parse_and_ground_plan(self, plan_text: str, task: Task) -> list:
         """Parse option plan text and ground into executable options."""
         objects = list(task.init)
+        all_options = self._get_all_options()
+        option_names = sorted(o.name for o in all_options)
+
+        # Strip markdown code fences that agents often wrap plans in.
+        cleaned_text = self._strip_code_fences(plan_text)
+
         parsed = utils.parse_model_output_into_option_plan(
-            plan_text,
+            cleaned_text,
             objects,
             self._types,
-            self._get_all_options(),
+            all_options,
             parse_continuous_params=True)
         if not parsed:
-            raise ApproachFailure("Parsed empty option plan from agent.")
+            raise ApproachFailure(
+                f"Parsed empty option plan from agent.\n"
+                f"  Plan text:\n{plan_text}\n"
+                f"  Available option names: {option_names}")
 
         grounded = []
         for option, objs, params in parsed:

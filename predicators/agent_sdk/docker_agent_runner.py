@@ -429,6 +429,58 @@ def main() -> None:
             o.name: o for o in ctx.options
         }
 
+    # Recreate SkillConfig in skill_factory_context — the robot's
+    # physics_client_id is process-local and stale after pickling.
+    if (ctx is not None
+            and ctx.skill_factory_context.get("skill_config") is not None):
+        from predicators.settings import CFG as _cfg
+        if _cfg.env.startswith("pybullet"):
+            try:
+                from predicators import utils as _utils
+                from predicators.envs.base_env import BaseEnv
+                from predicators.envs.pybullet_env import PyBulletEnv
+                from predicators.ground_truth_models.skill_factories import \
+                    SkillConfig
+
+                # Find the PyBulletEnv subclass (envs already imported above
+                # by create_option_model → create_new_env).
+                env_cls = None
+                for cls in _utils.get_all_subclasses(BaseEnv):
+                    if (not cls.__abstractmethods__
+                            and issubclass(cls, PyBulletEnv)
+                            and cls.get_name() == _cfg.env):
+                        env_cls = cls
+                        break
+
+                if env_cls is None:
+                    logger.warning(
+                        "Could not find PyBulletEnv for %s; "
+                        "skill_config NOT recreated", _cfg.env)
+                else:
+                    _, robot, _ = env_cls.initialize_pybullet(
+                        using_gui=False)
+                    ctx.skill_factory_context["skill_config"] = SkillConfig(
+                        robot=robot,
+                        open_fingers_joint=robot.open_fingers,
+                        closed_fingers_joint=robot.closed_fingers,
+                        fingers_state_to_joint=(
+                            env_cls._fingers_state_to_joint),
+                        max_vel_norm=_cfg.pybullet_max_vel_norm,
+                        ik_validate=_cfg.pybullet_ik_validate,
+                        robot_init_tilt=getattr(
+                            env_cls, 'robot_init_tilt', 0.0),
+                        robot_init_wrist=getattr(
+                            env_cls, 'robot_init_wrist', 0.0),
+                    )
+                    logger.info(
+                        "Recreated SkillConfig inside Docker for %s "
+                        "(physics_client_id=%d)",
+                        _cfg.env, robot.physics_client_id)
+            except Exception as e:
+                logger.error(
+                    "Failed to recreate SkillConfig in Docker: %s",
+                    e, exc_info=True)
+
     logger.info("Loaded query input: message length=%d, model=%s",
                 len(query_input.get("message", "")),
                 query_input.get("model_name", "?"))
