@@ -197,6 +197,8 @@ def create_mcp_tools(ctx: ToolContext,
         max_timesteps = args.get("max_timesteps", 10)
 
         all_trajs = ctx.offline_trajectories + ctx.online_trajectories
+        if not all_trajs:
+            return _error_result("No trajectories available yet.")
         if traj_idx < 0 or traj_idx >= len(all_trajs):
             return _error_result(f"Invalid traj_idx {traj_idx}. "
                                  f"Available: 0-{len(all_trajs)-1}")
@@ -692,6 +694,8 @@ def create_mcp_tools(ctx: ToolContext,
             return _error_result(f"Predicate '{pred_name}' not found.")
 
         all_trajs = ctx.offline_trajectories + ctx.online_trajectories
+        if not all_trajs:
+            return _error_result("No trajectories available yet.")
         if traj_idx < 0 or traj_idx >= len(all_trajs):
             return _error_result(f"Invalid traj_idx {traj_idx}. "
                                  f"Available: 0-{len(all_trajs)-1}")
