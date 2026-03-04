@@ -78,7 +78,7 @@ class ToolContext:
     iteration_proposals: ProposalBundle = field(default_factory=ProposalBundle)
     planning_results: Dict[str, Any] = field(default_factory=dict)
     iteration_history: List[Dict[str, Any]] = field(default_factory=list)
-    option_builder_context: Dict[str, Any] = field(default_factory=dict)
+    skill_factory_context: Dict[str, Any] = field(default_factory=dict)
     proposals_disabled: bool = False  # set True during test-time solving
 
 
@@ -521,7 +521,7 @@ def create_mcp_tools(ctx: ToolContext,
         exec_ctx = build_exec_context(ctx.types,
                                       ctx.predicates,
                                       ctx.options,
-                                      extra_context=ctx.option_builder_context)
+                                      extra_context=ctx.skill_factory_context)
         result, error = exec_code_safely(code, exec_ctx, "proposed_options")
         if error:
             return _error_result(f"Code execution failed:\n{error}")
@@ -535,6 +535,7 @@ def create_mcp_tools(ctx: ToolContext,
                     f"got {type(opt)}")
         proposed = set(result)
         ctx.iteration_proposals.proposed_options |= proposed
+        ctx.options |= proposed
         names = [o.name for o in proposed]
         logging.info(f"Agent proposed options: {names}")
         return _text_result(
@@ -631,6 +632,7 @@ def create_mcp_tools(ctx: ToolContext,
             unknown = opt_names - existing
             valid = opt_names & existing
             ctx.iteration_proposals.retract_option_names |= valid
+            ctx.options = {o for o in ctx.options if o.name not in valid}
             lines.append(f"Options to retract: {sorted(valid)}")
             if unknown:
                 lines.append(f"  (unknown, ignored: {sorted(unknown)})")
@@ -857,6 +859,13 @@ def create_mcp_tools(ctx: ToolContext,
 
         if ctx.option_model is None:
             return _error_result("No option model available in ToolContext.")
+
+        # Sync the option model's option map with all current options
+        # (GT + proposed) so it stays in sync after propose/retract.
+        all_options = ctx.options | ctx.iteration_proposals.proposed_options
+        ctx.option_model._name_to_parameterized_option = {
+            o.name: o for o in all_options
+        }
 
         task_idx = args.get("task_idx")
         option_plan_spec = args["option_plan"]
