@@ -34,6 +34,7 @@ APPROACHES:
       terminate_on_goal_reached_and_option_terminated: True
       agent_planner_isolate_test_session: True
       agent_sdk_use_docker_sandbox: True
+      # agent_sdk_use_local_sandbox: True
       agent_sdk_max_agent_turns_per_iteration: 40
   # mb_agent:
   #   NAME: "agent_abstraction_learning"

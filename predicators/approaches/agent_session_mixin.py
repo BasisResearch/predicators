@@ -109,6 +109,17 @@ class AgentSessionMixin:
                 image=CFG.agent_sdk_docker_image,
                 extra_reference_files=self._get_sandbox_reference_files(),
             )
+        elif CFG.agent_sdk_use_local_sandbox:
+            from predicators.agent_sdk.local_sandbox import \
+                LocalSandboxSessionManager
+            self._agent_session = LocalSandboxSessionManager(
+                system_prompt=self._get_agent_system_prompt(),
+                log_dir=self._get_log_dir(),
+                model_name=self._get_agent_model_name(),
+                tool_context=self._tool_context,
+                tool_names=tool_names,
+                extra_reference_files=self._get_sandbox_reference_files(),
+            )
         else:
             from claude_agent_sdk import create_sdk_mcp_server
 
