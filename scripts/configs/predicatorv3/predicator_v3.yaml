@@ -20,9 +20,9 @@ APPROACHES:
   mf_agent:
     NAME: "agent_planner"
     FLAGS:
+      explorer: "agent"
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
-      explorer: "agent"
       agent_planner_isolate_test_session: True
       agent_sdk_use_docker_sandbox: True
   # mf_option_learning_agent:
