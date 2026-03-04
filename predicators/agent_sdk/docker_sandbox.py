@@ -192,6 +192,9 @@ Use these tools as your primary interface for interacting with the system.
 - Do NOT attempt to read or browse files outside /sandbox/
 - Do NOT modify files in ./reference/ — they are for reading only
 - Write all your code, experiments, and tests in /sandbox/
+- Do NOT inspect predicators source code (e.g. via `inspect.getsource()`,
+  `inspect.getfile()`, reading `.py` files from site-packages, or any other
+  method). Use the MCP tools and reference files instead.
 """
 
 # Instructions appended to the agent's system prompt when running in Docker.
@@ -232,6 +235,9 @@ Read these files to understand the system APIs before writing code.
 ### What NOT to Do
 - Do NOT try to read or browse files outside /sandbox/
 - Do NOT modify files in /sandbox/reference/
+- Do NOT inspect predicators source code via `inspect.getsource()`,
+  `inspect.getfile()`, or by reading `.py` files from site-packages.
+  Use MCP tools and reference files instead.
 """
 
 
