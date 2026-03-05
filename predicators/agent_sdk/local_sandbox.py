@@ -466,7 +466,7 @@ class LocalSandboxSessionManager:
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = (f"local_sandbox_query_{self._query_count:03d}_"
-                    f"{timestamp}.json")
+                    f"{timestamp}.md")
         filepath = os.path.join(self._log_dir, filename)
         os.makedirs(self._log_dir, exist_ok=True)
 
@@ -481,7 +481,113 @@ class LocalSandboxSessionManager:
 
     def _flush_log(self, filepath: str,
                    response: List[Dict[str, Any]]) -> None:
-        """Rewrite log file with current accumulated response."""
-        log_data = {**self._current_log_meta, "response": response}
-        with open(filepath, "w") as f:
-            json.dump(log_data, f, indent=2, default=str)
+        """Write current conversation state as markdown to the log file."""
+        try:
+            meta = self._current_log_meta
+            lines: List[str] = []
+            lines.append("# Local Sandbox Query\n")
+            lines.append(f"- **Query:** {meta.get('query_number', '?')}")
+            lines.append(f"- **Timestamp:** {meta.get('timestamp', '?')}")
+            lines.append(f"- **Session:** {meta.get('session_id', '?')}")
+            lines.append("")
+            lines.append("## Prompt\n")
+            lines.append(meta.get("query", ""))
+            lines.append("\n")
+            lines.append("## Conversation\n")
+            turn_num = 0
+            for entry in response:
+                etype = entry.get("type", "")
+                if etype == "assistant":
+                    turn_num += 1
+                    lines.append(f"### Turn {turn_num}\n")
+                    for block in entry.get("content", []):
+                        btype = block.get("type", "")
+                        if btype == "ThinkingBlock":
+                            thinking = block.get("thinking", "")
+                            if thinking:
+                                lines.append("*[thinking]*")
+                                for tline in thinking.splitlines():
+                                    lines.append(f"> {tline}")
+                                lines.append("")
+                        elif btype == "text":
+                            lines.append(
+                                f"**Assistant:** "
+                                f"{block.get('text', '')}\n")
+                        elif btype == "tool_use":
+                            name = block.get("name", "?")
+                            tool_id = block.get("id", "")
+                            inp = block.get("input", {})
+                            lines.append(
+                                f"**Tool Call:** `{name}` "
+                                f"(id: `{tool_id}`)")
+                            lines.append("```json")
+                            lines.append(json.dumps(
+                                inp, indent=2, default=str))
+                            lines.append("```\n")
+                        else:
+                            lines.append(f"**{btype}:**")
+                            extra = {k: v for k, v in block.items()
+                                     if k != "type" and v is not None}
+                            if extra:
+                                lines.append("```json")
+                                lines.append(json.dumps(
+                                    extra, indent=2, default=str))
+                                lines.append("```")
+                            lines.append("")
+                elif etype == "user":
+                    for block in entry.get("content", []):
+                        btype = block.get("type", "")
+                        if btype == "tool_result":
+                            tool_use_id = block.get("tool_use_id", "")
+                            content = block.get("content")
+                            is_error = block.get("is_error", False)
+                            label = ("Tool Error" if is_error
+                                     else "Tool Result")
+                            lines.append(
+                                f"**{label}** "
+                                f"(tool_use_id: `{tool_use_id}`):")
+                            if isinstance(content, list):
+                                for item in content:
+                                    if isinstance(item, dict):
+                                        lines.append("```")
+                                        lines.append(
+                                            item.get("text", str(item)))
+                                        lines.append("```")
+                                    else:
+                                        lines.append("```")
+                                        lines.append(str(item))
+                                        lines.append("```")
+                            elif content is not None:
+                                lines.append("```")
+                                lines.append(str(content))
+                                lines.append("```")
+                            lines.append("")
+                        elif btype == "text":
+                            lines.append(
+                                f"**User:** "
+                                f"{block.get('text', '')}\n")
+                        else:
+                            lines.append(f"**{btype}:**")
+                            extra = {k: v for k, v in block.items()
+                                     if k != "type" and v is not None}
+                            if extra:
+                                lines.append("```json")
+                                lines.append(json.dumps(
+                                    extra, indent=2, default=str))
+                                lines.append("```")
+                            lines.append("")
+                elif etype == "result":
+                    turns = entry.get("num_turns", "?")
+                    cost = entry.get("total_cost_usd")
+                    cost_str = (f"${cost:.2f}" if cost is not None
+                                else "?")
+                    lines.append(
+                        f"---\n\n**Result:** "
+                        f"{turns} turns, {cost_str}\n")
+                elif etype == "error":
+                    lines.append(
+                        f"**Error:** {entry.get('error', '')}\n")
+            with open(filepath, "w") as lf:
+                lf.write("\n".join(lines))
+        except Exception:
+            pass  # Don't let logging errors break the agent
