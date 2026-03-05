@@ -499,6 +499,8 @@ class LocalSandboxSessionManager:
                 etype = entry.get("type", "")
                 if etype == "assistant":
                     turn_num += 1
+                    if turn_num > 1:
+                        lines.append("---\n")
                     lines.append(f"### Turn {turn_num}\n")
                     for block in entry.get("content", []):
                         btype = block.get("type", "")
