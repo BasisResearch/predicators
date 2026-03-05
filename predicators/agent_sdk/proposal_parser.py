@@ -102,9 +102,9 @@ def build_exec_context(
     context["Set"] = SetT
     context["Sequence"] = Sequence
 
-    # All current types as _typename_type
+    # All current types as typename_type
     for t in types:
-        context[f"_{t.name}_type"] = t
+        context[f"{t.name}_type"] = t
 
     # All current predicates by name
     for p in predicates:

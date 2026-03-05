@@ -56,9 +56,6 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
     # AgentSessionMixin hooks
     # ------------------------------------------------------------------ #
 
-    def _get_agent_model_name(self) -> str:
-        return CFG.agent_option_learning_model_name
-
     def _get_agent_system_prompt(self) -> str:
         return """\
 You are a robot planning agent that can also invent new skills. Your
@@ -100,10 +97,11 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
 `make_move_to_phase` for building custom multi-phase skills, and
 `chain_options(name, children)` for chaining options.
 
-Standard imports (np, Box, ParameterizedOption, State, Type, etc.) and
-current types/options are available by name in the exec context.
-
 ## Important
+- No need to import — all standard imports (np, Box,
+  ParameterizedOption, State, Type, etc.), current types (e.g.
+  `robot_type`, `domino_type`), predicates, and options are already
+  available in the exec context.
 - Only propose new options if existing ones cannot achieve the goal
 - You can invent and test options in two ways: (a) write and execute
   Python code directly in the sandbox, or (b) use the `propose_options`,
