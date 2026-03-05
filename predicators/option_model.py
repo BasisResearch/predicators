@@ -64,9 +64,13 @@ class _OracleOptionModel(_OptionModelBase):
         super().__init__()
         self._name_to_parameterized_option = {o.name: o for o in options}
         self._simulator = simulator
+        # Diagnostic: stores the reason when the last call returned 0 actions.
+        self.last_execution_failure: str | None = None
 
     def get_next_state_and_num_actions(self, state: State,
                                        option: _Option) -> Tuple[State, int]:
+        self.last_execution_failure = None
+
         # We do not want to actually execute the option; we want to know what
         # *would* happen if we were to execute the option. So, we will make a
         # copy of the option and run that instead. This is important if the
@@ -109,7 +113,13 @@ class _OracleOptionModel(_OptionModelBase):
                     return True
                 if last_state is not DefaultState and last_state.allclose(s):
                     logging.debug("Option got stuck.")
-                    raise utils.OptionExecutionFailure("Option got stuck.")
+                    raise utils.OptionExecutionFailure(
+                        f"Option '{option_copy.name}' got stuck: the "
+                        f"policy's action did not change the state. "
+                        f"This usually means the first motion phase "
+                        f"produced a no-op (e.g. IK returned current "
+                        f"joints, or finger command matched current "
+                        f"finger state).")
                 last_state = s
                 return False
         else:
@@ -123,9 +133,10 @@ class _OracleOptionModel(_OptionModelBase):
                 state,
                 _terminal,
                 max_num_steps=CFG.max_num_steps_option_rollout)
-        except utils.OptionExecutionFailure:
+        except utils.OptionExecutionFailure as e:
             # If there is a failure during the execution of the option, treat
             # this as a noop.
+            self.last_execution_failure = str(e)
             return state, 0
         # Note that in the case of using a PyBullet environment, the
         # second return value (num_actions) will be an underestimate

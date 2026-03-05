@@ -942,6 +942,15 @@ def create_mcp_tools(ctx: ToolContext,
 
             step_line = (f"Step {step_idx}: {opt_name}({obj_names}) "
                          f"({num_actions} actions)")
+            if num_actions == 0:
+                failure = getattr(ctx.option_model,
+                                  'last_execution_failure', None)
+                if failure:
+                    step_line += f"\n  FAILURE REASON: {failure}"
+                else:
+                    step_line += ("\n  FAILURE REASON: Option terminated "
+                                  "immediately (terminal condition was True "
+                                  "before any action was taken)")
             if include_atoms:
                 atoms_before = utils.abstract(state, ctx.predicates)
                 atoms_after = utils.abstract(next_state, ctx.predicates)
