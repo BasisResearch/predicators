@@ -181,5 +181,3 @@ Output ONLY the single option line at the end, after any analysis."""
                      f"{ground_opt.simple_str()}")
         return ground_opt
 
-    def _get_agent_model_name(self) -> str:
-        return CFG.agent_closed_loop_model_name

@@ -978,14 +978,7 @@ class GlobalSettings:
     agent_explorer_fallback_to_random = True  # fall back to random on failure
 
     # Agent planner approach settings
-    agent_planner_model_name = "claude-sonnet-4-6"
     agent_planner_isolate_test_session = True
-
-    # Agent option learning approach settings
-    agent_option_learning_model_name = "claude-sonnet-4-6"
-
-    # Agent closed-loop approach settings
-    agent_closed_loop_model_name = "claude-sonnet-4-6"
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:

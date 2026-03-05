@@ -21,7 +21,6 @@ class AgentSessionMixin:
     """Mixin that provides shared agent session infrastructure.
 
     Subclasses must override:
-      - _get_agent_model_name()
       - _get_agent_system_prompt()
 
     And may optionally override:
@@ -55,10 +54,6 @@ class AgentSessionMixin:
     # ------------------------------------------------------------------ #
     # Customization hooks (override in subclasses)
     # ------------------------------------------------------------------ #
-
-    def _get_agent_model_name(self) -> str:
-        """Return the model name setting for the agent session."""
-        raise NotImplementedError
 
     def _get_agent_system_prompt(self) -> str:
         """Return the system prompt for the agent session."""
@@ -103,7 +98,7 @@ class AgentSessionMixin:
             self._agent_session = DockerSessionManager(
                 system_prompt=self._get_agent_system_prompt(),
                 log_dir=self._get_log_dir(),
-                model_name=self._get_agent_model_name(),
+                model_name=CFG.agent_sdk_model_name,
                 tool_context=self._tool_context,
                 tool_names=tool_names,
                 image=CFG.agent_sdk_docker_image,
@@ -115,7 +110,7 @@ class AgentSessionMixin:
             self._agent_session = LocalSandboxSessionManager(
                 system_prompt=self._get_agent_system_prompt(),
                 log_dir=self._get_log_dir(),
-                model_name=self._get_agent_model_name(),
+                model_name=CFG.agent_sdk_model_name,
                 tool_context=self._tool_context,
                 tool_names=tool_names,
                 extra_reference_files=self._get_sandbox_reference_files(),
@@ -135,7 +130,7 @@ class AgentSessionMixin:
                 system_prompt=self._get_agent_system_prompt(),
                 mcp_server=mcp_server,
                 log_dir=self._get_log_dir(),
-                model_name=self._get_agent_model_name(),
+                model_name=CFG.agent_sdk_model_name,
                 allowed_tools=get_allowed_tool_list(tool_names),
             )
 

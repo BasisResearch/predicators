@@ -96,9 +96,6 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
     # AgentSessionMixin hooks
     # ------------------------------------------------------------------ #
 
-    def _get_agent_model_name(self) -> str:
-        return CFG.agent_planner_model_name
-
     def _get_agent_system_prompt(self) -> str:
         return (
             "You are a planning agent. You observe task environments through "
