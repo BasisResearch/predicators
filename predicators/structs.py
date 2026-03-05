@@ -849,6 +849,11 @@ class Task:
     # an "alternative goal" in this field and replace the goal with the
     # alternative goal before giving the task to the agent.
     alt_goal: Optional[Set[GroundAtom]] = field(default_factory=set)
+    # Optional natural language description of the goal.  When present,
+    # approaches can surface this to an LLM agent so it understands the
+    # *intent* behind the goal atoms (e.g. "arrange dominoes so the chain
+    # reaction topples the targets" rather than just Toppled(target0)).
+    goal_nl: Optional[str] = None
 
     def __post_init__(self) -> None:
         # Verify types.
@@ -878,7 +883,7 @@ class Task:
         # demonstrator. To prevent leakage of this information, we discard the
         # original goal.
         if self.alt_goal:
-            return Task(self.init, goal=self.alt_goal)
+            return Task(self.init, goal=self.alt_goal, goal_nl=self.goal_nl)
         return self
 
 
@@ -900,6 +905,8 @@ class EnvironmentTask:
     goal_description: GoalDescription
     # See Task._alt_goal for the reason for this field.
     alt_goal_desc: Optional[GoalDescription] = field(default=None)
+    # Optional natural language goal description (passed through to Task).
+    goal_nl: Optional[str] = None
 
     @cached_property
     def task(self) -> Task:
@@ -909,7 +916,7 @@ class EnvironmentTask:
         # goal exists, then there's nothing particular to set the task's
         # alt_goal field to.
         if self.alt_goal_desc is None:
-            return Task(self.init, self.goal)
+            return Task(self.init, self.goal, goal_nl=self.goal_nl)
         # If we turn the environment task into a task before replacing the goal
         # with the alternative goal, we have to set the task's alt_goal field
         # accordingly to leave open the possibility of doing that replacement
@@ -919,7 +926,8 @@ class EnvironmentTask:
         assert isinstance(self.alt_goal_desc, set)
         for atom in self.alt_goal_desc:
             assert isinstance(atom, GroundAtom)
-        return Task(self.init, self.goal, alt_goal=self.alt_goal_desc)
+        return Task(self.init, self.goal, alt_goal=self.alt_goal_desc,
+                    goal_nl=self.goal_nl)
 
     @cached_property
     def init(self) -> State:

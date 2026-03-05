@@ -292,9 +292,17 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
             tool_list = "\n".join(f"  - {t}" for t in tool_names)
             tools_str = f"\n## Available Tools\n{tool_list}\n"
 
-        prompt = f"""You are solving a task. Generate an option plan to achieve the goal.
+        # Natural language goal description (if available)
+        goal_nl_section = ""
+        if task.goal_nl:
+            goal_nl_section = f"""
+## Goal Description
+{task.goal_nl}
+"""
 
-## Goal
+        prompt = f"""You are solving a task. Generate an option plan to achieve the goal.
+{goal_nl_section}
+## Goal Atoms
 {chr(10).join(goal_strs)}
 
 ## Initial State Atoms

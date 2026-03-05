@@ -925,7 +925,8 @@ class PyBulletEnv(BaseEnv):
             # pybullet_init = utils.PyBulletState(
             #     init.data.copy(), simulator_state=joint_positions)
             # # >
-            pybullet_task = EnvironmentTask(pybullet_init, task.goal)
+            pybullet_task = EnvironmentTask(pybullet_init, task.goal,
+                                              goal_nl=task.goal_nl)
             pybullet_tasks.append(pybullet_task)
         return pybullet_tasks
 

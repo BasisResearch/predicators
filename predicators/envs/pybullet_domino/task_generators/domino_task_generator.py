@@ -136,7 +136,14 @@ class DominoTaskGenerator(TaskGenerator):
             for target_obj in init_state.get_objects(self.domino.target_type):
                 goal_atoms.add(GroundAtom(self.domino.Toppled, [target_obj]))
 
-        return EnvironmentTask(init_state, goal_atoms)
+        target_names = sorted(str(a.objects[0].name) for a in goal_atoms)
+        goal_nl = (
+            "Arrange the moveable domino blocks into a chain so that when "
+            "the start domino is pushed, the chain reaction topples the "
+            f"target(s). Do NOT directly push "
+            "or topple the target dominoes yourself.")
+
+        return EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
 
     def _generate_domino_sequence(
             self,
