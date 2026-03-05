@@ -4891,22 +4891,23 @@ def configure_logging() -> None:
     colorlog_handler.setFormatter(colored_formatter)
     handlers: List[logging.Handler] = [colorlog_handler]
     if CFG.log_file:
-        CFG.log_file += f"{CFG.approach}/{CFG.experiment_id}/seed{CFG.seed}/"
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        CFG.log_file += (f"{CFG.approach}/{CFG.experiment_id}/"
+                         f"seed{CFG.seed}/run_{timestamp}/")
         os.makedirs(CFG.log_file, exist_ok=True)
 
-        timestamp = datetime.datetime.now().strftime("%m%d%H%M%S")
         # Handler for DEBUG level messages
-        debug_handler = logging.FileHandler(f"{CFG.log_file}{timestamp}_debug",
-                                            mode='w')
+        debug_handler = logging.FileHandler(
+            os.path.join(CFG.log_file, "debug.log"), mode='w')
         debug_handler.setLevel(logging.DEBUG)
-        debug_handler.setFormatter(colored_formatter)  # Apply formatter
+        debug_handler.setFormatter(colored_formatter)
         handlers.append(debug_handler)
 
         # Handler for INFO level messages
-        info_handler = logging.FileHandler(f"{CFG.log_file}{timestamp}_info",
-                                           mode='w')
+        info_handler = logging.FileHandler(
+            os.path.join(CFG.log_file, "info.log"), mode='w')
         info_handler.setLevel(logging.INFO)
-        info_handler.setFormatter(colored_formatter)  # Apply formatter
+        info_handler.setFormatter(colored_formatter)
         handlers.append(info_handler)
 
     logging.basicConfig(level=CFG.loglevel,

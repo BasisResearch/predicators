@@ -56,8 +56,6 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
             self._option_model = create_option_model(CFG.option_model_name)
         self._online_learning_cycle = 0
         self._requests_train_task_idxs: Optional[List[int]] = None
-
-        # Create unique run identifier for this execution
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
         self._init_agent_session_state(types, initial_predicates,
@@ -72,12 +70,11 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         return True
 
     def _get_log_dir(self) -> str:
-        """Override to create separate directory for each run."""
-        base_log_dir = super()._get_log_dir()
-        run_log_dir = os.path.join(base_log_dir, f"run_{self._run_id}")
-        os.makedirs(run_log_dir, exist_ok=True)
-        logging.info(f"Logging agent queries/responses to: {run_log_dir}")
-        return run_log_dir
+        """Return per-run log directory (created by configure_logging)."""
+        log_dir = super()._get_log_dir()
+        os.makedirs(log_dir, exist_ok=True)
+        logging.info(f"Logging agent queries/responses to: {log_dir}")
+        return log_dir
 
     # ------------------------------------------------------------------ #
     # Overridable helpers (for subclass customisation)
