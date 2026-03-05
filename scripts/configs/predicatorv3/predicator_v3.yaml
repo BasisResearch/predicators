@@ -10,7 +10,7 @@ APPROACHES:
   #     human_interaction_approach_use_all_options: True
   #     scripted_option_dir: "scripted_option_policies"
   #     script_option_file_name: "domino2.txt"
-  #     skill_phase_use_motion_planning: False
+  #     skill_phase_use_motion_planning: True
   # oracle:
   #   NAME: "oracle_process_planning"
   #   FLAGS:
