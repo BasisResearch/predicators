@@ -29,6 +29,16 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+_MAX_PARAM_LEN = 120
+
+
+def _truncate(value: Any, max_len: int = _MAX_PARAM_LEN) -> str:
+    """Return a short string repr of *value*, truncating if needed."""
+    s = repr(value)
+    if len(s) > max_len:
+        return s[:max_len] + "..."
+    return s
+
 from predicators.agent_sdk.docker_sandbox import (
     _SANDBOX_SETTINGS,
     _VALIDATE_SANDBOX_SCRIPT,
@@ -298,7 +308,13 @@ class LocalSandboxSessionManager:
                                 "name": block.name,
                                 "input": block.input,
                             })
-                            logging.debug("Agent tool call: %s", block.name)
+                            params = block.input or {}
+                            param_summary = ", ".join(
+                                f"{k}={_truncate(v)}"
+                                for k, v in params.items())
+                            logging.debug(
+                                "Agent tool call: %s(%s)",
+                                block.name, param_summary)
                         else:
                             block_type = type(block).__name__
                             block_dict: Dict[str, Any] = {"type": block_type}

@@ -7,6 +7,16 @@ from typing import Any, Dict, List, Optional
 
 from predicators.settings import CFG
 
+_MAX_PARAM_LEN = 120
+
+
+def _truncate(value: Any, max_len: int = _MAX_PARAM_LEN) -> str:
+    """Return a short string repr of *value*, truncating if needed."""
+    s = repr(value)
+    if len(s) > max_len:
+        return s[:max_len] + "..."
+    return s
+
 
 class AgentSessionManager:
     """Wraps ClaudeSDKClient for persistent sessions with custom MCP tools."""
@@ -135,7 +145,13 @@ class AgentSessionManager:
                                 "input":
                                 block.input,
                             })
-                            logging.debug(f"Agent tool call: {block.name}")
+                            params = block.input or {}
+                            param_summary = ", ".join(
+                                f"{k}={_truncate(v)}"
+                                for k, v in params.items())
+                            logging.debug(
+                                "Agent tool call: %s(%s)",
+                                block.name, param_summary)
                     collected.append(entry)
                 elif isinstance(msg, UserMessage):
                     user_entry: Dict[str, Any] = {"type": "user", "content": []}
