@@ -524,6 +524,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
             self._offline_dataset.trajectories
         self._tool_context.online_trajectories = self._online_trajectories
 
+        self._tool_context.log_dir = self._get_log_dir()
         self._tool_context.option_model = self._option_model
         all_trajs = (self._offline_dataset.trajectories +
                      self._online_trajectories)

@@ -1,6 +1,7 @@
 """Custom MCP tool definitions for the agent SDK approach."""
 import json
 import logging
+import os
 import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set
@@ -80,6 +81,7 @@ class ToolContext:
     iteration_history: List[Dict[str, Any]] = field(default_factory=list)
     skill_factory_context: Dict[str, Any] = field(default_factory=dict)
     proposals_disabled: bool = False  # set True during test-time solving
+    log_dir: Optional[str] = None
 
 
 def _text_result(text: str) -> Dict[str, Any]:
@@ -104,6 +106,23 @@ def create_mcp_tools(ctx: ToolContext,
     Returns a list of SdkMcpTool objects to pass to create_sdk_mcp_server.
     """
     from claude_agent_sdk import tool
+
+    _propose_count = [0]  # mutable counter in closure
+
+    def _save_proposal_code(tool_name: str, code: str, names: List[str],
+                            description: str) -> None:
+        if not ctx.log_dir:
+            return
+        _propose_count[0] += 1
+        subdir = os.path.join(ctx.log_dir, "proposed_code")
+        os.makedirs(subdir, exist_ok=True)
+        names_slug = "_".join(names)[:80]
+        filename = f"{_propose_count[0]:03d}_{tool_name}_{names_slug}.py"
+        filepath = os.path.join(subdir, filename)
+        header = f'"""{tool_name}: {description}"""\n\n'
+        with open(filepath, "w") as f:
+            f.write(header + code)
+        logging.info(f"Saved proposal code to {filepath}")
 
     # ===== INSPECTION TOOLS =====
 
@@ -338,6 +357,8 @@ def create_mcp_tools(ctx: ToolContext,
         ctx.iteration_proposals.proposed_types |= proposed
         names = [t.name for t in proposed]
         logging.info(f"Agent proposed types: {names}")
+        _save_proposal_code("propose_types", code, names,
+                            args.get("description", ""))
         return _text_result(
             f"Successfully proposed {len(proposed)} types: {names}")
 
@@ -389,6 +410,8 @@ def create_mcp_tools(ctx: ToolContext,
         ctx.iteration_proposals.proposed_predicates |= proposed
         names = [p.name for p in proposed]
         logging.info(f"Agent proposed predicates: {names}")
+        _save_proposal_code("propose_predicates", code, names,
+                            args.get("description", ""))
 
         msg = f"Successfully proposed {len(proposed)} predicates: {names}"
         if errors:
@@ -446,6 +469,8 @@ def create_mcp_tools(ctx: ToolContext,
         ctx.iteration_proposals.augment_task_fn = result
         ctx.iteration_proposals.augment_task_code = code
         logging.info(f"Agent proposed augmentor adding objects: {obj_names}")
+        _save_proposal_code("propose_object_augmentor", code, obj_names,
+                            args.get("description", ""))
         return _text_result(
             f"Successfully proposed augmentor. Test added objects: {obj_names}"
         )
@@ -488,6 +513,8 @@ def create_mcp_tools(ctx: ToolContext,
         ctx.iteration_proposals.proposed_processes |= proposed
         names = [p.name for p in proposed]
         logging.info(f"Agent proposed processes: {names}")
+        _save_proposal_code("propose_processes", code, names,
+                            args.get("description", ""))
         return _text_result(
             f"Successfully proposed {len(proposed)} processes: {names}")
 
@@ -538,6 +565,8 @@ def create_mcp_tools(ctx: ToolContext,
         ctx.options |= proposed
         names = [o.name for o in proposed]
         logging.info(f"Agent proposed options: {names}")
+        _save_proposal_code("propose_options", code, names,
+                            args.get("description", ""))
         return _text_result(
             f"Successfully proposed {len(proposed)} options: {names}")
 
