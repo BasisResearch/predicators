@@ -58,7 +58,7 @@ def create_pick_skill(
     params_space: Box,
     config: SkillConfig,
     get_target_pose_fn: TargetPoseFn,
-    transport_z: float,
+    transport_z: float = 0.7,
     grasp_z_offset: float = 0.0,
     grasp_terminal_fn: Optional[Callable[
         [State, Sequence[Object], Array, SkillConfig], bool]] = None,
@@ -113,7 +113,7 @@ def create_pick_skill(
             params_space=Box(0, 1, (0,)),
             config=config,
             get_target_pose_fn=_get_cup_pose,
-            transport_z=0.8,
+            transport_z=0.7,
             grasp_z_offset=0.02,
         )
     """

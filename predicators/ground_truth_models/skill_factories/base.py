@@ -81,7 +81,7 @@ class SkillConfig:
     move_to_pose_tol: float = 1e-4
     finger_action_nudge_magnitude: float = 1e-3
     max_vel_norm: float = 0.05
-    grasp_tol: float = 1e-3
+    grasp_tol: float = 5e-4
     ik_validate: bool = True
     robot_init_tilt: float = 0.0
     robot_init_wrist: float = 0.0
