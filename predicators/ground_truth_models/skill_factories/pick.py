@@ -86,7 +86,8 @@ def create_pick_skill(
         get_target_pose_fn: Callback that returns the grasp target as
             ``(x, y, z, yaw)`` from ``(state, objects, params, config)``.
             ``(x, y)`` is the horizontal grasp position, ``z`` is the
-            object's height (before ``grasp_z_offset`` is applied), and
+            z position of the center of the object (before
+            ``grasp_z_offset`` is applied), and
             ``yaw`` is the EE wrist rotation for approach.
         transport_z: Safe Z height for moving above obstacles before and
             after grasping.
