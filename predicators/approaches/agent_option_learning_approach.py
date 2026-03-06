@@ -78,13 +78,23 @@ Read the reference files in /sandbox/reference/skill_factories/ for the
 full API. Key factory functions available in the exec context for
 propose_options:
 - `create_pick_skill(name, types, params_space, config, \
-get_target_pose_fn, transport_z, ...)` — pick up an object
+get_target_pose_fn, transport_z=0.7, grasp_z_offset=0.0, \
+grasp_terminal_fn=None)` — pick up an object (move above, descend, \
+grasp, lift)
 - `create_place_skill(name, types, params_space, config, \
-get_target_pose_fn, ...)` — place a held object
+get_target_pose_fn, transport_z, drop_z)` — place a held object \
+(move above, descend, release, retreat)
 - `create_push_skill(name, types, params_space, config, \
-get_target_pose_fn, waypoints_fn)` — push through waypoints
+get_target_pose_fn, offset_x, offset_z, transport_z=0.7, \
+offset_rot=0.0, push_through_frac=0.25)` — push with standard \
+4-waypoint trajectory. Requires `config.robot_home_pos` to be set. \
+Facing direction is `(sin(yaw), cos(yaw))` from the yaw returned by \
+`get_target_pose_fn`. The robot approaches from `offset_x` behind, \
+pushes `offset_x * push_through_frac` past the target, then retreats \
+to `robot_home_pos`.
 - `create_pour_skill(name, types, params_space, config, \
-get_target_pose_fn, ...)` — pour from a held container
+get_target_pose_fn, pour_tilt, transport_z)` — pour from a held \
+container (move above, descend, tilt)
 - `create_move_to_skill(name, types, params_space, config, \
 pose_fn)` — move end-effector to a target pose
 - `create_wait_option(name, config, robot_type)` — hold current pose
