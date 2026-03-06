@@ -70,6 +70,8 @@ class SkillConfig:
             angle in ``[roll=0, pitch, yaw]``.
         robot_init_wrist: Default EE wrist (yaw) angle — the third Euler
             angle.  Usually 0.0 or ``-pi``.
+        robot_home_pos: ``(x, y, z)`` home position the robot retreats to
+            after push skills.  Required by ``create_push_skill``.
         extra: Arbitrary dict for environment-specific constants that
             callbacks may need.  Access via ``config.extra["key"]``.
     """
@@ -85,6 +87,7 @@ class SkillConfig:
     ik_validate: bool = True
     robot_init_tilt: float = 0.0
     robot_init_wrist: float = 0.0
+    robot_home_pos: Optional[Tuple[float, float, float]] = None
     extra: Dict[str, Any] = field(default_factory=dict)
 
 

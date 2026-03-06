@@ -547,13 +547,9 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             fingers_state_to_joint=PyBulletBoilEnv._fingers_state_to_joint,
             robot_init_tilt=PyBulletBoilEnv.robot_init_tilt,
             robot_init_wrist=PyBulletBoilEnv.robot_init_wrist,
+            robot_home_pos=(env_cls.robot_init_x, env_cls.robot_init_y,
+                            env_cls.robot_init_z),
         )
-
-        # Switch push constants (match legacy implementation).
-        _behind_factor = 1.9
-        _push_factor = 0.3
-        _push_above_factor = 1.3
-        _hand_z = cls._hand_empty_move_z  # z_ub - 0.3
 
         # ---------------------------------------------------------------
         # Helper: find the switch object associated with a faucet/burner.
@@ -576,46 +572,20 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             return (state.get(switch, "x"), state.get(switch, "y"),
                     state.get(switch, "z"), state.get(switch, "rot"))
 
-        # ---------------------------------------------------------------
-        # Waypoints: SwitchOn — sweep in the +push_dir direction.
-        # push_dir = (cos(tyaw), sin(tyaw)) is the joint axis in world frame.
-        # ---------------------------------------------------------------
-        def _waypoints_on(tx: float, ty: float, tz: float, tyaw: float,
-                          cfg: SkillConfig) -> List[Tuple]:
-            del cfg
-            push_z = tz + env_cls.switch_height * _push_above_factor
-            push_dx = np.cos(tyaw)
-            push_dy = np.sin(tyaw)
-            behind_x = tx - push_dx * cls._y_offset * _behind_factor
-            behind_y = ty - push_dy * cls._y_offset * _behind_factor
-            push_x = tx - push_dx * cls._y_offset * _push_factor
-            push_y = ty - push_dy * cls._y_offset * _push_factor
-            return [
-                (behind_x, behind_y, _hand_z, 0.0, "closed"),
-                (behind_x, behind_y, push_z, 0.0, "closed"),
-                (push_x, push_y, push_z, 0.0, "closed"),
-                (behind_x, behind_y, _hand_z, 0.0, "closed"),
-            ]
+        # Adjust yaw to match standard facing convention:
+        # standard facing = (sin(yaw), cos(yaw)),
+        # switch push_dir = (cos(rot), sin(rot)) → yaw = π/2 − rot
+        def _get_switch_on_pose(state, objects, params, cfg):
+            x, y, z, rot = _get_switch_pose(state, objects, params, cfg)
+            return x, y, z, np.pi / 2 - rot
 
-        # ---------------------------------------------------------------
-        # Waypoints: SwitchOff — sweep in the −push_dir direction.
-        # ---------------------------------------------------------------
-        def _waypoints_off(tx: float, ty: float, tz: float, tyaw: float,
-                           cfg: SkillConfig) -> List[Tuple]:
-            del cfg
-            push_z = tz + env_cls.switch_height * _push_above_factor
-            push_dx = np.cos(tyaw)
-            push_dy = np.sin(tyaw)
-            front_x = tx + push_dx * cls._y_offset * _behind_factor
-            front_y = ty + push_dy * cls._y_offset * _behind_factor
-            push_x = tx + push_dx * cls._y_offset * _push_factor
-            push_y = ty + push_dy * cls._y_offset * _push_factor
-            return [
-                (front_x, front_y, _hand_z, 0.0, "closed"),
-                (front_x, front_y, push_z, 0.0, "closed"),
-                (push_x, push_y, push_z, 0.0, "closed"),
-                (front_x, front_y, _hand_z, 0.0, "closed"),
-            ]
+        def _get_switch_off_pose(state, objects, params, cfg):
+            x, y, z, rot = _get_switch_pose(state, objects, params, cfg)
+            return x, y, z, -np.pi / 2 - rot
+
+        _push_offset_x = cls._y_offset * 1.9
+        _push_offset_z = env_cls.switch_height * 1.3
+        _push_transport_z = cls._hand_empty_move_z
 
         # ---------------------------------------------------------------
         # PickJug: grasp at handle position with is_held terminal.
@@ -661,16 +631,20 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             types=[robot_type, faucet_type],
             params_space=_faucet_params,
             config=config,
-            get_target_pose_fn=_get_switch_pose,
-            waypoints_fn=_waypoints_on,
+            get_target_pose_fn=_get_switch_on_pose,
+            offset_x=_push_offset_x,
+            offset_z=_push_offset_z,
+            transport_z=_push_transport_z,
         )
         SwitchFaucetOff = create_push_skill(
             name="SwitchFaucetOff",
             types=[robot_type, faucet_type],
             params_space=_faucet_params,
             config=config,
-            get_target_pose_fn=_get_switch_pose,
-            waypoints_fn=_waypoints_off,
+            get_target_pose_fn=_get_switch_off_pose,
+            offset_x=_push_offset_x,
+            offset_z=_push_offset_z,
+            transport_z=_push_transport_z,
         )
 
         # ---------------------------------------------------------------
@@ -682,16 +656,20 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             types=[robot_type, burner_type],
             params_space=_burner_params,
             config=config,
-            get_target_pose_fn=_get_switch_pose,
-            waypoints_fn=_waypoints_on,
+            get_target_pose_fn=_get_switch_on_pose,
+            offset_x=_push_offset_x,
+            offset_z=_push_offset_z,
+            transport_z=_push_transport_z,
         )
         SwitchBurnerOff = create_push_skill(
             name="SwitchBurnerOff",
             types=[robot_type, burner_type],
             params_space=_burner_params,
             config=config,
-            get_target_pose_fn=_get_switch_pose,
-            waypoints_fn=_waypoints_off,
+            get_target_pose_fn=_get_switch_off_pose,
+            offset_x=_push_offset_x,
+            offset_z=_push_offset_z,
+            transport_z=_push_transport_z,
         )
 
         # ---------------------------------------------------------------

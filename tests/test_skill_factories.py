@@ -960,21 +960,31 @@ class TestCreatePlaceSkill:
 
 class TestCreatePushSkill:
 
-    def _make_push(self, robot, waypoints):
-        """Build a push skill from a list of (x, y, z, yaw, finger_status)."""
+    @staticmethod
+    def _make_push_config(robot):
         config = _make_config(robot)
-        return create_push_skill(
+        # robot_home_pos is required for create_push_skill
+        return SkillConfig(
+            robot=config.robot,
+            open_fingers_joint=config.open_fingers_joint,
+            closed_fingers_joint=config.closed_fingers_joint,
+            fingers_state_to_joint=config.fingers_state_to_joint,
+            robot_home_pos=_EE_HOME,
+        )
+
+    def test_returns_parameterized_option(self, robot_scene):
+        _, robot = robot_scene
+        config = self._make_push_config(robot)
+        opt = create_push_skill(
             name="Push",
             types=[_ROBOT_TYPE, _OBJ_TYPE],
             params_space=Box(0, 1, (0,)),
             config=config,
             get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
-            waypoints_fn=lambda x, y, z, yaw, cfg: waypoints,
+            offset_x=0.05,
+            offset_z=0.02,
+            transport_z=0.8,
         )
-
-    def test_returns_parameterized_option(self, robot_scene):
-        _, robot = robot_scene
-        opt = self._make_push(robot, [])
         assert isinstance(opt, ParameterizedOption)
         assert opt.name == "Push"
 
@@ -982,17 +992,18 @@ class TestCreatePushSkill:
         """First call lands in CloseFingers phase -> action within bounds."""
         _, robot = robot_scene
         utils.reset_config({"seed": 123})
-        config = _make_config(robot)
+        config = self._make_push_config(robot)
         robot_obj = _make_robot_obj()
         obj = _make_obj()
-        wps = [(1.35, 0.75, 0.4, 0.0, "closed")]
         opt = create_push_skill(
             name="Push",
             types=[_ROBOT_TYPE, _OBJ_TYPE],
             params_space=Box(0, 1, (0,)),
             config=config,
             get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
-            waypoints_fn=lambda x, y, z, yaw, cfg: wps,
+            offset_x=0.05,
+            offset_z=0.02,
+            transport_z=0.8,
         )
         grounded = opt.ground([robot_obj, obj], np.zeros(0))
         state = _build_state(robot_obj, robot, *_EE_HOME,

@@ -1,7 +1,7 @@
 """Ground-truth options for the coffee environment."""
 
 from functools import lru_cache
-from typing import ClassVar, Dict, Optional, Sequence, Set, Tuple
+from typing import ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 
 import numpy as np
@@ -834,6 +834,8 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             fingers_state_to_joint=PyBulletCoffeeEnv._fingers_state_to_joint,
             robot_init_tilt=PyBulletCoffeeEnv.robot_init_tilt,
             robot_init_wrist=PyBulletCoffeeEnv.robot_init_wrist,
+            robot_home_pos=(env_cls.robot_init_x, env_cls.robot_init_y,
+                            env_cls.robot_init_z),
         )
 
         # ---------------------------------------------------------------
@@ -898,10 +900,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         # ---------------------------------------------------------------
         # TurnMachineOn (push-style skill to press button)
         # ---------------------------------------------------------------
-        _behind_factor = 1.5
-        _push_above_factor = 1.3
-        _safe_z = env_cls.z_ub - 0.3
-
+        # Button push goes in -y direction: facing = (sin(π), cos(π)) = (0, -1)
         def _get_button_pose(
             state: State,
             objects: Sequence[Object],
@@ -909,23 +908,8 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             config: SkillConfig,
         ) -> Tuple[float, float, float, float]:
             del state, objects, params, config
-            return (env_cls.button_x, env_cls.button_y, env_cls.button_z, 0.0)
-
-        def _button_waypoints(
-            x: float,
-            y: float,
-            z: float,
-            yaw: float,
-            cfg: SkillConfig,
-        ):
-            del cfg
-            y_offset = env_cls.button_radius * _behind_factor
-            return [
-                (x, y + y_offset, _safe_z, yaw, "closed"),
-                (x, y + y_offset, z, yaw, "closed"),
-                (x, y, z, yaw, "closed"),
-                (x, y + y_offset, _safe_z, yaw, "open"),
-            ]
+            return (env_cls.button_x, env_cls.button_y, env_cls.button_z,
+                    np.pi)
 
         TurnMachineOn = create_push_skill(
             name="TurnMachineOn",
@@ -933,7 +917,11 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             params_space=Box(0, 1, (0, )),
             config=config,
             get_target_pose_fn=_get_button_pose,
-            waypoints_fn=_button_waypoints,
+            offset_x=env_cls.button_radius * 1.5,
+            offset_z=0.0,
+            transport_z=env_cls.z_ub - 0.3,
+            offset_rot=-np.pi,
+            push_through_frac=0.0,
         )
 
         # ---------------------------------------------------------------

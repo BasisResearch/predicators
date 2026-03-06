@@ -738,14 +738,15 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             grasp_tol=PyBulletEnv.grasp_tol_small,
             ik_validate=CFG.pybullet_ik_validate,
             robot_init_tilt=cls.env_cls.robot_init_tilt,
+            robot_home_pos=(cls.env_cls.robot_init_x,
+                            cls.env_cls.robot_init_y,
+                            cls.env_cls.robot_init_z),
         )
 
     @classmethod
     def _create_sf_push(cls, cfg: SkillConfig, robot_type: Type,
                         domino_type: Type) -> ParameterizedOption:
         """Push option using create_push_skill."""
-        option_types = [robot_type, domino_type]
-        params_space = Box(0, 1, (0, ))
 
         def _get_target(state: State, objects: Sequence[Object],
                         params: Array,
@@ -756,41 +757,20 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             return (state.get(domino, "x"), state.get(domino, "y"),
                     state.get(domino, "z"), state.get(domino, "yaw"))
 
-        offset_x = cls._offset_x
-        offset_z = cls._offset_z
-        transport_z_push = cls._transport_z_push
-        env_cls = cls.env_cls
-
-        def _waypoints(tx: float, ty: float, tz: float, tyaw: float,
-                       c: SkillConfig) -> List[Tuple[float, float, float,
-                                                     float, str]]:
-            del c
-            drot = tyaw
-            return [
-                (tx - np.sin(drot) * offset_x, ty - np.cos(drot) * offset_x,
-                 transport_z_push, drot + np.pi / 2, "closed"),
-                (tx - np.sin(drot) * offset_x, ty - np.cos(drot) * offset_x,
-                 tz + offset_z, drot + np.pi / 2, "closed"),
-                (tx + np.sin(drot) * offset_x / 4,
-                 ty + np.cos(drot) * offset_x / 4, tz + offset_z,
-                 drot + np.pi / 2, "closed"),
-                (env_cls.robot_init_x, env_cls.robot_init_y,
-                 env_cls.robot_init_z, drot + np.pi / 2, "closed"),
-            ]
-
         return create_push_skill(name="Push",
-                                 types=option_types,
-                                 params_space=params_space,
+                                 types=[robot_type, domino_type],
+                                 params_space=Box(0, 1, (0, )),
                                  config=cfg,
                                  get_target_pose_fn=_get_target,
-                                 waypoints_fn=_waypoints)
+                                 offset_x=cls._offset_x,
+                                 offset_z=cls._offset_z,
+                                 offset_rot=np.pi / 2,
+                                 transport_z=cls._transport_z_push)
 
     @classmethod
     def _create_sf_push_restricted(cls, cfg: SkillConfig, robot_type: Type,
                                    domino_type: Type) -> ParameterizedOption:
         """Push (restricted) option: finds start block from state."""
-        option_types = [robot_type]
-        params_space = Box(0, 1, (0, ))
 
         def _get_target(state: State, objects: Sequence[Object],
                         params: Array,
@@ -801,34 +781,15 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             return (state.get(start, "x"), state.get(start, "y"),
                     state.get(start, "z"), state.get(start, "yaw"))
 
-        offset_x = cls._offset_x
-        offset_z = cls._offset_z
-        transport_z_push = cls._transport_z_push
-        env_cls = cls.env_cls
-
-        def _waypoints(tx: float, ty: float, tz: float, tyaw: float,
-                       c: SkillConfig) -> List[Tuple[float, float, float,
-                                                     float, str]]:
-            del c
-            drot = tyaw
-            return [
-                (tx - np.sin(drot) * offset_x, ty - np.cos(drot) * offset_x,
-                 transport_z_push, drot + np.pi / 2, "closed"),
-                (tx - np.sin(drot) * offset_x, ty - np.cos(drot) * offset_x,
-                 tz + offset_z, drot + np.pi / 2, "closed"),
-                (tx + np.sin(drot) * offset_x / 4,
-                 ty + np.cos(drot) * offset_x / 4, tz + offset_z,
-                 drot + np.pi / 2, "closed"),
-                (env_cls.robot_init_x, env_cls.robot_init_y,
-                 env_cls.robot_init_z, drot + np.pi / 2, "closed"),
-            ]
-
         return create_push_skill(name="Push",
-                                 types=option_types,
-                                 params_space=params_space,
+                                 types=[robot_type],
+                                 params_space=Box(0, 1, (0, )),
                                  config=cfg,
                                  get_target_pose_fn=_get_target,
-                                 waypoints_fn=_waypoints)
+                                 offset_x=cls._offset_x,
+                                 offset_z=cls._offset_z,
+                                 offset_rot=np.pi / 2,
+                                 transport_z=cls._transport_z_push)
 
     @classmethod
     def _create_sf_pick(cls, cfg: SkillConfig, robot_type: Type,
