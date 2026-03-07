@@ -1185,3 +1185,77 @@ def test_pick_holds_domino_without_motion_planning():
         f"Domino should be held after Pick without motion planning, "
         f"is_held={is_held}"
     )
+
+
+def test_human_interaction_scripted_domino_solves_task():
+    """Full pipeline: human_interaction approach with scripted option plan
+    (domino2.txt) solves the 1st test task in pybullet_domino."""
+    try:
+        from predicators.envs.pybullet_domino import PyBulletDominoEnv
+    except ImportError:
+        pytest.skip("pybullet_domino not available")
+
+    from predicators.approaches import create_approach
+    from predicators.cogman import CogMan, run_episode_and_get_observations
+    from predicators.execution_monitoring import create_execution_monitor
+    from predicators.ground_truth_models import get_gt_options
+    from predicators.perception import create_perceiver
+
+    utils.reset_config({
+        "env": "pybullet_domino",
+        "approach": "human_interaction",
+        "seed": 0,
+        "use_gui": False,
+        "pybullet_control_mode": "position",
+        "pybullet_ik_validate": False,
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+        "horizon": 200,
+        "domino_use_skill_factories": True,
+        "domino_initialize_at_finished_state": False,
+        "domino_use_domino_blocks_as_target": True,
+        "domino_use_grid": True,
+        "domino_include_connected_predicate": False,
+        "domino_use_continuous_place": True,
+        "domino_restricted_push": True,
+        "domino_prune_actions": False,
+        "domino_has_glued_dominos": False,
+        "keep_failed_demos": True,
+        "skill_phase_use_motion_planning": True,
+        "human_interaction_approach_use_scripted_option": True,
+        "human_interaction_approach_use_all_options": True,
+        "scripted_option_dir": "scripted_option_policies",
+        "script_option_file_name": "domino2.txt",
+    })
+
+    env = PyBulletDominoEnv(use_gui=False)
+    _MOST_RECENT_ENV_INSTANCE[env.get_name()] = env
+
+    perceiver = create_perceiver("trivial")
+    train_tasks = [perceiver.reset(t) for t in env.get_train_tasks()]
+
+    options = get_gt_options(env.get_name())
+    approach = create_approach(
+        "human_interaction",
+        env.predicates,
+        options,
+        env.types,
+        env.action_space,
+        train_tasks,
+    )
+
+    cogman = CogMan(approach, perceiver,
+                    create_execution_monitor("trivial"))
+
+    test_env_task = env.get_test_tasks()[0]
+    cogman.reset(test_env_task)
+
+    traj, solved, metrics = run_episode_and_get_observations(
+        cogman, env, "test", task_idx=0,
+        max_num_steps=200,
+        terminate_on_goal_reached=True,
+    )
+
+    assert solved, (
+        "Scripted domino2.txt plan should solve the 1st test task"
+    )

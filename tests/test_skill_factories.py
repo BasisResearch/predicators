@@ -185,7 +185,7 @@ class TestSkillConfig:
         cfg = _make_config(robot)
         assert cfg.move_to_pose_tol == pytest.approx(1e-4)
         assert cfg.max_vel_norm == pytest.approx(0.05)
-        assert cfg.grasp_tol == pytest.approx(1e-3)
+        assert cfg.grasp_tol == pytest.approx(5e-4)
         assert cfg.collision_bodies == ()
         assert cfg.ik_validate is True
         assert cfg.robot_init_tilt == pytest.approx(0.0)
@@ -232,7 +232,7 @@ class TestPhase:
         assert phase.name == "TestMove"
         assert phase.action_type == PhaseAction.MOVE_TO_POSE
         assert phase.terminal_fn is None
-        assert phase.use_motion_planning is True  # default
+        assert phase.use_motion_planning is False  # default from CFG
 
     def test_change_fingers_phase(self):
         def dummy_target(state, objects, params, cfg):
@@ -745,7 +745,7 @@ class TestMakeMoveToPosePhase:
         assert isinstance(phase, Phase)
         assert phase.action_type == PhaseAction.MOVE_TO_POSE
         assert phase.name == "MoveTest"
-        assert phase.use_motion_planning is True  # default
+        assert phase.use_motion_planning is False  # default from CFG
 
     def test_explicit_open_finger_status(self, robot_scene):
         _, robot = robot_scene
@@ -865,18 +865,19 @@ class TestCreateMoveToPoseSkill:
 
 class TestCreatePickSkill:
 
-    def _make_pick(self, robot, with_grasp_terminal=False):
-        config = _make_config(robot)
-        grasp_fn = (lambda s, o, p_, c: True) if with_grasp_terminal else None
+    def _make_pick(self, robot):
+        config = SkillConfig(
+            robot=robot,
+            open_fingers_joint=robot.open_fingers,
+            closed_fingers_joint=robot.closed_fingers,
+            fingers_state_to_joint=_fingers_state_to_joint,
+            transport_z=0.8,
+        )
         return create_pick_skill(
             name="Pick",
             types=[_ROBOT_TYPE, _OBJ_TYPE],
-            params_space=Box(0, 1, (0,)),
             config=config,
             get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
-            transport_z=0.8,
-            grasp_z_offset=0.02,
-            grasp_terminal_fn=grasp_fn,
         )
 
     def test_returns_parameterized_option(self, robot_scene):
@@ -888,18 +889,12 @@ class TestCreatePickSkill:
     def test_pick_policy_returns_valid_action(self, robot_scene):
         _, robot = robot_scene
         utils.reset_config({"seed": 123})
-        config = _make_config(robot)
         robot_obj = _make_robot_obj()
         obj = _make_obj()
-        opt = create_pick_skill(
-            name="Pick",
-            types=[_ROBOT_TYPE, _OBJ_TYPE],
-            params_space=Box(0, 1, (0,)),
-            config=config,
-            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
-            transport_z=0.8,
-        )
-        grounded = opt.ground([robot_obj, obj], np.zeros(0))
+        opt = self._make_pick(robot)
+        # Pick params: (grasp_z_offset,) — use 0.02
+        grounded = opt.ground([robot_obj, obj], np.array([0.02],
+                              dtype=np.float32))
         state = _make_home_state(robot_obj, robot, obj=obj,
                                  obj_xyz=(1.35, 0.75, 0.4))
         grounded.initiable(state)
@@ -915,15 +910,17 @@ class TestCreatePickSkill:
 class TestCreatePlaceSkill:
 
     def _make_place(self, robot):
-        config = _make_config(robot)
+        config = SkillConfig(
+            robot=robot,
+            open_fingers_joint=robot.open_fingers,
+            closed_fingers_joint=robot.closed_fingers,
+            fingers_state_to_joint=_fingers_state_to_joint,
+            transport_z=0.8,
+        )
         return create_place_skill(
             name="Place",
             types=[_ROBOT_TYPE],
-            params_space=Box(0, 1, (0,)),
             config=config,
-            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
-            transport_z=0.8,
-            drop_z=0.45,
         )
 
     def test_returns_parameterized_option(self, robot_scene):
@@ -935,18 +932,11 @@ class TestCreatePlaceSkill:
     def test_place_policy_returns_valid_action(self, robot_scene):
         _, robot = robot_scene
         utils.reset_config({"seed": 123})
-        config = _make_config(robot)
         robot_obj = _make_robot_obj()
-        opt = create_place_skill(
-            name="Place",
-            types=[_ROBOT_TYPE],
-            params_space=Box(0, 1, (0,)),
-            config=config,
-            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
-            transport_z=0.8,
-            drop_z=0.45,
-        )
-        grounded = opt.ground([robot_obj], np.zeros(0))
+        opt = self._make_place(robot)
+        # Place params: (x, y, yaw, drop_z) — within bounds
+        grounded = opt.ground([robot_obj], np.array([0.75, 1.35, 0.0, 0.45],
+                              dtype=np.float32))
         state = _make_home_state(robot_obj, robot)
         grounded.initiable(state)
         action = grounded.policy(state)
@@ -962,29 +952,28 @@ class TestCreatePushSkill:
 
     @staticmethod
     def _make_push_config(robot):
-        config = _make_config(robot)
         # robot_home_pos is required for create_push_skill
         return SkillConfig(
-            robot=config.robot,
-            open_fingers_joint=config.open_fingers_joint,
-            closed_fingers_joint=config.closed_fingers_joint,
-            fingers_state_to_joint=config.fingers_state_to_joint,
+            robot=robot,
+            open_fingers_joint=robot.open_fingers,
+            closed_fingers_joint=robot.closed_fingers,
+            fingers_state_to_joint=_fingers_state_to_joint,
             robot_home_pos=_EE_HOME,
+            transport_z=0.8,
+        )
+
+    def _make_push(self, robot):
+        config = self._make_push_config(robot)
+        return create_push_skill(
+            name="Push",
+            types=[_ROBOT_TYPE, _OBJ_TYPE],
+            config=config,
+            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
         )
 
     def test_returns_parameterized_option(self, robot_scene):
         _, robot = robot_scene
-        config = self._make_push_config(robot)
-        opt = create_push_skill(
-            name="Push",
-            types=[_ROBOT_TYPE, _OBJ_TYPE],
-            params_space=Box(0, 1, (0,)),
-            config=config,
-            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
-            offset_x=0.05,
-            offset_z=0.02,
-            transport_z=0.8,
-        )
+        opt = self._make_push(robot)
         assert isinstance(opt, ParameterizedOption)
         assert opt.name == "Push"
 
@@ -992,20 +981,13 @@ class TestCreatePushSkill:
         """First call lands in CloseFingers phase -> action within bounds."""
         _, robot = robot_scene
         utils.reset_config({"seed": 123})
-        config = self._make_push_config(robot)
         robot_obj = _make_robot_obj()
         obj = _make_obj()
-        opt = create_push_skill(
-            name="Push",
-            types=[_ROBOT_TYPE, _OBJ_TYPE],
-            params_space=Box(0, 1, (0,)),
-            config=config,
-            get_target_pose_fn=lambda s, o, p_, c: (1.35, 0.75, 0.4, 0.0),
-            offset_x=0.05,
-            offset_z=0.02,
-            transport_z=0.8,
-        )
-        grounded = opt.ground([robot_obj, obj], np.zeros(0))
+        opt = self._make_push(robot)
+        # Push params: (offset_x, offset_z, offset_rot, push_through_frac)
+        grounded = opt.ground([robot_obj, obj],
+                              np.array([0.05, 0.02, 0.0, 0.25],
+                                       dtype=np.float32))
         state = _build_state(robot_obj, robot, *_EE_HOME,
                               finger_state=_OPEN_STATE, obj=obj,
                               obj_xyz=(1.35, 0.75, 0.4))

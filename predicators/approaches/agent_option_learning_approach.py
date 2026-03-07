@@ -77,31 +77,32 @@ options before planning.
 Read the reference files in /sandbox/reference/skill_factories/ for the
 full API. Key factory functions available in the exec context for
 propose_options:
-- `create_pick_skill(name, types, params_space, config, \
-get_target_pose_fn, transport_z=0.7, grasp_z_offset=0.0, \
-grasp_terminal_fn=None)` — pick up an object (move above, descend, \
-grasp, lift)
-- `create_place_skill(name, types, params_space, config, \
-get_target_pose_fn, transport_z, drop_z)` — place a held object \
-(move above, descend, release, retreat)
-- `create_push_skill(name, types, params_space, config, \
-get_target_pose_fn, offset_x, offset_z, transport_z=0.7, \
-offset_rot=0.0, push_through_frac=0.25)` — push with standard \
-4-waypoint trajectory. Requires `config.robot_home_pos` to be set. \
-Facing direction is `(sin(yaw), cos(yaw))` from the yaw returned by \
-`get_target_pose_fn`. The robot approaches from `offset_x` behind, \
-pushes `offset_x * push_through_frac` past the target, then retreats \
-to `robot_home_pos`.
-- `create_pour_skill(name, types, params_space, config, \
-get_target_pose_fn, pour_tilt, transport_z)` — pour from a held \
-container (move above, descend, tilt)
+- `create_pick_skill(name, types, config, get_target_pose_fn)` — \
+pick up an object (move above, descend, grasp, lift). \
+Continuous params: `(grasp_z_offset,)`.
+- `create_place_skill(name, types, config)` — place a held object \
+(move above, descend, release, retreat). No get_target_pose_fn; \
+target comes from continuous params: `(x, y, yaw, drop_z)`.
+- `create_push_skill(name, types, config, get_target_pose_fn)` — \
+push with standard 4-waypoint trajectory. Requires \
+`config.robot_home_pos` to be set. Facing direction is \
+`(sin(yaw), cos(yaw))` from `get_target_pose_fn`. \
+Continuous params: `(offset_x, offset_z, offset_rot, \
+push_through_frac)`.
+- `create_pour_skill(name, types, config, get_target_pose_fn, \
+tilt_terminal_fn=None)` — pour from a held container \
+(move above, descend, tilt). Continuous params: `(pour_tilt,)`.
 - `create_move_to_skill(name, types, params_space, config, \
 pose_fn)` — move end-effector to a target pose
 - `create_wait_option(name, config, robot_type)` — hold current pose
 
-All factories take a `SkillConfig` (available as `skill_config` in the
-exec context) and a `get_target_pose_fn` callback with signature
-`(state, objects, params, config) -> (x, y, z, yaw)`.
+All factories (except `create_place_skill`) take a `SkillConfig` \
+(available as `skill_config` in the exec context) and a \
+`get_target_pose_fn` callback with signature \
+`(state, objects, params, config) -> (x, y, z, yaw)`. The callback \
+receives empty params; geometry params are now continuous params of \
+the output ParameterizedOption. `config.transport_z` controls the \
+transport height.
 
 Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
 `make_move_to_phase` for building custom multi-phase skills, and
