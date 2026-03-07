@@ -1,8 +1,11 @@
 """Ground-truth processes for the fan environment."""
 
-from typing import Dict, Set
+from typing import Dict, Sequence, Set
 
+import numpy as np
 import torch
+
+from predicators.structs import Array, GroundAtom, Object, State
 
 from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.settings import CFG
@@ -11,6 +14,14 @@ from predicators.structs import CausalProcess, DelayDistribution, \
     Predicate, Type, Variable
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
     null_sampler
+
+
+def _push_sampler(state: State, goal: Set[GroundAtom],
+                  rng: np.random.Generator,
+                  objs: Sequence[Object]) -> Array:
+    """Return fixed push params for fan switch push."""
+    del state, goal, rng, objs
+    return np.array([0.054, 0.104, 0.0, 0.25], dtype=np.float32)
 
 
 class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
@@ -105,7 +116,7 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
                                      set(), set(), add_effects,
                                      delete_effects, delay_distribution,
                                      torch.tensor(1.0), selected_option,
-                                     option_vars, null_sampler)
+                                     option_vars, _push_sampler)
 
         # --- Endogenous processes: Switch toggling ---
         # For the harder setting of having to figure out which switch controls

@@ -1,16 +1,58 @@
 """Ground-truth processes for the domino environment."""
 
-from typing import Dict, Set
+from typing import Dict, Sequence, Set
 
+import numpy as np
 import torch
 
 from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, EndogenousProcess, \
-    ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
-    Variable
+from predicators.structs import Array, CausalProcess, EndogenousProcess, \
+    ExogenousProcess, GroundAtom, LiftedAtom, Object, ParameterizedOption, \
+    Predicate, State, Type, Variable
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
     null_sampler
+
+# Fixed parameter values for domino environment.
+_DOMINO_GRASP_Z_OFFSET = 0.0825  # domino_height * 0.55
+_DOMINO_DROP_Z = 0.5695  # table_height + domino_height * 1.13
+_DOMINO_OFFSET_X = 0.045  # domino_depth * 3
+_DOMINO_OFFSET_Z = 0.0825  # domino_height * 0.55
+_DOMINO_OFFSET_ROT = np.pi / 2
+_DOMINO_PUSH_THROUGH_FRAC = 0.25
+
+
+def _pick_sampler(state: State, goal: Set[GroundAtom],
+                  rng: np.random.Generator,
+                  objs: Sequence[Object]) -> Array:
+    """Return fixed grasp_z_offset for domino pick."""
+    del state, goal, rng, objs
+    return np.array([_DOMINO_GRASP_Z_OFFSET], dtype=np.float32)
+
+
+def _push_sampler(state: State, goal: Set[GroundAtom],
+                  rng: np.random.Generator,
+                  objs: Sequence[Object]) -> Array:
+    """Return fixed push params for domino push."""
+    del state, goal, rng, objs
+    return np.array([_DOMINO_OFFSET_X, _DOMINO_OFFSET_Z,
+                     _DOMINO_OFFSET_ROT, _DOMINO_PUSH_THROUGH_FRAC],
+                    dtype=np.float32)
+
+
+def _place_sampler(state: State, goal: Set[GroundAtom],
+                   rng: np.random.Generator,
+                   objs: Sequence[Object]) -> Array:
+    """Return placement params from process objects."""
+    del state, goal, rng
+    # objs = [robot, domino1, domino2, target_pos, rotation]
+    target_pos = objs[3]
+    rotation = objs[4]
+    x = float(target_pos.name.split("_")[1])
+    y = float(target_pos.name.split("_")[2])
+    angle_deg = float(rotation.name.split("_")[-1])
+    yaw = np.radians(angle_deg)
+    return np.array([x, y, yaw, _DOMINO_DROP_Z], dtype=np.float32)
 
 
 class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
@@ -86,7 +128,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         push_start_block_process = EndogenousProcess(
             "PushStartBlock", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler,
+            torch.tensor(1.0), option, option_vars, _push_sampler,
             ignore_effects)
         processes.add(push_start_block_process)
 
@@ -125,7 +167,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
                                                 delete_effects,
                                                 delay_distribution,
                                                 torch.tensor(1.0), option,
-                                                option_vars, null_sampler,
+                                                option_vars, _pick_sampler,
                                                 ignore_effects)
         processes.add(pick_domino_process)
 
@@ -137,7 +179,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         target_pos = Variable("?pos1", position_type)
         rotation = Variable("?rot", rotation_type)
         parameters = [robot, domino1, domino2, target_pos, rotation]
-        option_vars = [robot, domino1, domino2, target_pos, rotation]
+        option_vars = [robot]
         option = Place
         condition_at_start = {
             LiftedAtom(Holding, [robot, domino1]),
@@ -165,7 +207,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
                                                  delete_effects,
                                                  delay_distribution,
                                                  torch.tensor(1.0), option,
-                                                 option_vars, null_sampler,
+                                                 option_vars, _place_sampler,
                                                  ignore_effects)
         processes.add(place_domino_process)
 

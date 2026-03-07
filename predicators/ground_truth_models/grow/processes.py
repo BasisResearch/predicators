@@ -1,14 +1,45 @@
 """Ground-truth processes for the grow environments."""
 
-from typing import Dict, Set
+from typing import Dict, Sequence, Set
 
+import numpy as np
 import torch
+
+from predicators.structs import Array, GroundAtom, Object, State
 
 from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.structs import CausalProcess, EndogenousProcess, \
     ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
     Variable
 from predicators.utils import DiscreteGaussianDelay, null_sampler
+
+_GROW_DROP_Z = 0.5  # approximate table_height + jug_handle_height
+
+
+def _pick_sampler(state: State, goal: Set[GroundAtom],
+                  rng: np.random.Generator,
+                  objs: Sequence[Object]) -> Array:
+    """Return fixed grasp_z_offset for grow pick."""
+    del state, goal, rng, objs
+    return np.array([0.0], dtype=np.float32)
+
+
+def _place_sampler(state: State, goal: Set[GroundAtom],
+                   rng: np.random.Generator,
+                   objs: Sequence[Object]) -> Array:
+    """Return placement params for grow place (random x, y)."""
+    del state, goal, objs
+    x = rng.uniform(0.4, 1.1)
+    y = rng.uniform(1.1, 1.6)
+    return np.array([x, y, 0.0, _GROW_DROP_Z], dtype=np.float32)
+
+
+def _pour_sampler(state: State, goal: Set[GroundAtom],
+                  rng: np.random.Generator,
+                  objs: Sequence[Object]) -> Array:
+    """Return fixed pour_tilt for grow pour."""
+    del state, goal, rng, objs
+    return np.array([np.pi / 4], dtype=np.float32)
 
 
 class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
@@ -70,7 +101,7 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         pick_jug_from_table_process = EndogenousProcess(
             "PickJugFromTable", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _pick_sampler)
         processes.add(pick_jug_from_table_process)
 
         # PlaceJugOnTableFromAboveCup
@@ -101,7 +132,7 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         place_jug_on_table_process = EndogenousProcess(
             "PlaceJugOnTable", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler,
+            torch.tensor(1.0), option, option_vars, _place_sampler,
             ignore_effects)
         processes.add(place_jug_on_table_process)
 
@@ -128,7 +159,7 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         pour_from_not_above_cup_process = EndogenousProcess(
             "PourFromNotAboveCup", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler,
+            torch.tensor(1.0), option, option_vars, _pour_sampler,
             ignore_effects)
         processes.add(pour_from_not_above_cup_process)
 
@@ -156,7 +187,7 @@ class PyBulletGrowGroundTruthProcessFactory(GroundTruthProcessFactory):
         pour_from_not_above_cup_process = EndogenousProcess(
             "PourFromAboveCup", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler,
+            torch.tensor(1.0), option, option_vars, _pour_sampler,
             ignore_effects)
         processes.add(pour_from_not_above_cup_process)
 

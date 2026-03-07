@@ -1,18 +1,68 @@
 """Ground-truth processes for the boil environments."""
 import logging
 from pprint import pformat
-from typing import Dict, Set, cast
+from typing import Dict, Sequence, Set, cast
 
 import numpy as np
 import torch
 
+from predicators.envs.pybullet_boil import PyBulletBoilEnv
 from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, DelayDistribution, \
-    EndogenousProcess, ExogenousProcess, LiftedAtom, ParameterizedOption, \
-    Predicate, Type, Variable
+from predicators.structs import Array, CausalProcess, DelayDistribution, \
+    EndogenousProcess, ExogenousProcess, GroundAtom, LiftedAtom, Object, \
+    ParameterizedOption, Predicate, State, Type, Variable
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
     null_sampler
+
+
+_BOIL_DROP_Z = 0.49  # table_height (0.4) + jug_handle_height (0.09)
+
+
+def _pick_sampler(state: State, goal: Set[GroundAtom],
+                  rng: np.random.Generator,
+                  objs: Sequence[Object]) -> Array:
+    del state, goal, rng, objs
+    return np.array([0.0], dtype=np.float32)
+
+
+def _push_sampler(state: State, goal: Set[GroundAtom],
+                  rng: np.random.Generator,
+                  objs: Sequence[Object]) -> Array:
+    del state, goal, rng, objs
+    return np.array([0.057, 0.104, 0.0, 0.25], dtype=np.float32)
+
+
+def _place_on_burner_sampler(state: State, goal: Set[GroundAtom],
+                              rng: np.random.Generator,
+                              objs: Sequence[Object]) -> Array:
+    del goal, rng
+    # objs = [robot, jug, burner]
+    burner = objs[2]
+    x = state.get(burner, "x")
+    y = state.get(burner, "y") - PyBulletBoilEnv.jug_handle_offset
+    return np.array([x, y, 0.0, _BOIL_DROP_Z], dtype=np.float32)
+
+
+def _place_under_faucet_sampler(state: State, goal: Set[GroundAtom],
+                                 rng: np.random.Generator,
+                                 objs: Sequence[Object]) -> Array:
+    del goal, rng
+    # objs = [robot, jug, faucet]
+    faucet = objs[2]
+    x = state.get(faucet, "x")
+    y = (state.get(faucet, "y") - PyBulletBoilEnv.jug_handle_offset
+         - PyBulletBoilEnv.faucet_x_len)
+    return np.array([x, y, 0.0, _BOIL_DROP_Z], dtype=np.float32)
+
+
+def _place_outside_sampler(state: State, goal: Set[GroundAtom],
+                            rng: np.random.Generator,
+                            objs: Sequence[Object]) -> Array:
+    del state, goal, rng, objs
+    x = PyBulletBoilEnv.x_mid - 0.15
+    y = PyBulletBoilEnv.y_mid + 0.10
+    return np.array([x, y, 0.0, _BOIL_DROP_Z], dtype=np.float32)
 
 
 class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
@@ -107,7 +157,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         pick_jug_from_faucet_process = EndogenousProcess(
             "PickJugFromFaucet", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _pick_sampler)
         processes.add(pick_jug_from_faucet_process)
 
         # PickJugFromBurner
@@ -134,7 +184,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         pick_jug_from_burner_process = EndogenousProcess(
             "PickJugFromBurner", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _pick_sampler)
         processes.add(pick_jug_from_burner_process)
 
         # PickJugFromOutsideFaucetAndBurner
@@ -160,7 +210,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
             "PickJugFromOutsideFaucetAndBurner", parameters,
             condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _pick_sampler)
         processes.add(pick_jug_outside_faucet_burner_process)
 
         # PlaceOnBurner
@@ -187,7 +237,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         place_on_burner_process = EndogenousProcess(
             "PlaceOnBurner", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _place_on_burner_sampler)
         processes.add(place_on_burner_process)
 
         # PlaceUnderFaucet
@@ -214,7 +264,8 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         place_under_faucet_process = EndogenousProcess(
             "PlaceUnderFaucet", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars,
+            _place_under_faucet_sampler)
         processes.add(place_under_faucet_process)
 
         # PlaceAtOutsideFaucetAndBurner
@@ -238,7 +289,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         place_at_outside_faucet_burner_process = EndogenousProcess(
             "PlaceOutsideFaucetAndBurner", parameters, condition_at_start,
             set(), set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _place_outside_sampler)
         processes.add(place_at_outside_faucet_burner_process)
 
         # SwitchFaucetOn
@@ -262,7 +313,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         switch_faucet_on_process = EndogenousProcess(
             "SwitchFaucetOn", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _push_sampler)
         processes.add(switch_faucet_on_process)
 
         # SwitchFaucetOff
@@ -286,7 +337,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         switch_faucet_off_process = EndogenousProcess(
             "SwitchFaucetOff", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _push_sampler)
         processes.add(switch_faucet_off_process)
 
         # SwitchBurnerOn
@@ -310,7 +361,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         switch_burner_on_process = EndogenousProcess(
             "SwitchBurnerOn", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _push_sampler)
         processes.add(switch_burner_on_process)
 
         # SwitchBurnerOff
@@ -334,7 +385,7 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         switch_burner_off_process = EndogenousProcess(
             "SwitchBurnerOff", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _push_sampler)
         processes.add(switch_burner_off_process)
 
         # Noop

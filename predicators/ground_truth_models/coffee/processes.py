@@ -1,17 +1,53 @@
 """Ground-truth processes for the coffee environments."""
 
-from typing import Dict, Set, cast
+from typing import Dict, Sequence, Set, cast
 
 import numpy as np
 import torch
 
+from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
 from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, DelayDistribution, \
-    EndogenousProcess, ExogenousProcess, LiftedAtom, ParameterizedOption, \
-    Predicate, Type, Variable
+from predicators.structs import Array, CausalProcess, DelayDistribution, \
+    EndogenousProcess, ExogenousProcess, GroundAtom, LiftedAtom, Object, \
+    ParameterizedOption, Predicate, State, Type, Variable
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
     null_sampler
+
+_COFFEE_DROP_Z = 0.5  # z_lb (0.4) + jug_handle_height (0.1)
+
+
+def _pick_sampler(state: State, goal: Set[GroundAtom],
+                  rng: np.random.Generator,
+                  objs: Sequence[Object]) -> Array:
+    del state, goal, rng, objs
+    return np.array([0.0], dtype=np.float32)
+
+
+def _push_sampler(state: State, goal: Set[GroundAtom],
+                  rng: np.random.Generator,
+                  objs: Sequence[Object]) -> Array:
+    """Push params for TurnMachineOn (button press)."""
+    del state, goal, rng, objs
+    return np.array([0.0675, 0.0, -np.pi, 0.0], dtype=np.float32)
+
+
+def _place_jug_in_machine_sampler(state: State, goal: Set[GroundAtom],
+                                   rng: np.random.Generator,
+                                   objs: Sequence[Object]) -> Array:
+    del state, goal, rng
+    # objs = [robot, jug, machine]
+    return np.array([PyBulletCoffeeEnv.dispense_area_x,
+                     PyBulletCoffeeEnv.dispense_area_y,
+                     PyBulletCoffeeEnv.robot_init_wrist,
+                     _COFFEE_DROP_Z], dtype=np.float32)
+
+
+def _pour_sampler(state: State, goal: Set[GroundAtom],
+                  rng: np.random.Generator,
+                  objs: Sequence[Object]) -> Array:
+    del state, goal, rng, objs
+    return np.array([np.pi / 4], dtype=np.float32)
 
 
 class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
@@ -189,7 +225,7 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
         pick_jug_from_table_process = EndogenousProcess(
             "PickJugFromTable", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _pick_sampler)
         processes.add(pick_jug_from_table_process)
 
         # PlaceJugInMachine
@@ -215,7 +251,8 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
         place_jug_in_machine_process = EndogenousProcess(
             "PlaceJugInMachine", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars,
+            _place_jug_in_machine_sampler)
         processes.add(place_jug_in_machine_process)
 
         # TurnMachineOn
@@ -242,7 +279,7 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
         turn_machine_on_process = EndogenousProcess(
             "TurnMachineOn", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _push_sampler)
         processes.add(turn_machine_on_process)
 
         # PickJugFromMachine
@@ -268,7 +305,7 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
         pick_jug_from_machine_process = EndogenousProcess(
             "PickJugFromMachine", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _pick_sampler)
         processes.add(pick_jug_from_machine_process)
 
         # Pour from not-above-cup
@@ -293,7 +330,7 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
         pourFromNotAboveCup_process = EndogenousProcess(
             "PourFromNotAboveCup", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler)
+            torch.tensor(1.0), option, option_vars, _pour_sampler)
         processes.add(pourFromNotAboveCup_process)
 
         # Pour from above-cup
@@ -321,7 +358,7 @@ class PyBulletCoffeeGroundTruthProcessFactory(GroundTruthProcessFactory):
         pourFromNotAboveCup_process = EndogenousProcess(
             "PourFromCup", parameters, condition_at_start, set(),
             set(), add_effects, delete_effects, delay_distribution,
-            torch.tensor(1.0), option, option_vars, null_sampler,
+            torch.tensor(1.0), option, option_vars, _pour_sampler,
             ignore_effects)
         processes.add(pourFromNotAboveCup_process)
 
