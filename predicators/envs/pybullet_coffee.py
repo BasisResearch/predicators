@@ -1050,7 +1050,8 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         return table_id
 
     @classmethod
-    def _add_pybullet_cord(cls, physics_client_id: int) -> Tuple[List[int], List[int]]:
+    def _add_pybullet_cord(
+            cls, physics_client_id: int) -> Tuple[List[int], List[int]]:
         """First segment connects the machine, last connects to the wall."""
         # Rope parameters
         base_position = [cls.cord_start_x, cls.cord_start_y, cls.cord_start_z]

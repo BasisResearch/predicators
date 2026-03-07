@@ -164,7 +164,9 @@ class AgentAbstractionLearningApproach(
         # 9. Increment cycle
         self._online_learning_cycle += 1
 
-    def _sync_tool_context(self, all_trajs: List[LowLevelTrajectory]) -> None:  # type: ignore[override]
+    def _sync_tool_context(
+            self, all_trajs: List[LowLevelTrajectory]
+    ) -> None:  # type: ignore[override]
         """Synchronize ToolContext with current approach state."""
         self._tool_context.types = self._types
         self._tool_context.predicates = self._get_current_predicates()
@@ -783,22 +785,23 @@ Pay attention to:
 """
 
 
-def build_iteration_message(cycle: int,
-                            num_new_trajs: int,
-                            num_total_trajs: int,
-                            task_success_rate: float,
-                            type_names_with_features: str,
-                            predicate_signatures: str,
-                            num_predicates: int,
-                            process_summaries: str,
-                            num_processes: int,
-                            option_names: str,
-                            num_options: int,
-                            planning_success: str,
-                            avg_nodes: str,
-                            failure_summaries: str,
-                            previous_iteration_outcomes: str,
-                            available_tools: Optional[List[Any]] = None) -> str:
+def build_iteration_message(
+        cycle: int,
+        num_new_trajs: int,
+        num_total_trajs: int,
+        task_success_rate: float,
+        type_names_with_features: str,
+        predicate_signatures: str,
+        num_predicates: int,
+        process_summaries: str,
+        num_processes: int,
+        option_names: str,
+        num_options: int,
+        planning_success: str,
+        avg_nodes: str,
+        failure_summaries: str,
+        previous_iteration_outcomes: str,
+        available_tools: Optional[List[Any]] = None) -> str:
     """Build the message sent to the agent at each iteration."""
     tools_section = ""
     if available_tools:

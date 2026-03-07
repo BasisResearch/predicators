@@ -260,7 +260,8 @@ class HumanLowLevelControlApproach(BaseApproach):
             if robot_id is not None:
                 base_pos, base_orn = p.getBasePositionAndOrientation(
                     robot_id, physicsClientId=physics_client_id)
-                robot.set_base_pose(Pose(base_pos, base_orn))  # type: ignore[attr-defined]
+                robot.set_base_pose(Pose(
+                    base_pos, base_orn))  # type: ignore[attr-defined]
 
         # Find robot object in state
         robot_obj = None

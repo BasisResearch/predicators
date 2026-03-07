@@ -5,20 +5,17 @@ from typing import Dict, Sequence, Set
 import numpy as np
 import torch
 
-from predicators.structs import Array, GroundAtom, Object, State
-
 from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, DelayDistribution, \
-    EndogenousProcess, ExogenousProcess, LiftedAtom, ParameterizedOption, \
-    Predicate, Type, Variable
+from predicators.structs import Array, CausalProcess, DelayDistribution, \
+    EndogenousProcess, ExogenousProcess, GroundAtom, LiftedAtom, Object, \
+    ParameterizedOption, Predicate, State, Type, Variable
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
     null_sampler
 
 
 def _push_sampler(state: State, goal: Set[GroundAtom],
-                  rng: np.random.Generator,
-                  objs: Sequence[Object]) -> Array:
+                  rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return fixed push params for fan switch push."""
     del state, goal, rng, objs
     return np.array([0.054, 0.104, 0.0, 0.25], dtype=np.float32)
@@ -175,7 +172,8 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
             raise NotImplementedError
             # if not known, we add it here and let the agent to potentially
             # learn this
-            condition_at_start.add(LiftedAtom(SwitchOn, [switch]))  # type: ignore[unreachable]
+            condition_at_start.add(LiftedAtom(
+                SwitchOn, [switch]))  # type: ignore[unreachable]
             condition_at_start.add(LiftedAtom(Controls, [switch, fan]))
 
         condition_overall = set(condition_at_start)

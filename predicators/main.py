@@ -585,7 +585,8 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
                 monitor=monitor,
                 terminate_on_goal_reached=CFG.terminate_on_goal_reached)
             exec_time = execution_metrics["policy_call_time"]
-            num_options_executed = int(execution_metrics["num_options_executed"])
+            num_options_executed = int(
+                execution_metrics["num_options_executed"])
 
             # Optionally save a successful trajectory
             if CFG.save_eval_trajs:

@@ -98,17 +98,14 @@ json.dump({
 
 _SANDBOX_SETTINGS: Dict[str, Any] = {
     "hooks": {
-        "PreToolUse": [
-            {
-                "matcher": "Read|Write|Edit|Glob|Grep",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": "python3 .claude/validate_sandbox.py",
-                    }
-                ],
-            }
-        ]
+        "PreToolUse": [{
+            "matcher":
+            "Read|Write|Edit|Glob|Grep",
+            "hooks": [{
+                "type": "command",
+                "command": "python3 .claude/validate_sandbox.py",
+            }],
+        }]
     }
 }
 
@@ -175,10 +172,10 @@ Read these files to understand the system APIs before writing code.
   Use MCP tools and reference files instead.
 """
 
-
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
+
 
 def _find_repo_root() -> Path:
     """Return the repository root by locating ``setup.py`` upward."""
@@ -201,9 +198,14 @@ def _get_claude_oauth_token() -> Optional[str]:
         return None
     try:
         result = subprocess.run(
-            ["security", "find-generic-password",
-             "-s", "Claude Code-credentials", "-w"],
-            capture_output=True, text=True, timeout=5, check=False,
+            [
+                "security", "find-generic-password", "-s",
+                "Claude Code-credentials", "-w"
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
         )
         if result.returncode != 0:
             return None
@@ -282,10 +284,7 @@ class DockerSessionManager:
         names = list(BUILTIN_TOOLS)
         if self._tool_names:
             names += self._tool_names
-        return [
-            t[len(prefix):] if t.startswith(prefix) else t
-            for t in names
-        ]
+        return [t[len(prefix):] if t.startswith(prefix) else t for t in names]
 
     @property
     def conversation_log(self) -> List[Dict[str, Any]]:
@@ -337,14 +336,12 @@ class DockerSessionManager:
         # 3. Create .claude/settings.json with PreToolUse hooks
         claude_dir = sandbox / ".claude"
         claude_dir.mkdir(exist_ok=True)
-        (claude_dir / "settings.json").write_text(
-            json.dumps(_SANDBOX_SETTINGS, indent=2) + "\n"
-        )
+        (claude_dir / "settings.json"
+         ).write_text(json.dumps(_SANDBOX_SETTINGS, indent=2) + "\n")
 
         # 4. Create validate_sandbox.py hook script
-        (claude_dir / "validate_sandbox.py").write_text(
-            _VALIDATE_SANDBOX_SCRIPT
-        )
+        (claude_dir /
+         "validate_sandbox.py").write_text(_VALIDATE_SANDBOX_SCRIPT)
 
         # 5. Write CLAUDE.md
         (sandbox / "CLAUDE.md").write_text(_CLAUDE_MD_TEMPLATE)
@@ -384,8 +381,7 @@ class DockerSessionManager:
                         f"{timestamp}.md")
         if self._log_dir:
             os.makedirs(self._log_dir, exist_ok=True)
-            incremental_log_path = os.path.join(
-                self._log_dir, log_filename)
+            incremental_log_path = os.path.join(self._log_dir, log_filename)
         else:
             incremental_log_path = os.path.join(tmp_dir, "query_log.md")
 
@@ -394,8 +390,7 @@ class DockerSessionManager:
             # Tell the container where to write the incremental log.
             # If _log_dir is set, it's mounted at /log inside the container.
             container_log_path = (f"/log/{log_filename}"
-                                  if self._log_dir
-                                  else "/data/query_log.md")
+                                  if self._log_dir else "/data/query_log.md")
             query_input = {
                 "tool_context": self._tool_context,
                 "message": message,
@@ -411,18 +406,20 @@ class DockerSessionManager:
 
             logger.info(
                 "Docker query %d: message length=%d, model=%s",
-                self._query_count, len(message), self._model_name,
+                self._query_count,
+                len(message),
+                self._model_name,
             )
 
             # 3. Build docker run command
             container_name = f"pred-sandbox-{uuid.uuid4().hex[:8]}"
-            docker_cmd = self._build_docker_command(
-                container_name, tmp_dir)
+            docker_cmd = self._build_docker_command(container_name, tmp_dir)
 
             # 4. Run Docker container
             logger.info(
                 "Starting Docker sandbox: container=%s image=%s",
-                container_name, self._image,
+                container_name,
+                self._image,
             )
             env = self._build_env()
 
@@ -448,8 +445,8 @@ class DockerSessionManager:
                         stderr_lines.append(line)
                         logger.info("%s", line)
 
-                stderr_thread = threading.Thread(
-                    target=_stream_stderr, daemon=True)
+                stderr_thread = threading.Thread(target=_stream_stderr,
+                                                 daemon=True)
                 stderr_thread.start()
 
                 # Wait for stdout (captured for error reporting)
@@ -497,7 +494,8 @@ class DockerSessionManager:
                     self._tool_context.options |= proposals.proposed_options
                     if proposals.retract_option_names:
                         self._tool_context.options = {
-                            o for o in self._tool_context.options
+                            o
+                            for o in self._tool_context.options
                             if o.name not in proposals.retract_option_names
                         }
                     logger.info(
@@ -507,8 +505,7 @@ class DockerSessionManager:
                 else:
                     logger.warning(
                         "Docker output has iteration_proposals=None; "
-                        "no proposals synced."
-                    )
+                        "no proposals synced.")
 
                 # Track costs/turns
                 for resp in responses:
@@ -524,12 +521,11 @@ class DockerSessionManager:
                     "No output pickle found at %s. Container may have "
                     "crashed.", output_path)
                 responses = [{
-                    "type": "error",
-                    "error": (
-                        f"Docker container failed (exit code "
-                        f"{proc.returncode}). "
-                        f"stderr: {''.join(stderr_lines[-20:])}"
-                    ),
+                    "type":
+                    "error",
+                    "error": (f"Docker container failed (exit code "
+                              f"{proc.returncode}). "
+                              f"stderr: {''.join(stderr_lines[-20:])}"),
                 }]
 
             # 7. Finalize query log — the incremental log was written
@@ -553,7 +549,8 @@ class DockerSessionManager:
                                 incremental_log_path)
                 except Exception:
                     logger.warning("Failed to enrich log at %s",
-                                   incremental_log_path, exc_info=True)
+                                   incremental_log_path,
+                                   exc_info=True)
             else:
                 self._save_query_response_log(message, responses)
 
@@ -599,8 +596,11 @@ class DockerSessionManager:
                               tmp_dir: str) -> List[str]:
         """Build the ``docker run`` command."""
         cmd = [
-            "docker", "run", "--rm",
-            "--name", container_name,
+            "docker",
+            "run",
+            "--rm",
+            "--name",
+            container_name,
             "--cap-add=NET_ADMIN",
             "--cap-add=NET_RAW",
         ]
@@ -647,7 +647,8 @@ class DockerSessionManager:
 
         # Command: run the agent runner script from the mounted source
         cmd += [
-            "python3", "-u",
+            "python3",
+            "-u",
             "/opt/predicators/predicators/agent_sdk/docker_agent_runner.py",
             "/data/query_input.pkl",
             "/data/query_output.pkl",
@@ -659,8 +660,8 @@ class DockerSessionManager:
         """Build environment dict for the docker subprocess."""
         # Pass through host env, stripping CLAUDECODE* vars
         env = {
-            k: v for k, v in os.environ.items()
-            if not k.startswith("CLAUDECODE")
+            k: v
+            for k, v in os.environ.items() if not k.startswith("CLAUDECODE")
         }
 
         # Ensure ANTHROPIC_API_KEY is passed through if set
@@ -702,7 +703,8 @@ class DockerSessionManager:
             "",
         ]
         for entry in response:
-            lines.append(f"```json\n{json.dumps(entry, indent=2, default=str)}\n```")
+            lines.append(
+                f"```json\n{json.dumps(entry, indent=2, default=str)}\n```")
             lines.append("")
 
         os.makedirs(self._log_dir, exist_ok=True)

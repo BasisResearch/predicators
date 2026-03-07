@@ -15,27 +15,24 @@ from predicators.structs import Array, CausalProcess, DelayDistribution, \
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
     null_sampler
 
-
 _BOIL_DROP_Z = 0.49  # table_height (0.4) + jug_handle_height (0.09)
 
 
 def _pick_sampler(state: State, goal: Set[GroundAtom],
-                  rng: np.random.Generator,
-                  objs: Sequence[Object]) -> Array:
+                  rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     del state, goal, rng, objs
     return np.array([0.0], dtype=np.float32)
 
 
 def _push_sampler(state: State, goal: Set[GroundAtom],
-                  rng: np.random.Generator,
-                  objs: Sequence[Object]) -> Array:
+                  rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     del state, goal, rng, objs
     return np.array([0.057, 0.104, 0.0, 0.25], dtype=np.float32)
 
 
 def _place_on_burner_sampler(state: State, goal: Set[GroundAtom],
-                              rng: np.random.Generator,
-                              objs: Sequence[Object]) -> Array:
+                             rng: np.random.Generator,
+                             objs: Sequence[Object]) -> Array:
     del goal, rng
     # objs = [robot, jug, burner]
     burner = objs[2]
@@ -45,20 +42,20 @@ def _place_on_burner_sampler(state: State, goal: Set[GroundAtom],
 
 
 def _place_under_faucet_sampler(state: State, goal: Set[GroundAtom],
-                                 rng: np.random.Generator,
-                                 objs: Sequence[Object]) -> Array:
+                                rng: np.random.Generator,
+                                objs: Sequence[Object]) -> Array:
     del goal, rng
     # objs = [robot, jug, faucet]
     faucet = objs[2]
     x = state.get(faucet, "x")
-    y = (state.get(faucet, "y") - PyBulletBoilEnv.jug_handle_offset
-         - PyBulletBoilEnv.faucet_x_len)
+    y = (state.get(faucet, "y") - PyBulletBoilEnv.jug_handle_offset -
+         PyBulletBoilEnv.faucet_x_len)
     return np.array([x, y, 0.0, _BOIL_DROP_Z], dtype=np.float32)
 
 
 def _place_outside_sampler(state: State, goal: Set[GroundAtom],
-                            rng: np.random.Generator,
-                            objs: Sequence[Object]) -> Array:
+                           rng: np.random.Generator,
+                           objs: Sequence[Object]) -> Array:
     del state, goal, rng, objs
     x = PyBulletBoilEnv.x_mid - 0.15
     y = PyBulletBoilEnv.y_mid + 0.10

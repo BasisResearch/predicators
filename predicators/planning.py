@@ -474,12 +474,14 @@ def _skeleton_generator(
             # Generate primitive successors.
             for nsrt in utils.get_applicable_operators(ground_nsrts,
                                                        node.atoms):
-                child_atoms = utils.apply_operator(nsrt, set(node.atoms))  # type: ignore[type-var]
+                child_atoms = utils.apply_operator(nsrt, set(
+                    node.atoms))  # type: ignore[type-var]
                 if use_visited_state_set:
                     frozen_atoms = frozenset(child_atoms)
                     if frozen_atoms in visited_atom_sets:
                         continue
-                child_skeleton = node.skeleton + [nsrt]  # type: ignore[list-item]
+                child_skeleton = node.skeleton + [nsrt
+                                                  ]  # type: ignore[list-item]
                 child_skeleton_tup = tuple(child_skeleton)
                 if child_skeleton_tup in visited_skeletons:  # pragma: no cover
                     continue
@@ -964,12 +966,16 @@ def task_plan_with_option_plan_constraint(
                 applicable_nsrt.preconditions.issubset(  # type: ignore[attr-defined]
                     atoms_seq[idx_into_traj]):
                 continue
-            next_atoms = utils.apply_operator(applicable_nsrt, set(atoms))  # type: ignore[type-var]
+            next_atoms = utils.apply_operator(
+                applicable_nsrt, set(atoms))  # type: ignore[type-var]
             # The returned cost is uniform because we don't
             # actually care about finding the shortest path;
             # just one that matches!
-            yield (applicable_nsrt, (frozenset(next_atoms), idx_into_traj + 1),  # type: ignore[misc]
-                   1.0)
+            yield (
+                applicable_nsrt,
+                (frozenset(next_atoms),
+                 idx_into_traj + 1),  # type: ignore[misc]
+                1.0)
 
     init_atoms_frozen = frozenset(init_atoms)
     init_searchnode_state = (init_atoms_frozen, 0)
@@ -1237,16 +1243,17 @@ def run_task_plan_once(
         duration = time.perf_counter() - start_time
         timeout -= duration
         plan, atoms_seq, metrics = next(
-            task_plan(init_atoms,
-                      goal,
-                      ground_nsrts,  # type: ignore[arg-type]
-                      reachable_atoms,
-                      heuristic,
-                      seed,
-                      timeout,
-                      max_skeletons_optimized=1,
-                      use_visited_state_set=True,
-                      **kwargs))
+            task_plan(
+                init_atoms,
+                goal,
+                ground_nsrts,  # type: ignore[arg-type]
+                reachable_atoms,
+                heuristic,
+                seed,
+                timeout,
+                max_skeletons_optimized=1,
+                use_visited_state_set=True,
+                **kwargs))
         if len(plan) > max_horizon:
             raise PlanningFailure(
                 "Skeleton produced by A-star exceeds horizon!")

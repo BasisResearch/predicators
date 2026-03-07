@@ -14,9 +14,9 @@ from predicators.envs.pybullet_grow import PyBulletGrowEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.coffee.options import \
     PyBulletCoffeeGroundTruthOptionFactory
-from predicators.ground_truth_models.skill_factories import (
-    SkillConfig, create_pick_skill, create_place_skill, create_pour_skill,
-    create_wait_option)
+from predicators.ground_truth_models.skill_factories import SkillConfig, \
+    create_pick_skill, create_place_skill, create_pour_skill, \
+    create_wait_option
 from predicators.pybullet_helpers.controllers import \
     create_change_fingers_option, create_move_end_effector_to_pose_option
 from predicators.pybullet_helpers.geometry import Pose
@@ -230,14 +230,16 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
 
     @classmethod
     def _get_options_skill_factories(
-            cls, env_name: str, types: Dict[str, Type],
-            predicates: Dict[str, Predicate],
+            cls, env_name: str, types: Dict[str,
+                                            Type], predicates: Dict[str,
+                                                                    Predicate],
             action_space: Box) -> Set[ParameterizedOption]:
         """Skill-factory-based option implementations for the grow env.
 
         PickJug and Place use the PhaseSkill framework.  Pour falls back
-        to the legacy implementation because it involves continuous tilting
-        that doesn't map directly to MOVE_TO_POSE / CHANGE_FINGERS phases.
+        to the legacy implementation because it involves continuous
+        tilting that doesn't map directly to MOVE_TO_POSE /
+        CHANGE_FINGERS phases.
         """
 
         _, pybullet_robot, _ = \
@@ -272,8 +274,9 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             del params, config
             _, jug = objects
             gz = env_cls.table_height + env_cls.jug_handle_height
-            return (state.get(jug, "x"), state.get(jug, "y"), gz,
-                    state.get(jug, "rot"))
+            return (state.get(jug,
+                              "x"), state.get(jug,
+                                              "y"), gz, state.get(jug, "rot"))
 
         PickJug = create_pick_skill(
             name="PickJug",

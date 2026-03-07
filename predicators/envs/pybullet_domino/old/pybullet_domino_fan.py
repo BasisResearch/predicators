@@ -218,7 +218,8 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
     @property
     def goal_predicates(self) -> Set[Predicate]:
         """Goals can be either ball at target OR dominoes toppled."""
-        return {self._BallAtTarget, self._Toppled}  # type: ignore[attr-defined]
+        return {self._BallAtTarget,
+                self._Toppled}  # type: ignore[attr-defined]
 
     # -------------------------------------------------------------------------
     # PyBullet Initialization
@@ -746,7 +747,8 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         init_dict = {self._robot: robot_dict}
 
         # Add direction objects to initial state
-        for i, direction_obj in enumerate(self.directions):  # type: ignore[attr-defined]
+        for i, direction_obj in enumerate(
+                self.directions):  # type: ignore[attr-defined]
             init_dict[direction_obj] = {"dir": float(i)}
 
         # Generate domino sequence using parent's logic
@@ -811,14 +813,21 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         if CFG.domino_use_domino_blocks_as_target:
             # Find target dominoes (pink/red dominoes) and set them as goals
             goal_atoms = set()
-            for domino_obj in init_state.get_objects(self._domino_type):  # type: ignore[attr-defined]
-                if self._TargetDomino_holds(init_state, [domino_obj]):  # type: ignore[attr-defined]
-                    goal_atoms.add(GroundAtom(self._Toppled, [domino_obj]))  # type: ignore[attr-defined]
+            for domino_obj in init_state.get_objects(
+                    self._domino_type):  # type: ignore[attr-defined]
+                if self._TargetDomino_holds(
+                        init_state,
+                    [domino_obj]):  # type: ignore[attr-defined]
+                    goal_atoms.add(
+                        GroundAtom(self._Toppled,
+                                   [domino_obj]))  # type: ignore[attr-defined]
         else:
             # Use regular domino targets
             goal_atoms = set()
-            for target_obj in init_state.get_objects(self._target_type):  # type: ignore[attr-defined]
-                goal_atoms.add(GroundAtom(self._Toppled, [target_obj]))  # type: ignore[attr-defined]
+            for target_obj in init_state.get_objects(
+                    self._target_type):  # type: ignore[attr-defined]
+                goal_atoms.add(GroundAtom(
+                    self._Toppled, [target_obj]))  # type: ignore[attr-defined]
 
         return EnvironmentTask(init_state, goal_atoms)
 
@@ -855,7 +864,8 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         }
 
         # Add direction objects
-        for i, direction_obj in enumerate(self.directions):  # type: ignore[attr-defined]
+        for i, direction_obj in enumerate(
+                self.directions):  # type: ignore[attr-defined]
             init_dict[direction_obj] = {"dir": float(i)}
 
         # Add fan/switch/ball objects (all fans off initially)
@@ -945,7 +955,8 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         init_dict = {self._robot: robot_dict}
 
         # Add direction objects
-        for i, direction_obj in enumerate(self.directions):  # type: ignore[attr-defined]
+        for i, direction_obj in enumerate(
+                self.directions):  # type: ignore[attr-defined]
             init_dict[direction_obj] = {"dir": float(i)}
 
         # Generate domino sequence using parent's logic
@@ -958,12 +969,13 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         for attempt_num in range(max_attempts):
             if log_debug:
                 print(f"\nAttempt {attempt_num} for combined task {task_idx}")
-            obj_dict = self._generate_domino_sequence(rng,  # type: ignore[attr-defined]
-                                                      n_dominos,
-                                                      n_targets,
-                                                      n_pivots,
-                                                      log_debug=log_debug,
-                                                      task_idx=task_idx)
+            obj_dict = self._generate_domino_sequence(
+                rng,  # type: ignore[attr-defined]
+                n_dominos,
+                n_targets,
+                n_pivots,
+                log_debug=log_debug,
+                task_idx=task_idx)
             if obj_dict is not None:
                 if log_debug:
                     print("Found satisfying domino sequence")
@@ -1018,13 +1030,20 @@ class PyBulletDominoFanEnv(PyBulletDominoEnv):
         # Add domino goals
         if CFG.domino_use_domino_blocks_as_target:
             # Find target dominoes (pink/red dominoes)
-            for domino_obj in init_state.get_objects(self._domino_type):  # type: ignore[attr-defined]
-                if self._TargetDomino_holds(init_state, [domino_obj]):  # type: ignore[attr-defined]
-                    goal_atoms.add(GroundAtom(self._Toppled, [domino_obj]))  # type: ignore[attr-defined]
+            for domino_obj in init_state.get_objects(
+                    self._domino_type):  # type: ignore[attr-defined]
+                if self._TargetDomino_holds(
+                        init_state,
+                    [domino_obj]):  # type: ignore[attr-defined]
+                    goal_atoms.add(
+                        GroundAtom(self._Toppled,
+                                   [domino_obj]))  # type: ignore[attr-defined]
         else:
             # Use regular domino targets
-            for target_obj in init_state.get_objects(self._target_type):  # type: ignore[attr-defined]
-                goal_atoms.add(GroundAtom(self._Toppled, [target_obj]))  # type: ignore[attr-defined]
+            for target_obj in init_state.get_objects(
+                    self._target_type):  # type: ignore[attr-defined]
+                goal_atoms.add(GroundAtom(
+                    self._Toppled, [target_obj]))  # type: ignore[attr-defined]
 
         return EnvironmentTask(init_state, goal_atoms)
 
@@ -1140,8 +1159,9 @@ if __name__ == "__main__":
         # Determine task type
         has_ball_goal = any(atom.predicate == env._BallAtTarget
                             for atom in task.goal)
-        has_domino_goal = any(atom.predicate == env._Toppled  # type: ignore[attr-defined]
-                              for atom in task.goal)
+        has_domino_goal = any(
+            atom.predicate == env._Toppled  # type: ignore[attr-defined]
+            for atom in task.goal)
 
         # Reset to initial state
         env._reset_state(task.init)

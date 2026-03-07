@@ -27,8 +27,10 @@ import sys
 def run_experiments(config: str) -> None:
     """Run launch_simp.py to generate MP4 videos."""
     cmd = [
-        sys.executable, "scripts/local/launch_simp.py",
-        "-c", config,
+        sys.executable,
+        "scripts/local/launch_simp.py",
+        "-c",
+        config,
     ]
     print(f"Running: {' '.join(cmd)}")
     subprocess.run(cmd, check=False)
@@ -44,25 +46,45 @@ def mp4_to_gif(
     os.makedirs(os.path.dirname(gif_path), exist_ok=True)
     # Two-pass ffmpeg: generate palette then use it for high-quality GIF
     palette_cmd = [
-        "ffmpeg", "-y", "-i", mp4_path,
-        "-vf", f"fps={fps},scale={width}:-1:flags=lanczos,palettegen=stats_mode=diff",
-        "-f", "image2", "pipe:1",
+        "ffmpeg",
+        "-y",
+        "-i",
+        mp4_path,
+        "-vf",
+        f"fps={fps},scale={width}:-1:flags=lanczos,palettegen=stats_mode=diff",
+        "-f",
+        "image2",
+        "pipe:1",
     ]
     gif_cmd = [
-        "ffmpeg", "-y", "-i", mp4_path, "-i", "pipe:0",
-        "-lavfi", f"fps={fps},scale={width}:-1:flags=lanczos [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
+        "ffmpeg",
+        "-y",
+        "-i",
+        mp4_path,
+        "-i",
+        "pipe:0",
+        "-lavfi",
+        f"fps={fps},scale={width}:-1:flags=lanczos [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
         gif_path,
     ]
     # Simpler single-pass approach that's more robust
     cmd = [
-        "ffmpeg", "-y", "-i", mp4_path,
-        "-vf", f"fps={fps},scale={width}:-1:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
-        "-loop", "0",
+        "ffmpeg",
+        "-y",
+        "-i",
+        mp4_path,
+        "-vf",
+        f"fps={fps},scale={width}:-1:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle",
+        "-loop",
+        "0",
         gif_path,
     ]
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, check=True,
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return True
     except subprocess.CalledProcessError as e:
@@ -100,30 +122,38 @@ def find_mp4s(video_dir: str) -> dict[str, str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate random-action GIFs for PyBullet environments."
-    )
+        description="Generate random-action GIFs for PyBullet environments.")
     parser.add_argument(
-        "--skip-run", action="store_true",
+        "--skip-run",
+        action="store_true",
         help="Skip running experiments; only convert existing MP4s to GIFs.",
     )
     parser.add_argument(
-        "-c", "--config", default="mara2/random_actions_pybullet.yaml",
+        "-c",
+        "--config",
+        default="mara2/random_actions_pybullet.yaml",
         help="Config YAML file (relative to scripts/configs/).",
     )
     parser.add_argument(
-        "--video-dir", default="videos",
+        "--video-dir",
+        default="videos",
         help="Directory where MP4 videos are written.",
     )
     parser.add_argument(
-        "--output-dir", default="docs/envs/assets/random_action_gifs",
+        "--output-dir",
+        default="docs/envs/assets/random_action_gifs",
         help="Output directory for GIFs.",
     )
     parser.add_argument(
-        "--fps", type=int, default=10,
+        "--fps",
+        type=int,
+        default=10,
         help="GIF frames per second.",
     )
     parser.add_argument(
-        "--width", type=int, default=480,
+        "--width",
+        type=int,
+        default=480,
         help="GIF width in pixels (height auto-scaled).",
     )
     args = parser.parse_args()

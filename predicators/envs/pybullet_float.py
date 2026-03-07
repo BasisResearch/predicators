@@ -203,7 +203,7 @@ class PyBulletFloatEnv(PyBulletEnv):
             body_id = create_pybullet_block(
                 color=(1, 1, 1, 1),
                 half_extents=(cls.block_size / 2, cls.block_size / 2,
-                               cls.block_size / 2),
+                              cls.block_size / 2),
                 mass=cls.block_mass,
                 friction=cls.block_friction,
                 orientation=(0, 0, 0, 1),

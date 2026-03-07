@@ -634,7 +634,8 @@ class PyBulletDominoGridFanEnv(PyBulletEnv):
         domino_ids = []
         for i in range(max_dominos):
             # Import the helper function from domino env
-            from predicators.envs.pybullet_domino import create_domino_block  # type: ignore[attr-defined]
+            from predicators.envs.pybullet_domino import \
+                create_domino_block  # type: ignore[attr-defined]
             domino_id = create_domino_block(
                 color=cls.start_domino_color if i == 0 else cls.domino_color,
                 half_extents=(cls.domino_width / 2, cls.domino_depth / 2,

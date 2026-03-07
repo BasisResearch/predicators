@@ -10,9 +10,10 @@ for:
 - Optionally performing per-step simulation updates (e.g., physics)
 """
 
-import numpy as np
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Set
+
+import numpy as np
 
 from predicators.structs import Object, Predicate, State, Type
 

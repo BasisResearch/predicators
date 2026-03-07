@@ -2,9 +2,6 @@
 import logging
 from typing import Callable, Dict, Optional, Sequence, Set, Tuple, cast
 
-from predicators.pybullet_helpers.robots.mobile_fetch import \
-    MobileFetchPyBulletRobot
-
 import numpy as np
 import pybullet as p
 from gym.spaces import Box
@@ -14,6 +11,8 @@ from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.inverse_kinematics import \
     InverseKinematicsError
 from predicators.pybullet_helpers.joint import JointPositions
+from predicators.pybullet_helpers.robots.mobile_fetch import \
+    MobileFetchPyBulletRobot
 from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot
 from predicators.structs import Action, Array, Object, \

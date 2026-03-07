@@ -3,8 +3,9 @@
 import logging
 from dataclasses import replace
 from functools import lru_cache
-from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple, cast
+from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
 from typing import Type as TypingType
+from typing import cast
 
 import numpy as np
 import pybullet as p
@@ -14,9 +15,9 @@ from predicators import utils
 from predicators.envs.pybullet_boil import PyBulletBoilEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
-from predicators.ground_truth_models.skill_factories import (
-    SkillConfig, create_pick_skill, create_place_skill, create_push_skill,
-    create_wait_option)
+from predicators.ground_truth_models.skill_factories import SkillConfig, \
+    create_pick_skill, create_place_skill, create_push_skill, \
+    create_wait_option
 from predicators.pybullet_helpers.controllers import \
     create_change_fingers_option, create_move_end_effector_to_pose_option
 from predicators.pybullet_helpers.geometry import Pose
@@ -524,8 +525,9 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
 
     @classmethod
     def _get_options_skill_factories(
-            cls, env_name: str, types: Dict[str, Type],
-            predicates: Dict[str, Predicate],
+            cls, env_name: str, types: Dict[str,
+                                            Type], predicates: Dict[str,
+                                                                    Predicate],
             action_space: Box) -> Set[ParameterizedOption]:
         """Skill-factory-based option implementations for the boil env."""
         del env_name, action_space  # unused
@@ -565,9 +567,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         ) -> Tuple[float, float, float, float]:
             del params, config
             _, obj = objects
-            switch = next(
-                (s for s in state.get_objects(switch_type)
-                 if s.id == obj.switch_id), None)
+            switch = next((s for s in state.get_objects(switch_type)
+                           if s.id == obj.switch_id), None)
             if switch is None:
                 raise utils.OptionExecutionFailure(
                     f"No switch found for {obj} (switch_id={obj.switch_id})")
@@ -689,8 +690,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
                 del objects, params
                 robot_obj2, = state.get_objects(robot_type)
                 current = PyBulletBoilEnv._fingers_state_to_joint(
-                    pybullet_robot2,
-                    state.get(robot_obj2, "fingers"))
+                    pybullet_robot2, state.get(robot_obj2, "fingers"))
                 return current, pybullet_robot2.open_fingers
 
             DeclareComplete = utils.LinearChainParameterizedOption(

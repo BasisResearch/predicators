@@ -47,8 +47,8 @@ class AgentSessionMixin:
             options=options,
             train_tasks=train_tasks,
         )
-        self._agent_session: Optional[
-            Union[AgentSessionManager, Any]] = None  # or DockerSessionManager
+        self._agent_session: Optional[Union[
+            AgentSessionManager, Any]] = None  # or DockerSessionManager
         self._agent_session_id: Optional[str] = None
 
     # ------------------------------------------------------------------ #
@@ -70,8 +70,8 @@ class AgentSessionMixin:
         """Return extra reference files for the docker sandbox.
 
         Maps destination paths (relative to ``/sandbox/reference/``) to
-        source paths (relative to the repo root).  Override in subclasses
-        to provide approach-specific reference material.
+        source paths (relative to the repo root).  Override in
+        subclasses to provide approach-specific reference material.
         """
         return {}
 
@@ -84,8 +84,9 @@ class AgentSessionMixin:
 
         When ``CFG.agent_sdk_use_docker_sandbox`` is ``True``, creates a
         ``DockerSessionManager`` that runs ``ClaudeSDKClient`` inside a
-        Docker container with full built-in tools (Bash, Read, Write, …).
-        Otherwise creates the normal in-process ``AgentSessionManager``.
+        Docker container with full built-in tools (Bash, Read, Write,
+        …). Otherwise creates the normal in-process
+        ``AgentSessionManager``.
         """
         if self._agent_session is not None:
             return
@@ -118,8 +119,7 @@ class AgentSessionMixin:
         else:
             from claude_agent_sdk import create_sdk_mcp_server
 
-            tools = create_mcp_tools(self._tool_context,
-                                     tool_names=tool_names)
+            tools = create_mcp_tools(self._tool_context, tool_names=tool_names)
             mcp_server = create_sdk_mcp_server(
                 name="predicator_tools",
                 version="1.0.0",
@@ -148,8 +148,9 @@ class AgentSessionMixin:
         """Return the log directory, using the approach name."""
         if hasattr(CFG, 'log_file') and CFG.log_file:
             return CFG.log_file
-        name = (self.get_name()  # type: ignore[attr-defined]
-                if hasattr(self, 'get_name') else self._log_subdir)
+        name = (
+            self.get_name()  # type: ignore[attr-defined]
+            if hasattr(self, 'get_name') else self._log_subdir)
         return os.path.join("logs", name)
 
     def _close_agent_session(self) -> None:

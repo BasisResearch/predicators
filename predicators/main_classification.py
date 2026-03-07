@@ -213,9 +213,9 @@ def _save_test_results(results: Metrics,
     logging.info(f"Wrote out test results to {outfile}")
 
 
-def _run_pipeline(
-        approach: Union[VLMClassificationApproach, DinoSimilarityApproach],
-        test_dataset: ClassificationDataset) -> None:
+def _run_pipeline(approach: Union[VLMClassificationApproach,
+                                  DinoSimilarityApproach],
+                  test_dataset: ClassificationDataset) -> None:
     """Run the classification pipeline."""
     results = _run_testing(approach, test_dataset)
     _save_test_results(results)

@@ -693,7 +693,7 @@ def learn_process_parameters_empirical(
     processes: Sequence[CausalProcess],
     use_empirical: bool = False,
 ) -> Tuple[Sequence[CausalProcess], Dict[str, Tuple[Optional[float],
-                                                          Optional[float]]]]:
+                                                    Optional[float]]]]:
     """Learn process parameters using empirical estimation of delays.
 
     When use_empirical=True, directly computes mean and std from

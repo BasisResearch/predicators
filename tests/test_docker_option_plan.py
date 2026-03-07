@@ -23,7 +23,6 @@ import numpy as np
 
 # Bootstrap circular imports
 import predicators.utils as utils  # noqa: F401
-
 from predicators import utils as pred_utils
 from predicators.settings import CFG
 
@@ -47,11 +46,31 @@ _CFG_OVERRIDES = {
 }
 
 OPTION_PLAN = [
-    {"option_name": "Pick", "object_names": ["robot", "domino_2"], "params": []},
-    {"option_name": "Place", "object_names": ["robot"], "params": [0.76, 1.26, -1.57]},
-    {"option_name": "Pick", "object_names": ["robot", "domino_1"], "params": []},
-    {"option_name": "Place", "object_names": ["robot"], "params": [0.86, 1.26, -1.57]},
-    {"option_name": "Push", "object_names": ["robot"], "params": []},
+    {
+        "option_name": "Pick",
+        "object_names": ["robot", "domino_2"],
+        "params": []
+    },
+    {
+        "option_name": "Place",
+        "object_names": ["robot"],
+        "params": [0.76, 1.26, -1.57]
+    },
+    {
+        "option_name": "Pick",
+        "object_names": ["robot", "domino_1"],
+        "params": []
+    },
+    {
+        "option_name": "Place",
+        "object_names": ["robot"],
+        "params": [0.86, 1.26, -1.57]
+    },
+    {
+        "option_name": "Push",
+        "object_names": ["robot"],
+        "params": []
+    },
 ]
 
 
@@ -87,7 +106,8 @@ def _setup_env_and_context():
 
 
 def _run_option_plan(ctx, plan=None, label=""):
-    """Run option plan and return list of (num_actions, state_changed) tuples."""
+    """Run option plan and return list of (num_actions, state_changed)
+    tuples."""
     if plan is None:
         plan = OPTION_PLAN
 
@@ -176,8 +196,7 @@ def _rehash_objects_after_unpickle(ctx):
             _process_state(task.init)
         if hasattr(task, "init_obs"):
             _process_state(task.init_obs)
-        for attr in ("goal", "alt_goal", "goal_description",
-                      "alt_goal_desc"):
+        for attr in ("goal", "alt_goal", "goal_description", "alt_goal_desc"):
             atoms = getattr(task, attr, None)
             if atoms:
                 _process_atoms(atoms)
@@ -211,7 +230,9 @@ def main_parent() -> None:
 
     proc = subprocess.run(
         [sys.executable, __file__, "--child", pkl_path],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     print(proc.stdout)
     if proc.stderr:

@@ -692,8 +692,9 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
     @classmethod
     def _get_options_skill_factories(
-            cls, env_name: str, types: Dict[str, Type],
-            predicates: Dict[str, Predicate],
+            cls, env_name: str, types: Dict[str,
+                                            Type], predicates: Dict[str,
+                                                                    Predicate],
             action_space: Box) -> Set[ParameterizedOption]:
         """Option implementation built on skill_factories primitives."""
         del env_name, predicates, action_space  # unused
@@ -717,16 +718,14 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             options.add(cls._create_sf_push(cfg, robot_type, domino_type))
 
         options.add(cls._create_sf_pick(cfg, robot_type, domino_type))
-        options.add(
-            cls._create_sf_place(cfg, robot_type))
+        options.add(cls._create_sf_place(cfg, robot_type))
         options.add(create_wait_option("NoOp", cfg, robot_type))
 
         return options
 
     @classmethod
     def _build_skill_config(
-            cls,
-            pybullet_robot: SingleArmPyBulletRobot) -> SkillConfig:
+            cls, pybullet_robot: SingleArmPyBulletRobot) -> SkillConfig:
         """Build the shared SkillConfig for domino skill_factories options."""
         return SkillConfig(
             robot=pybullet_robot,
@@ -739,8 +738,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             grasp_tol=PyBulletEnv.grasp_tol_small,
             ik_validate=CFG.pybullet_ik_validate,
             robot_init_tilt=cls.env_cls.robot_init_tilt,
-            robot_home_pos=(cls.env_cls.robot_init_x,
-                            cls.env_cls.robot_init_y,
+            robot_home_pos=(cls.env_cls.robot_init_x, cls.env_cls.robot_init_y,
                             cls.env_cls.robot_init_z),
             transport_z=cls._transport_z,
         )
@@ -751,10 +749,9 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
         """Push option using create_push_skill."""
         push_cfg = replace(cfg, transport_z=cls._transport_z_push)
 
-        def _get_target(state: State, objects: Sequence[Object],
-                        params: Array,
-                        config: SkillConfig) -> Tuple[float, float, float,
-                                                      float]:
+        def _get_target(
+                state: State, objects: Sequence[Object], params: Array,
+                config: SkillConfig) -> Tuple[float, float, float, float]:
             del params, config
             _, domino = objects
             return (state.get(domino, "x"), state.get(domino, "y"),
@@ -771,10 +768,9 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
         """Push (restricted) option: finds start block from state."""
         push_cfg = replace(cfg, transport_z=cls._transport_z_push)
 
-        def _get_target(state: State, objects: Sequence[Object],
-                        params: Array,
-                        config: SkillConfig) -> Tuple[float, float, float,
-                                                      float]:
+        def _get_target(
+                state: State, objects: Sequence[Object], params: Array,
+                config: SkillConfig) -> Tuple[float, float, float, float]:
             del objects, params, config
             start = cls._find_start_block(state, domino_type)
             return (state.get(start, "x"), state.get(start, "y"),
@@ -791,9 +787,8 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
         """Pick option using create_pick_skill."""
 
         def _get_domino_pose(
-            state: State, objects: Sequence[Object], params: Array,
-            c: SkillConfig
-        ) -> Tuple[float, float, float, float]:
+                state: State, objects: Sequence[Object], params: Array,
+                c: SkillConfig) -> Tuple[float, float, float, float]:
             del params, c
             _, domino = objects
             return (state.get(domino, "x"), state.get(domino, "y"),
@@ -807,8 +802,8 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
         )
 
     @classmethod
-    def _create_sf_place(cls, cfg: SkillConfig, robot_type: Type
-                         ) -> ParameterizedOption:
+    def _create_sf_place(cls, cfg: SkillConfig,
+                         robot_type: Type) -> ParameterizedOption:
         """Place option using create_place_skill."""
         return create_place_skill(
             name="Place",

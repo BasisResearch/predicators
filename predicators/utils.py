@@ -1227,11 +1227,12 @@ class RawState(PyBulletState):
         else:
             return self.data[obj][idx]
 
-    def dict_str(self,  # type: ignore[override]
-                 indent: int = 0,
-                 object_features: bool = True,
-                 use_object_id: bool = False,
-                 position_proprio_features: bool = False) -> str:
+    def dict_str(
+            self,  # type: ignore[override]
+            indent: int = 0,
+            object_features: bool = True,
+            use_object_id: bool = False,
+            position_proprio_features: bool = False) -> str:
         """Return a dictionary representation of the state."""
         state_dict = {}
         for obj in self:
@@ -2705,7 +2706,8 @@ def create_vlm_predicate(
             objects: Sequence[Object]) -> bool:  # pragma: no cover.
         raise Exception("VLM predicate classifier should never be called!")
 
-    return VLMPredicate(name, types, _stripped_classifier, get_vlm_query_str)  # type: ignore[arg-type]
+    return VLMPredicate(name, types, _stripped_classifier,
+                        get_vlm_query_str)  # type: ignore[arg-type]
 
 
 def create_llm_by_name(
@@ -4897,15 +4899,17 @@ def configure_logging() -> None:
         os.makedirs(CFG.log_file, exist_ok=True)
 
         # Handler for DEBUG level messages
-        debug_handler = logging.FileHandler(
-            os.path.join(CFG.log_file, "debug.log"), mode='w')
+        debug_handler = logging.FileHandler(os.path.join(
+            CFG.log_file, "debug.log"),
+                                            mode='w')
         debug_handler.setLevel(logging.DEBUG)
         debug_handler.setFormatter(colored_formatter)
         handlers.append(debug_handler)
 
         # Handler for INFO level messages
-        info_handler = logging.FileHandler(
-            os.path.join(CFG.log_file, "info.log"), mode='w')
+        info_handler = logging.FileHandler(os.path.join(
+            CFG.log_file, "info.log"),
+                                           mode='w')
         info_handler.setLevel(logging.INFO)
         info_handler.setFormatter(colored_formatter)
         handlers.append(info_handler)
@@ -4942,7 +4946,8 @@ def add_label_to_video(video: Video,
     new_video: Video = []
     for i, img in enumerate(video):
         img_name = prefix + f"frame_{i+1}"
-        labeled_img = add_label_to_image(img, img_name, imgs_dir, save=save)  # type: ignore[arg-type]
+        labeled_img = add_label_to_image(img, img_name, imgs_dir,
+                                         save=save)  # type: ignore[arg-type]
         new_video.append(labeled_img)  # type: ignore[arg-type]
     return new_video
 
@@ -4955,7 +4960,8 @@ def add_label_to_image(img: PIL.Image.Image,
     """Add a label to an image and potentially save."""
     img_copy = img.copy()
     draw = ImageDraw.Draw(img_copy)
-    font = ImageFont.load_default().font_variant(size=50)  # type: ignore[union-attr]
+    font = ImageFont.load_default().font_variant(
+        size=50)  # type: ignore[union-attr]
 
     # Get text dimensions
     bbox = draw.textbbox((0, 0), s_name, font=font)

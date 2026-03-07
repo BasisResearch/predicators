@@ -307,9 +307,17 @@ class DominoTaskGenerator(TaskGenerator):
         return self._place_straight_domino(rng, obj_dict, x, y, rotation, gap,
                                            domino_count, _in_bounds, task_idx)
 
-    def _place_straight_domino(self, rng, obj_dict, x, y, rotation, gap,  # type: ignore[no-untyped-def]
-                               domino_count, _in_bounds,
-                               task_idx) -> PlacementResult:
+    def _place_straight_domino(
+            self,
+            rng,
+            obj_dict,
+            x,
+            y,
+            rotation,
+            gap,  # type: ignore[no-untyped-def]
+            domino_count,
+            _in_bounds,
+            task_idx) -> PlacementResult:
         dx = gap * np.sin(rotation)
         dy = gap * np.cos(rotation)
         new_x, new_y = x + dx, y + dy
@@ -336,10 +344,20 @@ class DominoTaskGenerator(TaskGenerator):
                                rotation=rotation,
                                domino_count=domino_count + 1)
 
-    def _place_turn90_domino(self, rng, obj_dict, x, y, rotation, gap,  # type: ignore[no-untyped-def]
-                             domino_count, n_dominos, n_targets, _in_bounds,
-                             task_idx,
-                             should_place_target_at_end) -> PlacementResult:
+    def _place_turn90_domino(
+            self,
+            rng,
+            obj_dict,
+            x,
+            y,
+            rotation,
+            gap,  # type: ignore[no-untyped-def]
+            domino_count,
+            n_dominos,
+            n_targets,
+            _in_bounds,
+            task_idx,
+            should_place_target_at_end) -> PlacementResult:
         expected_count = self._get_expected_domino_count(n_dominos, n_targets)
         if domino_count + 1 >= expected_count:
             return self._place_straight_domino(rng, obj_dict, x, y, rotation,
@@ -414,9 +432,19 @@ class DominoTaskGenerator(TaskGenerator):
                                just_turned_90=True,
                                just_placed_target=should_place_target_at_end)
 
-    def _place_pivot180_domino(self, rng, obj_dict, x, y, rotation, gap,  # type: ignore[no-untyped-def]
-                               domino_count, pivot_count, _in_bounds, task_idx,
-                               should_place_target_at_end) -> PlacementResult:
+    def _place_pivot180_domino(
+            self,
+            rng,
+            obj_dict,
+            x,
+            y,
+            rotation,
+            gap,  # type: ignore[no-untyped-def]
+            domino_count,
+            pivot_count,
+            _in_bounds,
+            task_idx,
+            should_place_target_at_end) -> PlacementResult:
         pivot_direction = rng.choice([-1, 1])
         side_offset = self.domino.pivot_width / 2
 
@@ -471,9 +499,18 @@ class DominoTaskGenerator(TaskGenerator):
                                target_count=target_inc,
                                just_placed_target=should_place_target_at_end)
 
-    def _place_next_target(self, rng, obj_dict, x, y, rotation, gap,  # type: ignore[no-untyped-def]
-                           domino_count, target_count, _in_bounds,
-                           task_idx) -> PlacementResult:
+    def _place_next_target(
+            self,
+            rng,
+            obj_dict,
+            x,
+            y,
+            rotation,
+            gap,  # type: ignore[no-untyped-def]
+            domino_count,
+            target_count,
+            _in_bounds,
+            task_idx) -> PlacementResult:
         dx = gap * np.sin(rotation)
         dy = gap * np.cos(rotation)
         target_x, target_y = x + dx, y + dy

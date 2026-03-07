@@ -433,9 +433,13 @@ class PyBulletCoverGroundTruthOptionFactory(GroundTruthOptionFactory):
                     types=types),
                 # Toggle fingers.
                 create_change_fingers_option(
-                    pybullet_robot, "ToggleFingers", [], Box(
-                        0, 1, (1, )), toggle_fingers_func,  # type: ignore[arg-type]
-                    CFG.pybullet_max_vel_norm, PyBulletCoverEnv.grasp_tol),
+                    pybullet_robot,
+                    "ToggleFingers",
+                    [],
+                    Box(0, 1, (1, )),
+                    toggle_fingers_func,  # type: ignore[arg-type]
+                    CFG.pybullet_max_vel_norm,
+                    PyBulletCoverEnv.grasp_tol),
                 # Move back up.
                 cls._create_cover_move_option(
                     name="MoveEndEffectorBackUp",

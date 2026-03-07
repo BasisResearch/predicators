@@ -39,11 +39,9 @@ def _truncate(value: Any, max_len: int = _MAX_PARAM_LEN) -> str:
         return s[:max_len] + "..."
     return s
 
-from predicators.agent_sdk.docker_sandbox import (
-    _SANDBOX_SETTINGS,
-    _VALIDATE_SANDBOX_SCRIPT,
-    _find_repo_root,
-)
+
+from predicators.agent_sdk.docker_sandbox import _SANDBOX_SETTINGS, \
+    _VALIDATE_SANDBOX_SCRIPT, _find_repo_root
 from predicators.agent_sdk.tools import ToolContext
 from predicators.settings import CFG
 
@@ -165,10 +163,7 @@ class LocalSandboxSessionManager:
         names = list(BUILTIN_TOOLS)
         if self._tool_names:
             names += self._tool_names
-        return [
-            t[len(prefix):] if t.startswith(prefix) else t
-            for t in names
-        ]
+        return [t[len(prefix):] if t.startswith(prefix) else t for t in names]
 
     @property
     def conversation_log(self) -> List[Dict[str, Any]]:
@@ -216,14 +211,12 @@ class LocalSandboxSessionManager:
         # 3. .claude/settings.json with PreToolUse hooks
         claude_dir = sandbox / ".claude"
         claude_dir.mkdir(exist_ok=True)
-        (claude_dir / "settings.json").write_text(
-            json.dumps(_SANDBOX_SETTINGS, indent=2) + "\n"
-        )
+        (claude_dir / "settings.json"
+         ).write_text(json.dumps(_SANDBOX_SETTINGS, indent=2) + "\n")
 
         # 4. validate_sandbox.py hook script
-        (claude_dir / "validate_sandbox.py").write_text(
-            _VALIDATE_SANDBOX_SCRIPT
-        )
+        (claude_dir /
+         "validate_sandbox.py").write_text(_VALIDATE_SANDBOX_SCRIPT)
 
         # 5. CLAUDE.md
         (sandbox / "CLAUDE.md").write_text(_LOCAL_CLAUDE_MD)
@@ -238,11 +231,11 @@ class LocalSandboxSessionManager:
 
     async def start_session(self) -> None:
         """Create ClaudeSDKClient with cwd set to the sandbox directory."""
-        from claude_agent_sdk import (ClaudeAgentOptions, ClaudeSDKClient,
-                                      create_sdk_mcp_server)
+        from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, \
+            create_sdk_mcp_server
 
-        from predicators.agent_sdk.tools import (create_mcp_tools,
-                                                 get_allowed_tool_list)
+        from predicators.agent_sdk.tools import create_mcp_tools, \
+            get_allowed_tool_list
 
         self._ensure_sandbox_dir()
 
@@ -273,13 +266,12 @@ class LocalSandboxSessionManager:
         await self._client.connect()
         self._started = True
         logger.info("Local sandbox session started (cwd=%s)",
-                     self._sandbox_dir)
+                    self._sandbox_dir)
 
     async def query(self, message: str) -> List[Dict[str, Any]]:
         """Send a message to the agent and collect all response messages."""
-        from claude_agent_sdk import (AssistantMessage, ResultMessage,
-                                      TextBlock, ToolResultBlock,
-                                      ToolUseBlock, UserMessage)
+        from claude_agent_sdk import AssistantMessage, ResultMessage, \
+            TextBlock, ToolResultBlock, ToolUseBlock, UserMessage
 
         if not self._started:
             await self.start_session()
@@ -293,34 +285,38 @@ class LocalSandboxSessionManager:
             async for msg in self._client.receive_response():
                 if isinstance(msg, AssistantMessage):
                     entry: Dict[str, Any] = {
-                        "type": "assistant", "content": [],
+                        "type": "assistant",
+                        "content": [],
                     }
                     for block in msg.content:
                         if isinstance(block, TextBlock):
                             entry["content"].append({
-                                "type": "text", "text": block.text,
+                                "type": "text",
+                                "text": block.text,
                             })
                             logging.debug("Agent: %s...", block.text[:200])
                         elif isinstance(block, ToolUseBlock):
                             entry["content"].append({
-                                "type": "tool_use",
-                                "id": getattr(block, "id", None),
-                                "name": block.name,
-                                "input": block.input,
+                                "type":
+                                "tool_use",
+                                "id":
+                                getattr(block, "id", None),
+                                "name":
+                                block.name,
+                                "input":
+                                block.input,
                             })
                             params = block.input or {}
                             param_summary = ", ".join(
                                 f"{k}={_truncate(v)}"
                                 for k, v in params.items())
-                            logging.debug(
-                                "Agent tool call: %s(%s)",
-                                block.name, param_summary)
+                            logging.debug("Agent tool call: %s(%s)",
+                                          block.name, param_summary)
                         else:
                             block_type = type(block).__name__
                             block_dict: Dict[str, Any] = {"type": block_type}
                             for attr in ("name", "input", "id", "text",
-                                         "content", "tool_use_id",
-                                         "thinking"):
+                                         "content", "tool_use_id", "thinking"):
                                 val = getattr(block, attr, None)
                                 if val is not None:
                                     block_dict[attr] = val
@@ -329,29 +325,32 @@ class LocalSandboxSessionManager:
 
                 elif isinstance(msg, UserMessage):
                     user_entry: Dict[str, Any] = {
-                        "type": "user", "content": [],
+                        "type": "user",
+                        "content": [],
                     }
                     for block in msg.content:  # type: ignore[union-attr]
                         if isinstance(block, TextBlock):
                             user_entry["content"].append({
-                                "type": "text", "text": block.text,
+                                "type": "text",
+                                "text": block.text,
                             })
                         elif isinstance(block, ToolResultBlock):
                             user_entry["content"].append({
-                                "type": "tool_result",
-                                "tool_use_id": getattr(
-                                    block, "tool_use_id", None),
-                                "content": getattr(block, "content", None),
-                                "is_error": getattr(
-                                    block, "is_error", False),
+                                "type":
+                                "tool_result",
+                                "tool_use_id":
+                                getattr(block, "tool_use_id", None),
+                                "content":
+                                getattr(block, "content", None),
+                                "is_error":
+                                getattr(block, "is_error", False),
                             })
                         else:
                             block_dict2: Dict[str, Any] = {
                                 "type": type(block).__name__,
                             }
                             for attr in ("name", "input", "id", "text",
-                                         "content", "tool_use_id",
-                                         "is_error"):
+                                         "content", "tool_use_id", "is_error"):
                                 val = getattr(block, attr, None)
                                 if val is not None:
                                     block_dict2[attr] = val
@@ -362,8 +361,7 @@ class LocalSandboxSessionManager:
                     result_entry = {
                         "type": "result",
                         "num_turns": getattr(msg, "num_turns", None),
-                        "total_cost_usd": getattr(
-                            msg, "total_cost_usd", None),
+                        "total_cost_usd": getattr(msg, "total_cost_usd", None),
                     }
                     collected.append(result_entry)
                     if (hasattr(msg, "total_cost_usd")
@@ -374,8 +372,7 @@ class LocalSandboxSessionManager:
                         self._total_turns += msg.num_turns
                     logging.info(
                         "Local sandbox iteration complete. "
-                        "Turns: %s, Cost: $%s",
-                        getattr(msg, 'num_turns', '?'),
+                        "Turns: %s, Cost: $%s", getattr(msg, 'num_turns', '?'),
                         getattr(msg, 'total_cost_usd', '?'))
 
                 # Flush log after each message
@@ -390,8 +387,7 @@ class LocalSandboxSessionManager:
         # Final flush
         if log_path:
             self._flush_log(log_path, collected)
-            logging.info("Saved local sandbox query/response to %s",
-                         log_path)
+            logging.info("Saved local sandbox query/response to %s", log_path)
 
         # Log proposals (matches Docker sandbox logging)
         proposals = self._tool_context.iteration_proposals
@@ -420,8 +416,7 @@ class LocalSandboxSessionManager:
             try:
                 await self._client.disconnect()
             except Exception as e:
-                logging.warning(
-                    "Error closing local sandbox session: %s", e)
+                logging.warning("Error closing local sandbox session: %s", e)
             finally:
                 self._client = None
                 self._started = False
@@ -479,8 +474,8 @@ class LocalSandboxSessionManager:
         self._flush_log(filepath, [])
         return filepath
 
-    def _flush_log(self, filepath: str,
-                   response: List[Dict[str, Any]]) -> None:
+    def _flush_log(self, filepath: str, response: List[Dict[str,
+                                                            Any]]) -> None:
         """Write current conversation state as markdown to the log file."""
         try:
             meta = self._current_log_meta
@@ -512,28 +507,29 @@ class LocalSandboxSessionManager:
                                     lines.append(f"> {tline}")
                                 lines.append("")
                         elif btype == "text":
-                            lines.append(
-                                f"**Assistant:** "
-                                f"{block.get('text', '')}\n")
+                            lines.append(f"**Assistant:** "
+                                         f"{block.get('text', '')}\n")
                         elif btype == "tool_use":
                             name = block.get("name", "?")
                             tool_id = block.get("id", "")
                             inp = block.get("input", {})
-                            lines.append(
-                                f"**Tool Call:** `{name}` "
-                                f"(id: `{tool_id}`)")
+                            lines.append(f"**Tool Call:** `{name}` "
+                                         f"(id: `{tool_id}`)")
                             lines.append("```json")
-                            lines.append(json.dumps(
-                                inp, indent=2, default=str))
+                            lines.append(json.dumps(inp, indent=2,
+                                                    default=str))
                             lines.append("```\n")
                         else:
                             lines.append(f"**{btype}:**")
-                            extra = {k: v for k, v in block.items()
-                                     if k != "type" and v is not None}
+                            extra = {
+                                k: v
+                                for k, v in block.items()
+                                if k != "type" and v is not None
+                            }
                             if extra:
                                 lines.append("```json")
-                                lines.append(json.dumps(
-                                    extra, indent=2, default=str))
+                                lines.append(
+                                    json.dumps(extra, indent=2, default=str))
                                 lines.append("```")
                             lines.append("")
                 elif etype == "user":
@@ -543,11 +539,10 @@ class LocalSandboxSessionManager:
                             tool_use_id = block.get("tool_use_id", "")
                             content = block.get("content")
                             is_error = block.get("is_error", False)
-                            label = ("Tool Error" if is_error
-                                     else "Tool Result")
-                            lines.append(
-                                f"**{label}** "
-                                f"(tool_use_id: `{tool_use_id}`):")
+                            label = ("Tool Error"
+                                     if is_error else "Tool Result")
+                            lines.append(f"**{label}** "
+                                         f"(tool_use_id: `{tool_use_id}`):")
                             if isinstance(content, list):
                                 for item in content:
                                     if isinstance(item, dict):
@@ -565,30 +560,29 @@ class LocalSandboxSessionManager:
                                 lines.append("```")
                             lines.append("")
                         elif btype == "text":
-                            lines.append(
-                                f"**User:** "
-                                f"{block.get('text', '')}\n")
+                            lines.append(f"**User:** "
+                                         f"{block.get('text', '')}\n")
                         else:
                             lines.append(f"**{btype}:**")
-                            extra = {k: v for k, v in block.items()
-                                     if k != "type" and v is not None}
+                            extra = {
+                                k: v
+                                for k, v in block.items()
+                                if k != "type" and v is not None
+                            }
                             if extra:
                                 lines.append("```json")
-                                lines.append(json.dumps(
-                                    extra, indent=2, default=str))
+                                lines.append(
+                                    json.dumps(extra, indent=2, default=str))
                                 lines.append("```")
                             lines.append("")
                 elif etype == "result":
                     turns = entry.get("num_turns", "?")
                     cost = entry.get("total_cost_usd")
-                    cost_str = (f"${cost:.2f}" if cost is not None
-                                else "?")
-                    lines.append(
-                        f"---\n\n**Result:** "
-                        f"{turns} turns, {cost_str}\n")
+                    cost_str = (f"${cost:.2f}" if cost is not None else "?")
+                    lines.append(f"---\n\n**Result:** "
+                                 f"{turns} turns, {cost_str}\n")
                 elif etype == "error":
-                    lines.append(
-                        f"**Error:** {entry.get('error', '')}\n")
+                    lines.append(f"**Error:** {entry.get('error', '')}\n")
             with open(filepath, "w") as lf:
                 lf.write("\n".join(lines))
         except Exception:

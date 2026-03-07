@@ -94,7 +94,9 @@ class RandomNSRTsExplorer(BaseExplorer):
                     return fallback_policy(state)
                 if isinstance(ground_nsrt, _GroundNSRT):
                     assert all(a.holds for a in ground_nsrt.preconditions)
-                elif isinstance(ground_nsrt, _GroundEndogenousProcess):  # type: ignore[unreachable]
+                elif isinstance(
+                        ground_nsrt,
+                        _GroundEndogenousProcess):  # type: ignore[unreachable]
                     assert all(a.holds for a in ground_nsrt.condition_at_start)
                 else:
                     raise Exception  # type: ignore[unreachable]

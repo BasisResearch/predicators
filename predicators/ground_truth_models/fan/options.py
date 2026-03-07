@@ -17,8 +17,8 @@ from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.coffee.options import \
     PyBulletCoffeeGroundTruthOptionFactory
-from predicators.ground_truth_models.skill_factories import (
-    SkillConfig, create_push_skill, create_wait_option)
+from predicators.ground_truth_models.skill_factories import SkillConfig, \
+    create_push_skill, create_wait_option
 from predicators.pybullet_helpers.controllers import \
     create_change_fingers_option, create_move_end_effector_to_pose_option
 from predicators.pybullet_helpers.geometry import Pose
@@ -275,8 +275,9 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
 
     @classmethod
     def _get_options_skill_factories(
-            cls, env_name: str, types: Dict[str, Type],
-            predicates: Dict[str, Predicate],
+            cls, env_name: str, types: Dict[str,
+                                            Type], predicates: Dict[str,
+                                                                    Predicate],
             action_space: Box) -> Set[ParameterizedOption]:
         """Skill-factory-based option implementations for the fan env."""
         del env_name, predicates, action_space  # unused
@@ -318,9 +319,9 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
                 del params, config
                 _, fan = objects
                 switch = next(
-                    (s for s in state.get_objects(switch_type)
-                     if state.get(s, "controls_fan") == state.get(
-                         fan, "facing_side")), None)
+                    (s for s in state.get_objects(switch_type) if state.get(
+                        s, "controls_fan") == state.get(fan, "facing_side")),
+                    None)
                 if switch is None:
                     raise utils.OptionExecutionFailure(
                         "No switch found for fan (controls_fan mismatch)")

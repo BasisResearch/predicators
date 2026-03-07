@@ -5,28 +5,24 @@ from typing import Dict, Sequence, Set
 import numpy as np
 import torch
 
-from predicators.structs import Array, GroundAtom, Object, State
-
 from predicators.ground_truth_models import GroundTruthProcessFactory
-from predicators.structs import CausalProcess, EndogenousProcess, \
-    ExogenousProcess, LiftedAtom, ParameterizedOption, Predicate, Type, \
-    Variable
+from predicators.structs import Array, CausalProcess, EndogenousProcess, \
+    ExogenousProcess, GroundAtom, LiftedAtom, Object, ParameterizedOption, \
+    Predicate, State, Type, Variable
 from predicators.utils import DiscreteGaussianDelay, null_sampler
 
 _GROW_DROP_Z = 0.5  # approximate table_height + jug_handle_height
 
 
 def _pick_sampler(state: State, goal: Set[GroundAtom],
-                  rng: np.random.Generator,
-                  objs: Sequence[Object]) -> Array:
+                  rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return fixed grasp_z_offset for grow pick."""
     del state, goal, rng, objs
     return np.array([0.0], dtype=np.float32)
 
 
 def _place_sampler(state: State, goal: Set[GroundAtom],
-                   rng: np.random.Generator,
-                   objs: Sequence[Object]) -> Array:
+                   rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return placement params for grow place (random x, y)."""
     del state, goal, objs
     x = rng.uniform(0.4, 1.1)
@@ -35,8 +31,7 @@ def _place_sampler(state: State, goal: Set[GroundAtom],
 
 
 def _pour_sampler(state: State, goal: Set[GroundAtom],
-                  rng: np.random.Generator,
-                  objs: Sequence[Object]) -> Array:
+                  rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return fixed pour_tilt for grow pour."""
     del state, goal, rng, objs
     return np.array([np.pi / 4], dtype=np.float32)

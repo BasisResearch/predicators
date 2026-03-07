@@ -237,7 +237,8 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                     plan = []
                 else:
                     _, plan = max(partial_refinements, key=lambda x: len(x[1]))
-                policy = utils.option_plan_to_policy(plan)  # type: ignore[assignment]
+                policy = utils.option_plan_to_policy(
+                    plan)  # type: ignore[assignment]
                 termination_function = lambda s: False  # type: ignore[assignment, misc]
 
         # --- Execute the policy to generate a demonstration.
@@ -318,7 +319,8 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         # then get the last nsrt_plan and add the name of the
         # nsrt used to the list of annotations.
         if annotate_with_gt_ops:
-            last_nsrt_plan = oracle_approach.get_last_nsrt_plan()  # type: ignore[attr-defined]
+            last_nsrt_plan = oracle_approach.get_last_nsrt_plan(
+            )  # type: ignore[attr-defined]
             annotations.append(list(last_nsrt_plan))
         if CFG.make_demo_videos and video_monitor is not None:
             make_demo_videos(video_monitor, idx)

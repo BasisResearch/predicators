@@ -187,10 +187,12 @@ class _OperatorLearningBasedScoreFunction(_PredicateSearchScoreFunction):
             return float('inf')
 
         if self._use_processes:
-            op_score = self.evaluate_with_operators(candidate_predicates,
-                                                    low_level_trajs,
-                                                    segmented_trajs, processes,  # type: ignore[arg-type]
-                                                    [])
+            op_score = self.evaluate_with_operators(
+                candidate_predicates,
+                low_level_trajs,
+                segmented_trajs,
+                processes,  # type: ignore[arg-type]
+                [])
             strips_ops = processes  # type: ignore[assignment]
         else:
             logging.debug(
@@ -199,14 +201,15 @@ class _OperatorLearningBasedScoreFunction(_PredicateSearchScoreFunction):
                 logging.debug(
                     f"Operator {pnad.op.name} has {len(pnad.datastore)} datapoints."
                 )
-            strips_ops = [pnad.op for pnad in pnads]  # type: ignore[assignment]
+            strips_ops = [pnad.op
+                          for pnad in pnads]  # type: ignore[assignment]
             option_specs = [pnad.option_spec for pnad in pnads]
-            op_score = self.evaluate_with_operators(candidate_predicates,
-                                                    low_level_trajs,
-                                                    segmented_trajs,
-                                                    strips_ops, option_specs)  # type: ignore[arg-type]
+            op_score = self.evaluate_with_operators(
+                candidate_predicates, low_level_trajs, segmented_trajs,
+                strips_ops, option_specs)  # type: ignore[arg-type]
         pred_penalty = self._get_predicate_penalty(candidate_predicates)
-        op_penalty = self._get_operator_penalty(strips_ops)  # type: ignore[arg-type]
+        op_penalty = self._get_operator_penalty(
+            strips_ops)  # type: ignore[arg-type]
         total_score = op_score + pred_penalty + op_penalty
         logging.info(
             f"\tTotal score: {total_score:.3f}, "
@@ -309,14 +312,15 @@ class _TaskPlanningScoreFunction(_OperatorLearningBasedScoreFunction):
                 objects)
             try:
                 _, _, metrics = next(
-                    task_plan(init_atoms,
-                              traj_goal,
-                              ground_nsrts,  # type: ignore[arg-type]
-                              reachable_atoms,
-                              heuristic,
-                              CFG.seed,
-                              CFG.grammar_search_task_planning_timeout,
-                              max_skeletons_optimized=1))
+                    task_plan(
+                        init_atoms,
+                        traj_goal,
+                        ground_nsrts,  # type: ignore[arg-type]
+                        reachable_atoms,
+                        heuristic,
+                        CFG.seed,
+                        CFG.grammar_search_task_planning_timeout,
+                        max_skeletons_optimized=1))
                 assert "num_nodes_expanded" in metrics
                 node_expansions = metrics["num_nodes_expanded"]
                 assert node_expansions < node_expansion_upper_bound
@@ -398,15 +402,16 @@ class _ExpectedNodesScoreFunction(_OperatorLearningBasedScoreFunction):
                     CFG.sesame_task_planning_heuristic, init_atoms, goal,
                     ground_nsrts,
                     candidate_predicates | self._initial_predicates, objects)
-                generator = task_plan(init_atoms,  # type: ignore[assignment]
-                                      goal,
-                                      ground_nsrts,  # type: ignore[arg-type]
-                                      reachable_atoms,
-                                      heuristic,
-                                      CFG.seed,
-                                      CFG.grammar_search_task_planning_timeout,
-                                      max_skeletons,
-                                      use_visited_state_set=False)
+                generator = task_plan(
+                    init_atoms,  # type: ignore[assignment]
+                    goal,
+                    ground_nsrts,  # type: ignore[arg-type]
+                    reachable_atoms,
+                    heuristic,
+                    CFG.seed,
+                    CFG.grammar_search_task_planning_timeout,
+                    max_skeletons,
+                    use_visited_state_set=False)
             # The expected time needed before a low-level plan is found. We
             # approximate this using node creations and by adding a penalty
             # for every skeleton after the first to account for backtracking.
@@ -803,14 +808,15 @@ class _ExactHeuristicBasedScoreFunction(_HeuristicBasedScoreFunction):
                 return cache[frozenset(atoms)]
             try:
                 skeleton, atoms_sequence, _ = next(
-                    task_plan(atoms,
-                              goal,
-                              ground_nsrts,  # type: ignore[arg-type]
-                              reachable_atoms,
-                              heuristic,
-                              CFG.seed,
-                              CFG.grammar_search_task_planning_timeout,
-                              max_skeletons_optimized=1))
+                    task_plan(
+                        atoms,
+                        goal,
+                        ground_nsrts,  # type: ignore[arg-type]
+                        reachable_atoms,
+                        heuristic,
+                        CFG.seed,
+                        CFG.grammar_search_task_planning_timeout,
+                        max_skeletons_optimized=1))
             except (PlanningFailure, PlanningTimeout):
                 return float("inf")
             assert atoms_sequence[0] == atoms

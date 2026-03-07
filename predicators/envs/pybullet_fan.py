@@ -551,7 +551,8 @@ class PyBulletFanEnv(PyBulletEnv):
         return physics_client_id, pybullet_robot, bodies
 
     @staticmethod
-    def _get_joint_id(obj_id: int, joint_name: str,
+    def _get_joint_id(obj_id: int,
+                      joint_name: str,
                       physics_client_id: int = 0) -> int:
         num_joints = p.getNumJoints(obj_id, physicsClientId=physics_client_id)
         for j in range(num_joints):

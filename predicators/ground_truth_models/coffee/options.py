@@ -560,7 +560,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
                     action_space: Box) -> Set[ParameterizedOption]:
         if CFG.coffee_use_skill_factories:
             return cls._get_options_skill_factories(env_name, types,
-                                                     predicates, action_space)
+                                                    predicates, action_space)
         return cls._get_options_legacy(env_name, types, predicates,
                                        action_space)
 
@@ -800,19 +800,21 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
 
     @classmethod
     def _get_options_skill_factories(
-            cls, env_name: str, types: Dict[str, Type],
-            predicates: Dict[str, Predicate],
+            cls, env_name: str, types: Dict[str,
+                                            Type], predicates: Dict[str,
+                                                                    Predicate],
             action_space: Box) -> Set[ParameterizedOption]:
         """Skill-factory-based option implementations for the coffee env.
 
-        PickJug, PlaceJugInMachine, TurnMachineOn, Pour, and NoOp use the
-        PhaseSkill framework.  Twist and PlugIn fall back to the legacy
-        implementations because they involve complex twisting/plugging logic
-        that doesn't map directly to the factory phases.
+        PickJug, PlaceJugInMachine, TurnMachineOn, Pour, and NoOp use
+        the PhaseSkill framework.  Twist and PlugIn fall back to the
+        legacy implementations because they involve complex
+        twisting/plugging logic that doesn't map directly to the factory
+        phases.
         """
-        from predicators.ground_truth_models.skill_factories import (
-            SkillConfig, create_pick_skill, create_place_skill,
-            create_pour_skill, create_push_skill, create_wait_option)
+        from predicators.ground_truth_models.skill_factories import \
+            SkillConfig, create_pick_skill, create_place_skill, \
+            create_pour_skill, create_push_skill, create_wait_option
 
         _, pybullet_robot, _ = \
             PyBulletCoffeeEnv.initialize_pybullet(using_gui=False)
@@ -955,7 +957,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         # Twist and PlugIn: reuse legacy implementations
         # ---------------------------------------------------------------
         legacy_options = cls._get_options_legacy(env_name, types, predicates,
-                                                  action_space)
+                                                 action_space)
         options = {PickJug, PlaceJugInMachine, TurnMachineOn, Pour, NoOp}
 
         # Copy over legacy-only options (Twist/MoveToTwistJug, PlugIn, etc.)

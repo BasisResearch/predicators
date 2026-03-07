@@ -472,8 +472,8 @@ def test_place_jug_grow_center(grow_env):
     ty = env.y_mid - 0.1
     x_norm = (tx - env.x_lb) / (env.x_ub - env.x_lb)
     y_norm = (ty - env.y_lb) / (env.y_ub - env.y_lb)
-    result = env.execute_option(env.Place.ground([robot, jug], [x_norm,
-                                                                y_norm]))
+    result = env.execute_option(
+        env.Place.ground([robot, jug], [x_norm, y_norm]))
 
     assert result.get(jug, "is_held") < 0.5, "Jug should be free after place"
     assert result.get(robot, "fingers") > 0.015, "Fingers should be open"
@@ -584,8 +584,7 @@ def test_turn_machine_on_reaches_button(coffee_env):
     state.set(machine, "is_on", 0.0)
     env.set_state(state)
 
-    result = env.execute_option(
-        env.TurnMachineOn.ground([robot, machine], []))
+    result = env.execute_option(env.TurnMachineOn.ground([robot, machine], []))
 
     robot_x = result.get(robot, "x")
     robot_y = result.get(robot, "y")
@@ -621,10 +620,9 @@ def test_pour_reaches_cup_position(coffee_env):
 
     # Now try to pour - in reset mode, pouring physics don't run,
     # but we can check the robot approaches the pour position.
-    pour_pos = PyBulletCoffeeEnv._get_pour_position(
-        env.get_state(), cup)
-    result = env.execute_option(
-        env.Pour.ground([robot, jug, cup], []), max_steps=200)
+    pour_pos = PyBulletCoffeeEnv._get_pour_position(env.get_state(), cup)
+    result = env.execute_option(env.Pour.ground([robot, jug, cup], []),
+                                max_steps=200)
 
     # Check robot approached the pour position (x/y)
     robot_x = result.get(robot, "x")
@@ -688,8 +686,7 @@ def test_push_switch_reaches_target_position_boil(boil_env):
     switch_x = task_state.get(faucet_switch, "x")
     switch_y = task_state.get(faucet_switch, "y")
 
-    result = env.execute_option(
-        env.SwitchFaucetOn.ground([robot, faucet], []))
+    result = env.execute_option(env.SwitchFaucetOn.ground([robot, faucet], []))
 
     robot_x = result.get(robot, "x")
     robot_y = result.get(robot, "y")
@@ -855,8 +852,8 @@ def test_push_switch_on_boil_position_mode():
     assert env.get_state().get(faucet_switch,
                                "is_on") < 0.5, "Switch should start off"
 
-    result = env.execute_option(
-        env.SwitchFaucetOn.ground([robot, faucet], []), max_steps=1000)
+    result = env.execute_option(env.SwitchFaucetOn.ground([robot, faucet], []),
+                                max_steps=1000)
 
     assert result.get(faucet_switch, "is_on") > 0.5, (
         "Faucet switch should be on after SwitchFaucetOn (position mode)")
@@ -888,8 +885,9 @@ def test_push_second_switch_boil_position_mode():
     state.set(burner_switch2, "is_on", 0.0)
     env.set_state(state)
 
-    result = env.execute_option(
-        env.SwitchBurnerOn.ground([robot, burner2], []), max_steps=1000)
+    result = env.execute_option(env.SwitchBurnerOn.ground([robot, burner2],
+                                                          []),
+                                max_steps=1000)
     assert result.get(burner_switch2, "is_on") > 0.5
 
 
@@ -916,7 +914,8 @@ def test_push_switch_on_fan_position_mode():
     state = task_state.copy()
     state.set(switch, "is_on", 0.0)
     env.set_state(state)
-    assert env.get_state().get(switch, "is_on") < 0.5, "Switch should start off"
+    assert env.get_state().get(switch,
+                               "is_on") < 0.5, "Switch should start off"
 
     result = env.execute_option(env.SwitchOn.ground([robot, switch], []),
                                 max_steps=1000)
@@ -931,7 +930,8 @@ def test_push_switch_on_fan_position_mode():
 
 
 def test_push_topples_domino():
-    """Using the skill-factory Push from domino gt-options, a domino topples."""
+    """Using the skill-factory Push from domino gt-options, a domino
+    topples."""
     try:
         from predicators.envs.pybullet_domino import PyBulletDominoEnv
     except ImportError:
@@ -1103,12 +1103,12 @@ def test_pick_holds_domino_with_motion_planning():
 
     assert is_held > 0.5, (
         f"Domino should be held after Pick with motion planning, "
-        f"is_held={is_held}"
-    )
+        f"is_held={is_held}")
 
 
 def test_pick_holds_domino_without_motion_planning():
-    """Pick option WITHOUT motion planning should hold the domino (baseline)."""
+    """Pick option WITHOUT motion planning should hold the domino
+    (baseline)."""
     try:
         from predicators.envs.pybullet_domino import PyBulletDominoEnv
     except ImportError:
@@ -1183,8 +1183,7 @@ def test_pick_holds_domino_without_motion_planning():
 
     assert is_held > 0.5, (
         f"Domino should be held after Pick without motion planning, "
-        f"is_held={is_held}"
-    )
+        f"is_held={is_held}")
 
 
 def test_human_interaction_scripted_domino_solves_task():
@@ -1244,18 +1243,18 @@ def test_human_interaction_scripted_domino_solves_task():
         train_tasks,
     )
 
-    cogman = CogMan(approach, perceiver,
-                    create_execution_monitor("trivial"))
+    cogman = CogMan(approach, perceiver, create_execution_monitor("trivial"))
 
     test_env_task = env.get_test_tasks()[0]
     cogman.reset(test_env_task)
 
     traj, solved, metrics = run_episode_and_get_observations(
-        cogman, env, "test", task_idx=0,
+        cogman,
+        env,
+        "test",
+        task_idx=0,
         max_num_steps=200,
         terminate_on_goal_reached=True,
     )
 
-    assert solved, (
-        "Scripted domino2.txt plan should solve the 1st test task"
-    )
+    assert solved, ("Scripted domino2.txt plan should solve the 1st test task")

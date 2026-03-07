@@ -534,7 +534,8 @@ class DerivedPredicate(Predicate):
             self,
             auxiliary_predicates: Set[DerivedPredicate]) -> DerivedPredicate:
         """Create a new ConceptPredicate with updated auxiliary_concepts."""
-        return replace(self, auxiliary_predicates=auxiliary_predicates)  # type: ignore[arg-type]
+        return replace(self, auxiliary_predicates=auxiliary_predicates
+                       )  # type: ignore[arg-type]
 
     @cached_property
     def _hash(self) -> int:
@@ -556,7 +557,8 @@ class DerivedPredicate(Predicate):
                 return False
         return True
 
-    def holds(self, state: Set[GroundAtom], objects: Sequence[Object]) -> bool:  # type: ignore[override]
+    def holds(self, state: Set[GroundAtom],
+              objects: Sequence[Object]) -> bool:  # type: ignore[override]
         """Public method for calling the classifier.
 
         Performs type checking first.
@@ -567,8 +569,10 @@ class DerivedPredicate(Predicate):
             assert obj.is_instance(pred_type)
         return self._classifier(state, objects)
 
-    def _negated_classifier(self, state: Set[GroundAtom],  # type: ignore[override]
-                            objects: Sequence[Object]) -> bool:
+    def _negated_classifier(
+            self,
+            state: Set[GroundAtom],  # type: ignore[override]
+            objects: Sequence[Object]) -> bool:
         # Separate this into a named function for pickling reasons.
         return not self._classifier(state, objects)
 
@@ -601,8 +605,9 @@ class NSPredicate(Predicate):
     """Neuro-Symbolic Predicate."""
 
     def __init__(
-            self, name: str, types: Sequence[Type],
-            _classifier: Callable[[RawState, Sequence[Object]], bool]) -> None:  # type: ignore[name-defined]
+        self, name: str, types: Sequence[Type],
+        _classifier: Callable[[RawState, Sequence[Object]], bool]
+    ) -> None:  # type: ignore[name-defined]
         self._original_classifier = _classifier
         super().__init__(name, types, _MemoizedClassifier(_classifier))
 
@@ -616,7 +621,8 @@ class NSPredicate(Predicate):
 
     def classifier_str(self) -> str:
         """Get a string representation of the classifier."""
-        clf_str = getsource(self._original_classifier)  # type: ignore[name-defined]
+        clf_str = getsource(
+            self._original_classifier)  # type: ignore[name-defined]
         clf_str = textwrap.dedent(clf_str)  # type: ignore[name-defined]
         clf_str = clf_str.replace("@staticmethod\n", "")
         return clf_str
@@ -624,7 +630,8 @@ class NSPredicate(Predicate):
 
 @dataclass
 class _MemoizedClassifier():
-    classifier: Callable[[State, Sequence[Object]], Union[bool, VLMQuery]]  # type: ignore[name-defined]
+    classifier: Callable[[State, Sequence[Object]],
+                         Union[bool, VLMQuery]]  # type: ignore[name-defined]
     cache: Dict = field(default_factory=dict)
 
     def cache_truth_value(self, state: State, objects: Sequence[Object],
@@ -683,7 +690,8 @@ class ConceptPredicate(Predicate):
     def __hash__(self) -> int:
         return self._hash
 
-    def holds(self, state: Set[GroundAtom], objects: Sequence[Object]) -> bool:  # type: ignore[override]
+    def holds(self, state: Set[GroundAtom],
+              objects: Sequence[Object]) -> bool:  # type: ignore[override]
         """Public method for calling the classifier.
 
         Performs type checking first.
@@ -694,8 +702,10 @@ class ConceptPredicate(Predicate):
             assert obj.is_instance(pred_type)
         return self._classifier(state, objects)
 
-    def _negated_classifier(self, state: Set[GroundAtom],  # type: ignore[override]
-                            objects: Sequence[Object]) -> bool:
+    def _negated_classifier(
+            self,
+            state: Set[GroundAtom],  # type: ignore[override]
+            objects: Sequence[Object]) -> bool:
         # Separate this into a named function for pickling reasons.
         return not self._classifier(state, objects)
 
@@ -926,7 +936,9 @@ class EnvironmentTask:
         assert isinstance(self.alt_goal_desc, set)
         for atom in self.alt_goal_desc:
             assert isinstance(atom, GroundAtom)
-        return Task(self.init, self.goal, alt_goal=self.alt_goal_desc,
+        return Task(self.init,
+                    self.goal,
+                    alt_goal=self.alt_goal_desc,
                     goal_nl=self.goal_nl)
 
     @cached_property
@@ -1148,8 +1160,9 @@ class STRIPSOperator:
             add_effects=self.add_effects if option.name != "NoOp" else set(),
             delete_effects=self.delete_effects
             if option.name != "NoOp" else set(),
-            delay_distribution=utils.CMPDelay(*process_delay_params,  # type: ignore[attr-defined]
-                                              rng=process_rng),
+            delay_distribution=utils.CMPDelay(
+                *process_delay_params,  # type: ignore[attr-defined]
+                rng=process_rng),
             strength=process_strength,  # type: ignore[arg-type]
             option=option,
             option_vars=option_vars,
@@ -1164,20 +1177,22 @@ class STRIPSOperator:
     ) -> ExogenousProcess:
         """Make an ExogenousProcess out of this STRIPSOperator object."""
         if process_delay_params is None:
-            process_delay_params = torch.tensor([1, 1])  # type: ignore[assignment]
+            process_delay_params = torch.tensor([1, 1
+                                                 ])  # type: ignore[assignment]
         if process_strength is None:
             process_strength = torch.tensor(1.0)  # type: ignore[assignment]
         dist = utils.DiscreteGaussianDelay(torch.tensor(1), torch.tensor(1))
 
-        proc = ExogenousProcess(self.name,
-                                self.parameters,
-                                condition_at_start=self.preconditions,
-                                condition_overall=self.preconditions,
-                                condition_at_end=set(),
-                                add_effects=self.add_effects,
-                                delete_effects=self.delete_effects,
-                                delay_distribution=dist,
-                                strength=process_strength)  # type: ignore[arg-type]
+        proc = ExogenousProcess(
+            self.name,
+            self.parameters,
+            condition_at_start=self.preconditions,
+            condition_overall=self.preconditions,
+            condition_at_end=set(),
+            add_effects=self.add_effects,
+            delete_effects=self.delete_effects,
+            delay_distribution=dist,
+            strength=process_strength)  # type: ignore[arg-type]
         return proc
 
     @lru_cache(maxsize=None)
@@ -2642,7 +2657,8 @@ class CausalProcess(abc.ABC):
     def _set_parameters(self, parameters: Sequence[float],
                         **kwargs: Any) -> None:
         self.strength = parameters[0]  # type: ignore[assignment]
-        self.delay_distribution.set_parameters(parameters[1:], **kwargs)  # type: ignore[arg-type]
+        self.delay_distribution.set_parameters(
+            parameters[1:], **kwargs)  # type: ignore[arg-type]
         # Invalidate cached properties
         if '_str' in self.__dict__:
             del self.__dict__['_str']
@@ -2655,10 +2671,13 @@ class CausalProcess(abc.ABC):
         The first parameter is the strength, and the rest are the delay
         distribution parameters.
         """
-        return [self.strength] + self.delay_distribution.get_parameters()  # type: ignore[operator]
+        return [
+            self.strength
+        ] + self.delay_distribution.get_parameters()  # type: ignore[operator]
 
     def delay_probability(self, delay: int) -> float:
-        return self.delay_distribution.probability(delay)  # type: ignore[attr-defined]
+        return self.delay_distribution.probability(
+            delay)  # type: ignore[attr-defined]
 
     @cached_property
     def _hash(self) -> int:
@@ -2732,7 +2751,8 @@ class ExogenousProcess(CausalProcess):
             condition_at_end=self.condition_at_end.copy(),
             add_effects=self.add_effects.copy(),
             delete_effects=self.delete_effects.copy(),
-            delay_distribution=self.delay_distribution.copy(),  # type: ignore[attr-defined]
+            delay_distribution=self.delay_distribution.copy(
+            ),  # type: ignore[attr-defined]
             strength=self.strength.clone())
 
     def filter_predicates(self,
@@ -2798,7 +2818,8 @@ class EndogenousProcess(CausalProcess):
             condition_at_end=self.condition_at_end.copy(),
             add_effects=self.add_effects.copy(),
             delete_effects=self.delete_effects.copy(),
-            delay_distribution=self.delay_distribution.copy(),  # type: ignore[attr-defined]
+            delay_distribution=self.delay_distribution.copy(
+            ),  # type: ignore[attr-defined]
             strength=self.strength.clone(),
             option=self.option.copy(),  # type: ignore[attr-defined]
             option_vars=self.option_vars.copy(),  # type: ignore[attr-defined]

@@ -23,26 +23,25 @@ _DOMINO_PUSH_THROUGH_FRAC = 0.25
 
 
 def _pick_sampler(state: State, goal: Set[GroundAtom],
-                  rng: np.random.Generator,
-                  objs: Sequence[Object]) -> Array:
+                  rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return fixed grasp_z_offset for domino pick."""
     del state, goal, rng, objs
     return np.array([_DOMINO_GRASP_Z_OFFSET], dtype=np.float32)
 
 
 def _push_sampler(state: State, goal: Set[GroundAtom],
-                  rng: np.random.Generator,
-                  objs: Sequence[Object]) -> Array:
+                  rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return fixed push params for domino push."""
     del state, goal, rng, objs
-    return np.array([_DOMINO_OFFSET_X, _DOMINO_OFFSET_Z,
-                     _DOMINO_OFFSET_ROT, _DOMINO_PUSH_THROUGH_FRAC],
+    return np.array([
+        _DOMINO_OFFSET_X, _DOMINO_OFFSET_Z, _DOMINO_OFFSET_ROT,
+        _DOMINO_PUSH_THROUGH_FRAC
+    ],
                     dtype=np.float32)
 
 
 def _place_sampler(state: State, goal: Set[GroundAtom],
-                   rng: np.random.Generator,
-                   objs: Sequence[Object]) -> Array:
+                   rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return placement params from process objects."""
     del state, goal, rng
     # objs = [robot, domino1, domino2, target_pos, rotation]

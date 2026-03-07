@@ -1,7 +1,7 @@
 """Ground-truth options for the (non-pybullet) blocks environment."""
 
-from functools import lru_cache
 import logging
+from functools import lru_cache
 from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
 
 import numpy as np

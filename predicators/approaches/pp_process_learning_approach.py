@@ -13,8 +13,8 @@ from predicators.nsrt_learning.process_learning_main import \
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, Dataset, ExogenousProcess, \
-    GroundAtomTrajectory, LiftedAtom, LowLevelTrajectory, ParameterizedOption, \
-    Predicate, Task, Type
+    GroundAtomTrajectory, LiftedAtom, LowLevelTrajectory, \
+    ParameterizedOption, Predicate, Task, Type
 
 
 class ProcessLearningAndPlanningApproach(
@@ -48,11 +48,10 @@ class ProcessLearningAndPlanningApproach(
         else:
             # Learn all
             self._processes: Set[CausalProcess] = set()
-        self._proc_name_to_results: Dict[str,
-                                         List[Tuple[float,
-                                                    FrozenSet[LiftedAtom],
-                                                    Tuple,
-                                                    CausalProcess]]] = {}
+        self._proc_name_to_results: Dict[str, List[Tuple[float,
+                                                         FrozenSet[LiftedAtom],
+                                                         Tuple,
+                                                         CausalProcess]]] = {}
 
     @classmethod
     def get_name(cls) -> str:

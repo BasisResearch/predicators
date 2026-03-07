@@ -67,10 +67,10 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         nsrts = set()
 
         # Helper function to create fan/switch toggle NSRTs
-        def _make_fan_toggle_nsrt(name: str, start_predicate: Predicate,
-                                  add_predicate: Predicate,
-                                  delete_predicate: Predicate,
-                                  selected_option: ParameterizedOption) -> NSRT:
+        def _make_fan_toggle_nsrt(
+                name: str, start_predicate: Predicate,
+                add_predicate: Predicate, delete_predicate: Predicate,
+                selected_option: ParameterizedOption) -> NSRT:
             robot = Variable("?robot", robot_type)
             if CFG.fan_known_controls_relation:
                 controlled_obj = Variable("?fan", fan_type)

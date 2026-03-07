@@ -893,7 +893,8 @@ def create_mcp_tools(ctx: ToolContext,
         # (GT + proposed) so it stays in sync after propose/retract.
         all_options = ctx.options | ctx.iteration_proposals.proposed_options
         ctx.option_model._name_to_parameterized_option = {
-            o.name: o for o in all_options
+            o.name: o
+            for o in all_options
         }
 
         task_idx = args.get("task_idx")
@@ -972,8 +973,8 @@ def create_mcp_tools(ctx: ToolContext,
             step_line = (f"Step {step_idx}: {opt_name}({obj_names}) "
                          f"({num_actions} actions)")
             if num_actions == 0:
-                failure = getattr(ctx.option_model,
-                                  'last_execution_failure', None)
+                failure = getattr(ctx.option_model, 'last_execution_failure',
+                                  None)
                 if failure:
                     step_line += f"\n  FAILURE REASON: {failure}"
                 else:

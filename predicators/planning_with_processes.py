@@ -140,7 +140,8 @@ def process_task_plan_grounding(
                 ground_cps.append(ground_cp)
     if compute_reachable_atoms:
         reachable_atoms = get_reachable_atoms_from_processes(
-            ground_cps, init_atoms, derived_predicates, objects)  # type: ignore[arg-type]
+            ground_cps, init_atoms, derived_predicates,
+            objects)  # type: ignore[arg-type]
     else:
         reachable_atoms = set()
 
@@ -297,8 +298,9 @@ class ProcessWorldModel:
         # 3. Schedule new events whose conditions are met.
         # 3a. Handle the endogenous process (action) passed to this step.
         # This is for starting a new action.
-        if (small_step_action is not None and
-                small_step_action.parent.option.name != 'NoOp' and  # type: ignore[attr-defined]
+        if (small_step_action is not None
+                and small_step_action.parent.option.name != 'NoOp'
+                and  # type: ignore[attr-defined]
                 small_step_action.condition_at_start.issubset(self.state)):
             delay = small_step_action.delay_distribution.sample()
             delay = max(1, delay)
@@ -381,8 +383,9 @@ class ProcessWorldModel:
             action_not_finished = self.current_action is not None
 
             # if currently executing NoOp and state has changed, then break
-            if (self.current_action is not None and
-                    self.current_action.parent.option.name == 'NoOp' and  # type: ignore[attr-defined]
+            if (self.current_action is not None
+                    and self.current_action.parent.option.name == 'NoOp'
+                    and  # type: ignore[attr-defined]
                     self.state != initial_state):
                 break
         return self.state
@@ -623,12 +626,15 @@ def _skeleton_generator_with_processes(
 
                 for action in applicable_actions:  # type: ignore[assignment]
                     # Always keep NoOp and Push actions
-                    if action.parent.name in ["NoOp", "PushStartBlock"]:  # type: ignore[union-attr]
+                    if action.parent.name in ["NoOp", "PushStartBlock"
+                                              ]:  # type: ignore[union-attr]
                         filtered_actions.append(action)
                     # For Pick, only pick dominos that haven't been placed yet
                     elif action.parent.name == "PickDomino":  # type: ignore[union-attr]
-                        domino_to_pick = action.objects[1] if len(  # type: ignore[union-attr]
-                            action.objects) > 1 else None  # type: ignore[union-attr]
+                        domino_to_pick = action.objects[
+                            1] if len(  # type: ignore[union-attr]
+                                action.objects
+                            ) > 1 else None  # type: ignore[union-attr]
                         if domino_to_pick and domino_to_pick not in placed_dominos:
                             filtered_actions.append(action)
                     # For Place, apply heuristics

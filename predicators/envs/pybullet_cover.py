@@ -42,7 +42,8 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
     # Object parameters
     _obj_len_hgt: ClassVar[float] = 0.045
     _max_obj_width: ClassVar[float] = 0.07  # highest width normalized to this
-    _block_cover_color: ClassVar[Tuple[float, float, float, float]] = (1.0, 1.0, 1.0, 1.0)
+    _block_cover_color: ClassVar[Tuple[float, float, float,
+                                       float]] = (1.0, 1.0, 1.0, 1.0)
 
     # Dimension and workspace parameters
     y_lb: ClassVar[float] = 0.4

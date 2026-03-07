@@ -18,34 +18,32 @@ _COFFEE_DROP_Z = 0.5  # z_lb (0.4) + jug_handle_height (0.1)
 
 
 def _pick_sampler(state: State, goal: Set[GroundAtom],
-                  rng: np.random.Generator,
-                  objs: Sequence[Object]) -> Array:
+                  rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     del state, goal, rng, objs
     return np.array([0.0], dtype=np.float32)
 
 
 def _push_sampler(state: State, goal: Set[GroundAtom],
-                  rng: np.random.Generator,
-                  objs: Sequence[Object]) -> Array:
+                  rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Push params for TurnMachineOn (button press)."""
     del state, goal, rng, objs
     return np.array([0.0675, 0.0, -np.pi, 0.0], dtype=np.float32)
 
 
 def _place_jug_in_machine_sampler(state: State, goal: Set[GroundAtom],
-                                   rng: np.random.Generator,
-                                   objs: Sequence[Object]) -> Array:
+                                  rng: np.random.Generator,
+                                  objs: Sequence[Object]) -> Array:
     del state, goal, rng
     # objs = [robot, jug, machine]
-    return np.array([PyBulletCoffeeEnv.dispense_area_x,
-                     PyBulletCoffeeEnv.dispense_area_y,
-                     PyBulletCoffeeEnv.robot_init_wrist,
-                     _COFFEE_DROP_Z], dtype=np.float32)
+    return np.array([
+        PyBulletCoffeeEnv.dispense_area_x, PyBulletCoffeeEnv.dispense_area_y,
+        PyBulletCoffeeEnv.robot_init_wrist, _COFFEE_DROP_Z
+    ],
+                    dtype=np.float32)
 
 
 def _pour_sampler(state: State, goal: Set[GroundAtom],
-                  rng: np.random.Generator,
-                  objs: Sequence[Object]) -> Array:
+                  rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     del state, goal, rng, objs
     return np.array([np.pi / 4], dtype=np.float32)
 

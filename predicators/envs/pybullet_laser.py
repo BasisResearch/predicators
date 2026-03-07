@@ -739,7 +739,11 @@ class PyBulletLaserEnv(PyBulletEnv):
         return self._add_pybullet_state_to_tasks(tasks)
 
 
-def create_laser_cylinder(start: Any, end: Any, color: Tuple[float, float, float, float] = (1, 0, 0, 1), radius: float = 0.001) -> int:
+def create_laser_cylinder(start: Any,
+                          end: Any,
+                          color: Tuple[float, float, float,
+                                       float] = (1, 0, 0, 1),
+                          radius: float = 0.001) -> int:
     """Create a thin cylinder from start -> end, visible in getCameraImage."""
     start = np.array(start, dtype=float)
     end = np.array(end, dtype=float)

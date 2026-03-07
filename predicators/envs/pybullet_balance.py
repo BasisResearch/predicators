@@ -165,17 +165,18 @@ class PyBulletBalanceEnv(PyBulletEnv):
                                         self._Holding_NSP_holds)
         self._GripperOpen_NSP = NSPredicate("GripperOpen", [self._robot_type],
                                             self._GripperOpen_NSP_holds)
-        self._Clear_NSP = NSPredicate("Clear", [self._block_type],
-                                      self._Clear_NSP_holds)  # type: ignore[arg-type]
+        self._Clear_NSP = NSPredicate(
+            "Clear", [self._block_type],
+            self._Clear_NSP_holds)  # type: ignore[arg-type]
 
         # We track the correspondence between PyBullet object IDs and Object
         # instances for blocks. This correspondence changes with the task.
         self._block_id_to_block: Dict[int, Object] = {}
 
         self.ns_to_sym_predicates: Dict[Tuple[str], Predicate] = {
-            ("GripperOpen",): self._GripperOpen,
-            ("Holding",): self._Holding,
-            ("Clear",): self._Clear,
+            ("GripperOpen", ): self._GripperOpen,
+            ("Holding", ): self._Holding,
+            ("Clear", ): self._Clear,
         }
 
     @property
@@ -555,7 +556,8 @@ class PyBulletBalanceEnv(PyBulletEnv):
     # Function to count the number of blocks in the tower
     def count_num_blocks(self, state: State, table: Object) -> int:
 
-        def count_recursive(base_obj: Object, count: int) -> int:  # type: ignore[no-untyped-def]
+        def count_recursive(base_obj: Object,
+                            count: int) -> int:  # type: ignore[no-untyped-def]
             for block in state.get_objects(self._block_type):
                 if base_obj.type == self._block_type and\
                         self._DirectlyOn_holds(state, [block, base_obj]):

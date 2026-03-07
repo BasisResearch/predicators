@@ -115,7 +115,7 @@ def build_params_space(
 # Callback signature shared by ALL skill factory ``get_target_pose_fn`` args.
 # (state, objects, params, config) -> (x, y, z, yaw)
 TargetPoseFn = Callable[[State, Sequence[Object], Array, SkillConfig],
-                         Tuple[float, float, float, float]]
+                        Tuple[float, float, float, float]]
 
 # ---------------------------------------------------------------------------
 # Internal type aliases for Phase target functions
@@ -185,8 +185,12 @@ class PhaseSkill:
         option = PhaseSkill("Pick", types, params_space, config, phases).build()
     """
 
-    def __init__(self, name: str, types: Sequence[Type], params_space: Box,
-                 config: SkillConfig, phases: List[Phase],
+    def __init__(self,
+                 name: str,
+                 types: Sequence[Type],
+                 params_space: Box,
+                 config: SkillConfig,
+                 phases: List[Phase],
                  params_description: Optional[Tuple[str, ...]] = None) -> None:
         assert len(phases) > 0
         self._name = name

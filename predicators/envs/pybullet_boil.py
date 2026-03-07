@@ -359,11 +359,9 @@ class PyBulletBoilEnv(PyBulletEnv):
         bodies["table_id"] = table_id
         # add another table for more space to place jugs and burners
         create_object(asset_path="urdf/table.urdf",
-                      position=(
-                          cls.table_pos[0],
-                          cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2,
-                          cls.table_pos[2]
-                      ),
+                      position=(cls.table_pos[0],
+                                cls.table_pos[1] + (cls.y_ub - cls.y_lb) / 2,
+                                cls.table_pos[2]),
                       orientation=cls.table_orn,
                       scale=1.0,
                       use_fixed_base=True,
@@ -881,7 +879,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         if switch_id < 0:
             return False
         j_id = self._get_joint_id(switch_id, "joint_0",
-                                   self._physics_client_id)
+                                  self._physics_client_id)
         if j_id < 0:
             return False
         j_pos, _, _, _ = p.getJointState(
@@ -897,7 +895,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         """Programmatically toggle the switch to on/off by resetting its joint
         state."""
         j_id = self._get_joint_id(switch_id, "joint_0",
-                                   self._physics_client_id)
+                                  self._physics_client_id)
         if j_id < 0:
             return
         info = p.getJointInfo(switch_id,

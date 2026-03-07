@@ -25,14 +25,14 @@ import sys
 import traceback
 from typing import Any, Dict, List, Optional
 
+import dill as pkl
+
 # Bootstrap: import predicators.utils before anything else so that Python
 # resolves the circular import chain (structs → utils → image_patch_wrapper
 # → structs) in the correct order.  Without this, importing predicators.structs
 # first causes image_patch_wrapper to try "from predicators.structs import Mask"
 # while structs is still being initialized, raising an ImportError.
 import predicators.utils  # noqa: F401, E402
-
-import dill as pkl
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,13 +56,12 @@ def _truncate(value: Any, max_len: int = _MAX_PARAM_LEN) -> str:
 
 async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
     """Create a ClaudeSDKClient, query the agent, and collect responses."""
-    from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions,
-                                  ClaudeSDKClient, ResultMessage, TextBlock,
-                                  ToolResultBlock, ToolUseBlock, UserMessage,
-                                  create_sdk_mcp_server)
+    from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, \
+        ClaudeSDKClient, ResultMessage, TextBlock, ToolResultBlock, \
+        ToolUseBlock, UserMessage, create_sdk_mcp_server
 
-    from predicators.agent_sdk.tools import (create_mcp_tools,
-                                             get_allowed_tool_list)
+    from predicators.agent_sdk.tools import create_mcp_tools, \
+        get_allowed_tool_list
 
     ctx = query_input["tool_context"]
     tool_names: Optional[List[str]] = query_input.get("tool_names")
@@ -123,24 +122,30 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
                                     lines.append(f"> {tline}")
                                 lines.append("")
                         elif btype == "text":
-                            lines.append(f"**Assistant:** {block.get('text', '')}\n")
+                            lines.append(
+                                f"**Assistant:** {block.get('text', '')}\n")
                         elif btype == "tool_use":
                             name = block.get("name", "?")
                             tool_id = block.get("id", "")
                             inp = block.get("input", {})
-                            lines.append(f"**Tool Call:** `{name}` (id: `{tool_id}`)")
+                            lines.append(
+                                f"**Tool Call:** `{name}` (id: `{tool_id}`)")
                             lines.append("```json")
-                            lines.append(json.dumps(inp, indent=2, default=str))
+                            lines.append(json.dumps(inp, indent=2,
+                                                    default=str))
                             lines.append("```\n")
                         else:
                             # Preserve all attributes from unknown block types
                             lines.append(f"**{btype}:**")
-                            extra = {k: v for k, v in block.items()
-                                     if k != "type" and v is not None}
+                            extra = {
+                                k: v
+                                for k, v in block.items()
+                                if k != "type" and v is not None
+                            }
                             if extra:
                                 lines.append("```json")
-                                lines.append(json.dumps(
-                                    extra, indent=2, default=str))
+                                lines.append(
+                                    json.dumps(extra, indent=2, default=str))
                                 lines.append("```")
                             lines.append("")
                 elif etype == "user":
@@ -177,19 +182,23 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
                         else:
                             # Preserve unknown user block types
                             lines.append(f"**{btype}:**")
-                            extra = {k: v for k, v in block.items()
-                                     if k != "type" and v is not None}
+                            extra = {
+                                k: v
+                                for k, v in block.items()
+                                if k != "type" and v is not None
+                            }
                             if extra:
                                 lines.append("```json")
-                                lines.append(json.dumps(
-                                    extra, indent=2, default=str))
+                                lines.append(
+                                    json.dumps(extra, indent=2, default=str))
                                 lines.append("```")
                             lines.append("")
                 elif etype == "result":
                     turns = entry.get("num_turns", "?")
                     cost = entry.get("total_cost_usd")
                     cost_str = f"${cost:.2f}" if cost is not None else "?"
-                    lines.append(f"---\n\n**Result:** {turns} turns, {cost_str}\n")
+                    lines.append(
+                        f"---\n\n**Result:** {turns} turns, {cost_str}\n")
                 elif etype == "error":
                     lines.append(f"**Error:** {entry.get('error', '')}\n")
             with open(log_path, "w") as lf:
@@ -212,30 +221,34 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
                             "text": block.text,
                         })
                         print(f"Agent: {block.text[:200]}...",
-                              file=sys.stderr, flush=True)
+                              file=sys.stderr,
+                              flush=True)
                     elif isinstance(block, ToolUseBlock):
                         entry["content"].append({
-                            "type": "tool_use",
-                            "id": getattr(block, "id", None),
-                            "name": block.name,
-                            "input": block.input,
+                            "type":
+                            "tool_use",
+                            "id":
+                            getattr(block, "id", None),
+                            "name":
+                            block.name,
+                            "input":
+                            block.input,
                         })
                         # Summarise params (truncate long values)
                         params = block.input or {}
-                        param_summary = ", ".join(
-                            f"{k}={_truncate(v)}" for k, v in
-                            params.items())
+                        param_summary = ", ".join(f"{k}={_truncate(v)}"
+                                                  for k, v in params.items())
                         print(f"Tool call: {block.name}"
                               f"({param_summary})",
-                              file=sys.stderr, flush=True)
+                              file=sys.stderr,
+                              flush=True)
                     else:
                         block_type = type(block).__name__
                         block_dict: Dict[str, Any] = {
                             "type": block_type,
                         }
-                        for attr in ("name", "input", "id", "text",
-                                     "content", "tool_use_id",
-                                     "thinking"):
+                        for attr in ("name", "input", "id", "text", "content",
+                                     "tool_use_id", "thinking"):
                             val = getattr(block, attr, None)
                             if val is not None:
                                 block_dict[attr] = val
@@ -244,7 +257,8 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
                             thinking = getattr(block, "thinking", "")
                             if thinking:
                                 print(f"Thinking: {thinking[:200]}...",
-                                      file=sys.stderr, flush=True)
+                                      file=sys.stderr,
+                                      flush=True)
 
                 collected.append(entry)
 
@@ -274,9 +288,8 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
                         block_dict2: Dict[str, Any] = {
                             "type": type(block).__name__,
                         }
-                        for attr in ("name", "input", "id", "text",
-                                     "content", "tool_use_id",
-                                     "is_error"):
+                        for attr in ("name", "input", "id", "text", "content",
+                                     "tool_use_id", "is_error"):
                             val = getattr(block, attr, None)
                             if val is not None:
                                 block_dict2[attr] = val
@@ -294,7 +307,8 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
                     f"Agent iteration complete. "
                     f"Turns: {getattr(msg, 'num_turns', '?')}, "
                     f"Cost: ${getattr(msg, 'total_cost_usd', '?')}",
-                    file=sys.stderr, flush=True,
+                    file=sys.stderr,
+                    flush=True,
                 )
 
             # Flush log after each message
@@ -363,8 +377,7 @@ def _rehash_objects_after_unpickle(ctx: Any) -> None:
             _process_state(task.init)
         if hasattr(task, "init_obs"):
             _process_state(task.init_obs)
-        for attr in ("goal", "alt_goal", "goal_description",
-                      "alt_goal_desc"):
+        for attr in ("goal", "alt_goal", "goal_description", "alt_goal_desc"):
             atoms = getattr(task, attr, None)
             if atoms:
                 _process_atoms(atoms)
@@ -396,8 +409,8 @@ def main() -> None:
     input_path = sys.argv[1]
     output_path = sys.argv[2]
 
-    logger.info("Docker agent runner starting: input=%s output=%s",
-                input_path, output_path)
+    logger.info("Docker agent runner starting: input=%s output=%s", input_path,
+                output_path)
 
     # Load query input
     with open(input_path, "rb") as f:
@@ -426,7 +439,8 @@ def main() -> None:
         # Sync with all options in context (GT + any previously proposed)
         # after the model has its physics server set up.
         ctx.option_model._name_to_parameterized_option = {
-            o.name: o for o in ctx.options
+            o.name: o
+            for o in ctx.options
         }
 
     # Recreate SkillConfig in skill_factory_context — the robot's
@@ -457,8 +471,7 @@ def main() -> None:
                         "Could not find PyBulletEnv for %s; "
                         "skill_config NOT recreated", _cfg.env)
                 else:
-                    _, robot, _ = env_cls.initialize_pybullet(
-                        using_gui=False)
+                    _, robot, _ = env_cls.initialize_pybullet(using_gui=False)
                     ctx.skill_factory_context["skill_config"] = SkillConfig(
                         robot=robot,
                         open_fingers_joint=robot.open_fingers,
@@ -467,19 +480,19 @@ def main() -> None:
                             env_cls._fingers_state_to_joint),
                         max_vel_norm=_cfg.pybullet_max_vel_norm,
                         ik_validate=_cfg.pybullet_ik_validate,
-                        robot_init_tilt=getattr(
-                            env_cls, 'robot_init_tilt', 0.0),
-                        robot_init_wrist=getattr(
-                            env_cls, 'robot_init_wrist', 0.0),
+                        robot_init_tilt=getattr(env_cls, 'robot_init_tilt',
+                                                0.0),
+                        robot_init_wrist=getattr(env_cls, 'robot_init_wrist',
+                                                 0.0),
                     )
                     logger.info(
                         "Recreated SkillConfig inside Docker for %s "
-                        "(physics_client_id=%d)",
-                        _cfg.env, robot.physics_client_id)
+                        "(physics_client_id=%d)", _cfg.env,
+                        robot.physics_client_id)
             except Exception as e:
-                logger.error(
-                    "Failed to recreate SkillConfig in Docker: %s",
-                    e, exc_info=True)
+                logger.error("Failed to recreate SkillConfig in Docker: %s",
+                             e,
+                             exc_info=True)
 
     logger.info("Loaded query input: message length=%d, model=%s",
                 len(query_input.get("message", "")),

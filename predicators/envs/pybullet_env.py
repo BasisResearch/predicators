@@ -62,11 +62,16 @@ class PyBulletEnv(BaseEnv):
     # Object parameters.
     _obj_mass: ClassVar[float] = 0.5
     _obj_friction: ClassVar[float] = 1.2
-    _obj_colors_main: ClassVar[List[Tuple[float, float, float, float]]] = [
-        (0.95, 0.05, 0.1, 1.), (0.05, 0.95, 0.1, 1.), (0.1, 0.05, 0.95, 1.),
-        (0.4, 0.05, 0.6, 1.), (0.6, 0.4, 0.05, 1.), (0.05, 0.04, 0.6, 1.),
-        (0.95, 0.95, 0.1, 1.), (0.95, 0.05, 0.95, 1.), (0.05, 0.95, 0.95, 1.)
-    ]
+    _obj_colors_main: ClassVar[List[Tuple[float, float, float,
+                                          float]]] = [(0.95, 0.05, 0.1, 1.),
+                                                      (0.05, 0.95, 0.1, 1.),
+                                                      (0.1, 0.05, 0.95, 1.),
+                                                      (0.4, 0.05, 0.6, 1.),
+                                                      (0.6, 0.4, 0.05, 1.),
+                                                      (0.05, 0.04, 0.6, 1.),
+                                                      (0.95, 0.95, 0.1, 1.),
+                                                      (0.95, 0.05, 0.95, 1.),
+                                                      (0.05, 0.95, 0.95, 1.)]
     _obj_colors: ClassVar[List[Tuple[float, float, float, float]]] =\
         _obj_colors_main + [
         (0.941, 0.196, 0.196, 1.),  # Red
@@ -201,8 +206,10 @@ class PyBulletEnv(BaseEnv):
     def _create_pybullet_robot(
             cls, physics_client_id: int) -> SingleArmPyBulletRobot:
         robot_ee_orn = cls.get_robot_ee_home_orn()
-        ee_home = Pose((cls.robot_init_x, cls.robot_init_y, cls.robot_init_z),  # type: ignore[attr-defined]
-                       robot_ee_orn)
+        ee_home = Pose(
+            (cls.robot_init_x, cls.robot_init_y,
+             cls.robot_init_z),  # type: ignore[attr-defined]
+            robot_ee_orn)
 
         if cls.robot_base_pos is None or cls.robot_base_orn is None:
             base_pose = None
@@ -222,7 +229,9 @@ class PyBulletEnv(BaseEnv):
         """
 
         # EE Position
-        def get_pos_feature(state: State, feature_name: str) -> float:  # type: ignore[no-untyped-def]
+        def get_pos_feature(
+                state: State,
+                feature_name: str) -> float:  # type: ignore[no-untyped-def]
             if feature_name in self._robot.type.feature_names:
                 return state.get(self._robot, feature_name)
             elif f"pose_{feature_name}" in self._robot.type.feature_names:
@@ -555,7 +564,8 @@ class PyBulletEnv(BaseEnv):
         r_features = self._robot.type.feature_names
         if CFG.env == "pybullet_cover":
             rx, ry, rz, _, _, _, _, rf = self._pybullet_robot.get_state()
-            hand = (ry - self.y_lb) / (self.y_ub - self.y_lb)  # type: ignore[attr-defined]
+            hand = (ry - self.y_lb) / (self.y_ub - self.y_lb
+                                       )  # type: ignore[attr-defined]
             r_dict.update({"hand": hand, "pose_x": rx, "pose_z": rz})
         elif CFG.env == "pybullet_blocks":
             rx, ry, rz, _, _, _, _, rf = self._pybullet_robot.get_state()
@@ -884,7 +894,8 @@ class PyBulletEnv(BaseEnv):
 
     def _apply_base_delta(self, base_delta: np.ndarray) -> None:
         """Apply a delta (dx, dy, dtheta) to the robot base if supported."""
-        base_pose = self._pybullet_robot.get_base_pose()  # type: ignore[attr-defined]
+        base_pose = self._pybullet_robot.get_base_pose(
+        )  # type: ignore[attr-defined]
         current_yaw = p.getEulerFromQuaternion(base_pose.orientation)[2]
         new_yaw = current_yaw + float(base_delta[2])
         new_pose = Pose(
@@ -893,7 +904,8 @@ class PyBulletEnv(BaseEnv):
              base_pose.position[2]),
             p.getQuaternionFromEuler([0.0, 0.0, new_yaw]),
         )
-        self._pybullet_robot.set_base_pose(new_pose)  # type: ignore[attr-defined]
+        self._pybullet_robot.set_base_pose(
+            new_pose)  # type: ignore[attr-defined]
 
     def _add_pybullet_state_to_tasks(
             self, tasks: List[EnvironmentTask]) -> List[EnvironmentTask]:
@@ -925,8 +937,9 @@ class PyBulletEnv(BaseEnv):
             # pybullet_init = utils.PyBulletState(
             #     init.data.copy(), simulator_state=joint_positions)
             # # >
-            pybullet_task = EnvironmentTask(pybullet_init, task.goal,
-                                              goal_nl=task.goal_nl)
+            pybullet_task = EnvironmentTask(pybullet_init,
+                                            task.goal,
+                                            goal_nl=task.goal_nl)
             pybullet_tasks.append(pybullet_task)
         return pybullet_tasks
 

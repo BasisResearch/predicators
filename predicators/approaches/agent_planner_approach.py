@@ -40,9 +40,12 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
     - No predicate/process/type invention
     """
 
-    def __init__(self, initial_predicates: Set[Predicate],
-                 initial_options: Set[ParameterizedOption], types: Set[Type],
-                 action_space: Box, train_tasks: List[Task],
+    def __init__(self,
+                 initial_predicates: Set[Predicate],
+                 initial_options: Set[ParameterizedOption],
+                 types: Set[Type],
+                 action_space: Box,
+                 train_tasks: List[Task],
                  *args: Any,
                  option_model: Optional[_OptionModelBase] = None,
                  **kwargs: Any) -> None:
@@ -175,8 +178,7 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         try:
             option_plan = self._query_agent_for_option_plan(task)
         except Exception as e:
-            raise ApproachFailure(
-                f"Agent failed to produce option plan: {e}")
+            raise ApproachFailure(f"Agent failed to produce option plan: {e}")
 
         policy = utils.option_plan_to_policy(option_plan)
 
@@ -189,11 +191,13 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         return _policy
 
     def _solve_with_isolated_session(
-            self, task: Task,
-            timeout: int) -> Callable[[State], Action]:
-        """Solve in a fresh session so test queries don't accumulate in
-        the learning session.  The learning conversation log is injected
-        as context so the test session retains knowledge from learning."""
+            self, task: Task, timeout: int) -> Callable[[State], Action]:
+        """Solve in a fresh session so test queries don't accumulate in the
+        learning session.
+
+        The learning conversation log is injected as context so the test
+        session retains knowledge from learning.
+        """
         learning_session = self._agent_session
         learning_log = (learning_session.conversation_log
                         if learning_session is not None else [])
@@ -363,10 +367,10 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
         return "\n".join(lines)
 
-    def _build_learning_context(
-            self, conversation_log: List[Dict[str, Any]]) -> str:
-        """Build a context message from the learning session's conversation
-        log so that test sessions retain knowledge from learning.
+    def _build_learning_context(self,
+                                conversation_log: List[Dict[str, Any]]) -> str:
+        """Build a context message from the learning session's conversation log
+        so that test sessions retain knowledge from learning.
 
         Preserves the full conversation structure including tool calls
         and their results so the agent sees the same information it
@@ -397,8 +401,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
                             inp = block.get("input", {})
                             parts.append(f"[Tool Call: {name}]\n{inp}")
                     if parts:
-                        sections.append(
-                            f"[Assistant]\n" + "\n".join(parts))
+                        sections.append(f"[Assistant]\n" + "\n".join(parts))
                 elif msg_type == "user":
                     parts = []
                     for block in msg.get("content", []):
@@ -464,10 +467,9 @@ Output ONLY the option plan lines at the end, after any analysis."""
             all_options,
             parse_continuous_params=True)
         if not parsed:
-            raise ApproachFailure(
-                f"Parsed empty option plan from agent.\n"
-                f"  Plan text:\n{plan_text}\n"
-                f"  Available option names: {option_names}")
+            raise ApproachFailure(f"Parsed empty option plan from agent.\n"
+                                  f"  Plan text:\n{plan_text}\n"
+                                  f"  Available option names: {option_names}")
 
         grounded = []
         for option, objs, params in parsed:
@@ -509,12 +511,12 @@ Output ONLY the option plan lines at the end, after any analysis."""
     def _sync_tool_context(self) -> None:
         """Push current approach state into the shared ToolContext.
 
-        The MCP tools (inspect_options, test_option_plan, etc.) read from
-        the ToolContext dataclass, not from the approach directly.  This
-        method keeps them in sync after mutations (e.g. new trajectories
-        collected, options added).  Called before each solve and learning
-        interaction.  Subclasses should call super() and then set any
-        additional fields (e.g. skill_factory_context).
+        The MCP tools (inspect_options, test_option_plan, etc.) read
+        from the ToolContext dataclass, not from the approach directly.
+        This method keeps them in sync after mutations (e.g. new
+        trajectories collected, options added).  Called before each
+        solve and learning interaction.  Subclasses should call super()
+        and then set any additional fields (e.g. skill_factory_context).
         """
         self._tool_context.types = self._types
         self._tool_context.predicates = self._initial_predicates

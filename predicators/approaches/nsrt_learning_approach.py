@@ -167,14 +167,15 @@ class NSRTLearningApproach(BilevelPlanningApproach):
             heuristic = utils.create_task_planning_heuristic(
                 CFG.sesame_task_planning_heuristic, init_atoms, task.goal,
                 ground_nsrts, preds, objects)  # type: ignore[type-var]
-            for skeleton, _, _ in task_plan(init_atoms,
-                                            task.goal,
-                                            ground_nsrts,  # type: ignore[arg-type]
-                                            reachable_atoms,
-                                            heuristic,
-                                            CFG.seed,
-                                            timeout=10000000,
-                                            max_skeletons_optimized=10000000):
+            for skeleton, _, _ in task_plan(
+                    init_atoms,
+                    task.goal,
+                    ground_nsrts,  # type: ignore[arg-type]
+                    reachable_atoms,
+                    heuristic,
+                    CFG.seed,
+                    timeout=10000000,
+                    max_skeletons_optimized=10000000):
                 # Here, we are assuming that task_plan() generates skeletons
                 # of increasing length. If the demonstration length is
                 # exceeded, we can break.

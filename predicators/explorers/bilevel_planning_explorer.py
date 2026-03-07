@@ -108,7 +108,8 @@ class BilevelPlanningExplorer(BaseExplorer):
                 max_horizon=CFG.horizon,
                 allow_noops=CFG.sesame_allow_noops,
                 use_visited_state_set=CFG.sesame_use_visited_state_set)
-            policy = utils.option_plan_to_policy(plan)  # type: ignore[arg-type]
+            policy = utils.option_plan_to_policy(
+                plan)  # type: ignore[arg-type]
         termination_function = task.goal_holds
 
         return policy, termination_function

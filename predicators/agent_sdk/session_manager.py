@@ -78,7 +78,10 @@ class AgentSessionManager:
         logging.info("Agent SDK session started.")
 
     def _init_incremental_log(self, query: str) -> Optional[str]:
-        """Initialize log file for incremental writing. Returns filepath."""
+        """Initialize log file for incremental writing.
+
+        Returns filepath.
+        """
         if not CFG.log_file:
             return None
 
@@ -98,8 +101,8 @@ class AgentSessionManager:
         self._flush_log(filepath, [])
         return filepath
 
-    def _flush_log(self, filepath: str,
-                   response: List[Dict[str, Any]]) -> None:
+    def _flush_log(self, filepath: str, response: List[Dict[str,
+                                                            Any]]) -> None:
         """Rewrite log file with current accumulated response."""
         log_data = {**self._current_log_meta, "response": response}
         with open(filepath, "w") as f:
@@ -149,12 +152,14 @@ class AgentSessionManager:
                             param_summary = ", ".join(
                                 f"{k}={_truncate(v)}"
                                 for k, v in params.items())
-                            logging.debug(
-                                "Agent tool call: %s(%s)",
-                                block.name, param_summary)
+                            logging.debug("Agent tool call: %s(%s)",
+                                          block.name, param_summary)
                     collected.append(entry)
                 elif isinstance(msg, UserMessage):
-                    user_entry: Dict[str, Any] = {"type": "user", "content": []}
+                    user_entry: Dict[str, Any] = {
+                        "type": "user",
+                        "content": []
+                    }
                     for block in msg.content:  # type: ignore[assignment]
                         if isinstance(block, TextBlock):
                             user_entry["content"].append({

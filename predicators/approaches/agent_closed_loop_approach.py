@@ -180,4 +180,3 @@ Output ONLY the single option line at the end, after any analysis."""
         logging.info(f"Agent selected next option: "
                      f"{ground_opt.simple_str()}")
         return ground_opt
-

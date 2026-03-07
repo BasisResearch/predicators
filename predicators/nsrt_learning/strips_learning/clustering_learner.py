@@ -240,7 +240,8 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
     Note: The current prompt are tailored for exogenous processes.
     """
 
-    def __init__(self, *args: List, **kwargs: Dict) -> None:  # type: ignore[type-arg]
+    def __init__(self, *args: List,
+                 **kwargs: Dict) -> None:  # type: ignore[type-arg]
         """Initialize the LLM and load the prompt template."""
         super().__init__(*args, **kwargs)  # type: ignore[arg-type]
         self._llm = utils.create_llm_by_name(CFG.llm_model_name)
@@ -370,14 +371,17 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
                 a.lift(obj_to_var)
                 for a in segment_init_atoms
             }
-            new_conditions = set(atom for atom in conditions_to_choose_from  # type: ignore[union-attr]
-                                 if atom_in_llm_selection(atom, conditions))  # type: ignore[arg-type]
+            new_conditions = set(
+                atom for atom in
+                conditions_to_choose_from  # type: ignore[union-attr]
+                if atom_in_llm_selection(atom,
+                                         conditions))  # type: ignore[arg-type]
             add_eff = corresponding_pnad.op.add_effects
             del_eff = corresponding_pnad.op.delete_effects
             # the variable might also just in the effects
-            new_parameters = set(var
-                                 for atom in new_conditions | add_eff | del_eff
-                                 for var in atom.variables)  # type: ignore[union-attr]
+            new_parameters = set(
+                var for atom in new_conditions | add_eff | del_eff
+                for var in atom.variables)  # type: ignore[union-attr]
             # Only append if it's unique
             for final_pnad in final_pnads:
                 suc, _ = utils.unify_preconds_effects_options(
@@ -543,10 +547,16 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                     # `induce_preconditions_via_intersection`.
                     (pnad_param_option, pnad_option_vars) = pnad.option_spec
                     sub = self._find_best_segment_unification(
-                        segment, seg_add_effects, seg_del_effects, pnad,
-                        ent_to_ent_sub, segment_param_option,
-                        pnad_param_option, segment_option_objs,  # type: ignore[arg-type]
-                        tuple(pnad_option_vars), self._endogenous_processes)
+                        segment,
+                        seg_add_effects,
+                        seg_del_effects,
+                        pnad,
+                        ent_to_ent_sub,
+                        segment_param_option,
+                        pnad_param_option,
+                        segment_option_objs,  # type: ignore[arg-type]
+                        tuple(pnad_option_vars),
+                        self._endogenous_processes)
                 else:
                     assert set(sub.keys()) == set(pnad.op.parameters)
                 pnad.add_to_datastore(
@@ -653,10 +663,14 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                                     (pnad_param_option,
                                      pnad_option_vars) = pnad.option_spec
                                     sub = self._find_best_segment_unification(
-                                        segment, add_effect_set,
-                                        del_effect_set, pnad, ent_to_ent_sub,
+                                        segment,
+                                        add_effect_set,
+                                        del_effect_set,
+                                        pnad,
+                                        ent_to_ent_sub,
                                         segment_param_option,
-                                        pnad_param_option, segment_option_objs,  # type: ignore[arg-type]
+                                        pnad_param_option,
+                                        segment_option_objs,  # type: ignore[arg-type]
                                         tuple(pnad_option_vars),
                                         self._endogenous_processes)
                                 else:
@@ -676,10 +690,13 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                                     for atom in del_effect_set
                                 })
                                 # Create a new pnad with this atom
-                                op = STRIPSOperator(f"Op{len(pnads)}", params,
-                                                    preconds, add_effect_set,  # type: ignore[arg-type]
-                                                    del_effect_set,  # type: ignore[arg-type]
-                                                    ignore_effects)
+                                op = STRIPSOperator(
+                                    f"Op{len(pnads)}",
+                                    params,
+                                    preconds,
+                                    add_effect_set,  # type: ignore[arg-type]
+                                    del_effect_set,  # type: ignore[arg-type]
+                                    ignore_effects)
                                 datastore = [(segment, var_to_obj)]
                                 option_vars = [
                                     obj_to_var[o] for o in segment_option_objs
@@ -817,7 +834,8 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             return cast(VarToObjSub, {v: o for o, v in obj_to_var.items()})
 
         # ---------- 1) Start from the mapping returned by effects+options ----------
-        current_map: Dict[_TypedEntity, Variable] = dict(obj_to_var)  # type: ignore[arg-type]
+        current_map: Dict[_TypedEntity, Variable] = dict(
+            obj_to_var)  # type: ignore[arg-type]
 
         # We'll try to extend current_map with as many precondition matches as possible.
         # Use weighted scoring that prioritizes effect-related atoms
@@ -2088,7 +2106,8 @@ class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
         ]
         CFG.segmenter = initial_segmenter_method
         self._demo_atoms_sequences = [
-            utils.segment_trajectory_to_atoms_sequence(seg_traj)  # type: ignore[misc]
+            utils.segment_trajectory_to_atoms_sequence(
+                seg_traj)  # type: ignore[misc]
             for seg_traj in self._option_change_segmented_trajs
         ]
         # for i, seg_traj in enumerate(self._atom_change_segmented_trajs):
@@ -2199,7 +2218,8 @@ class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
                           metrics) in enumerate(generator):
                     num_nodes = metrics["num_nodes_created"]
                     optimality_prob = self._get_optimality_prob(
-                        demo_atoms_sequence, plan_atoms_sequence)  # type: ignore[arg-type]
+                        demo_atoms_sequence,
+                        plan_atoms_sequence)  # type: ignore[arg-type]
             except (PlanningTimeout, PlanningFailure):
                 pass
             # low_quality_prob = 1.0 - optimality_prob

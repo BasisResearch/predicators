@@ -162,8 +162,8 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
         if CFG.human_interaction_approach_use_all_options:
             return self._prompt_user_for_option_from_all(state, goal)
 
-        return self._prompt_user_for_option_from_processes(state, goal,
-                                                           predicates)
+        return self._prompt_user_for_option_from_processes(
+            state, goal, predicates)
 
     def _prompt_user_for_option_from_all(self, state: State,
                                          goal: Set[GroundAtom]) -> _Option:
@@ -205,8 +205,8 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
         selected_objects: List[Object] = []
         for param_idx, param_type in enumerate(selected_option.types):
             valid_objects = [
-                o for o in objects if o.is_instance(param_type)
-                and o not in selected_objects
+                o for o in objects
+                if o.is_instance(param_type) and o not in selected_objects
             ]
             valid_objects = sorted(valid_objects, key=str)
 
@@ -230,8 +230,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
                         f"or 'q' to quit): ").strip().lower()
 
                     if user_input == 'q':
-                        raise ApproachFailure(
-                            "User quit argument selection")
+                        raise ApproachFailure("User quit argument selection")
 
                     try:
                         sel = int(user_input)
@@ -300,7 +299,8 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
                 print("Invalid input. Please enter a number or 'q' to quit.")
 
         # Step 2: Prompt for arguments one-by-one
-        applicable_for_skill = lift_processes[selected_parent]  # type: ignore[unreachable]
+        applicable_for_skill = lift_processes[
+            selected_parent]  # type: ignore[unreachable]
         selected_objects = self._prompt_for_arguments(selected_parent,
                                                       applicable_for_skill,
                                                       state)

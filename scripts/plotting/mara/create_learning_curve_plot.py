@@ -112,10 +112,10 @@ def _convert_cycle_to_numeric(cycle_str: Any) -> int:
 
 
 def _get_learning_curves_for_approach(
-        df: Any,
-        approach_selector: Callable[..., Any],
-        env_selector: Callable[..., Any],
-        max_iteration: Optional[int] = None
+    df: Any,
+    approach_selector: Callable[..., Any],
+    env_selector: Callable[..., Any],
+    max_iteration: Optional[int] = None
 ) -> Tuple[List[int], List[float], List[float]]:
     """Get learning curves for a specific approach and environment.
 
@@ -199,10 +199,9 @@ def _get_learning_curves_for_approach(
 
 
 def _get_final_performance_for_approach(
-        df: Any,
-        approach_selector: Callable[..., Any],
-        env_selector: Callable[..., Any]
-) -> Tuple[Optional[float], Optional[float]]:
+    df: Any, approach_selector: Callable[..., Any],
+    env_selector: Callable[...,
+                           Any]) -> Tuple[Optional[float], Optional[float]]:
     """Get final performance (mean and std) for approaches that don't do online
     learning.
 
