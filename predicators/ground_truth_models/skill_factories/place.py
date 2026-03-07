@@ -42,7 +42,7 @@ _PLACE_PARAMS = [
     ("target_x (world x position for placement)", 0.4, 1.1),
     ("target_y (world y position for placement)", 1.1, 1.6),
     ("target_yaw (placement orientation in radians)", -np.pi, np.pi),
-    ("release_z (world z height to open gripper)", 0.4, 0.6),
+    ("release_z (world z height to open gripper)", 0.5, 0.6),
 ]
 
 
