@@ -805,12 +805,6 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             return (state.get(domino, "x"), state.get(domino, "y"),
                     state.get(domino, "z"), state.get(domino, "yaw"))
 
-        def _grasp_terminal(state: State, objects: Sequence[Object],
-                            params: Array, c: SkillConfig) -> bool:
-            del params, c
-            return bool(
-                state.get(objects[0], "fingers") < PyBulletEnv.grasp_tol)
-
         return create_pick_skill(
             name="Pick",
             types=[robot_type, domino_type],
@@ -819,7 +813,6 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             get_target_pose_fn=_get_domino_pose,
             transport_z=cls._transport_z,
             grasp_z_offset=cls._offset_z,
-            grasp_terminal_fn=_grasp_terminal,
         )
 
     @classmethod

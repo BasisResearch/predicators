@@ -41,7 +41,7 @@ Example::
     )
 """
 
-from typing import Callable, Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 from gym.spaces import Box
 
@@ -60,8 +60,6 @@ def create_pick_skill(
     get_target_pose_fn: TargetPoseFn,
     transport_z: float = 0.7,
     grasp_z_offset: float = 0.0,
-    grasp_terminal_fn: Optional[Callable[
-        [State, Sequence[Object], Array, SkillConfig], bool]] = None,
     params_description: Optional[Tuple[str, ...]] = None,
 ) -> ParameterizedOption:
     """Create a multi-phase pick skill that grasps and lifts an object.
@@ -93,10 +91,6 @@ def create_pick_skill(
             after grasping.
         grasp_z_offset: Added to the z returned by ``get_target_pose_fn``
             to compute the actual descend height.  Default ``0.0``.
-        grasp_terminal_fn: Optional override for the Grasp phase terminal.
-            Signature: ``(state, objects, params, config) -> bool``.
-            If ``None``, terminates when finger joints reach the closed
-            target.
 
     Returns:
         A ``ParameterizedOption`` implementing the pick skill.
@@ -160,7 +154,7 @@ def create_pick_skill(
             name="Grasp",
             action_type=PhaseAction.CHANGE_FINGERS,
             target_fn=_close_fingers_target,
-            terminal_fn=grasp_terminal_fn,
+            terminal_fn=None,
         ),
         # Phase 3: Lift to transport height
         make_move_to_phase("Lift", _above_pose, "closed"),

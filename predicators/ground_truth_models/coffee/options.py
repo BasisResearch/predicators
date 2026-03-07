@@ -852,16 +852,6 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             hx, hy, hz = env_cls._get_jug_handle_grasp(state, jug)
             return (hx, hy, hz, state.get(jug, "rot"))
 
-        def _pick_terminal(
-            state: State,
-            objects: Sequence[Object],
-            params: Array,
-            cfg: SkillConfig,
-        ) -> bool:
-            del params, cfg
-            robot, jug = objects
-            return Holding.holds(state, [robot, jug])
-
         PickJug = create_pick_skill(
             name="PickJug",
             types=[robot_type, jug_type],
@@ -869,7 +859,6 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             config=config,
             get_target_pose_fn=_get_jug_pose,
             transport_z=env_cls.z_ub - 0.1,
-            grasp_terminal_fn=_pick_terminal,
         )
 
         # ---------------------------------------------------------------

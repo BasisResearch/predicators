@@ -606,12 +606,6 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             gz = env_cls.table_height + env_cls.jug_handle_height
             return gx, gy, gz, rot
 
-        def _is_held_terminal(state: State, objects: Sequence[Object],
-                              params: Array, cfg: SkillConfig) -> bool:
-            del params, cfg
-            _, jug = objects
-            return bool(state.get(jug, "is_held") > 0.5)
-
         PickJug = create_pick_skill(
             name="PickJug",
             types=[robot_type, jug_type],
@@ -619,7 +613,6 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             config=config,
             get_target_pose_fn=_get_jug_pose,
             transport_z=cls._transport_z,
-            grasp_terminal_fn=_is_held_terminal,
         )
 
         # ---------------------------------------------------------------
