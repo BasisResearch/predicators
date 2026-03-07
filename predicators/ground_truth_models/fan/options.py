@@ -1,6 +1,7 @@
 """Ground-truth options for the coffee environment."""
 
 import logging
+from dataclasses import replace
 from functools import lru_cache
 from typing import Callable, ClassVar, Dict, List, Optional, Sequence, Set, \
     Tuple
@@ -289,6 +290,8 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         env_cls = cls.env_cls
 
+        _push_transport_z = cls._hand_empty_move_z
+
         config = SkillConfig(
             robot=pybullet_robot,
             open_fingers_joint=pybullet_robot.open_fingers,
@@ -298,6 +301,7 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
             robot_init_wrist=PyBulletFanEnv.robot_init_wrist,
             robot_home_pos=(env_cls.robot_init_x, env_cls.robot_init_y,
                             env_cls.robot_init_z),
+            transport_z=_push_transport_z,
         )
 
         if CFG.fan_known_controls_relation:
@@ -352,10 +356,6 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
             return x, y, z, -np.pi / 2 - rot
 
         option_type = [robot_type, control_obj_type]
-        params_space = Box(0, 1, (0, ))
-        _push_offset_x = cls._y_offset * 1.8
-        _push_offset_z = env_cls.switch_height * 1.3
-        _push_transport_z = cls._hand_empty_move_z
 
         NoOp = create_wait_option("NoOp", config, robot_type)
 
@@ -364,22 +364,14 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
             _SwitchOn = create_push_skill(
                 name="_SwitchOn",
                 types=option_type,
-                params_space=params_space,
                 config=config,
                 get_target_pose_fn=_get_switch_on_pose,
-                offset_x=_push_offset_x,
-                offset_z=_push_offset_z,
-                transport_z=_push_transport_z,
             )
             _SwitchOff = create_push_skill(
                 name="_SwitchOff",
                 types=option_type,
-                params_space=params_space,
                 config=config,
                 get_target_pose_fn=_get_switch_off_pose,
-                offset_x=_push_offset_x,
-                offset_z=_push_offset_z,
-                transport_z=_push_transport_z,
             )
             SwitchOnOff = utils.LinearChainParameterizedOption(
                 "SwitchOnOff", [_SwitchOn, _SwitchOff])
@@ -388,22 +380,14 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
         SwitchOn = create_push_skill(
             name="SwitchOn",
             types=option_type,
-            params_space=params_space,
             config=config,
             get_target_pose_fn=_get_switch_on_pose,
-            offset_x=_push_offset_x,
-            offset_z=_push_offset_z,
-            transport_z=_push_transport_z,
         )
         SwitchOff = create_push_skill(
             name="SwitchOff",
             types=option_type,
-            params_space=params_space,
             config=config,
             get_target_pose_fn=_get_switch_off_pose,
-            offset_x=_push_offset_x,
-            offset_z=_push_offset_z,
-            transport_z=_push_transport_z,
         )
         return {SwitchOn, SwitchOff, NoOp}
 

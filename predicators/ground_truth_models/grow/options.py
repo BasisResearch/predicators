@@ -256,6 +256,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             fingers_state_to_joint=PyBulletGrowEnv._fingers_state_to_joint,
             robot_init_tilt=PyBulletGrowEnv.robot_init_tilt,
             robot_init_wrist=PyBulletGrowEnv.robot_init_wrist,
+            transport_z=env_cls.z_ub - 0.35,
         )
 
         # ---------------------------------------------------------------
@@ -277,37 +278,17 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
         PickJug = create_pick_skill(
             name="PickJug",
             types=[robot_type, jug_type],
-            params_space=Box(0, 1, (0, )),
             config=config,
             get_target_pose_fn=_get_jug_pose,
-            transport_z=env_cls.z_ub - 0.35,
         )
 
         # ---------------------------------------------------------------
-        # Place: target location encoded as normalised (x_norm, y_norm).
+        # Place
         # ---------------------------------------------------------------
-        _drop_z = env_cls.table_height + env_cls.jug_handle_height
-
-        def _get_placement_pose(state: State, objects: Sequence[Object],
-                                params: Array,
-                                cfg: SkillConfig) -> Tuple[float, float, float,
-                                                           float]:
-            del state, objects, cfg
-            x_norm, y_norm = params
-            tx = env_cls.x_lb + (env_cls.x_ub - env_cls.x_lb) * x_norm
-            ty = env_cls.y_lb + (env_cls.y_ub - env_cls.y_lb) * y_norm
-            return tx, ty, _drop_z, 0.0
-
         Place = create_place_skill(
             name="Place",
             types=[robot_type, jug_type],
-            params_space=Box(0, 1, (2, )),
             config=config,
-            get_target_pose_fn=_get_placement_pose,
-            transport_z=env_cls.z_ub - 0.35,
-            drop_z=_drop_z,
-            params_description=("x_position_normalized",
-                                "y_position_normalized"),
         )
 
         # ---------------------------------------------------------------
@@ -316,7 +297,6 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
         Holding = predicates["Holding"]
         Grown = predicates["Grown"]
         HandTilted = predicates["HandTilted"]
-        JugAboveCup = predicates["JugAboveCup"]
 
         def _get_pour_position(
             state: State,
@@ -368,11 +348,8 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
         Pour = create_pour_skill(
             name="Pour",
             types=[robot_type, jug_type, cup_type],
-            params_space=Box(0, 1, (0, )),
             config=config,
             get_target_pose_fn=_get_pour_position,
-            pour_tilt=env_cls.tilt_ub,
-            transport_z=env_cls.z_ub - 0.35,
             tilt_terminal_fn=_pour_tilt_terminal,
         )
 

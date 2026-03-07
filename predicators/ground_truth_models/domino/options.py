@@ -1,6 +1,7 @@
 """Ground-truth options for the coffee environment."""
 
 import logging
+from dataclasses import replace
 from functools import lru_cache
 from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
 from typing import Type as TypingType
@@ -741,12 +742,14 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             robot_home_pos=(cls.env_cls.robot_init_x,
                             cls.env_cls.robot_init_y,
                             cls.env_cls.robot_init_z),
+            transport_z=cls._transport_z,
         )
 
     @classmethod
     def _create_sf_push(cls, cfg: SkillConfig, robot_type: Type,
                         domino_type: Type) -> ParameterizedOption:
         """Push option using create_push_skill."""
+        push_cfg = replace(cfg, transport_z=cls._transport_z_push)
 
         def _get_target(state: State, objects: Sequence[Object],
                         params: Array,
@@ -759,18 +762,14 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         return create_push_skill(name="Push",
                                  types=[robot_type, domino_type],
-                                 params_space=Box(0, 1, (0, )),
-                                 config=cfg,
-                                 get_target_pose_fn=_get_target,
-                                 offset_x=cls._offset_x,
-                                 offset_z=cls._offset_z,
-                                 offset_rot=np.pi / 2,
-                                 transport_z=cls._transport_z_push)
+                                 config=push_cfg,
+                                 get_target_pose_fn=_get_target)
 
     @classmethod
     def _create_sf_push_restricted(cls, cfg: SkillConfig, robot_type: Type,
                                    domino_type: Type) -> ParameterizedOption:
         """Push (restricted) option: finds start block from state."""
+        push_cfg = replace(cfg, transport_z=cls._transport_z_push)
 
         def _get_target(state: State, objects: Sequence[Object],
                         params: Array,
@@ -783,13 +782,8 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         return create_push_skill(name="Push",
                                  types=[robot_type],
-                                 params_space=Box(0, 1, (0, )),
-                                 config=cfg,
-                                 get_target_pose_fn=_get_target,
-                                 offset_x=cls._offset_x,
-                                 offset_z=cls._offset_z,
-                                 offset_rot=np.pi / 2,
-                                 transport_z=cls._transport_z_push)
+                                 config=push_cfg,
+                                 get_target_pose_fn=_get_target)
 
     @classmethod
     def _create_sf_pick(cls, cfg: SkillConfig, robot_type: Type,
@@ -808,43 +802,16 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
         return create_pick_skill(
             name="Pick",
             types=[robot_type, domino_type],
-            params_space=Box(0, 1, (0,)),
             config=cfg,
             get_target_pose_fn=_get_domino_pose,
-            transport_z=cls._transport_z,
-            grasp_z_offset=cls._offset_z,
         )
 
     @classmethod
     def _create_sf_place(cls, cfg: SkillConfig, robot_type: Type
                          ) -> ParameterizedOption:
-        """Place option using create_place_skill (discrete or continuous)."""
-        return cls._create_sf_place_continuous(cfg, robot_type)
-
-    @classmethod
-    def _create_sf_place_continuous(cls, cfg: SkillConfig,
-                                    robot_type: Type) -> ParameterizedOption:
-        """Continuous place: params = [x, y, rotation_radians]."""
-        params_space = Box(
-            low=np.array([cls.env_cls.x_lb, cls.env_cls.y_lb, -np.pi]),
-            high=np.array([cls.env_cls.x_ub, cls.env_cls.y_ub, np.pi]),
-            shape=(3, ),
-            dtype=np.float32)
-
-        def _get_placement(state: State, objects: Sequence[Object],
-                           params: Array,
-                           c: SkillConfig) -> Tuple[float, float, float, float]:
-            del state, objects, c
-            target_x, target_y, target_rot = params
-            return float(target_x), float(target_y), 0.0, float(target_rot)
-
+        """Place option using create_place_skill."""
         return create_place_skill(
             name="Place",
             types=[robot_type],
-            params_space=params_space,
             config=cfg,
-            get_target_pose_fn=_get_placement,
-            transport_z=cls._transport_z,
-            drop_z=cls._place_drop_z,
-            params_description=("x_position", "y_position", "yaw_angle"),
         )

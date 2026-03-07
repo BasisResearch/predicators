@@ -1,5 +1,6 @@
 """Ground-truth options for the coffee environment."""
 
+from dataclasses import replace
 from functools import lru_cache
 from typing import ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
@@ -836,7 +837,10 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             robot_init_wrist=PyBulletCoffeeEnv.robot_init_wrist,
             robot_home_pos=(env_cls.robot_init_x, env_cls.robot_init_y,
                             env_cls.robot_init_z),
+            transport_z=env_cls.z_ub - 0.1,
         )
+
+        push_config = replace(config, transport_z=env_cls.z_ub - 0.3)
 
         # ---------------------------------------------------------------
         # PickJug
@@ -855,35 +859,17 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         PickJug = create_pick_skill(
             name="PickJug",
             types=[robot_type, jug_type],
-            params_space=Box(0, 1, (0, )),
             config=config,
             get_target_pose_fn=_get_jug_pose,
-            transport_z=env_cls.z_ub - 0.1,
         )
 
         # ---------------------------------------------------------------
         # PlaceJugInMachine
         # ---------------------------------------------------------------
-        _place_drop_z = env_cls.z_lb + env_cls.jug_handle_height()
-
-        def _get_machine_placement(
-            state: State,
-            objects: Sequence[Object],
-            params: Array,
-            cfg: SkillConfig,
-        ) -> Tuple[float, float, float, float]:
-            del state, objects, params
-            return (env_cls.dispense_area_x, env_cls.dispense_area_y,
-                    _place_drop_z, cfg.robot_init_wrist)
-
         PlaceJugInMachine = create_place_skill(
             name="PlaceJugInMachine",
             types=[robot_type, jug_type, machine_type],
-            params_space=Box(0, 1, (0, )),
             config=config,
-            get_target_pose_fn=_get_machine_placement,
-            transport_z=env_cls.z_ub - 0.1,
-            drop_z=_place_drop_z,
         )
 
         # ---------------------------------------------------------------
@@ -903,14 +889,8 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         TurnMachineOn = create_push_skill(
             name="TurnMachineOn",
             types=[robot_type, machine_type],
-            params_space=Box(0, 1, (0, )),
-            config=config,
+            config=push_config,
             get_target_pose_fn=_get_button_pose,
-            offset_x=env_cls.button_radius * 1.5,
-            offset_z=0.0,
-            transport_z=env_cls.z_ub - 0.3,
-            offset_rot=-np.pi,
-            push_through_frac=0.0,
         )
 
         # ---------------------------------------------------------------
@@ -961,11 +941,8 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
         Pour = create_pour_skill(
             name="Pour",
             types=[robot_type, jug_type, cup_type],
-            params_space=Box(0, 1, (0, )),
             config=config,
             get_target_pose_fn=_get_pour_position,
-            pour_tilt=env_cls.tilt_ub,
-            transport_z=env_cls.z_ub - 0.1,
             tilt_terminal_fn=_pour_tilt_terminal,
         )
 

@@ -1,6 +1,7 @@
 """Ground-truth options for the boil environment."""
 
 import logging
+from dataclasses import replace
 from functools import lru_cache
 from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple, cast
 from typing import Type as TypingType
@@ -549,6 +550,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             robot_init_wrist=PyBulletBoilEnv.robot_init_wrist,
             robot_home_pos=(env_cls.robot_init_x, env_cls.robot_init_y,
                             env_cls.robot_init_z),
+            transport_z=cls._transport_z,
         )
 
         # ---------------------------------------------------------------
@@ -583,9 +585,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             x, y, z, rot = _get_switch_pose(state, objects, params, cfg)
             return x, y, z, -np.pi / 2 - rot
 
-        _push_offset_x = cls._y_offset * 1.9
-        _push_offset_z = env_cls.switch_height * 1.3
         _push_transport_z = cls._hand_empty_move_z
+        push_config = replace(config, transport_z=_push_transport_z)
 
         # ---------------------------------------------------------------
         # PickJug: grasp at handle position with is_held terminal.
@@ -609,123 +610,61 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         PickJug = create_pick_skill(
             name="PickJug",
             types=[robot_type, jug_type],
-            params_space=Box(0, 1, (0, )),
             config=config,
             get_target_pose_fn=_get_jug_pose,
-            transport_z=cls._transport_z,
         )
 
         # ---------------------------------------------------------------
         # SwitchFaucetOn / SwitchFaucetOff (take [robot, faucet] objects)
         # ---------------------------------------------------------------
-        _faucet_params = Box(0, 1, (0, ))
         SwitchFaucetOn = create_push_skill(
             name="SwitchFaucetOn",
             types=[robot_type, faucet_type],
-            params_space=_faucet_params,
-            config=config,
+            config=push_config,
             get_target_pose_fn=_get_switch_on_pose,
-            offset_x=_push_offset_x,
-            offset_z=_push_offset_z,
-            transport_z=_push_transport_z,
         )
         SwitchFaucetOff = create_push_skill(
             name="SwitchFaucetOff",
             types=[robot_type, faucet_type],
-            params_space=_faucet_params,
-            config=config,
+            config=push_config,
             get_target_pose_fn=_get_switch_off_pose,
-            offset_x=_push_offset_x,
-            offset_z=_push_offset_z,
-            transport_z=_push_transport_z,
         )
 
         # ---------------------------------------------------------------
         # SwitchBurnerOn / SwitchBurnerOff (take [robot, burner] objects)
         # ---------------------------------------------------------------
-        _burner_params = Box(0, 1, (0, ))
         SwitchBurnerOn = create_push_skill(
             name="SwitchBurnerOn",
             types=[robot_type, burner_type],
-            params_space=_burner_params,
-            config=config,
+            config=push_config,
             get_target_pose_fn=_get_switch_on_pose,
-            offset_x=_push_offset_x,
-            offset_z=_push_offset_z,
-            transport_z=_push_transport_z,
         )
         SwitchBurnerOff = create_push_skill(
             name="SwitchBurnerOff",
             types=[robot_type, burner_type],
-            params_space=_burner_params,
-            config=config,
+            config=push_config,
             get_target_pose_fn=_get_switch_off_pose,
-            offset_x=_push_offset_x,
-            offset_z=_push_offset_z,
-            transport_z=_push_transport_z,
         )
 
         # ---------------------------------------------------------------
-        # Place options — all drop at jug_handle_height above table.
+        # Place options
         # ---------------------------------------------------------------
-        _drop_z = env_cls.table_height + env_cls.jug_handle_height
-
-        def _faucet_placement(state: State, objects: Sequence[Object],
-                              params: Array,
-                              cfg: SkillConfig) -> Tuple[float, float, float,
-                                                         float]:
-            del params, cfg
-            _, faucet = objects
-            tx = state.get(faucet, "x")
-            ty = (state.get(faucet, "y") - env_cls.jug_handle_offset -
-                  env_cls.faucet_x_len)
-            return tx, ty, _drop_z, 0.0
-
         PlaceUnderFaucet = create_place_skill(
             name="PlaceUnderFaucet",
             types=[robot_type, faucet_type],
-            params_space=Box(0, 1, (0, )),
             config=config,
-            get_target_pose_fn=_faucet_placement,
-            transport_z=cls._transport_z,
-            drop_z=_drop_z,
         )
-
-        def _burner_placement(state: State, objects: Sequence[Object],
-                              params: Array,
-                              cfg: SkillConfig) -> Tuple[float, float, float,
-                                                         float]:
-            del params, cfg
-            _, burner = objects
-            tx = state.get(burner, "x")
-            ty = state.get(burner, "y") - env_cls.jug_handle_offset
-            return tx, ty, _drop_z, 0.0
 
         PlaceOnBurner = create_place_skill(
             name="PlaceOnBurner",
             types=[robot_type, burner_type],
-            params_space=Box(0, 1, (0, )),
             config=config,
-            get_target_pose_fn=_burner_placement,
-            transport_z=cls._transport_z,
-            drop_z=_drop_z,
         )
-
-        def _outside_placement(state: State, objects: Sequence[Object],
-                               params: Array,
-                               cfg: SkillConfig) -> Tuple[float, float, float,
-                                                          float]:
-            del state, objects, params, cfg
-            return env_cls.x_mid - 0.15, env_cls.y_mid + 0.10, _drop_z, 0.0
 
         PlaceOutsideBurnerAndFaucet = create_place_skill(
             name="PlaceOutsideBurnerAndFaucet",
             types=[robot_type],
-            params_space=Box(0, 1, (0, )),
             config=config,
-            get_target_pose_fn=_outside_placement,
-            transport_z=cls._transport_z,
-            drop_z=_drop_z,
         )
 
         # ---------------------------------------------------------------
