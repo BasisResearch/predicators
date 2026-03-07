@@ -69,12 +69,11 @@ Quick start example::
                 state.get(obj, "z"), 0.0)
 
     Pick = create_pick_skill("Pick", [robot_type, obj_type],
-                             Box(0, 1, (0,)), config, _get_obj_pose,
-                             transport_z=0.8)
+                             config, _get_obj_pose)
 """
 
 from predicators.ground_truth_models.skill_factories.base import Phase, \
-    PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn
+    PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn, build_params_space
 from predicators.ground_truth_models.skill_factories.move_to import \
     create_move_to_skill, make_move_to_phase
 from predicators.ground_truth_models.skill_factories.pick import \
@@ -94,6 +93,7 @@ __all__ = [
     "PhaseSkill",
     "SkillConfig",
     "TargetPoseFn",
+    "build_params_space",
     "create_move_to_skill",
     "make_move_to_phase",
     "create_pick_skill",

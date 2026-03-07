@@ -72,6 +72,8 @@ class SkillConfig:
             angle.  Usually 0.0 or ``-pi``.
         robot_home_pos: ``(x, y, z)`` home position the robot retreats to
             after push skills.  Required by ``create_push_skill``.
+        transport_z: Safe Z height for transit above obstacles during
+            pick, place, push, and pour skills.  Default ``0.7``.
         extra: Arbitrary dict for environment-specific constants that
             callbacks may need.  Access via ``config.extra["key"]``.
     """
@@ -88,7 +90,22 @@ class SkillConfig:
     robot_init_tilt: float = 0.0
     robot_init_wrist: float = 0.0
     robot_home_pos: Optional[Tuple[float, float, float]] = None
+    transport_z: float = 0.7
     extra: Dict[str, Any] = field(default_factory=dict)
+
+
+def build_params_space(
+    param_defs: Sequence[Tuple[str, float, float]],
+) -> Tuple[Box, Tuple[str, ...]]:
+    """Build a params_space and description from ``(name, low, high)`` tuples.
+
+    Returns:
+        ``(params_space, params_description)``
+    """
+    names = tuple(name for name, _, _ in param_defs)
+    low = np.array([lo for _, lo, _ in param_defs], dtype=np.float32)
+    high = np.array([hi for _, _, hi in param_defs], dtype=np.float32)
+    return Box(low=low, high=high, dtype=np.float32), names
 
 
 # ---------------------------------------------------------------------------
