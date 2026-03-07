@@ -40,8 +40,8 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
 
     def __init__(self, initial_predicates: Set[Predicate],
                  initial_options: Set[ParameterizedOption], types: Set[Type],
-                 action_space: Box, train_tasks: List[Task],
-                 *args: Any, **kwargs: Any) -> None:
+                 action_space: Box, train_tasks: List[Task], *args: Any,
+                 **kwargs: Any) -> None:
         # Agent-specific state (before super().__init__)
         self._agent_proposed_options: Set[ParameterizedOption] = set()
 
@@ -82,13 +82,13 @@ pick up an object (move above, descend, grasp, lift). \
 Continuous params: `(grasp_z_offset,)`.
 - `create_place_skill(name, types, config)` — place a held object \
 (move above, descend, release, retreat). No get_target_pose_fn; \
-target comes from continuous params: `(x, y, yaw, drop_z)`.
+target comes from continuous params: `(target_x, target_y, target_yaw, release_z)`.
 - `create_push_skill(name, types, config, get_target_pose_fn)` — \
 push with standard 4-waypoint trajectory. Requires \
 `config.robot_home_pos` to be set. Facing direction is \
 `(sin(yaw), cos(yaw))` from `get_target_pose_fn`. \
-Continuous params: `(offset_x, offset_z, offset_rot, \
-push_through_frac)`.
+Continuous params: `(approach_distance, contact_z_offset, \
+ee_yaw_offset, push_through_frac)`.
 - `create_pour_skill(name, types, config, get_target_pose_fn, \
 tilt_terminal_fn=None)` — pour from a held container \
 (move above, descend, tilt). Continuous params: `(pour_tilt,)`.
@@ -135,21 +135,21 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
     def _get_sandbox_reference_files(self) -> Dict[str, str]:
         return {
             "skill_factories/base.py":
-                "predicators/ground_truth_models/skill_factories/base.py",
+            "predicators/ground_truth_models/skill_factories/base.py",
             "skill_factories/__init__.py":
-                "predicators/ground_truth_models/skill_factories/__init__.py",
+            "predicators/ground_truth_models/skill_factories/__init__.py",
             "skill_factories/pick.py":
-                "predicators/ground_truth_models/skill_factories/pick.py",
+            "predicators/ground_truth_models/skill_factories/pick.py",
             "skill_factories/move_to.py":
-                "predicators/ground_truth_models/skill_factories/move_to.py",
+            "predicators/ground_truth_models/skill_factories/move_to.py",
             "skill_factories/place.py":
-                "predicators/ground_truth_models/skill_factories/place.py",
+            "predicators/ground_truth_models/skill_factories/place.py",
             "skill_factories/push.py":
-                "predicators/ground_truth_models/skill_factories/push.py",
+            "predicators/ground_truth_models/skill_factories/push.py",
             "skill_factories/pour.py":
-                "predicators/ground_truth_models/skill_factories/pour.py",
+            "predicators/ground_truth_models/skill_factories/pour.py",
             "skill_factories/wait.py":
-                "predicators/ground_truth_models/skill_factories/wait.py",
+            "predicators/ground_truth_models/skill_factories/wait.py",
         }
 
     # ------------------------------------------------------------------ #
@@ -163,8 +163,8 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
         # Also include iteration_proposals.proposed_options as a fallback
         # in case the Docker sync to tool_context.options was incomplete.
         proposal_opts = self._tool_context.iteration_proposals.proposed_options
-        result = (self._initial_options | self._agent_proposed_options |
-                  self._tool_context.options | proposal_opts)
+        result = (self._initial_options | self._agent_proposed_options
+                  | self._tool_context.options | proposal_opts)
         if not result:
             logging.warning(
                 "_get_all_options() returning empty set. "
@@ -195,10 +195,10 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
     def _build_skill_factory_context(self) -> Dict[str, Any]:
         """Build exec context with skill factory functions for
         propose_options."""
-        from predicators.ground_truth_models.skill_factories import (
-            Phase, PhaseAction, PhaseSkill, SkillConfig, create_move_to_skill,
-            create_pick_skill, create_place_skill, create_pour_skill,
-            create_push_skill, create_wait_option, make_move_to_phase)
+        from predicators.ground_truth_models.skill_factories import Phase, \
+            PhaseAction, PhaseSkill, SkillConfig, create_move_to_skill, \
+            create_pick_skill, create_place_skill, create_pour_skill, \
+            create_push_skill, create_wait_option, make_move_to_phase
 
         context: Dict[str, Any] = {
             # Skill factory functions
@@ -296,8 +296,8 @@ proposed options will be added to the option library for future tasks."""
         policy = super()._solve(task, timeout)
 
         # Snapshot agent-proposed options (everything beyond initial)
-        self._agent_proposed_options = (
-            self._tool_context.options - self._initial_options)
+        self._agent_proposed_options = (self._tool_context.options -
+                                        self._initial_options)
 
         # Record iteration summary (options only)
         proposals = self._tool_context.iteration_proposals

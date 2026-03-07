@@ -54,7 +54,7 @@ from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 # Canonical continuous parameters for Pick.
 _PICK_PARAMS = [
-    ("grasp_z_offset", 0.0, 0.1),
+    ("grasp_z_offset (height above object origin to close gripper)", 0.0, 0.1),
 ]
 
 
@@ -140,5 +140,9 @@ def create_pick_skill(
         make_move_to_phase("Lift", _above_pose, "closed"),
     ]
 
-    return PhaseSkill(name, types, params_space, config, phases,
+    return PhaseSkill(name,
+                      types,
+                      params_space,
+                      config,
+                      phases,
                       params_description=params_description).build()

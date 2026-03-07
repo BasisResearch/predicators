@@ -4,14 +4,15 @@ This module provides ``create_place_skill``, which builds a
 ``ParameterizedOption`` that places a held object by:
 
   1. Moving above the placement target at ``config.transport_z``.
-  2. Descending to ``drop_z`` (from params).
+  2. Descending to ``release_z`` (from params).
   3. Opening the gripper to release.
   4. Retreating back up to ``config.transport_z``.
 
-The placement target ``(x, y, yaw)`` and ``drop_z`` are all provided as
-continuous parameters -- no callback is needed.
+The placement target ``(target_x, target_y, target_yaw)`` and
+``release_z`` are all provided as continuous parameters -- no callback
+is needed.
 
-Continuous parameters: ``(x, y, yaw, drop_z)``
+Continuous parameters: ``(target_x, target_y, target_yaw, release_z)``
 
 Example::
 
@@ -28,20 +29,20 @@ Example::
 
 from typing import Sequence, Tuple
 
+import numpy as np
+
 from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig, build_params_space
 from predicators.ground_truth_models.skill_factories.move_to import \
     make_move_to_phase
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
-import numpy as np
-
 # Canonical continuous parameters for Place.
 _PLACE_PARAMS = [
-    ("x", 0.4, 1.1),
-    ("y", 1.1, 1.6),
-    ("yaw", -np.pi, np.pi),
-    ("drop_z", 0.4, 0.6),
+    ("target_x (world x position for placement)", 0.4, 1.1),
+    ("target_y (world y position for placement)", 1.1, 1.6),
+    ("target_yaw (placement orientation in radians)", -np.pi, np.pi),
+    ("release_z (world z height to open gripper)", 0.4, 0.6),
 ]
 
 
@@ -55,15 +56,15 @@ def create_place_skill(
     Phases:
         0. **MoveAbove** -- Move end-effector above the placement at
            ``config.transport_z``, with fingers closed.
-        1. **Descend** -- Lower to ``drop_z`` (from params), with fingers
-           closed.
+        1. **Descend** -- Lower to ``release_z`` (from params), with
+           fingers closed.
         2. **OpenFingers** -- Open the gripper to release the object.
         3. **Retreat** -- Rise back to ``config.transport_z``, with fingers
            open.
 
     Continuous parameters:
-        ``(x, y, yaw, drop_z)`` -- placement position, orientation, and
-        release height.
+        ``(target_x, target_y, target_yaw, release_z)`` -- placement
+        position, orientation, and release height.
 
     Args:
         name: Option name used for logging and matching.
@@ -110,7 +111,7 @@ def create_place_skill(
     phases = [
         # Phase 0: Move above placement
         make_move_to_phase("MoveAbove", _above_pose, "closed"),
-        # Phase 1: Descend to drop height
+        # Phase 1: Descend to release height
         make_move_to_phase("Descend", _drop_pose, "closed"),
         # Phase 2: Open fingers to release
         Phase(
@@ -122,5 +123,9 @@ def create_place_skill(
         make_move_to_phase("Retreat", _above_pose, "open"),
     ]
 
-    return PhaseSkill(name, types, params_space, config, phases,
+    return PhaseSkill(name,
+                      types,
+                      params_space,
+                      config,
+                      phases,
                       params_description=params_description).build()

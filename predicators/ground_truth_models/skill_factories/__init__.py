@@ -16,16 +16,18 @@ Available factories
 
 Shared signature pattern
 ------------------------
-All factory functions (except ``create_wait_option``) share the same first
-four arguments::
+Most factory functions share the same first three arguments::
 
     create_<X>_skill(
         name: str,            # Option name for logging/matching
         types: Sequence[Type],# Object types (robot first)
-        params_space: Box,    # Continuous parameter space
         config: SkillConfig,  # Shared environment configuration
         ...                   # Skill-specific arguments
     )
+
+Each factory builds its ``params_space`` internally from canonical parameter
+definitions (e.g. ``_PICK_PARAMS``, ``_PLACE_PARAMS``).  The exception is
+``create_move_to_skill``, which takes an explicit ``params_space`` argument.
 
 ``create_wait_option`` uses ``(name, config, robot_type)`` since it always
 operates on a single robot type with no parameters.

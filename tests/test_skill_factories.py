@@ -10,32 +10,22 @@ import pytest
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.ground_truth_models.skill_factories.base import (
-    Phase,
-    PhaseAction,
-    PhaseSkill,
-    SkillConfig,
-    _BIRRT_STEP_KEY,
-    _BIRRT_TRAJ_KEY,
-)
-from predicators.ground_truth_models.skill_factories.move_to import (
-    create_move_to_skill,
-    make_move_to_phase,
-)
-from predicators.ground_truth_models.skill_factories.pick import (
-    create_pick_skill,
-)
-from predicators.ground_truth_models.skill_factories.place import (
-    create_place_skill,
-)
-from predicators.ground_truth_models.skill_factories.push import (
-    create_push_skill,
-)
-from predicators.ground_truth_models.skill_factories.wait import (
-    create_wait_option,
-)
+from predicators.ground_truth_models.skill_factories.base import \
+    _BIRRT_STEP_KEY, _BIRRT_TRAJ_KEY, Phase, PhaseAction, PhaseSkill, \
+    SkillConfig
+from predicators.ground_truth_models.skill_factories.move_to import \
+    create_move_to_skill, make_move_to_phase
+from predicators.ground_truth_models.skill_factories.pick import \
+    create_pick_skill
+from predicators.ground_truth_models.skill_factories.place import \
+    create_place_skill
+from predicators.ground_truth_models.skill_factories.push import \
+    create_push_skill
+from predicators.ground_truth_models.skill_factories.wait import \
+    create_wait_option
 from predicators.pybullet_helpers.geometry import Pose
-from predicators.pybullet_helpers.robots import create_single_arm_pybullet_robot
+from predicators.pybullet_helpers.robots import \
+    create_single_arm_pybullet_robot
 from predicators.structs import Action, Object, ParameterizedOption, Type
 
 # ---------------------------------------------------------------------------
@@ -45,7 +35,7 @@ _ROBOT_TYPE = Type("robot", ["x", "y", "z", "tilt", "wrist", "fingers"])
 _OBJ_TYPE = Type("obj", ["x", "y", "z"])
 
 # Finger state values matching PyBulletEnv class-var conventions for Fetch.
-_OPEN_STATE = 0.04    # open_fingers feature value
+_OPEN_STATE = 0.04  # open_fingers feature value
 _CLOSED_STATE = 0.01  # closed_fingers feature value
 
 # EE pose used to home the Fetch robot.
@@ -62,14 +52,14 @@ def _get_ee_home_pose() -> Pose:
 # Module-scoped fixture: create a Fetch robot exactly once for all tests.
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module", name="robot_scene")
 def _setup_robot_scene():
     """Connect to PyBullet DIRECT, create a Fetch robot, yield both."""
     utils.reset_config({"seed": 123})
     physics_client_id = p.connect(p.DIRECT)
-    robot = create_single_arm_pybullet_robot(
-        "fetch", physics_client_id, _get_ee_home_pose()
-    )
+    robot = create_single_arm_pybullet_robot("fetch", physics_client_id,
+                                             _get_ee_home_pose())
     yield physics_client_id, robot
     p.disconnect(physics_client_id)
 
@@ -78,8 +68,10 @@ def _setup_robot_scene():
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _fingers_state_to_joint(robot, finger_state: float) -> float:
-    """Nearest open/closed joint value — mirrors PyBulletEnv._fingers_state_to_joint."""
+    """Nearest open/closed joint value — mirrors
+    PyBulletEnv._fingers_state_to_joint."""
     open_j = robot.open_fingers
     closed_j = robot.closed_fingers
     if abs(finger_state - open_j) <= abs(finger_state - closed_j):
@@ -105,27 +97,28 @@ def _make_obj() -> Object:
 
 
 def _build_state(
-    robot_obj: Object,
-    robot,
-    ee_x: float,
-    ee_y: float,
-    ee_z: float,
-    finger_state: float = _OPEN_STATE,
-    obj: Object = None,
-    obj_xyz=(0.0, 0.0, 0.0),
+        robot_obj: Object,
+        robot,
+        ee_x: float,
+        ee_y: float,
+        ee_z: float,
+        finger_state: float = _OPEN_STATE,
+        obj: Object = None,
+        obj_xyz=(0.0, 0.0, 0.0),
 ) -> utils.PyBulletState:
     """Build a PyBulletState at the specified EE position.
 
     Uses the robot's initial joint positions as the simulator state.
     When the EE position equals the home position, the state is fully
-    self-consistent (joint positions match the EE pose in state features).
+    self-consistent (joint positions match the EE pose in state
+    features).
     """
     tilt = np.pi / 2
     wrist = -np.pi
     data = {
-        robot_obj: np.array(
-            [ee_x, ee_y, ee_z, tilt, wrist, finger_state], dtype=np.float32
-        )
+        robot_obj:
+        np.array([ee_x, ee_y, ee_z, tilt, wrist, finger_state],
+                 dtype=np.float32)
     }
     if obj is not None:
         data[obj] = np.array(obj_xyz, dtype=np.float32)
@@ -134,17 +127,18 @@ def _build_state(
 
 
 def _make_home_state(
-    robot_obj: Object,
-    robot,
-    finger_state: float = _OPEN_STATE,
-    obj: Object = None,
-    obj_xyz=(0.0, 0.0, 0.0),
+        robot_obj: Object,
+        robot,
+        finger_state: float = _OPEN_STATE,
+        obj: Object = None,
+        obj_xyz=(0.0, 0.0, 0.0),
 ) -> utils.PyBulletState:
     """Build a fully self-consistent PyBulletState at the robot's home pose.
 
     Resets the robot to its cached initial joint positions and reads the
-    actual EE state from PyBullet, so that joint_positions and EE features
-    are always mutually consistent regardless of prior robot manipulation.
+    actual EE state from PyBullet, so that joint_positions and EE
+    features are always mutually consistent regardless of prior robot
+    manipulation.
     """
     robot.set_joints(robot.initial_joint_positions)
     raw = robot.get_state()  # [rx, ry, rz, qx, qy, qz, qw, rf]
@@ -152,22 +146,24 @@ def _make_home_state(
     tilt_val = p.getEulerFromQuaternion([qx, qy, qz, qw])[1]
     wrist_val = p.getEulerFromQuaternion([qx, qy, qz, qw])[2]
     data = {
-        robot_obj: np.array(
-            [rx, ry, rz, tilt_val, wrist_val, finger_state], dtype=np.float32
-        )
+        robot_obj:
+        np.array([rx, ry, rz, tilt_val, wrist_val, finger_state],
+                 dtype=np.float32)
     }
     if obj is not None:
         data[obj] = np.array(obj_xyz, dtype=np.float32)
-    return utils.PyBulletState(
-        data, simulator_state=list(robot.initial_joint_positions)
-    )
+    return utils.PyBulletState(data,
+                               simulator_state=list(
+                                   robot.initial_joint_positions))
 
 
 # ===========================================================================
 # 1. SkillConfig
 # ===========================================================================
 
+
 class TestSkillConfig:
+
     def test_required_fields_stored(self, robot_scene):
         _, robot = robot_scene
         cfg = SkillConfig(
@@ -222,12 +218,16 @@ class TestSkillConfig:
 # 2. Phase dataclass
 # ===========================================================================
 
+
 class TestPhase:
+
     def test_move_to_pose_phase(self):
+
         def dummy_target(state, objects, params, cfg):
             return None, None, "open"
 
-        phase = Phase(name="TestMove", action_type=PhaseAction.MOVE_TO_POSE,
+        phase = Phase(name="TestMove",
+                      action_type=PhaseAction.MOVE_TO_POSE,
                       target_fn=dummy_target)
         assert phase.name == "TestMove"
         assert phase.action_type == PhaseAction.MOVE_TO_POSE
@@ -235,14 +235,17 @@ class TestPhase:
         assert phase.use_motion_planning is False  # default from CFG
 
     def test_change_fingers_phase(self):
+
         def dummy_target(state, objects, params, cfg):
             return 0.04, 0.01
 
-        phase = Phase(name="Grasp", action_type=PhaseAction.CHANGE_FINGERS,
+        phase = Phase(name="Grasp",
+                      action_type=PhaseAction.CHANGE_FINGERS,
                       target_fn=dummy_target)
         assert phase.action_type == PhaseAction.CHANGE_FINGERS
 
     def test_custom_terminal_fn_stored(self):
+
         def my_terminal(state, objects, params, cfg):
             return True
 
@@ -267,6 +270,7 @@ class TestPhase:
 # ===========================================================================
 # 3. PhaseSkill — structure and public-interface behaviour
 # ===========================================================================
+
 
 class TestPhaseSkill:
 
@@ -293,7 +297,7 @@ class TestPhaseSkill:
             target_fn=target_fn,
             use_motion_planning=False,
         )
-        skill = PhaseSkill("Test", [_ROBOT_TYPE], Box(0, 1, (0,)), config,
+        skill = PhaseSkill("Test", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
                            [phase])
         return skill, robot_obj, phase
 
@@ -309,7 +313,7 @@ class TestPhaseSkill:
             action_type=PhaseAction.CHANGE_FINGERS,
             target_fn=target_fn,
         )
-        skill = PhaseSkill("TestCF", [_ROBOT_TYPE], Box(0, 1, (0,)), config,
+        skill = PhaseSkill("TestCF", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
                            [phase])
         return skill, phase
 
@@ -381,7 +385,8 @@ class TestPhaseSkill:
         assert not grounded.terminal(state)
 
     def test_multi_phase_terminal_only_on_last(self, robot_scene):
-        """With 2 phases, terminal is False even when phase 0 would be terminal."""
+        """With 2 phases, terminal is False even when phase 0 would be
+        terminal."""
         _, robot = robot_scene
         config = _make_config(robot)
 
@@ -397,10 +402,8 @@ class TestPhaseSkill:
             action_type=PhaseAction.CHANGE_FINGERS,
             target_fn=lambda s, o, p_, c: (0.04, 0.00),
         )
-        skill = PhaseSkill(
-            "TwoPhase", [_ROBOT_TYPE], Box(0, 1, (0,)), config,
-            [phase0, phase1]
-        )
+        skill = PhaseSkill("TwoPhase", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
+                           [phase0, phase1])
         opt = skill.build()
         robot_obj = _make_robot_obj()
         grounded = opt.ground([robot_obj], np.zeros(0))
@@ -426,15 +429,15 @@ class TestPhaseSkill:
             action_type=PhaseAction.CHANGE_FINGERS,
             target_fn=lambda s, o, p_, c: (0.04, 0.00),
         )
-        skill = PhaseSkill(
-            "Advance", [_ROBOT_TYPE], Box(0, 1, (0,)), config,
-            [phase0, phase1]
-        )
+        skill = PhaseSkill("Advance", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
+                           [phase0, phase1])
         opt = skill.build()
         robot_obj = _make_robot_obj()
         grounded = opt.ground([robot_obj], np.zeros(0))
-        state = _build_state(robot_obj, robot, *_EE_HOME,
-                              finger_state=_OPEN_STATE)
+        state = _build_state(robot_obj,
+                             robot,
+                             *_EE_HOME,
+                             finger_state=_OPEN_STATE)
         grounded.initiable(state)
         assert grounded.memory["phase_idx"] == 0
         # Phase 0 is terminal; policy should advance to phase 1.
@@ -442,7 +445,8 @@ class TestPhaseSkill:
         assert grounded.memory["phase_idx"] == 1
 
     def test_custom_terminal_fn_overrides_default(self, robot_scene):
-        """A custom terminal_fn takes precedence over distance-based terminal."""
+        """A custom terminal_fn takes precedence over distance-based
+        terminal."""
         _, robot = robot_scene
         config = _make_config(robot)
         call_count = {"n": 0}
@@ -454,12 +458,12 @@ class TestPhaseSkill:
         phase = Phase(
             name="Custom",
             action_type=PhaseAction.CHANGE_FINGERS,
-            target_fn=lambda s, o, p_, c: (0.04, 0.00),  # would not be terminal
+            target_fn=lambda s, o, p_, c:
+            (0.04, 0.00),  # would not be terminal
             terminal_fn=my_terminal,
         )
-        skill = PhaseSkill(
-            "CustomTerm", [_ROBOT_TYPE], Box(0, 1, (0,)), config, [phase]
-        )
+        skill = PhaseSkill("CustomTerm", [_ROBOT_TYPE], Box(0, 1, (0, )),
+                           config, [phase])
         opt = skill.build()
         robot_obj = _make_robot_obj()
         grounded = opt.ground([robot_obj], np.zeros(0))
@@ -472,6 +476,7 @@ class TestPhaseSkill:
 # ===========================================================================
 # 4. BiRRT trajectory caching and IK fallback
 # ===========================================================================
+
 
 class TestBiRRT:
     """Integration tests requiring a real PyBullet robot."""
@@ -487,9 +492,11 @@ class TestBiRRT:
             orn = p.getQuaternionFromEuler([0, 0, 0])
             return Pose(_EE_HOME, orn), Pose(_EE_HOME, orn), "open"
 
-        phase = Phase("Move", PhaseAction.MOVE_TO_POSE, target_fn,
+        phase = Phase("Move",
+                      PhaseAction.MOVE_TO_POSE,
+                      target_fn,
                       use_motion_planning=True)
-        skill = PhaseSkill("BT", [_ROBOT_TYPE], Box(0, 1, (0,)), config,
+        skill = PhaseSkill("BT", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
                            [phase])
         opt = skill.build()
         grounded = opt.ground([robot_obj], np.zeros(0))
@@ -514,17 +521,19 @@ class TestBiRRT:
                 state.get(robot_obj, "wrist"),
             ])
             current = Pose(
-                (state.get(robot_obj, "x"), state.get(robot_obj, "y"),
-                 state.get(robot_obj, "z")),
+                (state.get(robot_obj, "x"), state.get(
+                    robot_obj, "y"), state.get(robot_obj, "z")),
                 current_orn,
             )
             # Target = home, same as current, so BiRRT trivially succeeds.
             target = Pose(_EE_HOME, home_orn)
             return current, target, "open"
 
-        phase = Phase("Move", PhaseAction.MOVE_TO_POSE, target_fn,
+        phase = Phase("Move",
+                      PhaseAction.MOVE_TO_POSE,
+                      target_fn,
                       use_motion_planning=True)
-        skill = PhaseSkill("BT", [_ROBOT_TYPE], Box(0, 1, (0,)), config,
+        skill = PhaseSkill("BT", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
                            [phase])
         opt = skill.build()
         grounded = opt.ground([robot_obj], np.zeros(0))
@@ -555,16 +564,18 @@ class TestBiRRT:
                 state.get(robot_obj, "wrist"),
             ])
             current = Pose(
-                (state.get(robot_obj, "x"), state.get(robot_obj, "y"),
-                 state.get(robot_obj, "z")),
+                (state.get(robot_obj, "x"), state.get(
+                    robot_obj, "y"), state.get(robot_obj, "z")),
                 current_orn,
             )
             # Same-position target → BiRRT path is short (a few waypoints).
             return current, Pose(_EE_HOME, home_orn), "open"
 
-        phase = Phase("Move", PhaseAction.MOVE_TO_POSE, target_fn,
+        phase = Phase("Move",
+                      PhaseAction.MOVE_TO_POSE,
+                      target_fn,
                       use_motion_planning=True)
-        skill = PhaseSkill("BT", [_ROBOT_TYPE], Box(0, 1, (0,)), config,
+        skill = PhaseSkill("BT", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
                            [phase])
         opt = skill.build()
         grounded = opt.ground([robot_obj], np.zeros(0))
@@ -580,16 +591,17 @@ class TestBiRRT:
                 break
             grounded.policy(state)
         else:
-            pytest.fail("BiRRT terminal never became True after 50 policy calls")
+            pytest.fail(
+                "BiRRT terminal never became True after 50 policy calls")
 
         assert grounded.terminal(state)
 
     def test_birrt_fallback_to_ik_when_traj_is_none(self, robot_scene):
         """When memory[traj_key]=None (BiRRT failure), policy uses IK fallback.
 
-        We inject the failure directly into memory rather than depending on
-        BiRRT actually failing, which is non-deterministic with limited budgets
-        and no collision obstacles.
+        We inject the failure directly into memory rather than depending
+        on BiRRT actually failing, which is non-deterministic with
+        limited budgets and no collision obstacles.
         """
         _, robot = robot_scene
         utils.reset_config({"seed": 123})
@@ -600,19 +612,20 @@ class TestBiRRT:
 
         def target_fn(state, objects, params, cfg):
             current_orn = p.getQuaternionFromEuler([
-                0, state.get(robot_obj, "tilt"),
+                0,
+                state.get(robot_obj, "tilt"),
                 state.get(robot_obj, "wrist"),
             ])
-            current = Pose(
-                (state.get(robot_obj, "x"), state.get(robot_obj, "y"),
-                 state.get(robot_obj, "z")), current_orn
-            )
+            current = Pose((state.get(robot_obj, "x"), state.get(
+                robot_obj, "y"), state.get(robot_obj, "z")), current_orn)
             target = Pose(target_pos, home_orn)
             return current, target, "open"
 
-        phase = Phase("Move", PhaseAction.MOVE_TO_POSE, target_fn,
+        phase = Phase("Move",
+                      PhaseAction.MOVE_TO_POSE,
+                      target_fn,
                       use_motion_planning=True)
-        skill = PhaseSkill("FB", [_ROBOT_TYPE], Box(0, 1, (0,)), config,
+        skill = PhaseSkill("FB", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
                            [phase])
         opt = skill.build()
         grounded = opt.ground([robot_obj], np.zeros(0))
@@ -637,6 +650,7 @@ class TestBiRRT:
 # ===========================================================================
 # 5. Wait option
 # ===========================================================================
+
 
 class TestWaitOption:
 
@@ -678,8 +692,10 @@ class TestWaitOption:
         opt = create_wait_option("NoOp", config, _ROBOT_TYPE)
         robot_obj = _make_robot_obj()
         grounded = opt.ground([robot_obj], np.zeros(0))
-        state = _build_state(robot_obj, robot, *_EE_HOME,
-                              finger_state=_OPEN_STATE)
+        state = _build_state(robot_obj,
+                             robot,
+                             *_EE_HOME,
+                             finger_state=_OPEN_STATE)
         action = grounded.policy(state)
         l_idx = robot.left_finger_joint_idx
         # Finger nudge should be positive (open direction).
@@ -687,14 +703,17 @@ class TestWaitOption:
         assert action.arr[l_idx] > initial_fingers
 
     def test_wait_policy_nudges_fingers_closed(self, robot_scene):
-        """When fingers are closed, the action should nudge them more closed."""
+        """When fingers are closed, the action should nudge them more
+        closed."""
         _, robot = robot_scene
         config = _make_config(robot)
         opt = create_wait_option("NoOp", config, _ROBOT_TYPE)
         robot_obj = _make_robot_obj()
         grounded = opt.ground([robot_obj], np.zeros(0))
-        state = _build_state(robot_obj, robot, *_EE_HOME,
-                              finger_state=_CLOSED_STATE)
+        state = _build_state(robot_obj,
+                             robot,
+                             *_EE_HOME,
+                             finger_state=_CLOSED_STATE)
         action = grounded.policy(state)
         l_idx = robot.left_finger_joint_idx
         initial_fingers = state.joint_positions[l_idx]
@@ -702,7 +721,8 @@ class TestWaitOption:
         assert action.arr[l_idx] < initial_fingers
 
     def test_wait_policy_action_within_bounds(self, robot_scene):
-        """The action returned by wait must lie within the robot's action space."""
+        """The action returned by wait must lie within the robot's action
+        space."""
         _, robot = robot_scene
         config = _make_config(robot)
         opt = create_wait_option("NoOp", config, _ROBOT_TYPE)
@@ -723,8 +743,8 @@ class TestWaitOption:
         action = grounded.policy(state)
         l_idx = robot.left_finger_joint_idx
         r_idx = robot.right_finger_joint_idx
-        for i, (act, orig) in enumerate(
-                zip(action.arr, state.joint_positions)):
+        for i, (act, orig) in enumerate(zip(action.arr,
+                                            state.joint_positions)):
             if i not in (l_idx, r_idx):
                 assert act == pytest.approx(orig, abs=1e-6), \
                     f"Joint {i} should not change in wait policy"
@@ -733,6 +753,7 @@ class TestWaitOption:
 # ===========================================================================
 # 6. make_move_to_phase
 # ===========================================================================
+
 
 class TestMakeMoveToPosePhase:
 
@@ -756,9 +777,12 @@ class TestMakeMoveToPosePhase:
             get_target_pose_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
             finger_status="open",
         )
-        state = _build_state(robot_obj, robot, *_EE_HOME,
-                              finger_state=_CLOSED_STATE)  # state says closed
-        _, _, returned_status = phase.target_fn(state, [robot_obj], np.zeros(0), config)
+        state = _build_state(robot_obj,
+                             robot,
+                             *_EE_HOME,
+                             finger_state=_CLOSED_STATE)  # state says closed
+        _, _, returned_status = phase.target_fn(state, [robot_obj],
+                                                np.zeros(0), config)
         assert returned_status == "open"  # explicit overrides state
 
     def test_explicit_closed_finger_status(self, robot_scene):
@@ -770,13 +794,17 @@ class TestMakeMoveToPosePhase:
             get_target_pose_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
             finger_status="closed",
         )
-        state = _build_state(robot_obj, robot, *_EE_HOME,
-                              finger_state=_OPEN_STATE)  # state says open
-        _, _, returned_status = phase.target_fn(state, [robot_obj], np.zeros(0), config)
+        state = _build_state(robot_obj,
+                             robot,
+                             *_EE_HOME,
+                             finger_state=_OPEN_STATE)  # state says open
+        _, _, returned_status = phase.target_fn(state, [robot_obj],
+                                                np.zeros(0), config)
         assert returned_status == "closed"
 
     def test_inferred_open_finger_status(self, robot_scene):
-        """When finger_status=None, infers 'open' from state with open fingers."""
+        """When finger_status=None, infers 'open' from state with open
+        fingers."""
         _, robot = robot_scene
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
@@ -785,13 +813,17 @@ class TestMakeMoveToPosePhase:
             get_target_pose_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
             finger_status=None,
         )
-        state = _build_state(robot_obj, robot, *_EE_HOME,
-                              finger_state=_OPEN_STATE)
-        _, _, returned_status = phase.target_fn(state, [robot_obj], np.zeros(0), config)
+        state = _build_state(robot_obj,
+                             robot,
+                             *_EE_HOME,
+                             finger_state=_OPEN_STATE)
+        _, _, returned_status = phase.target_fn(state, [robot_obj],
+                                                np.zeros(0), config)
         assert returned_status == "open"
 
     def test_inferred_closed_finger_status(self, robot_scene):
-        """When finger_status=None, infers 'closed' from state with closed fingers."""
+        """When finger_status=None, infers 'closed' from state with closed
+        fingers."""
         _, robot = robot_scene
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
@@ -800,9 +832,12 @@ class TestMakeMoveToPosePhase:
             get_target_pose_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
             finger_status=None,
         )
-        state = _build_state(robot_obj, robot, *_EE_HOME,
-                              finger_state=_CLOSED_STATE)
-        _, _, returned_status = phase.target_fn(state, [robot_obj], np.zeros(0), config)
+        state = _build_state(robot_obj,
+                             robot,
+                             *_EE_HOME,
+                             finger_state=_CLOSED_STATE)
+        _, _, returned_status = phase.target_fn(state, [robot_obj],
+                                                np.zeros(0), config)
         assert returned_status == "closed"
 
     def test_target_position_is_forwarded(self, robot_scene):
@@ -816,13 +851,16 @@ class TestMakeMoveToPosePhase:
             get_target_pose_fn=lambda s, o, p_, c: custom_target,
         )
         state = _build_state(robot_obj, robot, *_EE_HOME)
-        _, target_pose, _ = phase.target_fn(state, [robot_obj], np.zeros(0), config)
-        assert target_pose.position == pytest.approx(custom_target[:3], abs=1e-6)
+        _, target_pose, _ = phase.target_fn(state, [robot_obj], np.zeros(0),
+                                            config)
+        assert target_pose.position == pytest.approx(custom_target[:3],
+                                                     abs=1e-6)
 
 
 # ===========================================================================
 # 7. create_move_to_skill
 # ===========================================================================
+
 
 class TestCreateMoveToPoseSkill:
 
@@ -832,7 +870,7 @@ class TestCreateMoveToPoseSkill:
         opt = create_move_to_skill(
             "Move",
             [_ROBOT_TYPE],
-            Box(0, 1, (0,)),
+            Box(0, 1, (0, )),
             config,
             get_target_pose_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
         )
@@ -847,7 +885,7 @@ class TestCreateMoveToPoseSkill:
         opt = create_move_to_skill(
             "Move",
             [_ROBOT_TYPE],
-            Box(0, 1, (0,)),
+            Box(0, 1, (0, )),
             config,
             get_target_pose_fn=lambda s, o, p_, c: (*_EE_HOME, 0.0),
         )
@@ -862,6 +900,7 @@ class TestCreateMoveToPoseSkill:
 # ===========================================================================
 # 8. create_pick_skill — structure
 # ===========================================================================
+
 
 class TestCreatePickSkill:
 
@@ -892,10 +931,12 @@ class TestCreatePickSkill:
         robot_obj = _make_robot_obj()
         obj = _make_obj()
         opt = self._make_pick(robot)
-        # Pick params: (grasp_z_offset,) — use 0.02
-        grounded = opt.ground([robot_obj, obj], np.array([0.02],
-                              dtype=np.float32))
-        state = _make_home_state(robot_obj, robot, obj=obj,
+        # Pick params: (grasp_z_offset) — use 0.02
+        grounded = opt.ground([robot_obj, obj],
+                              np.array([0.02], dtype=np.float32))
+        state = _make_home_state(robot_obj,
+                                 robot,
+                                 obj=obj,
                                  obj_xyz=(1.35, 0.75, 0.4))
         grounded.initiable(state)
         action = grounded.policy(state)
@@ -906,6 +947,7 @@ class TestCreatePickSkill:
 # ===========================================================================
 # 9. create_place_skill — structure
 # ===========================================================================
+
 
 class TestCreatePlaceSkill:
 
@@ -934,9 +976,10 @@ class TestCreatePlaceSkill:
         utils.reset_config({"seed": 123})
         robot_obj = _make_robot_obj()
         opt = self._make_place(robot)
-        # Place params: (x, y, yaw, drop_z) — within bounds
-        grounded = opt.ground([robot_obj], np.array([0.75, 1.35, 0.0, 0.45],
-                              dtype=np.float32))
+        # Place params: (target_x, target_y, target_yaw, release_z)
+        grounded = opt.ground([robot_obj],
+                              np.array([0.75, 1.35, 0.0, 0.45],
+                                       dtype=np.float32))
         state = _make_home_state(robot_obj, robot)
         grounded.initiable(state)
         action = grounded.policy(state)
@@ -947,6 +990,7 @@ class TestCreatePlaceSkill:
 # ===========================================================================
 # 10. create_push_skill — structure
 # ===========================================================================
+
 
 class TestCreatePushSkill:
 
@@ -984,13 +1028,16 @@ class TestCreatePushSkill:
         robot_obj = _make_robot_obj()
         obj = _make_obj()
         opt = self._make_push(robot)
-        # Push params: (offset_x, offset_z, offset_rot, push_through_frac)
+        # Push params: (approach_distance, contact_z_offset, ee_yaw_offset, push_through_frac)
         grounded = opt.ground([robot_obj, obj],
                               np.array([0.05, 0.02, 0.0, 0.25],
                                        dtype=np.float32))
-        state = _build_state(robot_obj, robot, *_EE_HOME,
-                              finger_state=_OPEN_STATE, obj=obj,
-                              obj_xyz=(1.35, 0.75, 0.4))
+        state = _build_state(robot_obj,
+                             robot,
+                             *_EE_HOME,
+                             finger_state=_OPEN_STATE,
+                             obj=obj,
+                             obj_xyz=(1.35, 0.75, 0.4))
         grounded.initiable(state)
         action = grounded.policy(state)
         assert isinstance(action, Action)

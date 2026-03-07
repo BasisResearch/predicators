@@ -47,7 +47,7 @@ from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 # Canonical continuous parameters for Pour.
 _POUR_PARAMS = [
-    ("pour_tilt", 0.5, 1.0),
+    ("pour_tilt (EE tilt angle for pouring, radians)", 0.5, 1.0),
 ]
 
 
@@ -110,8 +110,8 @@ def create_pour_skill(
     ) -> Tuple[Pose, Pose, str]:
         pour_tilt = float(params[0])
         robot_obj = objects[0]
-        current_position = (state.get(robot_obj, "x"),
-                            state.get(robot_obj, "y"),
+        current_position = (state.get(robot_obj,
+                                      "x"), state.get(robot_obj, "y"),
                             state.get(robot_obj, "z"))
         current_orn = p.getQuaternionFromEuler(
             [0, state.get(robot_obj, "tilt"),
@@ -137,5 +137,9 @@ def create_pour_skill(
         ),
     ]
 
-    return PhaseSkill(name, types, params_space, config, phases,
+    return PhaseSkill(name,
+                      types,
+                      params_space,
+                      config,
+                      phases,
                       params_description=params_description).build()

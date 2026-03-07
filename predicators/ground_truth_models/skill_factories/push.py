@@ -6,8 +6,8 @@ using a standard 4-waypoint trajectory:
 
   1. Closing the gripper.
   2. Moving above & behind the target at ``config.transport_z``.
-  3. Descending to contact height (target z + ``offset_z``).
-  4. Pushing through the target (``push_through_frac * offset_x``
+  3. Descending to contact height (target z + ``contact_z_offset``).
+  4. Pushing through the target (``push_through_frac * approach_distance``
      past the target along its facing direction).
   5. Retreating to ``config.robot_home_pos``.
   6. Opening the gripper.
@@ -18,7 +18,7 @@ opposite to the facing direction.
 
 ``config.robot_home_pos`` **must** be set.
 
-Continuous parameters: ``(offset_x, offset_z, offset_rot, push_through_frac)``
+Continuous parameters: ``(approach_distance, contact_z_offset, ee_yaw_offset, push_through_frac)``
 
 Example::
 
@@ -61,10 +61,13 @@ from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
 # Canonical continuous parameters for Push.
 _PUSH_PARAMS = [
-    ("offset_x", 0.03, 0.08),
-    ("offset_z", 0.0, 0.12),
-    ("offset_rot", -np.pi, np.pi),
-    ("push_through_frac", 0.0, 0.3),
+    ("approach_distance (dist behind target along facing dir to start push)",
+     0.03, 0.08),
+    ("contact_z_offset (height above target z for contact)", 0.0, 0.12),
+    ("ee_yaw_offset (EE rotation offset from target yaw, radians)", -np.pi,
+     np.pi),
+    ("push_through_frac (fraction of approach_distance to push past target)",
+     0.0, 0.3),
 ]
 
 
@@ -79,17 +82,18 @@ def create_push_skill(
     Phases:
         0. **CloseFingers** -- Close the gripper before approaching.
         1. **Waypoint_0** -- Move above & behind the target at
-           ``config.transport_z``, offset by ``offset_x`` opposite the
-           facing direction.
+           ``config.transport_z``, offset by ``approach_distance``
+           opposite the facing direction.
         2. **Waypoint_1** -- Descend to contact height
-           (target z + ``offset_z``) at the same behind position.
+           (target z + ``contact_z_offset``) at the same behind position.
         3. **Waypoint_2** -- Push forward through the target by
-           ``offset_x * push_through_frac`` along the facing direction.
+           ``approach_distance * push_through_frac`` along the facing
+           direction.
         4. **Waypoint_3** -- Retreat to ``config.robot_home_pos``.
         5. **OpenFingers** -- Open the gripper.
 
     Continuous parameters:
-        ``(offset_x, offset_z, offset_rot, push_through_frac)``
+        ``(approach_distance, contact_z_offset, ee_yaw_offset, push_through_frac)``
 
     Args:
         name: Option name used for logging and matching.
@@ -112,8 +116,14 @@ def create_push_skill(
     # -- Standard 4-waypoint trajectory ----------------------------------
 
     def _waypoints(
-        ox: float, oy: float, oz: float, oyaw: float, cfg: SkillConfig,
-        s_offset_x: float, s_offset_z: float, s_offset_rot: float,
+        ox: float,
+        oy: float,
+        oz: float,
+        oyaw: float,
+        cfg: SkillConfig,
+        s_offset_x: float,
+        s_offset_z: float,
+        s_offset_rot: float,
         s_push_frac: float,
     ) -> List[Tuple[float, float, float, float, str]]:
         assert cfg.robot_home_pos is not None
@@ -199,5 +209,9 @@ def create_push_skill(
               action_type=PhaseAction.CHANGE_FINGERS,
               target_fn=_open_fingers_target))
 
-    return PhaseSkill(name, types, params_space, config, phases,
+    return PhaseSkill(name,
+                      types,
+                      params_space,
+                      config,
+                      phases,
                       params_description=params_description).build()
