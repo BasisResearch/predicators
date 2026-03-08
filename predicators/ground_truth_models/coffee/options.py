@@ -839,7 +839,8 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
             robot_init_wrist=PyBulletCoffeeEnv.robot_init_wrist,
             robot_home_pos=(env_cls.robot_init_x, env_cls.robot_init_y,
                             env_cls.robot_init_z),
-            transport_z=env_cls.z_ub - 0.1,
+            transport_z=0.7,
+            move_to_pose_tol=cls.pour_policy_tol,
         )
 
         push_config = replace(config, transport_z=env_cls.z_ub - 0.3)
