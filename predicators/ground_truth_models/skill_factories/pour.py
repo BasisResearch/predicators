@@ -36,7 +36,6 @@ from typing import Callable, Optional, Sequence, Tuple
 
 import numpy as np
 import pybullet as p
-from gym.spaces import Box
 
 from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn, build_params_space
@@ -91,6 +90,7 @@ def create_pour_skill(
         params: Array,
         cfg: SkillConfig,
     ) -> Tuple[float, float, float, float]:
+        del params  # unused
         x, y, _, yaw = get_target_pose_fn(state, objects, _empty, cfg)
         return x, y, cfg.transport_z, yaw
 
@@ -100,6 +100,7 @@ def create_pour_skill(
         params: Array,
         cfg: SkillConfig,
     ) -> Tuple[float, float, float, float]:
+        del params  # unused
         return get_target_pose_fn(state, objects, _empty, cfg)
 
     def _tilt_target(

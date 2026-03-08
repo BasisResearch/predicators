@@ -7,12 +7,12 @@ environment-specific target computation to a caller-supplied callback.
 
 Available factories
 -------------------
-- ``create_pick_skill``   -- Pick up an object (move above, descend, grasp, lift).
-- ``create_place_skill``  -- Place a held object (move above, descend, release, retreat).
-- ``create_push_skill``   -- Push through waypoints (close fingers, waypoints, open).
-- ``create_pour_skill``   -- Pour from a held container (move above, descend, tilt).
-- ``create_move_to_skill``-- Move end-effector to a target pose.
-- ``create_wait_option``  -- Hold current pose (no-op with finger drift resistance).
+- ``create_pick_skill``   -- Pick up an object.
+- ``create_place_skill``  -- Place a held object.
+- ``create_push_skill``   -- Push through waypoints.
+- ``create_pour_skill``   -- Pour from a held container.
+- ``create_move_to_skill``-- Move EE to a target pose.
+- ``create_wait_option``  -- Hold current pose (no-op).
 
 Shared signature pattern
 ------------------------

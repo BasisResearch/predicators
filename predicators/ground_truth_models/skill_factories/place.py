@@ -95,6 +95,7 @@ def create_place_skill(
         params: Array,
         cfg: SkillConfig,
     ) -> Tuple[float, float, float, float]:
+        del state, objects  # unused
         x, y, yaw = float(params[0]), float(params[1]), float(params[2])
         return x, y, cfg.transport_z, yaw
 
@@ -104,6 +105,7 @@ def create_place_skill(
         params: Array,
         cfg: SkillConfig,
     ) -> Tuple[float, float, float, float]:
+        del state, objects, cfg  # unused
         x, y, yaw = float(params[0]), float(params[1]), float(params[2])
         drop_z = float(params[3])
         return x, y, drop_z, yaw

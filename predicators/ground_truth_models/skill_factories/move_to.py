@@ -27,7 +27,7 @@ Example::
     )
 """
 
-from typing import Callable, Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 import pybullet as p
 from gym.spaces import Box

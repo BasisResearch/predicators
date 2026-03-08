@@ -18,7 +18,8 @@ opposite to the facing direction.
 
 ``config.robot_home_pos`` **must** be set.
 
-Continuous parameters: ``(approach_distance, contact_z_offset, ee_yaw_offset, push_through_frac)``
+Continuous parameters: ``(approach_distance, contact_z_offset,
+ee_yaw_offset, push_through_frac)``
 
 Example::
 
@@ -51,7 +52,6 @@ Example::
 from typing import Callable, List, Sequence, Tuple
 
 import numpy as np
-from gym.spaces import Box
 
 from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn, build_params_space
@@ -93,7 +93,8 @@ def create_push_skill(
         5. **OpenFingers** -- Open the gripper.
 
     Continuous parameters:
-        ``(approach_distance, contact_z_offset, ee_yaw_offset, push_through_frac)``
+        ``(approach_distance, contact_z_offset,
+        ee_yaw_offset, push_through_frac)``
 
     Args:
         name: Option name used for logging and matching.
