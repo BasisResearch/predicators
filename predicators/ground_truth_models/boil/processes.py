@@ -26,6 +26,8 @@ def _pick_sampler(state: State, goal: Set[GroundAtom],
 
 def _push_sampler(state: State, goal: Set[GroundAtom],
                   rng: np.random.Generator, objs: Sequence[Object]) -> Array:
+    if not CFG.boil_use_skill_factories:
+        return np.array([], dtype=np.float32)
     del state, goal, rng, objs
     return np.array([0.057, 0.104, 0.0, 0.25], dtype=np.float32)
 
@@ -33,6 +35,8 @@ def _push_sampler(state: State, goal: Set[GroundAtom],
 def _place_on_burner_sampler(state: State, goal: Set[GroundAtom],
                              rng: np.random.Generator,
                              objs: Sequence[Object]) -> Array:
+    if not CFG.boil_use_skill_factories:
+        return np.array([], dtype=np.float32)
     del goal, rng
     # objs = [robot, jug, burner]
     burner = objs[2]
@@ -44,6 +48,8 @@ def _place_on_burner_sampler(state: State, goal: Set[GroundAtom],
 def _place_under_faucet_sampler(state: State, goal: Set[GroundAtom],
                                 rng: np.random.Generator,
                                 objs: Sequence[Object]) -> Array:
+    if not CFG.boil_use_skill_factories:
+        return np.array([], dtype=np.float32)
     del goal, rng
     # objs = [robot, jug, faucet]
     faucet = objs[2]
@@ -56,6 +62,8 @@ def _place_under_faucet_sampler(state: State, goal: Set[GroundAtom],
 def _place_outside_sampler(state: State, goal: Set[GroundAtom],
                            rng: np.random.Generator,
                            objs: Sequence[Object]) -> Array:
+    if not CFG.boil_use_skill_factories:
+        return np.array([], dtype=np.float32)
     del state, goal, rng, objs
     x = PyBulletBoilEnv.x_mid - 0.15
     y = PyBulletBoilEnv.y_mid + 0.10

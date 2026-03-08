@@ -17,6 +17,8 @@ from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
 def _push_sampler(state: State, goal: Set[GroundAtom],
                   rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return fixed push params for fan switch push."""
+    if not CFG.fan_use_skill_factories:
+        return np.array([], dtype=np.float32)
     del state, goal, rng, objs
     return np.array([0.054, 0.104, 0.0, 0.25], dtype=np.float32)
 

@@ -32,6 +32,8 @@ def _pick_sampler(state: State, goal: Set[GroundAtom],
 def _push_sampler(state: State, goal: Set[GroundAtom],
                   rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return fixed push params for domino push."""
+    if not CFG.domino_use_skill_factories:
+        return np.array([], dtype=np.float32)
     del state, goal, rng, objs
     return np.array([
         _DOMINO_OFFSET_X, _DOMINO_OFFSET_Z, _DOMINO_OFFSET_ROT,
@@ -43,6 +45,8 @@ def _push_sampler(state: State, goal: Set[GroundAtom],
 def _place_sampler(state: State, goal: Set[GroundAtom],
                    rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return placement params from process objects."""
+    if not CFG.domino_use_skill_factories:
+        return np.array([], dtype=np.float32)
     del state, goal, rng
     # objs = [robot, domino1, domino2, target_pos, rotation]
     target_pos = objs[3]

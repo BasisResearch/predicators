@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from predicators.ground_truth_models import GroundTruthProcessFactory
+from predicators.settings import CFG
 from predicators.structs import Array, CausalProcess, EndogenousProcess, \
     ExogenousProcess, GroundAtom, LiftedAtom, Object, ParameterizedOption, \
     Predicate, State, Type, Variable
@@ -24,6 +25,8 @@ def _pick_sampler(state: State, goal: Set[GroundAtom],
 def _place_sampler(state: State, goal: Set[GroundAtom],
                    rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return placement params for grow place (random x, y)."""
+    if not CFG.grow_use_skill_factories:
+        return np.array([], dtype=np.float32)
     del state, goal, objs
     x = rng.uniform(0.4, 1.1)
     y = rng.uniform(1.1, 1.6)
