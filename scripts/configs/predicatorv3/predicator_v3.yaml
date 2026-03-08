@@ -9,14 +9,13 @@ APPROACHES:
   #     human_interaction_approach_use_scripted_option: True
   #     human_interaction_approach_use_all_options: True
   #     scripted_option_dir: "scripted_option_policies"
-  #     script_option_file_name: "domino2.txt"
   #     skill_phase_use_motion_planning: True
-  # oracle:
-  #   NAME: "oracle_process_planning"
-  #   FLAGS:
-  #     demonstrator: "oracle_process_planning"
-  #     terminate_on_goal_reached_and_option_terminated: True
-  #     bilevel_plan_without_sim: True
+  oracle:
+    NAME: "oracle_process_planning"
+    FLAGS:
+      demonstrator: "oracle_process_planning"
+      terminate_on_goal_reached_and_option_terminated: True
+      bilevel_plan_without_sim: True
   # mf_agent:
   #   NAME: "agent_planner"
   #   FLAGS:
@@ -25,17 +24,17 @@ APPROACHES:
   #     terminate_on_goal_reached_and_option_terminated: True
   #     agent_planner_isolate_test_session: True
   #     agent_sdk_use_docker_sandbox: True
-  mf_option_learning_agent:
-    NAME: "agent_option_learning"
-    FLAGS:
-      explorer: "agent"
-      option_learner: "agent"
-      demonstrator: "oracle_process_planning"
-      terminate_on_goal_reached_and_option_terminated: True
-      agent_planner_isolate_test_session: True
-      # agent_sdk_use_docker_sandbox: True
-      agent_sdk_use_local_sandbox: True
-      agent_sdk_max_agent_turns_per_iteration: 40
+  # mf_option_learning_agent:
+  #   NAME: "agent_option_learning"
+  #   FLAGS:
+  #     explorer: "agent"
+  #     option_learner: "agent"
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     agent_planner_isolate_test_session: True
+  #     # agent_sdk_use_docker_sandbox: True
+  #     agent_sdk_use_local_sandbox: True
+  #     agent_sdk_max_agent_turns_per_iteration: 40
   # mb_agent:
   #   NAME: "agent_abstraction_learning"
   #   FLAGS:
@@ -47,27 +46,72 @@ APPROACHES:
   #     num_online_learning_cycles: 4
   #     online_nsrt_learning_requests_per_cycle: 1
 ENVS:
-  domino:
-    NAME: "pybullet_domino"
+  # domino:
+  #   NAME: "pybullet_domino"
+  #   FLAGS:
+  #     # excluded_predicates: "InFrontDirection,InFront"
+  #     excluded_objects_in_state_str: "loc,rot,angle,direction"
+  #     horizon: 200
+  #     domino_initialize_at_finished_state: False
+  #     domino_use_domino_blocks_as_target: True
+  #     domino_use_grid: True
+  #     domino_include_connected_predicate: False # necessary to generate valid plan
+  #     domino_use_continuous_place: True
+  #     domino_restricted_push: True
+  #     domino_prune_actions: False
+  #     process_planning_heuristic_weight: 2.0
+  #     process_planning_use_abstract_policy: False
+  #     domino_has_glued_dominos: False
+  #     keep_failed_demos: True
+  #     env_has_impossible_goals: True
+  #     process_param_learning_use_empirical: True
+  #     process_learning_use_empirical: True
+  #     predicate_invent_invent_derived_predicates: True
+  #     script_option_file_name: "domino2.txt"
+  coffee:
+    NAME: "pybullet_coffee"
     FLAGS:
-      # excluded_predicates: "InFrontDirection,InFront"
-      excluded_objects_in_state_str: "loc,rot,angle,direction"
-      horizon: 200
-      domino_initialize_at_finished_state: False
-      domino_use_domino_blocks_as_target: True
-      domino_use_grid: True
-      domino_include_connected_predicate: False # necessary to generate valid plan
-      domino_use_continuous_place: True
-      domino_restricted_push: True
-      domino_prune_actions: False
-      process_planning_heuristic_weight: 2.0
-      process_planning_use_abstract_policy: False
-      domino_has_glued_dominos: False
-      keep_failed_demos: True
-      env_has_impossible_goals: True
-      process_param_learning_use_empirical: True
-      process_learning_use_empirical: True
-      predicate_invent_invent_derived_predicates: True
+      excluded_predicates: "Twisting,PressingButton,NotSameCup,RobotAboveCup"
+      coffee_rotated_jug_ratio: 0
+      coffee_num_cups_train: [1]
+      coffee_machine_have_light_bar: False
+      coffee_move_back_after_place_and_push: True
+      coffee_machine_has_plug: False
+      coffee_combined_move_and_twist_policy: True
+      coffee_use_pixelated_jug: True
+      coffee_fill_jug_gradually: True
+      max_num_steps_option_rollout: 100
+      horizon: 300
+      script_option_file_name: "coffee.txt"
+  # grow:
+  #   NAME: "pybullet_grow"
+  #   FLAGS:
+  #     excluded_predicates: "HandTilted"
+  #     coffee_use_pixelated_jug: True
+  #     max_num_steps_option_rollout: 50
+  #     grow_weak_pour_terminate_condition: True
+  #     grow_place_option_no_sampler: True
+  #     horizon: 400
+  # boil:
+  #   NAME: "pybullet_boil"
+  #   FLAGS:
+  #     excluded_objects_in_state_str: "switch"
+  #     max_num_steps_option_rollout: 50
+  #     horizon: 500 # 300 should be enough, 50 is good during dev
+  #     # boil_goal: "task_completed" # This option isn't fully ready because
+  #       # with the current only_learn_exogenous_processes setting, it won't try
+  #       # to learn the precondition for the DeclareComplete option.
+  #     boil_goal: "human_happy" # Can also be "task_completed", "simple"
+  #     # boil_goal: "simple"
+  #     boil_require_jug_full_to_heatup: True
+  # fan:
+  #   NAME: "pybullet_fan"
+  #   FLAGS:
+  #     excluded_objects_in_state_str: "switch"
+  #     terminate_on_goal_reached: True # maybe required for successful eval
+  #     process_planning_heuristic_weight: 10.0
+  #     terminate_on_goal_reached: True # maybe required for successful eval
+  #     horizon: 500
 ARGS:
   - "debug"
   - "use_gui"
