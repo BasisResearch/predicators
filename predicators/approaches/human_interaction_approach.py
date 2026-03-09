@@ -107,7 +107,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
         """
         # Construct the file path
         filepath = utils.get_path_to_predicators_root() + \
-            f"/{CFG.approach_dir}/{CFG.scripted_option_dir}/{CFG.script_option_file_name}"
+            f"/scripts/{CFG.scripted_option_dir}/{CFG.script_option_file_name}"
 
         # Read the file
         with open(filepath, "r", encoding="utf-8") as f:
