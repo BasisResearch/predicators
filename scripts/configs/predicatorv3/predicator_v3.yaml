@@ -104,7 +104,8 @@ ENVS:
       boil_goal: "human_happy" # Can also be "task_completed", "simple"
       # boil_goal: "simple"
       boil_require_jug_full_to_heatup: True
-      script_option_file_name: "boil.txt"
+      script_option_file_name: "boil2.txt"
+      boil_water_fill_speed: 0.0015
   # fan:
   #   NAME: "pybullet_fan"
   #   FLAGS:
@@ -147,6 +148,7 @@ FLAGS:
   video_fps: 20
   pybullet_camera_height: 900
   pybullet_camera_width: 900
+  pybullet_birrt_extend_num_interp: 5
   # use_classification_problem_setting: False # This decides the entry point
   # use_counterfactual_dataset_path_name: True  # for generating images or videos
   planning_filter_unreachable_nsrt: False
