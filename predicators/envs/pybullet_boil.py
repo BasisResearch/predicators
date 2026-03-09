@@ -95,8 +95,10 @@ class PyBulletBoilEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Speeds / rates
     water_height_to_level_ratio: ClassVar[float] = 10
-    # how fast water_volume increases per step
-    water_fill_speed: ClassVar[float] = 0.002 * water_height_to_level_ratio
+    # how fast water_volume increases per step — read from CFG at runtime
+    @property
+    def water_fill_speed(self) -> float:
+        return CFG.boil_water_fill_speed * self.water_height_to_level_ratio
     water_filled_height: ClassVar[float] = 0.08 * water_height_to_level_ratio
     # When capacity is 1, it is harder to learn the right process for
     # WaterSpilled process because for water to spill on the table is happens
