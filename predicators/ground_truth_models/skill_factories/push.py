@@ -62,7 +62,7 @@ from predicators.structs import Array, Object, ParameterizedOption, State, Type
 # Canonical continuous parameters for Push.
 _PUSH_PARAMS = [
     ("approach_distance (dist behind target along facing dir to start push)",
-     0.03, 0.08),
+     0.00, 0.08),
     ("contact_z_offset (height above target z for contact)", 0.0, 0.12),
     ("ee_yaw_offset (EE rotation offset from target yaw, radians)", -np.pi,
      np.pi),

@@ -29,7 +29,7 @@ def _push_sampler(state: State, goal: Set[GroundAtom],
     if not CFG.coffee_use_skill_factories:
         return np.array([], dtype=np.float32)
     del state, goal, rng, objs
-    return np.array([0.0675, 0.0, -np.pi, 0.0], dtype=np.float32)
+    return np.array([0.0, 0.01, 1.57, 0.0], dtype=np.float32)
 
 
 def _place_jug_in_machine_sampler(state: State, goal: Set[GroundAtom],
@@ -40,9 +40,9 @@ def _place_jug_in_machine_sampler(state: State, goal: Set[GroundAtom],
     del state, goal, rng
     # objs = [robot, jug, machine]
     return np.array([
-        PyBulletCoffeeEnv.dispense_area_x, PyBulletCoffeeEnv.dispense_area_y,
+        PyBulletCoffeeEnv.dispense_area_x, PyBulletCoffeeEnv.dispense_area_y-.1,
         PyBulletCoffeeEnv.robot_init_wrist, _COFFEE_DROP_Z
-    ],
+    ], # 0.98, 1.4, -1.57, 0.5
                     dtype=np.float32)
 
 
