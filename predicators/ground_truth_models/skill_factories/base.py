@@ -544,8 +544,11 @@ class PhaseSkill:
                 continue
             collision_bodies.add(sim_obj.id)
 
-        # 4b. Add the table if present.
-        if hasattr(sim, '_table') and sim._table.id is not None:
+        # 4b. Add tables if present.
+        if hasattr(sim, '_table_ids'):
+            for tid in sim._table_ids:
+                collision_bodies.add(tid)
+        elif hasattr(sim, '_table') and sim._table.id is not None:
             collision_bodies.add(sim._table.id)
 
         # 4c. Add extra sim collision bodies (e.g. virtual buffer zones).
