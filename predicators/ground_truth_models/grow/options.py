@@ -276,10 +276,8 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
         ) -> Tuple[float, float, float, float]:
             del params, config
             _, jug = objects
-            gz = env_cls.table_height + env_cls.jug_handle_height
-            return (state.get(jug,
-                              "x"), state.get(jug,
-                                              "y"), gz, state.get(jug, "rot"))
+            hx, hy, hz = PyBulletCoffeeEnv._get_jug_handle_grasp(state, jug)
+            return (hx, hy, hz, state.get(jug, "rot"))
 
         PickJug = create_pick_skill(
             name="PickJug",
