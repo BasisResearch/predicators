@@ -42,7 +42,7 @@ def _place_on_burner_sampler(state: State, goal: Set[GroundAtom],
     burner = objs[2]
     x = state.get(burner, "x")
     y = state.get(burner, "y") - PyBulletBoilEnv.jug_handle_offset
-    return np.array([x, y, 0.0, _BOIL_DROP_Z], dtype=np.float32)
+    return np.array([x, y, -1.57, _BOIL_DROP_Z], dtype=np.float32)
 
 
 def _place_under_faucet_sampler(state: State, goal: Set[GroundAtom],
@@ -56,7 +56,7 @@ def _place_under_faucet_sampler(state: State, goal: Set[GroundAtom],
     x = state.get(faucet, "x")
     y = (state.get(faucet, "y") - PyBulletBoilEnv.jug_handle_offset -
          PyBulletBoilEnv.faucet_x_len)
-    return np.array([x, y, 0.0, _BOIL_DROP_Z], dtype=np.float32)
+    return np.array([x, y, -1.57, _BOIL_DROP_Z], dtype=np.float32)
 
 
 def _place_outside_sampler(state: State, goal: Set[GroundAtom],
