@@ -29,7 +29,7 @@ def _push_sampler(state: State, goal: Set[GroundAtom],
     if not CFG.boil_use_skill_factories:
         return np.array([], dtype=np.float32)
     del state, goal, rng, objs
-    return np.array([0.057, 0.104, 0.0, 0.25], dtype=np.float32)
+    return np.array([0.05, 0.1, 0.0, 0.], dtype=np.float32)
 
 
 def _place_on_burner_sampler(state: State, goal: Set[GroundAtom],

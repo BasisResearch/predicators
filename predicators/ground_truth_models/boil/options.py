@@ -583,11 +583,11 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
         # switch push_dir = (cos(rot), sin(rot)) → yaw = π/2 − rot
         def _get_switch_on_pose(state, objects, params, cfg):
             x, y, z, rot = _get_switch_pose(state, objects, params, cfg)
-            return x, y, z, np.pi / 2 - rot
+            return x, y, z, rot + np.pi / 2
 
         def _get_switch_off_pose(state, objects, params, cfg):
             x, y, z, rot = _get_switch_pose(state, objects, params, cfg)
-            return x, y, z, -np.pi / 2 - rot
+            return x, y, z, rot - np.pi / 2 
 
         _push_transport_z = cls._hand_empty_move_z
         push_config = replace(config, transport_z=_push_transport_z)
