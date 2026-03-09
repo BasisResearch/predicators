@@ -844,10 +844,14 @@ class PyBulletFanEnv(PyBulletEnv):
                 return float(self._is_switch_on(obj.id))
         elif obj.type == self._target_type:
             if feature == "is_hit":
-                bx = self._current_observation.get(self._ball, "x")
-                by = self._current_observation.get(self._ball, "y")
-                tx = self._current_observation.get(self._target, "x")
-                ty = self._current_observation.get(self._target, "y")
+                ball_pos, _ = p.getBasePositionAndOrientation(
+                    self._ball.id,
+                    physicsClientId=self._physics_client_id)
+                target_pos, _ = p.getBasePositionAndOrientation(
+                    self._target.id,
+                    physicsClientId=self._physics_client_id)
+                bx, by = ball_pos[0], ball_pos[1]
+                tx, ty = target_pos[0], target_pos[1]
                 return 1.0 if self._is_ball_close_to_position(bx, by, tx, ty) \
                     else 0.0
         elif obj.type == self._location_type:
