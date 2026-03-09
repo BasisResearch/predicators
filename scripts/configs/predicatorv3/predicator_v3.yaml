@@ -106,6 +106,7 @@ ENVS:
       boil_require_jug_full_to_heatup: True
       script_option_file_name: "boil2.txt"
       boil_water_fill_speed: 0.0015
+      pybullet_birrt_extend_num_interp: 5
   # fan:
   #   NAME: "pybullet_fan"
   #   FLAGS:
@@ -114,6 +115,7 @@ ENVS:
   #     process_planning_heuristic_weight: 10.0
   #     terminate_on_goal_reached: True # maybe required for successful eval
   #     horizon: 500
+  #     pybullet_birrt_extend_num_interp: 5
 ARGS:
   - "debug"
   - "use_gui"
@@ -148,7 +150,6 @@ FLAGS:
   video_fps: 20
   pybullet_camera_height: 900
   pybullet_camera_width: 900
-  pybullet_birrt_extend_num_interp: 5
   # use_classification_problem_setting: False # This decides the entry point
   # use_counterfactual_dataset_path_name: True  # for generating images or videos
   planning_filter_unreachable_nsrt: False
