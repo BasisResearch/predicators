@@ -544,7 +544,11 @@ class PhaseSkill:
                 continue
             collision_bodies.add(sim_obj.id)
 
-        # 4b. Add extra sim collision bodies (e.g. virtual buffer zones).
+        # 4b. Add the table if present.
+        if hasattr(sim, '_table') and sim._table.id is not None:
+            collision_bodies.add(sim._table.id)
+
+        # 4c. Add extra sim collision bodies (e.g. virtual buffer zones).
         collision_bodies.update(self._config.sim_extra_collision_bodies)
 
         # 5. IK + motion planning on simulator's robot

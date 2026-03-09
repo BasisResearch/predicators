@@ -795,8 +795,8 @@ class CoffeeEnv(BaseEnv):
         x = state.get(robot, "x")
         y = state.get(robot, "y")
         z = state.get(robot, "z")
-        sq_dist_to_button = np.sum(np.subtract(button_pos, (x, y, z))**2)
-        return sq_dist_to_button < self.button_press_threshold
+        dist_to_button = np.sqrt(np.sum(np.subtract(button_pos, (x, y, z))**2))
+        return dist_to_button < self.button_press_threshold
 
     @staticmethod
     def _NotSameCup_holds(state: State, objects: Sequence[Object]) -> bool:

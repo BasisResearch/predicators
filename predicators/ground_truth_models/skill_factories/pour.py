@@ -124,8 +124,8 @@ def create_pour_skill(
         return current_pose, target_pose, "closed"
 
     phases = [
-        # Phase 0: Move above pour position at normal tilt
-        make_move_to_phase("MoveAbovePour", _above_pose, "closed"),
+        # # Phase 0: Move above pour position at normal tilt
+        # make_move_to_phase("MoveAbovePour", _above_pose, "closed"),
         # Phase 1: Descend to pour height at normal tilt
         make_move_to_phase("DescendToPour", _descend_pose, "closed"),
         # Phase 2: Tilt EE to pour angle (incremental IK for fine control)

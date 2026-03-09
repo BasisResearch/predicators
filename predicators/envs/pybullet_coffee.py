@@ -113,7 +113,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     button_y: ClassVar[float] =\
         machine_y - machine_y_len / 2 - machine_top_y_len - button_height/2
     button_z: ClassVar[float] = z_lb + machine_z_len - button_radius
-    button_press_threshold: ClassVar[float] = 1e-2
+    button_press_threshold: ClassVar[float] = 3e-2
     machine_color: ClassVar[Tuple[float, float, float, float]] =\
         (0.1, 0.1, 0.1, 1) # Black
     button_color_on: ClassVar[Tuple[float, float, float,
@@ -575,6 +575,18 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                          or self._machine_plugged_in_id is not None)):
                 if CFG.coffee_fill_jug_gradually:
                     # Gradual filling
+                    if self._jug_current_liquid < self.max_jug_coffee_capacity:
+                        self._jug_current_liquid = min(
+                            self.max_jug_coffee_capacity,
+                            self._jug_current_liquid +
+                            self.coffee_machine_fill_speed)
+                        self._jug_liquid_id = self._create_liquid_for_jug()
+                        if (not self._jug_filled and
+                                self._jug_current_liquid >
+                                self.coffee_filled_threshold):
+                            self._jug_filled = True
+                else:
+                    # Instant filling
                     self._jug_current_liquid = min(
                         self.max_jug_coffee_capacity,
                         self._jug_current_liquid +
@@ -583,11 +595,6 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                     if (not self._jug_filled and self._jug_current_liquid >
                             self.coffee_filled_threshold):
                         self._jug_filled = True
-                else:
-                    # Instant filling
-                    if not self._jug_filled:
-                        self._jug_liquid_id = self._create_liquid_for_jug()
-                    self._jug_filled = True
 
     def _handle_pouring(self, state: State) -> None:
         """If the robot is tilted sufficiently to pour, increase liquid in the
@@ -781,7 +788,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         liquid_pos = (jug_pos[0], jug_pos[1],
                       self.z_lb + liquid_height / 2 + 0.02)
 
-        return p.createMultiBody(baseMass=0.001,
+        return p.createMultiBody(baseMass=1e-5,
                                  baseCollisionShapeIndex=collision_id,
                                  baseVisualShapeIndex=visual_id,
                                  basePosition=liquid_pos,
