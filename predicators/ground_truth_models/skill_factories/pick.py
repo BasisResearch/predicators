@@ -3,10 +3,12 @@
 This module provides ``create_pick_skill``, which builds a
 ``ParameterizedOption`` that picks up an object by:
 
-  1. Moving above the object at ``config.transport_z``.
-  2. Descending to the grasp height (object z + ``grasp_z_offset``).
-  3. Closing the gripper.
-  4. Lifting back to ``config.transport_z``.
+  1. Moving directly to the grasp height (collision-free via BiRRT).
+  2. Closing the gripper.
+  3. Lifting back to ``config.transport_z``.
+
+When ``use_move_above=True``, an extra MoveAbove phase is inserted before
+the descent, moving to ``config.transport_z`` first.
 
 The caller supplies a single callback ``get_target_pose_fn`` that extracts
 the object's ``(x, y, z, yaw)`` from the current state.  All environment-
@@ -63,17 +65,23 @@ def create_pick_skill(
     types: Sequence[Type],
     config: SkillConfig,
     get_target_pose_fn: TargetPoseFn,
+    use_move_above: bool = False,
 ) -> ParameterizedOption:
     """Create a multi-phase pick skill that grasps and lifts an object.
 
-    Phases:
-        0. **MoveAbove** -- Move end-effector above the object at
-           ``config.transport_z``, with fingers closed.
-        1. **Descend** -- Lower to the object's z + ``grasp_z_offset``
-           (from params), with fingers open.
-        2. **Grasp** -- Close fingers until contact (or custom terminal).
-        3. **Lift** -- Lift back to ``config.transport_z``, with fingers
-           closed.
+    By default (``use_move_above=False``), the skill moves directly to the
+    grasp height, relying on BiRRT for collision avoidance:
+
+        0. **MoveToGrasp** -- Move to object z + ``grasp_z_offset``.
+        1. **Grasp** -- Close fingers.
+        2. **Lift** -- Rise to ``config.transport_z``.
+
+    With ``use_move_above=True``, an extra phase is prepended:
+
+        0. **MoveAbove** -- Move to ``(obj_x, obj_y, transport_z)``.
+        1. **Descend** -- Lower to object z + ``grasp_z_offset``.
+        2. **Grasp** -- Close fingers.
+        3. **Lift** -- Rise to ``config.transport_z``.
 
     Continuous parameters:
         ``(grasp_z_offset,)`` -- offset added to z returned by
@@ -85,6 +93,7 @@ def create_pick_skill(
         config: Shared skill configuration (``config.transport_z`` is used).
         get_target_pose_fn: Callback returning ``(x, y, z, yaw)`` from
             ``(state, objects, params, config)``.  ``params`` will be empty.
+        use_move_above: If True, add a MoveAbove phase before descending.
 
     Returns:
         A ``ParameterizedOption`` implementing the pick skill.
@@ -125,21 +134,24 @@ def create_pick_skill(
         x, y, z, yaw = get_target_pose_fn(state, objects, _empty, cfg)
         return x, y, z + grasp_z_offset, yaw
 
-    phases = [
-        # Phase 0: Move above object
-        make_move_to_phase("MoveAbove", _above_pose, "closed"),
-        # Phase 1: Descend to grasp height
-        make_move_to_phase("Descend", _descend_pose, "open"),
-        # Phase 2: Close fingers to grasp
+    phases = []
+    # if use_move_above:
+    #     phases.append(make_move_to_phase("MoveAbove", _above_pose, "closed"))
+    phases.extend([
+        make_move_to_phase(
+            "MoveAbove", _above_pose, "closed"),
+        make_move_to_phase(
+            "Descend" if use_move_above else "MoveToGrasp",
+            _descend_pose, "open"),
         Phase(
             name="Grasp",
             action_type=PhaseAction.CHANGE_FINGERS,
             target_fn=_close_fingers_target,
             terminal_fn=None,
         ),
-        # Phase 3: Lift to transport height
-        make_move_to_phase("Lift", _above_pose, "closed"),
-    ]
+    ])
+    if use_move_above:
+        phases.append(make_move_to_phase("Lift", _above_pose, "closed"))
 
     return PhaseSkill(name,
                       types,

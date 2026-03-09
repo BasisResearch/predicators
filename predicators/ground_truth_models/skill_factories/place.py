@@ -3,10 +3,12 @@
 This module provides ``create_place_skill``, which builds a
 ``ParameterizedOption`` that places a held object by:
 
-  1. Moving above the placement target at ``config.transport_z``.
-  2. Descending to ``release_z`` (from params).
-  3. Opening the gripper to release.
-  4. Retreating back up to ``config.transport_z``.
+  1. Moving directly to the release position (collision-free via BiRRT).
+  2. Opening the gripper to release.
+  3. Retreating back up to ``config.transport_z``.
+
+When ``use_move_above=True``, an extra MoveAbove phase is inserted before
+the descent, moving to ``config.transport_z`` first.
 
 The placement target ``(target_x, target_y, target_yaw)`` and
 ``release_z`` are all provided as continuous parameters -- no callback
@@ -50,17 +52,23 @@ def create_place_skill(
     name: str,
     types: Sequence[Type],
     config: SkillConfig,
+    use_move_above: bool = False,
 ) -> ParameterizedOption:
     """Create a multi-phase place skill that releases a held object.
 
-    Phases:
-        0. **MoveAbove** -- Move end-effector above the placement at
-           ``config.transport_z``, with fingers closed.
-        1. **Descend** -- Lower to ``release_z`` (from params), with
-           fingers closed.
-        2. **OpenFingers** -- Open the gripper to release the object.
-        3. **Retreat** -- Rise back to ``config.transport_z``, with fingers
-           open.
+    By default (``use_move_above=False``), the skill moves directly to the
+    release position, relying on BiRRT for collision avoidance:
+
+        0. **MoveToDrop** -- Move to ``(target_x, target_y, release_z)``.
+        1. **OpenFingers** -- Release the object.
+        2. **Retreat** -- Rise to ``config.transport_z``.
+
+    With ``use_move_above=True``, an extra phase is prepended:
+
+        0. **MoveAbove** -- Move to ``(target_x, target_y, transport_z)``.
+        1. **Descend** -- Lower to ``release_z``.
+        2. **OpenFingers** -- Release the object.
+        3. **Retreat** -- Rise to ``config.transport_z``.
 
     Continuous parameters:
         ``(target_x, target_y, target_yaw, release_z)`` -- placement
@@ -70,6 +78,7 @@ def create_place_skill(
         name: Option name used for logging and matching.
         types: Ordered object types.  First element must be the robot type.
         config: Shared skill configuration (``config.transport_z`` is used).
+        use_move_above: If True, add a MoveAbove phase before descending.
 
     Returns:
         A ``ParameterizedOption`` implementing the place skill.
@@ -110,20 +119,20 @@ def create_place_skill(
         drop_z = float(params[3])
         return x, y, drop_z, yaw
 
-    phases = [
-        # Phase 0: Move above placement
-        make_move_to_phase("MoveAbove", _above_pose, "closed"),
-        # Phase 1: Descend to release height
-        make_move_to_phase("Descend", _drop_pose, "closed"),
-        # Phase 2: Open fingers to release
+    phases = []
+    if use_move_above:
+        phases.append(make_move_to_phase("MoveAbove", _above_pose, "closed"))
+    phases.extend([
+        make_move_to_phase(
+            "Descend" if use_move_above else "MoveToDrop",
+            _drop_pose, "closed"),
         Phase(
             name="OpenFingers",
             action_type=PhaseAction.CHANGE_FINGERS,
             target_fn=_open_fingers_target,
         ),
-        # Phase 3: Retreat upward
         make_move_to_phase("Retreat", _above_pose, "open"),
-    ]
+    ])
 
     return PhaseSkill(name,
                       types,
