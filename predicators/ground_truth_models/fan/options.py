@@ -293,6 +293,8 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         _push_transport_z = cls._hand_empty_move_z
 
+        simulator = env_cls(use_gui=False) \
+            if CFG.skill_phase_use_motion_planning else None
         config = SkillConfig(
             robot=pybullet_robot,
             open_fingers_joint=pybullet_robot.open_fingers,
@@ -303,6 +305,7 @@ class PyBulletFanGroundTruthOptionFactory(GroundTruthOptionFactory):
             robot_home_pos=(env_cls.robot_init_x, env_cls.robot_init_y,
                             env_cls.robot_init_z),
             transport_z=_push_transport_z,
+            simulator=simulator,
         )
 
         if CFG.fan_known_controls_relation:

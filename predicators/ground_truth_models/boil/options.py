@@ -543,6 +543,8 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         env_cls = cls.env_cls
 
+        simulator = env_cls(use_gui=False) \
+            if CFG.skill_phase_use_motion_planning else None
         config = SkillConfig(
             robot=pybullet_robot,
             open_fingers_joint=pybullet_robot.open_fingers,
@@ -553,6 +555,7 @@ class PyBulletBoilGroundTruthOptionFactory(GroundTruthOptionFactory):
             robot_home_pos=(env_cls.robot_init_x, env_cls.robot_init_y,
                             env_cls.robot_init_z),
             transport_z=cls._transport_z,
+            simulator=simulator,
         )
 
         # ---------------------------------------------------------------

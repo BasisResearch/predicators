@@ -6,6 +6,7 @@ from typing import ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 
 import numpy as np
+import pybullet as p
 from gym.spaces import Box
 
 from predicators import utils
@@ -830,6 +831,8 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
 
         env_cls = cls.env_cls
 
+        simulator = env_cls(use_gui=False) \
+            if CFG.skill_phase_use_motion_planning else None
         config = SkillConfig(
             robot=pybullet_robot,
             open_fingers_joint=pybullet_robot.open_fingers,
@@ -841,6 +844,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(CoffeeGroundTruthOptionFactory):
                             env_cls.robot_init_z),
             transport_z=0.7,
             move_to_pose_tol=cls.pour_policy_tol,
+            simulator=simulator,
         )
 
         push_config = replace(config, transport_z=env_cls.z_ub - 0.3)

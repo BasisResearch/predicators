@@ -1,11 +1,18 @@
 """Core abstractions for reusable parameterized skills."""
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, cast
+from typing import (TYPE_CHECKING, Any, Callable, Dict, List, Optional,
+                    Sequence, Tuple, cast)
+
+if TYPE_CHECKING:
+    from predicators.envs.pybullet_env import PyBulletEnv
 
 import numpy as np
+import pybullet as p
 from gym.spaces import Box
 
 from predicators import utils
@@ -91,6 +98,9 @@ class SkillConfig:
     robot_init_wrist: float = 0.0
     robot_home_pos: Optional[Tuple[float, float, float]] = None
     transport_z: float = 0.7
+    simulator: Optional[PyBulletEnv] = None
+    collision_skip_types: Tuple[str, ...] = ()
+    sim_extra_collision_bodies: Tuple[int, ...] = ()
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -359,24 +369,12 @@ class PhaseSkill:
                 state, objects, params, self._config)
             memory[finger_key] = finger_status
 
-            robot.set_joints(pb_state.joint_positions)
-            try:
-                target_joints: JointPositions = robot.inverse_kinematics(
-                    target_pose,
-                    validate=self._config.ik_validate,
-                    set_joints=True)
-            except InverseKinematicsError:
-                raise utils.OptionExecutionFailure(
-                    f"[{self._name}/{phase.name}] IK failed for BiRRT target.")
-
-            traj = run_motion_planning(
-                robot=robot,
-                initial_positions=pb_state.joint_positions,
-                target_positions=target_joints,
-                collision_bodies=self._config.collision_bodies,
-                seed=CFG.seed,
-                physics_client_id=robot.physics_client_id,
-            )
+            if self._config.simulator is not None:
+                traj = self._plan_with_simulator(
+                    pb_state, target_pose, phase.name)
+            else:
+                traj = self._plan_without_simulator(
+                    pb_state, target_pose, phase.name)
 
             if traj is None:
                 logging.warning(f"[{self._name}/{phase.name}] BiRRT failed; "
@@ -438,6 +436,145 @@ class PhaseSkill:
             robot.action_space.high,
         )
         return Action(action_arr)
+
+    # ------------------------------------------------------------------
+    # BiRRT planning helpers
+    # ------------------------------------------------------------------
+
+    # Non-physical types that have no PyBullet body and should be skipped
+    # when collecting collision bodies.
+    _SKIP_TYPES = frozenset({
+        "robot", "loc", "angle", "human", "side", "direction",
+    })
+
+    @staticmethod
+    def _collect_sim_objects(sim: PyBulletEnv) -> Dict[str, Object]:
+        """Collect all Objects with body IDs from a PyBulletEnv instance."""
+        obj_map: Dict[str, Object] = {}
+        # Scan instance attributes for Object instances with body IDs.
+        for attr_val in sim.__dict__.values():
+            if isinstance(attr_val, Object) and attr_val.id is not None:
+                obj_map[attr_val.name] = attr_val
+            elif isinstance(attr_val, (list, tuple)):
+                for item in attr_val:
+                    if isinstance(item, Object) and item.id is not None:
+                        obj_map[item.name] = item
+        # Composed envs: also enumerate component objects.
+        for comp in getattr(sim, '_components', []):
+            for obj in comp.get_objects():
+                obj_map[obj.name] = obj
+        # Always include the robot.
+        obj_map[sim._robot.name] = sim._robot
+        return obj_map
+
+    def _plan_without_simulator(
+        self,
+        pb_state: utils.PyBulletState,
+        target_pose: Pose,
+        phase_name: str,
+    ) -> Optional[Sequence[JointPositions]]:
+        """Plan using the config robot's physics client (no collision
+        bodies)."""
+        robot = self._config.robot
+        robot.set_joints(pb_state.joint_positions)
+        try:
+            target_joints: JointPositions = robot.inverse_kinematics(
+                target_pose,
+                validate=self._config.ik_validate,
+                set_joints=True)
+        except InverseKinematicsError:
+            raise utils.OptionExecutionFailure(
+                f"[{self._name}/{phase_name}] IK failed for BiRRT target.")
+
+        return run_motion_planning(
+            robot=robot,
+            initial_positions=pb_state.joint_positions,
+            target_positions=target_joints,
+            collision_bodies=self._config.collision_bodies,
+            seed=CFG.seed,
+            physics_client_id=robot.physics_client_id,
+        )
+
+    def _plan_with_simulator(
+        self,
+        pb_state: utils.PyBulletState,
+        target_pose: Pose,
+        phase_name: str,
+    ) -> Optional[Sequence[JointPositions]]:
+        """Plan using the simulator env for collision-aware motion planning.
+
+        Remaps the current state onto the simulator's objects, resets the
+        simulator, collects collision body IDs, and runs IK + BiRRT on the
+        simulator's physics client.
+        """
+        sim = self._config.simulator
+        assert sim is not None
+
+        # 1. Build name -> simulator Object mapping
+        sim_obj_map = self._collect_sim_objects(sim)
+
+        # 2. Remap state: simulator Objects with original feature values
+        new_state_data: Dict[Object, Any] = {}
+        for orig_obj, features in pb_state.data.items():
+            sim_obj = sim_obj_map.get(orig_obj.name)
+            if sim_obj is not None:
+                new_state_data[sim_obj] = features.copy()
+
+        remapped_state = utils.PyBulletState(
+            new_state_data,
+            simulator_state=pb_state.simulator_state)
+
+        # 3. Reset simulator to current state
+        sim._reset_state(remapped_state)
+
+        # 4. Collect collision body IDs (exclude held objects and
+        #    non-physical types) and find the held object.
+        collision_bodies: set = set()
+        held_object: Optional[int] = None
+        for orig_obj in pb_state:
+            if orig_obj.type.name in self._SKIP_TYPES or \
+                    orig_obj.type.name in self._config.collision_skip_types:
+                continue
+            sim_obj = sim_obj_map.get(orig_obj.name)
+            if sim_obj is None or sim_obj.id is None:
+                continue
+            if "is_held" in orig_obj.type.feature_names and \
+                    pb_state.get(orig_obj, "is_held") > 0.5:
+                held_object = sim_obj.id
+                continue
+            collision_bodies.add(sim_obj.id)
+
+        # 4b. Add extra sim collision bodies (e.g. virtual buffer zones).
+        collision_bodies.update(self._config.sim_extra_collision_bodies)
+
+        # 5. IK + motion planning on simulator's robot
+        planning_robot = sim._pybullet_robot
+        planning_robot.set_joints(pb_state.joint_positions)
+        try:
+            target_joints: JointPositions = planning_robot.inverse_kinematics(
+                target_pose,
+                validate=self._config.ik_validate,
+                set_joints=True)
+        except InverseKinematicsError:
+            raise utils.OptionExecutionFailure(
+                f"[{self._name}/{phase_name}] IK failed for BiRRT target.")
+
+        # Compute base_link_to_held_obj if an object is held.
+        base_link_to_held_obj = None
+        if held_object is not None and sim._held_obj_to_base_link is not None:
+            base_link_to_held_obj = p.invertTransform(
+                *sim._held_obj_to_base_link)
+
+        return run_motion_planning(
+            robot=planning_robot,
+            initial_positions=pb_state.joint_positions,
+            target_positions=target_joints,
+            collision_bodies=collision_bodies,
+            seed=CFG.seed,
+            physics_client_id=sim._physics_client_id,
+            held_object=held_object,
+            base_link_to_held_obj=base_link_to_held_obj,
+        )
 
     def _execute_move_ik(self, phase: Phase, state: State,
                          objects: Sequence[Object], params: Array) -> Action:

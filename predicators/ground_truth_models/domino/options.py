@@ -727,6 +727,8 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
     def _build_skill_config(
             cls, pybullet_robot: SingleArmPyBulletRobot) -> SkillConfig:
         """Build the shared SkillConfig for domino skill_factories options."""
+        simulator = cls.env_cls(use_gui=False) \
+            if CFG.skill_phase_use_motion_planning else None
         return SkillConfig(
             robot=pybullet_robot,
             open_fingers_joint=pybullet_robot.open_fingers,
@@ -741,6 +743,7 @@ class PyBulletDominoGroundTruthOptionFactory(GroundTruthOptionFactory):
             robot_home_pos=(cls.env_cls.robot_init_x, cls.env_cls.robot_init_y,
                             cls.env_cls.robot_init_z),
             transport_z=cls._transport_z,
+            simulator=simulator,
         )
 
     @classmethod

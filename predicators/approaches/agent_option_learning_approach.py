@@ -237,6 +237,9 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
         env_cls = _get_pybullet_env_cls(CFG.env)
         _, robot, _ = env_cls.initialize_pybullet(using_gui=False)
 
+        simulator = env_cls(use_gui=False) \
+            if CFG.skill_phase_use_motion_planning else None
+
         return SkillConfig(
             robot=robot,
             open_fingers_joint=robot.open_fingers,
@@ -246,6 +249,7 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
             ik_validate=CFG.pybullet_ik_validate,
             robot_init_tilt=getattr(env_cls, 'robot_init_tilt', 0.0),
             robot_init_wrist=getattr(env_cls, 'robot_init_wrist', 0.0),
+            simulator=simulator,
         )
 
     # ------------------------------------------------------------------ #

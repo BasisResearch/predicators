@@ -251,6 +251,8 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         env_cls = cls.env_cls
 
+        simulator = env_cls(use_gui=False) \
+            if CFG.skill_phase_use_motion_planning else None
         config = SkillConfig(
             robot=pybullet_robot,
             open_fingers_joint=pybullet_robot.open_fingers,
@@ -259,6 +261,7 @@ class PyBulletGrowGroundTruthOptionFactory(GroundTruthOptionFactory):
             robot_init_tilt=PyBulletGrowEnv.robot_init_tilt,
             robot_init_wrist=PyBulletGrowEnv.robot_init_wrist,
             transport_z=env_cls.z_ub - 0.35,
+            simulator=simulator,
         )
 
         # ---------------------------------------------------------------
