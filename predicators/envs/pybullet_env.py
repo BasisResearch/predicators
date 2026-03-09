@@ -442,16 +442,8 @@ class PyBulletEnv(BaseEnv):
                 # attach constraint
                 self._held_obj_id = obj.id
                 self._create_grasp_constraint()
-                # self._create_grasp_constraint_for_object(obj.id)
-                # Optionally store the parent link transform
-                world_to_base_link = get_link_state(
-                    self._pybullet_robot.robot_id,
-                    self._pybullet_robot.end_effector_id,
-                    physics_client_id=self._physics_client_id).com_pose
-                obj_to_base_link = p.invertTransform(*p.multiplyTransforms(
-                    world_to_base_link[0], world_to_base_link[1], (px, py,
-                                                                   pz), orn))
-                self._held_obj_to_base_link = obj_to_base_link
+                # _create_grasp_constraint already correctly computes
+                # and stores _held_obj_to_base_link.
 
     @abc.abstractmethod
     def _reset_custom_env_state(self, state: State) -> None:
