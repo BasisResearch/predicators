@@ -1186,6 +1186,207 @@ def test_pick_holds_domino_without_motion_planning():
         f"is_held={is_held}")
 
 
+def test_domino_pick_place_no_collisions():
+    """Pick domino_1 and place it between others — no non-held domino moves.
+
+    Uses position mode with motion planning so BiRRT plans collision-free
+    paths.  Verifies that non-held dominoes remain stationary throughout
+    the pick and place sequences (i.e., no arm–domino collisions).
+    """
+    try:
+        from predicators.envs.pybullet_domino import PyBulletDominoEnv
+    except ImportError:
+        pytest.skip("pybullet_domino not available")
+
+    utils.reset_config({
+        "env": "pybullet_domino",
+        "use_gui": False,
+        "pybullet_control_mode": "position",
+        "pybullet_robot": "fetch",
+        "domino_use_skill_factories": True,
+        "skill_phase_use_motion_planning": True,
+        "pybullet_ik_validate": False,
+        "domino_initialize_at_finished_state": False,
+        "domino_use_domino_blocks_as_target": True,
+        "domino_use_grid": True,
+        "domino_include_connected_predicate": False,
+        "domino_use_continuous_place": True,
+        "domino_restricted_push": True,
+        "domino_prune_actions": False,
+        "domino_has_glued_dominos": False,
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+    })
+
+    class _ExposedDominoEnv(_ExposedEnvMixin, PyBulletDominoEnv):
+        pass
+
+    env = _ExposedDominoEnv(use_gui=False)
+    Pick = env._options["Pick"]
+    Place = env._options["Place"]
+
+    domino_type = env._domino_component.domino_type
+    robot_type = next(t for t in env.types if t.name == "robot")
+
+    # Use test task 0 (matches debug_motion_planning.py setup)
+    obs = env.reset("test", 0)
+    state = obs
+
+    robot = state.get_objects(robot_type)[0]
+    dominos = state.get_objects(domino_type)
+    pick_target = next(d for d in dominos if d.name == "domino_1")
+
+    pos_tol = 1e-3
+
+    def _get_positions(st):
+        return {o.name: (st.get(o, "x"), st.get(o, "y"), st.get(o, "z"))
+                for o in st.get_objects(domino_type)}
+
+    def _check_moved(before, st, skip_names=()):
+        moved = []
+        cur = _get_positions(st)
+        for name, (bx, by, bz) in before.items():
+            if name in skip_names:
+                continue
+            cx, cy, cz = cur[name]
+            disp = np.sqrt((cx - bx)**2 + (cy - by)**2 + (cz - bz)**2)
+            if disp > pos_tol:
+                moved.append((name, disp))
+        return moved
+
+    # ---- Pick domino_1 ----
+    pos_before_pick = _get_positions(state)
+    option = Pick.ground([robot, pick_target],
+                         np.array([0.01], dtype=np.float32))
+    assert option.initiable(state)
+
+    pick_collisions = []
+    for _ in range(300):
+        if option.terminal(state):
+            break
+        action = option.policy(state)
+        state = env.simulate(state, action)
+        moved = _check_moved(pos_before_pick, state,
+                             skip_names={pick_target.name})
+        if moved:
+            pick_collisions = moved
+
+    assert state.get(pick_target, "is_held") > 0.5, \
+        "domino_1 should be held after pick"
+    assert not pick_collisions, \
+        f"Non-held dominoes moved during Pick: {pick_collisions}"
+
+    # ---- Place at (0.75, 1.26) between existing dominoes ----
+    pos_before_place = _get_positions(state)
+    target_x, target_y, target_yaw = 0.75, 1.26, 0.0
+    release_z = env.table_height + env.domino_height * 1.13
+
+    option = Place.ground(
+        [robot],
+        np.array([target_x, target_y, target_yaw, release_z],
+                 dtype=np.float32))
+    assert option.initiable(state)
+
+    place_collisions = []
+    for _ in range(300):
+        if option.terminal(state):
+            break
+        action = option.policy(state)
+        state = env.simulate(state, action)
+        moved = _check_moved(pos_before_place, state)
+        if moved:
+            place_collisions = moved
+
+    assert not place_collisions, \
+        f"Non-held dominoes moved during Place: {place_collisions}"
+
+
+@pytest.mark.xfail(reason="Button detection zone overlaps dispense area "
+                    "approach path — robot arm triggers button during place")
+def test_coffee_place_no_button_press():
+    """PickJug then PlaceJugInMachine without turning machine on.
+
+    The jug should be placed on the dispense area without hitting the
+    machine's top overhang or accidentally pressing the button.
+    """
+    utils.reset_config({
+        "env": "pybullet_coffee",
+        "use_gui": False,
+        "pybullet_control_mode": "position",
+        "pybullet_robot": "fetch",
+        "pybullet_ik_validate": False,
+        "coffee_use_skill_factories": True,
+        "coffee_rotated_jug_ratio": 0,
+        "coffee_num_cups_train": [1],
+        "coffee_num_cups_test": [1],
+        "coffee_machine_have_light_bar": False,
+        "coffee_move_back_after_place_and_push": True,
+        "coffee_machine_has_plug": False,
+        "coffee_combined_move_and_twist_policy": True,
+        "coffee_use_pixelated_jug": True,
+        "coffee_fill_jug_gradually": True,
+        "skill_phase_use_motion_planning": True,
+        "max_num_steps_option_rollout": 100,
+        "num_train_tasks": 1,
+        "num_test_tasks": 1,
+    })
+
+    env = _ExposedCoffeeEnv(use_gui=False)
+
+    robot_type = next(t for t in env.types if t.name == "robot")
+    jug_type = next(t for t in env.types if t.name == "jug")
+    machine_type = next(t for t in env.types if t.name == "coffee_machine")
+
+    obs = env.reset("test", 0)
+    state = obs
+
+    robot = state.get_objects(robot_type)[0]
+    jug = state.get_objects(jug_type)[0]
+    machine = state.get_objects(machine_type)[0]
+
+    assert state.get(machine, "is_on") < 0.5, "Machine should start OFF"
+
+    # ---- Pick the jug ----
+    pick_option = env.PickJug.ground(
+        [robot, jug], np.array([0.01], dtype=np.float32))
+    assert pick_option.initiable(state)
+
+    for _ in range(300):
+        if pick_option.terminal(state):
+            break
+        action = pick_option.policy(state)
+        state = env.simulate(state, action)
+
+    assert state.get(jug, "is_held") > 0.5, "Jug should be held after pick"
+    assert state.get(machine, "is_on") < 0.5, "Machine turned on during pick!"
+
+    # ---- Place jug in machine ----
+    target_x = PyBulletCoffeeEnv.dispense_area_x
+    target_y = PyBulletCoffeeEnv.dispense_area_y
+    target_yaw = PyBulletCoffeeEnv.robot_init_wrist
+    release_z = PyBulletCoffeeEnv.z_lb + env.jug_handle_height()
+
+    place_option = env.PlaceJugInMachine.ground(
+        [robot, jug, machine],
+        np.array([target_x, target_y, target_yaw, release_z],
+                 dtype=np.float32))
+    assert place_option.initiable(state)
+
+    machine_turned_on_step = None
+    for step in range(300):
+        if place_option.terminal(state):
+            break
+        action = place_option.policy(state)
+        state = env.simulate(state, action)
+
+        if state.get(machine, "is_on") > 0.5 and machine_turned_on_step is None:
+            machine_turned_on_step = step
+
+    assert machine_turned_on_step is None, (
+        f"Machine was turned on at step {machine_turned_on_step} during "
+        f"PlaceJugInMachine — robot arm likely triggered the button.")
+
+
 def test_human_interaction_scripted_domino_solves_task():
     """Full pipeline: human_interaction approach with scripted option plan
     (domino2.txt) solves the 1st test task in pybullet_domino."""
