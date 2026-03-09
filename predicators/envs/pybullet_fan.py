@@ -563,6 +563,7 @@ class PyBulletFanEnv(PyBulletEnv):
 
     def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
         """Store references to all PyBullet object IDs and their joints."""
+        self._table_ids = [pybullet_bodies["table_id"]]
         # 0 = left, 1 = right, 2 = back, 3 = front
 
         # Store all fan IDs grouped by side

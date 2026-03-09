@@ -235,6 +235,7 @@ class PyBulletGrowEnv(PyBulletEnv):
     def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
         """Store references (IDs) to cups and jugs inside self._cups,
         self._jugs."""
+        self._table_ids = [pybullet_bodies["table_id"]]
         for i, cup in enumerate(self._cups):
             cup.id = pybullet_bodies["cup_ids"][i]
         for i, jug in enumerate(self._jugs):

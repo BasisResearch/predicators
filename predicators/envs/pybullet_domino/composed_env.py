@@ -238,20 +238,23 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                                  physics_client_id=physics_client_id)
 
         # Add second table for more space
-        create_object(asset_path="urdf/table.urdf",
-                      position=(cls.table_pos[0],
-                                cls.table_pos[1] + cls.table_width / 2,
-                                cls.table_pos[2]),
-                      orientation=cls.table_orn,
-                      scale=1.0,
-                      use_fixed_base=True,
-                      physics_client_id=physics_client_id)
+        table_id2 = create_object(
+            asset_path="urdf/table.urdf",
+            position=(cls.table_pos[0],
+                      cls.table_pos[1] + cls.table_width / 2,
+                      cls.table_pos[2]),
+            orientation=cls.table_orn,
+            scale=1.0,
+            use_fixed_base=True,
+            physics_client_id=physics_client_id)
 
-        bodies = {"table_id": table_id}
+        bodies = {"table_id": table_id, "table_id2": table_id2}
         return physics_client_id, pybullet_robot, bodies
 
     def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
         """Initialize and store PyBullet bodies for all components."""
+        self._table_ids = [pybullet_bodies["table_id"],
+                           pybullet_bodies["table_id2"]]
         # Initialize each component
         for comp in self._components:
             comp.set_physics_client_id(self._physics_client_id)

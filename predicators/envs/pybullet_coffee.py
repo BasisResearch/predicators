@@ -302,6 +302,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         return physics_client_id, pybullet_robot, bodies
 
     def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
+        self._table_ids = [pybullet_bodies["table_id"]]
         self._table.id = pybullet_bodies["table_id"]
         self._jug.id = pybullet_bodies["jug_id"]
         self._machine.id = pybullet_bodies["machine_id"]
