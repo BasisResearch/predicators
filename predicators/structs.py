@@ -6,10 +6,16 @@ import abc
 import copy
 import itertools
 import random
+import textwrap
 from dataclasses import dataclass, field, replace
 from functools import cached_property, lru_cache
-from typing import Any, Callable, Collection, DefaultDict, Dict, Iterator, \
-    List, Optional, Sequence, Set, Tuple, TypeVar, Union, cast
+from inspect import getsource
+from typing import (TYPE_CHECKING, Any, Callable, Collection, DefaultDict,
+                     Dict, Iterator, List, Optional, Sequence, Set, Tuple,
+                     TypeVar, Union, cast)
+
+if TYPE_CHECKING:
+    from predicators.utils import VLMQuery, VLMState
 
 import numpy as np
 import PIL.Image
@@ -173,10 +179,7 @@ class Object(_TypedEntity):
 
     @cached_property
     def id_name(self) -> str:
-        try:
-            assert self.id is not None, "Object must have an id set to use id_name"
-        except:
-            breakpoint()
+        assert self.id is not None, "Object must have an id set to use id_name"
         return f"{self.type.name}{self.id}"
 
 
@@ -534,8 +537,9 @@ class DerivedPredicate(Predicate):
             self,
             auxiliary_predicates: Set[DerivedPredicate]) -> DerivedPredicate:
         """Create a new ConceptPredicate with updated auxiliary_concepts."""
-        return replace(self, auxiliary_predicates=auxiliary_predicates
-                       )  # type: ignore[arg-type]
+        return replace(
+            self, auxiliary_predicates=auxiliary_predicates  # type: ignore[arg-type]
+        )
 
     @cached_property
     def _hash(self) -> int:
@@ -557,8 +561,9 @@ class DerivedPredicate(Predicate):
                 return False
         return True
 
-    def holds(self, state: Set[GroundAtom],
-              objects: Sequence[Object]) -> bool:  # type: ignore[override]
+    def holds(  # type: ignore[override]
+            self, state: Set[GroundAtom],
+            objects: Sequence[Object]) -> bool:
         """Public method for calling the classifier.
 
         Performs type checking first.
@@ -606,10 +611,10 @@ class NSPredicate(Predicate):
 
     def __init__(
         self, name: str, types: Sequence[Type],
-        _classifier: Callable[[RawState, Sequence[Object]], bool]
-    ) -> None:  # type: ignore[name-defined]
+        _classifier: Callable[[VLMState, Sequence[Object]], bool]
+    ) -> None:
         self._original_classifier = _classifier
-        super().__init__(name, types, _MemoizedClassifier(_classifier))
+        super().__init__(name, types, _MemoizedClassifier(_classifier))  # type: ignore[arg-type]
 
     @cached_property
     def _hash(self) -> int:
@@ -690,8 +695,9 @@ class ConceptPredicate(Predicate):
     def __hash__(self) -> int:
         return self._hash
 
-    def holds(self, state: Set[GroundAtom],
-              objects: Sequence[Object]) -> bool:  # type: ignore[override]
+    def holds(  # type: ignore[override]
+            self, state: Set[GroundAtom],
+            objects: Sequence[Object]) -> bool:
         """Public method for calling the classifier.
 
         Performs type checking first.
@@ -1173,9 +1179,9 @@ class STRIPSOperator:
             add_effects=self.add_effects if option.name != "Wait" else set(),
             delete_effects=self.delete_effects
             if option.name != "Wait" else set(),
-            delay_distribution=utils.CMPDelay(
-                *process_delay_params,  # type: ignore[attr-defined]
-                rng=process_rng),
+            delay_distribution=utils.DiscreteGaussianDelay(
+                torch.tensor(process_delay_params[0]),
+                torch.tensor(process_delay_params[1])),
             strength=process_strength,  # type: ignore[arg-type]
             option=option,
             option_vars=option_vars,
@@ -2623,6 +2629,12 @@ class DelayDistribution:
     def log_prob(self, k: Union[int, torch.Tensor]) -> torch.Tensor:
         raise NotImplementedError
 
+    def probability(self, k: int) -> float:
+        raise NotImplementedError
+
+    def copy(self) -> DelayDistribution:
+        raise NotImplementedError
+
     def __str__(self) -> str:
         return self._str
 
@@ -2655,7 +2667,6 @@ class CausalProcess(abc.ABC):
     @abc.abstractmethod
     def copy(self) -> CausalProcess:
         """Create a deep copy of this causal process."""
-        pass
 
     @abc.abstractmethod
     def filter_predicates(self, kept: Collection[Predicate]) -> CausalProcess:
@@ -2665,7 +2676,6 @@ class CausalProcess(abc.ABC):
         Note that the parameters must stay the same for the sake of the
         sampler inputs.
         """
-        pass
 
     def _set_parameters(self, parameters: Sequence[float],
                         **kwargs: Any) -> None:
@@ -2689,8 +2699,7 @@ class CausalProcess(abc.ABC):
         ] + self.delay_distribution.get_parameters()  # type: ignore[operator]
 
     def delay_probability(self, delay: int) -> float:
-        return self.delay_distribution.probability(
-            delay)  # type: ignore[attr-defined]
+        return self.delay_distribution.probability(delay)
 
     @cached_property
     def _hash(self) -> int:
@@ -2764,8 +2773,7 @@ class ExogenousProcess(CausalProcess):
             condition_at_end=self.condition_at_end.copy(),
             add_effects=self.add_effects.copy(),
             delete_effects=self.delete_effects.copy(),
-            delay_distribution=self.delay_distribution.copy(
-            ),  # type: ignore[attr-defined]
+            delay_distribution=self.delay_distribution.copy(),
             strength=self.strength.clone())
 
     def filter_predicates(self,
@@ -2831,8 +2839,7 @@ class EndogenousProcess(CausalProcess):
             condition_at_end=self.condition_at_end.copy(),
             add_effects=self.add_effects.copy(),
             delete_effects=self.delete_effects.copy(),
-            delay_distribution=self.delay_distribution.copy(
-            ),  # type: ignore[attr-defined]
+            delay_distribution=self.delay_distribution.copy(),
             strength=self.strength.clone(),
             option=self.option.copy(),  # type: ignore[attr-defined]
             option_vars=self.option_vars.copy(),  # type: ignore[attr-defined]

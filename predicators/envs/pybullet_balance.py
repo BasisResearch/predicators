@@ -8,7 +8,6 @@ python predicators/main.py --approach oracle --env pybullet_balance --seed 1 \
 --excluded_predicates "Balanced,OnPlate" --sesame_max_skeletons_optimized 1 \
 --sesame_check_expected_atoms False --pybullet_ik_validate False
 """
-import logging
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple, \
     Union
@@ -16,14 +15,13 @@ from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple, \
 import numpy as np
 import pybullet as p
 
-from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv, create_pybullet_block
-from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
+from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, Array, ConceptPredicate, \
     EnvironmentTask, GroundAtom, NSPredicate, Object, Predicate, State, Type
-from predicators.utils import RawState, VLMQuery
+from predicators.utils import VLMQuery
 
 
 class PyBulletBalanceEnv(PyBulletEnv):
@@ -691,7 +689,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
                 return block
         return None
 
-    def _Clear_NSP_holds(self, state: RawState, objects: Sequence[Object]) -> \
+    def _Clear_NSP_holds(self, state: State, objects: Sequence[Object]) -> \
             Union[bool, VLMQuery]:
         """Is there no block on top of the block."""
         block, = objects
@@ -702,7 +700,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
                 return False
         return True
 
-    def _Holding_NSP_holds(self, state: RawState, objects: Sequence[Object]) ->\
+    def _Holding_NSP_holds(self, state: State, objects: Sequence[Object]) ->\
             bool:
         """Is the robot holding the block."""
         block, = objects
@@ -714,8 +712,8 @@ class PyBulletBalanceEnv(PyBulletEnv):
             return False
 
         # Using simple heuristics to check if they have overlap
-        block_bbox = state.get_obj_bbox(block)
-        robot_bbox = state.get_obj_bbox(robot)
+        block_bbox = state.get_obj_bbox(block)  # type: ignore[attr-defined]
+        robot_bbox = state.get_obj_bbox(robot)  # type: ignore[attr-defined]
         if block_bbox.right < robot_bbox.left or \
             block_bbox.left > robot_bbox.right or\
             block_bbox.upper < robot_bbox.lower or\
@@ -723,11 +721,11 @@ class PyBulletBalanceEnv(PyBulletEnv):
             return False
 
         block_name = block.id_name
-        attention_image = state.crop_to_objects([block, robot])
-        return state.evaluate_simple_assertion(  # type: ignore[return-value]
+        attention_image = state.crop_to_objects([block, robot])  # type: ignore[attr-defined]
+        return state.evaluate_simple_assertion(  # type: ignore[return-value, attr-defined]
             f"{block_name} is held by the robot", attention_image)
 
-    def _GripperOpen_NSP_holds(self, state: RawState, objects: Sequence[Object]) ->\
+    def _GripperOpen_NSP_holds(self, state: State, objects: Sequence[Object]) ->\
             bool:
         """Is the robots gripper open."""
         robot, = objects
@@ -735,7 +733,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
         return finger_state > 0.03
 
 
-    def _DirectlyOnPlate_NSP_holds(self, state: RawState, objects: Sequence[Object]) ->\
+    def _DirectlyOnPlate_NSP_holds(self, state: State, objects: Sequence[Object]) ->\
             bool:
         """Determine if the block in objects is directly resting on the table's
         surface in the scene image."""
@@ -746,13 +744,14 @@ class PyBulletBalanceEnv(PyBulletEnv):
         plate = state.get_objects(self._plate_type)[0]
         plate_name = plate.id_name
         # Crop the image to the smallest bounding box that include both objects.
-        attention_image = state.crop_to_objects([block, plate])
+        attention_image = state.crop_to_objects(  # type: ignore[attr-defined]
+            [block, plate])
 
-        return state.evaluate_simple_assertion(  # type: ignore[return-value]
+        return state.evaluate_simple_assertion(  # type: ignore[return-value, attr-defined]
             f"{block_name} is directly resting on {plate_name}'s surface.",
             attention_image)
 
-    def _DirectlyOn_NSP_holds(self, state: RawState,
+    def _DirectlyOn_NSP_holds(self, state: State,
                               objects: Sequence[Object]) -> bool:
         """Determine if the first block in objects is directly on top of the
         second block with no blocks in between in the scene image, by using a
@@ -776,8 +775,9 @@ class PyBulletBalanceEnv(PyBulletEnv):
         # Use a VLM query to handle to reminder cases
         # Crop the scene image to the smallest bounding box that include both
         # objects.
-        attention_image = state.crop_to_objects([block1, block2])
-        return state.evaluate_simple_assertion(  # type: ignore[return-value]
+        attention_image = state.crop_to_objects(  # type: ignore[attr-defined]
+            [block1, block2])
+        return state.evaluate_simple_assertion(  # type: ignore[return-value, attr-defined]
             f"{block1_name} is directly on top of {block2_name} with no " +
             "blocks in between.", attention_image)
 

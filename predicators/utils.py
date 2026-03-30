@@ -25,7 +25,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from pprint import pformat
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Collection, Dict, \
     FrozenSet, Generator, Generic, Hashable, Iterable, Iterator, List, \
     Optional, Sequence, Set, Tuple
@@ -59,14 +58,14 @@ from predicators.pybullet_helpers.joint import JointPositions
 from predicators.settings import CFG, GlobalSettings
 from predicators.structs import NSRT, Action, Array, AtomOptionTrajectory, \
     CausalProcess, DelayDistribution, DerivedPredicate, DummyOption, \
-    EntToEntSub, ExogenousProcess, GroundAtom, GroundAtomTrajectory, \
-    GroundNSRTOrSTRIPSOperator, Image, LDLRule, LiftedAtom, \
-    LiftedDecisionList, LiftedOrGroundAtom, LowLevelTrajectory, Mask, \
-    Metrics, NSRTOrSTRIPSOperator, Object, ObjectOrVariable, Observation, \
-    OptionSpec, ParameterizedOption, Predicate, Segment, State, \
-    STRIPSOperator, Task, Type, Variable, VarToObjSub, Video, VLMPredicate, \
-    _GroundEndogenousProcess, _GroundExogenousProcess, _GroundLDLRule, \
-    _GroundNSRT, _GroundSTRIPSOperator, _Option, _TypedEntity
+    EntToEntSub, GroundAtom, GroundAtomTrajectory, GroundNSRTOrSTRIPSOperator, \
+    Image, LDLRule, LiftedAtom, LiftedDecisionList, \
+    LiftedOrGroundAtom, LowLevelTrajectory, Mask, Metrics, \
+    NSRTOrSTRIPSOperator, Object, ObjectOrVariable, Observation, OptionSpec, \
+    ParameterizedOption, Predicate, Segment, State, STRIPSOperator, \
+    Task, Type, Variable, VarToObjSub, Video, VLMPredicate, _GroundEndogenousProcess, \
+    _GroundLDLRule, _GroundNSRT, _GroundSTRIPSOperator, \
+    _Option, _TypedEntity
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
 
@@ -975,8 +974,8 @@ class LinearChainParameterizedOption(ParameterizedOption):
             try:
                 assert current_child.initiable(state, child_memory, objects,
                                                params)
-            except:
-                breakpoint()
+            except AssertionError:
+                raise
         # logging.debug(f"Executing {current_child.name}")
         return current_child.policy(state, child_memory, objects, params)
 
@@ -1114,28 +1113,21 @@ BoundingBox = namedtuple('BoundingBox', 'left lower right upper')
 
 
 @dataclass
-class RawState(PyBulletState):
+class VLMState(PyBulletState):
+    """PyBulletState extended with VLM/visual perception capabilities."""
     state_image: PIL.Image.Image = None  # type: ignore[assignment]
     obj_mask_dict: Dict[Object, Mask] = field(default_factory=dict)
     labeled_image: Optional[PIL.Image.Image] = None  # type: ignore[assignment]
     option_history: Optional[List[str]] = None
     bbox_features: Dict[Object, np.ndarray] = field(
         default_factory=lambda: defaultdict(lambda: np.zeros(4)))
-    prev_state: Optional[RawState] = None
-    next_state: Optional[RawState] = None
+    prev_state: Optional[VLMState] = None
 
     def __hash__(self) -> int:
-        # Convert the dictionary to a tuple of key-value pairs and hash it
-        # data_hash = hash(tuple(sorted(self.data.items())))
         data_tuple = tuple((k, tuple(v)) for k, v in sorted(self.data.items()))
         if self.simulator_state is not None:
             data_tuple += tuple(self.simulator_state)
-        data_hash = hash(data_tuple)
-        # # Hash the simulator_state
-        # simulator_state_hash = hash(self.simulator_state)
-        # Combine the two hashes
-        # return hash((data_hash, simulator_state_hash))
-        return data_hash
+        return hash(data_tuple)
 
     def evaluate_simple_assertion(
             self, assertion: str, image: Tuple[BoundingBox,
@@ -1159,7 +1151,7 @@ class RawState(PyBulletState):
         msg += ".\n"
 
         if CFG.nsp_pred_include_state_str_in_prompt:
-            msg += f"We have the object positions and the robot's "\
+            msg += "We have the object positions and the robot's "\
                     "proprioception:\n"
             msg += self.dict_str(indent=2,
                                  object_features=False,
@@ -1171,11 +1163,6 @@ class RawState(PyBulletState):
             msg += "For context, this is at the beginning of a task, before "\
                 "the robot has done anything.\n"
         else:
-            # return f"For context, this is right after the robot has "\
-            # f"successfully executed its [{', '.join(self.option_history[-2:])}]"\
-            # f" option sequence."
-            # msg = f"For context, this state is right after the robot has "\
-            # f"successfully executed its {self.option_history[-1]} action."
             msg += "For context, the state is right after the robot has"\
                 " successfully executed the action "\
                 f"{self.option_history[-1]}."
@@ -1207,14 +1194,9 @@ class RawState(PyBulletState):
 
     def set(self, obj: Object, feature_name: str, feature_val: Any) -> None:
         """Set the value of an object feature by name."""
-        try:
-            idx = obj.type.feature_names.index(feature_name)
-        except:
-            breakpoint()
+        idx = obj.type.feature_names.index(feature_name)
         standard_feature_len = len(self.data[obj])
         if idx >= standard_feature_len:
-            # When setting the bounding box features for the first time
-            # So we'd first append 4 dimension and try to set again
             self.bbox_features[obj][idx - standard_feature_len] = feature_val
         else:
             self.data[obj][idx] = feature_val
@@ -1227,8 +1209,8 @@ class RawState(PyBulletState):
         else:
             return self.data[obj][idx]
 
-    def dict_str(
-            self,  # type: ignore[override]
+    def dict_str(  # type: ignore[override]
+            self,
             indent: int = 0,
             object_features: bool = True,
             use_object_id: bool = False,
@@ -1241,39 +1223,23 @@ class RawState(PyBulletState):
                     obj.type.feature_names,
                     np.concatenate([self[obj], self.bbox_features[obj]])
                     if self.bbox_features else self[obj]):
-                # include if it's proprioception feature, or position/bbox
-                # feature, or object_features is True
-                # if (obj.type.name == "robot" and \
-                #     attribute not in ["bbox_left", "bbox_right", "bbox_upper",
-                #         "pose_x", "pose_y", "pose_z", "pose_y_norm",
-                #                       "bbox_lower"]) or object_features:
-                #     #    attribute in ["pose_x", "pose_y", "pose_z", "bbox_left",
-                #     # "bbox_right", "bbox_upper", "bbox_lower"] or\
-                #     if isinstance(value, (float, int, np.float32)):
-                #         value = round(float(value), 1)
-                #     obj_dict[attribute] = value
                 if (position_proprio_features and attribute in [
-                        # "pose_x", "pose_y", "pose_z", "x", "y", "z",
                         "rot",
                         "fingers"
                 ]) or (object_features and attribute not in [
                         "is_heavy",
-                        # "grasp",
-                        # "held",
-                        # "is_held",
                 ]):
                     if isinstance(value, (float, int, np.float32)):
                         value = round(float(value), 1)
                     obj_dict[attribute] = value
 
-            if use_object_id: obj_name = obj.id_name
-            else: obj_name = obj.name
+            if use_object_id:
+                obj_name = obj.id_name
+            else:
+                obj_name = obj.name
             state_dict[f"{obj_name}:{obj.type.name}"] = obj_dict
 
-        # Create a string of n_space spaces
         spaces = " " * indent
-
-        # Create a PrettyPrinter with a large width
         dict_str = spaces + "{"
         n_keys = len(state_dict.keys())
         for i, (key, value) in enumerate(state_dict.items()):
@@ -1292,40 +1258,29 @@ class RawState(PyBulletState):
         return dict_str
 
     def __eq__(self, other: object) -> bool:
-        # Compare the data and simulator_state
-        assert isinstance(other, RawState)
-
+        assert isinstance(other, VLMState)
         if len(self.data) != len(other.data):
             return False
-
         for key, value in self.data.items():
             if key not in other.data or not np.array_equal(
                     value, other.data[key]):
                 return False
-
         return self.simulator_state == other.simulator_state
 
     def label_all_objects(self) -> None:
         state_ip = ImagePatch(self)
-        # state_ip.cropped_image_in_PIL.save(f"images/obs_before_label_all.png")
-        # labels = [obj.id for obj in self.obj_mask_dict.keys()]
-        # masks = self.obj_mask_dict.values()
-        # state_ip.label_all_objects(masks, labels)
         state_ip.label_all_objects(self.obj_mask_dict)
-        # state_ip.label_object(mask, obj.id)
-        # state_ip.cropped_image_in_PIL.save(f"images/obs_after_label_all.png")
         self.labeled_image = state_ip.cropped_image_in_PIL
 
-    def copy(self) -> RawState:
+    def copy(self) -> VLMState:
         pybullet_state_copy = super().copy()
-        # simulator_state_copy = list(self.joint_positions)
         state_image_copy = copy.copy(self.state_image)
         obj_mask_copy = copy.deepcopy(self.obj_mask_dict)
         labeled_image_copy = copy.copy(self.labeled_image)
         option_history_copy = copy.copy(self.option_history)
         bbox_features_copy = copy.deepcopy(self.bbox_features)
         prev_state_copy = self.prev_state.copy() if self.prev_state else None
-        return RawState(pybullet_state_copy.data,
+        return VLMState(pybullet_state_copy.data,
                         pybullet_state_copy.simulator_state, state_image_copy,
                         obj_mask_copy, labeled_image_copy, option_history_copy,
                         bbox_features_copy, prev_state_copy)
@@ -1335,33 +1290,23 @@ class RawState(PyBulletState):
         return self.obj_mask_dict[object]
 
     def get_obj_bbox(self, object: Object) -> BoundingBox:
-        """Get the bounding box of the object in the state image The origin is
-        bottom left corner--(0, 0)"""
+        """Get the bounding box of the object in the state image."""
         mask = self.get_obj_mask(object)
         return mask_to_bbox(mask)
 
     def crop_to_objects(
             self,
             objects: Sequence[Object],
-            # left_margin: int = 15,
-            # lower_margin: int = 15,
-            # right_margin: int = 15,
-            # top_margin: int = 20
             left_margin: int = 30,
             lower_margin: int = 30,
             right_margin: int = 30,
             top_margin: int = 30) -> Tuple[BoundingBox, Sequence[Object]]:
-
         bboxes = [self.get_obj_bbox(obj) for obj in objects]
         bbox = smallest_bbox_from_bboxes(bboxes)
         return (BoundingBox(
             max(bbox.left - left_margin, 0), max(bbox.lower - lower_margin, 0),
             min(bbox.right + right_margin, self.state_image.width),
             min(bbox.upper + top_margin, self.state_image.height)), objects)
-
-        # state_ip = ImagePatch(self, attn_objects=objects)
-        # return state_ip.crop_to_objects(objects, left_margin, lower_margin,
-        #                                 right_margin, top_margin)
 
 
 @dataclass
@@ -1690,8 +1635,8 @@ def option_policy_to_policy(
             prev_atoms = abstract_function(last_state)
             if cur_atoms != prev_atoms:
                 logging.debug(f"Wait terminating due to atom change: "
-                             f"Add: {sorted(cur_atoms-prev_atoms)} "
-                             f"Del: {sorted(prev_atoms-cur_atoms)}")
+                              f"Add: {sorted(cur_atoms-prev_atoms)} "
+                              f"Del: {sorted(prev_atoms-cur_atoms)}")
                 wait_terminate = True
 
         last_state = state
@@ -1707,7 +1652,7 @@ def option_policy_to_policy(
                 else:
                     reason = "unknown"
                 logging.info(f"[{cur_option.name}] Terminated: {reason} "
-                              f"(after {num_cur_option_steps} steps)\n")
+                             f"(after {num_cur_option_steps} steps)\n")
             try:
                 cur_option = option_policy(state)
             except OptionExecutionFailure as e:
@@ -4955,8 +4900,8 @@ def add_label_to_video(video: Video,
     new_video: Video = []
     for i, img in enumerate(video):
         img_name = prefix + f"frame_{i+1}"
-        labeled_img = add_label_to_image(img, img_name, imgs_dir,
-                                         save=save)  # type: ignore[arg-type]
+        labeled_img = add_label_to_image(
+            img, img_name, imgs_dir, save=save)  # type: ignore[arg-type]
         new_video.append(labeled_img)  # type: ignore[arg-type]
     return new_video
 
@@ -4969,8 +4914,8 @@ def add_label_to_image(img: PIL.Image.Image,
     """Add a label to an image and potentially save."""
     img_copy = img.copy()
     draw = ImageDraw.Draw(img_copy)
-    font = ImageFont.load_default().font_variant(
-        size=50)  # type: ignore[union-attr]
+    font = ImageFont.load_default().font_variant(  # type: ignore[union-attr]
+        size=50)
 
     # Get text dimensions
     bbox = draw.textbbox((0, 0), s_name, font=font)
