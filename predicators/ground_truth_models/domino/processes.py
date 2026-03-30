@@ -89,7 +89,7 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         if CFG.domino_has_glued_dominos:
             DominoNotGlued = predicates["DominoNotGlued"]
         # Note: Tilting predicate exists but represents the goal state
-        # Note: The "Falling" predicate from the sketch is not implemented in the current environment
+        # Note: The "Falling" predicate from the sketch is not implemented in the current environment  # pylint: disable=line-too-long
         # We would need to add it to the environment for the DominoFall
         # exogenous process
 

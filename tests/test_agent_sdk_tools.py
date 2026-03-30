@@ -13,9 +13,12 @@ Validates:
 Usage:
     python tests/test_agent_sdk_tools.py
 """
+from __future__ import annotations
+
 import asyncio
 import os
 import tempfile
+from typing import Any
 
 import numpy as np
 import pytest
@@ -43,7 +46,7 @@ _CFG_OVERRIDES = {
 }
 
 
-def _setup(sandbox_dir=None):
+def _setup(sandbox_dir: str | None = None) -> tuple[Any, Any]:
     """Create environment, options, option model, and ToolContext."""
     pred_utils.reset_config(_CFG_OVERRIDES)
 
@@ -83,12 +86,12 @@ def _setup(sandbox_dir=None):
     return ctx, env
 
 
-def _run(coro):
+def _run(coro: Any) -> Any:
     """Run an async coroutine synchronously."""
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-def _make_tools(ctx, tool_names=None):
+def _make_tools(ctx: Any, tool_names: list[str] | None = None) -> dict[str, Any]:
     """Create MCP tools and return as a name->callable dict."""
     from predicators.agent_sdk.tools import create_mcp_tools
     tools = create_mcp_tools(ctx, tool_names=tool_names)
@@ -100,7 +103,7 @@ def _make_tools(ctx, tool_names=None):
 
 
 @pytest.fixture(scope="module")
-def ctx():
+def ctx() -> Any:
     """Create shared ToolContext for all tests in this module."""
     try:
         with tempfile.TemporaryDirectory() as sandbox_dir:
@@ -113,7 +116,7 @@ def ctx():
 # ===== Tests =====
 
 
-def test_inspect_options_list_all(ctx):
+def test_inspect_options_list_all(ctx: Any) -> None:
     """inspect_options with no args lists all options."""
     tools = _make_tools(ctx, ["inspect_options"])
     result = _run(tools["inspect_options"]({}))
@@ -123,7 +126,7 @@ def test_inspect_options_list_all(ctx):
     print("  PASS: inspect_options (list all)")
 
 
-def test_inspect_options_detail(ctx):
+def test_inspect_options_detail(ctx: Any) -> None:
     """inspect_options with option_name saves source to sandbox."""
     tools = _make_tools(ctx, ["inspect_options"])
 
@@ -160,7 +163,7 @@ def test_inspect_options_detail(ctx):
               f"inlined — no sandbox)")
 
 
-def test_inspect_options_unknown(ctx):
+def test_inspect_options_unknown(ctx: Any) -> None:
     """inspect_options with unknown option_name returns error."""
     tools = _make_tools(ctx, ["inspect_options"])
     result = _run(tools["inspect_options"]({
@@ -171,7 +174,7 @@ def test_inspect_options_unknown(ctx):
     print("  PASS: inspect_options (unknown option)")
 
 
-def test_inspect_options_proposed_code(ctx):
+def test_inspect_options_proposed_code(ctx: Any) -> None:
     """inspect_options returns path for option with code saved to sandbox."""
     from predicators.agent_sdk.tools import _save_option_to_sandbox
 
@@ -218,7 +221,7 @@ def test_inspect_options_proposed_code(ctx):
     print("  PASS: inspect_options (proposed code in sandbox)")
 
 
-def _get_valid_option_plan_step(ctx):
+def _get_valid_option_plan_step(ctx: Any) -> dict[str, Any] | None:
     """Find a valid single-step option plan for testing."""
     # Find option with fewest type requirements
     for opt in sorted(ctx.options, key=lambda o: len(o.types)):
@@ -256,7 +259,7 @@ def _get_valid_option_plan_step(ctx):
     return None
 
 
-def test_option_plan_missing_goal_atoms(ctx):
+def test_option_plan_missing_goal_atoms(ctx: Any) -> None:
     """test_option_plan reports missing goal atoms when goal not achieved."""
     tools = _make_tools(ctx, ["test_option_plan"])
 
@@ -285,7 +288,7 @@ def test_option_plan_missing_goal_atoms(ctx):
               "goal check not reached)")
 
 
-def test_option_plan_not_initiable_shows_poses(ctx):
+def test_option_plan_not_initiable_shows_poses(ctx: Any) -> None:
     """test_option_plan shows object poses when option is NOT INITIABLE."""
     tools = _make_tools(ctx, ["test_option_plan"])
 
@@ -334,7 +337,7 @@ def test_option_plan_not_initiable_shows_poses(ctx):
               "can't test NOT INITIABLE path)")
 
 
-def test_option_plan_saves_images(ctx):
+def test_option_plan_saves_images(ctx: Any) -> None:
     """test_option_plan always saves scene images (never returns inline)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx.image_save_dir = tmpdir
@@ -364,7 +367,7 @@ def test_option_plan_saves_images(ctx):
         ctx.image_save_dir = None
 
 
-def test_option_plan_failure_shows_poses(ctx):
+def test_option_plan_failure_shows_poses(ctx: Any) -> None:
     """test_option_plan shows object poses when option returns 0 actions."""
     tools = _make_tools(ctx, ["test_option_plan"])
 
@@ -391,7 +394,7 @@ def test_option_plan_failure_shows_poses(ctx):
         print("  PASS: test_option_plan (no failures in output)")
 
 
-def test_format_object_poses(ctx):
+def test_format_object_poses(ctx: Any) -> None:
     """_format_object_poses formats object positions correctly."""
     from predicators.agent_sdk.tools import _format_object_poses
 
@@ -409,7 +412,7 @@ def test_format_object_poses(ctx):
     print(f"  PASS: _format_object_poses ({result.count(chr(10))+1} objects)")
 
 
-def test_render_scene_image(ctx):
+def test_render_scene_image(ctx: Any) -> None:
     """_render_scene_image renders a scene and returns image block."""
     from predicators.agent_sdk.tools import _render_scene_image
 
@@ -437,7 +440,7 @@ def test_render_scene_image(ctx):
         ctx.image_save_dir = None
 
 
-def test_render_scene_no_env(ctx):
+def test_render_scene_no_env(ctx: Any) -> None:
     """_render_scene_image returns None when env is None."""
     from predicators.agent_sdk.tools import _render_scene_image
 
@@ -449,7 +452,7 @@ def test_render_scene_no_env(ctx):
     print("  PASS: _render_scene_image (no env → None)")
 
 
-def test_propose_options_saves_to_sandbox(ctx):
+def test_propose_options_saves_to_sandbox(ctx: Any) -> None:
     """propose_options saves proposal code to sandbox/proposed_code/."""
     tools = _make_tools(ctx, ["propose_options"])
 
@@ -502,7 +505,7 @@ proposed_options = [
         print(f"  SKIP: propose_options (code failed: {text[:100]})")
 
 
-def test_visualize_state(ctx):
+def test_visualize_state(ctx: Any) -> None:
     """visualize_state modifies object position and saves an image."""
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx.image_save_dir = tmpdir
@@ -539,7 +542,7 @@ def test_visualize_state(ctx):
         ctx.visualized_state = None
 
 
-def test_visualize_shared_state(ctx):
+def test_visualize_shared_state(ctx: Any) -> None:
     """visualize_state then annotate_scene uses modified state."""
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx.image_save_dir = tmpdir
@@ -589,7 +592,7 @@ def test_visualize_shared_state(ctx):
         ctx.visualized_state = None
 
 
-def test_visualize_invalid_object(ctx):
+def test_visualize_invalid_object(ctx: Any) -> None:
     """visualize_state returns error for unknown object name."""
     tools = _make_tools(ctx, ["visualize_state"])
 
@@ -610,7 +613,7 @@ def test_visualize_invalid_object(ctx):
     print("  PASS: visualize_state invalid object → error")
 
 
-def test_visualize_no_modifications(ctx):
+def test_visualize_no_modifications(ctx: Any) -> None:
     """visualize_state returns error when no modifications given."""
     tools = _make_tools(ctx, ["visualize_state"])
 
@@ -624,7 +627,7 @@ def test_visualize_no_modifications(ctx):
     print("  PASS: visualize_state no modifications → error")
 
 
-def test_sync_tool_context_sets_env():
+def test_sync_tool_context_sets_env() -> None:
     """_sync_tool_context extracts env from option model."""
     pred_utils.reset_config(_CFG_OVERRIDES)
 

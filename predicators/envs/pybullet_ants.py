@@ -1,4 +1,5 @@
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
+"""envsbullet_ants module."""
+from typing import Any, ClassVar, Dict, List, Sequence, Set, Tuple
 
 import numpy as np
 import pybullet as p

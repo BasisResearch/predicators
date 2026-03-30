@@ -305,17 +305,11 @@ class DominoTaskGenerator(TaskGenerator):
         return self._place_straight_domino(rng, obj_dict, x, y, rotation, gap,
                                            domino_count, _in_bounds, task_idx)
 
-    def _place_straight_domino(
-            self,
-            rng: np.random.Generator,
-            obj_dict: Dict[Object, Any],
-            x: float,
-            y: float,
-            rotation: float,
-            gap: float,
-            domino_count: int,
-            _in_bounds: Callable[[float, float], bool],
-            task_idx: Optional[int]) -> PlacementResult:
+    def _place_straight_domino(self, rng: np.random.Generator,
+                               obj_dict: Dict[Object, Any], x: float, y: float,
+                               rotation: float, gap: float, domino_count: int,
+                               _in_bounds: Callable[[float, float], bool],
+                               task_idx: Optional[int]) -> PlacementResult:
         dx = gap * np.sin(rotation)
         dy = gap * np.cos(rotation)
         new_x, new_y = x + dx, y + dy
@@ -343,18 +337,11 @@ class DominoTaskGenerator(TaskGenerator):
                                domino_count=domino_count + 1)
 
     def _place_turn90_domino(
-            self,
-            rng: np.random.Generator,
-            obj_dict: Dict[Object, Any],
-            x: float,
-            y: float,
-            rotation: float,
-            gap: float,
-            domino_count: int,
-            n_dominos: int,
-            n_targets: int,
-            _in_bounds: Callable[[float, float], bool],
-            task_idx: Optional[int],
+            self, rng: np.random.Generator, obj_dict: Dict[Object, Any],
+            x: float, y: float, rotation: float, gap: float, domino_count: int,
+            n_dominos: int, n_targets: int,
+            _in_bounds: Callable[[float, float],
+                                 bool], task_idx: Optional[int],
             should_place_target_at_end: bool) -> PlacementResult:
         expected_count = self._get_expected_domino_count(n_dominos, n_targets)
         if domino_count + 1 >= expected_count:
@@ -431,16 +418,9 @@ class DominoTaskGenerator(TaskGenerator):
                                just_placed_target=should_place_target_at_end)
 
     def _place_pivot180_domino(
-            self,
-            rng: np.random.Generator,
-            obj_dict: Dict[Object, Any],
-            x: float,
-            y: float,
-            rotation: float,
-            gap: float,
-            domino_count: int,
-            pivot_count: int,
-            _in_bounds: Callable[[float, float], bool],
+            self, rng: np.random.Generator, obj_dict: Dict[Object, Any],
+            x: float, y: float, rotation: float, gap: float, domino_count: int,
+            pivot_count: int, _in_bounds: Callable[[float, float], bool],
             task_idx: Optional[int],
             should_place_target_at_end: bool) -> PlacementResult:
         pivot_direction = rng.choice([-1, 1])
@@ -497,18 +477,12 @@ class DominoTaskGenerator(TaskGenerator):
                                target_count=target_inc,
                                just_placed_target=should_place_target_at_end)
 
-    def _place_next_target(
-            self,
-            rng: np.random.Generator,
-            obj_dict: Dict[Object, Any],
-            x: float,
-            y: float,
-            rotation: float,
-            gap: float,
-            domino_count: int,
-            target_count: int,
-            _in_bounds: Callable[[float, float], bool],
-            task_idx: Optional[int]) -> PlacementResult:
+    def _place_next_target(self, rng: np.random.Generator,
+                           obj_dict: Dict[Object, Any], x: float, y: float,
+                           rotation: float, gap: float, domino_count: int,
+                           target_count: int,
+                           _in_bounds: Callable[[float, float], bool],
+                           task_idx: Optional[int]) -> PlacementResult:
         dx = gap * np.sin(rotation)
         dy = gap * np.cos(rotation)
         target_x, target_y = x + dx, y + dy

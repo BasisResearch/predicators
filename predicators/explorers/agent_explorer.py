@@ -123,7 +123,10 @@ class AgentExplorer(BaseExplorer):
                                   for t in self._agent_session.tool_names)
             tools_str = f"\n## Available Tools\n{tool_list}\n"
 
-        prompt = f"""You are exploring a task environment. Generate an option plan to explore task {train_task_idx}.
+        task_intro = ("You are exploring a task environment. "
+                      f"Generate an option plan to explore task "
+                      f"{train_task_idx}.")
+        prompt = f"""{task_intro}
 
 ## Goal
 {chr(10).join(goal_strs)}

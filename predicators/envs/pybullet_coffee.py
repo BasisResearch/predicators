@@ -492,7 +492,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         self._handle_pouring(state)
         self._handle_twisting(state, current_ee_rpy, action)
         # Refresh current observation
-        self._current_observation = self._get_state(render_obs=False)
+        self._current_observation = self._get_state(_render_obs=False)
         state = self._current_observation.copy()
 
         return state

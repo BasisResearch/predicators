@@ -1,8 +1,9 @@
 """Legacy option implementations for the boil environment."""
 
 from functools import lru_cache
-from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple, cast
+from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
 from typing import Type as TypingType
+from typing import cast
 
 import numpy as np
 import pybullet as p
@@ -677,22 +678,18 @@ class _BoilLegacyOptionsMixin:
 
     @classmethod
     def _create_boil_move_to_init_option(
-            cls,
-            name: str,
-            finger_status: str,
-            pybullet_robot: SingleArmPyBulletRobot,
-            option_types: List[Type],
+            cls, name: str, finger_status: str,
+            pybullet_robot: SingleArmPyBulletRobot, option_types: List[Type],
             params_space: Box) -> ParameterizedOption:
-        """Creates a ParameterizedOption for moving back to the robot's
-        initial position."""
+        """Creates a ParameterizedOption for moving back to the robot's initial
+        position."""
 
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
             assert not params
             robot = objects[0]
-            current_position = (state.get(robot, "x"),
-                                state.get(robot, "y"),
+            current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
             ee_orn = p.getQuaternionFromEuler(
                 [0, state.get(robot, "tilt"),
@@ -702,8 +699,7 @@ class _BoilLegacyOptionsMixin:
                                cls.env_cls.robot_init_y,
                                cls.env_cls.robot_init_z)
             target_orn = p.getQuaternionFromEuler(
-                [0, cls.env_cls.robot_init_tilt,
-                 cls.env_cls.robot_init_wrist])
+                [0, cls.env_cls.robot_init_tilt, cls.env_cls.robot_init_wrist])
             target_pose = Pose(target_position, target_orn)
             return current_pose, target_pose, finger_status
 

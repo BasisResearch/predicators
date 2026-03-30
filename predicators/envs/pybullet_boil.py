@@ -113,7 +113,8 @@ class PyBulletBoilEnv(PyBulletEnv):
     # over flow. (magic water like in grow)
     max_jug_water_capacity: ClassVar[
         float] = 0.13 * water_height_to_level_ratio
-    # float] = 0.093 * water_height_to_level_ratio # the value it get if it wait then TurnOff
+    # float] = 0.093 * water_height_to_level_ratio # the value it get if it
+    # wait then TurnOff
     max_water_spill_width: ClassVar[float] = 0.3
     water_color = (0.0, 0.0, 1.0, 0.9)  # blue
     heating_speed: ClassVar[
@@ -539,7 +540,8 @@ class PyBulletBoilEnv(PyBulletEnv):
                     shape_data = p.getVisualShapeData(
                         liquid_id, physicsClientId=self._physics_client_id)
                     if shape_data:  # handle the case shape_data might be empty
-                        # shape_data[0][3] => half-extents, e.g. shape_data[0][3][2] is half in z
+                        # shape_data[0][3] => half-extents, e.g.
+                        # shape_data[0][3][2] is half in z
                         height = shape_data[0][3][2]
                         return height * self.water_height_to_level_ratio
                 return 0.0
@@ -681,7 +683,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         faucet_on = self._is_switch_on(self._faucet_switch.id)
         faucet_prev_on = self._faucet.prev_on > 0.5
 
-        # Only process if faucet is on AND it was on in the previous step (transition from off to on)
+        # Only process if faucet is on AND it was on in the previous step
+        # (transition from off to on)
         if not (faucet_on and faucet_prev_on):
             return
 
@@ -762,7 +765,8 @@ class PyBulletBoilEnv(PyBulletEnv):
             burner_on = self._is_switch_on(self._burner_switches[i].id)
             burner_prev_on = burner_obj.prev_on > 0.5
 
-            # Only process if burner is on AND it wasn't on in the previous step (transition from off to on)
+            # Only process if burner is on AND it wasn't on in the previous step
+            # (transition from off to on)
             if not (burner_on and burner_prev_on):
                 continue
             bx = state.get(burner_obj, "x")
@@ -1474,20 +1478,11 @@ if __name__ == "__main__":
     #     ],
     #     abstract_function=lambda s: utils.abstract(s, env_predicates))
 
-    constant_wait = True
     for task in tasks:
         env._reset_state(task.init)
         for _ in range(20000):
-            if constant_wait:
-                action = Action(
-                    np.array(env._pybullet_robot.initial_joint_positions))
-            else:
-                try:
-                    action = policy(env._current_observation)  # type: ignore[name-defined]
-                except Exception:
-                    # Get it's current position
-                    action = Action(
-                        np.array(env._current_observation.joint_positions))
+            action = Action(
+                np.array(env._pybullet_robot.initial_joint_positions))
             env.step(action)
             # time.sleep(0.01)
         print(f"Final state: {env._current_observation.pretty_str()}")

@@ -13,10 +13,13 @@ Usage:
     python tests/test_docker_option_plan.py              # run all tests
     python tests/test_docker_option_plan.py --child PKL  # (internal) subprocess
 """
+from __future__ import annotations
+
 import os
 import subprocess
 import sys
 import tempfile
+from typing import Any
 
 import dill as pkl
 import numpy as np
@@ -73,7 +76,7 @@ OPTION_PLAN = [
 ]
 
 
-def _setup_env_and_context():  # type: ignore[no-untyped-def]
+def _setup_env_and_context() -> Any:
     """Create environment, options, option model, and ToolContext."""
     pred_utils.reset_config(_CFG_OVERRIDES)
 
@@ -104,7 +107,7 @@ def _setup_env_and_context():  # type: ignore[no-untyped-def]
     return ctx
 
 
-def _run_option_plan(ctx, plan=None, label=""):  # type: ignore[no-untyped-def]
+def _run_option_plan(ctx: Any, plan: list[dict[str, Any]] | None = None, label: str = "") -> list[tuple[int, bool]]:
     """Run option plan and return list of (num_actions, state_changed)
     tuples."""
     if plan is None:
@@ -154,7 +157,7 @@ def _run_option_plan(ctx, plan=None, label=""):  # type: ignore[no-untyped-def]
     return results
 
 
-def _states_feature_equal(s1, s2, atol=1e-3):
+def _states_feature_equal(s1: Any, s2: Any, atol: float = 1e-3) -> bool:
     """Compare two states by feature values only (ignoring simulator_state)."""
     if sorted(s1.data) != sorted(s2.data):
         return False
@@ -164,7 +167,7 @@ def _states_feature_equal(s1, s2, atol=1e-3):
     return True
 
 
-def _rehash_objects_after_unpickle(ctx):  # type: ignore[no-untyped-def]
+def _rehash_objects_after_unpickle(ctx: Any) -> None:
     """Fix stale Object hash caches after cross-process unpickling."""
     from predicators.structs import State
 

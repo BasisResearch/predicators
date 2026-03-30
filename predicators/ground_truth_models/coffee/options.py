@@ -486,6 +486,9 @@ class CoffeeGroundTruthOptionFactory(GroundTruthOptionFactory):
         dtilt = np.clip(dtilt, -cls.env_cls.max_angular_vel,
                         cls.env_cls.max_angular_vel)
         dtilt = dtilt / cls.env_cls.max_angular_vel
+        dwrist = np.clip(dwrist, -cls.env_cls.max_angular_vel,
+                         cls.env_cls.max_angular_vel)
+        dwrist = dwrist / cls.env_cls.max_angular_vel
         return Action(
             np.array([dx, dy, dz, dtilt, dwrist, 0.0], dtype=np.float32))
 
@@ -513,8 +516,7 @@ class CoffeeGroundTruthOptionFactory(GroundTruthOptionFactory):
     def _get_jug_handle_grasp(cls, state: State,
                               jug: Object) -> Tuple[float, float, float]:
         # Hack to avoid duplicate code.
-        return cls.env_cls._get_jug_handle_grasp(
-            state, jug)  # pylint: disable=protected-access
+        return cls.env_cls._get_jug_handle_grasp(state, jug)  # pylint: disable=protected-access
 
     @classmethod
     def _get_jug_z(cls, state: State, robot: Object, _jug: Object) -> float:
@@ -906,7 +908,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(_PyBulletCoffeeLegacyOptionsMixin,
                     finger_status="closed")
 
             # Move backward and to a safe moving height.
-            # print(f"Moving to safe height; z squared diff: {(robot_z - cls.env_cls.robot_init_z)**2}")
+            # print(f"Moving to safe height; z squared diff: {(robot_z - cls.env_cls.robot_init_z)**2}")  # pylint: disable=line-too-long
             dwrist = cls.env_cls.robot_init_wrist - state.get(robot, "wrist")
             return cls._get_move_action(
                 state, (robot_x, robot_y, cls.env_cls.robot_init_z),

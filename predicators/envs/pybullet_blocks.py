@@ -1,7 +1,6 @@
 """A PyBullet version of Blocks, refactored to use the new PyBulletEnv
 hooks."""
 
-import logging
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Tuple
 
@@ -96,7 +95,6 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
 
     def _create_task_specific_objects(self, state: State) -> None:
         """No additional environment assets needed per-task."""
-        pass
 
     def _reset_custom_env_state(self, state: State) -> None:
         """After the parent `_reset_state()` has reset the robot, set the block
@@ -178,17 +176,17 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
                 # read from PyBullet
                 visual_data = p.getVisualShapeData(
                     block_id, physicsClientId=self._physics_client_id)[0]
-                (r, g, b, a) = visual_data[7]
+                (r, g, b, _a) = visual_data[7]
                 return r
             elif feature == "color_g":
                 visual_data = p.getVisualShapeData(
                     block_id, physicsClientId=self._physics_client_id)[0]
-                (r, g, b, a) = visual_data[7]
+                (r, g, b, _a) = visual_data[7]
                 return g
             elif feature == "color_b":
                 visual_data = p.getVisualShapeData(
                     block_id, physicsClientId=self._physics_client_id)[0]
-                (r, g, b, a) = visual_data[7]
+                (r, g, b, _a) = visual_data[7]
                 return b
             # If you have an extra "clear" feature (BlocksEnvClear),
             # you can either compute it purely from the state, or store it in
@@ -318,8 +316,6 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
     @staticmethod
     def _draw_table_workspace_debug_lines(physics_client_id: int) -> None:
         """Optionally draws red lines marking the workspace on the table."""
-        from predicators.envs.blocks import BlocksEnv
-
         # Draw the bounding lines at x_lb, x_ub, y_lb, y_ub
         x_lb = BlocksEnv.x_lb
         x_ub = BlocksEnv.x_ub

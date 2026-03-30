@@ -10,7 +10,8 @@ from predicators.envs.pybullet_domino import PyBulletDominoEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.skill_factories import SkillConfig, \
-    create_pick_skill, create_place_skill, create_push_skill, create_wait_option
+    create_pick_skill, create_place_skill, create_push_skill, \
+    create_wait_option
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, \

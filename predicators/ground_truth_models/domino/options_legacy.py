@@ -2,8 +2,9 @@
 
 import logging
 from functools import lru_cache
-from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple, cast
+from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
 from typing import Type as TypingType
+from typing import cast
 
 import numpy as np
 import pybullet as p

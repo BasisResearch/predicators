@@ -9,9 +9,12 @@ Validates:
 Usage:
     python tests/test_annotate_scene.py
 """
+from __future__ import annotations
+
 import asyncio
 import os
 import tempfile
+from typing import Any
 
 import pytest
 
@@ -40,7 +43,7 @@ _CFG_OVERRIDES = {
 }
 
 
-def _setup(sandbox_dir=None):
+def _setup(sandbox_dir: str | None = None) -> tuple[Any, Any]:
     """Create boil environment, options, option model, and ToolContext."""
     pred_utils.reset_config(_CFG_OVERRIDES)
 
@@ -78,18 +81,18 @@ def _setup(sandbox_dir=None):
     return ctx, env
 
 
-def _run(coro):
+def _run(coro: Any) -> Any:
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-def _make_tools(ctx, tool_names=None):
+def _make_tools(ctx: Any, tool_names: list[str] | None = None) -> dict[str, Any]:
     from predicators.agent_sdk.tools import create_mcp_tools
     tools = create_mcp_tools(ctx, tool_names=tool_names)
     return {t.name: t.handler for t in tools}
 
 
 @pytest.fixture(scope="module")
-def ctx(tmp_path_factory):
+def ctx(tmp_path_factory: Any) -> Any:
     """Create the ToolContext shared by all tests in this module."""
     sandbox_dir = str(tmp_path_factory.mktemp("sandbox"))
     ctx, _env = _setup(sandbox_dir=sandbox_dir)
@@ -99,7 +102,7 @@ def ctx(tmp_path_factory):
 # ===== Tests =====
 
 
-def test_annotate_marker(ctx):
+def test_annotate_marker(ctx: Any) -> None:
     """annotate_scene draws a marker and saves an image."""
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx.image_save_dir = tmpdir
@@ -129,7 +132,7 @@ def test_annotate_marker(ctx):
         ctx.image_save_dir = None
 
 
-def test_annotate_rectangle(ctx):
+def test_annotate_rectangle(ctx: Any) -> None:
     """annotate_scene draws a rectangle."""
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx.image_save_dir = tmpdir
@@ -158,7 +161,7 @@ def test_annotate_rectangle(ctx):
         ctx.image_save_dir = None
 
 
-def test_annotate_multiple(ctx):
+def test_annotate_multiple(ctx: Any) -> None:
     """annotate_scene draws multiple annotations at once."""
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx.image_save_dir = tmpdir
@@ -198,7 +201,7 @@ def test_annotate_multiple(ctx):
         ctx.image_save_dir = None
 
 
-def test_annotate_unique_ids(ctx):
+def test_annotate_unique_ids(ctx: Any) -> None:
     """Each annotate_scene call gets a unique image filename."""
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx.image_save_dir = tmpdir
@@ -225,7 +228,7 @@ def test_annotate_unique_ids(ctx):
         ctx.image_save_dir = None
 
 
-def test_annotations_cleaned_up(ctx):
+def test_annotations_cleaned_up(ctx: Any) -> None:
     """Annotations don't persist after annotate_scene returns."""
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx.image_save_dir = tmpdir
@@ -257,7 +260,7 @@ def test_annotations_cleaned_up(ctx):
         ctx.image_save_dir = None
 
 
-def test_annotate_no_env(ctx):
+def test_annotate_no_env(ctx: Any) -> None:
     """annotate_scene returns error when env is None."""
     tools = _make_tools(ctx, ["annotate_scene"])
     original_env = ctx.env

@@ -4,7 +4,7 @@ import numpy as np
 from scipy.special import gammaln
 
 
-def compute_normalizing_constant(lambda_, nu, k_max=100):
+def compute_normalizing_constant(lambda_: float, nu: float, k_max: int = 100) -> float:
     """Compute the normalizing constant Z(lambda, nu)."""
     ks = np.arange(0, k_max + 1)
     log_terms = ks * np.log(lambda_) - nu * gammaln(ks + 1)
@@ -12,7 +12,7 @@ def compute_normalizing_constant(lambda_, nu, k_max=100):
     return Z
 
 
-def cmp_pmf(k, lambda_, nu, Z=None, k_max=100):
+def cmp_pmf(k: int, lambda_: float, nu: float, Z: float | None = None, k_max: int = 100) -> float:
     """Calculate the CMP probability mass function for a given k."""
     if Z is None:
         Z = compute_normalizing_constant(lambda_, nu, k_max)

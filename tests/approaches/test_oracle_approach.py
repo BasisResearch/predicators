@@ -659,8 +659,8 @@ def test_playroom_simple_get_gt_nsrts():
         state, train_task.goal, rng)
     movetodial_action = movetodial_option.policy(state)
     assert env.action_space.contains(movetodial_action.arr)
-    assert np.all(movetodial_action.arr == np.array([125, 15, 1, 0, 1],
-                                                    dtype=np.float32))
+    assert np.all(movetodial_action.arr == np.array(
+        [125, 15, 1, 0, env.open_fingers], dtype=np.float32))
 
 
 def test_playroom_get_gt_nsrts():
@@ -694,8 +694,8 @@ def test_playroom_get_gt_nsrts():
         state, train_task.goal, rng)
     movetodoor_action = movetodoor_option.policy(state)
     assert env.action_space.contains(movetodoor_action.arr)
-    assert np.all(movetodoor_action.arr == np.array([110.1, 15, 1, -1, 1],
-                                                    dtype=np.float32))
+    assert np.all(movetodoor_action.arr == np.array(
+        [110.1, 15, 1, -1, env.open_fingers], dtype=np.float32))
     # Test MoveDoorToTable for coverage.
     movedoortotable = [nsrt for nsrt in nsrts \
                       if nsrt.name == "MoveDoorToTable"][0]

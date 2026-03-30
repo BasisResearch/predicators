@@ -6,8 +6,7 @@ python predicators/main.py --approach oracle --env pybullet_cover --seed 0 \
 --pybullet_camera_height 900 --pybullet_camera_width 900 --make_test_videos \
 # --sesame_check_expected_atoms False
 """
-import random
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
+from typing import Any, ClassVar, Dict, Sequence, Tuple
 
 import numpy as np
 import pybullet as p
@@ -149,7 +148,6 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
 
     def _create_task_specific_objects(self, state: State) -> None:
         """No domain-specific extra creation needed here."""
-        pass
 
     def _reset_custom_env_state(self, state: State) -> None:
         """After the parent class has reset the robot, handle the block/target
@@ -199,7 +197,7 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
                 self._create_grasp_constraint()
 
         # Put any leftover blocks out of view
-        oov_x, oov_y = self._out_of_view_xy
+        _oov_x, _oov_y = self._out_of_view_xy
         for i in range(len(block_objs), len(self._blocks)):
             oov_x2, oov_y2 = self._out_of_view_xy
             update_object(self._blocks[i].id,
@@ -327,7 +325,7 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
                 return width
             if feature == "pose":
                 # Recompute from the block's actual y => normalized
-                (bx, by, bz), _ = p.getBasePositionAndOrientation(
+                (_bx, by, _bz), _ = p.getBasePositionAndOrientation(
                     block_id, physicsClientId=self._physics_client_id)
                 return (by - self.y_lb) / (self.y_ub - self.y_lb)
             if feature == "grasp":
@@ -362,7 +360,7 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
                 width = (y_half * 2.0) / self._max_obj_width * max_width
                 return width
             if feature == "pose":
-                (tx, ty, tz), _ = p.getBasePositionAndOrientation(
+                (_tx, ty, _tz), _ = p.getBasePositionAndOrientation(
                     target_id, physicsClientId=self._physics_client_id)
                 return (ty - self.y_lb) / (self.y_ub - self.y_lb)
             raise ValueError(f"Unknown target feature: {feature}")

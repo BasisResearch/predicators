@@ -602,6 +602,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
     def _Balanced_CP_holds(self, atoms: Set[GroundAtom],
                            objects: Sequence[Object]) -> bool:
         """Check if the blocks are balanced on the table."""
+        del atoms  # unused
         plate1, table2 = objects
         if plate1 == table2:
             return False
@@ -702,8 +703,8 @@ class PyBulletBalanceEnv(PyBulletEnv):
             return False
 
         block_name = block.id_name
-        attention_image = state.crop_to_objects(
-            [block, robot])  # type: ignore[attr-defined]
+        attention_image = state.crop_to_objects(  # type: ignore[attr-defined]
+            [block, robot])
         return state.evaluate_simple_assertion(  # type: ignore[return-value, attr-defined]
             f"{block_name} is held by the robot", attention_image)
 

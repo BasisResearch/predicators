@@ -19,7 +19,10 @@ NOTE on pybullet_control_mode:
     create their own env instance and are placed at the end of the file so
     they do not interfere with the module-scoped "reset" mode fixtures.
 """
+from __future__ import annotations
+
 import functools
+from typing import Any
 
 import numpy as np
 import pytest
@@ -50,20 +53,20 @@ _PUSH_PARAMS = [0.0, 0.0]
 class _ExposedEnvMixin:
     """Provides set_state / get_state / execute_option on any PyBulletEnv."""
 
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         # Register this instance so get_or_create_env() returns it (and
         # therefore get_gt_options() uses the same Type objects we have).
         _MOST_RECENT_ENV_INSTANCE[self.get_name()] = self
 
     @functools.cached_property
-    def _options(self):
+    def _options(self) -> dict[str, Any]:
         return {o.name: o for o in get_gt_options(self.get_name())}
 
-    def set_state(self, state):
+    def set_state(self, state: Any) -> None:
         """Reset env to *state*, assuming robot is at its home joint config."""
         joint_positions = list(self._pybullet_robot.initial_joint_positions)
         state_with_sim = utils.PyBulletState(state.data,
@@ -72,11 +75,11 @@ class _ExposedEnvMixin:
         self._current_task = None
         self._reset_state(state_with_sim)
 
-    def get_state(self):
+    def get_state(self) -> Any:
         """Get state."""
         return self._get_state()
 
-    def execute_option(self, option, max_steps=300):
+    def execute_option(self, option: Any, max_steps: int = 300) -> Any:
         """Run option loop up to *max_steps* and return the final state."""
         assert option.initiable(self._current_state)
         for _ in range(max_steps):
@@ -92,7 +95,6 @@ class _ExposedEnvMixin:
 # ---------------------------------------------------------------------------
 
 
-# type: ignore[no-untyped-call]
 class _ExposedBoilEnv(_ExposedEnvMixin, PyBulletBoilEnv):
 
     @property
@@ -126,7 +128,6 @@ class _ExposedBoilEnv(_ExposedEnvMixin, PyBulletBoilEnv):
         return self._options["SwitchBurnerOff"]
 
 
-# type: ignore[no-untyped-call]
 class _ExposedGrowEnv(_ExposedEnvMixin, PyBulletGrowEnv):
 
     @property
@@ -140,7 +141,6 @@ class _ExposedGrowEnv(_ExposedEnvMixin, PyBulletGrowEnv):
         return self._options["Place"]
 
 
-# type: ignore[no-untyped-call]
 class _ExposedCoffeeEnv(_ExposedEnvMixin, PyBulletCoffeeEnv):
 
     @property
@@ -164,7 +164,6 @@ class _ExposedCoffeeEnv(_ExposedEnvMixin, PyBulletCoffeeEnv):
         return self._options["Pour"]
 
 
-# type: ignore[no-untyped-call]
 class _ExposedFanEnv(_ExposedEnvMixin, PyBulletFanEnv):
 
     @property

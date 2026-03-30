@@ -2,11 +2,10 @@
 
 from typing import Dict, Set
 
-
 from predicators.ground_truth_models import GroundTruthNSRTFactory
 from predicators.settings import CFG
-from predicators.structs import NSRT, LiftedAtom, ParameterizedOption, Predicate, Type, \
-    Variable
+from predicators.structs import NSRT, LiftedAtom, ParameterizedOption, \
+    Predicate, Type, Variable
 from predicators.utils import null_sampler
 
 
