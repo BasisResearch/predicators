@@ -68,7 +68,8 @@ from predicators.settings import CFG
 print("\nGetting shadow robot for IK...")
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv as CircuitEnv  # pylint: disable=reimported
 
-_, shadow_robot, _ = CircuitEnv.initialize_pybullet(using_gui=False)  # type: ignore[assignment]
+_, shadow_robot, _ = CircuitEnv.initialize_pybullet(
+    using_gui=False)  # type: ignore[assignment]
 print(f"Shadow robot: {shadow_robot}")
 print(f"Shadow robot action space: {shadow_robot.action_space}")
 

@@ -610,6 +610,7 @@ class TestSampleParams:
     """TestSampleParams class."""
 
     def test_empty_params_space(self):
+        """Test empty params space."""
         approach, _, _ = _make_approach()
         rng = np.random.default_rng(0)
         params = approach._sample_params(_Wait, _make_state(), rng)
@@ -617,6 +618,7 @@ class TestSampleParams:
         assert params.dtype == np.float32
 
     def test_params_within_bounds(self):
+        """Test params within bounds."""
         approach, _, _ = _make_approach()
         rng = np.random.default_rng(0)
         for _ in range(100):
@@ -633,4 +635,5 @@ class TestSampleParams:
 
 
 def test_get_name():
+    """Test get name."""
     assert AgentBilevelApproach.get_name() == "agent_bilevel"

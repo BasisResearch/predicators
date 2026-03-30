@@ -616,7 +616,8 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                         lfd_delete_effects, obj_to_var)
                     grd_add_effects, grd_delete_effects = \
                         self.remove_atoms_explained_by_endogenous_processes(  # type: ignore[assignment]
-                        segment, self._endogenous_processes, grd_add_effects,  # type: ignore[arg-type]
+                        # type: ignore[arg-type]
+                        segment, self._endogenous_processes, grd_add_effects,
                         grd_delete_effects)  # type: ignore[arg-type]
 
                     # ---- Single effect bias ----
@@ -670,7 +671,8 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
                                         ent_to_ent_sub,
                                         segment_param_option,
                                         pnad_param_option,
-                                        segment_option_objs,  # type: ignore[arg-type]
+                                        # type: ignore[arg-type]
+                                        segment_option_objs,
                                         tuple(pnad_option_vars),
                                         self._endogenous_processes)
                                 else:
@@ -1132,9 +1134,11 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             num_top_candidates = len(top_candidates)
             # Reocrd the total number of candidates
             if self._total_num_candidates == 0:  # type: ignore[attr-defined]
-                self._total_num_candidates += num_top_candidates  # type: ignore[attr-defined]
+                # type: ignore[attr-defined]
+                self._total_num_candidates += num_top_candidates
             else:
-                self._total_num_candidates *= num_top_candidates  # type: ignore[attr-defined]
+                # type: ignore[attr-defined]
+                self._total_num_candidates *= num_top_candidates
         elif method == "top_n":
             # Return top n candidates
             n = CFG.cluster_process_learner_top_n_conditions
@@ -1145,10 +1149,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
         # Yield the selected candidates
         for candidate in top_candidates:
-            if len(candidate) == 2:
-                score, condition_candidate = candidate
-            else:
-                score, condition_candidate, _ = candidate  # type: ignore[unreachable]
+            score, condition_candidate = candidate[0], candidate[1]
             logging.info(
                 f"Selected condition: {condition_candidate}, Score: {score}")
             yield condition_candidate
@@ -2216,8 +2217,7 @@ class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
             optimality_prob = 0.0
             try:
                 for (_, plan_atoms_sequence,
-                     metrics) in generator:
-                    num_nodes = metrics["num_nodes_created"]
+                     _metrics) in generator:
                     optimality_prob = self._get_optimality_prob(
                         demo_atoms_sequence,  # type: ignore[arg-type]
                         plan_atoms_sequence)

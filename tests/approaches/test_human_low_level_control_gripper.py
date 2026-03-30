@@ -49,7 +49,8 @@ policy = approach.solve(task, timeout=10)  # type: ignore[arg-type]
 # Get robot for checking finger positions
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv as CircuitEnv  # pylint: disable=reimported
 
-_, shadow_robot, _ = CircuitEnv.initialize_pybullet(using_gui=False)  # type: ignore[assignment]
+_, shadow_robot, _ = CircuitEnv.initialize_pybullet(
+    using_gui=False)  # type: ignore[assignment]
 
 print(f"\nFully open position: {shadow_robot.open_fingers}")
 print(f"Fully closed position: {shadow_robot.closed_fingers}")

@@ -1,3 +1,4 @@
+"""Planning with processes module."""
 from __future__ import annotations
 
 import heapq as hq
@@ -142,7 +143,8 @@ def process_task_plan_grounding(
                 ground_cps.append(ground_cp)
     if compute_reachable_atoms:
         reachable_atoms = get_reachable_atoms_from_processes(
-            ground_cps, init_atoms, derived_predicates,  # type: ignore[arg-type]
+            # type: ignore[arg-type]
+            ground_cps, init_atoms, derived_predicates,
             objects)
     else:
         reachable_atoms = set()
@@ -172,6 +174,7 @@ class _ProcessPlanningNode():
 
 
 class ProcessWorldModel:
+    """Simulates process execution for planning."""
 
     def __init__(
         self,
@@ -221,7 +224,8 @@ class ProcessWorldModel:
             # Fallback: build the index if not provided
             self._dep_to_derived_preds = defaultdict(list)
             for der_pred in self.derived_predicates:
-                for aux_pred in der_pred.auxiliary_predicates:  # type: ignore[union-attr]
+                # type: ignore[union-attr]
+                for aux_pred in der_pred.auxiliary_predicates:
                     self._dep_to_derived_preds[aux_pred].append(der_pred)
 
     def small_step(
@@ -301,7 +305,8 @@ class ProcessWorldModel:
         # 3a. Handle the endogenous process (action) passed to this step.
         # This is for starting a new action.
         if (small_step_action is not None
-                and small_step_action.parent.option.name != 'Wait'  # type: ignore[attr-defined]
+                # type: ignore[attr-defined]
+                and small_step_action.parent.option.name != 'Wait'
                 and small_step_action.condition_at_start.issubset(self.state)):
             delay = small_step_action.delay_distribution.sample()
             delay = max(1, delay)
@@ -385,7 +390,8 @@ class ProcessWorldModel:
 
             # if currently executing Wait and state has changed, then break
             if (self.current_action is not None
-                    and self.current_action.parent.option.name == 'Wait'  # type: ignore[attr-defined]
+                    # type: ignore[attr-defined]
+                    and self.current_action.parent.option.name == 'Wait'
                     and self.state != initial_state):
                 break
         return self.state
@@ -427,7 +433,8 @@ def _skeleton_generator_with_processes(
     dep_to_derived_preds: Dict[Predicate,
                                List[DerivedPredicate]] = defaultdict(list)
     for der_pred in derived_predicates:
-        for aux_pred in der_pred.auxiliary_predicates:  # type: ignore[union-attr]
+        # type: ignore[union-attr]
+        for aux_pred in der_pred.auxiliary_predicates:
             dep_to_derived_preds[aux_pred].append(der_pred)
     # --- End index building ---
     ground_action_processes = [
@@ -519,7 +526,8 @@ def _skeleton_generator_with_processes(
 
             # Log heuristic timing stats when a solution is found
             if time_heuristic:
-                average_heuristic_time = total_heuristic_time / heuristic_call_count if heuristic_call_count > 0 else 0.0
+                average_heuristic_time = total_heuristic_time / \
+                    heuristic_call_count if heuristic_call_count > 0 else 0.0
                 logging.debug(
                     f"Heuristic timing stats - Calls: {heuristic_call_count}, Total time: {total_heuristic_time:.4f}s, Average time: {average_heuristic_time:.4f}s"
                 )
@@ -540,10 +548,6 @@ def _skeleton_generator_with_processes(
                                                      objects, task.goal)
                     if ground_process is None:
                         break
-                    # Make sure ground_process is applicable and is an endogenous process
-                    if not isinstance(ground_process,
-                                      _GroundEndogenousProcess):
-                        break  # type: ignore[unreachable]
                     if not ground_process.condition_at_start.issubset(
                             current_node.atoms):
                         break
@@ -631,7 +635,8 @@ def _skeleton_generator_with_processes(
                     ]:
                         filtered_actions.append(action)
                     # For Pick, only pick dominos that haven't been placed yet
-                    elif action.parent.name == "PickDomino":  # type: ignore[union-attr]
+                    # type: ignore[union-attr]
+                    elif action.parent.name == "PickDomino":
                         domino_to_pick = action.objects[  # type: ignore[union-attr]
                             1] if len(
                                 action.objects  # type: ignore[union-attr]
@@ -639,7 +644,8 @@ def _skeleton_generator_with_processes(
                         if domino_to_pick and domino_to_pick not in placed_dominos:
                             filtered_actions.append(action)
                     # For Place, apply heuristics
-                    elif action.parent.name == "PlaceDomino":  # type: ignore[union-attr]
+                    # type: ignore[union-attr]
+                    elif action.parent.name == "PlaceDomino":
                         # Keep all place actions for now, but could add more pruning
                         # E.g., only place in forward direction, avoid cycles, etc.
                         filtered_actions.append(action)
@@ -648,7 +654,8 @@ def _skeleton_generator_with_processes(
 
                 # If pruning removed all actions, fall back to unpruned
                 if filtered_actions:
-                    applicable_actions = filtered_actions  # type: ignore[assignment]
+                    # type: ignore[assignment]
+                    applicable_actions = filtered_actions
 
             for action_process in applicable_actions:
 
@@ -750,7 +757,8 @@ def _skeleton_generator_with_processes(
                     logging.debug(f"Planning timeout of {timeout} reached.")
                     break
     if time_heuristic:
-        average_heuristic_time = total_heuristic_time / heuristic_call_count if heuristic_call_count > 0 else 0.0
+        average_heuristic_time = total_heuristic_time / \
+            heuristic_call_count if heuristic_call_count > 0 else 0.0
         logging.debug(
             f"Heuristic timing stats - Calls: {heuristic_call_count}, "
             f"Total time: {total_heuristic_time:.4f}s, "
@@ -776,6 +784,7 @@ def task_plan_from_task(
     max_policy_guided_rollout: int = 0,
 ) -> Iterator[Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]],
                     Metrics]]:
+    """Task plan from task."""
     predicates_set = set(predicates)
     all_predicates = utils.add_in_auxiliary_predicates(predicates_set)
     derived_predicates = utils.get_derived_predicates(all_predicates)
@@ -909,12 +918,12 @@ def run_task_plan_with_processes_once(
     task: Task,
     processes: Set[CausalProcess],
     preds: Set[Predicate],
-    types: Set[Type],
+    _types: Set[Type],
     timeout: float,
     seed: int,
-    task_planning_heuristic: str,
+    _task_planning_heuristic: str,
     max_horizon: float = np.inf,
-    compute_reachable_atoms: bool = False,
+    _compute_reachable_atoms: bool = False,
     abstract_policy: Optional[AbstractProcessPolicy] = None,
     max_policy_guided_rollout: int = 0,
 ) -> Tuple[List[_GroundEndogenousProcess], List[Set[GroundAtom]], Metrics]:
@@ -928,7 +937,7 @@ def run_task_plan_with_processes_once(
     if CFG.sesame_task_planner == "astar":
         duration = time.perf_counter() - start_time
         timeout -= duration
-        plan, atoms_seq, metrics = next(
+        plan, _atoms_seq, metrics = next(
             task_plan_from_task(
                 task,
                 preds,
@@ -1056,7 +1065,7 @@ def create_ff_heuristic(
     if use_derived_predicates:
         for der_pred in derived_predicates:
             assert der_pred.auxiliary_predicates is not None, \
-                f"Can't find auxiliary predicates for derived predicate " +\
+                "Can't find auxiliary predicates for derived predicate " +\
                 f"{der_pred.name}"
             for aux_pred in der_pred.auxiliary_predicates:
                 dep_to_derived_preds[aux_pred].append(der_pred)
@@ -1232,7 +1241,8 @@ def create_lm_cut_heuristic(
                                List[DerivedPredicate]] = defaultdict(list)
     if use_derived_predicates:
         for der_pred in derived_predicates:
-            for aux_pred in der_pred.auxiliary_predicates:  # type: ignore[union-attr]
+            # type: ignore[union-attr]
+            for aux_pred in der_pred.auxiliary_predicates:
                 dep_to_derived_preds[aux_pred].append(der_pred)
     # --- CHANGE END ---
 
@@ -1380,7 +1390,8 @@ def create_h_max_heuristic(
                                List[DerivedPredicate]] = defaultdict(list)
     if use_derived_predicates:
         for der_pred in derived_predicates:
-            for aux_pred in der_pred.auxiliary_predicates:  # type: ignore[union-attr]
+            # type: ignore[union-attr]
+            for aux_pred in der_pred.auxiliary_predicates:
                 dep_to_derived_preds[aux_pred].append(der_pred)
 
     def _h_max_heuristic(atoms: Set[GroundAtom]) -> float:
@@ -1448,7 +1459,8 @@ def create_h_max_heuristic(
                         # the 'holds' condition. We find the supporters by
                         # checking the auxiliary predicates.
                         supporter_atoms: Set[GroundAtom] = set()
-                        for p in derived_atom.predicate.auxiliary_predicates:  # type: ignore[attr-defined]
+                        # type: ignore[attr-defined]
+                        for p in derived_atom.predicate.auxiliary_predicates:
                             supporter_atoms.update(
                                 a for a in current_facts_for_eval
                                 if a.predicate == p)
@@ -1563,6 +1575,7 @@ if __name__ == "__main__":
     predicates = env.predicates
 
     def policy() -> Optional[_GroundEndogenousProcess]:
+        """Policy."""
         global plan
         if len(plan) > 0:
             return plan.pop(0)

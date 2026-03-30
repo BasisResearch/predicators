@@ -245,7 +245,6 @@ def learn_process_parameters(
 
     # --- Early stopping setup ---
     patience_counter = early_stopping_patience
-    best_params_state = None
     optim: Optional[torch.optim.Optimizer] = None
     scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None
     if use_lbfgs:
@@ -382,12 +381,6 @@ def learn_process_parameters(
 
     if pbar:
         pbar.close()
-
-    # --- Restore best parameters before evaluation ---
-    if best_params_state is not None:
-        for param, best_state in zip(  # type: ignore[unreachable]
-                learnable_params_for_optim, best_params_state):
-            param.data.copy_(best_state)
 
     # --- Persist Final Parameters and Evaluate ---
     final_guide_params = guide_params.detach()

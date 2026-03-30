@@ -121,6 +121,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         self._online_learning_cycle += 1
 
     def save(self, online_learning_cycle: Optional[int] = None) -> None:
+        """Save."""
         # Saving the learned processes, dataset, candidate predicates
         save_path = utils.get_approach_save_path_str()
         with open(f"{save_path}_{online_learning_cycle}.PROCes", "wb") as f:
@@ -433,7 +434,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 logging.info("[Start] Predicate search.")
                 self._learned_predicates =\
                     self._select_predicates_by_score_optimization(
-                        train_tasks, all_candidates, self._processes,  # type: ignore[arg-type]
+                        # type: ignore[arg-type]
+                        train_tasks, all_candidates, self._processes,
                         all_trajs, atom_dataset)
             logging.info("[Finished] Predicate search.")
             logging.info("Total search time "
@@ -825,6 +827,7 @@ def get_false_positive_states_from_seg_trajs(
     segmented_trajs: List[List[Segment]],
     exogenous_processes: List[ExogenousProcess],
 ) -> Dict[_GroundExogenousProcess, List[State]]:
+    """Get false positive states from seg trajs."""
 
     # Map from ground_exogenous_process to a list of init states where the
     # condition is satisfied.
@@ -1047,7 +1050,8 @@ def _get_transition_str(
             state_str_set.append("\n".join(str_for_this_state))
             if CFG.rgb_observation:
                 save_image_with_label(
-                    state.labeled_image.copy(),  # type: ignore[union-attr, arg-type]
+                    # type: ignore[union-attr, arg-type]
+                    state.labeled_image.copy(),
                     obs_name,
                     obs_dir)
 
@@ -1090,6 +1094,7 @@ def save_image_with_label(img_copy: Image,
                           s_name: str,
                           obs_dir: str,
                           f_suffix: str = ".png") -> None:
+    """Save image with label."""
     draw = ImageDraw.Draw(img_copy)  # type: ignore[arg-type]
     font = ImageFont.load_default()
     font = font.font_variant(size=50)  # type: ignore[union-attr]
@@ -1101,6 +1106,7 @@ def save_image_with_label(img_copy: Image,
 
 
 def load_images_from_directory(dir: str) -> List[PIL.Image.Image]:
+    """Load images from directory."""
     images = []
     for filename in os.listdir(dir):
         file_path = os.path.join(dir, filename)
@@ -1120,6 +1126,7 @@ def traj_is_successful(traj: LowLevelTrajectory,
 
 
 def add_python_quote(text: str) -> str:
+    """Add python quote."""
     return f"```python\n{text}\n```"
 
 
@@ -1167,11 +1174,9 @@ def _parse_predicates_predictions(
     # --- Interpret the Python blocks ---
     for code_str in python_blocks:
         # Extract name from code block
-        match = re.search(  # type: ignore[assignment]
-            r'(\w+)\s*=\s*(NS)?Predicate', code_str)
+        match = re.search(r'(\w+)\s*=\s*(NS)?Predicate', code_str)
         if match is None:
-            logging.warning(  # type: ignore[unreachable]
-                "No predicate name found in the code block")
+            logging.warning("No predicate name found in the code block")
             continue
         pred_name = match.group(1)
         logging.info(f"Found definition for predicate {pred_name}")

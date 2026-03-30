@@ -193,6 +193,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
 
     @property
     def concept_predicates(self) -> Set[ConceptPredicate]:
+        """Concept predicates."""
         return {self._Balanced_abs}
 
     @property
@@ -553,6 +554,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
 
     # Function to count the number of blocks in the tower
     def count_num_blocks(self, state: State, table: Object) -> int:
+        """Count num blocks."""
 
         def count_recursive(base_obj: Object,
                             count: int) -> int:  # type: ignore[no-untyped-def]
@@ -604,27 +606,6 @@ class PyBulletBalanceEnv(PyBulletEnv):
         if plate1 == table2:
             return False
         return True
-
-        # Function to count the number of blocks in the tower
-        def count_num_blocks(table):  # type: ignore[unreachable]
-
-            def count_recursive(base_obj, count):
-                for atom in atoms:
-                    if atom.predicate == self._DirectlyOn and\
-                            atom.objects[1] == base_obj:
-                        count = count_recursive(atom.objects[0], count + 1)
-                    elif atom.predicate == self._DirectlyOnPlate and\
-                            atom.objects[1] == base_obj:
-                        count = count_recursive(atom.objects[0], count + 1)
-                return count
-
-            return count_recursive(table, 0)
-
-        # Get the height of the blocks using recursion
-        height1 = count_num_blocks(plate1)
-        height2 = count_num_blocks(table2)
-
-        return height1 == height2
 
     def _DirectlyOn_holds(self, state: State,
                           objects: Sequence[Object]) -> bool:
@@ -721,7 +702,8 @@ class PyBulletBalanceEnv(PyBulletEnv):
             return False
 
         block_name = block.id_name
-        attention_image = state.crop_to_objects([block, robot])  # type: ignore[attr-defined]
+        attention_image = state.crop_to_objects(
+            [block, robot])  # type: ignore[attr-defined]
         return state.evaluate_simple_assertion(  # type: ignore[return-value, attr-defined]
             f"{block_name} is held by the robot", attention_image)
 
@@ -814,7 +796,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
     def _make_tasks(self, num_tasks: int, possible_num_blocks: List[int],
                     rng: np.random.Generator) -> List[EnvironmentTask]:
         tasks = []
-        for idx in range(num_tasks):
+        for _idx in range(num_tasks):
             num_blocks = rng.choice(possible_num_blocks, p=[0.3, 0.7])
             piles = self._sample_initial_piles(num_blocks, rng)
             init_state = self._sample_state_from_piles(piles, rng)
@@ -833,7 +815,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
         return self._add_pybullet_state_to_tasks(tasks)
 
     def _sample_initial_piles(self, num_blocks: int,
-                              rng: np.random.Generator) -> List[List[Object]]:
+                              _rng: np.random.Generator) -> List[List[Object]]:
         n_piles = 0
         piles: List[List[Object]] = []
         # for block_num, block in enumerate(self._blocks):
