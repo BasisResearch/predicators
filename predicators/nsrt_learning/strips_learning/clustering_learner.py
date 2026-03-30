@@ -49,7 +49,7 @@ def _flat_pnad_scoring_worker(
     scores_tuple, process).
     """
     (pnad_idx, condition_idx, base_process, condition_candidate, trajectories,
-     predicates, seed, num_it, complexity_weight, load_dir, save_dir,
+     predicates, seed, num_it, complexity_weight, _load_dir, _save_dir,
      early_stopping_patience) = args
 
     # Set the conditions on the process object.
@@ -464,6 +464,7 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
 
 
 class ClusteringProcessLearner(ClusteringSTRIPSLearner):
+    """ClusteringProcessLearner class."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -491,7 +492,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         segments = [seg for segs in self._segmented_trajs for seg in segs]
         # Cluster the segments according to common option and effects.
         pnads: List[PNAD] = []
-        for i, segment in enumerate(segments):
+        for segment in segments:
             if segment.has_option():
                 segment_option = segment.get_option()
                 segment_param_option = segment_option.parent
@@ -772,10 +773,10 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
             segment: Segment, seg_add_eff: FrozenSet[GroundAtom],
             seg_del_eff: FrozenSet[GroundAtom], pnad: PNAD,
             obj_to_var: Dict[Object, Variable],
-            segment_param_option: ParameterizedOption,
-            pnad_param_option: ParameterizedOption,
-            segment_option_objs: Tuple[Object],
-            pnad_option_vars: Tuple[Variable],
+            _segment_param_option: ParameterizedOption,
+            _pnad_param_option: ParameterizedOption,
+            _segment_option_objs: Tuple[Object],
+            _pnad_option_vars: Tuple[Variable],
             endogenous_processes: List[EndogenousProcess]) -> VarToObjSub:
         """Try to unify and find the *best* set of matching init atoms between
         the given segment and the *last* segment in the PNAD's datastore, then
@@ -1154,6 +1155,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
 
 
 class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
+    """ClusterAndSearchProcessLearner class."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize the process learner."""
@@ -1573,7 +1575,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             self,
             possible_atoms_per_pnad: List[Set[LiftedAtom]],
             pnads: Optional[List[PNAD]] = None,
-            k: Optional[int] = None,
+            _k: Optional[int] = None,
             batch_idx: Optional[int] = None) -> List[List[Set[LiftedAtom]]]:
         """Process a batch of PNADs for condition set proposal."""
         try:
@@ -1931,7 +1933,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                           f"Entropy: {scores[3]:.4f}, "
                           f"Process params: {process_param_str}")
 
-    def _select_best_condition(self, pnad_idx: int, scored_conditions: List,
+    def _select_best_condition(self, _pnad_idx: int, scored_conditions: List,
                                pnad: PNAD) -> FrozenSet[LiftedAtom]:
         """Select the best condition from scored candidates."""
         multiple_top_conditions = False
@@ -2066,6 +2068,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
 
 class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
+    """ClusterAndInversePlanningProcessLearner class."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -2211,10 +2214,9 @@ class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
                 use_visited_state_set=True)
 
             optimality_prob = 0.0
-            num_nodes = CFG.grammar_search_expected_nodes_upper_bound
             try:
-                for idx, (_, plan_atoms_sequence,
-                          metrics) in enumerate(generator):
+                for (_, plan_atoms_sequence,
+                     metrics) in generator:
                     num_nodes = metrics["num_nodes_created"]
                     optimality_prob = self._get_optimality_prob(
                         demo_atoms_sequence,  # type: ignore[arg-type]

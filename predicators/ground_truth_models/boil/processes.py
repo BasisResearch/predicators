@@ -1,7 +1,5 @@
 """Ground-truth processes for the boil environments."""
-import logging
-from pprint import pformat
-from typing import Dict, Sequence, Set, cast
+from typing import Dict, Sequence, Set
 
 import numpy as np
 import torch
@@ -129,9 +127,6 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         Wait = options["Wait"]
         if CFG.boil_goal == "task_completed":
             DeclareComplete = options["DeclareComplete"]
-
-        # Create a random number generator
-        rng = np.random.default_rng(CFG.seed)
 
         processes: Set[CausalProcess] = set()
 

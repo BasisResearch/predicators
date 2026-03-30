@@ -1,28 +1,16 @@
 """Ground-truth options for the coffee environment."""
 
-import logging
-from dataclasses import replace
-from functools import lru_cache
-from typing import Callable, ClassVar, Dict, List, Optional, Sequence, Set, \
-    Tuple
+from typing import Callable, ClassVar, Dict, Sequence, Set, Tuple
 from typing import Type as TypingType
 
 import numpy as np
-import pybullet as p
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
-from predicators.ground_truth_models.coffee.options import \
-    PyBulletCoffeeGroundTruthOptionFactory
 from predicators.ground_truth_models.skill_factories import SkillConfig, \
     create_push_skill, create_wait_option
-from predicators.pybullet_helpers.controllers import \
-    create_change_fingers_option, create_move_end_effector_to_pose_option
-from predicators.pybullet_helpers.geometry import Pose
-from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, \
     Predicate, State, Type

@@ -1,3 +1,4 @@
+"""pp_param_learning_approach module."""
 import logging
 import os
 import random
@@ -10,7 +11,6 @@ import torch
 from gym.spaces import Box
 from torch import Tensor
 from torch.optim import LBFGS, Adam
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 from tqdm.auto import tqdm  # type: ignore[import-untyped]
 
 from predicators import utils
@@ -140,7 +140,7 @@ def learn_process_parameters(
 
     # If using empirical estimation, bypass all the variational inference
     if use_empirical:
-        processes, stats = learn_process_parameters_empirical(
+        processes, _stats = learn_process_parameters_empirical(
             trajectories, predicates, processes, use_empirical=True)
 
         # Even when using empirical estimation, we need to prepare data and evaluate properly
@@ -275,7 +275,7 @@ def learn_process_parameters(
 
     # ------------------- training loop ----------------------------- #
     iteration = 0
-    for outer_step in range(num_steps):
+    for _ in range(num_steps):
         current_optim: Optional[LBFGS] = None
         if use_lbfgs:
             current_optim = LBFGS(learnable_params_for_optim,
@@ -853,7 +853,7 @@ def _prepare_training_data_and_model_params(
     num_proc_params = 3 * len(processes)
     q_offset = 0
 
-    for traj_id, traj in enumerate(atom_option_dataset):
+    for traj in atom_option_dataset:
         traj_len = len(traj.states)
         objs = set(traj._low_level_states[0])
 
@@ -944,7 +944,7 @@ def _initialize_params_with_empirical_estimates(
     predicates: Set[Predicate],
     processes: Sequence[CausalProcess],
     model_params: torch.nn.Parameter,
-    num_proc_params: int,
+    _num_proc_params: int,
 ) -> None:
     """Initialize process parameters using empirical estimates from trajectory
     data.
@@ -1051,7 +1051,7 @@ def _plot_training_curve(training_curve: Dict,
     plt.tight_layout()
 
     # Save the plot
-    filename = f"training_curve.png"
+    filename = "training_curve.png"
     plt.savefig(os.path.join(image_dir, filename))
     logging.info(f"Training curve saved to {filename}")
     plt.close()

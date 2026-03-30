@@ -3,8 +3,8 @@
 from typing import Dict, Set
 
 from predicators.ground_truth_models import GroundTruthNSRTFactory
-from predicators.structs import NSRT, DummyParameterizedOption, LiftedAtom, \
-    ParameterizedOption, Predicate, Type, Variable
+from predicators.structs import NSRT, LiftedAtom, ParameterizedOption, \
+    Predicate, Type, Variable
 from predicators.utils import null_sampler
 
 
@@ -30,7 +30,7 @@ class PyBulletCircuitGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         Holding = predicates["Holding"]
         ConnectedToLight = predicates["ConnectedToLight"]
         ConnectedToBattery = predicates["ConnectedToBattery"]
-        LightOn = predicates["LightOn"]
+        _ = predicates["LightOn"]
         CircuitClosed = predicates["CircuitClosed"]
         SwitchedOn = predicates["SwitchedOn"]
 

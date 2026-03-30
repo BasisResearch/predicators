@@ -2,7 +2,8 @@
 
 import logging
 from functools import lru_cache
-from typing import Callable, Dict, List, Sequence, Set, Tuple, cast
+from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple, cast
+from typing import Type as TypingType
 
 import numpy as np
 import pybullet as p
@@ -30,6 +31,15 @@ def _get_pybullet_robot() -> SingleArmPyBulletRobot:
 
 
 class _DominoLegacyOptionsMixin:
+    # Declare attributes provided by the concrete class that uses this mixin.
+    env_cls: ClassVar[TypingType[PyBulletDominoEnv]]
+    _move_to_pose_tol: ClassVar[float]
+    _finger_action_nudge_magnitude: ClassVar[float]
+    _transport_z: ClassVar[float]
+    _transport_z_push: ClassVar[float]
+    _offset_x: ClassVar[float]
+    _offset_z: ClassVar[float]
+    _place_drop_z: ClassVar[float]
     """Legacy option implementations, mixed into the main factory class."""
 
     @classmethod
@@ -170,7 +180,7 @@ class _DominoLegacyOptionsMixin:
         def _Pick_terminal(state: State, memory: Dict,
                            objects: Sequence[Object], params: Array) -> bool:
             del memory, params  # unused
-            robot, domino = objects
+            robot, _domino = objects
             return state.get(robot, "fingers") < PyBulletEnv.grasp_tol
 
         Pick = utils.LinearChainParameterizedOption("Pick", [

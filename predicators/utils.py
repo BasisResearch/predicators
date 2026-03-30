@@ -1797,6 +1797,7 @@ def process_plan_to_greedy_policy(
     necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None,
     abstract_function: Optional[Callable[[State], Set[GroundAtom]]] = None
 ) -> Callable[[State], Action]:
+    """Convert a process plan to a greedy policy."""
     option_policy = process_plan_to_greedy_option_policy(
         process_plan, goal, rng, necessary_atoms_seq=necessary_atoms_seq)
     return option_policy_to_policy(option_policy,
@@ -3971,7 +3972,7 @@ def create_video_from_partial_refinements(
         logging.debug("reset env for create video")
         state = env.reset(train_or_test, task_idx)
         # logging.debug(f"{pformat(state.pretty_str())}")
-        for i in range(max_num_steps):
+        for _i in range(max_num_steps):
             # logging.debug(f"state: {state.pretty_str()}")
             try:
                 act = policy(state)
@@ -4304,6 +4305,7 @@ def null_sampler(state: State, goal: Set[GroundAtom], rng: np.random.Generator,
 
 
 class ConstantDelay(DelayDistribution):
+    """ConstantDelay class."""
 
     def __init__(self, delay: Union[int, float, torch.Tensor]):
         # keep dtype consistent with the rest of the model
@@ -5107,6 +5109,7 @@ def get_base_supporter_predicates(
 
 
 class PredicateEvaluationError(Exception):
+    """PredicateEvaluationError class."""
 
     def __init__(self, message: str, pred: Any) -> None:
         super().__init__(message)

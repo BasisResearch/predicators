@@ -5,7 +5,6 @@ from typing import Dict, Sequence, Set
 import numpy as np
 import torch
 
-from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
 from predicators.ground_truth_models import GroundTruthProcessFactory
 from predicators.settings import CFG
 from predicators.structs import Array, CausalProcess, EndogenousProcess, \
@@ -37,7 +36,7 @@ def _place_sampler(state: State, goal: Set[GroundAtom],
 def _pour_sampler(state: State, goal: Set[GroundAtom],
                   rng: np.random.Generator, objs: Sequence[Object]) -> Array:
     """Return empty pour params (all offsets are now fixed constants)."""
-    del goal, rng, state
+    del goal, rng, state, objs
     return np.array([], dtype=np.float64)
 
 

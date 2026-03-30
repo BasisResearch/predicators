@@ -144,8 +144,8 @@ def get_move_end_effector_to_pose_with_base_action(
     max_vel_norm: float,
     finger_action_nudge_magnitude: float,
     max_base_vel_norm: float,
-    max_base_rot_vel: float,
-    arm_reach_radius: float,
+    _max_base_rot_vel: float,
+    _arm_reach_radius: float,
     validate: bool = True,
 ) -> Action:
     """Get a combined arm + base action for a mobile-base robot."""

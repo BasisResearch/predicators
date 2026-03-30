@@ -1,7 +1,8 @@
 """Legacy option implementations for the boil environment."""
 
 from functools import lru_cache
-from typing import Callable, Dict, List, Sequence, Set, Tuple, cast
+from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple, cast
+from typing import Type as TypingType
 
 import numpy as np
 import pybullet as p
@@ -26,6 +27,13 @@ def _get_pybullet_robot() -> SingleArmPyBulletRobot:
 
 
 class _BoilLegacyOptionsMixin:
+    # Declare attributes provided by the concrete class that uses this mixin.
+    env_cls: ClassVar[TypingType[PyBulletBoilEnv]]
+    _move_to_pose_tol: ClassVar[float]
+    _finger_action_nudge_magnitude: ClassVar[float]
+    _hand_empty_move_z: ClassVar[float]
+    _transport_z: ClassVar[float]
+    _y_offset: ClassVar[float]
     """Legacy option implementations, mixed into the main factory class."""
 
     @classmethod
@@ -40,7 +48,7 @@ class _BoilLegacyOptionsMixin:
 
         # Types
         robot_type = types["robot"]
-        switch_type = types["switch"]
+        _switch_type = types["switch"]
         jug_type = types["jug"]
         burner_type = types["burner"]
         faucet_type = types["faucet"]
@@ -582,7 +590,7 @@ class _BoilLegacyOptionsMixin:
         The parameter z_func maps the jug's z position to the target z
         position.
         """
-        home_orn = PyBulletBoilEnv.get_robot_ee_home_orn()
+        _home_orn = PyBulletBoilEnv.get_robot_ee_home_orn()
 
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
@@ -657,6 +665,49 @@ class _BoilLegacyOptionsMixin:
 
         return create_move_end_effector_to_pose_option(
             _get_pybullet_robot(),
+            name,
+            option_types,
+            params_space,
+            _get_current_and_target_pose_and_finger_status,
+            cls._move_to_pose_tol,
+            CFG.pybullet_max_vel_norm,
+            cls._finger_action_nudge_magnitude,
+            validate=CFG.pybullet_ik_validate)
+
+    @classmethod
+    def _create_boil_move_to_init_option(
+            cls,
+            name: str,
+            finger_status: str,
+            pybullet_robot: SingleArmPyBulletRobot,
+            option_types: List[Type],
+            params_space: Box) -> ParameterizedOption:
+        """Creates a ParameterizedOption for moving back to the robot's
+        initial position."""
+
+        def _get_current_and_target_pose_and_finger_status(
+                state: State, objects: Sequence[Object],
+                params: Array) -> Tuple[Pose, Pose, str]:
+            assert not params
+            robot = objects[0]
+            current_position = (state.get(robot, "x"),
+                                state.get(robot, "y"),
+                                state.get(robot, "z"))
+            ee_orn = p.getQuaternionFromEuler(
+                [0, state.get(robot, "tilt"),
+                 state.get(robot, "wrist")])
+            current_pose = Pose(current_position, ee_orn)
+            target_position = (cls.env_cls.robot_init_x,
+                               cls.env_cls.robot_init_y,
+                               cls.env_cls.robot_init_z)
+            target_orn = p.getQuaternionFromEuler(
+                [0, cls.env_cls.robot_init_tilt,
+                 cls.env_cls.robot_init_wrist])
+            target_pose = Pose(target_position, target_orn)
+            return current_pose, target_pose, finger_status
+
+        return create_move_end_effector_to_pose_option(
+            pybullet_robot,
             name,
             option_types,
             params_space,

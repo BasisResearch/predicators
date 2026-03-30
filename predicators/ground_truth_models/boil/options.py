@@ -58,7 +58,7 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
                                                                     Predicate],
             action_space: Box) -> Set[ParameterizedOption]:
         """Skill-factory-based option implementations for the boil env."""
-        del env_name, action_space  # unused
+        del env_name, action_space, predicates  # unused
 
         _, pybullet_robot, _ = \
             PyBulletBoilEnv.initialize_pybullet(using_gui=False)

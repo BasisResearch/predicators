@@ -31,8 +31,6 @@ python predicators/main.py --env pybullet_coffee --approach oracle --seed 0 \
 With the simplified tasks, both pixelated jug and old jug should work.
 With the full tasks, the old jug should work.
 """
-import logging
-import random
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple
 
@@ -43,9 +41,8 @@ from predicators import utils
 from predicators.envs.coffee import CoffeeEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, update_object
-from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot, \
-    create_single_arm_pybullet_robot
+from predicators.pybullet_helpers.objects import create_object
+from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, Object, Predicate, \
     State
@@ -336,7 +333,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
 
         cup_objs = state.get_objects(self._cup_type)
         self._cup_to_capacity.clear()
-        for i, cup_obj in enumerate(cup_objs):
+        for cup_obj in cup_objs:
             cup_cap = state.get(cup_obj, "capacity_liquid")
             global_scale = 0.5 * cup_cap / self.cup_capacity_ub
             color = self._obj_colors[self._train_rng.choice(

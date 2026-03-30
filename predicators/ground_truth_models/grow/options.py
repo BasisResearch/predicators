@@ -47,10 +47,10 @@ class PyBulletGrowGroundTruthOptionFactory(_GrowLegacyOptionsMixin,
 
     @classmethod
     def _get_options_skill_factories(
-            cls, env_name: str, types: Dict[str,
+            cls, _env_name: str, types: Dict[str,
                                             Type], predicates: Dict[str,
                                                                     Predicate],
-            action_space: Box) -> Set[ParameterizedOption]:
+            _action_space: Box) -> Set[ParameterizedOption]:
         """Skill-factory-based option implementations for the grow env.
 
         PickJug and Place use the PhaseSkill framework.  Pour falls back
@@ -96,7 +96,7 @@ class PyBulletGrowGroundTruthOptionFactory(_GrowLegacyOptionsMixin,
         ) -> Tuple[float, float, float, float]:
             del params, config
             _, jug = objects
-            hx, hy, hz = env_cls._get_jug_handle_grasp(state, jug)
+            hx, hy, hz = env_cls._get_jug_handle_grasp(state, jug)  # type: ignore[attr-defined]
             return (hx, hy, hz, state.get(jug, "rot"))
 
         PickJug = create_pick_skill(
@@ -118,9 +118,6 @@ class PyBulletGrowGroundTruthOptionFactory(_GrowLegacyOptionsMixin,
         # ---------------------------------------------------------------
         # Pour
         # ---------------------------------------------------------------
-        Holding = predicates["Holding"]
-        Grown = predicates["Grown"]
-        HandTilted = predicates["HandTilted"]
 
         def _get_cup_position(
             state: State,

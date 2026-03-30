@@ -4,16 +4,13 @@ from dataclasses import replace
 from typing import ClassVar, Dict, Sequence, Set, Tuple
 from typing import Type as TypingType
 
-import numpy as np
 from gym.spaces import Box
 
 from predicators.envs.pybullet_domino import PyBulletDominoEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
-from predicators.ground_truth_models.skill_factories import Phase, \
-    PhaseAction, PhaseSkill, SkillConfig, create_pick_skill, \
-    create_place_skill, create_push_skill, create_wait_option, \
-    make_move_to_phase
+from predicators.ground_truth_models.skill_factories import SkillConfig, \
+    create_pick_skill, create_place_skill, create_push_skill, create_wait_option
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, \
@@ -71,8 +68,6 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
 
         robot_type = types["robot"]
         domino_type = types["domino"]
-        rotation_type = types["angle"]
-        position_type = types["loc"]
 
         cfg = cls._build_skill_config(pybullet_robot)
 

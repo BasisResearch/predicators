@@ -4,8 +4,8 @@ from typing import Dict, Set
 
 from predicators.ground_truth_models import GroundTruthNSRTFactory
 from predicators.settings import CFG
-from predicators.structs import NSRT, DummyParameterizedOption, LiftedAtom, \
-    ParameterizedOption, Predicate, Type, Variable
+from predicators.structs import NSRT, LiftedAtom, ParameterizedOption, \
+    Predicate, Type, Variable
 from predicators.utils import null_sampler
 
 
@@ -29,10 +29,10 @@ class PyBulletDominoGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         # Predicates
         HandEmpty = predicates["HandEmpty"]
         Holding = predicates["Holding"]
-        InFront = predicates["InFront"]
+        _ = predicates["InFront"]
         Upright = predicates["Upright"]
         StartBlock = predicates["InitialBlock"]
-        Toppled = predicates["Toppled"]
+        _ = predicates["Toppled"]
         Tilting = predicates["Tilting"]
         DominoAtPos = predicates["DominoAtPos"]
         DominoAtRot = predicates["DominoAtRot"]
@@ -43,7 +43,7 @@ class PyBulletDominoGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         else:
             AdjacentTo = predicates["AdjacentTo"]
         if CFG.domino_has_glued_dominos:
-            DominoNotGlued = predicates["DominoNotGlued"]
+            _ = predicates["DominoNotGlued"]
 
         # Options
         Pick = options["Pick"]

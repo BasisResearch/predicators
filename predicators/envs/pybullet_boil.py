@@ -2,7 +2,6 @@
 
 python predicators/envs/pybullet_boil.py
 """
-import logging
 import random
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -98,6 +97,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     # how fast water_volume increases per step — read from CFG at runtime
     @property
     def water_fill_speed(self) -> float:
+        """Water fill speed."""
         return CFG.boil_water_fill_speed * self.water_height_to_level_ratio
 
     water_filled_height: ClassVar[float] = 0.08 * water_height_to_level_ratio
@@ -466,7 +466,7 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # Get a fresh id for humans
         max_id = float('-inf')
-        for key, value in pybullet_bodies.items():
+        for value in pybullet_bodies.values():
             if isinstance(value, list):
                 for v in value:
                     if isinstance(v, int):
@@ -493,7 +493,6 @@ class PyBulletBoilEnv(PyBulletEnv):
     def _create_task_specific_objects(self, state: State) -> None:
         """If you wanted additional objects depending on a given state, add
         them here."""
-        pass
 
     def _extract_feature(self, obj: Object, feature: str) -> float:
         """Map from environment object + feature name -> a float feature in the
@@ -1000,7 +999,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         return state.get(jug, "water_volume") >= cls.max_jug_water_capacity
 
     def _WaterSpilled_holds(self, state: State,
-                            objects: Sequence[Object]) -> bool:
+                            _objects: Sequence[Object]) -> bool:
         """Example: say water is spilled if the faucet is on with no jug
         underneath, or if we want any other condition. Modify as needed."""
         # # If faucet is on and no jug is under it, there's spillage
@@ -1036,7 +1035,7 @@ class PyBulletBoilEnv(PyBulletEnv):
 
     @staticmethod
     def _Holding_holds(state: State, objects: Sequence[Object]) -> bool:
-        (robot, jug) = objects
+        (_robot, jug) = objects
         return state.get(jug, "is_held") > 0.5
 
     def _JugOnBurner_holds(self, state: State,
@@ -1115,7 +1114,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         """A predicate design mainly for experimenting with inventing predicate
         to describe the preimage of effects."""
         # Check if the specific human is happy about their jug and burner
-        (human, jug, burner) = objects
+        (human, _jug, _burner) = objects
         return state.get(human, "happiness_level") >= 1.0
 
     def _task_objective_holds(self, state: State) -> bool:
@@ -1396,7 +1395,6 @@ class PyBulletBoilEnv(PyBulletEnv):
 
 
 if __name__ == "__main__":
-    import time
     CFG.seed = 0
     CFG.env = "pybullet_boil"
     CFG.pybullet_sim_steps_per_action = 1
@@ -1485,8 +1483,8 @@ if __name__ == "__main__":
                     np.array(env._pybullet_robot.initial_joint_positions))
             else:
                 try:
-                    action = policy(env._current_observation)
-                except:
+                    action = policy(env._current_observation)  # type: ignore[name-defined]
+                except Exception:
                     # Get it's current position
                     action = Action(
                         np.array(env._current_observation.joint_positions))

@@ -3,7 +3,6 @@
 from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
 from typing import Type as TypingType
 
-import numpy as np
 import pybullet as p
 from gym.spaces import Box
 
@@ -15,8 +14,8 @@ from predicators.pybullet_helpers.controllers import \
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
-from predicators.structs import Action, Array, Object, ParameterizedOption, \
-    ParameterizedPolicy, Predicate, State, Type
+from predicators.structs import Array, Object, ParameterizedOption, Predicate, \
+    State, Type
 
 
 class PyBulletAntsGroundTruthOptionFactory(GroundTruthOptionFactory):
@@ -196,7 +195,7 @@ class PyBulletAntsGroundTruthOptionFactory(GroundTruthOptionFactory):
         The parameter z_func maps the block's z position to the target z
         position.
         """
-        home_orn = PyBulletAntsEnv.get_robot_ee_home_orn()
+        PyBulletAntsEnv.get_robot_ee_home_orn()
 
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],

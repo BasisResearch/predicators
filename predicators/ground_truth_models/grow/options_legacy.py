@@ -1,7 +1,8 @@
 """Legacy option implementations for the grow environment."""
 
 from functools import lru_cache
-from typing import Callable, Dict, List, Sequence, Set, Tuple
+from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
+from typing import Type as TypingType
 
 import numpy as np
 import pybullet as p
@@ -29,10 +30,14 @@ def _get_pybullet_robot() -> SingleArmPyBulletRobot:
 
 
 class _GrowLegacyOptionsMixin:
+    # Declare attributes provided by the concrete class that uses this mixin.
+    env_cls: ClassVar[TypingType[PyBulletGrowEnv]]
+    pour_policy_tol: ClassVar[float]
+    _finger_action_nudge_magnitude: ClassVar[float]
     """Legacy option implementations, mixed into the main factory class."""
 
     @classmethod
-    def _get_options_legacy(cls, env_name: str, types: Dict[str, Type],
+    def _get_options_legacy(cls, _env_name: str, types: Dict[str, Type],
                             predicates: Dict[str, Predicate],
                             action_space: Box) -> Set[ParameterizedOption]:
         """Legacy option implementations."""
@@ -46,7 +51,7 @@ class _GrowLegacyOptionsMixin:
         # Predicates
         Holding = predicates["Holding"]
         Grown = predicates["Grown"]
-        JugAboveCup = predicates["JugAboveCup"]
+        _JugAboveCup = predicates["JugAboveCup"]
         HandTilted = predicates["HandTilted"]
 
         # PickJug

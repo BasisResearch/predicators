@@ -1,6 +1,9 @@
 """Legacy option implementations for the pybullet_coffee environment."""
 
-from typing import Dict, Sequence, Set, Tuple
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar, Dict, Sequence, Set
+from typing import Type as TypingType
 
 import numpy as np
 from gym.spaces import Box
@@ -11,18 +14,30 @@ from predicators.settings import CFG
 from predicators.structs import Action, Array, Object, ParameterizedOption, \
     ParameterizedPolicy, Predicate, State, Type
 
+if TYPE_CHECKING:
+    from predicators.ground_truth_models.coffee.options import \
+        CoffeeGroundTruthOptionFactory
+    _MixinBase = CoffeeGroundTruthOptionFactory
+else:
+    _MixinBase = object
 
-class _PyBulletCoffeeLegacyOptionsMixin:
+
+class _PyBulletCoffeeLegacyOptionsMixin(_MixinBase):
     """Legacy option implementations, mixed into
     PyBulletCoffeeGroundTruthOptionFactory."""
+
+    # Declare attributes provided by the concrete class that uses this mixin.
+    env_cls: ClassVar[TypingType[PyBulletCoffeeEnv]]
+    pick_policy_tol: ClassVar[float]
+    _finger_action_nudge_magnitude: ClassVar[float]
 
     @classmethod
     def _get_options_legacy(cls, env_name: str, types: Dict[str, Type],
                             predicates: Dict[str, Predicate],
                             action_space: Box) -> Set[ParameterizedOption]:
         """Legacy option implementations."""
-        options = super().get_options(env_name, types, predicates,
-                                      action_space)
+        options = super().get_options(  # type: ignore[misc]
+            env_name, types, predicates, action_space)
 
         _, pybullet_robot, _ = \
             PyBulletCoffeeEnv.initialize_pybullet(using_gui=False)

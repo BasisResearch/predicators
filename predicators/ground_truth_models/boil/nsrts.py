@@ -1,13 +1,12 @@
 """Ground-truth NSRTs for the coffee environment."""
 
-from typing import Dict, Sequence, Set
+from typing import Dict, Set
 
-import numpy as np
 
 from predicators.ground_truth_models import GroundTruthNSRTFactory
 from predicators.settings import CFG
-from predicators.structs import NSRT, Array, GroundAtom, LiftedAtom, Object, \
-    ParameterizedOption, Predicate, State, Type, Variable
+from predicators.structs import NSRT, LiftedAtom, ParameterizedOption, Predicate, Type, \
+    Variable
 from predicators.utils import null_sampler
 
 
@@ -27,7 +26,7 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         jug_type = types["jug"]
         burner_type = types["burner"]
         faucet_type = types["faucet"]
-        human_type = types["human"]
+        _ = types["human"]
 
         # Predicates
         HandEmpty = predicates["HandEmpty"]
@@ -38,11 +37,11 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         NoJugAtBurner = predicates["NoJugAtBurner"]
         JugNotAtBurnerOrFaucet = predicates["JugNotAtBurnerOrFaucet"]
         if CFG.boil_add_jug_reached_capacity_predicate:
-            NoJugAtFaucetOrAtFaucetAndReachedCapacity = predicates[
+            _NoJugAtFaucetOrAtFaucetAndReachedCapacity = predicates[
                 "NoJugAtFaucetOrAtFaucetAndReachedCapacity"]
-            JugAtCapacity = predicates["JugAtCapacity"]
+            _ = predicates["JugAtCapacity"]
         else:
-            NoJugAtFaucetOrJugAtFaucetAndFilled = predicates[
+            _NoJugAtFaucetOrJugAtFaucetAndFilled = predicates[
                 "NoJugAtFaucetOrAtFaucetAndFilled"]
         JugFilled = predicates["JugFilled"]
         # JugNotFilled = predicates["JugNotFilled"]
@@ -54,7 +53,7 @@ class PyBulletBoilGroundTruthNSRTFactory(GroundTruthNSRTFactory):
         BurnerOff = predicates["BurnerOff"]
         WaterBoiled = predicates["WaterBoiled"]
         if CFG.boil_goal == "human_happy":
-            HumanHappy = predicates["HumanHappy"]
+            _ = predicates["HumanHappy"]
         elif CFG.boil_goal == "task_completed":
             TaskCompleted = predicates["TaskCompleted"]
 

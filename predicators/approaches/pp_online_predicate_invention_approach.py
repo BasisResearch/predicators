@@ -1,3 +1,4 @@
+"""pp_online_predicate_invention_approach module."""
 import logging
 import os
 import re
@@ -31,9 +32,9 @@ from predicators.predicate_search_score_functions import \
     _ExpectedNodesScoreFunction
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, Dataset, DerivedPredicate, \
-    EndogenousProcess, ExogenousProcess, GroundAtom, GroundAtomTrajectory, \
-    Image, InteractionResult, LowLevelTrajectory, ParameterizedOption, \
-    Predicate, Segment, State, Task, Type, _GroundExogenousProcess
+    EndogenousProcess, ExogenousProcess, GroundAtomTrajectory, Image, \
+    InteractionResult, LowLevelTrajectory, ParameterizedOption, Predicate, \
+    Segment, State, Task, Type, _GroundExogenousProcess
 
 
 class OnlinePredicateInventionProcessPlanningApproach(
@@ -153,7 +154,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
         self._offline_dataset = save_dict["offline_dataset"]
         self._online_dataset = save_dict["online_dataset"]
         self._online_learning_cycle = save_dict["online_learning_cycle"] + 1
-        logging.info(f"\n\nLoaded Processes:")
+        logging.info("\n\nLoaded Processes:")
         for process in sorted(self._processes):
             logging.info(process)
         logging.info(
@@ -168,7 +169,6 @@ class OnlinePredicateInventionProcessPlanningApproach(
         for proc in self._processes:
             if isinstance(proc, EndogenousProcess):
                 proc.option.params_space.seed(CFG.seed)
-        pass
 
     def _get_predicate_proposals(
             self, proposal_method: str,
@@ -225,14 +225,14 @@ class OnlinePredicateInventionProcessPlanningApproach(
             else:
                 prompt_template_f = f"prompts/invent_{proposal_method}_failed"\
                                     f".outline"
-            with open(prompt_template_f, "r") as f:
+            with open(prompt_template_f, "r", encoding='utf-8') as f:
                 prompt_template = f.read()
 
             # 2. Fill and save the template
             pred_str = _get_predicates_str(self._get_current_predicates())
             types = set(o.type for o in set(trajectories[0].states[0]))
             logging.info(
-                f"Inventing predicates from only the offline dataset.")
+                "Inventing predicates from only the offline dataset.")
             experience_str, state_str = _get_transition_str(
                 self._offline_dataset.trajectories,  # +\
                 # self._online_dataset.trajectories,
@@ -248,7 +248,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
                 GOAL_PREDICATE=self._train_tasks[0].goal)
             with open(
                     f"{CFG.log_file}/ite{self._online_learning_cycle}_b{b_id}"
-                    f"_s1.prompt", "w") as f:
+                    f"_s1.prompt", "w",
+                    encoding='utf-8') as f:
                 f.write(prompt)
 
             # 3. Get spec proposals
@@ -272,7 +273,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
                     seed=seed)[0]
             with open(
                     f"{CFG.log_file}/ite{self._online_learning_cycle}_b{b_id}"
-                    f"_s1.response", "w") as f:
+                    f"_s1.response", "w",
+                    encoding='utf-8') as f:
                 f.write(spec_response)
         elif proposal_method == "discrimination":
             # Method 1: Find each state, if it satisfies the condition of an
@@ -293,7 +295,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
             # For each expected effect that did not take place, find in the demo
             #  the initial state where it did take place, and save it as a positive
             #  example.
-            true_positive_process_state = get_true_positive_process_states(
+            get_true_positive_process_states(
                 self._get_current_predicates(), exogenous_processes,
                 list(false_positive_process_state.keys()),
                 self._offline_dataset.trajectories)
@@ -313,11 +315,11 @@ class OnlinePredicateInventionProcessPlanningApproach(
             state_api_f = "prompts/api_oo_state.py"
             pred_api_f = "prompts/api_sym_predicate.py"
 
-        with open(f"./{template_f}", "r") as f:
+        with open(f"./{template_f}", "r", encoding='utf-8') as f:
             template = f.read()
-        with open(f"./{state_api_f}", "r") as f:
+        with open(f"./{state_api_f}", "r", encoding='utf-8') as f:
             state_cls_str = f.read()
-        with open(f"./{pred_api_f}", "r") as f:
+        with open(f"./{pred_api_f}", "r", encoding='utf-8') as f:
             pred_cls_str = f.read()
 
         prompt = template.format(
@@ -331,7 +333,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
         )
         with open(
                 f"{CFG.log_file}/ite{self._online_learning_cycle}_b{b_id}"
-                f"_s2_impl.prompt", "w") as f:
+                f"_s2_impl.prompt", "w",
+                encoding='utf-8') as f:
             f.write(prompt)
 
         impl_response = self._llm.sample_completions(prompt,
@@ -341,7 +344,8 @@ class OnlinePredicateInventionProcessPlanningApproach(
                                                      seed=seed)[0]
         with open(
                 f"{CFG.log_file}/ite{self._online_learning_cycle}_b{b_id}"
-                f"_s2_impl.response", "w") as f:
+                f"_s2_impl.response", "w",
+                encoding='utf-8') as f:
             f.write(impl_response)
 
         prim_predicates, deri_predicates =\
@@ -356,7 +360,7 @@ class OnlinePredicateInventionProcessPlanningApproach(
 
     def _select_predicates_and_learn_processes(
         self,
-        ite: int,
+        _ite: int,
         all_trajs: List[LowLevelTrajectory],
         proposed_predicates: Set[Predicate],
         train_tasks: List[Task] = [],
@@ -388,8 +392,9 @@ class OnlinePredicateInventionProcessPlanningApproach(
             else:
                 grammar = _GivenPredicateGrammar(self._candidate_predicates)
             all_candidates.update(
-                grammar.generate(max_num=CFG.grammar_search_max_predicates)
-            )  # type: ignore[arg-type]
+                grammar.generate(  # type: ignore[arg-type]
+                    max_num=CFG.grammar_search_max_predicates)
+            )
 
             atom_dataset: List[GroundAtomTrajectory] =\
                         utils.create_ground_atom_dataset(all_trajs,
@@ -870,8 +875,8 @@ def get_false_positive_states_from_seg_trajs(
                             g_exo_process]:  # type: ignore[index]
                         # TODO: we don't really know which one to remove, pop
                         # the first one is a bias.
-                        false_positive_process_state[g_exo_process].pop(
-                            0)  # type: ignore[index]
+                        false_positive_process_state[g_exo_process].pop(  # type: ignore[index]
+                            0)
     return false_positive_process_state
 
 
@@ -961,7 +966,7 @@ def _get_predicates_str(predicates: Set[Predicate],
 
 
 def _get_types_str(types: Set[Type],
-                   include_features: bool = True,
+                   _include_features: bool = True,
                    use_python_def_str: bool = False) -> str:
     """Get the types string."""
     excluded_types = []
@@ -1042,8 +1047,8 @@ def _get_transition_str(
             state_str_set.append("\n".join(str_for_this_state))
             if CFG.rgb_observation:
                 save_image_with_label(
-                    state.labeled_image.copy(),
-                    obs_name,  # type: ignore[union-attr]
+                    state.labeled_image.copy(),  # type: ignore[union-attr, arg-type]
+                    obs_name,
                     obs_dir)
 
             # Append action
@@ -1074,8 +1079,8 @@ def _get_transition_str(
         state_str_set.append("\n".join(str_for_this_state))
         if CFG.rgb_observation:
             save_image_with_label(
-                state.labeled_image.copy(),
-                obs_name,  # type: ignore[attr-defined]
+                state.labeled_image.copy(),  # type: ignore[attr-defined]
+                obs_name,
                 obs_dir)
 
     return "\n".join(result_str), "\n\n".join(state_str_set)
@@ -1085,13 +1090,13 @@ def save_image_with_label(img_copy: Image,
                           s_name: str,
                           obs_dir: str,
                           f_suffix: str = ".png") -> None:
-    draw = ImageDraw.Draw(img_copy)
-    font = ImageFont.load_default().font_variant(
-        size=50)  # type: ignore[union-attr]
+    draw = ImageDraw.Draw(img_copy)  # type: ignore[arg-type]
+    font = ImageFont.load_default()
+    font = font.font_variant(size=50)  # type: ignore[union-attr]
     text_color = (0, 0, 0)  # white
     draw.text((0, 0), s_name, fill=text_color, font=font)
-    img_copy.save(os.path.join(obs_dir, s_name +
-                               f_suffix))  # type: ignore[attr-defined]
+    img_copy.save(os.path.join(obs_dir,  # type: ignore[union-attr, attr-defined]
+                               s_name + f_suffix))
     logging.debug(f"Saved image {s_name}")
 
 
@@ -1162,11 +1167,11 @@ def _parse_predicates_predictions(
     # --- Interpret the Python blocks ---
     for code_str in python_blocks:
         # Extract name from code block
-        match = re.search(r'(\w+)\s*=\s*(NS)?Predicate',
-                          code_str)  # type: ignore[assignment]
+        match = re.search(  # type: ignore[assignment]
+            r'(\w+)\s*=\s*(NS)?Predicate', code_str)
         if match is None:
-            logging.warning("No predicate name found in the code block"
-                            )  # type: ignore[unreachable]
+            logging.warning(  # type: ignore[unreachable]
+                "No predicate name found in the code block")
             continue
         pred_name = match.group(1)
         logging.info(f"Found definition for predicate {pred_name}")
@@ -1212,7 +1217,7 @@ def _parse_predicates_predictions(
                 logging.warning(f"Test failed: {e}\n{error_trace}")
                 continue
             else:
-                logging.debug(f"Test passed!")
+                logging.debug("Test passed!")
                 primitive_preds.add(context[pred_name])
 
     # TODO: --- Convert the derived predicates to DerivedPredicate ---

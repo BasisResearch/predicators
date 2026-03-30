@@ -98,7 +98,7 @@ def create_pour_skill(
         """Compute robot EE target from cup position + offsets + jug
         displacement."""
         # Cup position from callback
-        cx, cy, cz, yaw = get_target_pose_fn(state, objects, _empty, cfg)
+        cx, cy, _, yaw = get_target_pose_fn(state, objects, _empty, cfg)
         # Pour target for jug (all offsets are fixed constants)
         pour_x, pour_y = cx, cy + _POUR_Y_OFF
         # Jug base z = robot EE z minus handle-to-base distance

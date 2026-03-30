@@ -1,7 +1,8 @@
 """Legacy option implementations for the fan environment."""
 
 from functools import lru_cache
-from typing import Callable, Dict, List, Sequence, Set, Tuple
+from typing import Callable, ClassVar, Dict, List, Sequence, Set, Tuple
+from typing import Type as TypingType
 
 import numpy as np
 import pybullet as p
@@ -26,6 +27,12 @@ def _get_pybullet_robot() -> SingleArmPyBulletRobot:
 
 
 class _FanLegacyOptionsMixin:
+    # Declare attributes provided by the concrete class that uses this mixin.
+    env_cls: ClassVar[TypingType[PyBulletFanEnv]]
+    _move_to_pose_tol: ClassVar[float]
+    _finger_action_nudge_magnitude: ClassVar[float]
+    _hand_empty_move_z: ClassVar[float]
+    _y_offset: ClassVar[float]
     """Legacy option implementations, mixed into the main factory class."""
 
     @classmethod
@@ -48,7 +55,7 @@ class _FanLegacyOptionsMixin:
             return PyBulletFanEnv._fingers_state_to_joint(
                 pybullet_robot, state.get(robot, "fingers"))
 
-        def open_fingers_func(state: State, objects: Sequence[Object],
+        def _open_fingers_func(state: State, objects: Sequence[Object],
                               params: Array) -> Tuple[float, float]:
             del objects, params  # unused
             current = get_current_fingers(state)

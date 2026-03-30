@@ -1,6 +1,6 @@
 """Ground-truth processes for the coffee environments."""
 
-from typing import Dict, Sequence, Set, cast
+from typing import Dict, Sequence, Set
 
 import numpy as np
 import torch
@@ -37,7 +37,7 @@ def _place_jug_in_machine_sampler(state: State, goal: Set[GroundAtom],
                                   objs: Sequence[Object]) -> Array:
     if not CFG.coffee_use_skill_factories:
         return np.array([], dtype=np.float32)
-    del state, goal, rng
+    del state, goal, rng, objs
     # objs = [robot, jug, machine]
     return np.array(
         [
@@ -49,7 +49,7 @@ def _place_jug_in_machine_sampler(state: State, goal: Set[GroundAtom],
 
 
 def _pour_sampler(state: State, goal: Set[GroundAtom],
-                  rng: np.random.Generator, objs: Sequence[Object]) -> Array:
+                  rng: np.random.Generator, _objs: Sequence[Object]) -> Array:
     """Return empty pour params (all offsets are now fixed constants)."""
     del goal, rng, state
     return np.array([], dtype=np.float64)

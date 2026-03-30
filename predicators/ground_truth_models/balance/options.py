@@ -54,7 +54,6 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
         plate_type = types["plate"]
         block_size = CFG.blocks_block_size
 
-        GripperOpen = predicates['GripperOpen']
         MachineOn = predicates['MachineOn']
 
         # Balanced = predicates['Balanced'].untransformed_predicate
@@ -207,7 +206,7 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _TurnMachineOn_terminal(state: State, memory: Dict,
                                     objects: Sequence[Object],
                                     params: Array) -> bool:
-            del memory, params  # unused
+            del memory, objects, params  # unused
             machine = state.get_objects(machine_type)[0]
             robot = state.get_objects(robot_type)[0]
             # machine = objects[1]
@@ -307,7 +306,7 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
     @classmethod
     def _create_turn_machine_on_policy(cls) -> ParameterizedPolicy:
 
-        def policy(state: State, memory: Dict, objects: Sequence[Object],
+        def policy(state: State, memory: Dict, _objects: Sequence[Object],
                    params: Array) -> Action:
             # This policy moves the robot up to be level with the button in the
             # z direction and then moves forward in the y direction to press it.
@@ -354,7 +353,7 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
         assert isinstance(state, utils.PyBulletState)
         robots = [r for r in state if r.type.name == "robot"]
         assert len(robots) == 1
-        robot = robots[0]
+        _ = robots[0]
         current_joint_positions = state.joint_positions
         pybullet_robot = _get_pybullet_robot()
 
@@ -366,7 +365,7 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
             #              pybullet_robot.action_space.high)
             try:
                 assert pybullet_robot.action_space.contains(action_arr)
-            except:
+            except Exception:
                 logging.debug(f"action_space: {pybullet_robot.action_space}\n")
                 logging.debug(f"action arr type: {type(action_arr)}")
                 logging.debug(f"action arr: {action_arr}")

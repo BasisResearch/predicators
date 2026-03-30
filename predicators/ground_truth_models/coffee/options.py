@@ -2,11 +2,10 @@
 
 from dataclasses import replace
 from functools import lru_cache
-from typing import ClassVar, Dict, List, Optional, Sequence, Set, Tuple
+from typing import ClassVar, Dict, Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
 
 import numpy as np
-import pybullet as p
 from gym.spaces import Box
 
 from predicators import utils
@@ -55,7 +54,6 @@ class CoffeeGroundTruthOptionFactory(GroundTruthOptionFactory):
         CupFilled = predicates["CupFilled"]
         if CFG.coffee_jug_pickable_pred:
             JugPickable = predicates["JugPickable"]
-        JugAboveCup = predicates["JugAboveCup"]
         HandTilted = predicates["HandTilted"]
 
         # PluggedIn = predicates["PluggedIn"]
@@ -518,7 +516,7 @@ class CoffeeGroundTruthOptionFactory(GroundTruthOptionFactory):
         return cls.env_cls._get_jug_handle_grasp(state, jug)  # pylint: disable=protected-access
 
     @classmethod
-    def _get_jug_z(cls, state: State, robot: Object, jug: Object) -> float:
+    def _get_jug_z(cls, state: State, robot: Object, _jug: Object) -> float:
         # assert state.get(jug, "is_held") > 0.5
         # Offset to account for handle.
         return state.get(robot, "z") - cls.env_cls.jug_handle_height()
@@ -598,10 +596,6 @@ class PyBulletCoffeeGroundTruthOptionFactory(_PyBulletCoffeeLegacyOptionsMixin,
         jug_type = types["jug"]
         machine_type = types["coffee_machine"]
         cup_type = types["cup"]
-
-        Holding = predicates["Holding"]
-        HandTilted = predicates["HandTilted"]
-        CupFilled = predicates["CupFilled"]
 
         env_cls = cls.env_cls
 
