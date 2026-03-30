@@ -4,7 +4,7 @@ import logging
 import os
 import traceback
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 
@@ -170,7 +170,7 @@ def _render_pybullet_image(
         if not video:
             return None
         rgb_array = np.asarray(video[0], dtype=np.uint8)
-        img = PILImage.fromarray(rgb_array)
+        img = PILImage.fromarray(rgb_array)  # type: ignore[no-untyped-call]
 
         # Save to sandbox if possible
         saved_path: Optional[str] = None
@@ -1236,7 +1236,7 @@ def create_mcp_tools(ctx: ToolContext,
         },
     )
     async def test_option_plan(args: Dict[str, Any]) -> Dict[str, Any]:
-        import numpy as np
+        import numpy as np  # pylint: disable=reimported
 
         from predicators import utils
 
@@ -1248,7 +1248,7 @@ def create_mcp_tools(ctx: ToolContext,
         # Sync the option model's option map with all current options
         # (GT + proposed) so it stays in sync after propose/retract.
         all_options = ctx.options | ctx.iteration_proposals.proposed_options
-        ctx.option_model._name_to_parameterized_option = {
+        ctx.option_model._name_to_parameterized_option = {  # type: ignore[attr-defined]
             o.name: o
             for o in all_options
         }
@@ -1432,7 +1432,7 @@ def create_mcp_tools(ctx: ToolContext,
         },
     )
     async def generate_bilevel_plan(args: Dict[str, Any]) -> Dict[str, Any]:
-        import numpy as np
+        import numpy as np  # pylint: disable=reimported
 
         from predicators import utils
         from predicators.approaches import ApproachFailure, ApproachTimeout

@@ -19,7 +19,6 @@ Usage (inside Docker)::
 """
 import asyncio
 import logging
-import os
 import sys
 import traceback
 from typing import Any, Dict, List, Optional
@@ -31,7 +30,7 @@ import dill as pkl
 # → structs) in the correct order.  Without this, importing predicators.structs
 # first causes image_patch_wrapper to try "from predicators.structs import Mask"
 # while structs is still being initialized, raising an ImportError.
-import predicators.utils  # noqa: F401, E402
+import predicators.utils  # noqa: F401, E402  # pylint: disable=unused-import
 
 logging.basicConfig(
     level=logging.INFO,

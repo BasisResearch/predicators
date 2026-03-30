@@ -88,7 +88,7 @@ def _get_claude_oauth_token() -> Optional[str]:
         )
         if result.returncode != 0:
             return None
-        import json as _json
+        import json as _json  # pylint: disable=reimported
         creds = _json.loads(result.stdout.strip())
         return creds.get("claudeAiOauth", {}).get("accessToken")
     except (subprocess.SubprocessError, json.JSONDecodeError, KeyError):
@@ -200,7 +200,6 @@ class DockerSessionManager:
 
     async def start_session(self) -> None:
         """No-op: each query() is a fresh docker run."""
-        pass
 
     async def query(self, message: str) -> List[Dict[str, Any]]:
         """Run the agent in Docker and return collected response messages.
@@ -319,8 +318,8 @@ class DockerSessionManager:
 
             # 5. Load query output
             if os.path.exists(output_path):
-                with open(output_path, "rb") as f:
-                    query_output = pkl.load(f)
+                with open(output_path, "rb") as f_in:
+                    query_output = pkl.load(f_in)
 
                 responses = query_output.get("responses", [])
                 proposals = query_output.get("iteration_proposals")
@@ -417,7 +416,6 @@ class DockerSessionManager:
 
     async def _recover_session(self, last_message: str) -> None:
         """No-op: each query is independent."""
-        pass
 
     def save_session_info(self) -> None:
         """Save session metadata to log directory."""

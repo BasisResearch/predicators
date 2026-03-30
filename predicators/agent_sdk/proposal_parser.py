@@ -1,5 +1,4 @@
 """Safe execution and validation of agent-generated code proposals."""
-import logging
 import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -58,14 +57,15 @@ def build_exec_context(
         extra_context: Additional bindings to inject (e.g. option builder
             helpers). Merged after standard bindings so it can override them.
     """
-    import numpy as np
+    import numpy as np  # pylint: disable=reimported
     import torch
     from gym.spaces import Box
 
-    from predicators.structs import CausalProcess, DerivedPredicate, \
-        EndogenousProcess, ExogenousProcess, GroundAtom, LiftedAtom, \
-        NSPredicate, Object, ParameterizedOption, Predicate, State, Task, \
-        Type, Variable
+    from predicators.structs import (  # pylint: disable=reimported
+        CausalProcess, DerivedPredicate,
+        EndogenousProcess, ExogenousProcess, GroundAtom, LiftedAtom,
+        NSPredicate, Object, ParameterizedOption, Predicate, State, Task,
+        Type, Variable)
     from predicators.utils import ConstantDelay, DiscreteGaussianDelay
 
     context: Dict[str, Any] = {}
@@ -95,9 +95,9 @@ def build_exec_context(
     context["DiscreteGaussianDelay"] = DiscreteGaussianDelay
 
     # Typing
-    from typing import List as ListT
-    from typing import Sequence
-    from typing import Set as SetT
+    from typing import List as ListT  # pylint: disable=reimported
+    from typing import Sequence  # pylint: disable=reimported
+    from typing import Set as SetT  # pylint: disable=reimported
     context["List"] = ListT
     context["Set"] = SetT
     context["Sequence"] = Sequence

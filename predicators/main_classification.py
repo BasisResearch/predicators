@@ -5,7 +5,7 @@ import os
 import sys
 import time
 from collections import defaultdict
-from typing import Any, List, Optional, Tuple, Union
+from typing import List, Optional, Union
 
 import dill as pkl
 from PIL import Image

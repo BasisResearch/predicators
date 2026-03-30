@@ -142,8 +142,8 @@ def process_task_plan_grounding(
                 ground_cps.append(ground_cp)
     if compute_reachable_atoms:
         reachable_atoms = get_reachable_atoms_from_processes(
-            ground_cps, init_atoms, derived_predicates,
-            objects)  # type: ignore[arg-type]
+            ground_cps, init_atoms, derived_predicates,  # type: ignore[arg-type]
+            objects)
     else:
         reachable_atoms = set()
 
@@ -301,9 +301,8 @@ class ProcessWorldModel:
         # 3a. Handle the endogenous process (action) passed to this step.
         # This is for starting a new action.
         if (small_step_action is not None
-                and small_step_action.parent.option.name != 'Wait'
-                and  # type: ignore[attr-defined]
-                small_step_action.condition_at_start.issubset(self.state)):
+                and small_step_action.parent.option.name != 'Wait'  # type: ignore[attr-defined]
+                and small_step_action.condition_at_start.issubset(self.state)):
             delay = small_step_action.delay_distribution.sample()
             delay = max(1, delay)
             scheduled_time = self.t + delay
@@ -386,9 +385,8 @@ class ProcessWorldModel:
 
             # if currently executing Wait and state has changed, then break
             if (self.current_action is not None
-                    and self.current_action.parent.option.name == 'Wait'
-                    and  # type: ignore[attr-defined]
-                    self.state != initial_state):
+                    and self.current_action.parent.option.name == 'Wait'  # type: ignore[attr-defined]
+                    and self.state != initial_state):
                 break
         return self.state
 
@@ -628,15 +626,16 @@ def _skeleton_generator_with_processes(
 
                 for action in applicable_actions:  # type: ignore[assignment]
                     # Always keep Wait and Push actions
-                    if action.parent.name in ["Wait", "PushStartBlock"
-                                              ]:  # type: ignore[union-attr]
+                    if action.parent.name in [  # type: ignore[union-attr]
+                        "Wait", "PushStartBlock"
+                    ]:
                         filtered_actions.append(action)
                     # For Pick, only pick dominos that haven't been placed yet
                     elif action.parent.name == "PickDomino":  # type: ignore[union-attr]
-                        domino_to_pick = action.objects[
-                            1] if len(  # type: ignore[union-attr]
-                                action.objects
-                            ) > 1 else None  # type: ignore[union-attr]
+                        domino_to_pick = action.objects[  # type: ignore[union-attr]
+                            1] if len(
+                                action.objects  # type: ignore[union-attr]
+                            ) > 1 else None
                         if domino_to_pick and domino_to_pick not in placed_dominos:
                             filtered_actions.append(action)
                     # For Place, apply heuristics
@@ -1155,7 +1154,7 @@ def create_ff_heuristic(
                             logging.error(
                                 f"Error getting base supporter predicates for {subgoal.predicate}: {e}"
                             )
-                            breakpoint()
+                            raise
                         new_subgoals = {
                             atom
                             for atom in fact_layers[i - 1]

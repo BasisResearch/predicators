@@ -137,10 +137,9 @@ class _OracleOptionModel(_OptionModelBase):
                     cur_atoms = self._abstract_function(s)
                     prev_atoms = self._abstract_function(last_state)
                     if cur_atoms != prev_atoms:
-                        logging.info(
-                            f"Wait terminating due to atom change: "
-                            f"Add: {sorted(cur_atoms - prev_atoms)} "
-                            f"Del: {sorted(prev_atoms - cur_atoms)}")
+                        logging.info(f"Wait terminating due to atom change: "
+                                     f"Add: {sorted(cur_atoms - prev_atoms)} "
+                                     f"Del: {sorted(prev_atoms - cur_atoms)}")
                         last_state = s
                         return True
                 last_state = s
@@ -150,13 +149,14 @@ class _OracleOptionModel(_OptionModelBase):
                     and option_copy.name == "Wait"
                     and self._abstract_function is not None):
                 last_state_ref = [DefaultState]
+                abstract_fn = self._abstract_function
 
                 def _terminal(s: State) -> bool:
                     if option_copy.terminal(s):
                         return True
                     if last_state_ref[0] is not DefaultState:
-                        cur_atoms = self._abstract_function(s)
-                        prev_atoms = self._abstract_function(last_state_ref[0])
+                        cur_atoms = abstract_fn(s)
+                        prev_atoms = abstract_fn(last_state_ref[0])
                         if cur_atoms != prev_atoms:
                             logging.info(
                                 f"Wait terminating due to atom change: "

@@ -480,8 +480,7 @@ def _skeleton_generator(
                     frozen_atoms = frozenset(child_atoms)
                     if frozen_atoms in visited_atom_sets:
                         continue
-                child_skeleton = node.skeleton + [nsrt
-                                                  ]  # type: ignore[list-item]
+                child_skeleton = node.skeleton + [nsrt]  # type: ignore[list-item]
                 child_skeleton_tup = tuple(child_skeleton)
                 if child_skeleton_tup in visited_skeletons:  # pragma: no cover
                     continue
