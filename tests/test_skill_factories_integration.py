@@ -984,7 +984,9 @@ def test_push_switch_on_fan_position_mode():
     assert env.get_state().get(switch,
                                "is_on") < 0.5, "Switch should start off"
 
-    result = env.execute_option(env.SwitchOn.ground([robot, switch], _PUSH_PARAMS),
+    # Use approach offset so the robot pushes through the switch.
+    push_params = [0.06, 0.11]
+    result = env.execute_option(env.SwitchOn.ground([robot, switch], push_params),
                                 max_steps=1000)
 
     assert result.get(switch, "is_on") > 0.5, (

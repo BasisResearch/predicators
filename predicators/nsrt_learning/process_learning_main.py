@@ -15,8 +15,7 @@ from predicators.nsrt_learning.strips_learning.clustering_learner import \
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, DerivedPredicate, DummyOption, \
     EndogenousProcess, ExogenousProcess, GroundAtomTrajectory, LiftedAtom, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, \
-    Segment, Task
+    LowLevelTrajectory, ParameterizedOption, Predicate, Segment, Task
 
 
 def learn_processes_from_data(

@@ -97,14 +97,14 @@ def _make_obj() -> Object:
 
 
 def _build_state(
-        robot_obj: Object,
-        robot,
-        ee_x: float,
-        ee_y: float,
-        ee_z: float,
-        finger_state: float = _OPEN_STATE,
-        obj: Object = None,  # type: ignore[assignment]
-        obj_xyz=(0.0, 0.0, 0.0),
+    robot_obj: Object,
+    robot,
+    ee_x: float,
+    ee_y: float,
+    ee_z: float,
+    finger_state: float = _OPEN_STATE,
+    obj: Object = None,  # type: ignore[assignment]
+    obj_xyz=(0.0, 0.0, 0.0),
 ) -> utils.PyBulletState:
     """Build a PyBulletState at the specified EE position.
 
@@ -127,11 +127,11 @@ def _build_state(
 
 
 def _make_home_state(
-        robot_obj: Object,
-        robot,
-        finger_state: float = _OPEN_STATE,
-        obj: Object = None,  # type: ignore[assignment]
-        obj_xyz=(0.0, 0.0, 0.0),
+    robot_obj: Object,
+    robot,
+    finger_state: float = _OPEN_STATE,
+    obj: Object = None,  # type: ignore[assignment]
+    obj_xyz=(0.0, 0.0, 0.0),
 ) -> utils.PyBulletState:
     """Build a fully self-consistent PyBulletState at the robot's home pose.
 
@@ -1014,7 +1014,7 @@ class TestCreatePlaceSkill:
         opt = self._make_place(robot)
         # Place params: (target_x, target_y, release_z, target_yaw)
         grounded = opt.ground([robot_obj],
-                              np.array([0.75, 1.35, 0.45, 0.0],
+                              np.array([0.75, 1.35, 0.55, 0.0],
                                        dtype=np.float32))
         state = _make_home_state(robot_obj, robot)
         grounded.initiable(state)

@@ -39,7 +39,8 @@ def test_coffee():
     assert env.action_space.shape == (6, )
     # Create a custom initial state, with cups positions at the extremes of
     # their possible initial positions.
-    state = env.get_test_tasks()[0].init.copy()
+    task = env.get_test_tasks()[0]
+    state = task.init.copy()
     robot, = state.get_objects(robot_type)
     jug, = state.get_objects(jug_type)
     machine, = state.get_objects(machine_type)
@@ -91,7 +92,7 @@ def test_coffee():
     # Test twisting the jug.
     target_x = state.get(jug, "x")
     target_y = state.get(jug, "y")
-    target_z = env.jug_height
+    target_z = env.jug_height()
     action_arrs = _get_position_action_arrs(state.get(robot, "x"),
                                             state.get(robot, "y"),
                                             state.get(robot, "z"), target_x,
@@ -236,7 +237,7 @@ def test_coffee():
             s, cup)
         target_x = jug_target_x - (s.get(jug, "x") - s.get(robot, "x"))
         target_y = jug_target_y - (s.get(jug, "y") - s.get(robot, "y"))
-        target_z = jug_target_z + env.jug_handle_height
+        target_z = jug_target_z + env.jug_handle_height()
         move_to_pour_act_arrs = _get_position_action_arrs(
             s.get(robot, "x"), s.get(robot, "y"), s.get(robot, "z"), target_x,
             target_y, target_z)

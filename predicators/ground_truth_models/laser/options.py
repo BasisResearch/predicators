@@ -17,8 +17,8 @@ from predicators.pybullet_helpers.controllers import \
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
-from predicators.structs import Array, Object, ParameterizedOption, Predicate, \
-    State, Type
+from predicators.structs import Array, Object, ParameterizedOption, \
+    Predicate, State, Type
 
 
 @lru_cache

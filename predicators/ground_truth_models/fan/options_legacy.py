@@ -56,7 +56,7 @@ class _FanLegacyOptionsMixin:
                 pybullet_robot, state.get(robot, "fingers"))
 
         def _open_fingers_func(state: State, objects: Sequence[Object],
-                              params: Array) -> Tuple[float, float]:
+                               params: Array) -> Tuple[float, float]:
             del objects, params  # unused
             current = get_current_fingers(state)
             target = pybullet_robot.open_fingers

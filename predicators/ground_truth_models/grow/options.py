@@ -47,9 +47,8 @@ class PyBulletGrowGroundTruthOptionFactory(_GrowLegacyOptionsMixin,
 
     @classmethod
     def _get_options_skill_factories(
-            cls, _env_name: str, types: Dict[str,
-                                            Type], predicates: Dict[str,
-                                                                    Predicate],
+            cls, _env_name: str, types: Dict[str, Type],
+            predicates: Dict[str, Predicate],
             _action_space: Box) -> Set[ParameterizedOption]:
         """Skill-factory-based option implementations for the grow env.
 
@@ -97,8 +96,8 @@ class PyBulletGrowGroundTruthOptionFactory(_GrowLegacyOptionsMixin,
         ) -> Tuple[float, float, float, float]:
             del params, config
             _, jug = objects
-            hx, hy, hz = env_cls._get_jug_handle_grasp(
-                state, jug)  # type: ignore[attr-defined]
+            hx, hy, hz = env_cls._get_jug_handle_grasp(  # type: ignore[attr-defined]
+                state, jug)
             return (hx, hy, hz, state.get(jug, "rot"))
 
         PickJug = create_pick_skill(
