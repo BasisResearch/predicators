@@ -121,7 +121,8 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
         """
         domino1, domino2, direction_obj = objects
 
-        # Note: No longer need to filter "loc_other_" positions since we use exact coordinates
+        # Note: No longer need to filter "loc_other_" positions since we use
+        # exact coordinates
 
         # Helper functions to parse object names and cache results
         _pos_coord_cache: Dict[Object, tuple] = {}
@@ -315,7 +316,8 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
                 domino_x = state.get(obj, "x")
                 domino_y = state.get(obj, "y")
 
-                # If domino is close enough to this position, position is not clear
+                # If domino is close enough to this position, position is not
+                # clear
                 if (abs(domino_x - target_x) <= position_tolerance
                         and abs(domino_y - target_y) <= position_tolerance
                         and not state.get(obj, "is_held")):
@@ -337,7 +339,8 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
         """
         position, domino = objects
 
-        # Note: No longer need to filter "loc_other_" positions since we use exact coordinates
+        # Note: No longer need to filter "loc_other_" positions since we use
+        # exact coordinates
 
         # Helper functions to parse object names and cache results
         _pos_coord_cache: Dict[Object, tuple] = {}

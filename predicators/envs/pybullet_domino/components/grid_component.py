@@ -457,8 +457,10 @@ class GridComponent(DominoEnvComponent):
 
     @property
     def position_type(self) -> Type:
+        """Position type."""
         return self._position_type
 
     @property
     def angle_type(self) -> Type:
+        """Angle type."""
         return self._angle_type

@@ -1,6 +1,5 @@
-import logging
+"""envsbullet_fan module."""
 from collections import deque
-from itertools import product
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -289,7 +288,8 @@ class PyBulletFanEnv(PyBulletEnv):
             Object(f"wall{i}", self._wall_type)
             for i in range(max_walls_per_task)
         ]
-        # Create positions based on maximum grid size to support both train and test
+        # Create positions based on maximum grid size to support both train and
+        # test
         self.pos_dict: Dict[Object, Dict[str, float]] = dict()
 
         # Grid positions will be set dynamically in task generation
@@ -582,7 +582,8 @@ class PyBulletFanEnv(PyBulletEnv):
                 self._get_joint_id(fid, "joint_0", self._physics_client_id)
                 for fid in fan_obj.fan_ids
             ]
-            # Assign an arbitrary ID from the fans on this side (use the first one)
+            # Assign an arbitrary ID from the fans on this side (use the first
+            # one)
             fan_obj.id = fan_obj.fan_ids[0] if fan_obj.fan_ids else -1
 
         # Switches
@@ -606,7 +607,8 @@ class PyBulletFanEnv(PyBulletEnv):
         self._ball.id = pybullet_bodies["ball_id"]
         self._target.id = pybullet_bodies["target_id"]
 
-        # Initialize boundary wall IDs list (will be populated in _reset_custom_env_state)
+        # Initialize boundary wall IDs list (will be populated in
+        # _reset_custom_env_state)
         self._boundary_wall_ids: List[int] = []
 
     # -------------------------------------------------------------------------
@@ -1178,7 +1180,8 @@ class PyBulletFanEnv(PyBulletEnv):
         side1 = state.get(fan1, "facing_side")
         side2 = state.get(fan2, "facing_side")
         # Check if they are on opposite sides using XOR
-        # Sides 0,1 are opposite (differ by 1), sides 2,3 are opposite (differ by 1)
+        # Sides 0,1 are opposite (differ by 1), sides 2,3 are opposite (differ
+        # by 1)
         return abs(side1 - side2) == 1 and (side1 // 2) == (side2 // 2)
 
     def _SideOf_holds(self, state: State, objects: Sequence[Object]) -> bool:
@@ -1303,7 +1306,8 @@ class PyBulletFanEnv(PyBulletEnv):
                     # Safely remove the ball position
                     available_pos.remove(ball_pos)
 
-                    # Choose target to create alignment (same row or column as ball)
+                    # Choose target to create alignment (same row or column as
+                    # ball)
                     aligned_targets = []
 
                     # Same row targets (horizontal alignment) - 2 steps away
@@ -1342,7 +1346,8 @@ class PyBulletFanEnv(PyBulletEnv):
                     # Strategic wall placement to block direct path
                     wall_positions = []
                     if num_walls_per_task > 0:
-                        # Place wall to block direct path between ball and target
+                        # Place wall to block direct path between ball and
+                        # target
                         blocking_pos = self._get_strategic_wall_position(
                             ball_pos, tar_pos, x_coords, y_coords,
                             available_pos, rng)
@@ -1373,7 +1378,8 @@ class PyBulletFanEnv(PyBulletEnv):
                     ball_pos = tuple(rng.choice(available_pos))
                     available_pos.remove(ball_pos)
 
-                # Convert continuous positions to grid indices for path validation
+                # Convert continuous positions to grid indices for path
+                # validation
                 tar_grid_idx = None
                 ball_grid_idx = None
                 wall_grid_indices = set()
@@ -1426,7 +1432,8 @@ class PyBulletFanEnv(PyBulletEnv):
                     for fan_obj in self._fans:
                         # Each fan_obj now represents all fans on one side
                         side_idx = fan_obj.side_idx
-                        # Set position based on the center or representative position for the side
+                        # Set position based on the center or representative
+                        # position for the side
                         if side_idx == 2:  # down
                             px = (self.fan_x_lb +
                                   self.fan_x_ub) / 2  # center of back fans
@@ -1537,15 +1544,16 @@ class PyBulletFanEnv(PyBulletEnv):
 
     def _get_strategic_wall_position(
             self, ball_pos: Tuple[float, float],
-            target_pos: Tuple[float, float], x_coords: List[float],
-            y_coords: List[float], available_pos: List[Tuple[float, float]],
+            target_pos: Tuple[float, float], _x_coords: List[float],
+            _y_coords: List[float], available_pos: List[Tuple[float, float]],
             rng: np.random.Generator) -> Optional[Tuple[float, float]]:
         """Get a wall position that is between the ball and target."""
         # Find positions that are between ball and target
         between_positions = []
 
         for pos in available_pos:
-            # Check if position is between ball and target (on same row or column)
+            # Check if position is between ball and target (on same row or
+            # column)
             if (pos[0] == ball_pos[0] == target_pos[0] and  # Same column
                     min(ball_pos[1], target_pos[1]) < pos[1] < max(
                         ball_pos[1], target_pos[1])):
@@ -1555,7 +1563,8 @@ class PyBulletFanEnv(PyBulletEnv):
                       ball_pos[0], target_pos[0])):
                 between_positions.append(pos)
 
-        # Return a random position between ball and target, or random if none found
+        # Return a random position between ball and target, or random if none
+        # found
         if between_positions:
             return rng.choice(between_positions)
         else:
@@ -1606,7 +1615,6 @@ class PyBulletFanEnv(PyBulletEnv):
 
 if __name__ == "__main__":
     import time
-    from pprint import pformat
     CFG.seed = 0
     CFG.env = "pybullet_fan"
     # CFG.pybullet_sim_steps_per_action = 20

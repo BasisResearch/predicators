@@ -446,7 +446,8 @@ class _BoilLegacyOptionsMixin:
                 joint_positions = pybullet_state.joint_positions.copy()
                 finger_position = joint_positions[
                     pybullet_robot.left_finger_joint_idx]
-                # The finger action is an absolute joint position for the fingers.
+                # The finger action is an absolute joint position for the
+                # fingers.
                 f_action = finger_position + finger_delta
                 # Override the meaningless finger values in joint_action.
                 joint_positions[

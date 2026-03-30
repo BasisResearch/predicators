@@ -15,7 +15,7 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
-from predicators.structs import LowLevelTrajectory, Object, State, Task, Type
+from predicators.structs import LowLevelTrajectory, Object, State, Type
 
 # From domino_component.py
 FALLEN_THRESHOLD = np.pi * 2 / 5  # ~72 deg — domino considered toppled
@@ -137,7 +137,7 @@ def domino_chain_reward(
     robot = (states[0].get_objects(robot_type)[0]
              if robot_type and states[0].get_objects(robot_type) else None)
 
-    start, moveable, targets = _classify_dominoes(states[0], all_dominoes)
+    start, _moveable, targets = _classify_dominoes(states[0], all_dominoes)
     if not start or not targets:
         return 0.0
 

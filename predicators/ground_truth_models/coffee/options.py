@@ -513,7 +513,8 @@ class CoffeeGroundTruthOptionFactory(GroundTruthOptionFactory):
     def _get_jug_handle_grasp(cls, state: State,
                               jug: Object) -> Tuple[float, float, float]:
         # Hack to avoid duplicate code.
-        return cls.env_cls._get_jug_handle_grasp(state, jug)  # pylint: disable=protected-access
+        return cls.env_cls._get_jug_handle_grasp(
+            state, jug)  # pylint: disable=protected-access
 
     @classmethod
     def _get_jug_z(cls, state: State, robot: Object, _jug: Object) -> float:

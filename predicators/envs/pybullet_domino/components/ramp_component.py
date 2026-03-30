@@ -8,7 +8,7 @@ This component handles:
 
 import os
 import tempfile
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -101,7 +101,7 @@ class RampComponent(DominoEnvComponent):
         bodies: Dict[str, Any] = {}
 
         ramp_ids = []
-        for i in range(self.max_ramps):
+        for _ in range(self.max_ramps):
             ramp_id = self._create_ramp(physics_client_id)
             ramp_ids.append(ramp_id)
 
@@ -324,8 +324,10 @@ class RampComponent(DominoEnvComponent):
 
     @property
     def ramps(self) -> List[Object]:
+        """Ramps."""
         return self._ramps
 
     @property
     def ramp_type(self) -> Type:
+        """Ramp type."""
         return self._ramp_type

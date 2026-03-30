@@ -52,7 +52,8 @@ for i in range(20):
     current_z = current_state.get(robot_obj, "z")
     positions.append((current_x, current_y, current_z))
 
-    # NO MOVEMENT - use current joint positions directly (like the fixed approach)
+    # NO MOVEMENT - use current joint positions directly (like the fixed
+    # approach)
     action_arr = np.array(current_state.joint_positions, dtype=np.float32)
     action = Action(action_arr)
 

@@ -8,9 +8,8 @@ This component handles:
 """
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, \
-    Optional, Sequence, Set, Tuple
-from typing import Type as TypingType
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, \
+    Sequence, Set, Tuple
 
 import numpy as np
 import pybullet as p
@@ -81,7 +80,8 @@ class DominoComponent(DominoEnvComponent):
     target_height: ClassVar[float] = 0.2
     pivot_width: ClassVar[float] = 0.2
 
-    # Grid configuration - references domino_width from PyBulletDominoComposedEnv
+    # Grid configuration - references domino_width from
+    # PyBulletDominoComposedEnv
     @staticmethod
     def _get_env_class() -> "TypingType[PyBulletDominoComposedEnv]":
         """Get PyBulletDominoComposedEnv class to access shared config."""
@@ -91,26 +91,32 @@ class DominoComponent(DominoEnvComponent):
 
     @property
     def domino_width(self) -> float:
+        """Domino width."""
         return self._get_env_class().domino_width
 
     @property
     def domino_depth(self) -> float:
+        """Domino depth."""
         return self._get_env_class().domino_depth
 
     @property
     def domino_height(self) -> float:
+        """Domino height."""
         return self._get_env_class().domino_height
 
     @property
     def domino_mass(self) -> float:
+        """Domino mass."""
         return self._get_env_class().domino_mass
 
     @property
     def domino_friction(self) -> float:
+        """Domino friction."""
         return self._get_env_class().domino_friction
 
     @property
     def pos_gap(self) -> float:
+        """Pos gap."""
         return self._get_env_class().pos_gap
 
     turn_shift_frac: ClassVar[float] = 0.6
@@ -310,11 +316,13 @@ class DominoComponent(DominoEnvComponent):
 
         for target, id_ in zip(self.targets, pybullet_bodies["target_ids"]):
             target.id = id_
+            assert self._physics_client_id is not None
             target.joint_id = self._get_joint_id(id_, "flap_hinge_joint",
                                                  self._physics_client_id)
 
         for pivot, id_ in zip(self.pivots, pybullet_bodies["pivot_ids"]):
             pivot.id = id_
+            assert self._physics_client_id is not None
             pivot.joint_id = self._get_joint_id(id_, "flap_hinge_joint",
                                                 self._physics_client_id)
 
@@ -505,7 +513,7 @@ class DominoComponent(DominoEnvComponent):
     # -------------------------------------------------------------------------
 
     def place_domino(self,
-                     domino_idx: int,
+                     _domino_idx: int,
                      x: float,
                      y: float,
                      rot: float,
@@ -560,18 +568,22 @@ class DominoComponent(DominoEnvComponent):
 
     @property
     def domino_type(self) -> Type:
+        """Domino type."""
         return self._domino_type
 
     @property
     def target_type(self) -> Type:
+        """Target type."""
         return self._target_type
 
     @property
     def pivot_type(self) -> Type:
+        """Pivot type."""
         return self._pivot_type
 
     @property
     def Toppled(self) -> Predicate:
+        """Toppled."""
         return self._Toppled
 
 

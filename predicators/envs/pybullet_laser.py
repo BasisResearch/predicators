@@ -416,10 +416,10 @@ class PyBulletLaserEnv(PyBulletEnv):
         best_fraction = 1.1
         for h in hits:
             object_id = h[0]  # hitObjectUniqueId
-            link_index = h[1]  # hitLinkIndex
+            _link_index = h[1]  # hitLinkIndex
             hit_fraction = h[2]  # fraction along the ray
-            hit_position = h[3]  # (x, y, z) of the collision
-            hit_normal = h[4]  # normal at collision
+            _hit_position = h[3]  # (x, y, z) of the collision
+            _hit_normal = h[4]  # normal at collision
 
             # Check for a valid object and whether this hit is closer
             if object_id >= 0 and hit_fraction < best_fraction:
@@ -510,7 +510,7 @@ class PyBulletLaserEnv(PyBulletEnv):
         mirror's orientation."""
         # For simplicity, reflect across the mirror's local y-axis.
         # In a real environment you’d do actual local normal calculations.
-        pos, orn = p.getBasePositionAndOrientation(mirror_id,
+        _pos, orn = p.getBasePositionAndOrientation(mirror_id,
                                                    self._physics_client_id)
         # Convert the quaternion to Euler angles
         euler = p.getEulerFromQuaternion(orn)
@@ -566,14 +566,13 @@ class PyBulletLaserEnv(PyBulletEnv):
                               self._station.joint_id,
                               physicsClientId=self._physics_client_id)
         j_min, j_max = info[8], info[9]
-        mid_val = 0.5 * (j_min + j_max)
         target_val = j_max if power_on else j_min
         p.resetJointState(self._station.id,
                           self._station.joint_id,
                           target_val * self.station_joint_scale,
                           physicsClientId=self._physics_client_id)
 
-    def _is_target_hit(self, target_obj: Object) -> bool:
+    def _is_target_hit(self, _target_obj: Object) -> bool:
         return False  # By default, determined after `_simulate_laser()`
 
     def _set_target_hit(self, target_obj: Object, val: bool) -> None:
@@ -616,10 +615,10 @@ class PyBulletLaserEnv(PyBulletEnv):
                                 rng=self._test_rng,
                                 is_train=False)
 
-    def _make_tasks(self, num_tasks: int, rng: np.random.Generator,
+    def _make_tasks(self, num_tasks: int, _rng: np.random.Generator,
                     is_train: bool) -> List[EnvironmentTask]:
         tasks = []
-        for task_idx in range(num_tasks):
+        for _ in range(num_tasks):
             num_targets = 0
             robot_dict = {
                 "x": self.robot_init_x,
@@ -814,7 +813,6 @@ def create_laser_cylinder(start: Any,
 
 if __name__ == "__main__":
     """Run a simple simulation to test the environment."""
-    import time
 
     # Make a task
     CFG.seed = 0

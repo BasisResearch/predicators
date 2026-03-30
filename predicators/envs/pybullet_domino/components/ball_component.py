@@ -290,22 +290,27 @@ class BallComponent(DominoEnvComponent):
 
     @property
     def ball(self) -> Object:
+        """Ball."""
         return self._ball
 
     @property
     def ball_target(self) -> Object:
+        """Ball target."""
         return self._ball_target
 
     @property
     def ball_type(self) -> Type:
+        """Ball type."""
         return self._ball_type
 
     @property
     def ball_target_type(self) -> Type:
+        """Ball target type."""
         return self._ball_target_type
 
     @property
     def BallAtTarget(self) -> Predicate:
+        """BallAtTarget."""
         return self._BallAtTarget
 
     @property

@@ -13,8 +13,6 @@ for:
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Set
 
-import numpy as np
-
 from predicators.structs import Object, Predicate, State, Type
 
 
@@ -139,7 +137,6 @@ class DominoEnvComponent(ABC):
         Override this method to add per-step physics updates (e.g., wind
         forces from fans). By default, does nothing.
         """
-        pass
 
     def get_init_dict_entries(
             self, rng: "np.random.Generator") -> Dict[Object, Dict[str, Any]]:
@@ -154,6 +151,7 @@ class DominoEnvComponent(ABC):
         Returns:
             Dictionary mapping objects to their initial feature values.
         """
+        del rng  # unused in base implementation
         return {}
 
     def get_object_ids_for_held_check(self) -> List[int]:

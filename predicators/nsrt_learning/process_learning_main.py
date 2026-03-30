@@ -68,7 +68,8 @@ def learn_processes_from_data(
                 for i, traj in enumerate(trajectories)
             ]
 
-        # STEP 2: Learn STRIPS operators on the given data segments as for NSRTs.
+        # STEP 2: Learn STRIPS operators on the given data segments as for
+        # NSRTs.
         pnads = learn_strips_operators(
             trajectories,
             train_tasks,

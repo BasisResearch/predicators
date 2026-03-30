@@ -7,7 +7,6 @@ python predicators/main.py --approach oracle --env pybullet_grow --seed 1 \
 --sesame_check_expected_atoms False
 """
 
-import logging
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -257,7 +256,6 @@ class PyBulletGrowEnv(PyBulletEnv):
 
     def _create_task_specific_objects(self, state: State) -> None:
         """No extra objects to create beyond cups and jugs."""
-        pass
 
     def _extract_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
@@ -268,7 +266,8 @@ class PyBulletGrowEnv(PyBulletEnv):
                 shape_data = p.getVisualShapeData(
                     liquid_id, physicsClientId=self._physics_client_id)
                 if shape_data:  # (handle the case shape_data might be empty)
-                    # shape_data[0][3][2] is the Z dimension of the box half-extents*2, etc.
+                    # shape_data[0][3][2] is the Z dimension of the box
+                    # half-extents*2, etc.
                     height = shape_data[0][3][2]
                     return height
             return 0.0
@@ -290,7 +289,8 @@ class PyBulletGrowEnv(PyBulletEnv):
             liquid_id = self._create_pybullet_liquid_for_cup(cup, state)
             self._cup_to_liquid_id[cup] = liquid_id
 
-        # Also update the PyBullet color on each cup/jug to match the (r,g,b) in the state
+        # Also update the PyBullet color on each cup/jug to match the (r,g,b) in
+        # the state
         for cup in cups:
             if cup.id is not None:
                 r = state.get(cup, "r")
@@ -409,7 +409,7 @@ class PyBulletGrowEnv(PyBulletEnv):
         return state.get(jug, "is_held") > 0.5
 
     def _HandEmpty_holds(self, state: State,
-                         objects: Sequence[Object]) -> bool:
+                         _objects: Sequence[Object]) -> bool:
         # (robot, ) = objects
         # return state.get(robot, "fingers") > 0.02
         # using a more robust check

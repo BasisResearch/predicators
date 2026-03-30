@@ -7,7 +7,6 @@ This component handles:
 
 from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple
 
-import numpy as np
 import pybullet as p
 
 from predicators.envs.pybullet_domino.components.base_component import \
@@ -98,7 +97,6 @@ class StairsComponent(DominoEnvComponent):
 
     def store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
         """No bodies to store - stairs are created dynamically."""
-        pass
 
     def set_domino_type(self, domino_type: Type) -> None:
         """Set the domino type reference for positioning stairs."""

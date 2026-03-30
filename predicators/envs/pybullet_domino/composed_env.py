@@ -27,12 +27,12 @@ from predicators.envs.pybullet_domino.task_generators.domino_task_generator impo
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.camera import create_gui_connection
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, update_object
+from predicators.pybullet_helpers.objects import create_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot, \
     create_single_arm_pybullet_robot
 from predicators.settings import CFG
-from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
-    Predicate, State, Type
+from predicators.structs import Action, EnvironmentTask, Object, Predicate, \
+    State, Type
 
 
 class PyBulletDominoComposedEnv(PyBulletEnv):
@@ -278,7 +278,6 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
 
     def _create_task_specific_objects(self, state: State) -> None:
         """Create any task-specific objects (not used in current impl)."""
-        pass
 
     def _extract_feature(self, obj: Object, feature: str) -> float:
         """Extract state feature for an object."""
@@ -322,7 +321,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
     # =========================================================================
 
     def _HandEmpty_holds(self, state: State,
-                         objects: Sequence[Object]) -> bool:
+                         _objects: Sequence[Object]) -> bool:
         """Check if robot hand is empty."""
         if self._domino_component is None:
             return True
@@ -638,7 +637,8 @@ if __name__ == "__main__":
     import time
 
     # Choose which environment to test
-    # Options: "domino", "domino_fan", "domino_fan_ramp", "domino_fan_ramp_stairs"
+    # Options: "domino", "domino_fan", "domino_fan_ramp",
+    # "domino_fan_ramp_stairs"
     test_env = "domino_fan_ramp_stairs"  # Change this to test different environments
     if len(sys.argv) > 1:
         test_env = sys.argv[1]
@@ -699,7 +699,7 @@ if __name__ == "__main__":
         # Reset to initial state
         env._reset_state(task.init)
 
-        print(f"\nGoal atoms:")
+        print("\nGoal atoms:")
         for atom in task.goal:
             print(f"  {atom}")
 

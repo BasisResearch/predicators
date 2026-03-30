@@ -142,7 +142,8 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                          null_sampler)
         nsrts.add(wait_nsrt)
 
-        # Helper function to create movement NSRTs that use appropriate switch options
+        # Helper function to create movement NSRTs that use appropriate switch
+        # options
         def _make_movement_nsrt(name: str,
                                 option_to_use: ParameterizedOption) -> NSRT:
             robot = Variable("?robot", robot_type)
@@ -178,7 +179,8 @@ class PyBulletFanGroundTruthNSRTFactory(GroundTruthNSRTFactory):
             nsrts.add(_make_movement_nsrt("MoveDown", switch_option))
             nsrts.add(_make_movement_nsrt("MoveUp", switch_option))
         else:
-            # Use separate switch options - movement typically requires turning fan on
+            # Use separate switch options - movement typically requires turning
+            # fan on
             assert switch_on_option is not None
             nsrts.add(_make_movement_nsrt("MoveRight", switch_on_option))
             nsrts.add(_make_movement_nsrt("MoveLeft", switch_on_option))

@@ -80,7 +80,8 @@ class _DominoLegacyOptionsMixin:
         options: Set[ParameterizedOption] = set()
 
         if CFG.domino_restricted_push:
-            # PushRestricted - like Push but takes only robot (finds start block from state)
+            # PushRestricted - like Push but takes only robot (finds start block
+            # from state)
             restricted_option_type = [robot_type]
             restricted_params_space = Box(0, 1, (0, ))
             PushRestricted = utils.LinearChainParameterizedOption(
@@ -211,7 +212,8 @@ class _DominoLegacyOptionsMixin:
         ])
         options.add(Pick)
 
-        # Choose between discrete (Place) or continuous (PlaceContinuous) based on CFG
+        # Choose between discrete (Place) or continuous (PlaceContinuous) based
+        # on CFG
         if CFG.domino_use_continuous_place:
             # PlaceContinuous - continuous parameters version
             place_continuous_option_types = [robot_type]
@@ -292,7 +294,8 @@ class _DominoLegacyOptionsMixin:
                 joint_positions = state.joint_positions.copy()
                 finger_position = joint_positions[
                     pybullet_robot.left_finger_joint_idx]
-                # The finger action is an absolute joint position for the fingers.
+                # The finger action is an absolute joint position for the
+                # fingers.
                 f_action = finger_position + finger_delta
                 # Override the meaningless finger values in joint_action.
                 joint_positions[
@@ -540,7 +543,8 @@ class _DominoLegacyOptionsMixin:
                     grid_y = float(
                         tgt_pos.name.split("_")[2])  # extract y from
 
-                    # Then, apply the diagonal shift from the generator for stability.
+                    # Then, apply the diagonal shift from the generator for
+                    # stability.
                     shift_magnitude = cls.env_cls.domino_width * DominoComponent.turn_shift_frac
                     shift_dx = shift_magnitude * (turn_dir * np.cos(rot2) -
                                                   np.sin(rot2))
@@ -555,7 +559,8 @@ class _DominoLegacyOptionsMixin:
                     # The target domino completes the 90-degree turn.
                     target_rot = rot2 - turn_dir * np.pi / 4
 
-                    # Calculate position relative to domino2 using the generator's formula.
+                    # Calculate position relative to domino2 using the
+                    # generator's formula.
                     shift_magnitude = cls.env_cls.domino_width * DominoComponent.turn_shift_frac
                     sin_rot2 = np.sin(rot2)
                     cos_rot2 = np.cos(rot2)

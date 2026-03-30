@@ -8,7 +8,7 @@ This component handles:
 - Related predicates (FanOn, FanOff, Controls, FanFacingSide)
 """
 
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set
 
 import numpy as np
 import pybullet as p
@@ -541,24 +541,30 @@ class FanComponent(DominoEnvComponent):
 
     @property
     def fans(self) -> List[Object]:
+        """Fans."""
         return self._fans
 
     @property
     def switches(self) -> List[Object]:
+        """Switches."""
         return self._switches
 
     @property
     def sides(self) -> List[Object]:
+        """Sides."""
         return self._sides
 
     @property
     def fan_type(self) -> Type:
+        """Fan type."""
         return self._fan_type
 
     @property
     def switch_type(self) -> Type:
+        """Switch type."""
         return self._switch_type
 
     @property
     def side_type(self) -> Type:
+        """Side type."""
         return self._side_type

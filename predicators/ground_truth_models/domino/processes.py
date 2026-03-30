@@ -90,7 +90,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             DominoNotGlued = predicates["DominoNotGlued"]
         # Note: Tilting predicate exists but represents the goal state
         # Note: The "Falling" predicate from the sketch is not implemented in the current environment
-        # We would need to add it to the environment for the DominoFall exogenous process
+        # We would need to add it to the environment for the DominoFall
+        # exogenous process
 
         # Options
         Push = options["Push"]

@@ -128,7 +128,8 @@ class PyBulletDominoGroundTruthTypeFactory(GroundTruthTypeFactory):
                     loc_obj = Object(f"loc_{x:.2f}_{y:.2f}", loc_type)
                     helper_objects[loc_obj] = np.array([x, y])
 
-            # Create location objects for all other dominos (not start or target)
+            # Create location objects for all other dominos (not start or
+            # target)
             other_dominos = []
             for obj in task.init:
                 if obj.type != domino_type:
@@ -141,11 +142,13 @@ class PyBulletDominoGroundTruthTypeFactory(GroundTruthTypeFactory):
                 x = task.init.get(domino, "x")
                 y = task.init.get(domino, "y")
 
-                # Check if a location object with these coordinates already exists
+                # Check if a location object with these coordinates already
+                # exists
                 location_exists = False
                 for existing_loc, existing_coords in helper_objects.items():
                     if existing_loc.type == loc_type:
-                        # Check if coordinates match (with small tolerance for floating point)
+                        # Check if coordinates match (with small tolerance for
+                        # floating point)
                         if np.allclose(existing_coords, [x, y], atol=1e-3):
                             location_exists = True
                             break
