@@ -1,5 +1,4 @@
 """Generic controllers for the robots."""
-import logging
 from typing import Callable, Dict, Optional, Sequence, Set, Tuple, cast
 
 import numpy as np

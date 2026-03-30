@@ -102,8 +102,9 @@ def _main() -> None:
     os.makedirs(outdir, exist_ok=True)
     matplotlib.rcParams.update({'font.size': FONT_SIZE})
 
-    grouped_means, grouped_stds, _ = create_dataframes(COLUMN_NAMES_AND_KEYS,
-                                                       GROUPS, DERIVED_KEYS)
+    grouped_means, grouped_stds, _ = create_dataframes(
+        COLUMN_NAMES_AND_KEYS,
+        GROUPS, DERIVED_KEYS)  # type: ignore[arg-type]
     means = grouped_means.reset_index()
     stds = grouped_stds.reset_index()
 
@@ -119,10 +120,7 @@ def _main() -> None:
                 exp_stds = get_df_for_entry(key, stds, selector)
                 mean = exp_means[key].tolist()
                 std = exp_stds[key].tolist()
-                try:
-                    assert len(mean) == len(std) == 1
-                except:
-                    breakpoint()
+                assert len(mean) == len(std) == 1
                 plot_labels.append(label)
                 plot_means.append(mean[0])
                 plot_stds.append(std[0])

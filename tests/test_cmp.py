@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.special import factorial, gammaln
+from scipy.special import gammaln
 
 
 def compute_normalizing_constant(lambda_, nu, k_max=100):
@@ -19,7 +19,7 @@ def cmp_pmf(k, lambda_, nu, Z=None, k_max=100):
     return np.exp(log_p) / Z
 
 
-def plot_cmp_distribution(lambda_, nu, k_max=20):
+def plot_cmp_distribution(lambda_: float, nu: float, k_max: int = 20) -> None:
     ks = np.arange(0, k_max + 1)
     Z = compute_normalizing_constant(lambda_, nu, k_max=100)
     ps = [cmp_pmf(k, lambda_, nu, Z) for k in ks]

@@ -1,6 +1,5 @@
 """Create LaTeX tables for papers."""
 
-import math
 from operator import gt, lt
 from typing import Set, Tuple
 

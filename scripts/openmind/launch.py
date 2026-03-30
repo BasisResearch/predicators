@@ -6,11 +6,9 @@ Usage example:
     python scripts/openmind/launch.py --config example_basic.yaml
 """
 import argparse
-import sys
 
-from scripts.cluster_utils import DEFAULT_BRANCH, SUPERCLOUD_IP, \
-    BatchSeedRunConfig, config_to_cmd_flags, config_to_logfile, \
-    generate_run_configs
+from scripts.cluster_utils import BatchSeedRunConfig, config_to_cmd_flags, \
+    config_to_logfile, generate_run_configs
 from scripts.openmind.submit_openmind_job import submit_openmind_job
 
 

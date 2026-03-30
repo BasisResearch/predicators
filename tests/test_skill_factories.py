@@ -103,7 +103,7 @@ def _build_state(
         ee_y: float,
         ee_z: float,
         finger_state: float = _OPEN_STATE,
-        obj: Object = None,
+        obj: Object = None,  # type: ignore[assignment]
         obj_xyz=(0.0, 0.0, 0.0),
 ) -> utils.PyBulletState:
     """Build a PyBulletState at the specified EE position.
@@ -130,7 +130,7 @@ def _make_home_state(
         robot_obj: Object,
         robot,
         finger_state: float = _OPEN_STATE,
-        obj: Object = None,
+        obj: Object = None,  # type: ignore[assignment]
         obj_xyz=(0.0, 0.0, 0.0),
 ) -> utils.PyBulletState:
     """Build a fully self-consistent PyBulletState at the robot's home pose.

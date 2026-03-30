@@ -7,6 +7,7 @@ import sys
 from predicators import utils
 from predicators.settings import CFG
 from scripts.cluster_utils import SAVE_DIRS
+from scripts.supercloud.submit_supercloud_job import submit_supercloud_job
 
 START_SEED = 456
 NUM_SEEDS = 10

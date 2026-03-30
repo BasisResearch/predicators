@@ -1,11 +1,10 @@
-import logging
 from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
+from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.utils import _Geom2D
 
 # import numpy as np

@@ -1,7 +1,6 @@
 """Approaches that use an LLM to learn STRIPS operators instead of performing
 symbolic learning of any kind."""
 
-import logging
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 

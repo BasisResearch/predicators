@@ -13,10 +13,9 @@ import asyncio
 import os
 import tempfile
 
-import numpy as np
 
 # Bootstrap circular imports
-import predicators.utils as utils  # noqa: F401
+import predicators.utils  # noqa: F401  # pylint: disable=unused-import
 from predicators import utils as pred_utils
 from predicators.settings import CFG
 
@@ -242,7 +241,7 @@ def test_annotations_cleaned_up(ctx):
         # Render plain scene (no annotations)
         from predicators.agent_sdk.tools import _render_pybullet_image
         ctx.test_call_id += 1
-        img_block = _render_pybullet_image(ctx, "clean_render")
+        _render_pybullet_image(ctx, "clean_render")
 
         saved = sorted(f for f in os.listdir(tmpdir) if f.endswith(".png"))
         assert len(saved) == 2
@@ -269,7 +268,7 @@ def test_annotate_no_env(ctx):
     print("  PASS: annotate_scene no env → error")
 
 
-def main():
+def main() -> None:
     with tempfile.TemporaryDirectory() as sandbox_dir:
         print("Setting up boil environment (with GUI for debug lines)...")
         ctx, env = _setup(sandbox_dir=sandbox_dir)

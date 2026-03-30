@@ -129,11 +129,11 @@ task = env.get_task("test", 0)
 print("\nTesting approach's no-op behavior (simulating no key press)...")
 
 # Access the approach's internal method
-approach._setup_terminal = lambda: None  # Disable terminal setup for testing
-approach._restore_terminal = lambda: None
-approach._get_pressed_key = lambda: None  # Simulate no key pressed
+approach._setup_terminal = lambda: None  # type: ignore[attr-defined]
+approach._restore_terminal = lambda: None  # type: ignore[attr-defined]
+approach._get_pressed_key = lambda: None  # type: ignore[attr-defined]
 
-policy = approach.solve(task, timeout=10)
+policy = approach.solve(task, timeout=10)  # type: ignore[arg-type]
 
 current_state = state
 for i in range(20):

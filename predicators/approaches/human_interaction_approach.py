@@ -180,7 +180,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
             type_names = [t.name for t in option.types]
             print(f"  {i}. {option.name}({', '.join(type_names)})")
 
-        selected_option = None
+        selected_option: Optional[ParameterizedOption] = None
         while selected_option is None:
             user_input = input(
                 f"\nSelect option (1-{len(options_list)}, or 'q' to quit): "
@@ -215,6 +215,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
             for i, obj in enumerate(valid_objects, 1):
                 print(f"  {i}. {obj.name}")
 
+            selected_obj: Optional[Object] = None
             if len(valid_objects) == 1:
                 selected_obj = valid_objects[0]
                 print(f"Only one valid object. "
@@ -223,7 +224,6 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
                 raise ApproachFailure(
                     f"No valid objects for type {param_type.name}")
             else:
-                selected_obj = None
                 while selected_obj is None:
                     user_input = input(
                         f"Select object (1-{len(valid_objects)}, "
@@ -245,6 +245,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
                         print("Invalid input. Please enter a number "
                               "or 'q' to quit.")
 
+            assert selected_obj is not None
             selected_objects.append(selected_obj)
 
         # Step 3: Sample random params from the option's params_space
@@ -277,7 +278,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
             param_names = [p.name for p in parent.option_vars]
             print(f"  {i}. {parent.option.name}({', '.join(param_names)})")
 
-        selected_parent = None
+        selected_parent: Optional[EndogenousProcess] = None
         while selected_parent is None:
             user_input = input(
                 f"\nSelect skill (1-{len(lift_endo_processes)}, or 'q' to quit): "
@@ -289,7 +290,8 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
             try:
                 selection = int(user_input)
                 if 1 <= selection <= len(lift_endo_processes):
-                    selected_parent = lift_endo_processes[selection - 1]
+                    selected_parent = cast(EndogenousProcess,
+                                           lift_endo_processes[selection - 1])
                     print(f"Selected skill: {selected_parent.name}")
                 else:
                     print(
@@ -299,8 +301,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
                 print("Invalid input. Please enter a number or 'q' to quit.")
 
         # Step 2: Prompt for arguments one-by-one
-        applicable_for_skill = lift_processes[
-            selected_parent]  # type: ignore[unreachable]
+        applicable_for_skill = lift_processes[selected_parent]
         selected_objects = self._prompt_for_arguments(selected_parent,
                                                       applicable_for_skill,
                                                       state)
@@ -403,7 +404,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
         objects = set(state.data.keys())
 
         # Ground all processes
-        from predicators.structs import EndogenousProcess, _GroundNSRT
+        from predicators.structs import EndogenousProcess, _GroundNSRT  # pylint: disable=reimported
         all_ground_processes: Set[_GroundNSRT] = set()
         for process in processes:
             # Only consider endogenous processes (action-like)

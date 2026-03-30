@@ -22,7 +22,7 @@ import dill as pkl
 import numpy as np
 
 # Bootstrap circular imports
-import predicators.utils as utils  # noqa: F401
+import predicators.utils  # noqa: F401  # pylint: disable=unused-import
 from predicators import utils as pred_utils
 from predicators.settings import CFG
 
@@ -74,7 +74,7 @@ OPTION_PLAN = [
 ]
 
 
-def _setup_env_and_context():
+def _setup_env_and_context():  # type: ignore[no-untyped-def]
     """Create environment, options, option model, and ToolContext."""
     pred_utils.reset_config(_CFG_OVERRIDES)
 
@@ -105,7 +105,7 @@ def _setup_env_and_context():
     return ctx
 
 
-def _run_option_plan(ctx, plan=None, label=""):
+def _run_option_plan(ctx, plan=None, label=""):  # type: ignore[no-untyped-def]
     """Run option plan and return list of (num_actions, state_changed)
     tuples."""
     if plan is None:
@@ -165,7 +165,7 @@ def _states_feature_equal(s1, s2, atol=1e-3):
     return True
 
 
-def _rehash_objects_after_unpickle(ctx):
+def _rehash_objects_after_unpickle(ctx):  # type: ignore[no-untyped-def]
     """Fix stale Object hash caches after cross-process unpickling."""
     from predicators.structs import State
 

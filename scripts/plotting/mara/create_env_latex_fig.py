@@ -1,7 +1,7 @@
 import math
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import Tuple
 
 from predicators import utils
 

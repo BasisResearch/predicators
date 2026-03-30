@@ -11,7 +11,6 @@ from typing import Any, Callable, List, Optional, Tuple
 
 import matplotlib
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 
 from scripts.analyze_results_directory import create_raw_dataframe, \

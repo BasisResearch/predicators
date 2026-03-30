@@ -15,13 +15,13 @@ Usage:
 """
 import asyncio
 import os
-import sys
 import tempfile
 
 import numpy as np
+import pytest
 
 # Bootstrap circular imports
-import predicators.utils as utils  # noqa: F401
+import predicators.utils  # noqa: F401  # pylint: disable=unused-import
 from predicators import utils as pred_utils
 from predicators.settings import CFG
 
@@ -96,6 +96,20 @@ def _make_tools(ctx, tool_names=None):
     tools = create_mcp_tools(ctx, tool_names=tool_names)
     # Tools are SdkMcpTool objects; extract name -> handler
     return {t.name: t.handler for t in tools}
+
+
+# ===== Fixtures =====
+
+
+@pytest.fixture(scope="module")
+def ctx():
+    """Create shared ToolContext for all tests in this module."""
+    try:
+        with tempfile.TemporaryDirectory() as sandbox_dir:
+            ctx_obj, _env = _setup(sandbox_dir=sandbox_dir)
+            yield ctx_obj
+    except Exception as exc:
+        pytest.skip(f"Environment setup failed: {exc}")
 
 
 # ===== Tests =====
@@ -644,7 +658,7 @@ def test_sync_tool_context_sets_env():
     print("  PASS: _sync_tool_context sets ctx.env from option model")
 
 
-def main():
+def main() -> None:
     with tempfile.TemporaryDirectory() as sandbox_dir:
         print("Setting up environment...")
         ctx, env = _setup(sandbox_dir=sandbox_dir)

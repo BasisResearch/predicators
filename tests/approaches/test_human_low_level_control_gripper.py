@@ -1,6 +1,5 @@
 """Test to verify gripper open/close is instant."""
 
-import numpy as np
 
 from predicators import utils
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv
@@ -42,15 +41,15 @@ approach = create_approach(
 task = env.get_task("test", 0)
 
 # Disable terminal setup for testing
-approach._setup_terminal = lambda: None
-approach._restore_terminal = lambda: None
+approach._setup_terminal = lambda: None  # type: ignore[attr-defined]
+approach._restore_terminal = lambda: None  # type: ignore[attr-defined]
 
-policy = approach.solve(task, timeout=10)
+policy = approach.solve(task, timeout=10)  # type: ignore[arg-type]
 
 # Get robot for checking finger positions
-from predicators.envs.pybullet_circuit import PyBulletCircuitEnv as CircuitEnv
+from predicators.envs.pybullet_circuit import PyBulletCircuitEnv as CircuitEnv  # pylint: disable=reimported
 
-_, shadow_robot, _ = CircuitEnv.initialize_pybullet(using_gui=False)
+_, shadow_robot, _ = CircuitEnv.initialize_pybullet(using_gui=False)  # type: ignore[assignment]
 
 print(f"\nFully open position: {shadow_robot.open_fingers}")
 print(f"Fully closed position: {shadow_robot.closed_fingers}")
@@ -60,7 +59,7 @@ print("\n--- Test 1: Toggle gripper to CLOSED (spacebar) ---")
 initial_finger_pos = state.joint_positions[shadow_robot.left_finger_joint_idx]
 print(f"Initial finger position: {initial_finger_pos:.4f}")
 
-approach._get_pressed_key = lambda: ' '  # Simulate spacebar
+approach._get_pressed_key = lambda: ' '  # type: ignore[attr-defined]
 action = policy(state)
 state = env.step(action)
 
@@ -79,8 +78,8 @@ else:
 
 # Test 2: Toggle back to open
 print("\n--- Test 2: Toggle gripper to OPEN (spacebar) ---")
-approach._step_count += 10  # Advance step count to avoid debounce
-approach._get_pressed_key = lambda: ' '  # Simulate spacebar again
+approach._step_count += 10  # type: ignore[attr-defined]
+approach._get_pressed_key = lambda: ' '  # type: ignore[attr-defined]
 action = policy(state)
 state = env.step(action)
 
@@ -98,7 +97,7 @@ else:
 
 # Test 3: Verify no drift when not pressing keys after gripper toggle
 print("\n--- Test 3: No drift after gripper toggle ---")
-approach._get_pressed_key = lambda: None  # No key pressed
+approach._get_pressed_key = lambda: None  # type: ignore[attr-defined]
 for i in range(5):
     action = policy(state)
     state = env.step(action)

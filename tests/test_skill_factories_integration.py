@@ -83,7 +83,7 @@ class _ExposedEnvMixin:
 # ---------------------------------------------------------------------------
 
 
-class _ExposedBoilEnv(_ExposedEnvMixin, PyBulletBoilEnv):
+class _ExposedBoilEnv(_ExposedEnvMixin, PyBulletBoilEnv):  # type: ignore[no-untyped-call]
 
     @property
     def PickJug(self):
@@ -114,7 +114,7 @@ class _ExposedBoilEnv(_ExposedEnvMixin, PyBulletBoilEnv):
         return self._options["SwitchBurnerOff"]
 
 
-class _ExposedGrowEnv(_ExposedEnvMixin, PyBulletGrowEnv):
+class _ExposedGrowEnv(_ExposedEnvMixin, PyBulletGrowEnv):  # type: ignore[no-untyped-call]
 
     @property
     def PickJug(self):
@@ -125,7 +125,7 @@ class _ExposedGrowEnv(_ExposedEnvMixin, PyBulletGrowEnv):
         return self._options["Place"]
 
 
-class _ExposedCoffeeEnv(_ExposedEnvMixin, PyBulletCoffeeEnv):
+class _ExposedCoffeeEnv(_ExposedEnvMixin, PyBulletCoffeeEnv):  # type: ignore[no-untyped-call]
 
     @property
     def PickJug(self):
@@ -144,7 +144,7 @@ class _ExposedCoffeeEnv(_ExposedEnvMixin, PyBulletCoffeeEnv):
         return self._options["Pour"]
 
 
-class _ExposedFanEnv(_ExposedEnvMixin, PyBulletFanEnv):
+class _ExposedFanEnv(_ExposedEnvMixin, PyBulletFanEnv):  # type: ignore[no-untyped-call]
 
     @property
     def SwitchOn(self):
@@ -625,8 +625,8 @@ def test_pour_reaches_cup_position(coffee_env):
                                 max_steps=200)
 
     # Check robot approached the pour position (x/y)
-    robot_x = result.get(robot, "x")
-    robot_y = result.get(robot, "y")
+    result.get(robot, "x")
+    result.get(robot, "y")
     jug_x = result.get(jug, "x")
     jug_y = result.get(jug, "y")
     dist = np.sqrt((jug_x - pour_pos[0])**2 + (jug_y - pour_pos[1])**2)
@@ -1402,7 +1402,7 @@ def test_human_interaction_scripted_domino_solves_task():
     from predicators.approaches import create_approach
     from predicators.cogman import CogMan, run_episode_and_get_observations
     from predicators.execution_monitoring import create_execution_monitor
-    from predicators.ground_truth_models import get_gt_options
+    from predicators.ground_truth_models import get_gt_options  # pylint: disable=reimported
     from predicators.perception import create_perceiver
 
     utils.reset_config({

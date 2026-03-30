@@ -75,9 +75,13 @@ def config_to_cmd_flags(cfg: RunConfig) -> str:
     return args_and_flags_str
 
 
-def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-    """Recursively merge override into base. Lists are concatenated, dicts are
-    merged, scalars are overwritten by override."""
+def _deep_merge(base: Dict[str, Any], override: Dict[str,
+                                                     Any]) -> Dict[str, Any]:
+    """Recursively merge override into base.
+
+    Lists are concatenated, dicts are merged, scalars are overwritten by
+    override.
+    """
     result = copy.deepcopy(base)
     for key, value in override.items():
         if key in result:

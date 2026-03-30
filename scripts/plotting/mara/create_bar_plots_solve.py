@@ -159,7 +159,7 @@ def _main() -> None:
                         print(
                             f"Error for {label} {plot_title} {key}, mean: {mean}, std: {std}"
                         )
-                        breakpoint()
+                        raise
                 plot_labels.append(label)
                 plot_means.append(mean[0])
                 plot_stds.append(std[0])

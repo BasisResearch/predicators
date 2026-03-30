@@ -1,12 +1,10 @@
 """Simple test to debug human control issues using pybullet_circuit env."""
 
-import time
 
 import numpy as np
 
 from predicators import utils
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv
-from predicators.structs import Action
 
 # Configure with simpler circuit environment
 utils.reset_config({
@@ -68,9 +66,9 @@ from predicators.settings import CFG
 
 # Get robot for IK - need to use the same env's robot or create a shadow one
 print("\nGetting shadow robot for IK...")
-from predicators.envs.pybullet_circuit import PyBulletCircuitEnv as CircuitEnv
+from predicators.envs.pybullet_circuit import PyBulletCircuitEnv as CircuitEnv  # pylint: disable=reimported
 
-_, shadow_robot, _ = CircuitEnv.initialize_pybullet(using_gui=False)
+_, shadow_robot, _ = CircuitEnv.initialize_pybullet(using_gui=False)  # type: ignore[assignment]
 print(f"Shadow robot: {shadow_robot}")
 print(f"Shadow robot action space: {shadow_robot.action_space}")
 

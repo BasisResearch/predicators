@@ -1,10 +1,8 @@
 """Test to verify robot handles out-of-bounds actions gracefully."""
 
-import numpy as np
 
 from predicators import utils
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv
-from predicators.structs import Action
 
 # Configure
 utils.reset_config({
@@ -56,8 +54,8 @@ approach = create_approach(
 task = env.get_task("test", 0)
 
 # Disable terminal setup for testing
-approach._setup_terminal = lambda: None
-approach._restore_terminal = lambda: None
+approach._setup_terminal = lambda: None  # type: ignore[attr-defined]
+approach._restore_terminal = lambda: None  # type: ignore[attr-defined]
 
 # Simulate extreme key presses that should trigger bounds violations
 test_keys = [
@@ -69,7 +67,7 @@ test_keys = [
     ('d', "Right (extreme)"),
 ]
 
-policy = approach.solve(task, timeout=10)
+policy = approach.solve(task, timeout=10)  # type: ignore[arg-type]
 
 current_state = state
 success_count = 0
@@ -79,7 +77,7 @@ for key, description in test_keys:
     print(f"\nTesting: {description} (key='{key}')")
 
     # Simulate key press
-    approach._get_pressed_key = lambda: key
+    approach._get_pressed_key = lambda: key  # type: ignore[attr-defined]
 
     try:
         # Get action from approach
