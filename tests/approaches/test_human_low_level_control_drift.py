@@ -69,7 +69,7 @@ final_x = current_state.get(robot_obj, "x")
 final_y = current_state.get(robot_obj, "y")
 final_z = current_state.get(robot_obj, "z")
 
-print(f"\n" + "=" * 60)
+print("\n" + "=" * 60)
 print("RESULTS (with no-op fix):")
 print("=" * 60)
 print(f"Initial position: ({initial_x:.4f}, {initial_y:.4f}, {initial_z:.4f})")

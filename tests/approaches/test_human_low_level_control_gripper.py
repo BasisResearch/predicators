@@ -120,7 +120,7 @@ print("=" * 60)
 if test1_pass and test2_pass and test3_pass:
     print("✓ ALL TESTS PASSED: Gripper is instant and doesn't drift")
 else:
-    print(f"✗ SOME TESTS FAILED:")
+    print("✗ SOME TESTS FAILED:")
     print(f"  - Instant close: {'PASS' if test1_pass else 'FAIL'}")
     print(f"  - Instant open: {'PASS' if test2_pass else 'FAIL'}")
     print(f"  - No drift: {'PASS' if test3_pass else 'FAIL'}")

@@ -122,7 +122,7 @@ class LLMStripsLearner(BaseSTRIPSLearner):
             try:
                 ret_atoms.add(
                     LiftedAtom(pred_name_to_pred[prec_name], prec_arg_vars))
-            except:
+            except (KeyError, ValueError, TypeError):
                 # This can happen if the predicate is not valid for the
                 # given types. We just ignore it.
                 pass

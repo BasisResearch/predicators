@@ -14,8 +14,8 @@ from pprint import pformat
 from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Set, \
     Tuple, cast
 
-import multiprocess as mp
-import psutil
+import multiprocess as mp  # type: ignore[import-untyped]
+import psutil  # type: ignore[import-untyped]
 import wandb
 from pathos.multiprocessing import ProcessingPool as Pool
 
@@ -248,7 +248,7 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
         prompt_file = utils.get_path_to_predicators_root() + \
             "/predicators/nsrt_learning/strips_learning/" + \
             "llm_op_learning_prompts/condition_selection.prompt"
-        with open(prompt_file, "r") as f:
+        with open(prompt_file, "r", encoding='utf-8') as f:
             self.base_prompt = f.read()
         from predicators.approaches.pp_online_predicate_invention_approach import \
             get_false_positive_states
@@ -297,7 +297,7 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
         proposed_conditions: List[str] = []
         for i, pnad in enumerate(new_pnads):
             if seperate_llm_query_per_pnad:
-                effect_and_conditions += f"Process 0:\n"
+                effect_and_conditions += "Process 0:\n"
             else:
                 effect_and_conditions += f"Process {i}:\n"
             add_effects = pnad.op.add_effects
@@ -374,8 +374,7 @@ class ClusterAndLLMSelectSTRIPSLearner(ClusteringSTRIPSLearner):
             new_conditions = set(
                 atom for atom in
                 conditions_to_choose_from  # type: ignore[union-attr]
-                if atom_in_llm_selection(atom,
-                                         conditions))  # type: ignore[arg-type]
+                if atom_in_llm_selection(atom, conditions))  # type: ignore[arg-type]
             add_eff = corresponding_pnad.op.add_effects
             del_eff = corresponding_pnad.op.delete_effects
             # the variable might also just in the effects
@@ -843,7 +842,7 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         best_score: float = 0.0  # Changed to float for weighted scoring
 
         # ---------- 2) Organize atoms by predicate for bounds & candidate search ----------
-        from collections import Counter, defaultdict
+        from collections import defaultdict  # pylint: disable=reimported
 
         idx_pnad_by_pred: Dict[Predicate, List[int]] = defaultdict(list)
         for j, b in enumerate(pnad_pre_list):
@@ -1372,7 +1371,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             raise ValueError("LLM not available")
 
         # Load the prompt template
-        with open(template_path, "r") as f:
+        with open(template_path, "r", encoding='utf-8') as f:
             template = f.read()
 
         # Format the prompt
@@ -1387,7 +1386,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
                                                 seed=seed)[0]
 
         # Save debug info
-        with open(f"{CFG.log_file}/{debug_filename}", "w") as f:
+        with open(f"{CFG.log_file}/{debug_filename}", "w", encoding='utf-8') as f:
             f.write(f"{prompt}\n=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*"
                     f"\n{response}")
 
@@ -2021,7 +2020,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
             "/predicators/nsrt_learning/strips_learning/" + \
             "llm_op_learning_prompts/"+\
             "cluster_and_search_process_learner_condition_select.prompt"
-        with open(prompt_file, "r") as f:
+        with open(prompt_file, "r", encoding='utf-8') as f:
             self.template = f.read()
 
         # 2. Fill the prompt template.
@@ -2042,7 +2041,7 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
         # Save the prompt and response for debugging
         with open(f"{CFG.log_file}/pnad_{pnad.op.name}_cond_select.txt",
-                  "w") as f:
+                  "w", encoding='utf-8') as f:
             f.write(f"{prompt}\n=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*\n"
                     f"{response}")
 
@@ -2218,8 +2217,8 @@ class ClusterAndInversePlanningProcessLearner(ClusteringProcessLearner):
                           metrics) in enumerate(generator):
                     num_nodes = metrics["num_nodes_created"]
                     optimality_prob = self._get_optimality_prob(
-                        demo_atoms_sequence,
-                        plan_atoms_sequence)  # type: ignore[arg-type]
+                        demo_atoms_sequence,  # type: ignore[arg-type]
+                        plan_atoms_sequence)
             except (PlanningTimeout, PlanningFailure):
                 pass
             # low_quality_prob = 1.0 - optimality_prob

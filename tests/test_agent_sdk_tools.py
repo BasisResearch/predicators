@@ -150,7 +150,7 @@ def test_inspect_options_detail(ctx):
         assert os.path.exists(saved_path), \
             f"Expected file at {saved_path}"
         # File should have content
-        with open(saved_path) as f:
+        with open(saved_path, encoding='utf-8') as f:
             content = f.read()
         assert len(content) > 0
         print(f"  PASS: inspect_options (detail for '{test_name}', "
@@ -204,7 +204,7 @@ def test_inspect_options_proposed_code(ctx):
         # Verify file content
         saved_path = os.path.join(ctx.sandbox_dir, "proposed_code",
                                   "TestOpt.py")
-        with open(saved_path) as f:
+        with open(saved_path, encoding='utf-8') as f:
             assert "# test proposal code" in f.read()
     else:
         # No sandbox — source inlined
@@ -489,7 +489,7 @@ proposed_options = [
                                       "TestProposed.py")
             assert os.path.exists(saved_path), \
                 f"Expected file at {saved_path}"
-            with open(saved_path) as f:
+            with open(saved_path, encoding='utf-8') as f:
                 content = f.read()
             assert "proposed_options" in content
             print("  PASS: propose_options (code saved to sandbox)")

@@ -12,10 +12,10 @@ from predicators.nsrt_learning.strips_learning import learn_strips_operators
 from predicators.nsrt_learning.strips_learning.clustering_learner import \
     ClusterAndSearchProcessLearner
 from predicators.settings import CFG
-from predicators.structs import PNAD, CausalProcess, DerivedPredicate, \
-    DummyOption, EndogenousProcess, ExogenousProcess, GroundAtom, \
-    GroundAtomTrajectory, LiftedAtom, LowLevelTrajectory, \
-    ParameterizedOption, Predicate, Segment, Task
+from predicators.structs import CausalProcess, DerivedPredicate, DummyOption, \
+    EndogenousProcess, ExogenousProcess, GroundAtomTrajectory, LiftedAtom, \
+    LowLevelTrajectory, ParameterizedOption, Predicate, \
+    Segment, Task
 
 
 def learn_processes_from_data(

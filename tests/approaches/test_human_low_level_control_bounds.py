@@ -85,10 +85,10 @@ for key, description in test_keys:
 
         # Verify action is within bounds
         if env.action_space.contains(action.arr):
-            print(f"  ✓ Action generated and within bounds")
+            print("  ✓ Action generated and within bounds")
             success_count += 1
         else:
-            print(f"  ✗ ERROR: Action still out of bounds after validation!")
+            print("  ✗ ERROR: Action still out of bounds after validation!")
 
         # Apply action (should not crash)
         current_state = env.step(action)
@@ -104,7 +104,7 @@ final_x = current_state.get(robot_obj, "x")
 final_y = current_state.get(robot_obj, "y")
 final_z = current_state.get(robot_obj, "z")
 
-print(f"\n" + "=" * 60)
+print("\n" + "=" * 60)
 print("RESULTS:")
 print("=" * 60)
 print(f"Initial position: ({initial_x:.4f}, {initial_y:.4f}, {initial_z:.4f})")
@@ -113,8 +113,8 @@ print(f"\nSuccessful actions: {success_count}/{len(test_keys)}")
 
 if success_count == len(test_keys):
     print(
-        f"\n✓ PASS: All extreme movements handled gracefully without crashes")
+        "\n✓ PASS: All extreme movements handled gracefully without crashes")
 else:
-    print(f"\n✗ FAIL: Some movements caused crashes")
+    print("\n✗ FAIL: Some movements caused crashes")
 
 print("\nTest complete!")

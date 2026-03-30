@@ -113,7 +113,7 @@ for i in range(5):
             finger_action_nudge_magnitude=1e-3,
             validate=CFG.pybullet_ik_validate,
         )
-        print(f"  ✓ IK succeeded")
+        print("  ✓ IK succeeded")
         joint_delta = action.arr - np.array(current_state.joint_positions)
         print(f"  Joint delta (first 5): {joint_delta[:5]}")
         print(f"  Max joint delta: {np.max(np.abs(joint_delta)):.4f}")
@@ -131,7 +131,7 @@ final_x = current_state.get(robot_obj, "x")
 final_y = current_state.get(robot_obj, "y")
 final_z = current_state.get(robot_obj, "z")
 
-print(f"\n" + "=" * 60)
+print("\n" + "=" * 60)
 print("RESULTS:")
 print("=" * 60)
 print(f"Initial position: ({initial_x:.3f}, {initial_y:.3f}, {initial_z:.3f})")
@@ -143,7 +143,7 @@ total_dz = final_z - initial_z
 print(
     f"Total movement:   dx={total_dx:.3f}, dy={total_dy:.3f}, dz={total_dz:.3f}"
 )
-print(f"Expected movement: dx~0.5 (5 steps × 0.1, limited by max_vel_norm)")
+print("Expected movement: dx~0.5 (5 steps × 0.1, limited by max_vel_norm)")
 
 if abs(total_dx) < 0.01 and abs(total_dy) < 0.01 and abs(total_dz) < 0.01:
     print("\n✗ ERROR: Robot barely moved! Possible issues:")
@@ -151,8 +151,8 @@ if abs(total_dx) < 0.01 and abs(total_dy) < 0.01 and abs(total_dz) < 0.01:
     print("  - Actions are not being applied to environment")
     print("  - max_vel_norm constraint too small")
 elif total_dx > 0.1:
-    print(f"\n✓ Robot moved forward as expected!")
+    print("\n✓ Robot moved forward as expected!")
 else:
-    print(f"\n⚠ Robot moved but not in expected direction")
+    print("\n⚠ Robot moved but not in expected direction")
 
 print("\nTest complete!")

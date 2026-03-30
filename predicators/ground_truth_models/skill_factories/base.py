@@ -380,14 +380,14 @@ class PhaseSkill:
 
             if traj is None:
                 if phase.expect_contact:
-                    logging.debug("[%s/%s] BiRRT failed; falling back to "
-                                  "incremental IK.", self._name, phase.name)
+                    logging.debug(
+                        "[%s/%s] BiRRT failed; falling back to "
+                        "incremental IK.", self._name, phase.name)
                     memory[traj_key] = None
                 else:
                     raise utils.OptionExecutionFailure(
                         f"[{self._name}/{phase.name}] BiRRT collision: "
-                        f"motion planning failed (no collision-free path)."
-                    )
+                        f"motion planning failed (no collision-free path).")
             else:
                 # Skip the first waypoint — BiRRT includes the start
                 # position (current joints) as traj[0].  Commanding the
@@ -657,15 +657,15 @@ class PhaseSkill:
                 except Exception:
                     pass
                 contacts = p.getContactPoints(
-                    planning_robot.robot_id, body,
+                    planning_robot.robot_id,
+                    body,
                     physicsClientId=physics_client_id)
                 if any(c[8] < margin for c in contacts):
                     logging.error(f"[{self._name}/{phase_name}] {label} ROBOT "
                                   f"collision with body {body} ({body_name})")
                 if held_object is not None:
                     contacts = p.getContactPoints(
-                        held_object, body,
-                        physicsClientId=physics_client_id)
+                        held_object, body, physicsClientId=physics_client_id)
                     if any(c[8] < margin for c in contacts):
                         logging.error(
                             f"[{self._name}/{phase_name}] {label} HELD "
