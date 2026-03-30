@@ -163,6 +163,7 @@ def _make_home_state(
 
 
 class TestSkillConfig:
+    """TestSkillConfig class."""
 
     def test_required_fields_stored(self, robot_scene):
         _, robot = robot_scene
@@ -220,10 +221,11 @@ class TestSkillConfig:
 
 
 class TestPhase:
+    """TestPhase class."""
 
     def test_move_to_pose_phase(self):
 
-        def dummy_target(state, objects, params, cfg):
+        def dummy_target(_state, _objects, _params, _cfg):
             return None, None, "open"
 
         phase = Phase(name="TestMove",
@@ -236,7 +238,7 @@ class TestPhase:
 
     def test_change_fingers_phase(self):
 
-        def dummy_target(state, objects, params, cfg):
+        def dummy_target(_state, _objects, _params, _cfg):
             return 0.04, 0.01
 
         phase = Phase(name="Grasp",
@@ -246,7 +248,7 @@ class TestPhase:
 
     def test_custom_terminal_fn_stored(self):
 
-        def my_terminal(state, objects, params, cfg):
+        def my_terminal(_state, _objects, _params, _cfg):
             return True
 
         phase = Phase(
@@ -273,13 +275,14 @@ class TestPhase:
 
 
 class TestPhaseSkill:
+    """TestPhaseSkill class."""
 
     def _make_single_ik_skill(self, robot, target_pos):
         """One IK-mode MOVE_TO_POSE phase (no BiRRT, predictable terminal)."""
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
 
-        def target_fn(state, objects, params, cfg):
+        def target_fn(state, _objects, _params, cfg):
             x = state.get(robot_obj, "x")
             y = state.get(robot_obj, "y")
             z = state.get(robot_obj, "z")
@@ -305,7 +308,7 @@ class TestPhaseSkill:
         """One CHANGE_FINGERS phase with fixed current/target."""
         config = _make_config(robot)
 
-        def target_fn(state, objects, params, cfg):
+        def target_fn(_state, _objects, _params, _cfg):
             return current_val, target_val
 
         phase = Phase(
@@ -319,20 +322,20 @@ class TestPhaseSkill:
 
     def test_build_returns_parameterized_option(self, robot_scene):
         _, robot = robot_scene
-        skill, robot_obj, _ = self._make_single_ik_skill(robot, _EE_HOME)
+        skill, _robot_obj, _ = self._make_single_ik_skill(robot, _EE_HOME)
         opt = skill.build()
         assert isinstance(opt, ParameterizedOption)
 
     def test_build_name_and_types(self, robot_scene):
         _, robot = robot_scene
-        skill, robot_obj, _ = self._make_single_ik_skill(robot, _EE_HOME)
+        skill, _robot_obj, _ = self._make_single_ik_skill(robot, _EE_HOME)
         opt = skill.build()
         assert opt.name == "Test"
         assert opt.types == [_ROBOT_TYPE]
 
     def test_initiable_sets_phase_idx_zero(self, robot_scene):
         _, robot = robot_scene
-        skill, robot_obj, _ = self._make_single_ik_skill(robot, _EE_HOME)
+        skill, _robot_obj, _ = self._make_single_ik_skill(robot, _EE_HOME)
         opt = skill.build()
         grounded = opt.ground([_make_robot_obj()], np.zeros(0))
         state = _build_state(_make_robot_obj(), robot, *_EE_HOME)
@@ -451,7 +454,7 @@ class TestPhaseSkill:
         config = _make_config(robot)
         call_count = {"n": 0}
 
-        def my_terminal(state, objects, params, cfg):
+        def my_terminal(_state, _objects, _params, _cfg):
             call_count["n"] += 1
             return True
 
@@ -488,7 +491,7 @@ class TestBiRRT:
         config = _make_config(robot)
         robot_obj = _make_robot_obj()
 
-        def target_fn(state, objects, params, cfg):
+        def target_fn(_state, _objects, _params, _cfg):
             orn = p.getQuaternionFromEuler([0, 0, 0])
             return Pose(_EE_HOME, orn), Pose(_EE_HOME, orn), "open"
 
@@ -514,7 +517,7 @@ class TestBiRRT:
         robot_obj = _make_robot_obj()
         home_orn = p.getQuaternionFromEuler([0, np.pi / 2, -np.pi])
 
-        def target_fn(state, objects, params, cfg):
+        def target_fn(state, _objects, _params, _cfg):
             current_orn = p.getQuaternionFromEuler([
                 0,
                 state.get(robot_obj, "tilt"),
@@ -557,7 +560,7 @@ class TestBiRRT:
         robot_obj = _make_robot_obj()
         home_orn = p.getQuaternionFromEuler([0, np.pi / 2, -np.pi])
 
-        def target_fn(state, objects, params, cfg):
+        def target_fn(state, _objects, _params, _cfg):
             current_orn = p.getQuaternionFromEuler([
                 0,
                 state.get(robot_obj, "tilt"),
@@ -610,7 +613,7 @@ class TestBiRRT:
         home_orn = p.getQuaternionFromEuler([0, np.pi / 2, -np.pi])
         target_pos = (_EE_HOME[0], _EE_HOME[1], _EE_HOME[2] - 0.15)
 
-        def target_fn(state, objects, params, cfg):
+        def target_fn(state, _objects, _params, _cfg):
             current_orn = p.getQuaternionFromEuler([
                 0,
                 state.get(robot_obj, "tilt"),
@@ -653,6 +656,7 @@ class TestBiRRT:
 
 
 class TestWaitOption:
+    """TestWaitOption class."""
 
     def test_wait_always_initiable(self, robot_scene):
         _, robot = robot_scene
@@ -756,6 +760,7 @@ class TestWaitOption:
 
 
 class TestMakeMoveToPosePhase:
+    """TestMakeMoveToPosePhase class."""
 
     def test_returns_phase_with_move_action_type(self):
         phase = make_move_to_phase(
@@ -863,6 +868,7 @@ class TestMakeMoveToPosePhase:
 
 
 class TestCreateMoveToPoseSkill:
+    """TestCreateMoveToPoseSkill class."""
 
     def test_returns_parameterized_option(self, robot_scene):
         _, robot = robot_scene
@@ -903,6 +909,7 @@ class TestCreateMoveToPoseSkill:
 
 
 class TestCreatePickSkill:
+    """TestCreatePickSkill class."""
 
     def _make_pick(self, robot):
         config = SkillConfig(
@@ -950,6 +957,7 @@ class TestCreatePickSkill:
 
 
 class TestCreatePlaceSkill:
+    """TestCreatePlaceSkill class."""
 
     def _make_place(self, robot):
         config = SkillConfig(
@@ -993,6 +1001,7 @@ class TestCreatePlaceSkill:
 
 
 class TestCreatePushSkill:
+    """TestCreatePushSkill class."""
 
     @staticmethod
     def _make_push_config(robot):
@@ -1007,6 +1016,7 @@ class TestCreatePushSkill:
         )
 
     def _make_push(self, robot):
+        """Make push."""
         config = self._make_push_config(robot)
         return create_push_skill(
             name="Push",

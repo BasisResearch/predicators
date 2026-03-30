@@ -32,15 +32,15 @@ _ALL_PREDICATES = {_Holding, _On, _HandEmpty}
 _ALL_OBJECTS = [_block0, _block1, _robot]
 
 
-def _noop_policy(s, m, o, p):
+def _noop_policy(_s, _m, _o, _p):
     return Action(np.zeros(1, dtype=np.float32))
 
 
-def _always_true(s, m, o, p):
+def _always_true(_s, _m, _o, _p):
     return True
 
 
-def _always_false(s, m, o, p):
+def _always_false(_s, _m, _o, _p):
     return False
 
 
@@ -129,6 +129,7 @@ class TestParseSubgoalAnnotations:
     """Tests for plan text subgoal parsing."""
 
     def test_basic_subgoals(self):
+        """Test basic subgoals."""
         approach, _, _ = _make_approach()
         text = (
             "Pick(block0:block) -> {Holding(block0:block)}\n"
@@ -146,6 +147,7 @@ class TestParseSubgoalAnnotations:
         assert GroundAtom(_On, [_block0, _block1]) in result[1]
 
     def test_no_subgoals(self):
+        """Test no subgoals."""
         approach, _, _ = _make_approach()
         text = ("Pick(block0:block)\n"
                 "Place(block0:block, block1:block)\n")
@@ -173,6 +175,7 @@ class TestParseSubgoalAnnotations:
         assert result[2] is not None
 
     def test_multiple_atoms_in_subgoal(self):
+        """Test multiple atoms in subgoal."""
         approach, _, _ = _make_approach()
         text = (
             "Place(block0:block, block1:block) "
@@ -187,6 +190,7 @@ class TestParseSubgoalAnnotations:
         assert GroundAtom(_HandEmpty, [_robot]) in result[0]
 
     def test_unknown_predicate_skipped(self):
+        """Test unknown predicate skipped."""
         approach, _, _ = _make_approach()
         text = "Pick(block0:block) -> {FakePred(block0:block)}\n"
         result = approach._parse_subgoal_annotations(text, _ALL_PREDICATES,
@@ -196,6 +200,7 @@ class TestParseSubgoalAnnotations:
         assert result[0] is None  # FakePred unrecognized, no valid atoms
 
     def test_unknown_object_skipped(self):
+        """Test unknown object skipped."""
         approach, _, _ = _make_approach()
         text = "Pick(block0:block) -> {Holding(block99:block)}\n"
         result = approach._parse_subgoal_annotations(text, _ALL_PREDICATES,
@@ -205,6 +210,7 @@ class TestParseSubgoalAnnotations:
         assert result[0] is None  # block99 doesn't exist
 
     def test_arity_mismatch_skipped(self):
+        """Test arity mismatch skipped."""
         approach, _, _ = _make_approach()
         # Holding expects 1 arg, giving 2
         text = "Pick(block0:block) -> {Holding(block0:block, block1:block)}\n"
@@ -263,6 +269,7 @@ class TestRefineSketch:
     """Tests for backtracking refinement search."""
 
     def test_empty_sketch(self):
+        """Test empty sketch."""
         approach, _, task = _make_approach()
         plan, success = approach._refine_sketch(task, [], timeout=5.0)
         assert plan == []
@@ -340,7 +347,7 @@ class TestRefineSketch:
                         objects=[_block0],
                         subgoal_atoms={GroundAtom(_Holding, [_block0])}),
         ]
-        plan, success = approach._refine_sketch(task, sketch, timeout=5.0)
+        _plan, success = approach._refine_sketch(task, sketch, timeout=5.0)
 
         # Should exhaust all samples and fail
         assert success is False
@@ -365,7 +372,7 @@ class TestRefineSketch:
         goal_state = _make_state({_block0: [0.5, 0.6, 0.0]})
         noop_state = _make_state()
 
-        def side_effect(state, option):
+        def side_effect(_state, option):
             nonlocal call_count
             call_count += 1
             if option.name == "Pick":
@@ -418,7 +425,7 @@ class TestRefineSketch:
                         objects=[_block0],
                         subgoal_atoms=None)
         ]
-        plan, success = approach._refine_sketch(task, sketch, timeout=5.0)
+        _plan, success = approach._refine_sketch(task, sketch, timeout=5.0)
 
         assert success is False
         # Option model never called since initiable is always False
@@ -444,7 +451,7 @@ class TestRefineSketch:
         sketch = [
             _SketchStep(option=_Pick, objects=[_block0], subgoal_atoms=None)
         ]
-        plan, success = approach._refine_sketch(task, sketch, timeout=5.0)
+        _plan, success = approach._refine_sketch(task, sketch, timeout=5.0)
 
         # Goal never holds → exhausts samples
         assert success is False
@@ -471,6 +478,7 @@ class TestQueryAgentForPlanSketch:
         ]
 
     def test_basic_sketch_extraction(self):
+        """Test basic sketch extraction."""
         approach, _, task = _make_approach()
 
         plan_text = (
@@ -494,6 +502,7 @@ class TestQueryAgentForPlanSketch:
         assert sketch[1].subgoal_atoms is not None
 
     def test_sketch_without_subgoals(self):
+        """Test sketch without subgoals."""
         approach, _, task = _make_approach()
 
         plan_text = ("Pick(block0:block)\n"
@@ -509,6 +518,7 @@ class TestQueryAgentForPlanSketch:
         assert sketch[1].subgoal_atoms is None
 
     def test_sketch_with_code_fences(self):
+        """Test sketch with code fences."""
         approach, _, task = _make_approach()
 
         plan_text = ("Here is the plan:\n"
@@ -543,6 +553,7 @@ class TestQueryAgentForPlanSketch:
         assert len(sketch) == 2
 
     def test_sketch_with_wait(self):
+        """Test sketch with wait."""
         approach, _, task = _make_approach()
 
         plan_text = (
@@ -596,6 +607,7 @@ class TestQueryAgentForPlanSketch:
 
 
 class TestSampleParams:
+    """TestSampleParams class."""
 
     def test_empty_params_space(self):
         approach, _, _ = _make_approach()

@@ -65,6 +65,7 @@ class _ExposedEnvMixin:
         self._reset_state(state_with_sim)
 
     def get_state(self):
+        """Get state."""
         return self._get_state()
 
     def execute_option(self, option, max_steps=300):
@@ -87,30 +88,37 @@ class _ExposedBoilEnv(_ExposedEnvMixin, PyBulletBoilEnv):  # type: ignore[no-unt
 
     @property
     def PickJug(self):
+        """PickJug."""
         return self._options["PickJug"]
 
     @property
     def PlaceOnBurner(self):
+        """PlaceOnBurner."""
         return self._options["PlaceOnBurner"]
 
     @property
     def PlaceOutside(self):
+        """PlaceOutside."""
         return self._options["PlaceOutsideBurnerAndFaucet"]
 
     @property
     def SwitchFaucetOn(self):
+        """SwitchFaucetOn."""
         return self._options["SwitchFaucetOn"]
 
     @property
     def SwitchFaucetOff(self):
+        """SwitchFaucetOff."""
         return self._options["SwitchFaucetOff"]
 
     @property
     def SwitchBurnerOn(self):
+        """SwitchBurnerOn."""
         return self._options["SwitchBurnerOn"]
 
     @property
     def SwitchBurnerOff(self):
+        """SwitchBurnerOff."""
         return self._options["SwitchBurnerOff"]
 
 
@@ -118,10 +126,12 @@ class _ExposedGrowEnv(_ExposedEnvMixin, PyBulletGrowEnv):  # type: ignore[no-unt
 
     @property
     def PickJug(self):
+        """PickJug."""
         return self._options["PickJug"]
 
     @property
     def Place(self):
+        """Place."""
         return self._options["Place"]
 
 
@@ -129,18 +139,22 @@ class _ExposedCoffeeEnv(_ExposedEnvMixin, PyBulletCoffeeEnv):  # type: ignore[no
 
     @property
     def PickJug(self):
+        """PickJug."""
         return self._options["PickJug"]
 
     @property
     def PlaceJugInMachine(self):
+        """PlaceJugInMachine."""
         return self._options["PlaceJugInMachine"]
 
     @property
     def TurnMachineOn(self):
+        """TurnMachineOn."""
         return self._options["TurnMachineOn"]
 
     @property
     def Pour(self):
+        """Pour."""
         return self._options["Pour"]
 
 
@@ -148,10 +162,12 @@ class _ExposedFanEnv(_ExposedEnvMixin, PyBulletFanEnv):  # type: ignore[no-untyp
 
     @property
     def SwitchOn(self):
+        """SwitchOn."""
         return self._options["SwitchOn"]
 
     @property
     def SwitchOff(self):
+        """SwitchOff."""
         return self._options["SwitchOff"]
 
 
@@ -1453,7 +1469,7 @@ def test_human_interaction_scripted_domino_solves_task():
     test_env_task = env.get_test_tasks()[0]
     cogman.reset(test_env_task)
 
-    traj, solved, metrics = run_episode_and_get_observations(
+    _traj, solved, _metrics = run_episode_and_get_observations(
         cogman,
         env,
         "test",

@@ -659,9 +659,10 @@ def test_sync_tool_context_sets_env():
 
 
 def main() -> None:
+    """Main."""
     with tempfile.TemporaryDirectory() as sandbox_dir:
         print("Setting up environment...")
-        ctx, env = _setup(sandbox_dir=sandbox_dir)
+        ctx, _env = _setup(sandbox_dir=sandbox_dir)
         print(f"Setup complete. {len(ctx.options)} options, "
               f"{len(ctx.train_tasks)} tasks\n")
 

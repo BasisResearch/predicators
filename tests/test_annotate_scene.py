@@ -271,7 +271,7 @@ def test_annotate_no_env(ctx):
 def main() -> None:
     with tempfile.TemporaryDirectory() as sandbox_dir:
         print("Setting up boil environment (with GUI for debug lines)...")
-        ctx, env = _setup(sandbox_dir=sandbox_dir)
+        ctx, _env = _setup(sandbox_dir=sandbox_dir)
         print(f"Setup complete. {len(ctx.options)} options, "
               f"env.using_gui={ctx.env.using_gui if ctx.env else '?'}\n")
 
