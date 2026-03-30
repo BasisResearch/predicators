@@ -133,6 +133,7 @@ def create_pick_skill(
         params: Array,
         cfg: SkillConfig,
     ) -> Tuple[float, float, float, float]:
+        del params
         x, y, _, yaw = get_target_pose_fn(state, objects, _empty, cfg)
         return x, y, _shared["grasp_z"] + 0.01, yaw
 

@@ -3,7 +3,6 @@
 from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
-import pybullet as p
 
 from predicators import utils
 from predicators.envs.pybullet_domino.components.domino_component import \
@@ -136,11 +135,10 @@ class DominoTaskGenerator(TaskGenerator):
             for target_obj in init_state.get_objects(self.domino.target_type):
                 goal_atoms.add(GroundAtom(self.domino.Toppled, [target_obj]))
 
-        target_names = sorted(str(a.objects[0].name) for a in goal_atoms)
         goal_nl = (
             "Arrange the moveable domino blocks into a chain so that when "
             "the start domino is pushed, the chain reaction topples the "
-            f"target(s). Do NOT directly push "
+            "target(s). Do NOT directly push "
             "or topple the target dominoes yourself.")
 
         return EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
@@ -151,7 +149,7 @@ class DominoTaskGenerator(TaskGenerator):
             n_dominos: int,
             n_targets: int,
             n_pivots: int,
-            log_debug: bool = False,
+            _log_debug: bool = False,
             task_idx: Optional[int] = None,
             domino_in_upper_half: bool = False) -> Optional[Dict]:
         """Generate a sequence of dominoes, targets, and pivots."""
@@ -309,15 +307,15 @@ class DominoTaskGenerator(TaskGenerator):
 
     def _place_straight_domino(
             self,
-            rng,
-            obj_dict,
-            x,
-            y,
-            rotation,
-            gap,  # type: ignore[no-untyped-def]
-            domino_count,
-            _in_bounds,
-            task_idx) -> PlacementResult:
+            rng: np.random.Generator,
+            obj_dict: Dict[Object, Any],
+            x: float,
+            y: float,
+            rotation: float,
+            gap: float,
+            domino_count: int,
+            _in_bounds: Callable[[float, float], bool],
+            task_idx: Optional[int]) -> PlacementResult:
         dx = gap * np.sin(rotation)
         dy = gap * np.cos(rotation)
         new_x, new_y = x + dx, y + dy
@@ -346,18 +344,18 @@ class DominoTaskGenerator(TaskGenerator):
 
     def _place_turn90_domino(
             self,
-            rng,
-            obj_dict,
-            x,
-            y,
-            rotation,
-            gap,  # type: ignore[no-untyped-def]
-            domino_count,
-            n_dominos,
-            n_targets,
-            _in_bounds,
-            task_idx,
-            should_place_target_at_end) -> PlacementResult:
+            rng: np.random.Generator,
+            obj_dict: Dict[Object, Any],
+            x: float,
+            y: float,
+            rotation: float,
+            gap: float,
+            domino_count: int,
+            n_dominos: int,
+            n_targets: int,
+            _in_bounds: Callable[[float, float], bool],
+            task_idx: Optional[int],
+            should_place_target_at_end: bool) -> PlacementResult:
         expected_count = self._get_expected_domino_count(n_dominos, n_targets)
         if domino_count + 1 >= expected_count:
             return self._place_straight_domino(rng, obj_dict, x, y, rotation,
@@ -434,17 +432,17 @@ class DominoTaskGenerator(TaskGenerator):
 
     def _place_pivot180_domino(
             self,
-            rng,
-            obj_dict,
-            x,
-            y,
-            rotation,
-            gap,  # type: ignore[no-untyped-def]
-            domino_count,
-            pivot_count,
-            _in_bounds,
-            task_idx,
-            should_place_target_at_end) -> PlacementResult:
+            rng: np.random.Generator,
+            obj_dict: Dict[Object, Any],
+            x: float,
+            y: float,
+            rotation: float,
+            gap: float,
+            domino_count: int,
+            pivot_count: int,
+            _in_bounds: Callable[[float, float], bool],
+            task_idx: Optional[int],
+            should_place_target_at_end: bool) -> PlacementResult:
         pivot_direction = rng.choice([-1, 1])
         side_offset = self.domino.pivot_width / 2
 
@@ -501,16 +499,16 @@ class DominoTaskGenerator(TaskGenerator):
 
     def _place_next_target(
             self,
-            rng,
-            obj_dict,
-            x,
-            y,
-            rotation,
-            gap,  # type: ignore[no-untyped-def]
-            domino_count,
-            target_count,
-            _in_bounds,
-            task_idx) -> PlacementResult:
+            rng: np.random.Generator,
+            obj_dict: Dict[Object, Any],
+            x: float,
+            y: float,
+            rotation: float,
+            gap: float,
+            domino_count: int,
+            target_count: int,
+            _in_bounds: Callable[[float, float], bool],
+            task_idx: Optional[int]) -> PlacementResult:
         dx = gap * np.sin(rotation)
         dy = gap * np.cos(rotation)
         target_x, target_y = x + dx, y + dy

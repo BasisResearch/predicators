@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Set
 
 import numpy as np
 from gym.spaces import Box
@@ -186,7 +186,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                import nest_asyncio
+                import nest_asyncio  # type: ignore[import-untyped]
                 nest_asyncio.apply()
                 return loop.run_until_complete(
                     self._agent_session.query(message))

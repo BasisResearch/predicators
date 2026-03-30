@@ -25,6 +25,7 @@ class BaseSTRIPSLearner(abc.ABC):
                  annotations: Optional[List[Any]],
                  verbose: bool = True,
                  **kwargs: Any) -> None:
+        del kwargs  # unused, accepted for subclass flexibility
         self._trajectories = trajectories
         self._train_tasks = train_tasks
         self._predicates = predicates

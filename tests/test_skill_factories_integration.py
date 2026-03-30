@@ -84,7 +84,8 @@ class _ExposedEnvMixin:
 # ---------------------------------------------------------------------------
 
 
-class _ExposedBoilEnv(_ExposedEnvMixin, PyBulletBoilEnv):  # type: ignore[no-untyped-call]
+# type: ignore[no-untyped-call]
+class _ExposedBoilEnv(_ExposedEnvMixin, PyBulletBoilEnv):
 
     @property
     def PickJug(self):
@@ -122,7 +123,8 @@ class _ExposedBoilEnv(_ExposedEnvMixin, PyBulletBoilEnv):  # type: ignore[no-unt
         return self._options["SwitchBurnerOff"]
 
 
-class _ExposedGrowEnv(_ExposedEnvMixin, PyBulletGrowEnv):  # type: ignore[no-untyped-call]
+# type: ignore[no-untyped-call]
+class _ExposedGrowEnv(_ExposedEnvMixin, PyBulletGrowEnv):
 
     @property
     def PickJug(self):
@@ -135,7 +137,8 @@ class _ExposedGrowEnv(_ExposedEnvMixin, PyBulletGrowEnv):  # type: ignore[no-unt
         return self._options["Place"]
 
 
-class _ExposedCoffeeEnv(_ExposedEnvMixin, PyBulletCoffeeEnv):  # type: ignore[no-untyped-call]
+# type: ignore[no-untyped-call]
+class _ExposedCoffeeEnv(_ExposedEnvMixin, PyBulletCoffeeEnv):
 
     @property
     def PickJug(self):
@@ -158,7 +161,8 @@ class _ExposedCoffeeEnv(_ExposedEnvMixin, PyBulletCoffeeEnv):  # type: ignore[no
         return self._options["Pour"]
 
 
-class _ExposedFanEnv(_ExposedEnvMixin, PyBulletFanEnv):  # type: ignore[no-untyped-call]
+# type: ignore[no-untyped-call]
+class _ExposedFanEnv(_ExposedEnvMixin, PyBulletFanEnv):
 
     @property
     def SwitchOn(self):

@@ -21,6 +21,7 @@ def cmp_pmf(k, lambda_, nu, Z=None, k_max=100):
 
 
 def plot_cmp_distribution(lambda_: float, nu: float, k_max: int = 20) -> None:
+    """Plot cmp distribution."""
     ks = np.arange(0, k_max + 1)
     Z = compute_normalizing_constant(lambda_, nu, k_max=100)
     ps = [cmp_pmf(k, lambda_, nu, Z) for k in ks]

@@ -97,6 +97,7 @@ def create_pour_skill(
     ) -> Tuple[float, float, float, float]:
         """Compute robot EE target from cup position + offsets + jug
         displacement."""
+        del params
         # Cup position from callback
         cx, cy, _, yaw = get_target_pose_fn(state, objects, _empty, cfg)
         # Pour target for jug (all offsets are fixed constants)

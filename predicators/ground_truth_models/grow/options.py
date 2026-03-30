@@ -58,6 +58,7 @@ class PyBulletGrowGroundTruthOptionFactory(_GrowLegacyOptionsMixin,
         tilting that doesn't map directly to MOVE_TO_POSE /
         CHANGE_FINGERS phases.
         """
+        del predicates  # unused in skill factory implementation
 
         _, pybullet_robot, _ = \
             PyBulletGrowEnv.initialize_pybullet(using_gui=False)
@@ -96,7 +97,8 @@ class PyBulletGrowGroundTruthOptionFactory(_GrowLegacyOptionsMixin,
         ) -> Tuple[float, float, float, float]:
             del params, config
             _, jug = objects
-            hx, hy, hz = env_cls._get_jug_handle_grasp(state, jug)  # type: ignore[attr-defined]
+            hx, hy, hz = env_cls._get_jug_handle_grasp(
+                state, jug)  # type: ignore[attr-defined]
             return (hx, hy, hz, state.get(jug, "rot"))
 
         PickJug = create_pick_skill(

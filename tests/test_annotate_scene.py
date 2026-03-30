@@ -269,6 +269,7 @@ def test_annotate_no_env(ctx):
 
 
 def main() -> None:
+    """Main."""
     with tempfile.TemporaryDirectory() as sandbox_dir:
         print("Setting up boil environment (with GUI for debug lines)...")
         ctx, _env = _setup(sandbox_dir=sandbox_dir)
