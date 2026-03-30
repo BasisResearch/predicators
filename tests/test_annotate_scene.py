@@ -13,10 +13,9 @@ import asyncio
 import os
 import tempfile
 
+import pytest
 
 # Bootstrap circular imports
-import predicators.utils  # noqa: F401  # pylint: disable=unused-import
-from predicators import utils as pred_utils
 from predicators.settings import CFG
 
 _CFG_OVERRIDES = {
@@ -87,6 +86,14 @@ def _make_tools(ctx, tool_names=None):
     from predicators.agent_sdk.tools import create_mcp_tools
     tools = create_mcp_tools(ctx, tool_names=tool_names)
     return {t.name: t.handler for t in tools}
+
+
+@pytest.fixture(scope="module")
+def ctx(tmp_path_factory):
+    """Create the ToolContext shared by all tests in this module."""
+    sandbox_dir = str(tmp_path_factory.mktemp("sandbox"))
+    ctx, _env = _setup(sandbox_dir=sandbox_dir)
+    return ctx
 
 
 # ===== Tests =====

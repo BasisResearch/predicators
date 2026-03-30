@@ -174,9 +174,15 @@ def _skeleton_based_score_function(
         heuristic = utils.create_task_planning_heuristic(  # type: ignore[type-var]
             CFG.sesame_task_planning_heuristic, init_atoms, train_task.goal,
             ground_nsrts, current_predicate_set, objects)
-        generator = task_plan(init_atoms, train_task.goal, ground_nsrts,  # type: ignore[arg-type]
-                              reachable_atoms, heuristic, seed, timeout,
-                              max_skeletons)
+        generator = task_plan(
+            init_atoms,
+            train_task.goal,
+            ground_nsrts,  # type: ignore[arg-type]
+            reachable_atoms,
+            heuristic,
+            seed,
+            timeout,
+            max_skeletons)
         task_results = []
         try:
             for idx, (plan_skeleton, plan_atoms_sequence, metrics) in \

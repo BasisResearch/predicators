@@ -31,7 +31,7 @@ from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
 
 def test_create_score_function():
     """Tests for create_score_function()."""
-    score_func = create_score_function("prediction_error", set(), [], {}, [])
+    score_func = create_score_function("prediction_error", set(), [], {}, [], None)
     assert isinstance(score_func, _PredictionErrorScoreFunction)
     score_func = create_score_function("hadd_match", set(), [], {}, [])
     assert isinstance(score_func, _RelaxationHeuristicMatchBasedScoreFunction)

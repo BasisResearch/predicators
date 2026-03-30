@@ -1,3 +1,4 @@
+"""Prepare all environment images for documentation."""
 import os
 import shutil
 from pathlib import Path

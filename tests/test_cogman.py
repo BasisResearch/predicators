@@ -115,6 +115,11 @@ def test_run_episode_and_get_observations():
             del task, timeout  # unused
             return self._policy
 
+        @classmethod
+        def get_name(cls) -> str:
+            """Return mock approach name."""
+            return "mock"
+
         def get_execution_monitoring_info(self) -> List[Any]:
             """Just return empty list."""
             return []
@@ -156,6 +161,8 @@ def test_run_episode_and_get_observations():
     assert monitor.num_observations == 1
 
     class _MockEnv:
+
+        predicates = set()
 
         @staticmethod
         def reset(train_or_test, task_idx):

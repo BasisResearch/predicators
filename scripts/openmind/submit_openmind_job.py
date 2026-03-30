@@ -71,6 +71,7 @@ def submit_openmind_job(entry_point: str,
                         use_gpu: bool = False,
                         use_mujoco: bool = False) -> None:
     """Launch the openmind job."""
+    del use_mujoco  # unused
     # assert entry_point in ("main.py", "train_refinement_estimator.py")
     os.makedirs(log_dir, exist_ok=True)
     logfile_pattern = os.path.join(log_dir, f"{logfile_prefix}__%j.log")

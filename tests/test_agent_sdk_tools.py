@@ -21,8 +21,6 @@ import numpy as np
 import pytest
 
 # Bootstrap circular imports
-import predicators.utils  # noqa: F401  # pylint: disable=unused-import
-from predicators import utils as pred_utils
 from predicators.settings import CFG
 
 _CFG_OVERRIDES = {

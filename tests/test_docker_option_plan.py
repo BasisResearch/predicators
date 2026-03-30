@@ -23,7 +23,6 @@ import numpy as np
 
 # Bootstrap circular imports
 import predicators.utils  # noqa: F401  # pylint: disable=unused-import
-from predicators import utils as pred_utils
 from predicators.settings import CFG
 
 # Config matching predicatorv3/predicator_v3.yaml (mf_agent approach)

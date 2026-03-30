@@ -1,6 +1,5 @@
 """Test to verify robot handles out-of-bounds actions gracefully."""
 
-
 from predicators import utils
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv
 
@@ -112,8 +111,7 @@ print(f"Final position:   ({final_x:.4f}, {final_y:.4f}, {final_z:.4f})")
 print(f"\nSuccessful actions: {success_count}/{len(test_keys)}")
 
 if success_count == len(test_keys):
-    print(
-        "\n✓ PASS: All extreme movements handled gracefully without crashes")
+    print("\n✓ PASS: All extreme movements handled gracefully without crashes")
 else:
     print("\n✗ FAIL: Some movements caused crashes")
 

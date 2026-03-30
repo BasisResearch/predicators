@@ -1,3 +1,4 @@
+"""Create LaTeX figures for environment visualizations."""
 import math
 import os
 from pathlib import Path
@@ -103,9 +104,10 @@ def generate_latex_figure() -> str:
             latex_code.append("    \\hfill")
 
     # Main figure caption and label
-    latex_code.append(
-        "    \\caption{Overview of simulation environments used in the experiments. Each subfigure shows a representative image from the corresponding environment.}"
-    )
+    latex_code.append("    \\caption{Overview of simulation environments "
+                      "used in the experiments. Each subfigure shows a "
+                      "representative image from the corresponding "
+                      "environment.}")
     latex_code.append("    \\label{fig:environments}")
     latex_code.append("\\end{figure}")
 

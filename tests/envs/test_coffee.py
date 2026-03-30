@@ -21,7 +21,7 @@ def test_coffee():
     for task in env.get_test_tasks():
         for obj in task.init:
             assert len(obj.type.feature_names) == len(task.init[obj])
-    assert len(env.predicates) == 13
+    assert len(env.predicates) == 14
     assert len(env.goal_predicates) == 1
     pred_name_to_pred = {p.name: p for p in env.predicates}
     CupFilled = pred_name_to_pred["CupFilled"]
@@ -30,11 +30,11 @@ def test_coffee():
     NotAboveCup = pred_name_to_pred["NotAboveCup"]
     assert len(get_gt_options(env.get_name())) == 6
     option_name_to_option = {o.name: o for o in get_gt_options(env.get_name())}
-    assert len(env.types) == 4
+    assert len(env.types) == 5
     type_name_to_type = {t.name: t for t in env.types}
     cup_type = type_name_to_type["cup"]
     jug_type = type_name_to_type["jug"]
-    machine_type = type_name_to_type["machine"]
+    machine_type = type_name_to_type["coffee_machine"]
     robot_type = type_name_to_type["robot"]
     assert env.action_space.shape == (6, )
     # Create a custom initial state, with cups positions at the extremes of

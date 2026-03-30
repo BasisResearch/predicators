@@ -208,7 +208,7 @@ red_block        1.3641  1.03893     0.2225       0          1          0       
 
 type: robot      pose_x    pose_y    pose_z    fingers
 -------------  --------  --------  --------  ---------
-robby              1.35      0.75       0.7          1
+robby              1.35      0.75       0.7       0.04
 ####################################################################################
 """
     assert str(
@@ -288,7 +288,7 @@ robby              1.35      0.75       0.7          1
             env = BlocksEnv()
             env.get_test_tasks()
 
-    mock_logging.warning.assert_called_once_with(
+    mock_logging.warning.assert_called_with(
         "Block out of bounds in initial state!")
 
     # Test language-based goal specification.

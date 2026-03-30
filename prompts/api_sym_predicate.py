@@ -1,3 +1,6 @@
+"""API for symbolic predicate representation."""
+
+
 class Predicate:
     """A class representing a predicate (a lifted classifier over states) in
     the context of AI task planning. The function takes a state and a sequence
@@ -20,7 +23,7 @@ class Predicate:
         objects in the sequence should correspond one-to-one with the types in
         the 'types' attribute. The classifier should return True if the
         predicate holds for those objects in that state, and False otherwise.
-    """    
+    """
     name: str
     types: Sequence[Type]
     _classifier: Callable[[State, Sequence[Object]], bool]

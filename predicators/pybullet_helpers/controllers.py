@@ -104,8 +104,8 @@ def get_move_end_effector_to_pose_action(
             max_vel_norm=max_vel_norm,
             finger_action_nudge_magnitude=finger_action_nudge_magnitude,
             max_base_vel_norm=max_base_vel_norm,
-            max_base_rot_vel=max_base_rot_vel,
-            arm_reach_radius=arm_reach_radius,
+            _max_base_rot_vel=max_base_rot_vel,
+            _arm_reach_radius=arm_reach_radius,
             validate=validate,
         )
 

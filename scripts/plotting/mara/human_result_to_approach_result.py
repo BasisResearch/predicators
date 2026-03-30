@@ -1,3 +1,4 @@
+"""Convert human evaluation results to approach result format."""
 import csv
 import os
 import pickle

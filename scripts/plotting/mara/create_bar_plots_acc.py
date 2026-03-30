@@ -103,8 +103,7 @@ def _main() -> None:
     matplotlib.rcParams.update({'font.size': FONT_SIZE})
 
     grouped_means, grouped_stds, _ = create_dataframes(
-        COLUMN_NAMES_AND_KEYS,
-        GROUPS, DERIVED_KEYS)  # type: ignore[arg-type]
+        COLUMN_NAMES_AND_KEYS, GROUPS, DERIVED_KEYS)  # type: ignore[arg-type]
     means = grouped_means.reset_index()
     stds = grouped_stds.reset_index()
 

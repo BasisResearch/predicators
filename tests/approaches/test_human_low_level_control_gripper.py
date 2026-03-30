@@ -1,6 +1,5 @@
 """Test to verify gripper open/close is instant."""
 
-
 from predicators import utils
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv
 
@@ -47,10 +46,8 @@ approach._restore_terminal = lambda: None  # type: ignore[attr-defined]
 policy = approach.solve(task, timeout=10)  # type: ignore[arg-type]
 
 # Get robot for checking finger positions
-from predicators.envs.pybullet_circuit import PyBulletCircuitEnv as CircuitEnv  # pylint: disable=reimported
-
-_, shadow_robot, _ = CircuitEnv.initialize_pybullet(
-    using_gui=False)  # type: ignore[assignment]
+_, shadow_robot, _ = PyBulletCircuitEnv.initialize_pybullet(  # type: ignore[assignment]
+    using_gui=False)
 
 print(f"\nFully open position: {shadow_robot.open_fingers}")
 print(f"Fully closed position: {shadow_robot.closed_fingers}")
@@ -73,7 +70,7 @@ if abs(final_finger_pos - shadow_robot.closed_fingers) < 0.001:
     test1_pass = True
 else:
     print(
-        f"✗ FAIL: Gripper not fully closed. Distance from target: {abs(final_finger_pos - shadow_robot.closed_fingers):.4f}"
+        f"✗ FAIL: Gripper not fully closed. Distance from target: {abs(final_finger_pos - shadow_robot.closed_fingers):.4f}"  # pylint: disable=line-too-long
     )
     test1_pass = False
 
@@ -92,7 +89,7 @@ if abs(final_finger_pos - shadow_robot.open_fingers) < 0.001:
     test2_pass = True
 else:
     print(
-        f"✗ FAIL: Gripper not fully open. Distance from target: {abs(final_finger_pos - shadow_robot.open_fingers):.4f}"
+        f"✗ FAIL: Gripper not fully open. Distance from target: {abs(final_finger_pos - shadow_robot.open_fingers):.4f}"  # pylint: disable=line-too-long
     )
     test2_pass = False
 

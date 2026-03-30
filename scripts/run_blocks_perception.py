@@ -344,8 +344,12 @@ def _visualize_pybullet(blocks_data: Dict[str, Dict[str, Any]],
         r, g, b = block_data["color"]
         color = (r, g, b, 1.0)
         block_id = create_pybullet_block(
-            color, half_extents, mass, friction,
-            orientation, physics_client_id)  # type: ignore[arg-type]
+            color,
+            half_extents,
+            mass,
+            friction,
+            orientation,  # type: ignore[arg-type]
+            physics_client_id)  # type: ignore[arg-type]
         p.resetBasePositionAndOrientation(block_id, [bx, by, bz],
                                           orientation,
                                           physicsClientId=physics_client_id)

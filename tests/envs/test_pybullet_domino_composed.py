@@ -15,25 +15,30 @@ class TestDominoComponent:
     """Tests for DominoComponent."""
 
     def setup_method(self) -> None:
+        """setup method."""
         workspace_bounds = {
-            "x_lb": 0.4, "x_ub": 1.1,
-            "y_lb": 1.1, "y_ub": 1.6,
-            "z_lb": 0.4, "z_ub": 0.95,
+            "x_lb": 0.4,
+            "x_ub": 1.1,
+            "y_lb": 1.1,
+            "y_ub": 1.6,
+            "z_lb": 0.4,
+            "z_ub": 0.95,
         }
         CFG.domino_use_domino_blocks_as_target = True
         CFG.domino_has_glued_dominos = False
-        self.comp = DominoComponent(
-            num_dominos_max=5,
-            num_targets_max=2,
-            num_pivots_max=1,
-            workspace_bounds=workspace_bounds)
+        self.comp = DominoComponent(num_dominos_max=5,
+                                    num_targets_max=2,
+                                    num_pivots_max=1,
+                                    workspace_bounds=workspace_bounds)
 
     def test_get_types(self) -> None:
+        """Test get types."""
         types = self.comp.get_types()
         type_names = {t.name for t in types}
         assert "domino" in type_names
 
     def test_get_predicates(self) -> None:
+        """Test get predicates."""
         preds = self.comp.get_predicates()
         pred_names = {p.name for p in preds}
         assert "Toppled" in pred_names
@@ -41,17 +46,20 @@ class TestDominoComponent:
         assert "Tilting" in pred_names
 
     def test_get_goal_predicates(self) -> None:
+        """Test get goal predicates."""
         goal_preds = self.comp.get_goal_predicates()
         assert len(goal_preds) == 1
         assert "Toppled" in {p.name for p in goal_preds}
 
     def test_get_objects(self) -> None:
+        """Test get objects."""
         objects = self.comp.get_objects()
         # With domino_use_domino_blocks_as_target=True,
         # dominos = 5 + 2 = 7, targets = 0, pivots = 1
         assert len(objects) == 8
 
     def test_place_domino(self) -> None:
+        """Test place domino."""
         d = self.comp.place_domino(0, 0.5, 1.3, 0.0, is_start_block=True)
         assert d["x"] == 0.5
         assert d["y"] == 1.3
@@ -60,6 +68,7 @@ class TestDominoComponent:
         assert d["r"] == pytest.approx(0.56, abs=0.01)
 
     def test_place_target_domino(self) -> None:
+        """Test place target domino."""
         d = self.comp.place_domino(1, 0.6, 1.3, 0.0, is_target_block=True)
         # Target should have purple/pink color
         assert d["r"] == pytest.approx(0.85, abs=0.01)
@@ -69,26 +78,31 @@ class TestGridComponent:
     """Tests for GridComponent."""
 
     def setup_method(self) -> None:
+        """setup method."""
         self.workspace_bounds = {
-            "x_lb": 0.4, "x_ub": 1.1,
-            "y_lb": 1.1, "y_ub": 1.6,
-            "z_lb": 0.4, "z_ub": 0.95,
+            "x_lb": 0.4,
+            "x_ub": 1.1,
+            "y_lb": 1.1,
+            "y_ub": 1.6,
+            "z_lb": 0.4,
+            "z_ub": 0.95,
         }
         self.domino_type = Type(
             "domino", ["x", "y", "z", "yaw", "roll", "r", "g", "b", "is_held"])
         CFG.domino_include_connected_predicate = True
-        self.comp = GridComponent(
-            workspace_bounds=self.workspace_bounds,
-            pos_gap=0.098,
-            domino_type=self.domino_type)
+        self.comp = GridComponent(workspace_bounds=self.workspace_bounds,
+                                  pos_gap=0.098,
+                                  domino_type=self.domino_type)
 
     def test_get_types(self) -> None:
+        """Test get types."""
         types = self.comp.get_types()
         type_names = {t.name for t in types}
         assert "loc" in type_names
         assert "angle" in type_names
 
     def test_get_predicates(self) -> None:
+        """Test get predicates."""
         preds = self.comp.get_predicates()
         pred_names = {p.name for p in preds}
         assert "DominoAtPos" in pred_names
@@ -97,29 +111,32 @@ class TestGridComponent:
         assert "Connected" in pred_names
 
     def test_get_predicates_with_adjacent(self) -> None:
+        """Test get predicates with adjacent."""
         CFG.domino_include_connected_predicate = False
-        comp = GridComponent(
-            workspace_bounds=self.workspace_bounds,
-            pos_gap=0.098,
-            domino_type=self.domino_type)
+        comp = GridComponent(workspace_bounds=self.workspace_bounds,
+                             pos_gap=0.098,
+                             domino_type=self.domino_type)
         preds = comp.get_predicates()
         pred_names = {p.name for p in preds}
         assert "AdjacentTo" in pred_names
         assert "Connected" not in pred_names
 
     def test_rotations(self) -> None:
+        """Test rotations."""
         assert len(self.comp.rotations) == 8
 
     def test_generate_grid_coordinates(self) -> None:
+        """Test generate grid coordinates."""
         x_coords, y_coords = self.comp.generate_grid_coordinates(3, 3)
         assert len(x_coords) == 3
         assert len(y_coords) == 3
         # Grid should be centered in workspace
         x_center = (self.workspace_bounds["x_lb"] +
-                     self.workspace_bounds["x_ub"]) / 2
+                    self.workspace_bounds["x_ub"]) / 2
         assert x_coords[1] == pytest.approx(x_center, abs=0.01)
 
     def test_create_position_objects(self) -> None:
+        """Test create position objects."""
         positions, pos_dict = self.comp.create_position_objects(3, 2)
         assert len(positions) == 6
         assert len(pos_dict) == 6
@@ -128,26 +145,30 @@ class TestGridComponent:
         assert positions[0].type.name == "loc"
 
     def test_extract_feature_position(self) -> None:
+        """Test extract feature position."""
         self.comp.create_position_objects(2, 2)
         pos = self.comp.positions[0]
         assert self.comp.extract_feature(pos, "xx") is not None
         assert self.comp.extract_feature(pos, "yy") is not None
 
     def test_extract_feature_angle(self) -> None:
+        """Test extract feature angle."""
         rot = self.comp.rotations[3]  # ang_0
         val = self.comp.extract_feature(rot, "angle")
         assert val == 0.0
 
     def test_extract_feature_unknown(self) -> None:
+        """Test extract feature unknown."""
         domino = Object("d0", self.domino_type)
         assert self.comp.extract_feature(domino, "x") is None
 
     def test_get_init_dict_entries(self) -> None:
+        """Test get init dict entries."""
         rng = np.random.default_rng(0)
         entries = self.comp.get_init_dict_entries(rng)
         assert len(entries) == 8  # 8 rotation objects
         # Check that angle values are present
-        for obj, d in entries.items():
+        for _obj, d in entries.items():
             assert "angle" in d
 
     def test_connected_predicate(self) -> None:
@@ -168,12 +189,12 @@ class TestGridComponent:
         assert self.comp._Connected_holds(state, [positions[0], positions[3]])
 
         # pos (0,0) and (1,1) should NOT be connected (diagonal)
-        assert not self.comp._Connected_holds(
-            state, [positions[0], positions[4]])
+        assert not self.comp._Connected_holds(state,
+                                              [positions[0], positions[4]])
 
         # Same position should not be connected
-        assert not self.comp._Connected_holds(
-            state, [positions[0], positions[0]])
+        assert not self.comp._Connected_holds(state,
+                                              [positions[0], positions[0]])
 
     def test_pos_clear_predicate(self) -> None:
         """Test PosClear predicate."""
@@ -184,8 +205,9 @@ class TestGridComponent:
         # Create state with one domino at position (0,0) and position objects
         domino = Object("d0", self.domino_type)
         data = {
-            domino: np.array([x0, y0, 0.5, 0.0, 0.0, 0.6, 0.8, 1.0, 0.0],
-                             dtype=np.float32),
+            domino:
+            np.array([x0, y0, 0.5, 0.0, 0.0, 0.6, 0.8, 1.0, 0.0],
+                     dtype=np.float32),
         }
         for pos, d in pos_dict.items():
             data[pos] = np.array([d["xx"], d["yy"]], dtype=np.float32)
@@ -205,8 +227,9 @@ class TestGridComponent:
 
         domino = Object("d0", self.domino_type)
         data = {
-            domino: np.array([x0, y0, 0.5, 0.0, 0.0, 0.6, 0.8, 1.0, 0.0],
-                             dtype=np.float32),
+            domino:
+            np.array([x0, y0, 0.5, 0.0, 0.0, 0.6, 0.8, 1.0, 0.0],
+                     dtype=np.float32),
         }
         for pos, d in pos_dict.items():
             data[pos] = np.array([d["xx"], d["yy"]], dtype=np.float32)
@@ -225,10 +248,13 @@ class TestGridComponent:
         domino = Object("d0", self.domino_type)
         # yaw = 0 radians
         data = {
-            domino: np.array([0.5, 1.3, 0.5, 0.0, 0.0, 0.6, 0.8, 1.0, 0.0],
-                             dtype=np.float32),
-            rot_0: np.array([0.0], dtype=np.float32),
-            rot_90: np.array([90.0], dtype=np.float32),
+            domino:
+            np.array([0.5, 1.3, 0.5, 0.0, 0.0, 0.6, 0.8, 1.0, 0.0],
+                     dtype=np.float32),
+            rot_0:
+            np.array([0.0], dtype=np.float32),
+            rot_90:
+            np.array([90.0], dtype=np.float32),
         }
         state = State(data)
 

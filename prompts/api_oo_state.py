@@ -1,13 +1,19 @@
+"""API for object-oriented state representation."""
+
+
 class State:
     """A class representing the low-level state of the world.
 
     Attributes:
     -----------
     data : Dict[Object, Array]
-        A dictionary mapping objects to their feature vectors. The feature vectors are numpy arrays.
+        A dictionary mapping objects to their feature vectors.
+        The feature vectors are numpy arrays.
 
     simulator_state : Optional[Any]
-        Some environments may need to store additional simulator state. This field is provided for that purpose. It is optional and defaults to None.
+        Some environments may need to store additional simulator
+        state. This field is provided for that purpose. It is
+        optional and defaults to None.
 
     Methods:
     --------
@@ -39,20 +45,20 @@ class State:
         -------
         ValueError
             If the specified feature name is not found in the object's type feature names.
-        
+
         Examples:
         ---------
         >>> # An example for predicate Covers
-        >>> _block_type = Type("block", ["is_block", "is_target", "width", 
+        >>> _block_type = Type("block", ["is_block", "is_target", "width",
                 "pose", "grasp"])
-        >>> _target_type = Type("target", ["is_block", "is_target", "width", 
+        >>> _target_type = Type("target", ["is_block", "is_target", "width",
                 "pose"])
         >>> block1 = Object("block1", _block_type)
         >>> target1 = Object("target1", _target_type)
         >>> state = State({
-                block1: np.array([1.0, 0.0, 0.1, 0.2, -1.0]), 
+                block1: np.array([1.0, 0.0, 0.1, 0.2, -1.0]),
                 target1: np.array([0.0, 1.0, 0.05, 0.4])})
-        >>> def _Covers_holds(state: State, objects: Sequence[Object]) -> 
+        >>> def _Covers_holds(state: State, objects: Sequence[Object]) ->
                     bool:
         >>>     block, target = objects
         >>>     block_pose = state.get(block, "pose")
@@ -68,7 +74,7 @@ class State:
                         _Covers_holds)
 
         >>> # Another example for predicate On
-        >>> _block_type = Type("block", ["pose_x", "pose_y", "pose_z", 
+        >>> _block_type = Type("block", ["pose_x", "pose_y", "pose_z",
                             "held", "color_r", "color_g", "color_b"])
         >>> block1 = Object("block1", _block_type)
         >>> block2 = Object("block2", _block_type)
@@ -76,8 +82,7 @@ class State:
                 block1: np.array([1.0, 3.0, 0.2, 0.0, 1.0, 0.0, 0.0]),
                 block2: np.array([2.0, 3.0, 0.3, 0.0, 0.0, 1.0, 0.0])})
         >>> on_tol = 0.01
-        >>> def _On_holds(self, state: State, objects: Sequence[Object]) ->\ 
-                bool:
+        >>> def _On_holds(self, state, objects) -> bool:
         >>>     block1, block2 = objects
         >>>     if state.get(block1, "held") >= self.held_tol or \
         >>>        state.get(block2, "held") >= self.held_tol:
@@ -88,7 +93,7 @@ class State:
         >>>     x2 = state.get(block2, "pose_x")
         >>>     y2 = state.get(block2, "pose_y")
         >>>     z2 = state.get(block2, "pose_z")
-        >>>     return np.allclose([x1, y1, z1], 
+        >>>     return np.allclose([x1, y1, z1],
                         [x2, y2, z2 + self._block_size],
                         atol=on_tol)
         >>> _On = Predicate("On", [_block_type, _block_type],
@@ -106,7 +111,7 @@ class State:
         Returns:
         --------
         List[Object]
-            A list of objects of the specified type, in the order they are 
+            A list of objects of the specified type, in the order they are
             iterated over in the state.
 
         Examples:

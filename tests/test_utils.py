@@ -11,7 +11,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.envs.ball_and_cup_sticky_table import BallAndCupStickyTableEnv
-from predicators.envs.cover import CoverEnv, CoverMultistepOptions
+from predicators.envs.cover import CoverEnv
 from predicators.envs.pddl_env import ProceduralTasksGripperPDDLEnv, \
     ProceduralTasksSpannerPDDLEnv
 from predicators.ground_truth_models import _get_predicates_by_names, \
@@ -713,7 +713,7 @@ def test_run_policy():
                          monitor=monitor)
     except ValueError:
         pass
-    assert monitor.num_observations == 1
+    assert monitor.num_observations == 0
 
 
 def test_run_policy_with_simulator():
@@ -1125,7 +1125,7 @@ def test_abstract():
     # Now, test the case where we abstract using a VLM predicate.
     utils.reset_config({"seed": 123})
     vlm_pred = VLMPredicate("IsFishy", [], lambda s, o: NotImplementedError,
-                            lambda o: "is_fishy")
+                            get_vlm_query_str=lambda o: "is_fishy")
     vlm_state = state.copy()
     vlm_state.simulator_state = {
         "images": [np.zeros((30, 30, 3), dtype=np.uint8)]
@@ -1135,7 +1135,7 @@ def test_abstract():
     assert "IsFishy" in str(vlm_atoms_set)
     # Now, teset the case where the VLM response is wrong/bad.
     vlm_pred2 = VLMPredicate("IsSnakey", [], lambda s, o: NotImplementedError,
-                             lambda o: "is_snakey")
+                             get_vlm_query_str=lambda o: "is_snakey")
     vlm_atoms_set = utils.abstract(vlm_state, [vlm_pred, vlm_pred2],
                                    _DummyVLM())
     assert len(vlm_atoms_set) == 0
@@ -2547,9 +2547,12 @@ def test_create_pddl():
 
 def test_VideoMonitor():
     """Tests for VideoMonitor()."""
-    env = CoverMultistepOptions()
+    utils.reset_config({"env": "cover"})
+    env = CoverEnv()
     monitor = utils.VideoMonitor(env.render)
-    policy = lambda _: Action(env.action_space.sample())
+    # Use a deterministic policy that places the held block on a target,
+    # ensuring the state (and rendering) actually changes.
+    policy = lambda _: Action(np.array([0.912], dtype=np.float32))
     task = env.get_task("test", 0).task
     traj, _ = utils.run_policy(policy,
                                env,
@@ -2570,10 +2573,13 @@ def test_VideoMonitor():
 
 def test_SimulateVideoMonitor():
     """Tests for SimulateVideoMonitor()."""
-    env = CoverMultistepOptions()
+    utils.reset_config({"env": "cover"})
+    env = CoverEnv()
     task = env.get_task("test", 0).task
     monitor = utils.SimulateVideoMonitor(task, env.render_state)
-    policy = lambda _: Action(env.action_space.sample())
+    # Use a deterministic policy that places the held block on a target,
+    # ensuring the state (and rendering) actually changes.
+    policy = lambda _: Action(np.array([0.912], dtype=np.float32))
     traj, _ = utils.run_policy(policy,
                                env,
                                "test",

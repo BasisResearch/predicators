@@ -370,14 +370,12 @@ def test_option(state):
     assert (repr(parameterized_option) == str(parameterized_option) ==
             "ParameterizedOption(name='Pick', types=[])")
     params = [-15, 5]
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         parameterized_option.ground([], params)  # params not in params_space
     params = [-5, 5]
     option = parameterized_option.ground([], params)
     assert isinstance(option, _Option)
-    assert repr(option) == str(option) == (
-        "_Option(name='Pick', objects=[], "
-        "params=array([-5.,  5.], dtype=float32))")
+    assert str(option) == "Pick(, -5.0, 5.0)"
     assert option.name == "Pick"
     assert option.memory == {}
     assert option.parent.name == "Pick"
@@ -390,9 +388,7 @@ def test_option(state):
     params = [5, -5]
     option = parameterized_option.ground([], params)
     assert isinstance(option, _Option)
-    assert repr(option) == str(option) == (
-        "_Option(name='Pick', objects=[], params=array([ 5., -5.], "
-        "dtype=float32))")
+    assert str(option) == "Pick(, 5.0, -5.0)"
     assert option.name == "Pick"
     assert option.parent.name == "Pick"
     assert option.parent is parameterized_option
@@ -408,15 +404,13 @@ def test_option(state):
                                                 policy, initiable, terminal)
     assert parameterized_option2 > parameterized_option
     assert parameterized_option < parameterized_option2
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         parameterized_option.ground([], params)  # grounding type mismatch
-    with pytest.raises(AssertionError):
+    with pytest.raises(TypeError):
         parameterized_option.ground([obj1], params)  # grounding type mismatch
     option = parameterized_option.ground([obj7], params)
     assert isinstance(option, _Option)
-    assert repr(option) == str(option) == (
-        "_Option(name='Pick', objects=[obj7:type1], "
-        "params=array([ 5., -5.], dtype=float32))")
+    assert str(option) == "Pick(obj7, 5.0, -5.0)"
     parameterized_option = utils.SingletonParameterizedOption(
         "Pick", policy, types=[type1], params_space=params_space)
     option = parameterized_option.ground([obj7], params)
