@@ -1057,13 +1057,13 @@ class PyBulletState(State):
         return cast(JointPositions, jp)
 
     @property
-    def state_image(self) -> Image:
+    def state_image(self) -> PIL.Image.Image:
         """Expose the current image state in the simulator_state."""
         assert isinstance(self.simulator_state, Dict)
         return self.simulator_state["unlabeled_image"]
 
     @property
-    def labeled_image(self) -> Optional[Image]:
+    def labeled_image(self) -> Optional[PIL.Image.Image]:
         """Expose the current image state in the simulator_state."""
         assert isinstance(self.simulator_state, Dict)
         return self.simulator_state.get("images")
