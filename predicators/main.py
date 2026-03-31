@@ -767,6 +767,7 @@ def _save_test_results(results: Metrics,
     avg_suc_time = results["avg_suc_time"]
     logging.info(f"Tasks solved: {num_solved} / {num_total}")
     logging.info(f"Average time for successes: {avg_suc_time:.5f} seconds")
+    os.makedirs(CFG.results_dir, exist_ok=True)
     outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}__"
                f"{online_learning_cycle}.pkl")
     # Save CFG alongside results.
