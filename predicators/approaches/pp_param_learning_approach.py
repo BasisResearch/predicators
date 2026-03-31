@@ -366,10 +366,10 @@ def learn_process_parameters(
         # pylint: enable=cell-var-from-loop
 
         if use_lbfgs:
-            current_optim.step(closure)
+            current_optim.step(closure)  # type: ignore[misc,no-untyped-call]
         else:
             loss = closure()
-            current_optim.step()  # pylint: disable=no-value-for-parameter
+            current_optim.step()  # type: ignore[call-arg,no-untyped-call]
             if scheduler:
                 if debug_log:
                     prev_lr = scheduler.get_last_lr()
