@@ -763,8 +763,11 @@ def test_external_oracle_approach():
             # Need to rewrite these lines here to avoid assertion in simulate
             # that uses action_space.
             x, y, z, fingers = action.arr[::-1]
-            # Infer which transition function to follow
-            if fingers < 0.5:
+            # Infer which transition function to follow based on whether the
+            # finger value is closer to closed or open.
+            fingers_closing = abs(fingers - self.closed_fingers) < \
+                abs(fingers - self.open_fingers)
+            if fingers_closing:
                 return self._transition_pick(state, x, y, z)
             if z < self.table_height + self._block_size:
                 return self._transition_putontable(state, x, y, z)
