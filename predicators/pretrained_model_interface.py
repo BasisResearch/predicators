@@ -167,12 +167,12 @@ class LargeLanguageModel(PretrainedLargeModel):
 class OpenAIModel():
     """Common interface with methods for all OpenAI-based models."""
 
+    _openai_key: Optional[str] = None
+
     def set_openai_key(self, key: Optional[str] = None) -> None:
         """Set the OpenAI API key."""
         if key is None:
             key = os.environ.get("OPENAI_API_KEY")
-            if key is None:
-                return
         self._openai_key = key
 
     @retry(wait=wait_random_exponential(min=1, max=60),
