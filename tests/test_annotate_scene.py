@@ -28,7 +28,7 @@ _CFG_OVERRIDES = {
     "approach": "agent_planner",
     "seed": 0,
     "use_gui": False,
-    "option_model_use_gui": True,
+    "option_model_use_gui": False,
     "num_train_tasks": 1,
     "num_test_tasks": 1,
     "skill_phase_use_motion_planning": True,
