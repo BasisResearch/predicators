@@ -43,7 +43,6 @@ from pathlib import Path
 from typing import Any, List, Optional, Sequence, Tuple, Union
 
 import dill as pkl
-import wandb
 
 from predicators import utils
 from predicators.approaches import ApproachFailure, ApproachTimeout, \
@@ -155,12 +154,6 @@ def main() -> None:
     utils.configure_logging()
     os.makedirs(CFG.results_dir, exist_ok=True)
     os.makedirs(CFG.eval_trajectories_dir, exist_ok=True)
-
-    # Initialize wandb if enabled
-    if CFG.use_wandb:
-        wandb.init(project="predicators",
-                   config=vars(CFG),
-                   name=f"{CFG.env}_{CFG.approach}_{CFG.seed}")
 
     # Log initial info
     utils.log_initial_info(str_args)
@@ -321,18 +314,6 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
                          f"({sum(task_first_solve_attempts.values())}/"
                          f"{len(task_first_solve_attempts)})")
 
-            # Log to wandb if enabled
-            if CFG.use_wandb:
-                wandb.log({
-                    "train_task_solve_rate":
-                    train_task_solve_rate,
-                    "online_learning_cycle":
-                    i,
-                    "num_tasks_attempted":
-                    len(task_first_solve_attempts),
-                    "num_tasks_solved":
-                    sum(task_first_solve_attempts.values())
-                })
         else:
             train_task_solve_rate = 0.0
 

@@ -16,7 +16,6 @@ from typing import Any, Dict, FrozenSet, Iterator, List, Optional, Set, \
 
 import multiprocess as mp  # type: ignore[import-untyped]
 import psutil  # type: ignore[import-untyped]
-import wandb
 from pathos.multiprocessing import ProcessingPool as Pool
 
 from predicators import utils
@@ -1138,11 +1137,6 @@ class ClusteringProcessLearner(ClusteringSTRIPSLearner):
         for i, candidate in enumerate(candidates_with_scores[:num_to_log]):
             score, condition_candidate = candidate
             logging.debug(f"{i}: {condition_candidate}, Score: {score:.4f}")
-            if CFG.use_wandb:
-                wandb.log({
-                    f"candidate_{i}_score": score,
-                    f"candidate_{i}_condition": str(condition_candidate)
-                })
         return candidates_with_scores[:position]
 
     def _get_top_consistent_conditions(self, initial_atom: Set[LiftedAtom],
@@ -1844,13 +1838,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         base_process = pnad.make_exogenous_process()
         logging.debug("Pruning %d candidates for PNAD %d:\n%s",
                       len(all_candidates), pnad_idx, base_process)
-        if CFG.use_wandb:
-            wandb.log({
-                "pruning_info":
-                f"Pruning {len(all_candidates)} candidates for PNAD {pnad_idx}",
-                "base_process": str(base_process)
-            })
-
         candidates_with_approx_scores = []
         for candidate in all_candidates:
             base_process.condition_at_start = candidate
@@ -1875,11 +1862,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
 
         logging.debug("Pruned to %d candidates for PNAD %d.",
                       len(pruned_candidates), pnad_idx)
-        if CFG.use_wandb:
-            wandb.log({
-                "pruned_candidates_count": len(pruned_candidates),
-                "pnad_id": pnad_idx
-            })
 
         return pruned_candidates
 
@@ -1954,12 +1936,6 @@ class ClusterAndSearchProcessLearner(ClusteringProcessLearner):
         """Log the scored conditions for debugging."""
         logging.debug("Scored conditions for Process sketch "
                       "%d:\n%s", pnad_idx, pnad.make_exogenous_process())
-        if CFG.use_wandb:
-            wandb.log({
-                f"process_sketch_{pnad_idx}":
-                str(pnad.make_exogenous_process())
-            })
-
         for rank, result in enumerate(scored_conditions):
             cost, condition_candidate, scores, process = result
             params = process._get_parameters()  # pylint: disable=protected-access

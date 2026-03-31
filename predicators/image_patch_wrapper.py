@@ -2,9 +2,9 @@
 import os
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
-import cv2
 import matplotlib.figure as mplfigure
 import numpy as np
+import scipy.ndimage
 import torch as th
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from PIL import Image
@@ -212,7 +212,7 @@ class ImagePatch:
             # distanceTransform requires uint8 or int
             mask_uint8 = mask.astype(np.uint8)
             mask_padded = np.pad(mask_uint8, ((1, 1), (1, 1)), 'constant')
-            mask_dt = cv2.distanceTransform(mask_padded, cv2.DIST_L2, 0)  # pylint: disable=no-member
+            mask_dt = scipy.ndimage.distance_transform_edt(mask_padded)
             mask_dt = mask_dt[1:-1, 1:-1]
             max_dist = np.max(mask_dt)
             coords_y, coords_x = np.where(mask_dt == max_dist)

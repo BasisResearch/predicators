@@ -70,7 +70,6 @@ APPROACHES:
   #   #   - "load_approach"
   #   #   - "restart_learning" # Add to restart learning after skipping cycles.
   #   FLAGS:
-  #     use_wandb: False
   #     bilevel_plan_without_sim: True
   #     # skip_until_cycle: 4
   #     demonstrator: "oracle_process_planning"
@@ -139,7 +138,6 @@ APPROACHES:
   #   #   - "restart_learning" # Add to restart learning after skipping cycles.
   #   FLAGS:
   #     process_learner_ablate_bayes: True
-  #     use_wandb: False
   #     bilevel_plan_without_sim: True
   #     # skip_until_cycle: 4
   #     demonstrator: "oracle_process_planning"
@@ -207,7 +205,6 @@ APPROACHES:
   #   #   - "load_approach"
   #   #   - "restart_learning" # Add to restart learning after skipping cycles.
   #   FLAGS:
-  #     use_wandb: False
   #     bilevel_plan_without_sim: True
   #     # skip_until_cycle: 4
   #     demonstrator: "oracle_process_planning"
