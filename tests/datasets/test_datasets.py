@@ -385,6 +385,51 @@ def test_demo_dataset_loading(num_train_tasks, load_data, demonstrator,
         assert "Cannot load data" in str(e)
 
 
+def _ensure_blocks_demo_data_exists():
+    """Generate the 10-task blocks demo dataset if it doesn't exist.
+
+    Several parametrized cases of test_demo_dataset_loading_tricky_case
+    depend on this data file existing. When pytest-split distributes
+    parametrized cases across groups, the generating case may not run
+    first, so we ensure it here.
+    """
+    saved_cfg = {
+        "env": CFG.env,
+        "num_train_tasks": CFG.num_train_tasks,
+        "load_data": CFG.load_data,
+        "demonstrator": CFG.demonstrator,
+    }
+    utils.reset_config({
+        "env": "blocks",
+        "approach": "random_actions",
+        "offline_data_method": "demo",
+        "offline_data_planning_timeout": 0.01,
+        "option_learner": "no_learning",
+        "num_train_tasks": 10,
+        "load_data": False,
+        "demonstrator": "oracle",
+    })
+    dataset_fname, _ = utils.create_dataset_filename_str(
+        saving_ground_atoms=False)
+    if not os.path.exists(dataset_fname):
+        env = BlocksEnv()
+        train_tasks = [t.task for t in env.get_train_tasks()]
+        predicates, _ = utils.parse_config_excluded_predicates(env)
+        create_dataset(env, train_tasks, get_gt_options(env.get_name()),
+                       predicates)
+    # Restore the original config.
+    utils.reset_config({
+        "env": saved_cfg["env"],
+        "approach": "random_actions",
+        "offline_data_method": "demo",
+        "offline_data_planning_timeout": 0.01,
+        "option_learner": "no_learning",
+        "num_train_tasks": saved_cfg["num_train_tasks"],
+        "load_data": saved_cfg["load_data"],
+        "demonstrator": saved_cfg["demonstrator"],
+    })
+
+
 @pytest.mark.parametrize(
     "num_train_tasks,load_data,demonstrator,do_wipe_data_dir",
     [(10, False, "oracle", True), (20, True, "oracle", False),
@@ -404,7 +449,12 @@ def test_demo_dataset_loading_tricky_case(num_train_tasks, load_data,
         "demonstrator": demonstrator,
     })
     if do_wipe_data_dir:
-        shutil.rmtree(CFG.data_dir)
+        shutil.rmtree(CFG.data_dir, ignore_errors=True)
+    # When loading data that depends on a previously generated file,
+    # ensure the base 10-task data file exists. This is needed when
+    # pytest-split runs parametrized cases in separate groups.
+    if load_data and demonstrator == "oracle" and not do_wipe_data_dir:
+        _ensure_blocks_demo_data_exists()
     env = BlocksEnv()
     train_tasks = [t.task for t in env.get_train_tasks()]
     predicates, _ = utils.parse_config_excluded_predicates(env)

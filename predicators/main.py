@@ -577,6 +577,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
 
             # Optionally save a successful trajectory
             if CFG.save_eval_trajs:
+                os.makedirs(CFG.eval_trajectories_dir, exist_ok=True)
                 traj_file = f"{save_prefix}__task{task_idx+1}.traj"
                 traj_file_path = Path(CFG.eval_trajectories_dir) / traj_file
                 traj_data = {
