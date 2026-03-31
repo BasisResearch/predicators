@@ -369,7 +369,8 @@ def learn_process_parameters(
             current_optim.step(closure)  # type: ignore[misc,no-untyped-call]
         else:
             loss = closure()
-            current_optim.step()  # type: ignore[call-arg,no-untyped-call]  # pylint: disable=no-value-for-parameter
+            # pylint: disable-next=no-value-for-parameter
+            current_optim.step()  # type: ignore[call-arg,no-untyped-call]
             if scheduler:
                 if debug_log:
                     prev_lr = scheduler.get_last_lr()
