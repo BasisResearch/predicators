@@ -6,8 +6,10 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10.14"]
+        group: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
     - uses: actions/checkout@v2
     - name: Set up Python ${{ matrix.python-version }}
@@ -16,12 +18,46 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - run: |
         pip install -e .
-        pip install pytest-cov==2.12.1
-    - name: Pytest
+        pip install pytest-cov==2.12.1 pytest-split
+    - name: Pytest (group ${{ matrix.group }}/8)
       run: |
-        pytest -s tests/ --cov-config=.coveragerc --cov=predicators/ --cov=tests/ --cov-report=term-missing:skip-covered
+        pytest -s tests/ --splits 8 --group ${{ matrix.group }} --splitting-algorithm least_duration --cov-config=.coveragerc --cov=predicators/ --cov=tests/ --cov-report=term-missing:skip-covered
       env:
         PYTHONHASHSEED: 0
+    - name: Upload coverage
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-group-${{ matrix.group }}
+        path: .coverage
+        include-hidden-files: true
+
+  coverage:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python 3.10.14
+      uses: actions/setup-python@v2
+      with:
+        python-version: "3.10.14"
+    - run: |
+        pip install -e .
+        pip install pytest-cov==2.12.1 coverage
+    - name: Download coverage artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: coverage-group-*
+        path: coverage-data
+    - name: Merge and report coverage
+      run: |
+        i=1
+        for dir in coverage-data/coverage-group-*; do
+          cp "$dir/.coverage" ".coverage.$i"
+          i=$((i + 1))
+        done
+        coverage combine
+        coverage report --show-missing --skip-covered
+
   static-type-checking:
     runs-on: ubuntu-latest
     strategy:

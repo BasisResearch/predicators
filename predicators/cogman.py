@@ -214,9 +214,8 @@ def run_episode_and_get_observations(
         if monitor is not None:
             monitor.reset(train_or_test, task_idx)
     render_obs = True if (
-        cogman.get_approach_name == "oracle"
-        and CFG.offline_data_method == "geo_and_demo_with_vlm_imgs"
-    ) else CFG.rgb_observation
+        cogman.get_approach_name == "oracle" and CFG.offline_data_method
+        == "geo_and_demo_with_vlm_imgs") else CFG.rgb_observation
     if isinstance(env, PyBulletEnv):
         obs = env.get_observation(render=render_obs)
     else:
