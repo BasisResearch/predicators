@@ -16,6 +16,13 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Cache pip packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ matrix.python-version }}-${{ hashFiles('setup.py') }}
+        restore-keys: |
+          pip-${{ matrix.python-version }}-
     - run: |
         pip install -e .
         pip install pytest-cov==2.12.1 pytest-split
@@ -41,8 +48,7 @@ jobs:
       with:
         python-version: "3.10.14"
     - run: |
-        pip install -e .
-        pip install pytest-cov==2.12.1 coverage
+        pip install coverage
     - name: Download coverage artifacts
       uses: actions/download-artifact@v4
       with:
@@ -69,6 +75,13 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Cache pip packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ matrix.python-version }}-${{ hashFiles('setup.py') }}
+        restore-keys: |
+          pip-${{ matrix.python-version }}-
     - name: Install dependencies
       run: |
         pip install -e .
@@ -87,6 +100,13 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Cache pip packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: pip-${{ matrix.python-version }}-${{ hashFiles('setup.py') }}
+        restore-keys: |
+          pip-${{ matrix.python-version }}-
     - name: Install dependencies
       run: |
         pip install -e .
