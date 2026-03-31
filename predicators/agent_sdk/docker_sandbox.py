@@ -75,7 +75,7 @@ def _get_claude_oauth_token() -> Optional[str]:
     """
     if sys.platform != "darwin":
         return None
-    try:
+    try:  # type: ignore[unreachable]
         result = subprocess.run(
             [
                 "security", "find-generic-password", "-s",

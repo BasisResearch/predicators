@@ -1,6 +1,7 @@
 """Tests for methods in the BaseSTRIPSLearner class."""
 
 import glob
+import os
 import shutil
 
 from predicators import utils
@@ -68,6 +69,7 @@ def test_llm_op_learning():
     segmented_trajs = [
         segment_trajectory(t, env.predicates) for t in dataset.trajectories
     ]
+    os.environ.setdefault("OPENAI_API_KEY", "dummy-key-for-testing")
     learner = LLMStripsLearner(dataset.trajectories,
                                train_tasks,
                                env.predicates,
