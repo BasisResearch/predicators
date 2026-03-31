@@ -21,7 +21,7 @@ from predicators.structs import Action, DefaultEnvironmentTask, \
 class BaseEnv(abc.ABC):
     """Base environment."""
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         self._current_observation: Observation = None  # set in reset
         self._current_task = DefaultEnvironmentTask  # set in reset
         self._set_seed(CFG.seed)

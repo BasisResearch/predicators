@@ -14,7 +14,7 @@ utils.import_submodules(__path__, __name__)
 
 def create_new_env(name: str,
                    do_cache: bool = True,
-                   use_gui: bool = True) -> BaseEnv:
+                   use_gui: bool = False) -> BaseEnv:
     """Create a new instance of an environment from its name.
 
     If do_cache is True, then cache this env instance so that it can

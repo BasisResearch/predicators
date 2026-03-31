@@ -85,7 +85,7 @@ class PyBulletMagicBinEnv(PyBulletEnv):
                         sim_features=["id", "joint_id", "joint_scale"])
     _bin_type = Type("bin", ["x", "y", "z", "rot"])
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         # Objects
         self._robot = Object("robot", self._robot_type)
         self._blocks: List[Object] = [

@@ -104,7 +104,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
     _c_battery_type = Type("c_battery",
                            ["x", "y", "z", "yaw", "pitch", "roll"])
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
 
         # Objects
         self._robot = Object("robot", self._robot_type)

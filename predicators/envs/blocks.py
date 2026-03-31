@@ -51,7 +51,7 @@ class BlocksEnv(BaseEnv):
     open_fingers: ClassVar[float] = 0.04
     closed_fingers: ClassVar[float] = 0.01
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         # Types
@@ -588,7 +588,7 @@ class BlocksEnvClear(BlocksEnv):
     argument's states.
     """
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         # Add attribute.

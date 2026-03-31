@@ -90,7 +90,7 @@ class PyBulletAntsEnv(PyBulletEnv):
                      sim_features=["id", "target_food"])
 
     def __init__(self,
-                 use_gui: bool = True,
+                 use_gui: bool = False,
                  debug_layout: bool = True) -> None:
         # Create single robot
         self._robot = Object("robot", self._robot_type)

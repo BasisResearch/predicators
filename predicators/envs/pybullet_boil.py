@@ -173,7 +173,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     _human_type = Type("human", ["happiness_level"],
                        sim_features=["id", "happiness_level"])
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         # Create the robot as an Object
         self._robot = Object("robot", self._robot_type)
 

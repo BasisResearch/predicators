@@ -85,7 +85,7 @@ class SandwichEnv(BaseEnv):
     on_tol: ClassVar[float] = 0.01
     pick_tol: ClassVar[float] = 0.0001
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         # Types
@@ -837,7 +837,7 @@ class SandwichEnvClear(SandwichEnv):
     the predicates are a function of only their argument's states.
     """
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         # Add attribute.

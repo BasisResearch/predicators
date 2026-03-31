@@ -33,7 +33,7 @@ class CoverEnv(BaseEnv):
     _target_type = Type("target", ["is_block", "is_target", "width", "pose"])
     _robot_type = Type("robot", ["hand", "pose_x", "pose_z"])
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         # Predicates
@@ -374,7 +374,7 @@ class CoverEnvHandEmpty(CoverEnv):
     only their argument's states.
     """
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         # Add attribute.
@@ -410,7 +410,7 @@ class CoverEnvTypedOptions(CoverEnv):
 class CoverEnvHierarchicalTypes(CoverEnv):
     """Toy cover domain with hierarchical types, just for testing."""
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         # Change blocks to be of a derived type
@@ -454,7 +454,7 @@ class CoverEnvRegrasp(CoverEnv):
     _allow_free_space_placing: ClassVar[bool] = True
     _initial_pick_offsets: ClassVar[List[float]] = [-0.95, 0.0, 0.95]
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         # Add a Clear predicate to prevent attempts at placing on already
@@ -519,7 +519,7 @@ class CoverMultistepOptions(CoverEnvTypedOptions):
     grip_ub: ClassVar[float] = 1.0
     snap_tol: ClassVar[float] = 1e-2
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         # Need to now include y and gripper info in state.
@@ -1042,7 +1042,7 @@ class BumpyCoverEnv(CoverEnvRegrasp):
     _allow_free_space_placing: ClassVar[bool] = False
     _bumps_regional: ClassVar[bool] = False
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         # Need to include "bumpy" feature to distinguish bumpy from smooth
@@ -1152,7 +1152,7 @@ class RegionalBumpyCoverEnv(BumpyCoverEnv):
     _allow_free_space_placing: ClassVar[bool] = True
     _bumps_regional: ClassVar[bool] = True
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         assert not CFG.bumpy_cover_right_targets, \

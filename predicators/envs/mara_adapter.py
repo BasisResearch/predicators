@@ -302,7 +302,7 @@ class MaraBaseAdapter(BaseEnv):
     Subclasses override ``_build_config`` and ``_create_mara_env``.
     """
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
         config = self._build_config(use_gui)
         self._mara_env: Any = self._create_mara_env(config, use_gui)

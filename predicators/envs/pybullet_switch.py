@@ -89,7 +89,7 @@ class PyBulletSwitchEnv(PyBulletEnv):
         sim_features=["id", "joint_id", "joint_scale", "color_count"])
     _light_type = Type("light", ["x", "y", "z", "rot", "is_on", "color_index"])
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         # Objects
         self._robot = Object("robot", self._robot_type)
         self._power_switch = Object("power_switch", self._power_switch_type)

@@ -120,7 +120,7 @@ class PyBulletFloatEnv(PyBulletEnv):
     _block_type = Type("block", ["x", "y", "z", "in_water", "is_held"],
                        sim_features=["id", "is_light"])
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         self._robot = Object("robot", self._robot_type)
         self._vessel = Object("vessel", self._vessel_type)
         self._block0 = Object("block0", self._block_type)

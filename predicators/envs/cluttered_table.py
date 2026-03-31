@@ -21,7 +21,7 @@ from predicators.structs import Action, Array, EnvironmentTask, GroundAtom, \
 class ClutteredTableEnv(BaseEnv):
     """Toy cluttered table domain."""
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         # Types

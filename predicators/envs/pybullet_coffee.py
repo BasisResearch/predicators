@@ -217,7 +217,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     _camera_pitch: ClassVar[float]
     _camera_target: ClassVar[Pose3D]
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         if CFG.coffee_render_grid_world:
             # Camera parameters for grid world
             PyBulletCoffeeEnv._camera_distance = 3

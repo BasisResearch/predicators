@@ -57,7 +57,7 @@ class PaintingEnv(BaseEnv):
     nextto_thresh: ClassVar[float] = 1.0
     on_table_height_tol: ClassVar[float] = 5e-02
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         # Types

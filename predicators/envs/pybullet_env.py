@@ -102,7 +102,7 @@ class PyBulletEnv(BaseEnv):
     _camera_fov: ClassVar[float] = 60
     _debug_text_position: ClassVar[Pose3D] = (1.65, 0.25, 0.75)
 
-    def __init__(self, use_gui: bool = True) -> None:
+    def __init__(self, use_gui: bool = False) -> None:
         super().__init__(use_gui)
 
         # Forward declaration: subclasses must define _robot
