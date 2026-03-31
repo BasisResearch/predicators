@@ -301,9 +301,9 @@ def _ensure_cover_demo_data_exists():
     """Generate the 7-task cover demo dataset if it doesn't exist.
 
     Several parametrized cases of test_demo_dataset_loading depend on
-    this data file existing (for truncation and extension). When
-    pytest-split distributes parametrized cases across groups, the
-    generating case may not run first, so we ensure it here.
+    this data file existing (for truncation and extension). When pytest-
+    split distributes parametrized cases across groups, the generating
+    case may not run first, so we ensure it here.
     """
     saved_cfg = {
         "env": CFG.env,
