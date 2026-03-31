@@ -1,8 +1,5 @@
 """Test cases for the LLM bilevel_planning approach."""
-import os
 import shutil
-
-os.environ.setdefault("OPENAI_API_KEY", "dummy-key-for-testing")
 
 from predicators import utils
 from predicators.approaches.llm_bilevel_planning_approach import \
