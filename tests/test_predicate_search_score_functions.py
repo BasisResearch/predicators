@@ -1,5 +1,4 @@
 """Tests for PredicateSearchScoreFunction classes."""
-import os
 from typing import Callable, FrozenSet, List, Set
 
 import numpy as np
@@ -31,12 +30,14 @@ from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
 
 def test_create_score_function():
     """Tests for create_score_function()."""
-    score_func = create_score_function("prediction_error", set(), [], {}, [], None)
+    score_func = create_score_function("prediction_error", set(), [], {}, [],
+                                       None)
     assert isinstance(score_func, _PredictionErrorScoreFunction)
     score_func = create_score_function("hadd_match", set(), [], {}, [], None)
     assert isinstance(score_func, _RelaxationHeuristicMatchBasedScoreFunction)
     assert score_func.heuristic_names == ["hadd"]
-    score_func = create_score_function("branching_factor", set(), [], {}, [], None)
+    score_func = create_score_function("branching_factor", set(), [], {}, [],
+                                       None)
     assert isinstance(score_func, _BranchingFactorScoreFunction)
     score_func = create_score_function("hadd_energy_lookaheaddepth0", set(),
                                        [], {}, [], None)
@@ -75,7 +76,8 @@ def test_create_score_function():
     assert score_func.heuristic_names == ["lmcut", "hff"]
     score_func = create_score_function("exact_energy", set(), [], {}, [], None)
     assert isinstance(score_func, _ExactHeuristicEnergyBasedScoreFunction)
-    score_func = create_score_function("task_planning", set(), [], {}, [], None)
+    score_func = create_score_function("task_planning", set(), [], {}, [],
+                                       None)
     assert isinstance(score_func, _TaskPlanningScoreFunction)
     score_func = create_score_function("expected_nodes_created", set(), [], {},
                                        [], None)
@@ -89,7 +91,8 @@ def test_create_score_function():
     score_func = create_score_function("exact_count", set(), [], {}, [], None)
     assert isinstance(score_func, _ExactHeuristicCountBasedScoreFunction)
     with pytest.raises(NotImplementedError):
-        create_score_function("not a real score function", set(), [], {}, [], None)
+        create_score_function("not a real score function", set(), [], {}, [],
+                              None)
 
 
 def test_predicate_search_heuristic_base_classes():
@@ -271,8 +274,10 @@ def test_relaxation_energy_score_function():
     candidates = {p: 1.0 for p in name_to_pred.values()}
     for heuristic_name in ["hadd", "hmax", "hff", "hsa", "lmcut"]:
         # Reuse dataset from above.
-        score_function = _MockEnergy(initial_predicates, atom_dataset,
-                                     candidates, train_tasks,
+        score_function = _MockEnergy(initial_predicates,
+                                     atom_dataset,
+                                     candidates,
+                                     train_tasks,
                                      heuristic_names=[heuristic_name])
         assert score_function.evaluate(set()) == float("inf")
 

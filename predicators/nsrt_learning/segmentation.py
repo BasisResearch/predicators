@@ -223,9 +223,8 @@ def _segment_with_switch_function(ll_traj: LowLevelTrajectory,
         current_segment_actions.append(ll_traj.actions[t])
         if switch_fn(t):
             if verbose:
-                logging.debug(
-                    f"Segmenting at {t}, executing {ll_traj.actions[t].get_option().name}"
-                )
+                logging.debug("Segmenting at %s, executing %s", t,
+                              ll_traj.actions[t].get_option().name)
             # Include the final state as the end of this segment.
             current_segment_states.append(ll_traj.states[t + 1])
             current_segment_traj = LowLevelTrajectory(current_segment_states,

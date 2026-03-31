@@ -14,6 +14,9 @@ from predicators.structs import Object, State, Type
 class TestDominoComponent:
     """Tests for DominoComponent."""
 
+    def __init__(self) -> None:
+        self.comp: DominoComponent = None  # type: ignore
+
     def setup_method(self) -> None:
         """setup method."""
         workspace_bounds = {
@@ -76,6 +79,11 @@ class TestDominoComponent:
 
 class TestGridComponent:
     """Tests for GridComponent."""
+
+    def __init__(self) -> None:
+        self.workspace_bounds: dict = {}
+        self.domino_type: Type = None  # type: ignore
+        self.comp: GridComponent = None  # type: ignore
 
     def setup_method(self) -> None:
         """setup method."""
@@ -173,6 +181,7 @@ class TestGridComponent:
 
     def test_connected_predicate(self) -> None:
         """Test Connected predicate with a simple grid."""
+        # pylint: disable=protected-access
         positions, pos_dict = self.comp.create_position_objects(3, 3)
 
         # Build a state with position objects
@@ -198,6 +207,7 @@ class TestGridComponent:
 
     def test_pos_clear_predicate(self) -> None:
         """Test PosClear predicate."""
+        # pylint: disable=protected-access
         positions, pos_dict = self.comp.create_position_objects(3, 3)
         x0 = pos_dict[positions[0]]["xx"]
         y0 = pos_dict[positions[0]]["yy"]
@@ -221,6 +231,7 @@ class TestGridComponent:
 
     def test_domino_at_pos_predicate(self) -> None:
         """Test DominoAtPos predicate."""
+        # pylint: disable=protected-access
         positions, pos_dict = self.comp.create_position_objects(3, 3)
         x0 = pos_dict[positions[0]]["xx"]
         y0 = pos_dict[positions[0]]["yy"]
@@ -242,6 +253,7 @@ class TestGridComponent:
 
     def test_domino_at_rot_predicate(self) -> None:
         """Test DominoAtRot predicate."""
+        # pylint: disable=protected-access
         rot_0 = self.comp.rotations[3]  # ang_0
         rot_90 = self.comp.rotations[5]  # ang_90
 

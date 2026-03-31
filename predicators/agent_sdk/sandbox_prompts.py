@@ -295,7 +295,7 @@ def setup_sandbox_directory(
     if not git_dir.is_dir():
         if git_dir.exists():
             git_dir.unlink()  # remove old marker file
-        import subprocess
+        import subprocess  # pylint: disable=import-outside-toplevel
         subprocess.run(["git", "init", "-q"], cwd=str(sandbox), check=True)
         need_initial_commit = True
 
@@ -322,14 +322,16 @@ def setup_sandbox_directory(
 
     # 7. Log full system prompt to main log dir for easy inspection
     os.makedirs(log_dir, exist_ok=True)
-    with open(os.path.join(log_dir, "full_system_prompt.md"), "w") as f:
+    with open(os.path.join(log_dir, "full_system_prompt.md"),
+              "w",
+              encoding="utf-8") as f:
         f.write(system_prompt)
 
     # 8. Initial commit so files are git-tracked.
     #    Claude Code indexes committed files at session startup; any file
     #    not committed before the session starts is invisible to Glob.
     if need_initial_commit:
-        import subprocess
+        import subprocess  # pylint: disable=import-outside-toplevel
         subprocess.run(["git", "add", "-A"], cwd=str(sandbox), check=True)
         subprocess.run(
             [

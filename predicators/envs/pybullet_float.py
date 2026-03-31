@@ -215,13 +215,13 @@ class PyBulletFloatEnv(PyBulletEnv):
     def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
         self._vessel.id = pybullet_bodies["vessel_id"]
         num_blocks = len(pybullet_bodies["block_ids"])
-        for i, (blk, id) in enumerate(
+        for i, (blk, blk_id) in enumerate(
                 zip(self._blocks, pybullet_bodies["block_ids"])):
             if i == num_blocks - 1:
                 blk.is_light = 1.0
             else:
                 blk.is_light = 0.0
-            blk.id = id
+            blk.id = blk_id
 
     # -------------------------------------------------------------------------
     # State Management
@@ -293,7 +293,10 @@ class PyBulletFloatEnv(PyBulletEnv):
                           color=[0.5, 0.5, 1, 0.5],
                           physics_client_id=self._physics_client_id)
 
-    def step(self, action: Action, render_obs: bool = False) -> State:
+    def step(  # pylint: disable=redefined-outer-name
+            self,
+            action: Action,
+            render_obs: bool = False) -> State:
         next_state = super().step(action, render_obs=render_obs)
         # Check if blocks entering/exiting water changed its level
         changed = self._update_water_level_if_needed(next_state)
@@ -405,7 +408,8 @@ class PyBulletFloatEnv(PyBulletEnv):
                 new_displaced_volume += (self.block_size**3)
 
         # If the new_displaced_volume is the same as the old displaced volume
-        # we had, the water height won't change. But we don't store old displaced
+        # we had, the water height won't change. But we
+        # don't store old displaced
         # volume separately; we store old_height. We can compute old displaced
         # from ( old_volume - 2*area*lowest_level_of_water ).
         # Easiest approach: just see how many blocks were displacing before vs.
@@ -612,10 +616,10 @@ if __name__ == "__main__":
     CFG.seed = 0
     CFG.pybullet_sim_steps_per_action = 1
     env = PyBulletFloatEnv(use_gui=True)
-    task = env._make_tasks(1, np.random.default_rng(0))[0]
-    env._reset_state(task.init)
+    task = env._make_tasks(1, np.random.default_rng(0))[0]  # pylint: disable=protected-access
+    env._reset_state(task.init)  # pylint: disable=protected-access
 
     while True:
-        action = Action(np.array(env._pybullet_robot.initial_joint_positions))
+        action = Action(np.array(env._pybullet_robot.initial_joint_positions))  # pylint: disable=protected-access
         env.step(action)
         time.sleep(0.01)

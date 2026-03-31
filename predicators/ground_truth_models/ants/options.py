@@ -45,7 +45,7 @@ class PyBulletAntsGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         def get_current_fingers(state: State) -> float:
             robot, = state.get_objects(robot_type)
-            return PyBulletAntsEnv._fingers_state_to_joint(
+            return PyBulletAntsEnv._fingers_state_to_joint(  # pylint: disable=protected-access
                 pybullet_robot, state.get(robot, "fingers"))
 
         def open_fingers_func(state: State, objects: Sequence[Object],

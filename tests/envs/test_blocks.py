@@ -40,7 +40,7 @@ def test_blocks():
     assert abs(env.action_space.high[1] - BlocksEnv.y_ub) < 1e-3
     assert abs(env.action_space.low[2]) < 1e-3
     assert abs(env.action_space.low[3]) < 1e-3
-    assert abs(env.action_space.high[3] - 1) < 1e-3
+    assert abs(env.action_space.high[3] - BlocksEnv.open_fingers) < 1e-3
     for i, task in enumerate(env.get_test_tasks()):
         state = task.init
         robot = None

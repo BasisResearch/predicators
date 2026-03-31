@@ -68,6 +68,9 @@ class PlayroomSimpleEnv(BlocksEnv):
         # Static objects (always exist no matter the settings).
         self._robot = Object("robby", self._robot_type)
         self._dial = Object("dial", self._dial_type)
+        # Recreate blocks with new type.
+        self._blocks = []
+        self._create_blocks()
         # Hyperparameters from CFG.
         self._num_blocks_train = CFG.playroom_num_blocks_train
         self._num_blocks_test = CFG.playroom_num_blocks_test

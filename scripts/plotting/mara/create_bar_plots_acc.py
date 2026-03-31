@@ -76,9 +76,12 @@ KEYS = [
 # the overall pandas dataframe.
 PLOT_GROUPS = [
     ("", pd_create_equal_selector("ENV", "all_tasks")),
-    # ("Cover", pd_create_equal_selector("ENV", "pybullet_cover_typed_options")),
-    # ("Coffee", pd_create_equal_selector("ENV", "pybullet_coffee")),
-    # ("Cover Heavy", pd_create_equal_selector("ENV", "pybullet_cover_weighted")),
+    # ("Cover", pd_create_equal_selector(
+    #     "ENV", "pybullet_cover_typed_options")),
+    # ("Coffee", pd_create_equal_selector(
+    #     "ENV", "pybullet_coffee")),
+    # ("Cover Heavy", pd_create_equal_selector(
+    #     "ENV", "pybullet_cover_weighted")),
     # ("Balance", pd_create_equal_selector("ENV", "pybullet_balance")),
 ]
 

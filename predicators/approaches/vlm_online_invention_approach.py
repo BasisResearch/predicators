@@ -87,7 +87,8 @@
 #     return all(
 #         option1.eq_by_obj(option2) for option1, option2 in zip(list1, list2))
 
-# def print_confusion_matrix(tp: float, tn: float, fp: float, fn: float) -> None:
+# def print_confusion_matrix(tp: float, tn: float, fp: float, fn: float) ->
+# None:
 #     """Compate and print the confusion matrix."""
 #     precision = round(tp / (tp + fp), 2) if tp + fp > 0 else 0
 #     recall = round(tp / (tp + fn), 2) if tp + fn > 0 else 0
@@ -146,7 +147,10 @@
 #         # Set up the VLM
 #         self._gpt4o = utils.create_vlm_by_name("gpt-4o",
 #                                                system_instruction=\
-# """You are interacting with a PhD student in AI who is passionate about learning new things and aims to change the world in significant ways to make it a better place. Respond in a manner that is insightful, critical, precise, and concise.""")
+# """You are interacting with a PhD student in AI who is passionate about
+# learning new things and aims to change the world in significant ways to make
+# it a better place. Respond in a manner that is insightful, critical, precise,
+# and concise.""")
 #         self._vlm = utils.create_vlm_by_name(CFG.vlm_model_name)
 #         self._gemini_exp = utils.create_vlm_by_name("gemini-1.5-pro-exp-0801")
 #         self._type_dict = {type.name: type for type in self._types}
@@ -157,7 +161,7 @@
 
 #     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
 #         if len(dataset.trajectories) > 0:
-#             # TODO: add data to the approach's dataset
+#             # Future: add data to the approach's dataset
 #             pass
 #         else:
 #             pass
@@ -284,7 +288,8 @@
 
 #         # For storing the results found at every iteration
 #         self.task_to_latest_traj: Dict[int, LowLevelTrajectory] = dict()
-#         # For help checking if a new plan is unique, to control data collection
+#         # For help checking if a new plan is unique, to control data
+#         collection
 #         self.task_to_plans: Dict[int, List[_Option]] = defaultdict(list)
 #         # Organize a dataset for operator learning. This becomes the operator
 #         # learning dataset when the trajectories are put together.
@@ -300,14 +305,16 @@
 #         num_reduced_nsrts = num_init_nsrts - len(self._nsrts)
 #         self._reduced_nsrts = deepcopy(self._nsrts)
 #         self._previous_nsrts = deepcopy(self._nsrts)
-#         logging.debug(f"Initial operators after pruning {num_reduced_nsrts}:\n"
+#         logging.debug(f"Initial operators after pruning
+#         {num_reduced_nsrts}:\n"
 #                       f"{pformat(self._nsrts)}")
 #         results = self.collect_dataset(0, env, tasks)
 #         num_solved = sum([r.succeeded for r in results])
 #         num_failed_plans = prev_num_failed_plans =\
 #             num_failed_plans_at_best_solve_rate = sum(
 #                 [len(r.info['partial_refinements']) for r in results])
-#         solve_rate = prev_solve_rate = best_solve_rate = num_solved / num_tasks
+#         solve_rate = prev_solve_rate = best_solve_rate = num_solved /
+#         num_tasks
 #         logging.info(f"===ite 0; no invent solve rate {solve_rate}; "
 #                      f"num skeletons failed {num_failed_plans}\n")
 #         self.succ_optn_dict: Dict[str, GroundOptionRecord] =\
@@ -330,7 +337,7 @@
 #                                                  results,
 #                                                  tasks,
 #                                                  ite,
-#                                                  use_only_first_solution=False)
+#                          use_only_first_solution=False)
 #             if ite == 1:
 #                 n_tp = sum(
 #                     [len(v.states) for v in self.succ_optn_dict.values()])
@@ -351,14 +358,16 @@
 #                 logging.info(f"Learning from only failed plans")
 #                 iterator = self.task_to_partial_trajs.items()
 #             else:
-#                 logging.info(f"Learning from only full solution trajectories.")
+#                 logging.info(f"Learning from only full solution
+#                 trajectories.")
 #                 iterator = self.task_to_trajs.items()
 #             for _, trajs in iterator:
 #                 for traj in trajs:
 #                     all_trajs.append(traj)
 #             logging.info(f"Learning from {len(all_trajs)} trajectories.")
 
-#             if ite == 1 or no_improvement:  # or add_new_proposal_at_every_ite:
+#             if ite == 1 or no_improvement:  # or
+#             add_new_proposal_at_every_ite:
 #                 if CFG.vlm_invention_alternate_between_p_ad:
 #                     if CFG.env in [
 #                                     "pybullet_balance",
@@ -379,7 +388,8 @@
 #                 logging.info(
 #                     f"Done: created "
 #                     f"{len(prim_pred_proposals | cnpt_pred_proposals)} "
-#                     f"candidates:\n{prim_pred_proposals | cnpt_pred_proposals}")
+#                     f"candidates:\n{prim_pred_proposals |
+#                     cnpt_pred_proposals}")
 #                 propose_ite += 1
 
 #             # Select the predicates to keep
@@ -392,7 +402,8 @@
 #                                             )
 
 #             # Finally, learn NSRTs using all the selected predicates
-#             # When there is successful trajectories, maybe also use the positive
+#             # When there is successful trajectories, maybe also use the
+#             positive
 #             # data to learn the operators?
 #             logging.debug(f"has negative states for "
 #                           f"{list(self.fail_optn_dict.keys())}")
@@ -413,19 +424,24 @@
 
 #             # Use the old NSRTs for an option if it had accuracy 1.0 in
 #             # score_dict
-#             # TODO: maybe change to only use the old ones if the new ones are
+#             # Note: maybe change to only use the old ones if the new ones are
 #             # worse by some metrics (e.g., accuracy).
 #             if CFG.use_old_nsrt_if_new_is_worse:
 #                 new_nsrts = set()
 #                 for nsrt_candidate in self._nsrts:
-#                     # prev_nsrts_w_same_optn = {nsrt for nsrt in self._previous_nsrts
-#                     #                         if nsrt.option == nsrt_candidate.option}
-#                     # prev_empty_precon = all(n.preconditions == set() for n in
+#                     # prev_nsrts_w_same_optn = {nsrt for nsrt in
+#                     self._previous_nsrts
+#                     #                         if nsrt.option ==
+#                     nsrt_candidate.option}
+#                     # prev_empty_precon = all(n.preconditions == set() for n
+#                     in
 #                     #                         prev_nsrts_w_same_optn)
 #                     if score_dict[str(nsrt_candidate.option)]['acc'] == 1.0:
 #                         # Use the old one if it helps with planning
-#                         # logging.debug(f"Old NSRTs have empty precon {prev_empty_precon}")
-#                         logging.debug(f"Using old nsrt for {nsrt_candidate.option}")
+#                         # logging.debug(f"Old NSRTs have empty precon
+#                         {prev_empty_precon}")
+#                         logging.debug(f"Using old nsrt for
+#                         {nsrt_candidate.option}")
 #                         for old_nsrt in self._previous_nsrts:
 #                             if old_nsrt.option == nsrt_candidate.option:
 #                                 new_nsrts.add(old_nsrt)
@@ -496,7 +512,8 @@
 #                          f"Solve rate {num_solved / num_tasks} "
 #                          f"Prev solve rate {prev_solve_rate}\n"
 #                          f"Num skeletons failed {num_failed_plans} "
-#                          f"Prev num skeletons failed {prev_num_failed_plans}\n"
+#                          f"Prev num skeletons failed
+#                          {prev_num_failed_plans}\n"
 #                          f"Clf accuracy: {clf_acc:.2f}. "
 #                          f"Prev clf accuracy: {prev_clf_acc:.2f}\n")
 
@@ -526,7 +543,8 @@
 #                         break
 #                 else:
 #                     # if CFG.env in ["pybullet_cover_typed_options"]:
-#                     if num_failed_plans == 0 and solve_rate == best_solve_rate:
+#                     if num_failed_plans == 0 and solve_rate ==
+#                     best_solve_rate:
 #                         break
 #             time.sleep(5)
 
@@ -583,8 +601,10 @@
 #         return images
 
 #     def _collect_oracle_data(self, env: BaseEnv, tasks: List[Task]) -> None:
-#         """Collect oracle dataset by first finding oracle plans, and use the gt
-#         operators to identify negative states. And add the success trajectories
+#         """Collect oracle dataset by first finding oracle plans, and use the
+#         gt
+#         operators to identify negative states. And add the success
+#         trajectories
 #         to self.task_to_trajs.
 
 #         This is just used for the oracle explore model.
@@ -600,7 +620,8 @@
 #             tasks,
 #             task_planning_heuristic=CFG.offline_data_task_planning_heuristic,
 #             max_skeletons_optimized=CFG.offline_data_max_skeletons_optimized,
-#             bilevel_plan_without_sim=CFG.offline_data_bilevel_plan_without_sim)
+#             bilevel_plan_without_sim=\
+#                 CFG.offline_data_bilevel_plan_without_sim)
 #         perceiver = create_perceiver(CFG.perceiver)
 #         execution_monitor = create_execution_monitor(CFG.execution_monitor)
 #         cogman = CogMan(oracle_approach, perceiver, execution_monitor)
@@ -658,7 +679,8 @@
 #                         state.labeled_image.save(
 #                             os.path.join(
 #                                 CFG.log_file,
-#                                 f"images/{option_str}_neg{num_neg_states}.png")
+#                                 "images/" +
+#                                 f"{option_str}_neg{num_neg_states}.png")
 #                         )
 #                         neg_state = state.copy()
 #                         neg_state.next_state = None
@@ -702,7 +724,8 @@
 #                 option_plan = result.info['option_plan'].copy()
 #                 logging.debug(
 #                     f"[ite {ite} task {i}] Processing succeeded " +
-#                     f"plan {[op.name + str(op.objects) for op in option_plan]}"
+#                     f"plan {[op.name + str(op.objects) for op in
+#                     option_plan]}"
 #                 )
 
 #                 # Check before processing for some efficiency gain
@@ -748,8 +771,10 @@
 #                                                 _is_demo=True,
 #                                                 _train_task_idx=i))
 #                         else:
-#                             logging.info(f"Found a new plan {option_plan} but "
-#                                         "its longer than the previous solution")
+#                             logging.info(f"Found a new plan {option_plan} but
+#                             "
+#                                         "its longer than the previous
+#                                         solution")
 #                     else:
 #                         logging.info(f"Found the first plan {option_plan}")
 #                         self.task_to_trajs[i] = [
@@ -766,13 +791,15 @@
 #                 nsrt_plan = p_ref[0]
 #                 logging.debug(f"[ite {ite} task {i}] Processing failed plan "\
 #                         f"{p_idx} of len {len(option_plan)}: "\
-#                         f"{[op.name + str(op.objects) for op in option_plan]}")
+#                         f"{[op.name + str(op.objects) for op in
+#                         option_plan]}")
 #                 failed_opt_idx = len(option_plan) - 1
 
 #                 # As above, check if the p-plan is novel
 #                 novel_pplan = (i not in self.task_to_plans) or\
 #                               (not any(are_equal_by_obj(option_plan, plan)
-#                                             for plan in self.task_to_plans[i]))
+#                                             for plan in
+#                                             self.task_to_plans[i]))
 #                 if novel_pplan:
 #                     self.task_to_plans[i].append(option_plan.copy())
 #                 else:
@@ -796,7 +823,8 @@
 #                         prev_state = states[-2]
 #                     except:
 #                         breakpoint()
-#                     # Take the prefix of the pplan and use it to learn operators
+#                     # Take the prefix of the pplan and use it to learn
+#                     operators
 #                     if len(states) <= len(actions):
 #                         logging.warning("states is not 1 more than actions")
 
@@ -805,7 +833,7 @@
 #                                             LowLevelTrajectory(states,
 #                                                             actions,
 #                                                             _is_demo=True,
-#                                                             _train_task_idx=i))
+#                                              _train_task_idx=i))
 
 #                 # Failed part
 #                 ppp = [o.simple_str() for o in option_plan[:-1]]
@@ -841,13 +869,16 @@
 #         Return:
 #         -------
 #         states: List[State]
-#             The states before executing each option in the option plan and last
+#             The states before executing each option in the option plan and
+#             last
 #             state before returning.
 #         actions: List[Action]
-#             The first action from each option in the option plan. The length of
+#             The first action from each option in the option plan. The length
+#             of
 #             this will be 1 less than the number of states.
 #         partial_plan_prefix: Optional[str] = None,
-#             For failed options, the list of option successfully executed before
+#             For failed options, the list of option successfully executed
+#             before
 #             them.
 #         """
 #         state = init_state
@@ -876,7 +907,8 @@
 #             gop_str = g_nsrt.ground_option_str(
 #                 use_object_id=CFG.vlm_predicator_render_option_state)
 #             # logging.debug(f"found neg states for {gop_str}")
-#             # logging.debug(f"have neg state for {self.fail_optn_dict.keys()}")
+#             # logging.debug(f"have neg state for
+#             {self.fail_optn_dict.keys()}")
 #             self.fail_optn_dict[gop_str].append_state(
 #                 option_start_state,
 #                 utils.abstract(option_start_state,
@@ -931,11 +963,14 @@
 #                             states.append(option_start_state)
 #                             break
 #                         else:
-#                             # raise_error_on_repeated_state is set to true in simple
-#                             # environments, but causes the option to not finish in
+#                             # raise_error_on_repeated_state is set to true in
+#                             simple
+#                             # environments, but causes the option to not
+#                             finish in
 #                             # the pybullet environment, hence are disabled in
 #                             # testing neu-sym-predicates.
-#                             # We are okay with this because the failure options
+#                             # We are okay with this because the failure
+#                             options
 #                             # have been handled above.
 #                             policy = utils.option_plan_to_policy(
 #                                 [option], raise_error_on_repeated_state=False)
@@ -966,7 +1001,8 @@
 #                                 self.state_cache[
 #                                     state_hash] = option_start_state.copy()
 #                             # option_start_state = env.get_observation(
-#                             #     render=CFG.vlm_predicator_render_option_state)
+#                             #
+#                             render=CFG.vlm_predicator_render_option_state)
 #                             # logging.info("Start new option at step "+
 #                             #                 f"{env_step_counter}")
 #                             g_nsrt = nsrt_plan[nsrt_counter]
@@ -981,8 +1017,10 @@
 #                             # self.succ_optn_dict[gop_str].append_state(
 #                             #     option_start_state,
 #                             #     utils.abstract(option_start_state,
-#                             #                    self._get_current_predicates()),
-#                             #     g_nsrt.option_objs, g_nsrt.parent.option_vars,
+#                             #
+#                             self._get_current_predicates()),
+#                             #     g_nsrt.option_objs,
+#                             g_nsrt.parent.option_vars,
 #                             #     g_nsrt.option)
 #                             nsrt_counter += 1
 #                     else:
@@ -1053,7 +1091,8 @@
 #             if CFG.vlm_predicator_use_grammar:
 #                 grammar = _create_grammar(dataset=Dataset(all_trajs),
 #                                             given_predicates=\
-#                             self.base_prim_candidates|self._initial_predicates)
+#                             self.base_prim_candidates |
+#                             self._initial_predicates)
 #             else:
 #                 grammar = _GivenPredicateGrammar(
 #                     self.base_prim_candidates | self._initial_predicates)
@@ -1095,13 +1134,14 @@
 #                 for g_optn in optn_dict.keys():
 #                     atom_states = []
 #                     for state in optn_dict[g_optn].states:
-#                         # TODO: remove the candidates if we get an error
+#                         # Future: remove candidates if we get an error
 #                         #   this can replace the error check in get proposals
 #                         atoms, valid_preds = utils.abstract(state,
 #                                                     set(all_candidates),
 #                                                     return_valid_preds=True)
 #                         all_candidates = {k: v for k, v in
-#                                     all_candidates.items() if k in valid_preds}
+#                                     all_candidates.items() if k in
+#                                     valid_preds}
 #                         atom_states.append(atoms)
 #                     optn_dict[g_optn].abstract_states = atom_states
 #             logging.debug(f"all candidates after filtering through abstract "
@@ -1120,7 +1160,8 @@
 #             #              f"{self.base_prim_candidates}")
 #             # utils.compare_abstract_accuracy(
 #             #     [s for traj in all_trajs for s in traj.states],
-#             #     sorted(self.base_prim_candidates - self._initial_predicates),
+#             #     sorted(self.base_prim_candidates -
+#             self._initial_predicates),
 #             #     env.ns_to_sym_predicates)
 #             # logging.info(f"Abstract accuracy of for the failed states")
 #             # utils.compare_abstract_accuracy(
@@ -1128,7 +1169,8 @@
 #             #         set(state for optn_dict in [self.fail_optn_dict]
 #             #             for g_optn in optn_dict.keys()
 #             #             for state in optn_dict[g_optn].states)),
-#             #     sorted(self.base_prim_candidates - self._initial_predicates),
+#             #     sorted(self.base_prim_candidates -
+#             self._initial_predicates),
 #             #     env.ns_to_sym_predicates)
 
 #             if CFG.skip_selection_if_no_solve and num_solved == 0:
@@ -1175,7 +1217,8 @@
 #         else:
 #             helper_cnpt_preds = set()
 
-#         # The intially proposed concept predicates are immediately added to the
+#         # The intially proposed concept predicates are immediately added to
+#         the
 #         #   base candidates
 #         self.cnpt_pred_candidates |= helper_cnpt_preds
 
@@ -1265,7 +1308,8 @@
 #                                               images,
 #                                               cache_chat_session=True,
 #                                               temperature=0.5,
-#                         seed=CFG.seed * 100 + (ite+1) * 10 + proposal_batch_id)
+#                         seed=CFG.seed * 100 + (ite+1) * 10 +
+#                         proposal_batch_id)
 #             # Prepare the chat history for Gemini
 #             if CFG.env in [
 #                 "pybullet_balance",
@@ -1298,7 +1342,8 @@
 #             prompt = template.format(CONCEPT_PROPOSALS=response,
 #                                      TYPES_IN_ENV=type_names)
 #             # Save the text prompt
-#             with open(CFG.log_file + f"ite{ite}_{phase_n}_s1.prompt", 'w') as f:
+#             with open(CFG.log_file + f"ite{ite}_{phase_n}_s1.prompt", 'w') as
+#             f:
 #                 f.write(prompt)
 
 #         if CFG.vlm_invent_predicates_in_stages:
@@ -1506,7 +1551,8 @@
 #         # logging.info("\nFiltering out predicates that don't appear in "
 #         #              "preconditions...")
 #         # preds = kept_predicates | initial_predicates
-#         # pruned_atom_data = utils.prune_ground_atom_dataset(atom_dataset, preds)
+#         # pruned_atom_data = utils.prune_ground_atom_dataset(atom_dataset,
+#         preds)
 #         # segmented_trajs = [
 #         #     segment_trajectory(ll_traj, set(preds), atom_seq=atom_seq)
 #         #     for (ll_traj, atom_seq) in pruned_atom_data
@@ -1573,7 +1619,8 @@
 #     #     # Filter trajectories where no consecutive actions are the same
 #     #     # def has_consecutive_equal_actions(traj):
 #     #     #     for i in range(len(traj.actions) - 1):
-#     #     #         if traj.actions[i]._option.eq_by_obj(traj.actions[i + 1]._option):
+#     #     #         if traj.actions[i]._option.eq_by_obj(traj.actions[i +
+#     1]._option):
 #     #     #             return True
 #     #     #     return False
 #     #     # filtered_trajs = [traj for traj in trajs if
@@ -1582,7 +1629,8 @@
 #     #     # Filter trajectories where the first two actions are not the same
 #     #     filtered_trajs = [
 #     #         traj for traj in trajs if len(traj.actions) > 1
-#     #         and not traj.actions[0]._option.eq_by_obj(traj.actions[1]._option)
+#     #         and not
+#     traj.actions[0]._option.eq_by_obj(traj.actions[1]._option)
 #     #     ]
 
 #     #     # Pick the longest trajectory from the filtered list
@@ -1767,10 +1815,12 @@
 
 #         # Save the text prompt
 #         if CFG.vlm_invention_propose_nl_properties:
-#             with open(f"{CFG.log_file}/ite{ite}_{phase_n}_s0.prompt", 'w') as f:
+#             with open(f"{CFG.log_file}/ite{ite}_{phase_n}_s0.prompt", 'w') as
+#             f:
 #                 f.write(template)
 #         else:
-#             with open(f"{CFG.log_file}/ite{ite}_{phase_n}_s1.prompt", 'w') as f:
+#             with open(f"{CFG.log_file}/ite{ite}_{phase_n}_s1.prompt", 'w') as
+#             f:
 #                 f.write(template)
 #         prompt = template
 
@@ -1781,7 +1831,8 @@
 #     #     env: BaseEnv,
 #     #     ite: int,
 #     #     max_num_options: int = 10,  # Number of options to show
-#     #     max_num_groundings: int = 2,  # Number of ground options per option.3
+#     #     max_num_groundings: int = 2,  # Number of ground options per
+#     option.3
 #     #     max_num_examples: int = 2,  # Number of examples per ground option.
 #     #     categories_to_show: List[str] = ['tp', 'fp'],
 #     #     seperate_prompt_per_option: bool = False,
@@ -1877,7 +1928,8 @@
 
 #     #     # Save the text prompt
 #     #     with open(f"{CFG.log_file}/ite{ite}.prompt", 'w') as f:
-#     #         # with open(f'./prompts/invent_{self.env_name}_{ite}.prompt', 'w') as f:
+#     #         # with open(f'./prompts/invent_{self.env_name}_{ite}.prompt',
+#     'w') as f:
 #     #         f.write(template)
 #     #     prompt = template
 
@@ -1933,7 +1985,8 @@
 #             pred_name = match.group(1)
 #             logging.info(f"Found definition for predicate {pred_name}")
 #             if CFG.vlm_invention_use_concept_predicates:
-#                 is_concept_predicate = self.check_is_concept_predicate(code_str)
+#                 is_concept_predicate =
+#                 self.check_is_concept_predicate(code_str)
 #                 logging.info(f"\t it's a concept predicate: "
 #                              f"{is_concept_predicate}")
 #             else:
@@ -1942,14 +1995,17 @@
 
 #             # Recognize that it's a concept predicate
 #             if is_concept_predicate:
-#                 untranslated_concept_pred_str.append(add_python_quote(code_str))
+#                 untranslated_concept_pred_str.append(
+#                     add_python_quote(code_str))
 #             else:
 #                 # Type check the code
 #                 # passed = False
 #                 # while not passed:
 #                 #     result, passed = self.type_check_proposed_predicates(
-#                 #                                                     pred_name,
-#                 #                                                     code_str)
+#                 #
+#                 pred_name,
+#                 #
+#                 code_str)
 #                 #     if not passed:
 #                 #         # Ask the LLM or the User to fix the code
 #                 #         pass
@@ -1967,19 +2023,24 @@
 #                     else:
 #                         logging.warning(
 #                             f"{pred_name} isn't in the "
-#                             "ns_to_sym_predicates dict, please consider adding it."
+#                             "ns_to_sym_predicates dict, please consider adding
+#                             it."
 #                         )
 #                 else:
-#                     # check if it's roughly runable, and add it to list if it is.
+#                     # check if it's roughly runable, and add it to list if it
+#                     is.
 #                     try:
 #                         exec(code_str, context)
 #                         logging.debug(f"Testing predicate {pred_name}")
-#                         # Check1: Make sure it uses types present in the environment
+#                         # Check1: Make sure it uses types present in the
+#                         environment
 #                         proposed_pred = context[pred_name]
 #                         for t in proposed_pred.types:
 #                             if t not in valid_types:
-#                                 logging.warning(f"Type {t} not in the environment")
-#                                 raise Exception(f"Type {t} not in the environment")
+#                                 logging.warning(f"Type {t} not in the
+#                                 environment")
+#                                 raise Exception(f"Type {t} not in the
+#                                 environment")
 #                         utils.abstract(tasks[0].init, [context[pred_name]])
 #                     except Exception as e:
 #                         error_trace = traceback.format_exc()
@@ -2006,9 +2067,11 @@
 #             # Instantiate the transformed concept predicates
 #             for code_str in cn_pred_python_blocks:
 #                 # Extract name from code block
-#                 match = re.search(r'(\w+)\s*=\s*(Concept)?Predicate', code_str)
+#                 match = re.search(r'(\w+)\s*=\s*(Concept)?Predicate',
+#                 code_str)
 #                 if match is None:
-#                     logging.warning("No predicate name found in the code block")
+#                     logging.warning("No predicate name found in the code
+#                     block")
 #                     continue
 #                 pred_name = match.group(1)
 #                 logging.info(f"Found definition for Concept Predicate "
@@ -2018,12 +2081,15 @@
 #                 try:
 #                     exec(code_str, context)
 #                     logging.debug(f"Testing Concept Predicate {pred_name}")
-#                     # Check1: Make sure it uses types present in the environment
+#                     # Check1: Make sure it uses types present in the
+#                     environment
 #                     proposed_pred = context[pred_name]
 #                     for t in proposed_pred.types:
 #                         if t not in valid_types:
-#                             logging.warning(f"Type {t} not in the environment")
-#                             raise Exception(f"Type {t} not in the environment")
+#                             logging.warning(f"Type {t} not in the
+#                             environment")
+#                             raise Exception(f"Type {t} not in the
+#                             environment")
 
 #                     # Check2: Make sure it's executable
 #                     utils.abstract(tasks[0].init,
@@ -2031,7 +2097,8 @@
 #                                         set([context[pred_name]]))
 #                 except Exception as e:
 #                     error_trace = traceback.format_exc()
-#                     logging.warning(f"We encountered the following error when "
+#                     logging.warning(f"We encountered the following error when
+#                     "
 #                     f"testing predicate {pred_name}:\n{e}\n{error_trace}")
 #                     continue
 #                 else:
@@ -2042,7 +2109,8 @@
 #                     # leading or trailing letter.
 #                     aux_concepts = {p for p in
 #                                 concept_preds | self.cnpt_pred_candidates if
-#                     re.search(rf'(?<![a-zA-Z]){re.escape(p.name)}(?![a-zA-Z])',
+#                     re.search(
+#                         rf'(?<![a-zA-Z]){re.escape(p.name)}(?![a-zA-Z])',
 #                     code_str)}
 #                     # either " {p.name} " or ' "{p.name}" ' or " '{p.name}' "
 #                     # or " {p.name}}"
@@ -2096,7 +2164,8 @@
 #         with open(prompt_f, 'w') as f:
 #             f.write(prompt)
 
-#         response_f = CFG.log_file + f"ite{ite}_{translate_fn}_clf_trfm.response"
+#         response_f = CFG.log_file +
+#         f"ite{ite}_{translate_fn}_clf_trfm.response"
 #         response = self._get_vlm_response(response_f, self._vlm, prompt, [])
 
 #         return response
@@ -2138,7 +2207,8 @@
 #     def _constants_str(self, source_code: str) -> str:
 #         # Some constants, if any, defined in the environment are
 #         constants_str = ''
-#         pattern = r"(    # Constants present in goal predicates.*?)(?=\n\s*\n|$)"
+#         pattern = r"(    # Constants present in goal
+#         predicates.*?)(?=\n\s*\n|$)"
 #         match = re.search(pattern, source_code, re.DOTALL)
 #         if match:
 #             constants_str = match.group(1)
@@ -2170,7 +2240,8 @@
 
 #         init_pred_str = []
 #         for p in predicates_shown:
-#             if include_primitive_preds and not isinstance(p, ConceptPredicate):
+#             if include_primitive_preds and not isinstance(p,
+#             ConceptPredicate):
 #                 init_pred_str.append(p.pretty_str_with_assertion())
 #             elif include_concept_preds and isinstance(p, ConceptPredicate):
 #                 init_pred_str.append(p.pretty_str_with_assertion())
@@ -2185,7 +2256,8 @@
 #             constants_str = self._constants_str(source_code)
 #             if constants_str:
 #                 init_pred_str.append(
-#                     "The environment defines the following constants that can be "+\
+#                     "The environment defines the following constants that can
+#                     be "+\
 #                     "used in defining predicates:")
 #                 init_pred_str.append(add_python_quote(constants_str))
 
@@ -2214,13 +2286,15 @@
 #                     else:
 #                         p_instan_pattern = r"(self\._" + re.escape(p_name) +\
 #                                         r" = Predicate\(.*?\n.*?\))"
-#                     block = re.search(p_instan_pattern, pred_instantiation_str,
+#                     block = re.search(p_instan_pattern,
+#                     pred_instantiation_str,
 #                                       re.DOTALL)
 #                     if block is not None:
 #                         p_instan_str = block.group()
 
 #                         # remove the parameterized assertion part
-#                         # remove_pattern = r",\s*parameterized_assertion=.*?(\))"
+#                         # remove_pattern =
+#                         r",\s*parameterized_assertion=.*?(\))"
 #                         # p_instan_str = re.sub(remove_pattern, r"\1",
 #                         #                         p_instan_strs)
 
@@ -2251,7 +2325,8 @@
 #                 pred_name = pred_match.group(2)
 #                 pred = next(
 #                     (p
-#                      for p in self._learned_predicates if p.name == pred_name),
+#                      for p in self._learned_predicates if p.name ==
+#                      pred_name),
 #                     None)
 #                 if pred:
 #                     new_predicate_str.append("Predicate " +
@@ -2265,7 +2340,8 @@
 #         if has_not_or_forall:
 #             new_predicate_str.append(
 #                 "Predicates with names starting with " +
-#                 "'NOT' or 'Forall' are defined by taking the negation or adding"
+#                 "'NOT' or 'Forall' are defined by taking the negation or
+#                 adding"
 #                 + "universal quantifiers over other existing predicates.")
 #         return '\n'.join(new_predicate_str)
 

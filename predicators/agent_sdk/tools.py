@@ -151,6 +151,7 @@ def _render_pybullet_image(
     if ctx.env is None:
         return None
     try:
+        # pylint: disable=import-outside-toplevel
         from predicators.envs.pybullet_env import PyBulletEnv
         if not isinstance(ctx.env, PyBulletEnv):
             return None
@@ -158,13 +159,14 @@ def _render_pybullet_image(
         return None
 
     try:
+        # pylint: disable=import-outside-toplevel
         import base64
         import io
 
         from PIL import Image as PILImage
 
         if state is not None:
-            ctx.env._reset_state(state)
+            ctx.env._reset_state(state)  # pylint: disable=protected-access
 
         video = ctx.env.render()
         if not video:
@@ -196,7 +198,7 @@ def _render_pybullet_image(
         if saved_path:
             block["saved_path"] = saved_path
         return block
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-except
         logging.warning("Failed to render scene image: %s", e)
         return None
 
@@ -209,7 +211,7 @@ def _draw_pybullet_annotation(annotation: Dict[str, Any],
     getCameraImage (unlike addUserDebugLine which only shows in GUI).
     Returns a list of body IDs for cleanup via removeBody.
     """
-    import pybullet as p
+    import pybullet as p  # pylint: disable=import-outside-toplevel
 
     body_ids: List[int] = []
     ann_type = annotation["type"]
@@ -290,7 +292,7 @@ def _draw_pybullet_annotation(annotation: Dict[str, Any],
 def _format_object_poses(state: State) -> str:
     """Format object positions from state for diagnostic output."""
     pose_lines = []
-    for obj in sorted(state, key=lambda o: str(o)):
+    for obj in sorted(state, key=str):
         feats = obj.type.feature_names
         parts = [f"{obj.name}:{obj.type.name}"]
         for f in ("x", "y", "z"):
@@ -319,7 +321,7 @@ def _save_option_to_sandbox(ctx: ToolContext, option_name: str,
     os.makedirs(proposed_dir, exist_ok=True)
     filename = f"{option_name}.py"
     filepath = os.path.join(proposed_dir, filename)
-    with open(filepath, "w") as f:
+    with open(filepath, "w", encoding="utf-8") as f:
         f.write(code)
     return f"./proposed_code/{filename}"
 
@@ -335,7 +337,8 @@ def create_mcp_tools(ctx: ToolContext,
 
     Returns a list of SdkMcpTool objects to pass to create_sdk_mcp_server.
     """
-    from claude_agent_sdk import tool
+    from claude_agent_sdk import \
+        tool  # pylint: disable=import-outside-toplevel
 
     _propose_count = [0]  # mutable counter in closure
 
@@ -350,14 +353,14 @@ def create_mcp_tools(ctx: ToolContext,
         filename = f"{_propose_count[0]:03d}_{tool_name}_{names_slug}.py"
         filepath = os.path.join(subdir, filename)
         header = f'"""{tool_name}: {description}"""\n\n'
-        with open(filepath, "w") as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             f.write(header + code)
         logging.info(f"Saved proposal code to {filepath}")
 
     # ===== INSPECTION TOOLS =====
 
     @tool("inspect_types", "List all object types and their features", {})
-    async def inspect_types(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def inspect_types(_args: Dict[str, Any]) -> Dict[str, Any]:
         lines = []
         for t in sorted(ctx.types, key=lambda t: t.name):
             features = ", ".join(
@@ -370,7 +373,7 @@ def create_mcp_tools(ctx: ToolContext,
 
     @tool("inspect_predicates",
           "List all predicates and their type signatures", {})
-    async def inspect_predicates(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def inspect_predicates(_args: Dict[str, Any]) -> Dict[str, Any]:
         lines = []
         for p in sorted(ctx.predicates, key=lambda p: p.name):
             type_sig = ", ".join(t.name for t in p.types)
@@ -381,7 +384,7 @@ def create_mcp_tools(ctx: ToolContext,
 
     @tool("inspect_processes",
           "List all processes with conditions, effects, and delays", {})
-    async def inspect_processes(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def inspect_processes(_args: Dict[str, Any]) -> Dict[str, Any]:
         lines = []
         for proc in sorted(ctx.processes, key=lambda p: p.name):
             conds = ", ".join(str(a) for a in sorted(proc.condition_at_start))
@@ -469,6 +472,7 @@ def create_mcp_tools(ctx: ToolContext,
                              f"(search for \"{option_name}\")")
             else:
                 # Extract source and save it
+                # pylint: disable-next=import-outside-toplevel
                 import inspect as _inspect
                 code_parts = []
                 for attr_name in ("policy", "initiable", "terminal"):
@@ -527,7 +531,8 @@ def create_mcp_tools(ctx: ToolContext,
         },
     )
     async def inspect_trajectories(args: Dict[str, Any]) -> Dict[str, Any]:
-        from predicators import utils
+        from predicators import \
+            utils  # pylint: disable=import-outside-toplevel
 
         traj_idx = args["traj_idx"]
         include_states = args.get("include_states", True)
@@ -551,7 +556,7 @@ def create_mcp_tools(ctx: ToolContext,
             lines.append(f"\n--- Timestep {t_step} ---")
             if include_states:
                 state_dict = {}
-                for obj in sorted(state, key=lambda o: str(o)):
+                for obj in sorted(state, key=str):
                     obj_feats = {}
                     for feat in obj.type.feature_names:
                         val = state.get(obj, feat)
@@ -598,7 +603,8 @@ def create_mcp_tools(ctx: ToolContext,
         },
     )
     async def inspect_train_tasks(args: Dict[str, Any]) -> Dict[str, Any]:
-        from predicators import utils
+        from predicators import \
+            utils  # pylint: disable=import-outside-toplevel
 
         task_idx = args.get("task_idx")
         include_image = args.get("include_image", False)
@@ -611,7 +617,7 @@ def create_mcp_tools(ctx: ToolContext,
             goal_str = ", ".join(str(g) for g in sorted(task.goal))
             init_atoms = utils.abstract(task.init, ctx.predicates)
             atoms_str = ", ".join(str(a) for a in sorted(init_atoms))
-            objects = sorted(task.init, key=lambda o: str(o))
+            objects = sorted(task.init, key=str)
             obj_str = ", ".join(f"{o.name}:{o.type.name}" for o in objects)
             state_str = task.init.pretty_str()
             text = (f"Task {task_idx}:\n"
@@ -630,18 +636,19 @@ def create_mcp_tools(ctx: ToolContext,
                     content.append(img_block)
 
             return {"content": content}
-        else:
-            lines = [f"Total tasks: {len(ctx.train_tasks)}"]
-            for i, task in enumerate(ctx.train_tasks[:10]):
-                goal_str = ", ".join(str(g) for g in sorted(task.goal))
-                lines.append(f"  Task {i}: goal={{{goal_str}}}")
-            if len(ctx.train_tasks) > 10:
-                lines.append(f"  ... ({len(ctx.train_tasks) - 10} more tasks)")
-            return _text_result("\n".join(lines))
+
+        lines = [f"Total tasks: {len(ctx.train_tasks)}"]
+        for i, task in enumerate(ctx.train_tasks[:10]):
+            goal_str = ", ".join(str(g) for g in sorted(task.goal))
+            lines.append(f"  Task {i}: goal={{{goal_str}}}")
+        if len(ctx.train_tasks) > 10:
+            lines.append(f"  ... ({len(ctx.train_tasks) - 10} more tasks)")
+        return _text_result("\n".join(lines))
 
     @tool("inspect_planning_results",
           "Get latest planning performance metrics", {})
-    async def inspect_planning_results(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def inspect_planning_results(
+            _args: Dict[str, Any]) -> Dict[str, Any]:
         if not ctx.planning_results:
             return _text_result("No planning results available yet.")
         return _text_result(
@@ -650,7 +657,7 @@ def create_mcp_tools(ctx: ToolContext,
     @tool("inspect_past_proposals",
           "Get summaries of proposals and retractions from all past "
           "iterations", {})
-    async def inspect_past_proposals(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def inspect_past_proposals(_args: Dict[str, Any]) -> Dict[str, Any]:
         if not ctx.iteration_history:
             return _text_result("No past proposals available yet.")
         lines = []
@@ -801,7 +808,7 @@ def create_mcp_tools(ctx: ToolContext,
                 orig_objs = set(test_task.init)
                 new_objs = set(augmented.init) - orig_objs
                 obj_names = [str(o) for o in sorted(new_objs, key=str)]
-            except Exception:
+            except Exception:  # pylint: disable=broad-except
                 return _error_result(f"augment_task failed on test task:\n"
                                      f"{traceback.format_exc()}")
         else:
@@ -1086,10 +1093,10 @@ def create_mcp_tools(ctx: ToolContext,
                     found = obj
                     break
             if found is None:
-                return _error_result(
-                    f"Object '{name}' not found in trajectory {traj_idx}. "
-                    f"Available: {[o.name for o in sorted(traj.states[0], key=str)]}"
-                )
+                avail = [o.name for o in sorted(traj.states[0], key=str)]
+                return _error_result(f"Object '{name}' not found in "
+                                     f"trajectory {traj_idx}. "
+                                     f"Available: {avail}")
             objects.append(found)
 
         results = []
@@ -1097,7 +1104,7 @@ def create_mcp_tools(ctx: ToolContext,
             try:
                 val = pred.holds(state, objects)
                 results.append(f"t={t_step}: {val}")
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 results.append(f"t={t_step}: ERROR ({e})")
 
         return _text_result(
@@ -1124,6 +1131,7 @@ def create_mcp_tools(ctx: ToolContext,
         },
     )
     async def test_planning(args: Dict[str, Any]) -> Dict[str, Any]:
+        # pylint: disable=import-outside-toplevel
         from predicators.approaches import ApproachFailure, ApproachTimeout
         from predicators.planning_with_processes import \
             run_task_plan_with_processes_once
@@ -1139,14 +1147,14 @@ def create_mcp_tools(ctx: ToolContext,
         all_preds = ctx.predicates | ctx.iteration_proposals.proposed_predicates
 
         try:
-            plan, atoms_seq, metrics = run_task_plan_with_processes_once(
+            plan, _atoms_seq, metrics = run_task_plan_with_processes_once(
                 task,
                 ctx.processes | ctx.iteration_proposals.proposed_processes,
                 all_preds,
                 ctx.types | ctx.iteration_proposals.proposed_types,
                 timeout,
                 seed=CFG.seed,
-                task_planning_heuristic=CFG.process_task_planning_heuristic,
+                _task_planning_heuristic=CFG.process_task_planning_heuristic,
                 max_horizon=float(CFG.horizon))
             plan_desc = " -> ".join(p.name for p in plan)
             return _text_result(
@@ -1154,7 +1162,7 @@ def create_mcp_tools(ctx: ToolContext,
                 f"Plan length: {len(plan)}\n"
                 f"Nodes expanded: {metrics.get('num_nodes_expanded', '?')}\n"
                 f"Plan: {plan_desc}")
-        except (ApproachFailure, ApproachTimeout, Exception) as e:
+        except (ApproachFailure, ApproachTimeout, Exception) as e:  # pylint: disable=broad-except
             return _text_result(f"Planning failed for task {task_idx}.\n"
                                 f"Reason: {type(e).__name__}: {e}")
 
@@ -1236,9 +1244,10 @@ def create_mcp_tools(ctx: ToolContext,
         },
     )
     async def test_option_plan(args: Dict[str, Any]) -> Dict[str, Any]:
-        import numpy as np  # pylint: disable=reimported
+        import numpy as np  # pylint: disable=reimported,redefined-outer-name,import-outside-toplevel
 
-        from predicators import utils
+        from predicators import \
+            utils  # pylint: disable=import-outside-toplevel
 
         ctx.test_call_id += 1
 
@@ -1248,10 +1257,10 @@ def create_mcp_tools(ctx: ToolContext,
         # Sync the option model's option map with all current options
         # (GT + proposed) so it stays in sync after propose/retract.
         all_options = ctx.options | ctx.iteration_proposals.proposed_options
-        ctx.option_model._name_to_parameterized_option = {  # type: ignore[attr-defined]
-            o.name: o
-            for o in all_options
-        }
+        opt_map = {o.name: o for o in all_options}
+        model = ctx.option_model
+        model._name_to_parameterized_option = (  # type: ignore[attr-defined]  # pylint: disable=protected-access
+            opt_map)
 
         task_idx = args.get("task_idx")
         option_plan_spec = args["option_plan"]
@@ -1302,7 +1311,7 @@ def create_mcp_tools(ctx: ToolContext,
             try:
                 params_arr = np.array(params, dtype=np.float32)
                 option = param_opt.ground(objects, params_arr)
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 return _error_result(
                     f"Failed to ground option '{opt_name}' at step "
                     f"{step_idx}: {e}")
@@ -1322,7 +1331,7 @@ def create_mcp_tools(ctx: ToolContext,
                 next_state, num_actions = \
                     ctx.option_model.get_next_state_and_num_actions(
                         state, option)
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 tb = traceback.format_exc()
                 lines.append(f"Step {step_idx}: {opt_name}({obj_names}) - "
                              f"EXECUTION ERROR: {type(e).__name__}: {e}\n"
@@ -1348,13 +1357,13 @@ def create_mcp_tools(ctx: ToolContext,
                 atoms_after = utils.abstract(next_state, ctx.predicates)
                 added = atoms_after - atoms_before
                 deleted = atoms_before - atoms_after
-                step_line += (
-                    f"\n  Added:   {{{', '.join(str(a) for a in sorted(added))}}}"
-                    f"\n  Deleted: {{{', '.join(str(a) for a in sorted(deleted))}}}"
-                )
+                added_s = ", ".join(str(a) for a in sorted(added))
+                del_s = ", ".join(str(a) for a in sorted(deleted))
+                step_line += (f"\n  Added:   {{{added_s}}}"
+                              f"\n  Deleted: {{{del_s}}}")
             if include_states:
                 state_dict = {}
-                for obj in sorted(next_state, key=lambda o: str(o)):
+                for obj in sorted(next_state, key=str):
                     obj_feats = {}
                     for feat in obj.type.feature_names:
                         val = next_state.get(obj, feat)
@@ -1432,7 +1441,8 @@ def create_mcp_tools(ctx: ToolContext,
         },
     )
     async def generate_bilevel_plan(args: Dict[str, Any]) -> Dict[str, Any]:
-        import numpy as np  # pylint: disable=reimported
+        # pylint: disable=import-outside-toplevel
+        import numpy as np  # pylint: disable=reimported,redefined-outer-name,import-outside-toplevel
 
         from predicators import utils
         from predicators.approaches import ApproachFailure, ApproachTimeout
@@ -1462,16 +1472,16 @@ def create_mcp_tools(ctx: ToolContext,
 
         # Get abstract plan
         try:
-            plan, atoms_seq, metrics = run_task_plan_with_processes_once(
+            plan, _atoms_seq, metrics = run_task_plan_with_processes_once(
                 task,
                 all_procs,
                 all_preds,
                 all_types,
                 timeout,
                 seed=CFG.seed,
-                task_planning_heuristic=CFG.process_task_planning_heuristic,
+                _task_planning_heuristic=CFG.process_task_planning_heuristic,
                 max_horizon=float(CFG.horizon))
-        except (ApproachFailure, ApproachTimeout, Exception) as e:
+        except (ApproachFailure, ApproachTimeout, Exception) as e:  # pylint: disable=broad-except
             return _text_result(f"Planning failed for {task_label}.\n"
                                 f"Reason: {type(e).__name__}: {e}")
 
@@ -1492,7 +1502,7 @@ def create_mcp_tools(ctx: ToolContext,
         for step_idx, ground_proc in enumerate(plan):
             try:
                 option = ground_proc.sample_option(state, task.goal, rng)
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 lines.append(
                     f"Step {step_idx}: {ground_proc.name}"
                     f"({', '.join(str(o) for o in ground_proc.objects)}) "
@@ -1524,7 +1534,7 @@ def create_mcp_tools(ctx: ToolContext,
                         f"\n  Deleted: "
                         f"{{{', '.join(str(a) for a in sorted(deleted))}}}")
                     state = next_state
-                except Exception as e:
+                except Exception as e:  # pylint: disable=broad-except
                     lines.append(f"Step {step_idx}: {option_line} "
                                  f"- SIMULATION ERROR: {e}")
                     break
@@ -1537,7 +1547,7 @@ def create_mcp_tools(ctx: ToolContext,
             goal_achieved = task.goal.issubset(final_atoms)
             lines.append(f"\nGoal achieved: {goal_achieved}")
 
-        lines.append(f"\n## Option Plan (copy-paste format):")
+        lines.append("\n## Option Plan (copy-paste format):")
         lines.extend(option_plan_lines)
 
         return _text_result("\n".join(lines))
@@ -1566,6 +1576,7 @@ def create_mcp_tools(ctx: ToolContext,
         },
     )
     async def generate_abstract_plan(args: Dict[str, Any]) -> Dict[str, Any]:
+        # pylint: disable=import-outside-toplevel
         from predicators.approaches import ApproachFailure, ApproachTimeout
         from predicators.planning_with_processes import \
             run_task_plan_with_processes_once
@@ -1592,16 +1603,16 @@ def create_mcp_tools(ctx: ToolContext,
         all_types = ctx.types | ctx.iteration_proposals.proposed_types
 
         try:
-            plan, atoms_seq, metrics = run_task_plan_with_processes_once(
+            plan, _atoms_seq, metrics = run_task_plan_with_processes_once(
                 task,
                 all_procs,
                 all_preds,
                 all_types,
                 timeout,
                 seed=CFG.seed,
-                task_planning_heuristic=CFG.process_task_planning_heuristic,
+                _task_planning_heuristic=CFG.process_task_planning_heuristic,
                 max_horizon=float(CFG.horizon))
-        except (ApproachFailure, ApproachTimeout, Exception) as e:
+        except (ApproachFailure, ApproachTimeout, Exception) as e:  # pylint: disable=broad-except
             return _text_result(f"Planning failed for {task_label}.\n"
                                 f"Reason: {type(e).__name__}: {e}")
 
@@ -1742,6 +1753,7 @@ def create_mcp_tools(ctx: ToolContext,
         if ctx.env is None:
             return _error_result("No environment available for rendering.")
         try:
+            # pylint: disable-next=import-outside-toplevel
             from predicators.envs.pybullet_env import PyBulletEnv
             if not isinstance(ctx.env, PyBulletEnv):
                 return _error_result(
@@ -1749,15 +1761,15 @@ def create_mcp_tools(ctx: ToolContext,
         except ImportError:
             return _error_result("PyBullet not available.")
 
-        import pybullet as pb
+        import pybullet as pb  # pylint: disable=import-outside-toplevel
 
         # Reset to visualized state (if set) or current task state
         render_state = ctx.visualized_state or (ctx.current_task.init
                                                 if ctx.current_task else None)
         if render_state is not None:
-            ctx.env._reset_state(render_state)
+            ctx.env._reset_state(render_state)  # pylint: disable=protected-access
 
-        physics_id = ctx.env._physics_client_id
+        physics_id = ctx.env._physics_client_id  # pylint: disable=protected-access
         annotations = args.get("annotations", [])
         step_label = "annotated"
 
@@ -1770,7 +1782,7 @@ def create_mcp_tools(ctx: ToolContext,
                 all_debug_ids.extend(ids)
                 pos = ann.get("position") or ann.get("min_corner", "?")
                 summaries.append(f"  {ann['type']} at {pos}")
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 summaries.append(f"  {ann['type']} FAILED: {e}")
 
         # Render with unique ID
@@ -1781,7 +1793,7 @@ def create_mcp_tools(ctx: ToolContext,
         for body_id in all_debug_ids:
             try:
                 pb.removeBody(body_id, physicsClientId=physics_id)
-            except Exception:
+            except Exception:  # pylint: disable=broad-except
                 pass
 
         # Build response — file path only, no inline image
@@ -1842,6 +1854,7 @@ def create_mcp_tools(ctx: ToolContext,
         if ctx.env is None:
             return _error_result("No environment available for rendering.")
         try:
+            # pylint: disable-next=import-outside-toplevel
             from predicators.envs.pybullet_env import PyBulletEnv
             if not isinstance(ctx.env, PyBulletEnv):
                 return _error_result(
@@ -1884,7 +1897,7 @@ def create_mcp_tools(ctx: ToolContext,
                 try:
                     modified_state.set(obj, feat_name, value)
                     summaries.append(f"  {obj_name}.{feat_name} = {value}")
-                except Exception as e:
+                except Exception as e:  # pylint: disable=broad-except
                     return _error_result(
                         f"Failed to set {obj_name}.{feat_name}: {e}")
 

@@ -58,7 +58,7 @@ class _BoilLegacyOptionsMixin:
 
         def get_current_fingers(state: State) -> float:
             robot, = state.get_objects(robot_type)
-            return PyBulletBoilEnv._fingers_state_to_joint(
+            return PyBulletBoilEnv._fingers_state_to_joint(  # pylint: disable=protected-access
                 pybullet_robot, state.get(robot, "fingers"))
 
         def open_fingers_func(state: State, objects: Sequence[Object],
@@ -647,9 +647,11 @@ class _BoilLegacyOptionsMixin:
                 Tuple[Pose, Pose, str]:
             assert not params
             robot, obj = objects
-            switch = next((s
-                           for s in state.get_objects(cls.env_cls._switch_type)
-                           if s.id == obj.switch_id), None)
+            switch = next(
+                (
+                    s for s in state.get_objects(cls.env_cls._switch_type)  # pylint: disable=protected-access
+                    if s.id == obj.switch_id),
+                None)
             assert switch is not None
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))

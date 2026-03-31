@@ -1,10 +1,12 @@
 """PyBullet Domino Environment Package.
 
-This package provides a modular, component-based domino environment for PyBullet.
+This package provides a modular, component-based domino
+environment for PyBullet.
 
 Example usage:
 
-    from predicators.envs.pybullet_domino import PyBulletDominoEnv, PyBulletDominoFanEnv
+    from predicators.envs.pybullet_domino import (
+        PyBulletDominoEnv, PyBulletDominoFanEnv)
 
     env = PyBulletDominoEnv(use_gui=True)
     # or

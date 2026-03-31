@@ -138,7 +138,10 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
     starting from train_tasks_start_idx."""
     # Create a non-GUI option model for the demonstrator to avoid conflicts
     # with any existing GUI connection (PyBullet only allows one GUI).
+    # pylint: disable=import-outside-toplevel
     from predicators.option_model import create_option_model
+
+    # pylint: enable=import-outside-toplevel
     demo_option_model = create_option_model(CFG.option_model_name,
                                             use_gui=False)
 
@@ -200,21 +203,20 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         # you modify code around here, make sure that this invariant holds.
         if idx >= CFG.max_initial_demos:
             break
-        """
-        There are two kinds of failures we need to deal with when generating
-        demos for the mara counterfactual dataset:
-            1. exception from solving; 
-            2. exception from run_episode_and_get_states.
-        Point 1: TODO
-        exception during solving from reset. In this case, the video is 
-        empty. To solve this, need to run with 
-        create_video_from_partial_refinments or something.
-        Point 2:
-        When generating mara counterfactual videos, we want it to save the
-        video even with ApproachFailure, which would happen when
-        terminate_on_goal_reached is False. Because we will encounter
-        ApproachFailure('Option plan exhausted!')
-        """
+        # There are two kinds of failures we need to deal
+        # with when generating demos for the mara
+        # counterfactual dataset:
+        #   1. exception from solving;
+        #   2. exception from run_episode_and_get_states.
+        # Point 1:
+        # Exception during solving from reset. In this case,
+        # the video is empty. To solve this, need to run with
+        # create_video_from_partial_refinments or something.
+        # Point 2:
+        # When generating mara counterfactual videos, we want
+        # it to save the video even with ApproachFailure,
+        # which would happen when terminate_on_goal_reached
+        # is False.
         # --- Try to solve the task
         succeed_in_solving = True
         try:
@@ -247,11 +249,12 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
                     _, plan = max(partial_refinements, key=lambda x: len(x[1]))
                 policy = utils.option_plan_to_policy(
                     plan)  # type: ignore[assignment]
-                termination_function = lambda s: False  # type: ignore[assignment, misc]
+                termination_function = (  # type: ignore[assignment]
+                    lambda state, vlm=None: False)
 
         # --- Execute the policy to generate a demonstration.
         try:
-            logging.info(f"Executing policy...")
+            logging.info("Executing policy...")
             if CFG.demonstrator in ("oracle", "oracle_process_planning") and \
                     succeed_in_solving:
                 traj, _, _ = run_episode_and_get_states(
@@ -327,8 +330,9 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
         # then get the last nsrt_plan and add the name of the
         # nsrt used to the list of annotations.
         if annotate_with_gt_ops:
-            last_nsrt_plan = oracle_approach.get_last_nsrt_plan(
-            )  # type: ignore[attr-defined]
+            last_nsrt_plan = (
+                oracle_approach  # type: ignore[attr-defined]
+                .get_last_nsrt_plan())
             annotations.append(list(last_nsrt_plan))
         if CFG.make_demo_videos and video_monitor is not None:
             make_demo_videos(video_monitor, idx)
@@ -343,6 +347,7 @@ def _generate_demonstrations(env: BaseEnv, train_tasks: List[Task],
 
 def make_demo_images(video_monitor: utils.VideoMonitor, idx: int,
                      num_train_tasks: int) -> None:
+    """Save demo images from the video monitor."""
     assert video_monitor is not None
     video = video_monitor.get_video()
     width = len(str(num_train_tasks))
@@ -356,6 +361,7 @@ def make_demo_images(video_monitor: utils.VideoMonitor, idx: int,
 
 
 def make_demo_videos(video_monitor: utils.VideoMonitor, idx: int) -> None:
+    """Save demo videos from the video monitor."""
     assert video_monitor is not None
     video = video_monitor.get_video()
     if CFG.use_counterfactual_dataset_path_name:

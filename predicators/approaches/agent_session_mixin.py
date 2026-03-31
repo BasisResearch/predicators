@@ -24,7 +24,7 @@ class AgentSessionMixin:
       - _get_agent_system_prompt()
 
     And may optionally override:
-      - _get_agent_tool_names()  -- return a subset of ALL_TOOL_NAMES (None = all)
+      - _get_agent_tool_names()  -- subset of ALL_TOOL_NAMES (None = all)
     """
 
     _log_subdir: str = "agent"  # fallback; _get_log_dir prefers get_name()
@@ -91,11 +91,11 @@ class AgentSessionMixin:
         if self._agent_session is not None:
             return
 
-        tool_names = self._get_agent_tool_names()
+        tool_names = self._get_agent_tool_names()  # pylint: disable=assignment-from-none
 
         if CFG.agent_sdk_use_docker_sandbox:
             from predicators.agent_sdk.docker_sandbox import \
-                DockerSessionManager
+                DockerSessionManager  # pylint: disable=import-outside-toplevel
             self._agent_session = DockerSessionManager(
                 system_prompt=self._get_agent_system_prompt(),
                 log_dir=self._get_log_dir(),
@@ -107,7 +107,7 @@ class AgentSessionMixin:
             )
         elif CFG.agent_sdk_use_local_sandbox:
             from predicators.agent_sdk.local_sandbox import \
-                LocalSandboxSessionManager
+                LocalSandboxSessionManager  # pylint: disable=import-outside-toplevel
             self._agent_session = LocalSandboxSessionManager(
                 system_prompt=self._get_agent_system_prompt(),
                 log_dir=self._get_log_dir(),
@@ -117,7 +117,8 @@ class AgentSessionMixin:
                 extra_reference_files=self._get_sandbox_reference_files(),
             )
         else:
-            from claude_agent_sdk import create_sdk_mcp_server
+            from claude_agent_sdk import \
+                create_sdk_mcp_server  # pylint: disable=import-outside-toplevel
 
             tools = create_mcp_tools(self._tool_context, tool_names=tool_names)
             mcp_server = create_sdk_mcp_server(
@@ -135,13 +136,15 @@ class AgentSessionMixin:
             )
 
         if self._agent_session_id is not None:
-            self._agent_session.session_id = self._agent_session_id
+            sess = self._agent_session
+            sess.session_id = (  # type: ignore[attr-defined,union-attr]
+                self._agent_session_id)
 
         # Save system prompt to log directory
         log_dir = self._get_log_dir()
         os.makedirs(log_dir, exist_ok=True)
         prompt_path = os.path.join(log_dir, "system_prompt.txt")
-        with open(prompt_path, "w") as f:
+        with open(prompt_path, "w", encoding="utf-8") as f:
             f.write(self._get_agent_system_prompt())
 
     def _get_log_dir(self) -> str:
@@ -162,14 +165,14 @@ class AgentSessionMixin:
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                import nest_asyncio  # type: ignore[import-not-found]
+                import nest_asyncio  # type: ignore[import-untyped,import-not-found]  # pylint: disable=import-outside-toplevel
                 nest_asyncio.apply()
                 loop.run_until_complete(session.close())
             else:
                 loop.run_until_complete(session.close())
         except RuntimeError:
             asyncio.run(session.close())
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             pass
 
     def _query_agent_sync(self, message: str) -> List[Dict[str, Any]]:
@@ -179,13 +182,11 @@ class AgentSessionMixin:
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                import nest_asyncio  # type: ignore[import-not-found]
+                import nest_asyncio  # type: ignore[import-untyped,import-not-found]  # pylint: disable=import-outside-toplevel
                 nest_asyncio.apply()
                 return loop.run_until_complete(
                     self._agent_session.query(message))
-            else:
-                return loop.run_until_complete(
-                    self._agent_session.query(message))
+            return loop.run_until_complete(self._agent_session.query(message))
         except RuntimeError:
             return asyncio.run(self._agent_session.query(message))
 

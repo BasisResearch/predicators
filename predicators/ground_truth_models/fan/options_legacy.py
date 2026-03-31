@@ -52,7 +52,7 @@ class _FanLegacyOptionsMixin:
 
         def get_current_fingers(state: State) -> float:
             robot, = state.get_objects(robot_type)
-            return PyBulletFanEnv._fingers_state_to_joint(
+            return PyBulletFanEnv._fingers_state_to_joint(  # pylint: disable=protected-access
                 pybullet_robot, state.get(robot, "fingers"))
 
         def _open_fingers_func(state: State, objects: Sequence[Object],
@@ -153,9 +153,11 @@ class _FanLegacyOptionsMixin:
                         lambda y: y - cls._y_offset * push_factor, lambda z: z
                         + cls.env_cls.switch_height * push_above_factor,
                         "closed", option_type, params_space, switch_type),
-                    # cls._create_fan_move_to_push_switch_option(
-                    #     "MoveBack", lambda y: y + cls._y_offset * behind_factor,
-                    #     lambda _: cls._hand_empty_move_z, "closed", option_type,
+                    # cls._create_fan_move_to_push_switch_option(  # noqa
+                    #     "MoveBack",
+                    #     lambda y: y + cls._y_offset * behind_factor,
+                    #     lambda _: cls._hand_empty_move_z,
+                    #     "closed", option_type,
                     #     params_space, switch_type),
                 ])
             options.add(SwitchOn)
@@ -183,9 +185,11 @@ class _FanLegacyOptionsMixin:
                         lambda y: y + cls._y_offset * push_factor, lambda z: z
                         + cls.env_cls.switch_height * push_above_factor,
                         "closed", option_type, params_space, switch_type),
-                    # cls._create_fan_move_to_push_switch_option(
-                    #     "MoveBack", lambda y: y + cls._y_offset * behind_factor,
-                    #     lambda _: cls._hand_empty_move_z, "closed", option_type,
+                    # cls._create_fan_move_to_push_switch_option(  # noqa
+                    #     "MoveBack",
+                    #     lambda y: y + cls._y_offset * behind_factor,
+                    #     lambda _: cls._hand_empty_move_z,
+                    #     "closed", option_type,
                     #     params_space, switch_type),
                 ])
             options.add(SwitchOff)

@@ -1,4 +1,5 @@
 """Core abstractions for reusable parameterized skills."""
+# pylint: disable=wrong-import-position,ungrouped-imports
 
 from __future__ import annotations
 
@@ -477,7 +478,7 @@ class PhaseSkill:
             for obj in comp.get_objects():
                 obj_map[obj.name] = obj
         # Always include the robot.
-        obj_map[sim._robot.name] = sim._robot
+        obj_map[sim._robot.name] = sim._robot  # pylint: disable=protected-access
         return obj_map
 
     def _plan_without_simulator(
@@ -542,7 +543,7 @@ class PhaseSkill:
             new_state_data, simulator_state=pb_state.simulator_state)
 
         # 3. Reset simulator to current state
-        sim._reset_state(remapped_state)
+        sim._reset_state(remapped_state)  # pylint: disable=protected-access
 
         # 4. Collect collision body IDs (exclude held objects and
         #    non-physical types) and find the held object.
@@ -563,10 +564,10 @@ class PhaseSkill:
 
         # 4b. Add tables if present.
         if hasattr(sim, '_table_ids'):
-            for tid in sim._table_ids:
+            for tid in sim._table_ids:  # pylint: disable=protected-access
                 collision_bodies.add(tid)
-        elif hasattr(sim, '_table') and sim._table.id is not None:
-            collision_bodies.add(sim._table.id)
+        elif hasattr(sim, '_table') and sim._table.id is not None:  # pylint: disable=protected-access
+            collision_bodies.add(sim._table.id)  # pylint: disable=protected-access
 
         # 4c. Add extra sim collision bodies (e.g. virtual buffer zones).
         collision_bodies.update(self._config.sim_extra_collision_bodies)
@@ -576,7 +577,7 @@ class PhaseSkill:
         collision_bodies.update(sim.get_extra_collision_ids())
 
         # 5. IK + motion planning on simulator's robot
-        planning_robot = sim._pybullet_robot
+        planning_robot = sim._pybullet_robot  # pylint: disable=protected-access
         planning_robot.set_joints(pb_state.joint_positions)
         try:
             target_joints: JointPositions = planning_robot.inverse_kinematics(
@@ -593,9 +594,9 @@ class PhaseSkill:
 
         # Compute base_link_to_held_obj if an object is held.
         base_link_to_held_obj = None
-        if held_object is not None and sim._held_obj_to_base_link is not None:
+        if held_object is not None and sim._held_obj_to_base_link is not None:  # pylint: disable=protected-access
             base_link_to_held_obj = p.invertTransform(
-                *sim._held_obj_to_base_link)
+                *sim._held_obj_to_base_link)  # pylint: disable=protected-access
 
         traj = run_motion_planning(
             robot=planning_robot,
@@ -603,18 +604,21 @@ class PhaseSkill:
             target_positions=target_joints,
             collision_bodies=collision_bodies,
             seed=CFG.seed,
-            physics_client_id=sim._physics_client_id,
+            physics_client_id=sim._physics_client_id,  # pylint: disable=protected-access
             held_object=held_object,
             base_link_to_held_obj=base_link_to_held_obj,
         )
 
         if traj is None and not expect_contact:
-            self._log_collision_diagnostics(planning_robot,
-                                            sim._physics_client_id,
-                                            pb_state.joint_positions,
-                                            target_joints, collision_bodies,
-                                            held_object, base_link_to_held_obj,
-                                            phase_name)
+            self._log_collision_diagnostics(
+                planning_robot,
+                sim._physics_client_id,  # pylint: disable=protected-access
+                pb_state.joint_positions,
+                target_joints,
+                collision_bodies,
+                held_object,
+                base_link_to_held_obj,
+                phase_name)
 
         return traj
 
@@ -630,7 +634,8 @@ class PhaseSkill:
         phase_name: str,
     ) -> None:
         """Log which collision bodies cause start/goal collisions."""
-        from predicators.pybullet_helpers.link import get_link_state
+        from predicators.pybullet_helpers.link import \
+            get_link_state  # pylint: disable=import-outside-toplevel
 
         def _check(joints: JointPositions, label: str) -> None:
             planning_robot.set_joints(joints)
@@ -654,7 +659,7 @@ class PhaseSkill:
                 try:
                     body_name = p.getBodyInfo(
                         body, physicsClientId=physics_client_id)[1].decode()
-                except Exception:
+                except Exception:  # pylint: disable=broad-except
                     pass
                 contacts = p.getContactPoints(
                     planning_robot.robot_id,

@@ -480,7 +480,7 @@ def _skeleton_generator(
                     frozen_atoms = frozenset(child_atoms)
                     if frozen_atoms in visited_atom_sets:
                         continue
-                child_skeleton = node.skeleton + [nsrt]  # type: ignore[list-item]
+                child_skeleton = (node.skeleton + [nsrt])  # type: ignore
                 child_skeleton_tup = tuple(child_skeleton)
                 if child_skeleton_tup in visited_skeletons:  # pragma: no cover
                     continue
@@ -951,18 +951,23 @@ def task_plan_with_option_plan_constraint(
 
         gt_param_option = option_plan[idx_into_traj][0]
         gt_objects = option_plan[idx_into_traj][1]
-        for applicable_nsrt in utils.get_applicable_operators(  # type: ignore[type-var]
-                ground_nsrts, atoms):
-            # NOTE: we check that the ParameterizedOptions are equal before
-            # attempting to ground because otherwise, we might
-            # get a parameter mismatch and trigger an AssertionError
-            # during grounding.
-            if applicable_nsrt.option != gt_param_option:  # type: ignore[attr-defined]
+        applicable = utils.get_applicable_operators(
+            ground_nsrts,  # type: ignore[type-var]
+            atoms)
+        for applicable_nsrt in applicable:
+            # NOTE: we check that the ParameterizedOptions
+            # are equal before attempting to ground because
+            # otherwise, we might get a parameter mismatch
+            # and trigger an AssertionError during grounding.
+            nsrt_option = applicable_nsrt.option  # type: ignore[attr-defined]
+            if nsrt_option != gt_param_option:
                 continue
-            if applicable_nsrt.option_objs != gt_objects:  # type: ignore[attr-defined]
+            nsrt_objs = applicable_nsrt.option_objs  # type: ignore[attr-defined]  # pylint: disable=line-too-long
+            if nsrt_objs != gt_objects:
                 continue
-            if atoms_seq is not None and not \
-                applicable_nsrt.preconditions.issubset(  # type: ignore[attr-defined]
+            preconds = applicable_nsrt.preconditions  # type: ignore[attr-defined]  # pylint: disable=line-too-long
+            if atoms_seq is not None and \
+                not preconds.issubset(
                     atoms_seq[idx_into_traj]):
                 continue
             next_atoms = utils.apply_operator(

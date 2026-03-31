@@ -1,3 +1,4 @@
+"""Oracle bilevel process planning approach."""
 from typing import Callable, List, Optional, Set
 
 from gym.spaces import Box
@@ -52,7 +53,7 @@ class OracleBilevelProcessPlanningApproach(BilevelProcessPlanningApproach):
 
         # Set all processes' strength parameters to 1 if flag is enabled
         if CFG.process_planning_set_parameters_one:
-            import torch
+            import torch  # pylint: disable=import-outside-toplevel
             modified_processes = set()
             for process in processes:
                 # Create a copy with strength set to 1

@@ -60,7 +60,7 @@ class PyBulletLaserGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         def get_current_fingers(state: State) -> float:
             robot, = state.get_objects(robot_type)
-            return PyBulletLaserEnv._fingers_state_to_joint(
+            return PyBulletLaserEnv._fingers_state_to_joint(  # pylint: disable=protected-access
                 pybullet_robot, state.get(robot, "fingers"))
 
         def open_fingers_func(state: State, objects: Sequence[Object],
@@ -271,7 +271,7 @@ class PyBulletLaserGroundTruthOptionFactory(GroundTruthOptionFactory):
                  state.get(robot, "wrist")])
             current_pose = Pose(current_position, ee_orn)
 
-            # TODO: this is just for demo
+            # Note: this is just for demo
             target_pos = (cls.env_cls.robot_init_x,
                           cls.env_cls.y_lb + 4 * cls.env_cls.piece_width,
                           z_func(cls.env_cls.piece_height))

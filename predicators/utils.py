@@ -58,14 +58,14 @@ from predicators.pybullet_helpers.joint import JointPositions
 from predicators.settings import CFG, GlobalSettings
 from predicators.structs import NSRT, Action, Array, AtomOptionTrajectory, \
     CausalProcess, DelayDistribution, DerivedPredicate, DummyOption, \
-    EntToEntSub, GroundAtom, GroundAtomTrajectory, GroundNSRTOrSTRIPSOperator, \
-    Image, LDLRule, LiftedAtom, LiftedDecisionList, \
-    LiftedOrGroundAtom, LowLevelTrajectory, Mask, Metrics, \
-    NSRTOrSTRIPSOperator, Object, ObjectOrVariable, Observation, OptionSpec, \
-    ParameterizedOption, Predicate, Segment, State, STRIPSOperator, \
-    Task, Type, Variable, VarToObjSub, Video, VLMPredicate, _GroundEndogenousProcess, \
-    _GroundLDLRule, _GroundNSRT, _GroundSTRIPSOperator, \
-    _Option, _TypedEntity
+    EntToEntSub, GroundAtom, GroundAtomTrajectory, \
+    GroundNSRTOrSTRIPSOperator, Image, LDLRule, LiftedAtom, \
+    LiftedDecisionList, LiftedOrGroundAtom, LowLevelTrajectory, Mask, \
+    Metrics, NSRTOrSTRIPSOperator, Object, ObjectOrVariable, Observation, \
+    OptionSpec, ParameterizedOption, Predicate, Segment, State, \
+    STRIPSOperator, Task, Type, Variable, VarToObjSub, Video, VLMPredicate, \
+    _GroundEndogenousProcess, _GroundLDLRule, _GroundNSRT, \
+    _GroundSTRIPSOperator, _Option, _TypedEntity
 from predicators.third_party.fast_downward_translator.translate import \
     main as downward_translate
 
@@ -971,11 +971,8 @@ class LinearChainParameterizedOption(ParameterizedOption):
             memory["current_child_index"] = current_index
             current_child = self._children[current_index]
             child_memory = memory["child_memory"][current_index]
-            try:
-                assert current_child.initiable(state, child_memory, objects,
-                                               params)
-            except AssertionError:
-                raise
+            assert current_child.initiable(state, child_memory, objects,
+                                           params)
         # logging.debug(f"Executing {current_child.name}")
         return current_child.policy(state, child_memory, objects, params)
 
@@ -1078,10 +1075,10 @@ class PyBulletState(State):
         return State(self.data).allclose(State(other.data))
 
     def copy(self) -> PyBulletState:
-        copy = super().copy()
-        state_dict_copy = copy.data
+        copied = super().copy()
+        state_dict_copy = copied.data
         # simulator_state_copy = list(self.joint_positions)
-        simulator_state_copy = copy.simulator_state
+        simulator_state_copy = copied.simulator_state
         return PyBulletState(state_dict_copy, simulator_state_copy)
 
     def get_obj_mask(self, obj: Object) -> Mask:
@@ -1206,13 +1203,13 @@ class VLMState(PyBulletState):
         standard_feature_len = len(self.data[obj])
         if idx >= standard_feature_len:
             return self.bbox_features[obj][idx - standard_feature_len]
-        else:
-            return self.data[obj][idx]
+        return self.data[obj][idx]
 
     def dict_str(  # type: ignore[override]
             self,
             indent: int = 0,
             object_features: bool = True,
+            num_decimal_points: int = 2,
             use_object_id: bool = False,
             position_proprio_features: bool = False) -> str:
         """Return a dictionary representation of the state."""
@@ -1223,12 +1220,11 @@ class VLMState(PyBulletState):
                     obj.type.feature_names,
                     np.concatenate([self[obj], self.bbox_features[obj]])
                     if self.bbox_features else self[obj]):
-                if (position_proprio_features and attribute in [
-                        "rot",
-                        "fingers"
-                ]) or (object_features and attribute not in [
-                        "is_heavy",
-                ]):
+                if (position_proprio_features and attribute
+                        in ["rot", "fingers"]) or (object_features
+                                                   and attribute not in [
+                                                       "is_heavy",
+                                                   ]):
                     if isinstance(value, (float, int, np.float32)):
                         value = round(float(value), 1)
                     obj_dict[attribute] = value
@@ -1285,16 +1281,16 @@ class VLMState(PyBulletState):
                         obj_mask_copy, labeled_image_copy, option_history_copy,
                         bbox_features_copy, prev_state_copy)
 
-    def get_obj_mask(self, object: Object) -> Mask:
+    def get_obj_mask(self, obj: Object) -> Mask:
         """Return the mask for the object."""
-        return self.obj_mask_dict[object]
+        return self.obj_mask_dict[obj]
 
-    def get_obj_bbox(self, object: Object) -> BoundingBox:
+    def get_obj_bbox(self, obj: Object) -> BoundingBox:
         """Get the bounding box of the object in the state image."""
-        mask = self.get_obj_mask(object)
+        mask = self.get_obj_mask(obj)
         return mask_to_bbox(mask)
 
-    def crop_to_objects(
+    def crop_to_objects(  # pylint: disable=missing-function-docstring
             self,
             objects: Sequence[Object],
             left_margin: int = 30,
@@ -1440,7 +1436,7 @@ def run_policy(
                 start_time = time.perf_counter()
                 act = policy(state)
                 metrics["policy_call_time"] += time.perf_counter() - start_time
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 if not CFG.video_not_break_on_exception:
                     if exceptions_to_break_on is not None and \
                         type(e) in exceptions_to_break_on:
@@ -1628,7 +1624,8 @@ def option_policy_to_policy(
 
         # whether the noop option should terminate
         wait_terminate = False
-        if CFG.wait_option_terminate_on_atom_change and cur_option.name == "Wait":
+        if CFG.wait_option_terminate_on_atom_change \
+                and cur_option.name == "Wait":
             assert abstract_function is not None
             assert last_state is not None
             cur_atoms = abstract_function(state)
@@ -2670,13 +2667,12 @@ def create_llm_by_name(
     """Create particular llm using a provided name."""
     if CFG.pretrained_model_service_provider == "openai":
         return OpenAILLM(model_name)
-    elif CFG.pretrained_model_service_provider == "google":
+    if CFG.pretrained_model_service_provider == "google":
         return GoogleGeminiLLM(model_name)
-    elif CFG.pretrained_model_service_provider == "openrouter":
+    if CFG.pretrained_model_service_provider == "openrouter":
         return OpenRouterLLM(model_name)
-    else:
-        raise ValueError(f"Unknown pretrained model service provider: "
-                         f"{CFG.pretrained_model_service_provider}")
+    raise ValueError(f"Unknown pretrained model service provider: "
+                     f"{CFG.pretrained_model_service_provider}")
 
 
 def create_vlm_by_name(
@@ -2684,13 +2680,12 @@ def create_vlm_by_name(
     """Create particular vlm using a provided name."""
     if CFG.pretrained_model_service_provider == "openai":
         return OpenAIVLM(model_name)
-    elif CFG.pretrained_model_service_provider == "google":
+    if CFG.pretrained_model_service_provider == "google":
         return GoogleGeminiVLM(model_name)
-    elif CFG.pretrained_model_service_provider == "openrouter":
+    if CFG.pretrained_model_service_provider == "openrouter":
         return OpenRouterVLM(model_name)
-    else:
-        raise ValueError(f"Unknown pretrained model service provider: "
-                         f"{CFG.pretrained_model_service_provider}")
+    raise ValueError(f"Unknown pretrained model service provider: "
+                     f"{CFG.pretrained_model_service_provider}")
 
 
 def parse_model_output_into_option_plan(
@@ -2897,6 +2892,8 @@ def query_vlm_for_atom_vals(
         return set()
     true_atoms: Set[GroundAtom] = set()
     # Get quantities necessary to construct prompt to query VLM.
+    if state.simulator_state is None:
+        return true_atoms
     assert state.simulator_state is not None
     assert isinstance(state.simulator_state["images"], List)
     curr_state_imgs = state.simulator_state["images"]
@@ -3355,8 +3352,8 @@ def create_ground_atom_option_dataset(
     annotate with options (HLA)."""
     ground_atom_option_dataset = []
     for traj in trajectories:
-        # TODO: this is current just based on the current states. We would
-        # probably want to extend this to state history.
+        # Note: this is currently just based on the current states.
+        # We may want to extend this to state history in the future.
         atoms = [abstract(s, predicates) for s in traj.states]
         options = [a.get_option() for a in traj.actions]
         ground_atom_option_dataset.append(
@@ -3527,8 +3524,7 @@ def get_applicable_operators(
     Note: the order may be nondeterministic. Users should be invariant.
     """
     for op in ground_ops:
-        if isinstance(op, _GroundNSRT) or isinstance(op,
-                                                     _GroundSTRIPSOperator):
+        if isinstance(op, (_GroundNSRT, _GroundSTRIPSOperator)):
             applicable = op.preconditions.issubset(atoms)
         elif isinstance(op, _GroundEndogenousProcess):
             applicable = op.condition_at_start.issubset(atoms)
@@ -4159,12 +4155,10 @@ def get_config_path_str(experiment_id: Optional[str] = None) -> str:
     if experiment_id is None:
         experiment_id = CFG.experiment_id
     if CFG.use_counterfactual_dataset_path_name:
-        return (f"{CFG.env}__{CFG.seed}__{CFG.experiment_id}__query")
-    else:
-        return (
-            f"{CFG.env}__{CFG.approach}__{CFG.seed}__"
-            f"{CFG.excluded_predicates}__{CFG.included_options}__{experiment_id}"
-        )
+        return f"{CFG.env}__{CFG.seed}__{CFG.experiment_id}__query"
+    return (f"{CFG.env}__{CFG.approach}__{CFG.seed}__"
+            f"{CFG.excluded_predicates}__"
+            f"{CFG.included_options}__{experiment_id}")
 
 
 def get_approach_save_path_str() -> str:
@@ -4241,10 +4235,14 @@ def string_to_python_object(value: str) -> Any:
 def flush_cache() -> None:
     """Clear all lru caches."""
     gc.collect()
-    wrappers = [
-        a for a in gc.get_objects()
-        if isinstance(a, functools._lru_cache_wrapper)  # pylint: disable=protected-access
-    ]
+    _lru_type = functools._lru_cache_wrapper  # pylint: disable=protected-access
+    wrappers = []
+    for a in gc.get_objects():
+        try:
+            if isinstance(a, _lru_type):
+                wrappers.append(a)
+        except Exception:  # pylint: disable=broad-except
+            continue
 
     for wrapper in wrappers:
         wrapper.cache_clear()
@@ -4477,9 +4475,8 @@ class DiscreteGaussianDelay(DelayDistribution):
     def sample(self, sample_mode: bool = True) -> int:
         if sample_mode:
             return int(self.mu.item())
-        else:
-            u = torch.rand(1).item()
-            return int(torch.searchsorted(self._cdf, torch.tensor(u)))
+        u = torch.rand(1).item()
+        return int(torch.searchsorted(self._cdf, torch.tensor(u)))
 
     @cached_property
     def _str(self) -> str:
@@ -4832,6 +4829,7 @@ def get_object_by_name(objects: Collection[Object],
 
 
 def configure_logging() -> None:
+    """Configure logging with colored output."""
     # Create a single formatter instance to be reused
     colored_formatter = colorlog.ColoredFormatter(
         '%(log_color)s%(levelname)s: %(message)s',
@@ -4903,7 +4901,10 @@ def add_label_to_video(video: Video,
     for i, img in enumerate(video):
         img_name = prefix + f"frame_{i+1}"
         labeled_img = add_label_to_image(
-            img, img_name, imgs_dir, save=save)  # type: ignore[arg-type]
+            img,  # type: ignore[arg-type]
+            img_name,
+            imgs_dir,
+            save=save)
         new_video.append(labeled_img)  # type: ignore[arg-type]
     return new_video
 
@@ -4967,9 +4968,8 @@ def all_subsets(input_set: Iterable[Any]) -> Iterator[Set[Any]]:
 
 
 def add_in_auxiliary_predicates(predicates: Set[Predicate]) -> Set[Predicate]:
-    # If a predicate is a drived predicate, check its auxiliary predicates
-    # attribute, and add them and all their derived predicates to the set
-    # recursively.
+    """Add auxiliary predicates from derived predicates."""
+
     def add_auxiliary(pred: Predicate, preds: Set[Predicate]) -> None:
         if isinstance(pred, DerivedPredicate):
             if pred.auxiliary_predicates:
@@ -4999,7 +4999,9 @@ def get_derived_predicates(
 #     for p in derived_preds:
 #         for aux in getattr(p, "auxiliary_predicates", []):
 #             # only count deps on other derived preds
-#             q = next((dp for dp in derived_preds if dp.name == aux.name), None)
+#             q = next(
+#                 (dp for dp in derived_preds
+#                  if dp.name == aux.name), None)
 #             if q:
 #                 edges[q].add(p); indeg[p] += 1
 

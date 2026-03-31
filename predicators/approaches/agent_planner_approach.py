@@ -14,7 +14,7 @@ import datetime
 import inspect as _inspect
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, cast
 
 import dill as pkl
 import numpy as np
@@ -62,11 +62,15 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         # approach's predicates (which may include invented ones).
         if CFG.wait_option_terminate_on_atom_change:
             preds = self._get_all_predicates()
-            self._option_model._abstract_function = \
+            cast(  # pylint: disable=protected-access
+                Any, self._option_model
+            )._abstract_function = \
                 lambda s, _p=preds: utils.abstract(s, _p)
         self._online_learning_cycle = 0
         self._requests_train_task_idxs: Optional[List[int]] = None
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._pre_test_conversation_log: Optional[List[Dict[str, Any]]] = None
+        self._agent_session_id: Optional[str] = None
 
         self._init_agent_session_state(types, initial_predicates,
                                        initial_options, train_tasks)
@@ -384,7 +388,7 @@ scene, then annotate_scene overlays markers on it."""
     def begin_test_phase(self) -> None:
         """Snapshot the learning conversation log before testing."""
         if self._agent_session is not None:
-            import copy
+            import copy  # pylint: disable=import-outside-toplevel
             self._pre_test_conversation_log = copy.deepcopy(
                 self._agent_session.conversation_log)
         else:
@@ -395,7 +399,7 @@ scene, then annotate_scene overlays markers on it."""
         if self._agent_session is not None \
                 and self._pre_test_conversation_log is not None:
             self._agent_session._conversation_log = \
-                self._pre_test_conversation_log
+                self._pre_test_conversation_log  # pylint: disable=protected-access
         self._pre_test_conversation_log = None
 
     def _query_agent_for_option_plan(self, task: Task) -> list:
@@ -482,7 +486,8 @@ scene, then annotate_scene overlays markers on it."""
 {task.goal_nl}
 """
 
-        prompt = f"""You are solving a task. Generate an option plan to achieve the goal.
+        prompt = f"""You are solving a task. \
+Generate an option plan to achieve the goal.
 {goal_nl_section}
 ## Goal Atoms
 {chr(10).join(goal_strs)}
@@ -628,7 +633,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
                 params_arr = np.array(params, dtype=np.float32)
                 ground_opt = option.ground(objs, params_arr)
                 grounded.append(ground_opt)
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 logging.warning(
                     f"[Run {self._run_id}] Failed to ground option "
                     f"{option.name}: {e}")
@@ -691,14 +696,17 @@ Output ONLY the option plan lines at the end, after any analysis."""
         # Extract env from option model for scene rendering
         if self._option_model is not None and \
                 hasattr(self._option_model, '_simulator'):
-            self._tool_context.env = getattr(self._option_model._simulator,
-                                             '__self__', None)
+            self._tool_context.env = getattr(
+                self._option_model._simulator,  # pylint: disable=protected-access
+                '__self__',
+                None)
 
     # ------------------------------------------------------------------ #
     # Save / Load
     # ------------------------------------------------------------------ #
 
     def save(self, online_learning_cycle: Optional[int] = None) -> None:
+        """Save approach state to disk."""
         save_path = utils.get_approach_save_path_str()
         with open(f"{save_path}_{online_learning_cycle}.AgentPlanner",
                   "wb") as f:
@@ -759,7 +767,8 @@ def _get_gt_options_module_path(env_name: str) -> Optional[str]:
     """
     # Importing ground_truth_models triggers import_submodules, which
     # ensures all factory subclasses are registered.
-    from predicators.ground_truth_models import GroundTruthOptionFactory
+    from predicators.ground_truth_models import \
+        GroundTruthOptionFactory  # pylint: disable=import-outside-toplevel
     for cls in utils.get_all_subclasses(GroundTruthOptionFactory):
         if not cls.__abstractmethods__ and env_name in cls.get_env_names():
             module = _inspect.getmodule(cls)

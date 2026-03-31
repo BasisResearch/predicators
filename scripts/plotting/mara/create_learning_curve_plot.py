@@ -64,28 +64,34 @@ DERIVED_KEYS = [("perc_solved",
 # selectors to filter the dataframe for each approach that do online learning.
 APPROACH_GROUPS = [
     # ("Ours",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)),
+    #  lambda df: df["EXPERIMENT_ID"].apply(
+    #      lambda v: "predicate_invention" in v)),
     # ("Online NSRT",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "online_nsrt_learning" in v)),
+    #  lambda df: df["EXPERIMENT_ID"].apply(
+    #      lambda v: "online_nsrt_learning" in v)),
     ("MAPLE", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "maple_q" in v)),
     # ("Ours",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)
-    #  ),
+    #  lambda df: df["EXPERIMENT_ID"].apply(
+    #      lambda v: "predicate_invention" in v)),
     ("Ours",
      lambda df: df["EXPERIMENT_ID"].apply(lambda v: "ours_always_test" in v)),
     ("VisPred", lambda df: df["EXPERIMENT_ID"].apply(
         lambda v: "online_nsrt_learning" in v)),
 ]
 
-# Approaches that don't do online learning - show as horizontal lines at final performance
+# Approaches that don't do online learning - show as
+# horizontal lines at final performance
 HORIZONTAL_LINE_GROUPS = [
     ("Manual", lambda df: df["EXPERIMENT_ID"].apply(lambda v: "oracle" in v)),
     # ("Ours",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "predicate_invention" in v)),
+    #  lambda df: df["EXPERIMENT_ID"].apply(
+    #      lambda v: "predicate_invention" in v)),
     # ("ViLa (zs)",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "vlm_plan_zero_shot" in v)),
+    #  lambda df: df["EXPERIMENT_ID"].apply(
+    #      lambda v: "vlm_plan_zero_shot" in v)),
     # ("ViLa (fs)",
-    #  lambda df: df["EXPERIMENT_ID"].apply(lambda v: "vlm_plan_few_shot" in v)),
+    #  lambda df: df["EXPERIMENT_ID"].apply(
+    #      lambda v: "vlm_plan_few_shot" in v)),
 ]
 
 # Which environments to create plots for
@@ -118,10 +124,12 @@ def _get_learning_curves_for_approach(
 ) -> Tuple[List[int], List[float], List[float]]:
     """Get learning curves for a specific approach and environment.
 
-    For each seed, forward-fills missing iterations with the previous best performance.
+    For each seed, forward-fills missing iterations with the
+    previous best performance.
 
     Args:
-        max_iteration: If provided, extend curves to this iteration using forward-filling
+        max_iteration: If provided, extend curves to this
+            iteration using forward-filling
 
     Returns:
         x_values: List of cycle numbers (starting from 0 for None)
@@ -214,7 +222,8 @@ def _get_final_performance_for_approach(
     if filtered_df.empty:
         return None, None
 
-    # For non-online learning approaches, we just take the mean/std across all seeds
+    # For non-online learning approaches, we just take the
+    # mean/std across all seeds
     mean = filtered_df['PERC_SOLVED'].mean()
     std = filtered_df['PERC_SOLVED'].std()
     if pd.isna(std):  # Single data point case
@@ -358,7 +367,8 @@ def _main() -> None:
         for env_name, env_selector in PLOT_ENVS:
             fig, ax = plt.subplots(figsize=(10, 8))
 
-            # Determine x-axis range by finding max iteration across all online learning approaches
+            # Determine x-axis range by finding max iteration
+            # across all online learning approaches
             max_x = 0
             for approach_label, approach_selector in APPROACH_GROUPS:
                 x_vals, _, _ = _get_learning_curves_for_approach(

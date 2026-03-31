@@ -13,6 +13,8 @@ for:
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Set
 
+import numpy as np
+
 from predicators.structs import Object, Predicate, State, Type
 
 
@@ -139,7 +141,7 @@ class DominoEnvComponent(ABC):
         """
 
     def get_init_dict_entries(
-            self, rng: "np.random.Generator") -> Dict[Object, Dict[str, Any]]:
+            self, rng: np.random.Generator) -> Dict[Object, Dict[str, Any]]:
         """Return initial state dictionary entries for task generation.
 
         Override this method to provide default initial state values for

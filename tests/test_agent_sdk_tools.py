@@ -1,7 +1,7 @@
 """Tests for agent SDK tool enhancements.
 
 Validates:
-1. inspect_options with option_name saves source code to sandbox and returns path
+1. inspect_options with option_name saves source code to sandbox
 2. test_option_plan always saves scene images
 3. test_option_plan shows "Missing goal atoms" when goal not achieved
 4. test_option_plan shows object poses on failure
@@ -13,6 +13,7 @@ Validates:
 Usage:
     python tests/test_agent_sdk_tools.py
 """
+# pylint: disable=redefined-outer-name,import-outside-toplevel,protected-access
 from __future__ import annotations
 
 import asyncio
@@ -24,6 +25,7 @@ import numpy as np
 import pytest
 
 # Bootstrap circular imports
+import predicators.utils as pred_utils
 from predicators.settings import CFG
 
 _CFG_OVERRIDES = {
@@ -69,10 +71,10 @@ def _setup(sandbox_dir: str | None = None) -> tuple[Any, Any]:
         predicates=predicates,
         processes=set(),
         options=options,
-        train_tasks=train_tasks,
+        train_tasks=[t.task for t in train_tasks],
         example_state=task.init,
         option_model=option_model,
-        current_task=task,
+        current_task=task.task,
         sandbox_dir=sandbox_dir,
     )
     # Extract env from option model (same as _sync_tool_context does)
@@ -91,7 +93,8 @@ def _run(coro: Any) -> Any:
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-def _make_tools(ctx: Any, tool_names: list[str] | None = None) -> dict[str, Any]:
+def _make_tools(ctx: Any,
+                tool_names: list[str] | None = None) -> dict[str, Any]:
     """Create MCP tools and return as a name->callable dict."""
     from predicators.agent_sdk.tools import create_mcp_tools
     tools = create_mcp_tools(ctx, tool_names=tool_names)
@@ -109,7 +112,7 @@ def ctx() -> Any:
         with tempfile.TemporaryDirectory() as sandbox_dir:
             ctx_obj, _env = _setup(sandbox_dir=sandbox_dir)
             yield ctx_obj
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-except
         pytest.skip(f"Environment setup failed: {exc}")
 
 
@@ -190,7 +193,7 @@ def test_inspect_options_proposed_code(ctx: Any) -> None:
         name="TestOpt",
         types=[],
         params_space=Box(low=np.array([]), high=np.array([])),
-        policy=lambda s, m, o, p: None,
+        policy=lambda s, m, o, p: None,  # type: ignore[arg-type, return-value]
         initiable=lambda s, m, o, p: True,
         terminal=lambda s, m, o, p: True,
     )
@@ -645,7 +648,7 @@ def test_sync_tool_context_sets_env() -> None:
         types=env.types,
         predicates=env.predicates,
         options=options,
-        train_tasks=list(env.get_train_tasks()),
+        train_tasks=[t.task for t in env.get_train_tasks()],
         option_model=option_model,
     )
 

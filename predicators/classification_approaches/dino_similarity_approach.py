@@ -1,3 +1,4 @@
+"""DINO similarity-based classification approach."""
 import logging
 import os
 import shutil
@@ -5,10 +6,9 @@ from typing import Any, List, Optional, Tuple
 
 import numpy as np
 import torch
-import torchvision.transforms as transforms  # type: ignore[import-untyped]
+from torchvision import transforms  # type: ignore[import-untyped]
 from tqdm import tqdm  # type: ignore[import-untyped]
 
-from predicators import utils
 from predicators.settings import CFG
 from predicators.structs import Video
 
@@ -96,10 +96,9 @@ def _distance(seqA: np.ndarray,
     """Compute distance between two sequences of embeddings."""
     if method == "dtw":
         return _dtw_distance(seqA, seqB)
-    elif method == "chamfer":
+    if method == "chamfer":
         return _chamfer_distance(seqA, seqB)
-    else:
-        raise ValueError(f"Unknown distance method: {method}")
+    raise ValueError(f"Unknown distance method: {method}")
 
 
 def crop_to_multiple_of_patch_size(image: Any, patch_size: int = 14) -> Any:
@@ -138,8 +137,8 @@ class DinoSimilarityApproach:
         """Return the name of this classification approach."""
         return "dino_similarity"
 
-    def predict(self, episode_name: str, support_videos: List[Video],
-                support_labels: List[int], query_videos: List[Video],
+    def predict(self, _episode_name: str, support_videos: List[Video],
+                _support_labels: List[int], query_videos: List[Video],
                 task_id: int) -> List[int]:
         """Predict labels for query videos based on a single support video.
 
@@ -189,9 +188,8 @@ class DinoSimilarityApproach:
         if distances[0] < distances[1]:
             # First query is more similar
             return [1, 0]
-        else:
-            # Second query is more similar
-            return [0, 1]
+        # Second query is more similar
+        return [0, 1]
 
     def _setup_logging_dir(self, task_id: int) -> None:
         """Set up and clean the logging directory for the current task."""
@@ -258,7 +256,8 @@ class DinoSimilarityApproach:
                 # DINO expects normalization, resizing, etc.
                 frame_tensor = crop_to_multiple_of_patch_size(frame_tensor)
 
-                # In many official DINO repos, the forward pass is something like:
+                # In many official DINO repos, the forward
+                # pass is something like:
                 with torch.no_grad():
                     # Return the final-layer features (depends on the repo)
                     # This snippet is conceptual; adapt it to your loaded model.

@@ -405,6 +405,7 @@ class OpenRouterModel:
     """Common interface for anything that calls the OpenRouter gateway."""
 
     _ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+    _key: Optional[str] = None
 
     def set_openrouter_key(self, key: Optional[str] = None) -> None:
         """Read the API key from env unless one is passed explicitly."""

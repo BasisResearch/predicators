@@ -93,9 +93,8 @@ def generate_latex_figure() -> str:
         latex_code.append(
             f"    \\begin{{subfigure}}[b]{{{subfig_width:.3f}\\textwidth}}")
         latex_code.append("        \\centering")
-        latex_code.append(
-            f"        \\includegraphics[width=\\textwidth]{{figures/all_envs_demo/{image_file}}}"
-        )
+        latex_code.append("        \\includegraphics[width=\\textwidth]"
+                          f"{{figures/all_envs_demo/{image_file}}}")
         latex_code.append(f"        \\caption{{{env_name}}}")
         latex_code.append("    \\end{subfigure}")
 
@@ -148,13 +147,12 @@ def create_environment_latex_figure() -> None:
         # Save to file
         save_latex_to_file(latex_code)
 
-        print(
-            "\nNote: Make sure to include the following packages in your LaTeX document:"
-        )
+        print("\nNote: Make sure to include the following"
+              " packages in your LaTeX document:")
         print("\\usepackage{graphicx}")
         print("\\usepackage{subcaption}")
 
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-except
         print(f"Error generating LaTeX figure: {e}")
 
 

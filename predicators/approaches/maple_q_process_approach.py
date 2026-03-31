@@ -150,7 +150,8 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
         #     self._offline_segmented_trajs = new_segments
         #     self._segmented_trajs = list(self._offline_segmented_trajs)
         # else:
-        #     # Online phase: input trajectories are only the online ones so far.
+        #     # Online phase: input trajectories are only the
+        #     # online ones so far.
         #     self._segmented_trajs = list(self._offline_segmented_trajs) + \
         #                              list(new_segments)
         if online_learning_cycle is not None:

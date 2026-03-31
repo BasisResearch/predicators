@@ -41,9 +41,12 @@ class GridComponent(DominoEnvComponent):
 
         if workspace_bounds is None:
             workspace_bounds = {
-                "x_lb": 0.4, "x_ub": 1.1,
-                "y_lb": 1.1, "y_ub": 1.6,
-                "z_lb": 0.4, "z_ub": 0.95,
+                "x_lb": 0.4,
+                "x_ub": 1.1,
+                "y_lb": 1.1,
+                "y_ub": 1.6,
+                "z_lb": 0.4,
+                "z_ub": 0.95,
             }
         self.x_lb = workspace_bounds["x_lb"]
         self.x_ub = workspace_bounds["x_ub"]
@@ -81,21 +84,21 @@ class GridComponent(DominoEnvComponent):
             # Can't create predicates without domino type
             return
 
-        self._DominoAtPos = Predicate(
-            "DominoAtPos", [self._domino_type, self._position_type],
-            self._DominoAtPos_holds)
-        self._DominoAtRot = Predicate(
-            "DominoAtRot", [self._domino_type, self._angle_type],
-            self._DominoAtRot_holds)
-        self._Connected = Predicate(
-            "Connected", [self._position_type, self._position_type],
-            self._Connected_holds)
-        self._PosClear = Predicate(
-            "PosClear", [self._position_type],
-            self._PosClear_holds)
+        self._DominoAtPos = Predicate("DominoAtPos",
+                                      [self._domino_type, self._position_type],
+                                      self._DominoAtPos_holds)
+        self._DominoAtRot = Predicate("DominoAtRot",
+                                      [self._domino_type, self._angle_type],
+                                      self._DominoAtRot_holds)
+        self._Connected = Predicate("Connected",
+                                    [self._position_type, self._position_type],
+                                    self._Connected_holds)
+        self._PosClear = Predicate("PosClear", [self._position_type],
+                                   self._PosClear_holds)
         self._InFrontDirection = DerivedPredicate(
             "InFrontDirection",
-            [self._domino_type, self._domino_type, Type("direction", ["dir"])],
+            [self._domino_type, self._domino_type,
+             Type("direction", ["dir"])],
             self._InFrontDirection_holds,
             auxiliary_predicates={self._DominoAtPos, self._DominoAtRot})
         self._InFront = DerivedPredicate(
@@ -158,8 +161,7 @@ class GridComponent(DominoEnvComponent):
             y = state.get(pos_obj, "yy")
             line_id = p.addUserDebugLine(
                 [x, y, self.table_height],
-                [x, y, self.table_height + self.debug_line_height],
-                [1, 0, 0],
+                [x, y, self.table_height + self.debug_line_height], [1, 0, 0],
                 parentObjectUniqueId=-1,
                 parentLinkIndex=-1,
                 physicsClientId=self._physics_client_id)
@@ -198,9 +200,9 @@ class GridComponent(DominoEnvComponent):
         total_y_range = self.y_ub - self.y_lb
 
         x_start = self.x_lb + (total_x_range -
-                                (num_pos_x - 1) * self.pos_gap) / 2
+                               (num_pos_x - 1) * self.pos_gap) / 2
         y_start = self.y_lb + (total_y_range -
-                                (num_pos_y - 1) * self.pos_gap) / 2
+                               (num_pos_y - 1) * self.pos_gap) / 2
 
         x_coords = [
             round(x_start + i * self.pos_gap, 5) for i in range(num_pos_x)
@@ -289,8 +291,7 @@ class GridComponent(DominoEnvComponent):
         y_adjacent = abs(dy - self.pos_gap) < tolerance and dx < tolerance
         return x_adjacent or y_adjacent
 
-    def _PosClear_holds(self, state: State,
-                        objects: Sequence[Object]) -> bool:
+    def _PosClear_holds(self, state: State, objects: Sequence[Object]) -> bool:
         """Check if a grid position is unoccupied by any domino."""
         position, = objects
         target_x = state.get(position, "xx")
@@ -339,23 +340,23 @@ class GridComponent(DominoEnvComponent):
 
         d1_positions = {
             extract_grid_coords(a.objects[1])
-            for a in atoms if a.predicate.name == "DominoAtPos"
-            and a.objects[0] == domino1
+            for a in atoms
+            if a.predicate.name == "DominoAtPos" and a.objects[0] == domino1
         }
         d1_rotations = {
             extract_rotation_angle_rad(a.objects[1])
-            for a in atoms if a.predicate.name == "DominoAtRot"
-            and a.objects[0] == domino1
+            for a in atoms
+            if a.predicate.name == "DominoAtRot" and a.objects[0] == domino1
         }
         d2_positions = {
             extract_grid_coords(a.objects[1])
-            for a in atoms if a.predicate.name == "DominoAtPos"
-            and a.objects[0] == domino2
+            for a in atoms
+            if a.predicate.name == "DominoAtPos" and a.objects[0] == domino2
         }
         d2_rotations = {
             extract_rotation_angle_rad(a.objects[1])
-            for a in atoms if a.predicate.name == "DominoAtRot"
-            and a.objects[0] == domino2
+            for a in atoms
+            if a.predicate.name == "DominoAtRot" and a.objects[0] == domino2
         }
 
         def _check_case(front_pos: Set[Tuple[int, int]],
@@ -403,11 +404,11 @@ class GridComponent(DominoEnvComponent):
         dir_name = direction_obj.name
         opposite = {"left": "right", "right": "left"}.get(dir_name, dir_name)
 
-        if _check_case(d1_positions, d1_rotations,
-                       d2_positions, d2_rotations, dir_name):
+        if _check_case(d1_positions, d1_rotations, d2_positions, d2_rotations,
+                       dir_name):
             return True
-        if _check_case(d2_positions, d2_rotations,
-                       d1_positions, d1_rotations, opposite):
+        if _check_case(d2_positions, d2_rotations, d1_positions, d1_rotations,
+                       opposite):
             return True
         return False
 
@@ -418,8 +419,7 @@ class GridComponent(DominoEnvComponent):
         domino1, domino2 = objects
         for atom in atoms:
             if (atom.predicate.name == "InFrontDirection"
-                    and len(atom.objects) == 3
-                    and atom.objects[0] == domino1
+                    and len(atom.objects) == 3 and atom.objects[0] == domino1
                     and atom.objects[1] == domino2):
                 return True
         return False
@@ -441,8 +441,8 @@ class GridComponent(DominoEnvComponent):
 
         domino_positions = {
             extract_grid_coords(a.objects[1])
-            for a in atoms if a.predicate.name == "DominoAtPos"
-            and a.objects[0] == domino
+            for a in atoms
+            if a.predicate.name == "DominoAtPos" and a.objects[0] == domino
         }
 
         for dx, dy in domino_positions:

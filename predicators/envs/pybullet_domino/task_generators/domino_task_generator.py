@@ -50,8 +50,9 @@ class DominoTaskGenerator(TaskGenerator):
         """Generate domino sequence tasks.
 
         Args:
-            domino_in_upper_half: If True, shift dominoes to upper half of workspace
-                                 (useful when ball needs space in lower half).
+            domino_in_upper_half: If True, shift dominoes to upper
+                half of workspace (useful when ball needs space
+                in lower half).
         """
         if possible_num_dominos is None:
             possible_num_dominos = CFG.domino_test_num_dominos
@@ -128,6 +129,7 @@ class DominoTaskGenerator(TaskGenerator):
         goal_atoms = set()
         if CFG.domino_use_domino_blocks_as_target:
             for domino_obj in init_state.get_objects(self.domino.domino_type):
+                # pylint: disable=protected-access
                 if self.domino._TargetDomino_holds(init_state, [domino_obj]):
                     goal_atoms.add(
                         GroundAtom(self.domino.Toppled, [domino_obj]))
@@ -292,12 +294,12 @@ class DominoTaskGenerator(TaskGenerator):
             return self._place_straight_domino(rng, obj_dict, x, y, rotation,
                                                gap, domino_count, _in_bounds,
                                                task_idx)
-        elif choice == "turn90":
+        if choice == "turn90":
             return self._place_turn90_domino(rng, obj_dict, x, y, rotation,
                                              gap, domino_count, n_dominos,
                                              n_targets, _in_bounds, task_idx,
                                              should_place_target_at_end)
-        elif choice == "pivot180":
+        if choice == "pivot180":
             return self._place_pivot180_domino(rng, obj_dict, x, y, rotation,
                                                gap, domino_count, pivot_count,
                                                _in_bounds, task_idx,
@@ -511,16 +513,15 @@ class DominoTaskGenerator(TaskGenerator):
                                    rotation=rotation,
                                    domino_count=domino_count + 1,
                                    target_count=target_count + 1)
-        else:
-            obj_dict[self.domino.targets[
-                target_count]] = self.domino.place_pivot_or_target(
-                    target_x, target_y, rotation)
-            return PlacementResult(success=True,
-                                   x=target_x,
-                                   y=target_y,
-                                   rotation=rotation,
-                                   domino_count=domino_count,
-                                   target_count=target_count + 1)
+        obj_dict[self.domino.
+                 targets[target_count]] = self.domino.place_pivot_or_target(
+                     target_x, target_y, rotation)
+        return PlacementResult(success=True,
+                               x=target_x,
+                               y=target_y,
+                               rotation=rotation,
+                               domino_count=domino_count,
+                               target_count=target_count + 1)
 
     def _move_intermediate_objects_to_unfinished_state(self,
                                                        obj_dict: Dict) -> Dict:

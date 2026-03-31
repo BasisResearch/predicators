@@ -187,7 +187,7 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
 
             # Import pos_gap for spatial calculations
             from predicators.envs.pybullet_domino.composed_env import \
-                PyBulletDominoComposedEnv
+                PyBulletDominoComposedEnv  # pylint: disable=import-outside-toplevel
             pos_gap = PyBulletDominoComposedEnv.pos_gap
 
             # Positional Check: Is there ANY valid geometric placement?
@@ -330,9 +330,10 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
                           objects: Sequence[Object]) -> bool:
         """Check if a position is adjacent to a domino in cardinal directions.
 
-        This is similar to _InFrontDirection_holds but checks if a position
-        is adjacent to any position where the domino could be placed, considering
-        that the domino can be in multiple positions during heuristic computation.
+        This is similar to _InFrontDirection_holds but checks if
+        a position is adjacent to any position where the domino
+        could be placed, considering that the domino can be in
+        multiple positions during heuristic computation.
 
         Adjacent positions are those that are exactly one grid step away in
         cardinal directions (up, down, left, right) but not diagonal.
@@ -359,7 +360,7 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
 
         # Import pos_gap for spatial calculations
         from predicators.envs.pybullet_domino.composed_env import \
-            PyBulletDominoComposedEnv
+            PyBulletDominoComposedEnv  # pylint: disable=import-outside-toplevel
         pos_gap = PyBulletDominoComposedEnv.pos_gap
 
         # Get coordinates of the target position
@@ -381,7 +382,7 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
             dy = abs(target_y - domino_y)
 
             # Adjacent in cardinal directions means:
-            # - Approximately pos_gap away in one direction AND close to 0 in the other
+            # - ~pos_gap away in one dir AND close to 0 in other
             # Use 30% tolerance for matching pos_gap
             if ((abs(dx - pos_gap) < pos_gap * 0.3 and dy < pos_gap * 0.3) or
                 (abs(dy - pos_gap) < pos_gap * 0.3 and dx < pos_gap * 0.3)):

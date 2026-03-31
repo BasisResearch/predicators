@@ -10,7 +10,8 @@ from typing import Any, Dict, Optional
 
 def parse_assistant_message(msg: Any) -> Dict[str, Any]:
     """Convert an ``AssistantMessage`` to a serializable dict."""
-    from claude_agent_sdk import TextBlock, ToolUseBlock
+    from claude_agent_sdk import TextBlock, ToolUseBlock \
+        # pylint: disable=import-outside-toplevel
 
     entry: Dict[str, Any] = {"type": "assistant", "content": []}
     for block in msg.content:
@@ -40,7 +41,8 @@ def parse_assistant_message(msg: Any) -> Dict[str, Any]:
 
 def parse_user_message(msg: Any) -> Dict[str, Any]:
     """Convert a ``UserMessage`` to a serializable dict."""
-    from claude_agent_sdk import TextBlock, ToolResultBlock
+    from claude_agent_sdk import TextBlock, ToolResultBlock \
+        # pylint: disable=import-outside-toplevel
 
     entry: Dict[str, Any] = {"type": "user", "content": []}
     for block in msg.content:  # type: ignore[union-attr]
@@ -85,7 +87,10 @@ def parse_message(msg: Any) -> Optional[Dict[str, Any]]:
 
     Returns ``None`` for unrecognised message types.
     """
+    # pylint: disable=import-outside-toplevel
     from claude_agent_sdk import AssistantMessage, ResultMessage, UserMessage
+
+    # pylint: enable=import-outside-toplevel
 
     if isinstance(msg, AssistantMessage):
         return parse_assistant_message(msg)

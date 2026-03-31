@@ -133,11 +133,11 @@ class CoffeeGroundTruthNSRTFactory(GroundTruthNSRTFactory):
                     return np.array(rng.uniform(-1, 1, size=(1, )),
                                     dtype=np.float32)
 
+                sampler = (twist_jug_sampler
+                           if CFG.coffee_twist_sampler else null_sampler)
                 twist_jug_nsrt = NSRT("TwistJug", parameters, preconditions,
-                                    add_effects, delete_effects, set(),
-                                    option, option_vars,
-                                    twist_jug_sampler if CFG.coffee_twist_sampler \
-                                        else null_sampler)
+                                      add_effects, delete_effects, set(),
+                                      option, option_vars, sampler)
                 nsrts.add(twist_jug_nsrt)
             else:
                 # Twist

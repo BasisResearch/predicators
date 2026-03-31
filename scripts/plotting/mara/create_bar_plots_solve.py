@@ -119,7 +119,8 @@ def _main() -> None:
     os.makedirs(outdir, exist_ok=True)
     matplotlib.rcParams.update({'font.size': FONT_SIZE})
 
-    # When keeping max cycle only, don't group by cycle since we've filtered to highest cycle
+    # When keeping max cycle only, don't group by cycle since
+    # we've filtered to highest cycle
     groups_to_use = GROUPS.copy()
     if keep_max_cycle_only and "ONLINE_LEARNING_CYCLE" in groups_to_use:
         groups_to_use.remove("ONLINE_LEARNING_CYCLE")
@@ -147,7 +148,7 @@ def _main() -> None:
                 std = exp_stds[key].tolist()
                 try:
                     assert len(mean) == len(std) == 1
-                except:
+                except Exception:  # pylint: disable=broad-except
                     if label in NO_RESULT_GROUP:
                         print(
                             f"No results for {label} {plot_title} {key} which"
@@ -156,9 +157,8 @@ def _main() -> None:
                         mean = [0]
                         std = [0]
                     else:
-                        print(
-                            f"Error for {label} {plot_title} {key}, mean: {mean}, std: {std}"
-                        )
+                        print(f"Error for {label} {plot_title} "
+                              f"{key}, mean: {mean}, std: {std}")
                         raise
                 plot_labels.append(label)
                 plot_means.append(mean[0])

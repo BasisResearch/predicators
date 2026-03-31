@@ -317,8 +317,11 @@ def create_change_fingers_option(
         current_val, target_val = get_current_and_target_val(
             state, objects, params)
         squared_dist = (target_val - current_val)**2
-        # logging.debug(f"[terminal] current_val: {current_val}, target_val: {target_val}, "
-        #               f"squared_dist: {squared_dist}, grasp_tol: {grasp_tol}")
+        # logging.debug(
+        #     f"[terminal] current_val: {current_val}, "
+        #     f"target_val: {target_val}, "
+        #     f"squared_dist: {squared_dist}, "
+        #     f"grasp_tol: {grasp_tol}")
         return squared_dist < grasp_tol
 
     return ParameterizedOption(

@@ -77,11 +77,11 @@ class PyBulletDominoGroundTruthTypeFactory(GroundTruthTypeFactory):
                 continue
 
             # Check if start domino using predicate
-            if DominoComponent._StartBlock_holds(task.init, [obj]):
+            if DominoComponent._StartBlock_holds(task.init, [obj]):  # pylint: disable=protected-access
                 start_domino = obj
 
             # Check if target domino using predicate
-            elif DominoComponent._TargetDomino_holds(task.init, [obj]):
+            elif DominoComponent._TargetDomino_holds(task.init, [obj]):  # pylint: disable=protected-access
                 target_dominoes.append(obj)
 
         # Create direction objects (like in old pybullet_domino.py)

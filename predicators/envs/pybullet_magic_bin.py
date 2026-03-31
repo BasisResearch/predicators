@@ -473,21 +473,22 @@ class PyBulletMagicBinEnv(PyBulletEnv):
 
 
 if __name__ == "__main__":
-    """Run a simple simulation to test the environment."""
+    # Run a simple simulation to test the environment.
     import time
 
     CFG.seed = 0
     CFG.env = "pybullet_magic_bin"
     CFG.num_train_tasks = 1
     env = PyBulletMagicBinEnv(use_gui=True)
-    task = env._generate_train_tasks()[0]
-    env._reset_state(task.init)
+    task = env._generate_train_tasks()[0]  # pylint: disable=protected-access
+    env._reset_state(task.init)  # pylint: disable=protected-access
 
     print("PyBullet Magic Bin Environment Test")
     print("Blocks should vanish when in bin with switch ON.")
     print("Press Ctrl+C to exit.")
 
     while True:
-        action = Action(np.array(env._pybullet_robot.initial_joint_positions))
-        env.step(action)
+        _joints = env._pybullet_robot.initial_joint_positions  # pylint: disable=protected-access
+        _act = Action(np.array(_joints))
+        env.step(_act)
         time.sleep(0.01)

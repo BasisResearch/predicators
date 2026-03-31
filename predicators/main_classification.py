@@ -41,25 +41,27 @@ def main() -> None:
     # env, approach_train_tasks, train_tasks = setup_environment()
 
     # # Setup predicates
-    # included_preds, excluded_preds = utils.parse_config_excluded_predicates(env)
+    # included_preds, excluded_preds = \
+    #     utils.parse_config_excluded_predicates(env)
     # preds = utils.replace_goals_with_agent_specific_goals(
     #     included_preds, excluded_preds, env
     #     ) if CFG.approach != "oracle" else included_preds
-    """
-    --- Create dataset
-    In a meta learning setting, we have meta-train and meta-test datasets but we
-    only have meta-test now.
-    Each dataset contains multiple tasks. Each task contains a support and query
-    set.
-    For now, there are 1-2 support videos and 2 query videos per task.
-    ---
-    Alternatively, with the current design, there is just 1 kind of 
-    counterfactual per env. So we only have 1 task in the meta-test split. 
-    In each task, we will have 1 or more training samples and multiple test
-    samples.
-    Each sample will have a (state, action) traj and a label for whether it's
-    from the standard world.
-    """
+
+    # --- Create dataset
+    # In a meta learning setting, we have meta-train and
+    # meta-test datasets but we only have meta-test now.
+    # Each dataset contains multiple tasks. Each task
+    # contains a support and query set.
+    # For now, there are 1-2 support videos and 2 query
+    # videos per task.
+    # ---
+    # Alternatively, with the current design, there is
+    # just 1 kind of counterfactual per env. So we only
+    # have 1 task in the meta-test split.
+    # In each task, we will have 1 or more training
+    # samples and multiple test samples.
+    # Each sample will have a (state, action) traj and a
+    # label for whether it's from the standard world.
     test_dataset = create_dataset()
 
     # Create approach
@@ -120,9 +122,9 @@ def create_dataset() -> ClassificationDataset:
             for is_counterfactual in is_counterfactual_list:
                 split = "support" if support_split else "query"
                 base_env_name = env if not is_counterfactual else f"{env}_cf"
-                # TODO: so far only have seed0
+                # Note: so far only have seed0
                 dataset_base_dir = os.path.join(CFG.image_dir, base_env_name,
-                                                f"seed0", split)
+                                                "seed0", split)
 
                 logging.debug(f"Loading the {split} set for "
                               f"{base_env_name}...")
@@ -131,7 +133,7 @@ def create_dataset() -> ClassificationDataset:
                     # Get all images
                     img_paths = sorted(glob.glob(
                         os.path.join(task_dir, '*.png')),
-                                       key=lambda x: os.path.basename(x))
+                                       key=os.path.basename)
 
                     video_len = len(img_paths)
                     if video_len > max_video_len:

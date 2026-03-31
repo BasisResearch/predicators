@@ -419,6 +419,10 @@ class CoverEnvHierarchicalTypes(CoverEnv):
             "block_derived",
             ["is_block", "is_target", "width", "pose", "grasp"],
             parent=self._parent_block_type)
+        # Recreate blocks with new type.
+        self._blocks = []
+        self._targets = []
+        self._create_blocks_and_targets()
 
     @classmethod
     def get_name(cls) -> str:
@@ -552,6 +556,10 @@ class CoverMultistepOptions(CoverEnvTypedOptions):
         # Need to override static object creation because the types are now
         # different (in terms of equality).
         self._robot = Object("robby", self._robot_type)
+        # Recreate blocks and targets with new types.
+        self._blocks = []
+        self._targets = []
+        self._create_blocks_and_targets()
 
     @classmethod
     def get_name(cls) -> str:
@@ -1042,6 +1050,10 @@ class BumpyCoverEnv(CoverEnvRegrasp):
         self._block_type = Type(
             "block",
             ["is_block", "is_target", "width", "pose", "grasp", "bumpy"])
+        # Recreate blocks with new type.
+        self._blocks = []
+        self._targets = []
+        self._create_blocks_and_targets()
 
         # Need to override predicate creation  for blocks because the types are
         # now different (in terms of equality).

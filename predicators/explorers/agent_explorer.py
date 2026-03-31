@@ -47,7 +47,7 @@ class AgentExplorer(BaseExplorer):
                     return policy, lambda _: False
             logging.info("Agent explorer: no valid plan, falling back to "
                          "random options.")
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             logging.warning(f"Agent explorer failed: {e}. "
                             "Falling back to random options.")
 
@@ -175,11 +175,12 @@ Output ONLY the option plan lines at the end, after any analysis."""
             lines.append(f"\nTrajectory {i}: {n_steps} steps")
             if new_atoms:
                 lines.append(
-                    f"  Gained: {', '.join(str(a) for a in sorted(new_atoms, key=str))}"
-                )
+                    "  Gained: " +
+                    f"{', '.join(str(a) for a in sorted(new_atoms, key=str))}")
             if lost_atoms:
                 lines.append(
-                    f"  Lost: {', '.join(str(a) for a in sorted(lost_atoms, key=str))}"
+                    "  Lost: " +
+                    f"{', '.join(str(a) for a in sorted(lost_atoms, key=str))}"
                 )
 
         return "\n".join(lines)
@@ -189,13 +190,12 @@ Output ONLY the option plan lines at the end, after any analysis."""
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
+                # pylint: disable-next=import-outside-toplevel
                 import nest_asyncio  # type: ignore[import-untyped]
                 nest_asyncio.apply()
                 return loop.run_until_complete(
                     self._agent_session.query(message))
-            else:
-                return loop.run_until_complete(
-                    self._agent_session.query(message))
+            return loop.run_until_complete(self._agent_session.query(message))
         except RuntimeError:
             return asyncio.run(self._agent_session.query(message))
 
@@ -241,9 +241,9 @@ Output ONLY the option plan lines at the end, after any analysis."""
                 ground_opt = option.ground(objs,
                                            np.array(params, dtype=np.float32))
                 grounded.append(ground_opt)
-            except Exception as e:
-                logging.info(f"Agent explorer: failed to ground option "
-                             f"{option.name}: {e}")
+            except Exception as e:  # pylint: disable=broad-except
+                logging.info(f"Agent explorer: failed to ground "
+                             f"option {option.name}: {e}")
                 break
 
         if not grounded:

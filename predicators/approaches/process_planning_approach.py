@@ -1,3 +1,4 @@
+"""Bilevel process planning approach."""
 import abc
 import logging
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, Tuple
@@ -53,9 +54,11 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
             # Note: requires a new CFG setting, e.g.,
             # process_planning_vlm_prompt_suffix = "_process"
             prompt_suffix = CFG.process_planning_vlm_prompt_suffix
-            filepath_to_vlm_prompt = utils.get_path_to_predicators_root() + \
-                "/predicators/approaches/vlm_planning_prompts/no_few_shot_hla_plan" + \
-                f"{prompt_suffix}.txt"
+            root = utils.get_path_to_predicators_root()
+            filepath_to_vlm_prompt = (
+                root + "/predicators/approaches/"
+                "vlm_planning_prompts/no_few_shot_hla_plan"
+                f"{prompt_suffix}.txt")
             with open(filepath_to_vlm_prompt, "r", encoding="utf-8") as f:
                 self.base_prompt = f.read()
 
@@ -88,8 +91,10 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
                     abstract_policy=abstract_policy,
                     max_policy_guided_rollout=CFG.
                     process_planning_max_policy_guided_rollout)
+            # pylint: disable=attribute-defined-outside-init
             self._last_process_plan = process_plan
             self._last_atoms_seq = atoms_seq
+            # pylint: enable=attribute-defined-outside-init
             policy = utils.process_plan_to_greedy_policy(
                 process_plan,
                 task.goal,
@@ -109,8 +114,10 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
                     abstract_policy=abstract_policy,
                     max_policy_guided_rollout=CFG.
                     process_planning_max_policy_guided_rollout)
+            # pylint: disable=attribute-defined-outside-init
             self._last_option_plan = option_plan
             self._last_process_plan = process_plan
+            # pylint: enable=attribute-defined-outside-init
             policy = utils.option_plan_to_policy(option_plan)
 
         self._save_metrics(metrics, processes, preds)
@@ -135,7 +142,7 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
                 self._types,
                 timeout,
                 seed,
-                task_planning_heuristic=self._task_planning_heuristic,
+                _task_planning_heuristic=self._task_planning_heuristic,
                 max_horizon=float(CFG.horizon),
                 **kwargs)
         except PlanningFailure as e:
@@ -171,7 +178,7 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
 
         return option_plan, process_plan, metrics
 
-    def _save_metrics(  # type: ignore[override]
+    def _save_metrics(  # type: ignore[override]  # pylint: disable=arguments-renamed
             self, metrics: Metrics, processes: Set[CausalProcess],
             predicates: Set[Predicate]) -> None:
         for metric in [
@@ -214,16 +221,21 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
             self._get_current_predicates())
         derived_predicates = utils.get_derived_predicates(all_predicates)
 
-        # Build indexes for efficient world model execution (do this once outside the loop)
+        # Build indexes for efficient world model execution
+        # (do this once outside the loop)
+        # pylint: disable=import-outside-toplevel
         from collections import defaultdict
 
         from predicators.planning_with_processes import \
             _build_exogenous_process_index
 
+        # pylint: enable=import-outside-toplevel
+
         precondition_to_exogenous_processes = None
         if CFG.build_exogenous_process_index_for_planning:
-            precondition_to_exogenous_processes = _build_exogenous_process_index(
-                all_ground_processes)
+            precondition_to_exogenous_processes = \
+                _build_exogenous_process_index(
+                    all_ground_processes)
 
         # Pre-compute dependencies for incremental derived predicates
         dep_to_derived_preds = defaultdict(list)
@@ -303,14 +315,18 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
         # `parse_model_output_into_process_plan`, which should be analogous
         # to `parse_model_output_into_option_plan`.
         try:
-            parsed_process_plan = utils.parse_model_output_into_process_plan(  # type: ignore[attr-defined]
-                parsable_plan_prediction, objects_list, self._types,
-                endogenous_processes)
+            parse_fn = (
+                utils  # type: ignore[attr-defined]  # pylint: disable=no-member
+                .parse_model_output_into_process_plan)
+            parsed_process_plan = parse_fn(parsable_plan_prediction,
+                                           objects_list, self._types,
+                                           endogenous_processes)
             vlm_process_plan = [
                 p.ground(objs) for p, objs in parsed_process_plan
             ]
-        except Exception as e:
-            logging.warning(f"Failed to parse/ground VLM process plan: {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            logging.warning("Failed to parse/ground VLM process plan:"
+                            f" {e}")
             vlm_process_plan = []
 
         return vlm_process_plan

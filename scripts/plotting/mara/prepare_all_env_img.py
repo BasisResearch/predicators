@@ -40,9 +40,8 @@ def create_all_env_images() -> None:
         task_dir = subfolder / "seed0" / "support" / "task1"
 
         if not task_dir.exists():
-            print(
-                f"Warning: Path {task_dir} does not exist, skipping {subfolder.name}"
-            )
+            print(f"Warning: Path {task_dir} does not exist, "
+                  f"skipping {subfolder.name}")
             continue
 
         # Get all image files in the task1 directory
@@ -52,9 +51,8 @@ def create_all_env_images() -> None:
         ])
 
         if not image_files:
-            print(
-                f"Warning: No image files found in {task_dir}, skipping {subfolder.name}"
-            )
+            print(f"Warning: No image files found in {task_dir},"
+                  f" skipping {subfolder.name}")
             continue
 
         # Take the first image
@@ -72,12 +70,11 @@ def create_all_env_images() -> None:
                 f"Copied: {subfolder.name}/{first_image.name} -> {new_filename}"
             )
             processed_count += 1
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             print(f"Error copying {first_image}: {e}")
 
-    print(
-        f"\nProcessing complete! Successfully processed {processed_count} environments."
-    )
+    print(f"\nProcessing complete! Successfully processed "
+          f"{processed_count} environments.")
     print(f"Images saved to: {output_dir}")
 
 

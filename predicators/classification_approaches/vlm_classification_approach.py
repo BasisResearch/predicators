@@ -1,3 +1,4 @@
+"""VLM-based classification approach."""
 import logging
 import os
 import random
@@ -15,8 +16,9 @@ from predicators.structs import Video
 class VLMClassificationApproach:
     """Vision Language Model (VLM) based classification approach.
 
-    This class implements a classification approach using a Vision Language Model
-    to compare query videos against support videos and determine their similarity.
+    This class implements a classification approach using a Vision
+    Language Model to compare query videos against support videos
+    and determine their similarity.
 
     Attributes:
         _vlm: The vision language model instance
@@ -100,7 +102,7 @@ class VLMClassificationApproach:
 
         # --- Prepare the prompt ---
         prompt_path = os.path.join("prompts", "classification.outline")
-        with open(prompt_path, "r") as f:
+        with open(prompt_path, "r", encoding="utf-8") as f:
             prompt_template = f.read()
 
         # Replace placeholders in the prompt
@@ -177,7 +179,7 @@ class VLMClassificationApproach:
         """Save VLM response to file for debugging purposes."""
         response_path = os.path.join(self.log_dir or "", fname)
         os.makedirs(os.path.dirname(response_path), exist_ok=True)
-        with open(response_path, "w") as f:
+        with open(response_path, "w", encoding="utf-8") as f:
             f.write(response_text)
 
     def _preprocess_videos(

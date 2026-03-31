@@ -14,17 +14,13 @@ The adapters read predicators' ``CFG`` settings and translate them into
 the corresponding ``mara_robosim.config.*Config`` frozen dataclass.
 """
 
+# pylint: disable=import-outside-toplevel
 from __future__ import annotations
 
-import functools
 import logging
-from collections import defaultdict
-from dataclasses import fields
-from typing import Dict, List, Optional, Sequence, Set, Tuple
-from typing import Type as TypingType
+from typing import Any, Dict, List, Optional, Sequence, Set
 
 import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 from gym.spaces import Box
 
@@ -65,14 +61,14 @@ class _StructConverter:
         self._pred_cache: Dict[str, PredPredicate] = {}
 
         # predicators name -> mara struct (reverse direction)
-        self._rev_type_cache: Dict[str, object] = {}
-        self._rev_obj_cache: Dict[str, object] = {}
+        self._rev_type_cache: Dict[str, Any] = {}
+        self._rev_obj_cache: Dict[str, Any] = {}
         # name -> mara predicate (for reverse atom conversion in derived preds)
-        self._mara_pred_cache: Dict[str, object] = {}
+        self._mara_pred_cache: Dict[str, Any] = {}
 
     # -- Type ---------------------------------------------------------------
 
-    def convert_type(self, mara_type: object) -> PredType:
+    def convert_type(self, mara_type: Any) -> PredType:
         """Convert a mara-robosim Type to a predicators Type."""
         name: str = mara_type.name  # type: ignore[attr-defined]
         if name not in self._type_cache:
@@ -91,13 +87,13 @@ class _StructConverter:
             self._rev_type_cache[name] = mara_type
         return self._type_cache[name]
 
-    def reverse_type(self, pred_type: PredType) -> object:
+    def reverse_type(self, pred_type: PredType) -> Any:
         """Look up the mara-robosim Type for a predicators Type."""
         return self._rev_type_cache[pred_type.name]
 
     # -- Object -------------------------------------------------------------
 
-    def convert_object(self, mara_obj: object) -> PredObject:
+    def convert_object(self, mara_obj: Any) -> PredObject:
         """Convert a mara-robosim Object to a predicators Object."""
         name: str = mara_obj.name  # type: ignore[attr-defined]
         if name not in self._obj_cache:
@@ -112,13 +108,13 @@ class _StructConverter:
             self._rev_obj_cache[name] = mara_obj
         return self._obj_cache[name]
 
-    def reverse_object(self, pred_obj: PredObject) -> object:
+    def reverse_object(self, pred_obj: PredObject) -> Any:
         """Look up the mara-robosim Object for a predicators Object."""
         return self._rev_obj_cache[pred_obj.name]
 
     # -- State --------------------------------------------------------------
 
-    def convert_state(self, mara_state: object) -> PredState:
+    def convert_state(self, mara_state: Any) -> PredState:
         """Convert a mara-robosim State to a predicators State."""
         data: Dict[PredObject, np.ndarray] = {}
         for mara_obj, arr in mara_state.data.items(
@@ -133,7 +129,7 @@ class _StructConverter:
             return PyBulletState(data, simulator_state=sim_state)
         return PredState(data, simulator_state=sim_state)
 
-    def reverse_state(self, pred_state: PredState) -> object:
+    def reverse_state(self, pred_state: PredState) -> Any:
         """Convert a predicators State back to a mara-robosim State.
 
         Note: simulator_state is intentionally stripped.  The mara env
@@ -146,11 +142,11 @@ class _StructConverter:
         for pred_obj, arr in pred_state.data.items():
             mara_obj = self.reverse_object(pred_obj)
             data[mara_obj] = arr
-        return MaraState(data)
+        return MaraState(data)  # type: ignore[arg-type]
 
     # -- Predicate ----------------------------------------------------------
 
-    def convert_predicate(self, mara_pred: object) -> PredPredicate:
+    def convert_predicate(self, mara_pred: Any) -> PredPredicate:
         """Convert a mara-robosim Predicate to a predicators Predicate.
 
         Handles both regular predicates (classifier takes State) and
@@ -166,7 +162,9 @@ class _StructConverter:
             self._mara_pred_cache[name] = mara_pred
 
             # Capture only caches (not ``self``) to avoid recursive pickling.
-            mara_classifier = mara_pred._classifier  # type: ignore[attr-defined]
+            mara_classifier = (
+                mara_pred._classifier  # type: ignore[attr-defined]  # pylint: disable=protected-access
+            )
             rev_obj_cache = self._rev_obj_cache
 
             # Check for derived predicate (classifier takes atoms, not state).
@@ -176,12 +174,13 @@ class _StructConverter:
             if is_derived:
                 mara_pred_cache = self._mara_pred_cache
 
+                # pylint: disable-next=dangerous-default-value
                 def _wrapped_derived_classifier(
                     atoms: Set[PredGroundAtom],
                     objects: Sequence[PredObject],
-                    _mara_cls=mara_classifier,
-                    _rev_obj=rev_obj_cache,
-                    _mara_preds=mara_pred_cache,
+                    _mara_cls: Any = mara_classifier,
+                    _rev_obj: Any = rev_obj_cache,
+                    _mara_preds: Any = mara_pred_cache,
                 ) -> bool:
                     from mara_robosim.structs import GroundAtom as MaraGA
                     mara_atoms = set()
@@ -195,6 +194,7 @@ class _StructConverter:
                     return _mara_cls(mara_atoms, mara_objs)
 
                 # Convert auxiliary predicates.
+                assert aux is not None
                 pred_aux = {self.convert_predicate(a) for a in aux}
                 pred_pred = PredDerivedPredicate(
                     name,
@@ -205,12 +205,13 @@ class _StructConverter:
             else:
                 rev_type_cache = self._rev_type_cache
 
+                # pylint: disable-next=dangerous-default-value
                 def _wrapped_classifier(
                     pred_state: PredState,
                     objects: Sequence[PredObject],
-                    _mara_cls=mara_classifier,
-                    _rev_obj=rev_obj_cache,
-                    _rev_type=rev_type_cache,
+                    _mara_cls: Any = mara_classifier,
+                    _rev_obj: Any = rev_obj_cache,
+                    _rev_type: Any = rev_type_cache,
                 ) -> bool:
                     from mara_robosim.structs import State as MaraState
                     mara_data = {}
@@ -220,14 +221,14 @@ class _StructConverter:
                     mara_objs = [_rev_obj[o.name] for o in objects]
                     return _mara_cls(mara_state, mara_objs)
 
-                pred_pred = PredPredicate(name, pred_types,
-                                          _wrapped_classifier)
+                pred_pred = PredPredicate(  # type: ignore[assignment]
+                    name, pred_types, _wrapped_classifier)
             self._pred_cache[name] = pred_pred
         return self._pred_cache[name]
 
     # -- GroundAtom ---------------------------------------------------------
 
-    def convert_ground_atom(self, mara_atom: object) -> PredGroundAtom:
+    def convert_ground_atom(self, mara_atom: Any) -> PredGroundAtom:
         """Convert a mara-robosim GroundAtom to a predicators GroundAtom."""
         pred = self.convert_predicate(
             mara_atom.predicate)  # type: ignore[attr-defined]
@@ -239,7 +240,7 @@ class _StructConverter:
 
     # -- EnvironmentTask ----------------------------------------------------
 
-    def convert_task(self, mara_task: object) -> PredEnvironmentTask:
+    def convert_task(self, mara_task: Any) -> PredEnvironmentTask:
         """Convert a mara-robosim EnvironmentTask to predicators."""
         init_state = self.convert_state(
             mara_task.init)  # type: ignore[attr-defined]
@@ -264,15 +265,11 @@ class _StructConverter:
 
 def _build_base_config_kwargs() -> dict:
     """Extract base PyBulletConfig fields from predicators CFG."""
-    from mara_robosim.config import BiRRTConfig, IKFastConfig
+    # pylint: disable-next=import-outside-toplevel
+    from mara_robosim.config import BiRRTConfig
 
-    # ee_orns: CFG stores a nested defaultdict keyed by env name then robot.
-    # We just use the default (top-level) mapping.
-    ee_orns_raw = CFG.pybullet_robot_ee_orns
-    # ee_orns_raw is a defaultdict(lambda: defaultdict(…)).
-    # For mara-robosim, we need Dict[str, Quaternion].  The simplest approach
-    # is to pass None and let the config use its own default, unless the user
-    # overrode it.  We'll rely on the domain config default for now.
+    # ee_orns: CFG stores a nested defaultdict keyed by env name
+    # then robot.  We rely on the domain config default for now.
 
     kwargs: dict = {}
     kwargs["robot"] = CFG.pybullet_robot
@@ -308,12 +305,12 @@ class MaraBaseAdapter(BaseEnv):
     def __init__(self, use_gui: bool = True) -> None:
         super().__init__(use_gui)
         config = self._build_config(use_gui)
-        self._mara_env = self._create_mara_env(config, use_gui)
+        self._mara_env: Any = self._create_mara_env(config, use_gui)
         self._converter = _StructConverter()
 
     # -- Subclass hooks -----------------------------------------------------
 
-    def _build_config(self, use_gui: bool) -> object:
+    def _build_config(self, use_gui: bool) -> Any:
         """Build a mara-robosim config from predicators CFG.
 
         Subclasses override to add domain-specific fields.
@@ -324,7 +321,7 @@ class MaraBaseAdapter(BaseEnv):
         kwargs["use_gui"] = use_gui
         return PyBulletConfig(**kwargs)
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         """Instantiate the mara-robosim env.
 
         Must be overridden.
@@ -377,8 +374,11 @@ class MaraBaseAdapter(BaseEnv):
         mara_state = self._converter.reverse_state(state)
         # Reset PyBullet from the feature vectors, then get a proper
         # PyBulletState observation before stepping.
+        # pylint: disable=protected-access
         self._mara_env._reset_state(mara_state)
-        self._mara_env._current_observation = self._mara_env.get_observation()
+        self._mara_env._current_observation = (
+            self._mara_env.get_observation())
+        # pylint: enable=protected-access
         mara_next = self._mara_env.step(MaraAction(action.arr))
         return self._converter.convert_state(mara_next)
 
@@ -419,7 +419,7 @@ class MaraAntsEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_ants"
 
-    def _build_config(self, use_gui: bool) -> object:
+    def _build_config(self, use_gui: bool) -> Any:
         from mara_robosim.config import AntsConfig
 
         kwargs = _build_base_config_kwargs()
@@ -427,7 +427,7 @@ class MaraAntsEnv(MaraBaseAdapter):
         kwargs["ants_attracted_to_points"] = CFG.ants_ants_attracted_to_points
         return AntsConfig(**kwargs)
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.ants import PyBulletAntsEnv
 
         return PyBulletAntsEnv(config=config, use_gui=use_gui)
@@ -440,7 +440,7 @@ class MaraBalanceEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_balance"
 
-    def _build_config(self, use_gui: bool) -> object:
+    def _build_config(self, use_gui: bool) -> Any:
         from mara_robosim.config import BalanceConfig
 
         kwargs = _build_base_config_kwargs()
@@ -452,7 +452,7 @@ class MaraBalanceEnv(MaraBaseAdapter):
         kwargs["weird_balance"] = CFG.balance_wierd_balance
         return BalanceConfig(**kwargs)
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.balance import PyBulletBalanceEnv
 
         return PyBulletBalanceEnv(config=config, use_gui=use_gui)
@@ -465,7 +465,7 @@ class MaraBarrierEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_barrier"
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.barrier import PyBulletBarrierEnv
 
         return PyBulletBarrierEnv(config=config, use_gui=use_gui)
@@ -478,7 +478,7 @@ class MaraBlocksEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_blocks"
 
-    def _build_config(self, use_gui: bool) -> object:
+    def _build_config(self, use_gui: bool) -> Any:
         from mara_robosim.config import BlocksConfig
 
         kwargs = _build_base_config_kwargs()
@@ -491,7 +491,7 @@ class MaraBlocksEnv(MaraBaseAdapter):
             "high_towers_are_unstable"] = CFG.blocks_high_towers_are_unstable
         return BlocksConfig(**kwargs)
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.blocks import PyBulletBlocksEnv
 
         return PyBulletBlocksEnv(config=config, use_gui=use_gui)
@@ -504,7 +504,7 @@ class MaraBoilEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_boil"
 
-    def _build_config(self, use_gui: bool) -> object:
+    def _build_config(self, use_gui: bool) -> Any:
         from mara_robosim.config import BoilConfig
 
         kwargs = _build_base_config_kwargs()
@@ -513,8 +513,8 @@ class MaraBoilEnv(MaraBaseAdapter):
         kwargs[
             "boil_goal_simple_human_happy"] = CFG.boil_goal_simple_human_happy
         kwargs["boil_use_derived_predicates"] = CFG.boil_use_derived_predicates
-        kwargs[
-            "boil_require_jug_full_to_heatup"] = CFG.boil_require_jug_full_to_heatup
+        kwargs["boil_require_jug_full_to_heatup"] = (
+            CFG.boil_require_jug_full_to_heatup)
         kwargs[
             "boil_goal_require_burner_off"] = CFG.boil_goal_require_burner_off
         kwargs["boil_add_jug_reached_capacity_predicate"] = (
@@ -530,7 +530,7 @@ class MaraBoilEnv(MaraBaseAdapter):
         kwargs["boil_use_cmp_delay"] = CFG.boil_use_cmp_delay
         return BoilConfig(**kwargs)
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.boil import PyBulletBoilEnv
 
         return PyBulletBoilEnv(config=config, use_gui=use_gui)
@@ -543,7 +543,7 @@ class MaraCircuitEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_circuit"
 
-    def _build_config(self, use_gui: bool) -> object:
+    def _build_config(self, use_gui: bool) -> Any:
         from mara_robosim.config import CircuitConfig
 
         kwargs = _build_base_config_kwargs()
@@ -553,7 +553,7 @@ class MaraCircuitEnv(MaraBaseAdapter):
         kwargs["circuit_battery_in_box"] = CFG.circuit_battery_in_box
         return CircuitConfig(**kwargs)
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.circuit import PyBulletCircuitEnv
 
         return PyBulletCircuitEnv(config=config, use_gui=use_gui)
@@ -566,7 +566,7 @@ class MaraCoffeeEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_coffee"
 
-    def _build_config(self, use_gui: bool) -> object:
+    def _build_config(self, use_gui: bool) -> Any:
         from mara_robosim.config import CoffeeConfig
 
         kwargs = _build_base_config_kwargs()
@@ -579,13 +579,13 @@ class MaraCoffeeEnv(MaraBaseAdapter):
         kwargs["simple_tasks"] = CFG.coffee_simple_tasks
         kwargs["machine_have_light_bar"] = CFG.coffee_machine_have_light_bar
         kwargs["machine_has_plug"] = CFG.coffee_machine_has_plug
-        kwargs[
-            "plug_break_after_plugged_in"] = CFG.coffee_plug_break_after_plugged_in
+        kwargs["plug_break_after_plugged_in"] = (
+            CFG.coffee_plug_break_after_plugged_in)
         kwargs["fill_jug_gradually"] = CFG.coffee_fill_jug_gradually
         kwargs["render_grid_world"] = CFG.coffee_render_grid_world
         return CoffeeConfig(**kwargs)
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.coffee import PyBulletCoffeeEnv
 
         return PyBulletCoffeeEnv(config=config, use_gui=use_gui)
@@ -598,7 +598,7 @@ class MaraCoverEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_cover"
 
-    def _build_config(self, use_gui: bool) -> object:
+    def _build_config(self, use_gui: bool) -> Any:
         from mara_robosim.config import CoverConfig
 
         kwargs = _build_base_config_kwargs()
@@ -612,7 +612,7 @@ class MaraCoverEnv(MaraBaseAdapter):
             CFG.cover_blocks_change_color_when_cover)
         return CoverConfig(**kwargs)
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.cover import PyBulletCoverEnv
 
         return PyBulletCoverEnv(config=config, use_gui=use_gui)
@@ -625,7 +625,7 @@ class MaraDominoEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_domino"
 
-    def _build_config(self, use_gui: bool) -> object:
+    def _build_config(self, use_gui: bool) -> Any:
         from mara_robosim.config import DominoConfig
 
         kwargs = _build_base_config_kwargs()
@@ -659,11 +659,13 @@ class MaraDominoEnv(MaraBaseAdapter):
         kwargs["domino_use_skill_factories"] = CFG.domino_use_skill_factories
         return DominoConfig(**kwargs)
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.domino.composed_env import \
             PyBulletDominoComposedEnv
 
-        return PyBulletDominoComposedEnv(config=config, use_gui=use_gui)
+        return PyBulletDominoComposedEnv(  # type: ignore[call-arg]  # pylint: disable=no-value-for-parameter
+            config=config,
+            use_gui=use_gui)
 
 
 class MaraFanEnv(MaraBaseAdapter):
@@ -673,7 +675,7 @@ class MaraFanEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_fan"
 
-    def _build_config(self, use_gui: bool) -> object:
+    def _build_config(self, use_gui: bool) -> Any:
         from mara_robosim.config import FanConfig
 
         kwargs = _build_base_config_kwargs()
@@ -686,7 +688,7 @@ class MaraFanEnv(MaraBaseAdapter):
         kwargs["fan_use_kinematic"] = CFG.fan_use_kinematic
         return FanConfig(**kwargs)
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.fan import PyBulletFanEnv
 
         return PyBulletFanEnv(config=config, use_gui=use_gui)
@@ -699,7 +701,7 @@ class MaraFloatEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_float"
 
-    def _build_config(self, use_gui: bool) -> object:
+    def _build_config(self, use_gui: bool) -> Any:
         from mara_robosim.config import FloatConfig
 
         kwargs = _build_base_config_kwargs()
@@ -707,7 +709,7 @@ class MaraFloatEnv(MaraBaseAdapter):
         kwargs["water_level_doesnt_raise"] = CFG.float_water_level_doesnt_raise
         return FloatConfig(**kwargs)
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.float_ import PyBulletFloatEnv
 
         return PyBulletFloatEnv(config=config, use_gui=use_gui)
@@ -720,7 +722,7 @@ class MaraGrowEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_grow"
 
-    def _build_config(self, use_gui: bool) -> object:
+    def _build_config(self, use_gui: bool) -> Any:
         from mara_robosim.config import GrowConfig
 
         kwargs = _build_base_config_kwargs()
@@ -732,7 +734,7 @@ class MaraGrowEnv(MaraBaseAdapter):
         kwargs["grow_num_jugs_test"] = tuple(CFG.grow_num_jugs_test)
         return GrowConfig(**kwargs)
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.grow import PyBulletGrowEnv
 
         return PyBulletGrowEnv(config=config, use_gui=use_gui)
@@ -745,7 +747,7 @@ class MaraLaserEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_laser"
 
-    def _build_config(self, use_gui: bool) -> object:
+    def _build_config(self, use_gui: bool) -> Any:
         from mara_robosim.config import LaserConfig
 
         kwargs = _build_base_config_kwargs()
@@ -755,7 +757,7 @@ class MaraLaserEnv(MaraBaseAdapter):
             CFG.laser_use_debug_line_for_beams)
         return LaserConfig(**kwargs)
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.laser import PyBulletLaserEnv
 
         return PyBulletLaserEnv(config=config, use_gui=use_gui)
@@ -768,7 +770,7 @@ class MaraMagicBinEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_magic_bin"
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.magic_bin import PyBulletMagicBinEnv
 
         return PyBulletMagicBinEnv(config=config, use_gui=use_gui)
@@ -781,7 +783,7 @@ class MaraSwitchEnv(MaraBaseAdapter):
     def get_name(cls) -> str:
         return "mara_switch"
 
-    def _create_mara_env(self, config: object, use_gui: bool) -> object:
+    def _create_mara_env(self, config: Any, use_gui: bool) -> Any:
         from mara_robosim.envs.switch import PyBulletSwitchEnv
 
         return PyBulletSwitchEnv(config=config, use_gui=use_gui)

@@ -1,4 +1,5 @@
 """API for object-oriented state representation."""
+# pylint: disable=undefined-variable
 
 
 class State:
@@ -44,7 +45,8 @@ class State:
         Raises:
         -------
         ValueError
-            If the specified feature name is not found in the object's type feature names.
+            If the specified feature name is not found in the
+            object's type feature names.
 
         Examples:
         ---------

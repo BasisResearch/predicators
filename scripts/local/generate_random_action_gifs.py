@@ -9,7 +9,8 @@ Usage:
 
 Options:
     --skip-run      Skip running the experiments (just convert existing MP4s)
-    --config, -c    Config file to use (default: mara2/random_actions_pybullet.yaml)
+    --config, -c    Config file to use
+                    (default: mara2/random_actions_pybullet.yaml)
     --video-dir     Directory where MP4s are written (default: videos)
     --output-dir    Directory for output GIFs
                     (default: docs/envs/assets/random_action_gifs)
@@ -77,7 +78,8 @@ def find_mp4s(video_dir: str) -> dict[str, str]:
 
     Returns a dict of {env_short_name: mp4_path}.
     The naming convention from the framework is:
-        {env}__{approach}__{seed}__{excluded}__{included}__{experiment_id}__task{n}.mp4
+        {env}__{approach}__{seed}__{excluded}__{included}__
+        {experiment_id}__task{n}.mp4
     We extract the env name (e.g. 'pybullet_cover') from the filename.
     """
     mp4s: dict[str, str] = {}

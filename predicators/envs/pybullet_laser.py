@@ -99,9 +99,10 @@ class PyBulletLaserEnv(PyBulletEnv):
     _laser_color: ClassVar[Tuple[float, float, float]] = (1.0, 0.2, 0.2)
     _laser_width: ClassVar[float] = 10
     # When _laser_life_time is
-    # >=0.11, the beams split at normal mirror, in both GUI and the recording
-    # >=0.089, the beams from prev. episode would leaks into later episodes, in both GUI and the recording
-    # <=0.088, nothing shows up in the recorded video through getCameraImage
+    # >=0.11, beams split at normal mirror (GUI+recording)
+    # >=0.089, beams from prev. episode leak into later
+    #   episodes (GUI+recording)
+    # <=0.088, nothing shows up in recorded video
     _laser_life_time: ClassVar[float] = 0.3
     # _laser_life_time: ClassVar[float] = 0.03
 
@@ -309,9 +310,9 @@ class PyBulletLaserEnv(PyBulletEnv):
             p.removeBody(beam_id, physicsClientId=client_id)
             # Remove the beam from the list
             _laser_ids.remove((beam_id, creation_time, client_id))
-            logging.debug(
-                f"[reset] removing beam_id: {beam_id} in sim{client_id}, remining beams {[id for id, _, _ in _laser_ids]}"
-            )
+            logging.debug(f"[reset] removing beam_id: {beam_id} "
+                          f"in sim{client_id}, remaining beams "
+                          f"{[bid for bid, _, _ in _laser_ids]}")
 
         # Move targets out of view if needed
         target_objs = state.get_objects(self._target_type)
@@ -358,9 +359,9 @@ class PyBulletLaserEnv(PyBulletEnv):
                 p.removeBody(beam_id, physicsClientId=client_id)
                 # Remove the beam from the list
                 _laser_ids.remove((beam_id, creation_time, client_id))
-                logging.debug(
-                    f"[step] removing beam_id: {beam_id} in sim{client_id}, remining beams {[id for id, _, _ in _laser_ids]}"
-                )
+                logging.debug(f"[step] removing beam_id: {beam_id} "
+                              f"in sim{client_id}, remaining beams "
+                              f"{[bid for bid, _, _ in _laser_ids]}")
         final_state = self._get_state()
         self._current_observation = final_state
         return final_state
@@ -443,10 +444,10 @@ class PyBulletLaserEnv(PyBulletEnv):
                     start.tolist(),
                     end_pt.tolist(),
                 )
-                logging.debug(
-                    f"created laser beam {laser_id} in sim{self._physics_client_id}, current beams {[id for id, _, _ in _laser_ids]}"
-                )
-                # breakpoint()
+                logging.debug(f"created laser beam {laser_id} "
+                              f"in sim{self._physics_client_id}, "
+                              f"current beams "
+                              f"{[bid for bid, _, _ in _laser_ids]}")
                 _laser_ids.append(
                     (laser_id, time.time(), self._physics_client_id))
             return
@@ -470,10 +471,10 @@ class PyBulletLaserEnv(PyBulletEnv):
                 start.tolist(),
                 hit_point.tolist(),
             )
-            logging.debug(
-                f"created laser beam {laser_id} in sim{self._physics_client_id}, current beams {[id for id, _, _ in _laser_ids]}"
-            )
-            # breakpoint()
+            logging.debug(f"created laser beam {laser_id} "
+                          f"in sim{self._physics_client_id}, "
+                          f"current beams "
+                          f"{[bid for bid, _, _ in _laser_ids]}")
             _laser_ids.append((laser_id, time.time(), self._physics_client_id))
 
         # Check if it's a target
@@ -511,7 +512,7 @@ class PyBulletLaserEnv(PyBulletEnv):
         # For simplicity, reflect across the mirror's local y-axis.
         # In a real environment you’d do actual local normal calculations.
         _pos, orn = p.getBasePositionAndOrientation(mirror_id,
-                                                   self._physics_client_id)
+                                                    self._physics_client_id)
         # Convert the quaternion to Euler angles
         euler = p.getEulerFromQuaternion(orn)
         euler = list(euler)
@@ -577,7 +578,7 @@ class PyBulletLaserEnv(PyBulletEnv):
 
     def _set_target_hit(self, target_obj: Object, val: bool) -> None:
         """If you want to show visual changes on the target, do that here."""
-        pass  # e.g., change color if needed
+        # e.g., change color if needed
 
     # -------------------------------------------------------------------------
     # Predicates
@@ -607,12 +608,12 @@ class PyBulletLaserEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     def _generate_train_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(num_tasks=CFG.num_train_tasks,
-                                rng=self._train_rng,
+                                _rng=self._train_rng,
                                 is_train=True)
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         return self._make_tasks(num_tasks=CFG.num_test_tasks,
-                                rng=self._test_rng,
+                                _rng=self._test_rng,
                                 is_train=False)
 
     def _make_tasks(self, num_tasks: int, _rng: np.random.Generator,
@@ -812,7 +813,7 @@ def create_laser_cylinder(start: Any,
 
 
 if __name__ == "__main__":
-    """Run a simple simulation to test the environment."""
+    # Run a simple simulation to test the environment.
 
     # Make a task
     CFG.seed = 0
@@ -820,12 +821,13 @@ if __name__ == "__main__":
     CFG.laser_use_debug_line_for_beams = False
     CFG.laser_zero_reflection_angle = True
     env = PyBulletLaserEnv(use_gui=True)
-    task = env._make_tasks(1, np.random.default_rng(CFG.seed), True)[0]
-    env._reset_state(task.init)
+    task = env._make_tasks(1, np.random.default_rng(CFG.seed), True)[0]  # pylint: disable=protected-access
+    env._reset_state(task.init)  # pylint: disable=protected-access
 
     while True:
         # Robot does nothing
-        action = Action(np.array(env._pybullet_robot.initial_joint_positions))
+        _joints = env._pybullet_robot.initial_joint_positions  # pylint: disable=protected-access
+        _act = Action(np.array(_joints))
 
-        env.step(action)
+        env.step(_act)
         time.sleep(0.01)

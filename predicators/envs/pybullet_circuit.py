@@ -217,10 +217,12 @@ class PyBulletCircuitEnv(PyBulletEnv):
         # Create the battery box/switch assembly
         if CFG.circuit_battery_in_box:
             # Load without box, just switch and snap
-            battery_urdf = "urdf/partnet_mobility/switch/102812/battery_switch_snap.urdf"
+            battery_urdf = ("urdf/partnet_mobility/switch"
+                            "/102812/battery_switch_snap.urdf")
         else:
             # Load with box, switch and snap
-            battery_urdf = "urdf/partnet_mobility/switch/102812/battery_box_switch_snap.urdf"
+            battery_urdf = ("urdf/partnet_mobility/switch"
+                            "/102812/battery_box_switch_snap.urdf")
 
         battery_id = create_object(
             asset_path=battery_urdf,
@@ -299,7 +301,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
         """Extract features for creating the State object."""
         if obj.type == self._light_type and feature == "is_on":
             return int(self._is_bulb_on(obj.id))
-        elif obj.type == self._switch_box_type and feature == "is_on":
+        if obj.type == self._switch_box_type and feature == "is_on":
             return int(self._is_switch_on())
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
@@ -325,10 +327,10 @@ class PyBulletCircuitEnv(PyBulletEnv):
         next_state = super().step(action, render_obs=render_obs)
 
         # Check basic conditions for turning on the bulb
-        basic_conditions = self._SwitchedOn_holds(next_state, [self._battery]) and\
-            (CFG.circuit_light_doesnt_need_battery or
-            self._CircuitClosed_holds(next_state, [self._light,
-                                                    self._battery]))
+        switch_on = self._SwitchedOn_holds(next_state, [self._battery])
+        basic_conditions = switch_on and (
+            CFG.circuit_light_doesnt_need_battery or self._CircuitClosed_holds(
+                next_state, [self._light, self._battery]))
 
         # Additional condition: if not using battery_in_box mode,
         # both C batteries must be in the battery box
@@ -481,8 +483,10 @@ class PyBulletCircuitEnv(PyBulletEnv):
         # Get battery box position (based on the switch box position)
         switch_box_x = state.get(self._battery, "x")
         switch_box_y = state.get(self._battery, "y")
-        box_x_min = switch_box_x - self.battery_box_x_offset - self.battery_box_x_width / 2
-        box_x_max = switch_box_x - self.battery_box_x_offset + self.battery_box_x_width / 2
+        x_off = self.battery_box_x_offset
+        half_w = self.battery_box_x_width / 2
+        box_x_min = switch_box_x - x_off - half_w
+        box_x_max = switch_box_x - x_off + half_w
         box_y_min = switch_box_y - self.battery_box_y_width / 2
         box_y_max = switch_box_y + self.battery_box_y_width / 2
         box_z_min = self.z_lb
@@ -506,8 +510,10 @@ class PyBulletCircuitEnv(PyBulletEnv):
             # Get battery box position (based on the switch box position)
             switch_box_x = state.get(self._battery, "x")
             switch_box_y = state.get(self._battery, "y")
-            box_x_min = switch_box_x - self.battery_box_x_offset - self.battery_box_x_width / 2
-            box_x_max = switch_box_x - self.battery_box_x_offset + self.battery_box_x_width / 2
+            x_off = self.battery_box_x_offset
+            half_w = self.battery_box_x_width / 2
+            box_x_min = switch_box_x - x_off - half_w
+            box_x_max = switch_box_x - x_off + half_w
             box_y_min = switch_box_y - self.battery_box_y_width / 2
             box_y_max = switch_box_y + self.battery_box_y_width / 2
             box_z_min = self.z_lb
@@ -759,19 +765,22 @@ class PyBulletCircuitEnv(PyBulletEnv):
 
 
 if __name__ == "__main__":
-    """Run a simple simulation to test the environment."""
-    import time
 
-    # Make a task
-    CFG.seed = 0
-    CFG.env = "pybullet_circuit"
-    CFG.num_train_tasks = 1
-    env = PyBulletCircuitEnv(use_gui=True)
-    task = env._generate_train_tasks()[0]
-    env._reset_state(task.init)
+    def _main() -> None:
+        """Run a simple simulation to test the environment."""
+        # pylint: disable=protected-access
+        import time  # pylint: disable=import-outside-toplevel
+        CFG.seed = 0
+        CFG.env = "pybullet_circuit"
+        CFG.num_train_tasks = 1
+        env = PyBulletCircuitEnv(use_gui=True)
+        task = env._generate_train_tasks()[0]
+        env._reset_state(task.init)
 
-    while True:
-        action = Action(np.array(env._pybullet_robot.initial_joint_positions))
+        while True:
+            action = Action(
+                np.array(env._pybullet_robot.initial_joint_positions))
+            env.step(action)
+            time.sleep(0.01)
 
-        env.step(action)
-        time.sleep(0.01)
+    _main()

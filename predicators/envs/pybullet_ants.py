@@ -109,8 +109,9 @@ class PyBulletAntsEnv(PyBulletEnv):
             ant_obj = Object(name, self._ant_type)
             self._ants.append(ant_obj)
 
+        self._ant_to_xy: Dict[Object, Tuple[float, float]] = {}
         if CFG.ants_ants_attracted_to_points:
-            self._ants_to_xy: Dict[Object, Tuple[float, float]] = dict()
+            self._ants_to_xy: Dict[Object, Tuple[float, float]] = {}
 
         super().__init__(use_gui)
         self._debug_layout = debug_layout
@@ -231,7 +232,7 @@ class PyBulletAntsEnv(PyBulletEnv):
     def _reset_custom_env_state(self, state: State) -> None:
 
         if CFG.ants_ants_attracted_to_points:
-            self._ant_to_xy: Dict[Object, Tuple[float, float]] = dict()
+            self._ant_to_xy = {}  # type: ignore[no-redef]
             for ant_obj in state.get_objects(self._ant_type):
                 self._ants_to_xy[ant_obj] = (self._train_rng.uniform(
                     self.one_third_x, self.two_third_x),
@@ -272,15 +273,20 @@ class PyBulletAntsEnv(PyBulletEnv):
                     ant_obj.target_food = food_obj
                     break
 
-    def step(self, action: Action, render_obs: bool = False) -> State:
+    def step(  # pylint: disable=redefined-outer-name
+            self,
+            action: Action,
+            render_obs: bool = False) -> State:
         """Override to (1) do usual robot step, (2) move ants toward attracted
         food with noise, and then (3) return the final state."""
         # Step the robot normally
         next_state = super().step(action, render_obs=render_obs)
 
-        # Move ants. For each ant, find a target food object that is "attractive."
-        # If there's more than one attractive block, pick the one it’s “assigned” to,
-        # or the first in the list. Then move a small step toward it with noise.
+        # Move ants. For each ant, find a target food
+        # object that is “attractive.” If there’s more
+        # than one attractive block, pick the one it’s
+        # “assigned” to, or the first in the list. Then
+        # move a small step toward it with noise.
         self._update_ant_positions(next_state)
 
         final_state = self._get_state()
@@ -382,8 +388,7 @@ class PyBulletAntsEnv(PyBulletEnv):
             return False
         if attractive < 0.5:
             return x < self.one_third_x
-        else:
-            return x > self.two_third_x
+        return x > self.two_third_x
 
     def _Attractive_holds(self, state: State,
                           objects: Sequence[Object]) -> bool:
@@ -410,8 +415,9 @@ class PyBulletAntsEnv(PyBulletEnv):
         return self._make_tasks(num_tasks=CFG.num_test_tasks,
                                 rng=self._test_rng)
 
-    def _make_tasks(self, num_tasks: int,
-                    rng: np.random.Generator) -> List[EnvironmentTask]:
+    def _make_tasks(  # pylint: disable=redefined-outer-name
+            self, num_tasks: int,
+            rng: np.random.Generator) -> List[EnvironmentTask]:
         tasks = []
         for _ in range(num_tasks):
             init_dict: Dict[Object, Any] = {}
@@ -517,7 +523,7 @@ class PyBulletAntsEnv(PyBulletEnv):
 
 
 if __name__ == "__main__":
-    """Run a simple simulation to test the environment."""
+    # Run a simple simulation to test the environment.
     import time
 
     # Make a task
@@ -526,12 +532,12 @@ if __name__ == "__main__":
     CFG.pybullet_sim_steps_per_action = 1
     env = PyBulletAntsEnv(use_gui=True)
     rng = np.random.default_rng(CFG.seed)
-    task = env._make_tasks(1, rng)[0]
-    env._reset_state(task.init)
+    task = env._make_tasks(1, rng)[0]  # pylint: disable=protected-access
+    env._reset_state(task.init)  # pylint: disable=protected-access
 
     while True:
         # Robot does nothing
-        action = Action(np.array(env._pybullet_robot.initial_joint_positions))
+        action = Action(np.array(env._pybullet_robot.initial_joint_positions))  # pylint: disable=protected-access
 
         env.step(action)
         time.sleep(0.01)

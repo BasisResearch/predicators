@@ -58,6 +58,9 @@ class AgentAbstractionLearningApproach(
         self._agent_proposed_processes: Set[CausalProcess] = set()
         self._iteration_history: List[Dict[str, Any]] = []
         self._planning_results: Dict[str, Any] = {}
+        self._last_context_message: str = ""
+        self._last_agent_responses: List[Any] = []
+        self._agent_session_id: Optional[str] = None
         self._option_model = create_option_model(CFG.option_model_name)
 
         self._init_agent_session_state(types, initial_predicates,
@@ -83,6 +86,7 @@ class AgentAbstractionLearningApproach(
 
     def _get_log_dir(self) -> str:
         """Use the mixin's simple log dir (no run_id subdirectory)."""
+        # pylint: disable-next=protected-access
         return AgentSessionMixin._get_log_dir(self)
 
     def _get_agent_system_prompt(self) -> str:
@@ -164,9 +168,9 @@ class AgentAbstractionLearningApproach(
         # 9. Increment cycle
         self._online_learning_cycle += 1
 
+    # pylint: disable-next=arguments-differ
     def _sync_tool_context(  # type: ignore[override]
-            self, all_trajs: List[LowLevelTrajectory]
-    ) -> None:
+            self, all_trajs: List[LowLevelTrajectory]) -> None:
         """Synchronize ToolContext with current approach state."""
         self._tool_context.types = self._types
         self._tool_context.predicates = self._get_current_predicates()
@@ -345,9 +349,10 @@ class AgentAbstractionLearningApproach(
         successes = 0
         counted = 0
         for traj in trajs:
-            if traj._train_task_idx is not None and \
-                    traj._train_task_idx < len(self._train_tasks):
-                task = self._train_tasks[traj._train_task_idx]
+            idx = traj._train_task_idx  # pylint: disable=protected-access
+            if idx is not None and \
+                    idx < len(self._train_tasks):
+                task = self._train_tasks[idx]
                 goal_preds = {a.predicate for a in task.goal}
                 final_atoms = utils.abstract(traj.states[-1], goal_preds)
                 if task.goal.issubset(final_atoms):
@@ -360,7 +365,7 @@ class AgentAbstractionLearningApproach(
         if self._augment_task_fn is not None:
             try:
                 task = self._augment_task_fn(task)
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 logging.warning(f"Task augmentation failed: {e}. "
                                 f"Using original task.")
 
@@ -424,7 +429,8 @@ class AgentAbstractionLearningApproach(
             proc_section = (f"\n## Processes ({len(procs)})\n" +
                             "\n".join(proc_strs) + "\n")
 
-        prompt = f"""You are solving a task. Generate an option plan to achieve the goal.
+        prompt = f"""You are solving a task. Generate an option plan \
+to achieve the goal.
 
 ## Goal
 {chr(10).join(goal_strs)}
@@ -513,14 +519,16 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
         # Context message
         if hasattr(self, '_last_context_message'):
-            with open(os.path.join(log_dir, "context_message.txt"), "w") as f:
+            with open(os.path.join(log_dir, "context_message.txt"),
+                      "w",
+                      encoding="utf-8") as f:
                 f.write(self._last_context_message)
 
         # Agent responses
         if CFG.agent_sdk_log_agent_responses and \
                 hasattr(self, '_last_agent_responses'):
             resp_path = os.path.join(log_dir, "agent_responses.jsonl")
-            with open(resp_path, "w") as f:
+            with open(resp_path, "w", encoding="utf-8") as f:
                 for resp in self._last_agent_responses:
                     f.write(json.dumps(resp, default=str) + "\n")
 
@@ -530,23 +538,28 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
         proposals = self._tool_context.iteration_proposals
         if proposals.proposed_types:
-            with open(os.path.join(proposals_dir, "types.json"), "w") as f:
+            with open(os.path.join(proposals_dir, "types.json"),
+                      "w",
+                      encoding="utf-8") as f:
                 json.dump([t.name for t in proposals.proposed_types],
                           f,
                           indent=2)
         if proposals.proposed_predicates:
             with open(os.path.join(proposals_dir, "predicates_validated.json"),
-                      "w") as f:
+                      "w",
+                      encoding="utf-8") as f:
                 json.dump([p.name for p in proposals.proposed_predicates],
                           f,
                           indent=2)
         if proposals.augment_task_code:
             with open(os.path.join(proposals_dir, "augmentor_code.py"),
-                      "w") as f:
+                      "w",
+                      encoding="utf-8") as f:
                 f.write(proposals.augment_task_code)
         if proposals.proposed_processes:
             with open(os.path.join(proposals_dir, "processes_code.json"),
-                      "w") as f:
+                      "w",
+                      encoding="utf-8") as f:
                 json.dump([p.name for p in proposals.proposed_processes],
                           f,
                           indent=2)
@@ -560,7 +573,8 @@ Output ONLY the option plan lines at the end, after any analysis."""
         ])
         if any_retractions:
             with open(os.path.join(proposals_dir, "retractions.json"),
-                      "w") as f:
+                      "w",
+                      encoding="utf-8") as f:
                 json.dump(
                     {
                         "types": sorted(proposals.retract_type_names),

@@ -1,7 +1,7 @@
 """An explorer that takes random NSRTs."""
 
 import logging
-from typing import List, Set, Union
+from typing import Any, List, Set, Union, cast
 
 from gym.spaces import Box
 
@@ -63,7 +63,7 @@ class RandomNSRTsExplorer(BaseExplorer):
 
         # Create all applicable ground NSRTs.
         ground_nsrt_set: Set[Union[_GroundNSRT,
-            _GroundEndogenousProcess]] = set()
+                                   _GroundEndogenousProcess]] = set()
         objects = set(task.init)
         if CFG.sesame_grounder == "naive":
             for nsrt in self._nsrts:
@@ -71,10 +71,9 @@ class RandomNSRTsExplorer(BaseExplorer):
         elif CFG.sesame_grounder == "fd_translator":  # pragma: no cover
             atoms = utils.abstract(task.init, self._predicates)
             ground_nsrt_set.update(
-                utils.all_ground_nsrts_fd_translator(self._nsrts, objects,
-                                                     self._predicates,
-                                                     self._types, atoms,
-                                                     task.goal))
+                utils.all_ground_nsrts_fd_translator(
+                    cast(Set[NSRT], self._nsrts), objects, self._predicates,
+                    self._types, atoms, task.goal))
         else:  # pragma: no cover
             raise ValueError(
                 f"Unrecognized sesame_grounder: {CFG.sesame_grounder}")
@@ -90,15 +89,20 @@ class RandomNSRTsExplorer(BaseExplorer):
 
             if cur_option is DummyOption or cur_option.terminal(state):
                 # Sample an applicable NSRT.
-                ground_nsrt = utils.sample_applicable_ground_nsrt(
-                    state, ground_nsrts, self._predicates, self._rng)
-                if ground_nsrt is None:
+                ground_nsrt_or_proc: Union[
+                    _GroundNSRT, _GroundEndogenousProcess, None] = cast(
+                        Any,
+                        utils.sample_applicable_ground_nsrt(
+                            state, cast(Any, ground_nsrts), self._predicates,
+                            self._rng))
+                if ground_nsrt_or_proc is None:
                     return fallback_policy(state)
+                ground_nsrt = ground_nsrt_or_proc
                 if isinstance(ground_nsrt, _GroundNSRT):
                     assert all(a.holds for a in ground_nsrt.preconditions)
                 elif isinstance(ground_nsrt, _GroundEndogenousProcess):
                     assert all(a.holds for a in ground_nsrt.condition_at_start)
-                else:
+                else:  # pragma: no cover
                     raise Exception
 
                 # Sample an option.

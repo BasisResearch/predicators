@@ -20,7 +20,6 @@ from predicators import utils
 from predicators.agent_sdk.tools import create_mcp_tools
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_planner_approach import AgentPlannerApproach
-from predicators.settings import CFG
 from predicators.structs import Action, State, Task, _Option
 
 
@@ -119,9 +118,11 @@ class AgentClosedLoopApproach(AgentPlannerApproach):
             for i, s in enumerate(step_history):
                 history_str += f"  Step {i + 1}: {s}\n"
         else:
-            history_str = "\n## Options Executed So Far\nNone yet (this is the first step).\n"
+            history_str = ("\n## Options Executed So Far\n"
+                           "None yet (first step).\n")
 
-        prompt = f"""You are solving a task step by step. Decide the NEXT SINGLE option to execute.
+        prompt = f"""You are solving a task step by step. \
+Decide the NEXT SINGLE option to execute.
 
 ## Goal
 {chr(10).join(goal_strs)}

@@ -101,7 +101,7 @@ class HumanLowLevelControlApproach(BaseApproach):
         try:
             self._original_terminal_settings = termios.tcgetattr(sys.stdin)
             tty.setcbreak(sys.stdin.fileno())
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             # Terminal setup may fail in non-TTY environments
             self._original_terminal_settings = None
 
@@ -111,7 +111,7 @@ class HumanLowLevelControlApproach(BaseApproach):
             try:
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN,
                                   self._original_terminal_settings)
-            except Exception:
+            except Exception:  # pylint: disable=broad-except
                 pass
 
     def _print_instructions(self) -> None:
@@ -160,7 +160,7 @@ class HumanLowLevelControlApproach(BaseApproach):
                     last_key = char.lower()
                 else:
                     break
-            except Exception:
+            except Exception:  # pylint: disable=broad-except
                 break
 
         return last_key
@@ -242,7 +242,8 @@ class HumanLowLevelControlApproach(BaseApproach):
             # Directly set finger joints to fully open/closed for fast response
             # The motor controllers will move the fingers as fast as possible
             action_arr = np.array(current_joint_positions, dtype=np.float32)
-            target_finger_pos = robot.open_fingers if self._gripper_open else robot.closed_fingers
+            target_finger_pos = (robot.open_fingers if self._gripper_open else
+                                 robot.closed_fingers)
             action_arr[robot.left_finger_joint_idx] = target_finger_pos
             action_arr[robot.right_finger_joint_idx] = target_finger_pos
             return self._pad_base_action(action_arr)
@@ -260,8 +261,8 @@ class HumanLowLevelControlApproach(BaseApproach):
             if robot_id is not None:
                 base_pos, base_orn = p.getBasePositionAndOrientation(
                     robot_id, physicsClientId=physics_client_id)
-                robot.set_base_pose(Pose(
-                    base_pos, base_orn))  # type: ignore[attr-defined]
+                robot.set_base_pose(  # type: ignore[attr-defined]
+                    Pose(base_pos, base_orn))
 
         # Find robot object in state
         robot_obj = None
@@ -326,9 +327,9 @@ class HumanLowLevelControlApproach(BaseApproach):
 
         # Validate action is within action space bounds
         if not self._action_space.contains(action.arr):
-            print(
-                f"[Step {self._step_count}] Warning: Action out of bounds, staying in place"
-            )
+            print(f"[Step {self._step_count}] "
+                  "Warning: Action out of bounds,"
+                  " staying in place")
             action_arr = np.array(current_joint_positions, dtype=np.float32)
             action = self._pad_base_action(action_arr)
 
@@ -355,6 +356,7 @@ def _get_shadow_robot_for_env() -> SingleArmPyBulletRobot:
     environment."""
     env_name = CFG.env
 
+    # pylint: disable=import-outside-toplevel
     # Map environment names to their classes
     if env_name.startswith("pybullet_circuit"):
         from predicators.envs.pybullet_circuit import PyBulletCircuitEnv
@@ -372,5 +374,6 @@ def _get_shadow_robot_for_env() -> SingleArmPyBulletRobot:
         # Default fallback - use PyBulletFanEnv (most common)
         from predicators.envs.pybullet_fan import PyBulletFanEnv
         _, robot, _ = PyBulletFanEnv.initialize_pybullet(using_gui=False)
+    # pylint: enable=import-outside-toplevel
 
     return robot

@@ -22,7 +22,8 @@ class GlobalSettings:
     online_learning_max_transitions = float("inf")
     online_learning_early_stopping = False
     skip_test_until_last_ite_or_early_stopping = False
-    online_learning_early_stopping_by_test_solve_rate = False  # just for plotting
+    # just for plotting
+    online_learning_early_stopping_by_test_solve_rate = False
     # Maximum number of training tasks to give a demonstration for, if the
     # offline_data_method is demo-based.
     max_initial_demos = float("inf")
@@ -96,7 +97,8 @@ class GlobalSettings:
     balance_wierd_balance = False
 
     # grow env parameters
-    grow_use_skill_factories = True  # Use skill-factory-based option implementations
+    # Use skill-factory-based option implementations
+    grow_use_skill_factories = True
     grow_plant_same_color_as_cup = False
     grow_weak_pour_terminate_condition = False
     grow_place_option_no_sampler = False
@@ -375,7 +377,8 @@ class GlobalSettings:
     coffee_use_pixelated_jug = False
     coffee_plug_break_after_plugged_in = False
     coffee_fill_jug_gradually = False
-    coffee_use_skill_factories = True  # Use skill-factory-based option implementations
+    # Use skill-factory-based option implementations
+    coffee_use_skill_factories = True
 
     # satellites env parameters
     satellites_num_sat_train = [2, 3]
@@ -423,7 +426,8 @@ class GlobalSettings:
     domino_include_connected_predicate = False
     domino_has_glued_dominos = True
     domino_prune_actions = False  # Set to True to enable action pruning
-    domino_only_straight_sequence_in_training = True  # Generate only straight sequences during training
+    # Generate only straight sequences during training
+    domino_only_straight_sequence_in_training = True
     domino_train_num_dominos = [2]
     domino_test_num_dominos = [3]
     domino_train_num_targets = [1]
@@ -435,9 +439,13 @@ class GlobalSettings:
     domino_test_num_pos_x = 4  # 5 is too large for robot to reach sometimes
     domino_test_num_pos_y = 3
     domino_oracle_knows_glued_dominos = False
-    domino_use_continuous_place = False  # Use PlaceContinuous option instead of Place
-    domino_restricted_push = False  # When True, Push only targets the start block (no domino arg)
-    domino_use_skill_factories = True  # Use skill_factories-based option implementations
+    # Use PlaceContinuous option instead of Place
+    domino_use_continuous_place = False
+    # When True, Push only targets the start block
+    # (no domino arg)
+    domino_restricted_push = False
+    # Use skill_factories-based option implementations
+    domino_use_skill_factories = True
 
     # burger env parameters
     burger_render_set_of_marks = True
@@ -455,7 +463,8 @@ class GlobalSettings:
     circuit_battery_in_box = False
 
     # fan env
-    fan_use_skill_factories = True  # Use skill-factory-based option implementations
+    # Use skill-factory-based option implementations
+    fan_use_skill_factories = True
     fan_fans_blow_opposite_direction = False
     fan_known_controls_relation = True
     fan_combine_switch_on_off = False
@@ -478,20 +487,28 @@ class GlobalSettings:
     domino_fan_test_num_walls = [3, 4]
     domino_fan_train_grid_size = (5, 5)
     domino_fan_test_grid_size = (6, 6)
-    domino_fan_ball_task_ratio = 0.5  # Fraction of tasks with ball goals vs domino goals
-    domino_fan_include_ball_in_domino_tasks = True  # Include ball in domino tasks (as obstacle)
-    domino_fan_include_dominoes_in_ball_tasks = False  # Include dominoes in ball tasks
-    domino_fan_ball_position_tolerance = 0.04  # Tolerance for ball reaching target
-    domino_fan_use_kinematic = True  # Use kinematic ball movement (vs dynamic forces)
-    domino_fan_has_glued_dominoes = False  # Include immovable glued dominoes
+    # Fraction of tasks with ball goals vs domino goals
+    domino_fan_ball_task_ratio = 0.5
+    # Include ball in domino tasks (as obstacle)
+    domino_fan_include_ball_in_domino_tasks = True
+    # Include dominoes in ball tasks
+    domino_fan_include_dominoes_in_ball_tasks = False
+    # Tolerance for ball reaching target
+    domino_fan_ball_position_tolerance = 0.04
+    # Use kinematic ball movement (vs dynamic forces)
+    domino_fan_use_kinematic = True
+    # Include immovable glued dominoes
+    domino_fan_has_glued_dominoes = False
 
     # boil env
-    boil_use_skill_factories = True  # Use skill-factory-based option implementations
+    # Use skill-factory-based option implementations
+    boil_use_skill_factories = True
     boil_use_constant_delay = False
     boil_use_normal_delay = True
     boil_use_cmp_delay = False
     boil_goal = "simple"  # Can also be "task_completed", "human_happy"
-    boil_goal_simple_human_happy = False  # Require a simpler condition for human happy
+    # Require a simpler condition for human happy
+    boil_goal_simple_human_happy = False
     boil_use_derived_predicates = True
     boil_require_jug_full_to_heatup = False
     boil_goal_require_burner_off = True
@@ -697,10 +714,17 @@ class GlobalSettings:
     process_learner_llm_propose_conditions_k = 5
     cluster_and_search_vi_steps = 200
     cluster_search_max_workers = -1
-    cluster_and_inverse_planning_candidates = "top_consistent"  # "all", "top_consistent"
-    cluster_and_inverse_planning_top_consistent_method = "percentage"  # "number", "percentage", "cost", "percentage_cost"
-    cluster_and_inverse_planning_top_consistent_num = -1
-    cluster_and_inverse_planning_top_p_percent = 3  # percentage of top consistent candidates to use
+    # "all", "top_consistent"
+    cluster_and_inverse_planning_candidates = \
+        "top_consistent"
+    # "number", "percentage", "cost",
+    # "percentage_cost"
+    cluster_and_inverse_planning_top_consistent_method \
+        = "percentage"
+    cluster_and_inverse_planning_top_consistent_num = \
+        -1
+    # percentage of top consistent candidates to use
+    cluster_and_inverse_planning_top_p_percent = 3
     cluster_and_inverse_planning_top_consistent_max_cost = 3
     cluster_process_learner_top_n_conditions = -1
     process_scoring_method = "data_likelihood"  # "count_fp", "data_likelihood"
@@ -712,8 +736,10 @@ class GlobalSettings:
     process_learning_use_empirical = False
     process_condition_search_prune_with_fp_count = False
     process_learning_learn_strength = True
-    process_learning_process_per_physical_core = True  # Physical core vs logical core
-    process_learning_init_at_previous_results = False  # Loading hasn't been very helpful
+    # Physical core vs logical core
+    process_learning_process_per_physical_core = True
+    # Loading hasn't been very helpful
+    process_learning_init_at_previous_results = False
     predicate_invent_neural_symbolic_predicates = False
     predicate_invent_invent_derived_predicates = False
     cluster_learning_one_effect_per_process = False
@@ -974,7 +1000,8 @@ class GlobalSettings:
     # Sandbox settings for agent SDK
     agent_sdk_use_docker_sandbox = False  # run agent inside Docker container
     agent_sdk_docker_image = "predicators-sandbox"  # Docker image name
-    agent_sdk_use_local_sandbox = False  # sandbox dir with built-in tools, no Docker
+    # sandbox dir with built-in tools, no Docker
+    agent_sdk_use_local_sandbox = False
 
     # Agent explorer settings
     agent_explorer_max_turns = 5  # max agent turns per exploration query
@@ -989,7 +1016,8 @@ class GlobalSettings:
     agent_bilevel_max_samples_per_step = 50  # param samples per step
     agent_bilevel_max_retries = 1  # re-query agent on refinement failure
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
-    agent_bilevel_log_state = False  # log state pretty_str before/after each step
+    # log state pretty_str before/after each step
+    agent_bilevel_log_state = False
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:

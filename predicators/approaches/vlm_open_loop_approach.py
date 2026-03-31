@@ -117,7 +117,9 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
             pp_online_predicate_invention_approach.py."""
             demo_str = ""
             traj_goal = self._train_tasks[ll_traj.train_task_idx].goal
-            demo_str += f"Demonstration {traj_num}, Goal: {str(sorted(traj_goal))}\n"
+            goal_str = str(sorted(traj_goal))
+            demo_str += (f"Demonstration {traj_num}, "
+                         f"Goal: {goal_str}\n")
 
             state_hash_to_id: Dict[int, int] = {}
 
@@ -153,7 +155,8 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
                     state_hash_to_id[end_state_hash] = len(state_hash_to_id)
                 end_state_id = state_hash_to_id[end_state_hash]
                 end_state_name = f"state_{end_state_id}"
-                demo_str += f"This resulted in {end_state_name} with state info:\n"
+                demo_str += (f"This resulted in {end_state_name}"
+                             " with state info:\n")
                 end_state_str = end_state.dict_str(
                     indent=2, use_object_id=CFG.rgb_observation)
                 demo_str += f"{end_state_str}\n\n"
@@ -187,7 +190,8 @@ class VLMOpenLoopApproach(BilevelPlanningApproach):  # pragma: no cover
                 continue
 
             if CFG.vlm_open_loop_no_image:
-                # Use string-based demonstrations with detailed state information
+                # Use string-based demonstrations with detailed
+                # state information
                 self._prompt_demos_str += _generate_string_demonstration(
                     segment_traj, ll_traj, traj_num)
             else:

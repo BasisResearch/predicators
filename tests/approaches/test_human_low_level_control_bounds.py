@@ -1,4 +1,5 @@
 """Test to verify robot handles out-of-bounds actions gracefully."""
+# pylint: disable=protected-access
 
 from predicators import utils
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv
@@ -38,7 +39,8 @@ print("\n" + "=" * 60)
 print("TEST: Extreme movements that may exceed action space bounds")
 print("=" * 60)
 
-from predicators.approaches import create_approach
+from predicators.approaches import \
+    create_approach  # pylint: disable=wrong-import-position
 
 # Create approach
 approach = create_approach(
@@ -76,7 +78,7 @@ for key, description in test_keys:
     print(f"\nTesting: {description} (key='{key}')")
 
     # Simulate key press
-    approach._get_pressed_key = lambda: key  # type: ignore[attr-defined]
+    approach._get_pressed_key = lambda k=key: k  # type: ignore[attr-defined]
 
     try:
         # Get action from approach
@@ -92,7 +94,7 @@ for key, description in test_keys:
         # Apply action (should not crash)
         current_state = env.step(action)
 
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-except
         print(f"  ✗ CRASH: {e}")
         import traceback
         traceback.print_exc()

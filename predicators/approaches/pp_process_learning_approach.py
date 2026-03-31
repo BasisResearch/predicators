@@ -1,5 +1,5 @@
-import logging
-from typing import Any, Dict, FrozenSet, List, Optional, Sequence, Set, Tuple
+"""Process learning and planning approach."""
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 import dill as pkl
 from gym.spaces import Box
@@ -12,9 +12,9 @@ from predicators.nsrt_learning.process_learning_main import \
     learn_processes_from_data
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, Dataset, ExogenousProcess, \
-    GroundAtomTrajectory, LiftedAtom, LowLevelTrajectory, \
-    ParameterizedOption, Predicate, Task, Type
+from predicators.structs import CausalProcess, Dataset, GroundAtomTrajectory, \
+    LiftedAtom, LowLevelTrajectory, ParameterizedOption, Predicate, Task, \
+    Type
 
 
 class ProcessLearningAndPlanningApproach(

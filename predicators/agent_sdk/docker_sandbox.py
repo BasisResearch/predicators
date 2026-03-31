@@ -88,7 +88,7 @@ def _get_claude_oauth_token() -> Optional[str]:
         )
         if result.returncode != 0:
             return None
-        import json as _json  # pylint: disable=reimported
+        import json as _json  # pylint: disable=reimported,import-outside-toplevel
         creds = _json.loads(result.stdout.strip())
         return creds.get("claudeAiOauth", {}).get("accessToken")
     except (subprocess.SubprocessError, json.JSONDecodeError, KeyError):
@@ -148,6 +148,7 @@ class DockerSessionManager:
 
     @property
     def session_id(self) -> Optional[str]:
+        """Return the current session ID."""
         return self._session_id
 
     @session_id.setter
@@ -157,7 +158,10 @@ class DockerSessionManager:
     @property
     def tool_names(self) -> List[str]:
         """Return short tool names (without MCP prefix)."""
+        # pylint: disable=import-outside-toplevel
         from predicators.agent_sdk.tools import BUILTIN_TOOLS, MCP_SERVER_NAME
+
+        # pylint: enable=import-outside-toplevel
         prefix = f"mcp__{MCP_SERVER_NAME}__"
         names = list(BUILTIN_TOOLS)
         if self._tool_names:
@@ -280,7 +284,7 @@ class DockerSessionManager:
             stderr_lines: List[str] = []
             try:
                 timeout_sec = CFG.agent_sdk_agent_timeout + 120
-                import threading
+                import threading  # pylint: disable=import-outside-toplevel
 
                 def _stream_stderr() -> None:
                     assert proc.stderr is not None
@@ -377,7 +381,7 @@ class DockerSessionManager:
             # Prepend host metadata header now that the container is done.
             if os.path.exists(incremental_log_path) and self._log_dir:
                 try:
-                    with open(incremental_log_path) as lf:
+                    with open(incremental_log_path, encoding="utf-8") as lf:
                         existing = lf.read()
                     header_lines = [
                         f"- **Query:** {self._query_count}",
@@ -387,11 +391,12 @@ class DockerSessionManager:
                         "",
                         "",
                     ]
-                    with open(incremental_log_path, "w") as lf:
+                    with open(incremental_log_path, "w",
+                              encoding="utf-8") as lf:
                         lf.write("\n".join(header_lines) + existing)
                     logger.info("Finalized docker query/response at %s",
                                 incremental_log_path)
-                except Exception:
+                except Exception:  # pylint: disable=broad-except
                     logger.warning("Failed to enrich log at %s",
                                    incremental_log_path,
                                    exc_info=True)
@@ -429,7 +434,7 @@ class DockerSessionManager:
             "docker_image": self._image,
         }
         path = os.path.join(self._log_dir, "session_info.json")
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(info, f, indent=2)
         logger.info("Saved session info to %s", path)
 
@@ -551,7 +556,7 @@ class DockerSessionManager:
             lines.append("")
 
         os.makedirs(self._log_dir, exist_ok=True)
-        with open(filepath, "w") as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
 
         logger.info("Saved docker query/response to %s", filepath)

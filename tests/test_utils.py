@@ -1124,7 +1124,8 @@ def test_abstract():
     assert not utils.abstract(state, {wrapped_pred1, wrapped_pred2})
     # Now, test the case where we abstract using a VLM predicate.
     utils.reset_config({"seed": 123})
-    vlm_pred = VLMPredicate("IsFishy", [], lambda s, o: NotImplementedError,
+    vlm_pred = VLMPredicate("IsFishy", [],
+                            lambda s, o: NotImplementedError,
                             get_vlm_query_str=lambda o: "is_fishy")
     vlm_state = state.copy()
     vlm_state.simulator_state = {
@@ -1134,7 +1135,8 @@ def test_abstract():
     assert len(vlm_atoms_set) == 1
     assert "IsFishy" in str(vlm_atoms_set)
     # Now, teset the case where the VLM response is wrong/bad.
-    vlm_pred2 = VLMPredicate("IsSnakey", [], lambda s, o: NotImplementedError,
+    vlm_pred2 = VLMPredicate("IsSnakey", [],
+                             lambda s, o: NotImplementedError,
                              get_vlm_query_str=lambda o: "is_snakey")
     vlm_atoms_set = utils.abstract(vlm_state, [vlm_pred, vlm_pred2],
                                    _DummyVLM())

@@ -291,9 +291,12 @@ def test_move_to_shelf():
     # Create block.
     color = block_color
     half_extents = (block_size / 2.0, block_size / 2.0, block_size / 2.0)
-    block_id = create_pybullet_block(color, half_extents, obj_mass,
-                                     obj_friction, default_orn,
-                                     physics_client_id)
+    block_id = create_pybullet_block(color,
+                                     half_extents,
+                                     obj_mass,
+                                     obj_friction,
+                                     orientation=default_orn,
+                                     physics_client_id=physics_client_id)
     p.resetBasePositionAndOrientation(block_id, [block_x, block_y, block_z],
                                       default_orn,
                                       physicsClientId=physics_client_id)

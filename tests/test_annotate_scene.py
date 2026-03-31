@@ -9,6 +9,7 @@ Validates:
 Usage:
     python tests/test_annotate_scene.py
 """
+# pylint: disable=redefined-outer-name,import-outside-toplevel,protected-access
 from __future__ import annotations
 
 import asyncio
@@ -19,6 +20,7 @@ from typing import Any
 import pytest
 
 # Bootstrap circular imports
+import predicators.utils as pred_utils
 from predicators.settings import CFG
 
 _CFG_OVERRIDES = {
@@ -66,10 +68,10 @@ def _setup(sandbox_dir: str | None = None) -> tuple[Any, Any]:
         predicates=predicates,
         processes=set(),
         options=options,
-        train_tasks=train_tasks,
+        train_tasks=[t.task for t in train_tasks],
         example_state=task.init,
         option_model=option_model,
-        current_task=task,
+        current_task=task.task,
         sandbox_dir=sandbox_dir,
     )
     if hasattr(option_model, '_simulator'):
@@ -85,7 +87,8 @@ def _run(coro: Any) -> Any:
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-def _make_tools(ctx: Any, tool_names: list[str] | None = None) -> dict[str, Any]:
+def _make_tools(ctx: Any,
+                tool_names: list[str] | None = None) -> dict[str, Any]:
     from predicators.agent_sdk.tools import create_mcp_tools
     tools = create_mcp_tools(ctx, tool_names=tool_names)
     return {t.name: t.handler for t in tools}

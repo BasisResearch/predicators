@@ -7,6 +7,7 @@ combinations.
 
 from predicators.envs.pybullet_domino.task_generators.base_generator import \
     TaskGenerator
+# pylint: disable-next=line-too-long
 from predicators.envs.pybullet_domino.task_generators.domino_task_generator import \
     DominoTaskGenerator
 

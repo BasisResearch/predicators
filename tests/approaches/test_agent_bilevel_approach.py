@@ -1,4 +1,5 @@
-"""Tests for AgentBilevelApproach — parsing and refinement logic."""
+"""Tests for AgentBilevelApproach -- parsing and refinement logic."""
+# pylint: disable=protected-access,import-outside-toplevel
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -131,10 +132,9 @@ class TestParseSubgoalAnnotations:
     def test_basic_subgoals(self):
         """Test basic subgoals."""
         approach, _, _ = _make_approach()
-        text = (
-            "Pick(block0:block) -> {Holding(block0:block)}\n"
-            "Place(block0:block, block1:block) -> {On(block0:block, block1:block)}\n"
-        )
+        text = ("Pick(block0:block) -> {Holding(block0:block)}\n"
+                "Place(block0:block, block1:block) -> "
+                "{On(block0:block, block1:block)}\n")
         result = approach._parse_subgoal_annotations(text, _ALL_PREDICATES,
                                                      _ALL_OBJECTS)
 
@@ -161,11 +161,10 @@ class TestParseSubgoalAnnotations:
     def test_mixed_subgoals(self):
         """Some lines have subgoals, some don't."""
         approach, _, _ = _make_approach()
-        text = (
-            "Pick(block0:block) -> {Holding(block0:block)}\n"
-            "Wait(robot0:robot)\n"
-            "Place(block0:block, block1:block) -> {On(block0:block, block1:block)}\n"
-        )
+        text = ("Pick(block0:block) -> {Holding(block0:block)}\n"
+                "Wait(robot0:robot)\n"
+                "Place(block0:block, block1:block) -> "
+                "{On(block0:block, block1:block)}\n")
         result = approach._parse_subgoal_annotations(text, _ALL_PREDICATES,
                                                      _ALL_OBJECTS)
 
@@ -251,7 +250,8 @@ class TestParseSubgoalAnnotations:
     def test_whitespace_in_atoms(self):
         """Spaces around commas in atom arguments."""
         approach, _, _ = _make_approach()
-        text = "Place(block0:block, block1:block) -> { On( block0:block , block1:block ) }\n"
+        text = ("Place(block0:block, block1:block) -> "
+                "{ On( block0:block , block1:block ) }\n")
         result = approach._parse_subgoal_annotations(text, _ALL_PREDICATES,
                                                      _ALL_OBJECTS)
 
@@ -481,10 +481,9 @@ class TestQueryAgentForPlanSketch:
         """Test basic sketch extraction."""
         approach, _, task = _make_approach()
 
-        plan_text = (
-            "Pick(block0:block) -> {Holding(block0:block)}\n"
-            "Place(block0:block, block1:block) -> {On(block0:block, block1:block)}\n"
-        )
+        plan_text = ("Pick(block0:block) -> {Holding(block0:block)}\n"
+                     "Place(block0:block, block1:block) -> "
+                     "{On(block0:block, block1:block)}\n")
 
         with patch.object(approach,
                           '_query_agent_sync',
@@ -556,11 +555,10 @@ class TestQueryAgentForPlanSketch:
         """Test sketch with wait."""
         approach, _, task = _make_approach()
 
-        plan_text = (
-            "Pick(block0:block) -> {Holding(block0:block)}\n"
-            "Wait(robot0:robot)\n"
-            "Place(block0:block, block1:block) -> {On(block0:block, block1:block)}\n"
-        )
+        plan_text = ("Pick(block0:block) -> {Holding(block0:block)}\n"
+                     "Wait(robot0:robot)\n"
+                     "Place(block0:block, block1:block) -> "
+                     "{On(block0:block, block1:block)}\n")
 
         with patch.object(approach,
                           '_query_agent_sync',

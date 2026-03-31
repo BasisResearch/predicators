@@ -31,9 +31,11 @@ class AgentSessionManager:
         self._started = False
         self._query_count: int = 0
         self._conversation_log: List[Dict[str, Any]] = []
+        self._current_log_meta: Dict[str, Any] = {}
 
     @property
     def session_id(self) -> Optional[str]:
+        """Return the current session ID."""
         return self._session_id
 
     @session_id.setter
@@ -53,7 +55,8 @@ class AgentSessionManager:
 
     async def start_session(self) -> None:
         """Start a new Claude SDK client session."""
-        from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+        from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient \
+            # pylint: disable=import-outside-toplevel
 
         options = ClaudeAgentOptions(
             allowed_tools=self._allowed_tools or [],
@@ -97,7 +100,7 @@ class AgentSessionManager:
                                                             Any]]) -> None:
         """Rewrite log file with current accumulated response."""
         log_data = {**self._current_log_meta, "response": response}
-        with open(filepath, "w") as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(log_data, f, indent=2, default=str)
 
     async def query(self, message: str) -> List[Dict[str, Any]]:
@@ -146,7 +149,7 @@ class AgentSessionManager:
                 if log_path:
                     self._flush_log(log_path, collected)
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             logging.error("Agent session error: %s", e)
             collected.append({"type": "error", "error": str(e)})
             await self._recover_session(message)
@@ -169,19 +172,19 @@ class AgentSessionManager:
         """Return the in-memory log of all query/response pairs."""
         return self._conversation_log
 
-    async def _recover_session(self, last_message: str) -> None:
+    async def _recover_session(self, _last_message: str) -> None:
         """Attempt to recover from a session error."""
         logging.warning("Attempting agent session recovery...")
         try:
             if self._client is not None:
                 try:
                     await self._client.disconnect()
-                except Exception:
+                except Exception:  # pylint: disable=broad-except
                     pass
             self._started = False
             await self.start_session()
             logging.info("Session recovered successfully.")
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             logging.error("Session recovery failed: %s", e)
 
     async def close(self) -> None:
@@ -189,7 +192,7 @@ class AgentSessionManager:
         if self._client is not None:
             try:
                 await self._client.disconnect()
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 logging.warning("Error closing agent session: %s", e)
             finally:
                 self._client = None
@@ -205,6 +208,6 @@ class AgentSessionManager:
             "model": self._model_name,
         }
         path = os.path.join(self._log_dir, "session_info.json")
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(info, f, indent=2)
         logging.info("Saved session info to %s", path)

@@ -44,6 +44,7 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
                  **kwargs: Any) -> None:
         # Agent-specific state (before super().__init__)
         self._agent_proposed_options: Set[ParameterizedOption] = set()
+        self._agent_session_id: Optional[str] = None
 
         super().__init__(initial_predicates, initial_options, types,
                          action_space, train_tasks, *args, **kwargs)
@@ -148,7 +149,8 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
             "test_option_plan",
         ]
 
-    def _get_sandbox_reference_files(self) -> Dict[str, str]:
+    def _get_sandbox_reference_files(  # pylint: disable=useless-super-delegation
+            self) -> Dict[str, str]:
         # Inherit skill_factories + options.py from AgentPlannerApproach
         return super()._get_sandbox_reference_files()
 
@@ -195,6 +197,7 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
     def _build_skill_factory_context(self) -> Dict[str, Any]:
         """Build exec context with skill factory functions for
         propose_options."""
+        # pylint: disable=import-outside-toplevel
         from predicators.ground_truth_models.skill_factories import Phase, \
             PhaseAction, PhaseSkill, SkillConfig, create_move_to_skill, \
             create_pick_skill, create_place_skill, create_pour_skill, \
@@ -222,7 +225,7 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
         if CFG.env.startswith("pybullet"):
             try:
                 context["skill_config"] = self._get_skill_config()
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 logging.warning(
                     f"Failed to build SkillConfig for {CFG.env}: {e}")
 
@@ -232,7 +235,8 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
     @lru_cache(maxsize=1)
     def _get_skill_config() -> Any:
         """Lazily build a SkillConfig for the current pybullet env."""
-        from predicators.ground_truth_models.skill_factories import SkillConfig
+        from predicators.ground_truth_models.skill_factories import \
+            SkillConfig  # pylint: disable=import-outside-toplevel
 
         env_cls = _get_pybullet_env_cls(CFG.env)
         _, robot, _ = env_cls.initialize_pybullet(using_gui=False)
@@ -244,7 +248,8 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
             robot=robot,
             open_fingers_joint=robot.open_fingers,
             closed_fingers_joint=robot.closed_fingers,
-            fingers_state_to_joint=env_cls._fingers_state_to_joint,
+            fingers_state_to_joint=(  # pylint: disable=protected-access
+                env_cls._fingers_state_to_joint),
             max_vel_norm=CFG.pybullet_max_vel_norm,
             ik_validate=CFG.pybullet_ik_validate,
             robot_init_tilt=getattr(env_cls, 'robot_init_tilt', 0.0),
@@ -357,7 +362,7 @@ proposed options will be added to the option library for future tasks."""
         self._agent_proposed_options = save_dict.get("agent_proposed_options",
                                                      set())
 
-        import datetime
+        import datetime  # pylint: disable=import-outside-toplevel
         original_run_id = save_dict.get("run_id", "unknown")
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -380,6 +385,7 @@ proposed options will be added to the option library for future tasks."""
 @lru_cache(maxsize=1)
 def _get_pybullet_env_cls(env_name: str) -> Any:
     """Look up the concrete PyBulletEnv subclass by name."""
+    # pylint: disable=import-outside-toplevel
     import predicators.envs as _envs_pkg  # noqa: F401
     from predicators.envs.base_env import BaseEnv
     from predicators.envs.pybullet_env import PyBulletEnv

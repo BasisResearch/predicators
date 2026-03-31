@@ -60,7 +60,7 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
 
         def get_current_fingers(state: State) -> float:
             robot, = state.get_objects(robot_type)
-            return PyBulletBalanceEnv._fingers_state_to_joint(
+            return PyBulletBalanceEnv._fingers_state_to_joint(  # pylint: disable=protected-access
                 pybullet_robot, state.get(robot, "fingers"))
 
         def open_fingers_func(state: State, objects: Sequence[Object],
@@ -319,15 +319,16 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
             z = state.get(robot, "z")
             robot_pos = (x, y, z)
             button_pos = (cls.env_cls.button_x, cls.env_cls.button_y,
-                          cls.env_cls.button_z + cls.env_cls._button_radius)
+                          cls.env_cls.button_z + cls.env_cls._button_radius)  # pylint: disable=protected-access
             # arr = np.r_[button_pos, 1.0].astype(np.float32)
             # # arr = np.clip(arr, cls.env_cls.action_space.low,
             # #               cls.env_cls.action_space.high)
             # return Action(arr)
+            btn_r = cls.env_cls._button_radius  # pylint: disable=protected-access
             if (cls.env_cls.button_x - x)**2 < \
-                    cls.env_cls._button_radius**2 and\
+                    btn_r**2 and\
                 (cls.env_cls.button_y - y)**2 < \
-                    cls.env_cls._button_radius**2:
+                    btn_r**2:
                 # Move directly toward the button.
                 return cls._get_move_action(state,
                                             button_pos,
@@ -365,7 +366,7 @@ class PyBulletBalanceGroundTruthOptionFactory(GroundTruthOptionFactory):
             #              pybullet_robot.action_space.high)
             try:
                 assert pybullet_robot.action_space.contains(action_arr)
-            except Exception:
+            except Exception:  # pylint: disable=broad-except
                 logging.debug(f"action_space: {pybullet_robot.action_space}\n")
                 logging.debug(f"action arr type: {type(action_arr)}")
                 logging.debug(f"action arr: {action_arr}")

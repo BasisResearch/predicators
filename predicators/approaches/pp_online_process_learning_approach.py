@@ -1,8 +1,8 @@
+"""Online process learning and planning approach."""
 import logging
 from typing import List, Optional, Sequence, Set
 
 from gym.spaces import Box
-from scipy.optimize import minimize
 
 from predicators.approaches.pp_process_learning_approach import \
     ProcessLearningAndPlanningApproach
@@ -57,17 +57,18 @@ class OnlineProcessLearningAndPlanningApproach(
             logging.info("Offline dataset is empty, skipping learning.")
 
     def get_interaction_requests(self) -> List[InteractionRequest]:
-        """Designing experiments to collect data. 
-        TODO: This is currently the same as the one for OnlineNSRTLearning
+        """Design experiments to collect data.
+
+        Currently the same as OnlineNSRTLearning.
         We want to collect data to learn processes for solving, for now, the
         planning tasks.
-        To achieve the goal, we want to learn the conditions and effects that 
+        To achieve the goal, we want to learn the conditions and effects that
         allows for efficient and effective sequencing of actions and processes.
 
         There are various exploration strategies:
-        1. as in VisualPredicator, make plans for solving the tasks and learn 
+        1. as in VisualPredicator, make plans for solving the tasks and learn
         from the failure cases.
-        2. try whether removing one of the conditions of the exogenous 
+        2. try whether removing one of the conditions of the exogenous
         process would allow the process to succeed.
         """
         explorer = self._create_explorer()
@@ -86,8 +87,9 @@ class OnlineProcessLearningAndPlanningApproach(
         #     for i in range(CFG.online_nsrt_learning_requests_per_task):
         #         logging.info(f"Getting strategy {i} for task {task_idx}")
         #         # Set up the explorer policy and termination function.
-        #         policy, termination_function = explorer.get_exploration_strategy(
-        #             task_idx, CFG.timeout)
+        #         policy, termination_function = \
+        #             explorer.get_exploration_strategy(
+        #                 task_idx, CFG.timeout)
         #         # Create the interaction request.
         #         req = InteractionRequest(
         #             train_task_idx=task_idx,
@@ -122,7 +124,7 @@ class OnlineProcessLearningAndPlanningApproach(
         For exogenous process, suffixes of the trajectories where that atom
         changed.
         """
-        # TODO: update _dataset based on the results
+        # Future: update _dataset based on the results
         # Can potentially have a positive and negative dataset
         for result in results:
             traj = LowLevelTrajectory(result.states, result.actions)

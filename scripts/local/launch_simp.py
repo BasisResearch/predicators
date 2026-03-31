@@ -9,7 +9,8 @@ from pathlib import Path
 # parents[0] = scripts/local, parents[1] = scripts, parents[2] = project root
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts.cluster_utils import config_to_cmd_flags, generate_run_configs
+from scripts.cluster_utils import config_to_cmd_flags, generate_run_configs \
+    # pylint: disable=wrong-import-position
 
 
 def _main() -> None:

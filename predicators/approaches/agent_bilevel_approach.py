@@ -16,7 +16,7 @@ import dataclasses
 import logging
 import re
 import time
-from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, List, Optional, Sequence, Set, Tuple, cast
 
 import numpy as np
 
@@ -25,7 +25,7 @@ from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_planner_approach import AgentPlannerApproach
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, Object, \
-    ParameterizedOption, Predicate, State, Task, Type, _Option
+    ParameterizedOption, Predicate, State, Task, _Option
 
 
 @dataclasses.dataclass
@@ -40,9 +40,9 @@ class AgentBilevelApproach(AgentPlannerApproach):
     """Bilevel planning: agent proposes discrete skeleton, search refines
     continuous parameters.
 
-    Extends AgentPlannerApproach — reuses agent session, tools, trajectory
-    management, exploration, save/load.  Overrides solving to separate
-    discrete planning from continuous refinement.
+    Extends AgentPlannerApproach — reuses agent session, tools,
+    trajectory management, exploration, save/load.  Overrides solving to
+    separate discrete planning from continuous refinement.
     """
 
     @classmethod
@@ -141,7 +141,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
             type_sig = ", ".join(t.name for t in pred.types)
             pred_strs.append(f"  {pred.name}({type_sig})")
 
-        prompt = f"""You are solving a task. Generate a plan sketch to achieve the goal.
+        prompt = f"""You are solving a task. \
+Generate a plan sketch to achieve the goal.
 {goal_nl_section}
 ## Goal Atoms
 {chr(10).join(goal_strs)}
@@ -175,7 +176,8 @@ After any action whose desired subgoal depends on a delayed process (e.g. \
 water filling, dominoes cascading, heating), insert a Wait action.
 
 Output the plan sketch with one option per line in this format:
-  OptionName(obj1:type1, obj2:type2) -> {{Pred(obj1:type1), Pred2(obj1:type1, obj2:type2)}}
+  OptionName(obj1:type1, obj2:type2) -> \
+{{Pred(obj1:type1), Pred2(obj1:type1, obj2:type2)}}
 
 Always use typed references (obj:type) in both option arguments AND subgoal \
 atoms. The `-> {{atoms}}` part is optional. If you omit it, the search will \
@@ -201,24 +203,31 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
                 break
             try:
                 sketch = self._query_agent_for_plan_sketch(task)
-            except Exception as e:
-                logging.warning(
-                    f"Sketch query failed (attempt {attempt}): {e}")
+            except Exception as e:  # pylint: disable=broad-except
+                logging.warning("Sketch query failed (attempt %d): %s",
+                                attempt, e)
                 continue
 
-            logging.info(
-                f"[{self._run_id}] Sketch (attempt {attempt}):\n" + "\n".join(
-                    f"  {i}: {s.option.name}({', '.join(o.name for o in s.objects)})"
-                    + (f" -> {{{', '.join(str(a) for a in s.subgoal_atoms)}}}"
-                       if s.subgoal_atoms else "")
-                    for i, s in enumerate(sketch)))
+            sketch_lines = []
+            for i, s in enumerate(sketch):
+                objs = ", ".join(o.name for o in s.objects)
+                line = f"  {i}: {s.option.name}({objs})"
+                if s.subgoal_atoms:
+                    atoms = ", ".join(str(a) for a in s.subgoal_atoms)
+                    line += f" -> {{{atoms}}}"
+                sketch_lines.append(line)
+            logging.info("[%s] Sketch (attempt %d):\n%s", self._run_id,
+                         attempt, "\n".join(sketch_lines))
 
             plan, success = self._refine_sketch(task, sketch, remaining)
             if success:
-                plan_str = "\n".join(
-                    f"  {i}: {o.name}({', '.join(obj.name for obj in o.objects)})"
-                    f"[{', '.join(f'{p:.4f}' for p in o.params)}]"
-                    for i, o in enumerate(plan))
+                plan_strs = []
+                for i, o in enumerate(plan):
+                    obj_s = ", ".join(obj.name for obj in o.objects)
+                    par_s = ", ".join(f"{p:.4f}" for p in o.params)
+                    plan_strs.append(f"  {i}: {o.name}({obj_s})"
+                                     f"[{par_s}]")
+                plan_str = "\n".join(plan_strs)
                 logging.info(
                     f"[{self._run_id}] Refinement succeeded "
                     f"(attempt {attempt}), {len(plan)} steps:\n{plan_str}")
@@ -294,8 +303,8 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
     ) -> List[Optional[Set[GroundAtom]]]:
         """Parse ``-> {Pred(obj1, obj2), ...}`` annotations from plan text.
 
-        Returns a list parallel to the option lines.  Entries are None for
-        lines without annotations.
+        Returns a list parallel to the option lines.  Entries are None
+        for lines without annotations.
         """
         pred_map = {p.name: p for p in predicates}
         obj_map = {o.name: o for o in objects}
@@ -367,8 +376,8 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
         """Backtracking search over continuous parameters for a plan sketch.
 
         Returns ``(plan, success)``.  On success, ``plan`` is a list of
-        grounded options that achieves the task goal.  On failure, ``plan``
-        is the longest partial refinement found.
+        grounded options that achieves the task goal.  On failure,
+        ``plan`` is the longest partial refinement found.
         """
         if not sketch:
             return [], False
@@ -405,17 +414,19 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
                          f"({', '.join(o.name for o in step.objects)})")
 
             # Optionally log state before sampling
+            cur_state = traj[cur_idx]
+            assert cur_state is not None, f"traj[{cur_idx}] should not be None"
+
             if CFG.agent_bilevel_log_state:
-                logging.debug(
-                    f"  State before {step_name}:\n"
-                    f"{traj[cur_idx].pretty_str()}")
+                logging.debug(f"  State before {step_name}:\n"
+                              f"{cur_state.pretty_str()}")
 
             # Sample continuous parameters and ground option
-            params = self._sample_params(step.option, traj[cur_idx], rng)
+            params = self._sample_params(step.option, cur_state, rng)
             grounded = step.option.ground(step.objects, params)
             plan[cur_idx] = grounded
 
-            state = traj[cur_idx]
+            state = cur_state
             can_continue = False
             fail_reason = "not initiable"
 
@@ -428,8 +439,10 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
                     fail_reason = f"env failure: {e}"
                 else:
                     if num_actions == 0:
+                        model = self._option_model
                         fail_reason = (
-                            self._option_model.last_execution_failure
+                            getattr(  # type: ignore[attr-defined]
+                                model, "last_execution_failure", None)
                             or "0 actions")
                     else:
                         traj[cur_idx + 1] = next_state
@@ -443,7 +456,8 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
                                 missing = step.subgoal_atoms - current_atoms
                                 fail_reason = (
                                     f"subgoal missing: "
-                                    f"{{{', '.join(str(a) for a in missing)}}}")
+                                    f"{{{', '.join(str(a) for a in missing)}}}"
+                                )
                         else:
                             can_continue = True
                         # Final step: also check task goal
@@ -457,9 +471,10 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
                     f"  Step {cur_idx}/{n} {step_name} OK "
                     f"(sample {num_tries[cur_idx]}/{max_tries[cur_idx]})\n")
                 if CFG.agent_bilevel_log_state:
-                    logging.debug(
-                        f"  State after {step_name}:\n"
-                        f"{traj[cur_idx + 1].pretty_str()}")
+                    next_st = traj[cur_idx + 1]
+                    assert next_st is not None
+                    logging.debug(f"  State after {step_name}:\n"
+                                  f"{next_st.pretty_str()}")
                 cur_idx += 1
             else:
                 logging.debug(
@@ -468,32 +483,33 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
                     f": {fail_reason}")
                 # Backtrack: re-try current step or go back further
                 while num_tries[cur_idx] >= max_tries[cur_idx]:
+                    bt_objs = ", ".join(o.name
+                                        for o in sketch[cur_idx].objects)
                     bt_name = (f"{sketch[cur_idx].option.name}"
-                               f"({', '.join(o.name for o in sketch[cur_idx].objects)})")
-                    logging.info(
-                        f"  Step {cur_idx}/{n} {bt_name} exhausted "
-                        f"{max_tries[cur_idx]} samples, backtracking")
+                               f"({bt_objs})")
+                    logging.info(f"  Step {cur_idx}/{n} {bt_name} exhausted "
+                                 f"{max_tries[cur_idx]} samples, backtracking")
                     num_tries[cur_idx] = 0
                     plan[cur_idx] = None
                     traj[cur_idx + 1] = None
                     cur_idx -= 1
                     if cur_idx < 0:
-                        logging.info(
-                            f"Sketch refinement exhausted after "
-                            f"{total_samples} total samples.")
+                        logging.info(f"Sketch refinement exhausted after "
+                                     f"{total_samples} total samples.")
                         return [], False
 
         # All steps succeeded
         assert all(p is not None for p in plan)
         logging.info(f"Refinement complete: {total_samples} total samples "
                      f"for {n} steps.")
-        return plan, True
+        return cast(List[_Option], plan), True
 
-    def _sample_params(self, option: ParameterizedOption, state: State,
+    def _sample_params(self, option: ParameterizedOption, _state: State,
                        rng: np.random.Generator) -> np.ndarray:
         """Sample continuous parameters for an option.
 
-        Currently uniform random; hook point for future learned samplers.
+        Currently uniform random; hook point for future learned
+        samplers.
         """
         if option.params_space.shape[0] == 0:
             return np.array([], dtype=np.float32)
@@ -520,7 +536,8 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
         Returns True if the plan reaches the goal, False otherwise.
         """
         state = task.init
-        option_names = self._option_model._name_to_parameterized_option
+        option_names = cast(  # pylint: disable=protected-access
+            Any, self._option_model)._name_to_parameterized_option
         predicates = self._get_all_predicates()
         total_actions = 0
 
@@ -542,8 +559,9 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
             # 3. wait_option_terminate_on_atom_change
             last_state_ref: List[Optional[State]] = [None]
 
-            def _terminal(s: State,
-                          oc: _Option = option_copy) -> bool:
+            def _terminal(  # pylint: disable=cell-var-from-loop
+                    s: State,
+                    oc: _Option = option_copy) -> bool:
                 if oc.terminal(s):
                     return True
                 prev = last_state_ref[0]
@@ -563,9 +581,11 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
                 return False
 
             try:
+                sim = cast(  # pylint: disable=protected-access
+                    Any, self._option_model)._simulator
                 traj = utils.run_policy_with_simulator(
                     option_copy.policy,
-                    self._option_model._simulator,
+                    sim,
                     state,
                     _terminal,
                     max_num_steps=CFG.max_num_steps_option_rollout)
@@ -613,8 +633,7 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
         """Wrap a grounded option plan into a step-by-step policy."""
         predicates = self._get_all_predicates()
         policy = utils.option_plan_to_policy(
-            plan,
-            abstract_function=lambda s: utils.abstract(s, predicates))
+            plan, abstract_function=lambda s: utils.abstract(s, predicates))
 
         def _policy(s: State) -> Action:
             try:

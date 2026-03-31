@@ -1,4 +1,5 @@
 """API for symbolic predicate representation."""
+# pylint: disable=undefined-variable
 
 
 class Predicate:

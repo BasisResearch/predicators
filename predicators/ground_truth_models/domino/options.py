@@ -96,7 +96,7 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
             robot=pybullet_robot,
             open_fingers_joint=pybullet_robot.open_fingers,
             closed_fingers_joint=pybullet_robot.closed_fingers,
-            fingers_state_to_joint=PyBulletDominoEnv._fingers_state_to_joint,
+            fingers_state_to_joint=PyBulletDominoEnv._fingers_state_to_joint,  # pylint: disable=protected-access
             move_to_pose_tol=cls._move_to_pose_tol,
             finger_action_nudge_magnitude=cls._finger_action_nudge_magnitude,
             max_vel_norm=CFG.pybullet_max_vel_norm,

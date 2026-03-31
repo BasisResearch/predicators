@@ -10,6 +10,7 @@ The name "CogMan" is due to Leslie Kaelbling.
 """
 import logging
 import time
+import traceback
 from collections import defaultdict
 from typing import Callable, List, Optional, Sequence, Set, Tuple
 from typing import Type as TypingType
@@ -212,9 +213,10 @@ def run_episode_and_get_observations(
         env.reset(train_or_test, task_idx)
         if monitor is not None:
             monitor.reset(train_or_test, task_idx)
-    render_obs = (cogman.get_approach_name == "oracle" and\
-                 CFG.offline_data_method == "geo_and_demo_with_vlm_imgs") or\
-                 CFG.rgb_observation
+    render_obs = True if (
+        cogman.get_approach_name == "oracle"
+        and CFG.offline_data_method == "geo_and_demo_with_vlm_imgs"
+    ) else CFG.rgb_observation
     if isinstance(env, PyBulletEnv):
         obs = env.get_observation(render=render_obs)
     else:
@@ -227,8 +229,7 @@ def run_episode_and_get_observations(
     metrics["num_options_executed"] = 0.0
     exception_raised_in_step = False
     if not (terminate_on_goal_reached and env.goal_reached()):
-        for step_i in range(max_num_steps):
-            # logging.debug(f"[CogMan] Step {step_i}/{max_num_steps} of episode.")
+        for _ in range(max_num_steps):
             monitor_observed = False
             exception_raised_in_step = False
             try:
@@ -258,11 +259,8 @@ def run_episode_and_get_observations(
             except Exception as e:
                 logging.debug(f"[CogMan] State at the exception {e}: "
                               f"{utils.abstract(obs, env.predicates)}")
-                show_stack_trace = True
-                if show_stack_trace:
-                    import traceback
-                    logging.debug(
-                        f"[CogMan] Full traceback:\n{traceback.format_exc()}")
+                logging.debug(
+                    f"[CogMan] Full traceback:\n{traceback.format_exc()}")
                 if exceptions_to_break_on is not None and \
                    any(issubclass(type(e), c) for c in exceptions_to_break_on):
                     if monitor_observed:

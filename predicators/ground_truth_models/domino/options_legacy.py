@@ -61,7 +61,7 @@ class _DominoLegacyOptionsMixin:
 
         def get_current_fingers(state: State) -> float:
             robot, = state.get_objects(robot_type)
-            return PyBulletDominoEnv._fingers_state_to_joint(
+            return PyBulletDominoEnv._fingers_state_to_joint(  # pylint: disable=protected-access
                 pybullet_robot, state.get(robot, "fingers"))
 
         def open_fingers_func(state: State, objects: Sequence[Object],
@@ -368,7 +368,7 @@ class _DominoLegacyOptionsMixin:
     def _find_start_block(cls, state: State, domino_type: Type) -> Object:
         """Find the start block domino using the InitialBlock classifier."""
         for domino in state.get_objects(domino_type):
-            if DominoComponent._StartBlock_holds(state, [domino]):
+            if DominoComponent._StartBlock_holds(state, [domino]):  # pylint: disable=protected-access
                 return domino
         raise ValueError("No start block found in state")
 
@@ -480,7 +480,8 @@ class _DominoLegacyOptionsMixin:
             # Use domino1's current z for reference
             dz = state.get(domino_f, "z")
 
-            # Compute dir_value based on rotation of domino2 and the rotation object
+            # Compute dir_value based on rotation of domino2
+            # and the rotation object
             # target_angle = state.get(rotation, "angle")  # degrees
             target_angle = float(
                 rotation.name.split("_")[-1])  # extract angle from name
@@ -534,7 +535,7 @@ class _DominoLegacyOptionsMixin:
                     # The target domino will be turned by 45 degrees.
                     target_rot = rot2 - turn_dir * np.pi / 4
 
-                    # First, calculate the position on the grid, one step forward.
+                    # Calculate position on grid, one step forward.
                     # grid_x = x2 + gap * np.sin(rot2)
                     # grid_y = y2 + gap * np.cos(rot2)
                     # grid_x = state.get(tgt_pos, "xx")
@@ -546,7 +547,8 @@ class _DominoLegacyOptionsMixin:
 
                     # Then, apply the diagonal shift from the generator for
                     # stability.
-                    shift_magnitude = cls.env_cls.domino_width * DominoComponent.turn_shift_frac
+                    shift_magnitude = (cls.env_cls.domino_width *
+                                       DominoComponent.turn_shift_frac)
                     shift_dx = shift_magnitude * (turn_dir * np.cos(rot2) -
                                                   np.sin(rot2))
                     shift_dy = shift_magnitude * (-turn_dir * np.sin(rot2) -
@@ -562,7 +564,8 @@ class _DominoLegacyOptionsMixin:
 
                     # Calculate position relative to domino2 using the
                     # generator's formula.
-                    shift_magnitude = cls.env_cls.domino_width * DominoComponent.turn_shift_frac
+                    shift_magnitude = (cls.env_cls.domino_width *
+                                       DominoComponent.turn_shift_frac)
                     sin_rot2 = np.sin(rot2)
                     cos_rot2 = np.cos(rot2)
 
@@ -582,7 +585,8 @@ class _DominoLegacyOptionsMixin:
                         f"Unexpected domino rotation {rot2} in place option. "
                         "Defaulting to cardinal turn logic.")
                     # raise ValueError(
-                    #     f"Unexpected domino rotation {rot2} in place option. ")
+                    #     f"Unexpected domino rotation "
+                    #     f"{rot2} in place option. ")
                     # The target domino will be turned by 45 degrees.
                     target_rot = rot2 - turn_dir * np.pi / 4
                     # grid_x = state.get(tgt_pos, "xx")
@@ -591,7 +595,8 @@ class _DominoLegacyOptionsMixin:
                         tgt_pos.name.split("_")[1])  # extract x from name
                     grid_y = float(
                         tgt_pos.name.split("_")[2])  # extract y from
-                    shift_magnitude = cls.env_cls.domino_width * DominoComponent.turn_shift_frac
+                    shift_magnitude = (cls.env_cls.domino_width *
+                                       DominoComponent.turn_shift_frac)
                     shift_dx = shift_magnitude * (turn_dir * np.cos(rot2) -
                                                   np.sin(rot2))
                     shift_dy = shift_magnitude * (-turn_dir * np.sin(rot2) -

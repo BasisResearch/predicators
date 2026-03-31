@@ -250,7 +250,9 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         self._jug_liquid_id: Optional[int] = None
 
         self._cord_ids: Optional[List[int]] = None
+        self._cord_constraints: Optional[List[int]] = None
         self._machine_plugged_in_id: Optional[int] = None
+        self._last_jug_liquid_level: float = 0.0
 
     @property
     def oracle_proposed_predicates(self) -> Set[Predicate]:
@@ -442,7 +444,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         if obj.type == self._jug_type:
             if feature == "is_filled":
                 return float(self._jug_filled)
-            elif feature == "current_liquid":
+            if feature == "current_liquid":
                 return self._jug_current_liquid if hasattr(
                     self, '_jug_current_liquid') else 0.0
         elif obj.type == self._machine_type:
@@ -458,7 +460,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         elif obj.type == self._cup_type:
             if feature == "capacity_liquid":
                 return self._cup_to_capacity[obj]
-            elif feature == "current_liquid":
+            if feature == "current_liquid":
                 liquid_id = self._cup_to_liquid_id.get(obj, None)
                 if liquid_id is not None:
                     liquid_height = p.getVisualShapeData(
@@ -467,14 +469,11 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                     )[0][3][0]
                     return self._cup_liquid_height_to_liquid(
                         liquid_height, self._cup_to_capacity[obj])
-                else:
-                    return 0.0
-            elif feature == "target_liquid":
+                return 0.0
+            if feature == "target_liquid":
                 if CFG.coffee_use_pixelated_jug:
-                    # For pixelated jug, the target is always 0.5 * capacity
                     return self._cup_to_capacity[obj]
-                else:
-                    return self._cup_to_capacity[obj] * self.cup_target_frac
+                return self._cup_to_capacity[obj] * self.cup_target_frac
         elif obj.type == self._plug_type:
             if feature == "plugged_in":
                 return float(self._machine_plugged_in_id is not None)
@@ -551,6 +550,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                                 rgbaColor=self.button_color_off,
                                 physicsClientId=self._physics_client_id)
             if CFG.coffee_plug_break_after_plugged_in:
+                assert self._cord_constraints is not None
                 p.removeConstraint(self._cord_constraints[2],
                                    physicsClientId=self._physics_client_id)
 
@@ -748,7 +748,8 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         # Always base liquid height on current liquid level, similar to cups
         if CFG.coffee_fill_jug_gradually:
             # Scale liquid height based on current liquid ratio
-            liquid_fill_ratio = self._jug_current_liquid / self.max_jug_coffee_capacity
+            liquid_fill_ratio = (self._jug_current_liquid /
+                                 self.max_jug_coffee_capacity)
             if CFG.coffee_use_pixelated_jug:
                 liquid_height = (self.jug_height() * 0.8) * liquid_fill_ratio
             else:
@@ -1264,20 +1265,23 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
 
 
 if __name__ == "__main__":
-    """Run a simple simulation to test the environment."""
-    import time
 
-    # Make a task
-    CFG.seed = 1
-    CFG.pybullet_sim_steps_per_action = 1
-    env = PyBulletCoffeeEnv(use_gui=True)
-    rng = np.random.default_rng(CFG.seed)
-    task = env._make_tasks(1, rng)[0]  # type: ignore[attr-defined]
-    env._reset_state(task.init)
+    def _main() -> None:
+        """Run a simple simulation to test the environment."""
+        # pylint: disable=protected-access
+        import time  # pylint: disable=import-outside-toplevel
+        CFG.seed = 1
+        CFG.pybullet_sim_steps_per_action = 1
+        env = PyBulletCoffeeEnv(use_gui=True)
+        rng = np.random.default_rng(CFG.seed)
+        task = env._make_tasks(1, rng)[0]  # type: ignore[attr-defined]  # pylint: disable=no-member
+        env._reset_state(task.init)
 
-    while True:
-        # Robot does nothing
-        action = Action(np.array(env._pybullet_robot.initial_joint_positions))
+        while True:
+            # Robot does nothing
+            action = Action(
+                np.array(env._pybullet_robot.initial_joint_positions))
+            env.step(action)
+            time.sleep(0.01)
 
-        env.step(action)
-        time.sleep(0.01)
+    _main()

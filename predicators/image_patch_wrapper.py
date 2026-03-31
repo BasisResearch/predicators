@@ -1,6 +1,6 @@
 """adapted from SoM."""
 import os
-from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
 import cv2
 import matplotlib.figure as mplfigure
@@ -115,30 +115,24 @@ class ImagePatch:
         self.state: 'PyBulletState' = state
 
         if state.labeled_image is None:
-            img = state.state_image
+            raw_img: Any = state.state_image
         else:
-            img = state.labeled_image
+            raw_img = state.labeled_image
 
         image_tensor: th.Tensor
 
-        if isinstance(img, Image.Image):
-            image_tensor = transforms.ToTensor()(img)
-        elif isinstance(img, np.ndarray):
+        if isinstance(raw_img, Image.Image):
+            image_tensor = transforms.ToTensor()(raw_img)
+        elif isinstance(raw_img, np.ndarray):
             # If img is shape (H, W, C) or (C, H, W), adjust as needed
-            if img.ndim == 3 and img.shape[-1] in (1, 3, 4):
+            if raw_img.ndim == 3 and raw_img.shape[-1] in (1, 3, 4):
                 # (H, W, C)
                 # Convert to shape (C, H, W)
-                img = np.transpose(img, (2, 0, 1))
+                raw_img = np.transpose(raw_img, (2, 0, 1))
             image_tensor = th.tensor(  # pylint: disable=no-member
-                img,
+                raw_img,
                 dtype=th.float32  # pylint: disable=no-member
             ) / 255.0
-        # elif isinstance(img, th.Tensor):
-        #     # If dtype == uint8, convert to float
-        #     if img.dtype == th.uint8:
-        #         image_tensor = img.float() / 255.0
-        #     else:
-        #         image_tensor = img
         else:
             raise TypeError("Unsupported image type.")
 

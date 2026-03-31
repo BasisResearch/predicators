@@ -39,8 +39,8 @@ def test_mobile_fetch_base_follows_y_motion(physics_client_id):
         max_vel_norm=0.2,
         finger_action_nudge_magnitude=1e-3,
         max_base_vel_norm=0.2,
-        max_base_rot_vel=0.5,
-        arm_reach_radius=0.8,
+        _max_base_rot_vel=0.5,
+        _arm_reach_radius=0.8,
         validate=False,
     )
     assert action.arr.shape[0] == len(robot.arm_joints) + 3
@@ -82,8 +82,8 @@ def test_mobile_fetch_base_follows_x_motion(physics_client_id):
         max_vel_norm=0.2,
         finger_action_nudge_magnitude=1e-3,
         max_base_vel_norm=0.2,
-        max_base_rot_vel=0.5,
-        arm_reach_radius=0.8,
+        _max_base_rot_vel=0.5,
+        _arm_reach_radius=0.8,
         validate=False,
     )
     base_delta = action.arr[-3:]

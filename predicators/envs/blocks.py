@@ -87,8 +87,11 @@ class BlocksEnv(BaseEnv):
     def simulate(self, state: State, action: Action) -> State:
         assert self.action_space.contains(action.arr)
         x, y, z, fingers = action.arr
-        # Infer which transition function to follow
-        if fingers < 0.5:
+        # Infer which transition function to follow based on whether the
+        # finger value is closer to closed or open.
+        fingers_closing = abs(fingers - self.closed_fingers) < \
+            abs(fingers - self.open_fingers)
+        if fingers_closing:
             return self._transition_pick(state, x, y, z)
         if z < self.table_height + self._block_size:
             return self._transition_putontable(state, x, y, z)
@@ -216,7 +219,8 @@ class BlocksEnv(BaseEnv):
     def action_space(self) -> Box:
         # dimensions: [x, y, z, fingers]
         lowers = np.array([self.x_lb, self.y_lb, 0.0, 0.0], dtype=np.float32)
-        uppers = np.array([self.x_ub, self.y_ub, 10.0, 1.0], dtype=np.float32)
+        uppers = np.array([self.x_ub, self.y_ub, 10.0, self.open_fingers],
+                          dtype=np.float32)
         return Box(lowers, uppers)
 
     def render_state_plt(
@@ -356,7 +360,7 @@ class BlocksEnv(BaseEnv):
         # constant), but they change and get used in the PyBullet subclass.
         rx, ry, rz = self.robot_init_x, self.robot_init_y, self.robot_init_z
         rf = self.open_fingers  # fingers start out open
-        data[self._robot] = np.array([rx, ry, rz, rf], dtype=np.float32)
+        data[self._robot] = np.array([rx, ry, rz, rf])
         return State(data)
 
     def _sample_goal_from_piles(self, num_blocks: int,
@@ -446,12 +450,11 @@ class BlocksEnv(BaseEnv):
         return (state.get(block, "held") < self.held_tol) and \
             (desired_z-self.on_tol < z < desired_z+self.on_tol)
 
-    @staticmethod
-    def _GripperOpen_holds(state: State, objects: Sequence[Object]) -> bool:
+    def _GripperOpen_holds(self, state: State,
+                           objects: Sequence[Object]) -> bool:
         robot, = objects
         rf = state.get(robot, "fingers")
-        assert rf in (BlocksEnv.closed_fingers, BlocksEnv.open_fingers)
-        return rf == BlocksEnv.open_fingers
+        return abs(rf - self.open_fingers) < abs(rf - self.closed_fingers)
 
     def _Holding_holds(self, state: State, objects: Sequence[Object]) -> bool:
         block, = objects
@@ -593,6 +596,9 @@ class BlocksEnvClear(BlocksEnv):
             "pose_x", "pose_y", "pose_z", "held", "color_r", "color_g",
             "color_b", "clear"
         ])
+        # Recreate blocks with new type.
+        self._blocks = []
+        self._create_blocks()
         # Override predicates and options that use the block type
         self._On = Predicate("On", [self._block_type, self._block_type],
                              self._On_holds)

@@ -171,7 +171,7 @@ def _skeleton_based_score_function(
             strips_ops, option_specs)
         ground_nsrts, reachable_atoms = task_plan_grounding(
             init_atoms, objects, dummy_nsrts)
-        heuristic = utils.create_task_planning_heuristic(  # type: ignore[type-var]
+        heuristic = utils.create_task_planning_heuristic(  # type: ignore[type-var]  # noqa: E501  # pylint: disable=line-too-long
             CFG.sesame_task_planning_heuristic, init_atoms, train_task.goal,
             ground_nsrts, current_predicate_set, objects)
         generator = task_plan(

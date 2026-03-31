@@ -101,16 +101,18 @@ def sample_collision_free_2d_positions(
         shape_type (str): "circle" or "rectangle".
         shape_params (Sequence[float]): Shape-specific parameters.
         rng (np.random.Generator): Random generator for reproducible sampling.
-        max_tries_per_object (int, optional): Number of attempts per object
-            before discarding the entire arrangement and restarting. Defaults to 10.
-        max_tries_total (int, optional): Maximum total attempts before giving up.
-            Defaults to 1000.
+        max_tries_per_object (int, optional): Number of attempts
+            per object before discarding the entire arrangement
+            and restarting. Defaults to 10.
+        max_tries_total (int, optional): Maximum total attempts
+            before giving up. Defaults to 1000.
 
     Returns:
         List[Tuple[float, float]]: A list of (x, y) positions for the shapes,
         guaranteed to be collision-free.
     """
-    from predicators.utils import Circle, Rectangle  # or from .utils if needed
+    from predicators.utils import Circle, Rectangle \
+        # pylint: disable=import-outside-toplevel
 
     def create_geom(px: float, py: float) -> _Geom2D:
         """Create the geometry object based on shape_type and shape_params."""
@@ -118,12 +120,11 @@ def sample_collision_free_2d_positions(
             # shape_params = [radius]
             (radius, ) = shape_params
             return Circle(px, py, radius)
-        elif shape_type == "rectangle":
+        if shape_type == "rectangle":
             # shape_params = [width, height, theta]
             w, h, theta = shape_params
             return Rectangle(px, py, w, h, theta)
-        else:
-            raise ValueError(f"Unsupported shape_type: {shape_type}")
+        raise ValueError(f"Unsupported shape_type: {shape_type}")
 
     positions: List[Tuple[float, float]] = []
     collision_geoms: List[_Geom2D] = []

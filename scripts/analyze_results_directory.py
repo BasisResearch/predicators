@@ -157,7 +157,7 @@ def create_dataframes(
         df_filtered = df.copy()
         cycle_col = None
         for col in df_filtered.columns:
-            if col == 'ONLINE_LEARNING_CYCLE' or col == 'CYCLE':
+            if col in ('ONLINE_LEARNING_CYCLE', 'CYCLE'):
                 cycle_col = col
                 break
 

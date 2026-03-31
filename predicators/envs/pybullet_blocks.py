@@ -90,8 +90,8 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
         """Store references to table and block IDs."""
         self._table_id = pybullet_bodies["table_id"]
         self._block_ids = pybullet_bodies["block_ids"]
-        for blk, id in zip(self._blocks, self._block_ids):
-            blk.id = id
+        for blk, blk_id in zip(self._blocks, self._block_ids):
+            blk.id = blk_id
 
     def _create_task_specific_objects(self, state: State) -> None:
         """No additional environment assets needed per-task."""
@@ -156,8 +156,8 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
                     block_id = bid
                     break
             if block_id is None:
-                raise ValueError(
-                    f"Object {obj} not found in _block_id_to_block")
+                raise ValueError(f"Object {obj} not found in "
+                                 f"_block_id_to_block")
 
             # Pose from PyBullet
             (bx, by, bz), _ = p.getBasePositionAndOrientation(
@@ -165,25 +165,25 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
 
             if feature == "pose_x":
                 return bx
-            elif feature == "pose_y":
+            if feature == "pose_y":
                 return by
-            elif feature == "pose_z":
+            if feature == "pose_z":
                 return bz
-            elif feature == "held":
+            if feature == "held":
                 # Compare block_id with self._held_obj_id
                 return 1.0 if block_id == self._held_obj_id else 0.0
-            elif feature == "color_r":
+            if feature == "color_r":
                 # read from PyBullet
                 visual_data = p.getVisualShapeData(
                     block_id, physicsClientId=self._physics_client_id)[0]
                 (r, g, b, _a) = visual_data[7]
                 return r
-            elif feature == "color_g":
+            if feature == "color_g":
                 visual_data = p.getVisualShapeData(
                     block_id, physicsClientId=self._physics_client_id)[0]
                 (r, g, b, _a) = visual_data[7]
                 return g
-            elif feature == "color_b":
+            if feature == "color_b":
                 visual_data = p.getVisualShapeData(
                     block_id, physicsClientId=self._physics_client_id)[0]
                 (r, g, b, _a) = visual_data[7]
@@ -200,9 +200,8 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
 
             raise ValueError(f"Unknown block feature: {feature}")
 
-        else:
-            raise ValueError(f"Unknown object type {obj.type} or feature "
-                             f"{feature}")
+        raise ValueError(f"Unknown object type {obj.type} or feature "
+                         f"{feature}")
 
     def step(self, action: Action, render_obs: bool = False) -> State:
 
@@ -239,6 +238,33 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
         contact."""
         return list(self._block_id_to_block.keys())
 
+    def _get_state(self, _render_obs: bool = False) -> State:
+        """Create a State based on the current PyBullet state.
+
+        Uses self._block_id_to_block mapping instead of obj.id.
+        """
+        state_dict = {}
+
+        # Get robot state.
+        rx, ry, rz, _, _, _, _, rf = self._pybullet_robot.get_state()
+        fingers = self._fingers_joint_to_state(self._pybullet_robot, rf)
+        state_dict[self._robot] = np.array([rx, ry, rz, fingers])
+        joint_positions = self._pybullet_robot.get_joints()
+
+        # Get block states.
+        for block_id, block in self._block_id_to_block.items():
+            (bx, by, bz), _ = p.getBasePositionAndOrientation(
+                block_id, physicsClientId=self._physics_client_id)
+            held = (block_id == self._held_obj_id)
+            visual_data = p.getVisualShapeData(
+                block_id, physicsClientId=self._physics_client_id)[0]
+            r, g, b, _ = visual_data[7]
+            state_dict[block] = np.array([bx, by, bz, held, r, g, b])
+
+        state = utils.PyBulletState(state_dict,
+                                    simulator_state=joint_positions)
+        return state
+
     # -----------------------------------------------------------------------
     # Domain-Specific Logic
     # -----------------------------------------------------------------------
@@ -256,14 +282,8 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
                 break
         if block_id is None:
             return
-        # We expect that detect_held_object() will confirm it
-        # but let's do an immediate check:
-        held_obj_id = self._detect_held_object()
-        if held_obj_id != block_id:
-            # If we didn't auto-detect, we can forcibly set self._held_obj_id
-            # or log a warning. We'll just forcibly set it:
-            self._held_obj_id = block_id
-        # Now create the constraint
+        # Set the held object id and create the grasp constraint.
+        self._held_obj_id = block_id
         self._create_grasp_constraint()
 
     # If you want a custom step() for PyBullet blocks, you can override it here.
@@ -275,22 +295,19 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
         # logging.debug(f"just_released_obj: {just_released_obj}")
         if just_released_obj is None:
             return
-        else:
-            if self._count_block_height(state, just_released_obj) >= 2:
-                # logging.info("Applying force to high tower!")
-                # Apply downward force
-                force = [0, -100, 0]  # Adjust force magnitude as needed
-                pos = p.getBasePositionAndOrientation(
-                    just_released_obj.id,
-                    physicsClientId=self._physics_client_id)[0]
-                p.applyExternalForce(
-                    just_released_obj.id,
-                    -1,  # -1 for base link
-                    force,
-                    pos,
-                    p.WORLD_FRAME,
-                    physicsClientId=self._physics_client_id)
-        return
+        if self._count_block_height(state, just_released_obj) >= 2:
+            # Apply downward force
+            force = [0, -100, 0]
+            pos = p.getBasePositionAndOrientation(
+                just_released_obj.id,
+                physicsClientId=self._physics_client_id)[0]
+            p.applyExternalForce(
+                just_released_obj.id,
+                -1,  # -1 for base link
+                force,
+                pos,
+                p.WORLD_FRAME,
+                physicsClientId=self._physics_client_id)
 
     def _just_released_object(self, state: State) -> Optional[Object]:
         """Check if we just released an object in this step."""

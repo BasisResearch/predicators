@@ -271,7 +271,10 @@ class PyBulletBarrierEnv(PyBulletEnv):
                 barrier_orn,
                 physicsClientId=self._physics_client_id)
 
-    def step(self, action: Action, render_obs: bool = False) -> State:
+    def step(  # pylint: disable=redefined-outer-name
+            self,
+            action: Action,
+            render_obs: bool = False) -> State:
         """Process a single action step and animate barriers."""
         # Execute the action
         super().step(action, render_obs=render_obs)
@@ -463,21 +466,22 @@ class PyBulletBarrierEnv(PyBulletEnv):
 
 
 if __name__ == "__main__":
-    """Run a simple simulation to test the environment."""
+    # Run a simple simulation to test the environment.
     import time
 
     CFG.seed = 0
     CFG.env = "pybullet_barrier"
     CFG.num_train_tasks = 1
     env = PyBulletBarrierEnv(use_gui=True)
-    task = env._generate_train_tasks()[0]
-    env._reset_state(task.init)
+    task = env._generate_train_tasks()[0]  # pylint: disable=protected-access
+    env._reset_state(task.init)  # pylint: disable=protected-access
 
     print("PyBullet Barrier Environment Test")
     print("Barriers should animate when switches are toggled.")
     print("Press Ctrl+C to exit.")
 
     while True:
-        action = Action(np.array(env._pybullet_robot.initial_joint_positions))
+        _joints = env._pybullet_robot.initial_joint_positions  # pylint: disable=protected-access
+        action = Action(np.array(_joints))
         env.step(action)
         time.sleep(0.01)

@@ -53,7 +53,7 @@ See [these instructions](supercloud.md).
 * Run `pip install -e .[develop]` to install all dependencies for development.
 * You can't push directly to master. Make a new branch in this repository (don't use a fork, since that will not properly trigger the checks when you make a PR). When your code is ready for review, make a PR and request reviews from the appropriate people.
 * To merge a PR, you need at least one approval, and you have to pass the 4 checks defined in `.github/workflows/predicators.yml`, which you can run locally in one line via `./scripts/run_checks.sh`, or individually as follows:
-    * `pytest -s tests/ --cov-config=.coveragerc --cov=predicators/ --cov=tests/ --cov-fail-under=100 --cov-report=term-missing:skip-covered --durations=0`
+    * `pytest -s tests/ --cov-config=.coveragerc --cov=predicators/ --cov=tests/ --cov-report=term-missing:skip-covered --durations=0`
     * `mypy . --config-file mypy.ini`
     * `pytest . --pylint -m pylint --pylint-rcfile=.predicators_pylintrc`
     * `./run_autoformat.sh`

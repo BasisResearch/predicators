@@ -21,8 +21,6 @@ class BalanceGroundTruthNSRTFactory(GroundTruthNSRTFactory):
     def get_nsrts(env_name: str, types: Dict[str, Type],
                   predicates: Dict[str, Predicate],
                   options: Dict[str, ParameterizedOption]) -> Set[NSRT]:
-        pass
-
         # Types
         block_type = types["block"]
         robot_type = types["robot"]

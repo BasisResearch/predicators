@@ -74,7 +74,7 @@ class PyBulletGrowGroundTruthOptionFactory(_GrowLegacyOptionsMixin,
             robot=pybullet_robot,
             open_fingers_joint=pybullet_robot.open_fingers,
             closed_fingers_joint=pybullet_robot.closed_fingers,
-            fingers_state_to_joint=PyBulletGrowEnv._fingers_state_to_joint,
+            fingers_state_to_joint=PyBulletGrowEnv._fingers_state_to_joint,  # pylint: disable=protected-access
             robot_init_tilt=PyBulletGrowEnv.robot_init_tilt,
             robot_init_wrist=PyBulletGrowEnv.robot_init_wrist,
             transport_z=env_cls.z_ub - 0.35,
@@ -96,7 +96,7 @@ class PyBulletGrowGroundTruthOptionFactory(_GrowLegacyOptionsMixin,
         ) -> Tuple[float, float, float, float]:
             del params, config
             _, jug = objects
-            hx, hy, hz = env_cls._get_jug_handle_grasp(  # type: ignore[attr-defined]
+            hx, hy, hz = env_cls._get_jug_handle_grasp(  # type: ignore[attr-defined]  # pylint: disable=protected-access
                 state, jug)
             return (hx, hy, hz, state.get(jug, "rot"))
 

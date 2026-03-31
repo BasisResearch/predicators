@@ -1,6 +1,7 @@
 """Test to verify gripper open/close is instant."""
 
 from predicators import utils
+from predicators.approaches import create_approach
 from predicators.envs.pybullet_circuit import PyBulletCircuitEnv
 
 # Configure
@@ -25,8 +26,6 @@ print("\n" + "=" * 60)
 print("TEST: Gripper toggle should be instant (1 step)")
 print("=" * 60)
 
-from predicators.approaches import create_approach
-
 # Create approach
 approach = create_approach(
     'human_low_level_control',
@@ -40,14 +39,16 @@ approach = create_approach(
 task = env.get_task("test", 0)
 
 # Disable terminal setup for testing
-approach._setup_terminal = lambda: None  # type: ignore[attr-defined]
-approach._restore_terminal = lambda: None  # type: ignore[attr-defined]
+# pylint: disable=protected-access
+approach._setup_terminal = lambda: None  # type: ignore
+approach._restore_terminal = lambda: None  # type: ignore
 
-policy = approach.solve(task, timeout=10)  # type: ignore[arg-type]
+policy = approach.solve(task, timeout=10)  # type: ignore
 
 # Get robot for checking finger positions
-_, shadow_robot, _ = PyBulletCircuitEnv.initialize_pybullet(  # type: ignore[assignment]
-    using_gui=False)
+_, shadow_robot, _ = (
+    PyBulletCircuitEnv.initialize_pybullet(  # type: ignore
+        using_gui=False))
 
 print(f"\nFully open position: {shadow_robot.open_fingers}")
 print(f"Fully closed position: {shadow_robot.closed_fingers}")
@@ -57,60 +58,62 @@ print("\n--- Test 1: Toggle gripper to CLOSED (spacebar) ---")
 initial_finger_pos = state.joint_positions[shadow_robot.left_finger_joint_idx]
 print(f"Initial finger position: {initial_finger_pos:.4f}")
 
-approach._get_pressed_key = lambda: ' '  # type: ignore[attr-defined]
+approach._get_pressed_key = lambda: ' '  # type: ignore
 action = policy(state)
 state = env.step(action)
 
 final_finger_pos = state.joint_positions[shadow_robot.left_finger_joint_idx]
 print(f"After 1 step: {final_finger_pos:.4f}")
 
-# Check if finger moved significantly toward closed position in just 1 step
-if abs(final_finger_pos - shadow_robot.closed_fingers) < 0.001:
+# Check if finger moved significantly toward closed in 1 step
+closed_dist = abs(final_finger_pos - shadow_robot.closed_fingers)
+if closed_dist < 0.001:
     print("✓ PASS: Gripper closed instantly in 1 step")
     test1_pass = True
 else:
-    print(
-        f"✗ FAIL: Gripper not fully closed. Distance from target: {abs(final_finger_pos - shadow_robot.closed_fingers):.4f}"  # pylint: disable=line-too-long
-    )
+    print(f"✗ FAIL: Gripper not fully closed. "
+          f"Distance from target: {closed_dist:.4f}")
     test1_pass = False
 
 # Test 2: Toggle back to open
 print("\n--- Test 2: Toggle gripper to OPEN (spacebar) ---")
-approach._step_count += 10  # type: ignore[attr-defined]
-approach._get_pressed_key = lambda: ' '  # type: ignore[attr-defined]
+approach._step_count += 10  # type: ignore
+approach._get_pressed_key = lambda: ' '  # type: ignore
 action = policy(state)
 state = env.step(action)
 
 final_finger_pos = state.joint_positions[shadow_robot.left_finger_joint_idx]
 print(f"After 1 step: {final_finger_pos:.4f}")
 
-if abs(final_finger_pos - shadow_robot.open_fingers) < 0.001:
+open_dist = abs(final_finger_pos - shadow_robot.open_fingers)
+if open_dist < 0.001:
     print("✓ PASS: Gripper opened instantly in 1 step")
     test2_pass = True
 else:
-    print(
-        f"✗ FAIL: Gripper not fully open. Distance from target: {abs(final_finger_pos - shadow_robot.open_fingers):.4f}"  # pylint: disable=line-too-long
-    )
+    print(f"✗ FAIL: Gripper not fully open. "
+          f"Distance from target: {open_dist:.4f}")
     test2_pass = False
 
-# Test 3: Verify no drift when not pressing keys after gripper toggle
+# Test 3: No drift when not pressing keys after toggle
 print("\n--- Test 3: No drift after gripper toggle ---")
-approach._get_pressed_key = lambda: None  # type: ignore[attr-defined]
+approach._get_pressed_key = lambda: None  # type: ignore
 for i in range(5):
     action = policy(state)
     state = env.step(action)
 
 drift_finger_pos = state.joint_positions[shadow_robot.left_finger_joint_idx]
-print(f"Finger position after 5 no-op steps: {drift_finger_pos:.4f}")
+print(f"Finger pos after 5 no-op steps: "
+      f"{drift_finger_pos:.4f}")
 
-if abs(drift_finger_pos - final_finger_pos) < 0.001:
+finger_drift = abs(drift_finger_pos - final_finger_pos)
+if finger_drift < 0.001:
     print("✓ PASS: No finger drift after gripper toggle")
     test3_pass = True
 else:
-    print(
-        f"✗ FAIL: Finger drifted by {abs(drift_finger_pos - final_finger_pos):.4f}"
-    )
+    print(f"✗ FAIL: Finger drifted by "
+          f"{finger_drift:.4f}")
     test3_pass = False
+# pylint: enable=protected-access
 
 print("\n" + "=" * 60)
 print("RESULTS:")

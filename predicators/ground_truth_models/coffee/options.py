@@ -110,8 +110,7 @@ class CoffeeGroundTruthOptionFactory(GroundTruthOptionFactory):
             robot, jug = objects
             if CFG.coffee_jug_pickable_pred:
                 return JugPickable.holds(state, [jug])
-            else:
-                return HandEmpty.holds(state, [robot])
+            return HandEmpty.holds(state, [robot])
 
         def _PickJug_terminal(state: State, memory: Dict,
                               objects: Sequence[Object],
@@ -540,7 +539,8 @@ def _get_pybullet_robot() -> SingleArmPyBulletRobot:
     return pybullet_robot
 
 
-from .options_legacy import _PyBulletCoffeeLegacyOptionsMixin
+from .options_legacy import \
+    _PyBulletCoffeeLegacyOptionsMixin  # pylint: disable=wrong-import-position
 
 
 class PyBulletCoffeeGroundTruthOptionFactory(_PyBulletCoffeeLegacyOptionsMixin,
@@ -588,6 +588,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(_PyBulletCoffeeLegacyOptionsMixin,
         twisting/plugging logic that doesn't map directly to the factory
         phases.
         """
+        # pylint: disable-next=import-outside-toplevel
         from predicators.ground_truth_models.skill_factories import \
             SkillConfig, create_pick_skill, create_place_skill, \
             create_pour_skill, create_push_skill, create_wait_option
@@ -608,7 +609,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(_PyBulletCoffeeLegacyOptionsMixin,
             robot=pybullet_robot,
             open_fingers_joint=pybullet_robot.open_fingers,
             closed_fingers_joint=pybullet_robot.closed_fingers,
-            fingers_state_to_joint=PyBulletCoffeeEnv._fingers_state_to_joint,
+            fingers_state_to_joint=PyBulletCoffeeEnv._fingers_state_to_joint,  # pylint: disable=protected-access
             robot_init_tilt=PyBulletCoffeeEnv.robot_init_tilt,
             robot_init_wrist=PyBulletCoffeeEnv.robot_init_wrist,
             robot_home_pos=(env_cls.robot_init_x, env_cls.robot_init_y,
@@ -632,7 +633,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(_PyBulletCoffeeLegacyOptionsMixin,
         ) -> Tuple[float, float, float, float]:
             del params, config
             _, jug = objects
-            hx, hy, hz = env_cls._get_jug_handle_grasp(state, jug)
+            hx, hy, hz = env_cls._get_jug_handle_grasp(state, jug)  # pylint: disable=protected-access
             return (hx, hy, hz, state.get(jug, "rot"))
 
         PickJug = create_pick_skill(
@@ -981,7 +982,7 @@ class PyBulletCoffeeGroundTruthOptionFactory(_PyBulletCoffeeLegacyOptionsMixin,
         assert len(robots) == 1
         robot = robots[0]
         current_finger_state = state.get(robot, "fingers")
-        current_finger_joint = PyBulletCoffeeEnv._fingers_state_to_joint(
+        current_finger_joint = PyBulletCoffeeEnv._fingers_state_to_joint(  # pylint: disable=protected-access
             pybullet_robot, current_finger_state)
         assert isinstance(state, utils.PyBulletState)
         current_joint_positions = state.joint_positions

@@ -79,11 +79,14 @@ class LocalSandboxSessionManager:
         self._sandbox_dir: Optional[str] = None
         self._client: Any = None
         self._started = False
+        self._sandbox_log_path: Optional[str] = None
+        self._current_log_meta: Dict[str, Any] = {}
 
     # -- Properties matching session manager interface --
 
     @property
     def session_id(self) -> Optional[str]:
+        """Return the current session ID."""
         return self._session_id
 
     @session_id.setter
@@ -93,7 +96,8 @@ class LocalSandboxSessionManager:
     @property
     def tool_names(self) -> List[str]:
         """Return short tool names (without MCP prefix)."""
-        from predicators.agent_sdk.tools import MCP_SERVER_NAME
+        from predicators.agent_sdk.tools import \
+            MCP_SERVER_NAME  # pylint: disable=import-outside-toplevel
         prefix = f"mcp__{MCP_SERVER_NAME}__"
         names = list(BUILTIN_TOOLS)
         if self._tool_names:
@@ -134,11 +138,14 @@ class LocalSandboxSessionManager:
 
     async def start_session(self) -> None:
         """Create ClaudeSDKClient with cwd set to the sandbox directory."""
+        # pylint: disable=import-outside-toplevel
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, \
             create_sdk_mcp_server
 
         from predicators.agent_sdk.tools import create_mcp_tools, \
             get_allowed_tool_list
+
+        # pylint: enable=import-outside-toplevel
 
         self._ensure_sandbox_dir()
 
@@ -224,7 +231,7 @@ class LocalSandboxSessionManager:
                 if log_path:
                     self._flush_log(log_path, collected)
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             logging.error("Local sandbox session error: %s", e)
             collected.append({"type": "error", "error": str(e)})
             await self._recover_session(message)
@@ -260,25 +267,25 @@ class LocalSandboxSessionManager:
         if self._client is not None:
             try:
                 await self._client.disconnect()
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 logging.warning("Error closing local sandbox session: %s", e)
             finally:
                 self._client = None
                 self._started = False
 
-    async def _recover_session(self, last_message: str) -> None:
+    async def _recover_session(self, _last_message: str) -> None:
         """Attempt to recover from a session error."""
         logging.warning("Attempting local sandbox session recovery...")
         try:
             if self._client is not None:
                 try:
                     await self._client.disconnect()
-                except Exception:
+                except Exception:  # pylint: disable=broad-except
                     pass
             self._started = False
             await self.start_session()
             logging.info("Local sandbox session recovered.")
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             logging.error("Local sandbox session recovery failed: %s", e)
 
     def save_session_info(self) -> None:
@@ -293,7 +300,7 @@ class LocalSandboxSessionManager:
             "sandbox_dir": self._sandbox_dir,
         }
         path = os.path.join(self._log_dir, "session_info.json")
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(info, f, indent=2)
         logging.info("Saved session info to %s", path)
 
@@ -316,7 +323,7 @@ class LocalSandboxSessionManager:
         os.makedirs(self._log_dir, exist_ok=True)
 
         # Also write to sandbox/session_logs/ so the agent can read its own logs
-        self._sandbox_log_path: Optional[str] = None
+        self._sandbox_log_path = None  # type: ignore[no-redef]
         if self._sandbox_dir is not None:
             sandbox_logs = os.path.join(self._sandbox_dir, "session_logs")
             os.makedirs(sandbox_logs, exist_ok=True)
@@ -335,12 +342,13 @@ class LocalSandboxSessionManager:
         # file must be committed before start_session() is called.
         if self._sandbox_log_path and self._sandbox_dir:
             try:
-                import subprocess
+                import subprocess  # pylint: disable=import-outside-toplevel
                 subprocess.run(
                     ["git", "add", self._sandbox_log_path],
                     cwd=self._sandbox_dir,
                     capture_output=True,
                     timeout=5,
+                    check=False,
                 )
                 subprocess.run(
                     [
@@ -351,12 +359,13 @@ class LocalSandboxSessionManager:
                     cwd=self._sandbox_dir,
                     capture_output=True,
                     timeout=5,
+                    check=False,
                     env={
                         **os.environ, "GIT_COMMITTER_NAME": "sandbox",
                         "GIT_COMMITTER_EMAIL": "sandbox@local"
                     },
                 )
-            except Exception:
+            except Exception:  # pylint: disable=broad-except
                 pass
         return filepath
 
@@ -369,12 +378,12 @@ class LocalSandboxSessionManager:
                 title="Local Sandbox Query",
                 meta=self._current_log_meta,
             )
-            with open(filepath, "w") as lf:
+            with open(filepath, "w", encoding="utf-8") as lf:
                 lf.write(log_content)
             # Also write to sandbox/session_logs/ for agent access
             sandbox_path = getattr(self, '_sandbox_log_path', None)
             if sandbox_path:
-                with open(sandbox_path, "w") as lf:
+                with open(sandbox_path, "w", encoding="utf-8") as lf:
                     lf.write(log_content)
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             pass  # Don't let logging errors break the agent

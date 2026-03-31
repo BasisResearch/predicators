@@ -86,7 +86,7 @@ class _GrowLegacyOptionsMixin:
                 jug_z = state.get(robot, "z") -\
                     PyBulletCoffeeEnv.jug_handle_height()
                 jug_pos = (jug_x, jug_y, jug_z)
-                pour_pos = PyBulletCoffeeEnv._get_pour_position(state, cup)
+                pour_pos = PyBulletCoffeeEnv._get_pour_position(state, cup)  # pylint: disable=protected-access
                 sq_dist_to_pour = np.sum(np.subtract(jug_pos, pour_pos)**2)
                 jug_above_cup = sq_dist_to_pour < cls.env_cls.pour_pos_tol/\
                                             (cls.env_cls.pour_pos_tol_factor*2)
@@ -141,12 +141,13 @@ class _GrowLegacyOptionsMixin:
                 # Open fingers to release
                 create_change_fingers_option(
                     pybullet_robot,
-                    "OpenFingers", [robot_type, jug_type],
+                    "OpenFingers",
+                    [robot_type, jug_type],
                     params_space,
-                    lambda state, objects, params:
-                    (PyBulletCoffeeEnv._fingers_state_to_joint(
-                        pybullet_robot, state.get(objects[0], "fingers")),
-                     pybullet_robot.open_fingers),
+                    lambda state, objects, params: (
+                        PyBulletCoffeeEnv._fingers_state_to_joint(  # pylint: disable=protected-access
+                            pybullet_robot, state.get(objects[0], "fingers")),
+                        pybullet_robot.open_fingers),
                     CFG.pybullet_max_vel_norm,
                     cls.env_cls.place_jug_tol,
                     terminal=_Place_terminal),

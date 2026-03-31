@@ -148,11 +148,11 @@ class RampComponent(DominoEnvComponent):
 
             if feature == "x":
                 return pos[0]
-            elif feature == "y":
+            if feature == "y":
                 return pos[1]
-            elif feature == "z":
+            if feature == "z":
                 return pos[2]
-            elif feature in ["yaw", "pitch", "roll"]:
+            if feature in ["yaw", "pitch", "roll"]:
                 euler = p.getEulerFromQuaternion(orn)
                 return euler[{"roll": 0, "pitch": 1, "yaw": 2}[feature]]
 
@@ -167,9 +167,12 @@ class RampComponent(DominoEnvComponent):
                      ramp_length: float = 0.15,
                      platform_length: float = 0.1,
                      width: float = 0.1,
-                     position: list[float] = [0, 0, 0]) -> int:
+                     position: Optional[list[float]] = None) -> int:
         """Creates a ramp with a flat platform using a generated .obj file for
         visuals and a convex hull for physics."""
+
+        if position is None:
+            position = [0, 0, 0]
 
         # Half-width for centering
         w = width / 2.0

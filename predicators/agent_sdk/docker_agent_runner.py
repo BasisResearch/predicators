@@ -38,6 +38,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# pylint: disable=wrong-import-position
 from predicators.agent_sdk.log_formatter import \
     format_conversation_markdown  # noqa: E402
 from predicators.agent_sdk.response_parser import parse_message  # noqa: E402
@@ -47,11 +48,14 @@ from predicators.agent_sdk.tools import BUILTIN_TOOLS  # noqa: E402
 
 async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
     """Create a ClaudeSDKClient, query the agent, and collect responses."""
+    # pylint: disable=import-outside-toplevel
     from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, \
         create_sdk_mcp_server
 
     from predicators.agent_sdk.tools import create_mcp_tools, \
         get_allowed_tool_list
+
+    # pylint: enable=import-outside-toplevel
 
     ctx = query_input["tool_context"]
     tool_names: Optional[List[str]] = query_input.get("tool_names")
@@ -94,9 +98,9 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
             content = format_conversation_markdown(collected,
                                                    title="Docker Query",
                                                    meta=log_meta)
-            with open(log_path, "w") as lf:
+            with open(log_path, "w", encoding="utf-8") as lf:
                 lf.write(content)
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             pass  # Don't let logging errors break the agent
 
     try:
@@ -141,14 +145,14 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
             # Flush log after each message
             _flush_log()
 
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-except
         logger.error("Agent session error: %s", e)
         collected.append({"type": "error", "error": str(e)})
         _flush_log()
     finally:
         try:
             await client.disconnect()
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             pass
 
     return {
@@ -172,7 +176,8 @@ def _rehash_objects_after_unpickle(ctx: Any) -> None:
     re-computed with the current process's hash seed, then rebuild every
     ``State.data`` dict so its internal hash-table is consistent.
     """
-    from predicators.structs import State
+    from predicators.structs import \
+        State  # pylint: disable=import-outside-toplevel
 
     seen: set = set()
 
@@ -190,7 +195,7 @@ def _rehash_objects_after_unpickle(ctx: Any) -> None:
         for obj in list(state.data.keys()):
             _clear(obj)
         # Rebuild dict so Python re-hashes keys with current seed.
-        state.data = {k: v for k, v in state.data.items()}
+        state.data = dict(state.data)
 
     def _process_atoms(atoms: Any) -> None:
         for atom in atoms:
@@ -228,6 +233,7 @@ def _rehash_objects_after_unpickle(ctx: Any) -> None:
 
 
 def main() -> None:
+    """Entry point for Docker agent runner."""
     if len(sys.argv) != 3:
         print(f"Usage: {sys.argv[0]} <input.pkl> <output.pkl>",
               file=sys.stderr)
@@ -246,7 +252,8 @@ def main() -> None:
     # Restore host CFG settings (arg-specific settings like
     # max_num_steps_option_rollout are not set by default import)
     if "cfg_snapshot" in query_input:
-        from predicators.settings import CFG
+        from predicators.settings import \
+            CFG  # pylint: disable=import-outside-toplevel
         for k, v in query_input["cfg_snapshot"].items():
             setattr(CFG, k, v)
 
@@ -258,14 +265,16 @@ def main() -> None:
     # Recreate option model — the simulator (e.g. PyBullet physics
     # server) is process-local and cannot survive pickling.
     if ctx is not None and ctx.option_model is not None:
-        from predicators.option_model import create_option_model
-        from predicators.settings import CFG as _cfg
+        from predicators.option_model import \
+            create_option_model  # pylint: disable=import-outside-toplevel
+        from predicators.settings import \
+            CFG as _cfg  # pylint: disable=import-outside-toplevel
         logger.info("Recreating option model (%s) inside Docker...",
                     _cfg.option_model_name)
         ctx.option_model = create_option_model(_cfg.option_model_name)
         # Sync with all options in context (GT + any previously proposed)
         # after the model has its physics server set up.
-        ctx.option_model._name_to_parameterized_option = {
+        ctx.option_model._name_to_parameterized_option = {  # pylint: disable=protected-access
             o.name: o
             for o in ctx.options
         }
@@ -274,9 +283,11 @@ def main() -> None:
     # physics_client_id is process-local and stale after pickling.
     if (ctx is not None
             and ctx.skill_factory_context.get("skill_config") is not None):
-        from predicators.settings import CFG as _cfg
+        from predicators.settings import \
+            CFG as _cfg  # pylint: disable=import-outside-toplevel
         if _cfg.env.startswith("pybullet"):
             try:
+                # pylint: disable=import-outside-toplevel,reimported
                 from predicators import utils as _utils
                 from predicators.envs.base_env import BaseEnv
                 from predicators.envs.pybullet_env import PyBulletEnv
@@ -304,7 +315,7 @@ def main() -> None:
                         open_fingers_joint=robot.open_fingers,
                         closed_fingers_joint=robot.closed_fingers,
                         fingers_state_to_joint=(
-                            env_cls._fingers_state_to_joint),
+                            env_cls._fingers_state_to_joint),  # pylint: disable=protected-access
                         max_vel_norm=_cfg.pybullet_max_vel_norm,
                         ik_validate=_cfg.pybullet_ik_validate,
                         robot_init_tilt=getattr(env_cls, 'robot_init_tilt',
@@ -316,7 +327,7 @@ def main() -> None:
                         "Recreated SkillConfig inside Docker for %s "
                         "(physics_client_id=%d)", _cfg.env,
                         robot.physics_client_id)
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 logger.error("Failed to recreate SkillConfig in Docker: %s",
                              e,
                              exc_info=True)
@@ -328,7 +339,7 @@ def main() -> None:
     # Run the query
     try:
         query_output = asyncio.run(_run_query(query_input))
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-except
         logger.error("Fatal error in agent runner: %s\n%s", e,
                      traceback.format_exc())
         query_output = {

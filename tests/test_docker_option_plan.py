@@ -25,7 +25,7 @@ import dill as pkl
 import numpy as np
 
 # Bootstrap circular imports
-import predicators.utils  # noqa: F401  # pylint: disable=unused-import
+import predicators.utils as pred_utils
 from predicators.settings import CFG
 
 # Config matching predicatorv3/predicator_v3.yaml (mf_agent approach)
@@ -47,7 +47,7 @@ _CFG_OVERRIDES = {
     "pybullet_ik_validate": False,
 }
 
-OPTION_PLAN = [
+OPTION_PLAN: list[dict[str, Any]] = [
     {
         "option_name": "Pick",
         "object_names": ["robot", "domino_2"],
@@ -80,9 +80,12 @@ def _setup_env_and_context() -> Any:
     """Create environment, options, option model, and ToolContext."""
     pred_utils.reset_config(_CFG_OVERRIDES)
 
-    from predicators.envs import create_new_env
-    from predicators.ground_truth_models import get_gt_options
-    from predicators.option_model import create_option_model
+    from predicators.envs import \
+        create_new_env  # pylint: disable=import-outside-toplevel
+    from predicators.ground_truth_models import \
+        get_gt_options  # pylint: disable=import-outside-toplevel
+    from predicators.option_model import \
+        create_option_model  # pylint: disable=import-outside-toplevel
 
     env = create_new_env(CFG.env, do_cache=False, use_gui=False)
     options = get_gt_options(env.get_name())
@@ -93,21 +96,24 @@ def _setup_env_and_context() -> Any:
 
     option_model = create_option_model(CFG.option_model_name)
 
-    from predicators.agent_sdk.tools import ToolContext
+    from predicators.agent_sdk.tools import \
+        ToolContext  # pylint: disable=import-outside-toplevel
     ctx = ToolContext(
         types=types,
         predicates=predicates,
         processes=set(),
         options=options,
-        train_tasks=train_tasks,
+        train_tasks=[t.task for t in train_tasks],
         example_state=task.init,
         option_model=option_model,
-        current_task=task,
+        current_task=task.task,
     )
     return ctx
 
 
-def _run_option_plan(ctx: Any, plan: list[dict[str, Any]] | None = None, label: str = "") -> list[tuple[int, bool]]:
+def _run_option_plan(ctx: Any,
+                     plan: list[dict[str, Any]] | None = None,
+                     label: str = "") -> list[tuple[int, bool]]:
     """Run option plan and return list of (num_actions, state_changed)
     tuples."""
     if plan is None:
@@ -169,11 +175,12 @@ def _states_feature_equal(s1: Any, s2: Any, atol: float = 1e-3) -> bool:
 
 def _rehash_objects_after_unpickle(ctx: Any) -> None:
     """Fix stale Object hash caches after cross-process unpickling."""
-    from predicators.structs import State
+    from predicators.structs import \
+        State  # pylint: disable=import-outside-toplevel
 
     seen = set()
 
-    def _clear(obj):
+    def _clear(obj: Any) -> None:
         oid = id(obj)
         if oid in seen:
             return
@@ -181,19 +188,19 @@ def _rehash_objects_after_unpickle(ctx: Any) -> None:
         obj.__dict__.pop("_hash", None)
         obj.__dict__.pop("_str", None)
 
-    def _process_state(state):
+    def _process_state(state: Any) -> None:
         if state is None or not isinstance(state, State):
             return
         for obj in list(state.data.keys()):
             _clear(obj)
-        state.data = {k: v for k, v in state.data.items()}
+        state.data = dict(state.data.items())
 
-    def _process_atoms(atoms):
+    def _process_atoms(atoms: Any) -> None:
         for atom in atoms:
             for obj in atom.objects:
                 _clear(obj)
 
-    def _process_task(task):
+    def _process_task(task: Any) -> None:
         if hasattr(task, "init"):
             _process_state(task.init)
         if hasattr(task, "init_obs"):
@@ -235,6 +242,7 @@ def main_parent() -> None:
         capture_output=True,
         text=True,
         timeout=120,
+        check=False,
     )
     print(proc.stdout)
     if proc.stderr:
@@ -250,7 +258,8 @@ def main_parent() -> None:
 
 def main_child(pkl_path: str) -> None:
     """Child process: simulate Docker agent runner flow."""
-    from predicators.option_model import create_option_model
+    from predicators.option_model import \
+        create_option_model  # pylint: disable=import-outside-toplevel
 
     with open(pkl_path, "rb") as f:
         loaded = pkl.load(f)
