@@ -299,13 +299,16 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
             sg = subgoals[i] if i < len(subgoals) else None
             if sg is not None:
                 pos, neg = sg
-                sketch.append(_SketchStep(
-                    option=option, objects=objs,
-                    subgoal_atoms=pos if pos else None,
-                    subgoal_neg_atoms=neg if neg else None))
+                sketch.append(
+                    _SketchStep(option=option,
+                                objects=objs,
+                                subgoal_atoms=pos if pos else None,
+                                subgoal_neg_atoms=neg if neg else None))
             else:
-                sketch.append(_SketchStep(
-                    option=option, objects=objs, subgoal_atoms=None))
+                sketch.append(
+                    _SketchStep(option=option,
+                                objects=objs,
+                                subgoal_atoms=None))
 
         logging.info(f"[{self._run_id}] Agent produced sketch with "
                      f"{len(sketch)} steps, "
@@ -613,8 +616,7 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
                             f"Option '{oc.name}' got stuck.")
                     if (CFG.wait_option_terminate_on_atom_change
                             and oc.name == "Wait"):
-                        result = utils.check_wait_target_atoms(
-                            oc, s, _abs)
+                        result = utils.check_wait_target_atoms(oc, s, _abs)
                         if result is True:
                             last_state_ref[0] = s
                             return True

@@ -1640,9 +1640,8 @@ def parse_wait_target_annotations(
             logging.warning("Unknown object in Wait target: %s", e)
             continue
         if len(objs) != len(pred.types):
-            logging.warning(
-                "Arity mismatch for %s: expected %d, got %d",
-                pred_name, len(pred.types), len(objs))
+            logging.warning("Arity mismatch for %s: expected %d, got %d",
+                            pred_name, len(pred.types), len(objs))
             continue
         atom = GroundAtom(pred, objs)
         if is_neg:
@@ -1729,8 +1728,8 @@ def option_policy_to_policy(
                 and cur_option.name == "Wait":
             assert abstract_function is not None
             assert last_state is not None
-            result = check_wait_target_atoms(
-                cur_option, state, abstract_function)
+            result = check_wait_target_atoms(cur_option, state,
+                                             abstract_function)
             if result is True:
                 logging.debug("Wait terminating: target atoms satisfied")
                 wait_terminate = True
@@ -1739,10 +1738,9 @@ def option_policy_to_policy(
                 cur_atoms = abstract_function(state)
                 prev_atoms = abstract_function(last_state)
                 if cur_atoms != prev_atoms:
-                    logging.debug(
-                        f"Wait terminating due to atom change: "
-                        f"Add: {sorted(cur_atoms-prev_atoms)} "
-                        f"Del: {sorted(prev_atoms-cur_atoms)}")
+                    logging.debug(f"Wait terminating due to atom change: "
+                                  f"Add: {sorted(cur_atoms-prev_atoms)} "
+                                  f"Del: {sorted(prev_atoms-cur_atoms)}")
                     wait_terminate = True
 
         last_state = state
@@ -1892,8 +1890,7 @@ def process_plan_to_greedy_option_policy(
         cur_process = process_queue.pop(0)
         cur_option = cur_process.sample_option(state, goal, rng)
         if atoms_seq is not None:
-            inject_wait_targets_for_option(
-                cur_option, step_idx, atoms_seq)
+            inject_wait_targets_for_option(cur_option, step_idx, atoms_seq)
         step_idx += 1
         logging.debug(f"Using option {cur_option.name}{cur_option.objects}"
                       f"{cur_option.params} from process plan.")
@@ -1912,7 +1909,10 @@ def process_plan_to_greedy_policy(
 ) -> Callable[[State], Action]:
     """Convert a process plan to a greedy policy."""
     option_policy = process_plan_to_greedy_option_policy(
-        process_plan, goal, rng, necessary_atoms_seq=necessary_atoms_seq,
+        process_plan,
+        goal,
+        rng,
+        necessary_atoms_seq=necessary_atoms_seq,
         atoms_seq=atoms_seq)
     return option_policy_to_policy(option_policy,
                                    abstract_function=abstract_function)

@@ -271,8 +271,9 @@ class TestParseSubgoalAnnotations:
     def test_not_atoms_in_subgoals(self):
         """Test NOT prefix for negative target atoms."""
         approach, _, _ = _make_approach()
-        text = ("Wait(robot0:robot) -> "
-                "{Holding(block0:block), NOT On(block0:block, block1:block)}\n")
+        text = (
+            "Wait(robot0:robot) -> "
+            "{Holding(block0:block), NOT On(block0:block, block1:block)}\n")
         result = approach._parse_subgoal_annotations(text, _ALL_PREDICATES,
                                                      _ALL_OBJECTS)
 
@@ -321,8 +322,8 @@ class TestCheckWaitTargetAtoms:
         # State where Holding(block0) is false (held <= 0.5)
         state_not_held = _make_state({_block0: [0.0, 0.0, 0.0]})
         abstract_fn = lambda s: utils.abstract(s, _ALL_PREDICATES)
-        assert utils.check_wait_target_atoms(
-            opt, state_not_held, abstract_fn) is False
+        assert utils.check_wait_target_atoms(opt, state_not_held,
+                                             abstract_fn) is False
 
     def test_noisy_atom_change_ignored_with_targets(self):
         """Wait ignores noisy atom changes when specific targets are set.
@@ -338,8 +339,10 @@ class TestCheckWaitTargetAtoms:
 
         # State where On(block0, block1) is true (noisy change) but
         # Holding(block0) is still false
-        state_noisy = _make_state({_block0: [0.5, 0.0, 0.0],
-                                   _block1: [0.5, 0.0, 0.0]})
+        state_noisy = _make_state({
+            _block0: [0.5, 0.0, 0.0],
+            _block1: [0.5, 0.0, 0.0]
+        })
         abstract_fn = lambda s: utils.abstract(s, _ALL_PREDICATES)
         atoms = abstract_fn(state_noisy)
         # On is true (positions are close), but Holding is false
@@ -347,8 +350,8 @@ class TestCheckWaitTargetAtoms:
         assert GroundAtom(_Holding, [_block0]) not in atoms
 
         # Wait should NOT terminate (target not met, despite On changing)
-        assert utils.check_wait_target_atoms(
-            opt, state_noisy, abstract_fn) is False
+        assert utils.check_wait_target_atoms(opt, state_noisy,
+                                             abstract_fn) is False
 
     def test_negative_target_met(self):
         """Wait terminates when negative target atom is false."""
@@ -357,8 +360,10 @@ class TestCheckWaitTargetAtoms:
         opt.memory["wait_target_neg_atoms"] = {neg_atom}
 
         # State where On(block0, block1) is false (positions far apart)
-        state = _make_state({_block0: [0.0, 0.0, 0.0],
-                             _block1: [5.0, 0.0, 0.0]})
+        state = _make_state({
+            _block0: [0.0, 0.0, 0.0],
+            _block1: [5.0, 0.0, 0.0]
+        })
         abstract_fn = lambda s: utils.abstract(s, _ALL_PREDICATES)
         assert utils.check_wait_target_atoms(opt, state, abstract_fn) is True
 
@@ -369,8 +374,10 @@ class TestCheckWaitTargetAtoms:
         opt.memory["wait_target_neg_atoms"] = {neg_atom}
 
         # State where On(block0, block1) is true (positions close)
-        state = _make_state({_block0: [0.5, 0.0, 0.0],
-                             _block1: [0.5, 0.0, 0.0]})
+        state = _make_state({
+            _block0: [0.5, 0.0, 0.0],
+            _block1: [0.5, 0.0, 0.0]
+        })
         abstract_fn = lambda s: utils.abstract(s, _ALL_PREDICATES)
         assert utils.check_wait_target_atoms(opt, state, abstract_fn) is False
 
@@ -385,18 +392,24 @@ class TestCheckWaitTargetAtoms:
         abstract_fn = lambda s: utils.abstract(s, _ALL_PREDICATES)
 
         # Only positive met (Holding true, On still true)
-        state1 = _make_state({_block0: [0.5, 0.0, 1.0],
-                              _block1: [0.5, 0.0, 0.0]})
+        state1 = _make_state({
+            _block0: [0.5, 0.0, 1.0],
+            _block1: [0.5, 0.0, 0.0]
+        })
         assert utils.check_wait_target_atoms(opt, state1, abstract_fn) is False
 
         # Only negative met (On false, Holding false)
-        state2 = _make_state({_block0: [0.0, 0.0, 0.0],
-                              _block1: [5.0, 0.0, 0.0]})
+        state2 = _make_state({
+            _block0: [0.0, 0.0, 0.0],
+            _block1: [5.0, 0.0, 0.0]
+        })
         assert utils.check_wait_target_atoms(opt, state2, abstract_fn) is False
 
         # Both met (Holding true, On false)
-        state3 = _make_state({_block0: [0.0, 0.0, 1.0],
-                              _block1: [5.0, 0.0, 0.0]})
+        state3 = _make_state({
+            _block0: [0.0, 0.0, 1.0],
+            _block1: [5.0, 0.0, 0.0]
+        })
         assert utils.check_wait_target_atoms(opt, state3, abstract_fn) is True
 
 
@@ -411,16 +424,16 @@ class TestWaitTargetParsing:
     def test_parse_positive_target(self):
         """Parse a positive target atom."""
         line = "Wait(robot0:robot) -> {Holding(block0:block)}"
-        pos, neg = utils.parse_wait_target_annotations(
-            line, _ALL_PREDICATES, _ALL_OBJECTS)
+        pos, neg = utils.parse_wait_target_annotations(line, _ALL_PREDICATES,
+                                                       _ALL_OBJECTS)
         assert GroundAtom(_Holding, [_block0]) in pos
         assert len(neg) == 0
 
     def test_parse_negative_target(self):
         """Parse a NOT-prefixed target atom."""
         line = "Wait(robot0:robot) -> {NOT On(block0:block, block1:block)}"
-        pos, neg = utils.parse_wait_target_annotations(
-            line, _ALL_PREDICATES, _ALL_OBJECTS)
+        pos, neg = utils.parse_wait_target_annotations(line, _ALL_PREDICATES,
+                                                       _ALL_OBJECTS)
         assert len(pos) == 0
         assert GroundAtom(_On, [_block0, _block1]) in neg
 
@@ -428,16 +441,16 @@ class TestWaitTargetParsing:
         """Parse both positive and negative target atoms."""
         line = ("Wait(robot0:robot) -> "
                 "{Holding(block0:block), NOT On(block0:block, block1:block)}")
-        pos, neg = utils.parse_wait_target_annotations(
-            line, _ALL_PREDICATES, _ALL_OBJECTS)
+        pos, neg = utils.parse_wait_target_annotations(line, _ALL_PREDICATES,
+                                                       _ALL_OBJECTS)
         assert GroundAtom(_Holding, [_block0]) in pos
         assert GroundAtom(_On, [_block0, _block1]) in neg
 
     def test_parse_no_annotation(self):
         """Line without -> returns empty sets."""
         line = "Wait(robot0:robot)[]"
-        pos, neg = utils.parse_wait_target_annotations(
-            line, _ALL_PREDICATES, _ALL_OBJECTS)
+        pos, neg = utils.parse_wait_target_annotations(line, _ALL_PREDICATES,
+                                                       _ALL_OBJECTS)
         assert len(pos) == 0
         assert len(neg) == 0
 

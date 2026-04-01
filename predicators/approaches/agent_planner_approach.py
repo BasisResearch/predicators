@@ -680,8 +680,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
                 params_arr = np.array(params, dtype=np.float32)
                 ground_opt = option.ground(objs, params_arr)
                 # Inject Wait target atoms from annotations
-                if (ground_opt.name == "Wait"
-                        and i < len(wait_annotations)):
+                if (ground_opt.name == "Wait" and i < len(wait_annotations)):
                     pos, neg = wait_annotations[i]
                     if pos:
                         ground_opt.memory["wait_target_atoms"] = pos

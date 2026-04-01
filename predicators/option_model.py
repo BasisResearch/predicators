@@ -140,7 +140,8 @@ class _OracleOptionModel(_OptionModelBase):
                     result = utils.check_wait_target_atoms(
                         option_copy, s, self._abstract_function)
                     if result is True:
-                        logging.info("Wait terminating: target atoms satisfied")
+                        logging.info(
+                            "Wait terminating: target atoms satisfied")
                         last_state = s
                         return True
                     if result is None:
