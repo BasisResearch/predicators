@@ -16,7 +16,7 @@ import dataclasses
 import logging
 import re
 import time
-from typing import Any, Callable, List, Optional, Sequence, Set, Tuple, cast
+from typing import Callable, List, Optional, Sequence, Set, Tuple, cast
 
 import numpy as np
 
@@ -501,62 +501,37 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
         task: Task,
         plan: List[_Option],
     ) -> bool:
-        """Re-execute the plan continuously in the option model's env.
+        """Re-execute the plan continuously in the option model.
 
-        Unlike refinement (which resets state between steps via
-        ``_reset_state``), this runs all options sequentially so that the
-        physics state carries forward naturally — matching how the main
-        env will execute during the real episode.
+        Runs all options sequentially so that state carries forward
+        naturally — matching how the real env will execute.
 
         Returns True if the plan reaches the goal, False otherwise.
         """
-        state = task.init
-        predicates = self._get_all_predicates()
-        total_actions = 0
+        n = len(plan)
+        if n == 0:
+            return task.goal_holds(task.init)
 
-        for i, grounded in enumerate(plan):
-            if not grounded.initiable(state):
-                logging.info(f"Forward validation: step {i} "
-                             f"({grounded.name}) not initiable.")
-                return False
+        def sample_fn(i: int, _s: State, _r: np.random.Generator) -> _Option:
+            return plan[i]
 
-            try:
-                next_state, num_actions = \
-                    self._option_model.get_next_state_and_num_actions(
-                        state, grounded)
-            except utils.EnvironmentFailure as e:
-                logging.info(f"Forward validation: step {i} "
-                             f"({grounded.name}) failed: {e}")
-                return False
+        def validate_fn(i: int, _s: State, _o: _Option, post: State,
+                        _n: int) -> Tuple[bool, str]:
+            if i == n - 1 and not task.goal_holds(post):
+                return False, "goal not reached"
+            return True, ""
 
-            if num_actions == 0:
-                reason = cast(Any, self._option_model) \
-                    .last_execution_failure or \
-                    "produced 0 actions"
-                logging.info(f"Forward validation: step {i} "
-                             f"({grounded.name}) failed: {reason}")
-                return False
-
-            total_actions += num_actions
-            state = next_state
-            atoms = utils.abstract(state, predicates)
-            logging.debug(f"Forward validation: step {i} "
-                          f"({grounded.name}) OK, {num_actions} actions. "
-                          f"Atoms: {sorted(str(a) for a in atoms)}")
-
-        if not task.goal_holds(state):
-            atoms = utils.abstract(state, predicates)
-            goal_atoms = task.goal
-            missing = goal_atoms - atoms
-            logging.info(
-                f"Forward validation: goal not reached. "
-                f"Missing: {{{', '.join(str(a) for a in sorted(missing))}}}. "
-                f"State:\n{state.pretty_str()}")
-            return False
-
-        logging.info(f"Forward validation succeeded: {total_actions} "
-                     f"actions from {len(plan)} steps.")
-        return True
+        _, success, _ = run_backtracking_refinement(
+            init_state=task.init,
+            option_model=self._option_model,
+            n_steps=n,
+            max_tries=[1] * n,
+            sample_fn=sample_fn,
+            validate_fn=validate_fn,
+            rng=np.random.default_rng(0),
+            timeout=float('inf'),
+        )
+        return success
 
     # ------------------------------------------------------------------ #
     # Helpers
