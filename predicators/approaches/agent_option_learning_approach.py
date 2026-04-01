@@ -99,7 +99,10 @@ constants (y_off=-0.135, pour_z=0.65625, handle_h=0.1). \
 No continuous params.
 - `create_move_to_skill(name, types, params_space, config, \
 get_target_pose_fn)` — move end-effector to a target pose
-- `create_wait_option(name, config, robot_type)` — hold current pose
+- `create_wait_option(name, config, robot_type)` — hold current pose; \
+annotate with `-> {{atoms}}` in the plan to specify when it should \
+terminate (e.g. `Wait(robot:Robot) -> {{Boiled(water:water_type)}}`). \
+Use `NOT Pred(...)` for atoms that should become false
 
 All factories (except `create_place_skill` and `create_wait_option`) \
 take a `SkillConfig` (available as `skill_config` in the exec \

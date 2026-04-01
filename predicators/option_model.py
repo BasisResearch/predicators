@@ -104,6 +104,10 @@ class _OracleOptionModel(_OptionModelBase):
             assert np.allclose(env_param_opt.params_space.high,
                                param_opt.params_space.high)
             option_copy = env_param_opt.ground(option.objects, option.params)
+        # Propagate Wait target atoms through re-grounding
+        for key in ("wait_target_atoms", "wait_target_neg_atoms"):
+            if key in option.memory:
+                option_copy.memory[key] = option.memory[key]
         del option  # unused after this
         assert option_copy.initiable(state)
 
@@ -128,20 +132,27 @@ class _OracleOptionModel(_OptionModelBase):
                         f"produced a no-op (e.g. IK returned current "
                         f"joints, or finger command matched current "
                         f"finger state).")
-                # Terminate Wait on atom change, mirroring
-                # option_policy_to_policy in utils.py.
+                # Terminate Wait on target atoms or any atom change.
                 if (CFG.wait_option_terminate_on_atom_change
                         and option_copy.name == "Wait"
                         and last_state is not DefaultState
                         and self._abstract_function is not None):
-                    cur_atoms = self._abstract_function(s)
-                    prev_atoms = self._abstract_function(last_state)
-                    if cur_atoms != prev_atoms:
-                        logging.info(f"Wait terminating due to atom change: "
-                                     f"Add: {sorted(cur_atoms - prev_atoms)} "
-                                     f"Del: {sorted(prev_atoms - cur_atoms)}")
+                    result = utils.check_wait_target_atoms(
+                        option_copy, s, self._abstract_function)
+                    if result is True:
+                        logging.info("Wait terminating: target atoms satisfied")
                         last_state = s
                         return True
+                    if result is None:
+                        cur_atoms = self._abstract_function(s)
+                        prev_atoms = self._abstract_function(last_state)
+                        if cur_atoms != prev_atoms:
+                            logging.info(
+                                f"Wait terminating due to atom change: "
+                                f"Add: {sorted(cur_atoms - prev_atoms)} "
+                                f"Del: {sorted(prev_atoms - cur_atoms)}")
+                            last_state = s
+                            return True
                 last_state = s
                 return False
         else:
@@ -155,14 +166,21 @@ class _OracleOptionModel(_OptionModelBase):
                     if option_copy.terminal(s):
                         return True
                     if last_state_ref[0] is not DefaultState:
-                        cur_atoms = abstract_fn(s)
-                        prev_atoms = abstract_fn(last_state_ref[0])
-                        if cur_atoms != prev_atoms:
+                        result = utils.check_wait_target_atoms(
+                            option_copy, s, abstract_fn)
+                        if result is True:
                             logging.info(
-                                f"Wait terminating due to atom change: "
-                                f"Add: {sorted(cur_atoms - prev_atoms)} "
-                                f"Del: {sorted(prev_atoms - cur_atoms)}")
+                                "Wait terminating: target atoms satisfied")
                             return True
+                        if result is None:
+                            cur_atoms = abstract_fn(s)
+                            prev_atoms = abstract_fn(last_state_ref[0])
+                            if cur_atoms != prev_atoms:
+                                logging.info(
+                                    f"Wait terminating due to atom change: "
+                                    f"Add: {sorted(cur_atoms - prev_atoms)} "
+                                    f"Del: {sorted(prev_atoms - cur_atoms)}")
+                                return True
                     last_state_ref[0] = s
                     return False
             else:

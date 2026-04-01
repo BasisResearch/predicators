@@ -141,10 +141,14 @@ class TestParseSubgoalAnnotations:
         assert len(result) == 2
         # First step: Holding(block0)
         assert result[0] is not None
-        assert GroundAtom(_Holding, [_block0]) in result[0]
+        pos, neg = result[0]
+        assert GroundAtom(_Holding, [_block0]) in pos
+        assert len(neg) == 0
         # Second step: On(block0, block1)
         assert result[1] is not None
-        assert GroundAtom(_On, [_block0, _block1]) in result[1]
+        pos2, neg2 = result[1]
+        assert GroundAtom(_On, [_block0, _block1]) in pos2
+        assert len(neg2) == 0
 
     def test_no_subgoals(self):
         """Test no subgoals."""
@@ -184,9 +188,11 @@ class TestParseSubgoalAnnotations:
 
         assert len(result) == 1
         assert result[0] is not None
-        assert len(result[0]) == 2
-        assert GroundAtom(_On, [_block0, _block1]) in result[0]
-        assert GroundAtom(_HandEmpty, [_robot]) in result[0]
+        pos, neg = result[0]
+        assert len(pos) == 2
+        assert len(neg) == 0
+        assert GroundAtom(_On, [_block0, _block1]) in pos
+        assert GroundAtom(_HandEmpty, [_robot]) in pos
 
     def test_unknown_predicate_skipped(self):
         """Test unknown predicate skipped."""
@@ -230,9 +236,11 @@ class TestParseSubgoalAnnotations:
 
         assert len(result) == 2
         assert result[0] is not None
-        assert GroundAtom(_Holding, [_block0]) in result[0]
+        pos, _ = result[0]
+        assert GroundAtom(_Holding, [_block0]) in pos
         assert result[1] is not None
-        assert GroundAtom(_On, [_block0, _block1]) in result[1]
+        pos2, _ = result[1]
+        assert GroundAtom(_On, [_block0, _block1]) in pos2
 
     def test_preamble_ignored(self):
         """Non-option lines should be ignored."""
@@ -257,7 +265,192 @@ class TestParseSubgoalAnnotations:
 
         assert len(result) == 1
         assert result[0] is not None
-        assert GroundAtom(_On, [_block0, _block1]) in result[0]
+        pos, _ = result[0]
+        assert GroundAtom(_On, [_block0, _block1]) in pos
+
+    def test_not_atoms_in_subgoals(self):
+        """Test NOT prefix for negative target atoms."""
+        approach, _, _ = _make_approach()
+        text = ("Wait(robot0:robot) -> "
+                "{Holding(block0:block), NOT On(block0:block, block1:block)}\n")
+        result = approach._parse_subgoal_annotations(text, _ALL_PREDICATES,
+                                                     _ALL_OBJECTS)
+
+        assert len(result) == 1
+        assert result[0] is not None
+        pos, neg = result[0]
+        assert GroundAtom(_Holding, [_block0]) in pos
+        assert GroundAtom(_On, [_block0, _block1]) in neg
+
+
+# ---------------------------------------------------------------------------
+# Tests: check_wait_target_atoms
+# ---------------------------------------------------------------------------
+
+
+class TestCheckWaitTargetAtoms:
+    """Tests that Wait terminates on target atoms, not noisy changes."""
+
+    def test_no_targets_returns_none(self):
+        """No targets in memory -> returns None (fall back to any-change)."""
+        opt = _Wait.ground([_robot], np.array([], dtype=np.float32))
+        # No targets in memory
+        state = _make_state({_block0: [0.0, 0.0, 0.0]})
+        abstract_fn = lambda s: utils.abstract(s, _ALL_PREDICATES)
+        result = utils.check_wait_target_atoms(opt, state, abstract_fn)
+        assert result is None
+
+    def test_positive_target_met(self):
+        """Wait terminates when positive target atom holds."""
+        opt = _Wait.ground([_robot], np.array([], dtype=np.float32))
+        target_atom = GroundAtom(_Holding, [_block0])
+        opt.memory["wait_target_atoms"] = {target_atom}
+
+        # State where Holding(block0) is true (held > 0.5)
+        state_held = _make_state({_block0: [0.0, 0.0, 1.0]})
+        abstract_fn = lambda s: utils.abstract(s, _ALL_PREDICATES)
+        assert utils.check_wait_target_atoms(opt, state_held, abstract_fn) \
+            is True
+
+    def test_positive_target_not_met(self):
+        """Wait does NOT terminate when target atom doesn't hold yet."""
+        opt = _Wait.ground([_robot], np.array([], dtype=np.float32))
+        target_atom = GroundAtom(_Holding, [_block0])
+        opt.memory["wait_target_atoms"] = {target_atom}
+
+        # State where Holding(block0) is false (held <= 0.5)
+        state_not_held = _make_state({_block0: [0.0, 0.0, 0.0]})
+        abstract_fn = lambda s: utils.abstract(s, _ALL_PREDICATES)
+        assert utils.check_wait_target_atoms(
+            opt, state_not_held, abstract_fn) is False
+
+    def test_noisy_atom_change_ignored_with_targets(self):
+        """Wait ignores noisy atom changes when specific targets are set.
+
+        This is the key test: if the Wait is parameterized with a target
+        atom (e.g. Holding(block0)), it should NOT terminate when a
+        different atom changes (e.g. On(block0, block1)).
+        """
+        opt = _Wait.ground([_robot], np.array([], dtype=np.float32))
+        # Only waiting for Holding(block0)
+        target_atom = GroundAtom(_Holding, [_block0])
+        opt.memory["wait_target_atoms"] = {target_atom}
+
+        # State where On(block0, block1) is true (noisy change) but
+        # Holding(block0) is still false
+        state_noisy = _make_state({_block0: [0.5, 0.0, 0.0],
+                                   _block1: [0.5, 0.0, 0.0]})
+        abstract_fn = lambda s: utils.abstract(s, _ALL_PREDICATES)
+        atoms = abstract_fn(state_noisy)
+        # On is true (positions are close), but Holding is false
+        assert GroundAtom(_On, [_block0, _block1]) in atoms
+        assert GroundAtom(_Holding, [_block0]) not in atoms
+
+        # Wait should NOT terminate (target not met, despite On changing)
+        assert utils.check_wait_target_atoms(
+            opt, state_noisy, abstract_fn) is False
+
+    def test_negative_target_met(self):
+        """Wait terminates when negative target atom is false."""
+        opt = _Wait.ground([_robot], np.array([], dtype=np.float32))
+        neg_atom = GroundAtom(_On, [_block0, _block1])
+        opt.memory["wait_target_neg_atoms"] = {neg_atom}
+
+        # State where On(block0, block1) is false (positions far apart)
+        state = _make_state({_block0: [0.0, 0.0, 0.0],
+                             _block1: [5.0, 0.0, 0.0]})
+        abstract_fn = lambda s: utils.abstract(s, _ALL_PREDICATES)
+        assert utils.check_wait_target_atoms(opt, state, abstract_fn) is True
+
+    def test_negative_target_not_met(self):
+        """Wait does NOT terminate when negative target atom is still true."""
+        opt = _Wait.ground([_robot], np.array([], dtype=np.float32))
+        neg_atom = GroundAtom(_On, [_block0, _block1])
+        opt.memory["wait_target_neg_atoms"] = {neg_atom}
+
+        # State where On(block0, block1) is true (positions close)
+        state = _make_state({_block0: [0.5, 0.0, 0.0],
+                             _block1: [0.5, 0.0, 0.0]})
+        abstract_fn = lambda s: utils.abstract(s, _ALL_PREDICATES)
+        assert utils.check_wait_target_atoms(opt, state, abstract_fn) is False
+
+    def test_mixed_positive_and_negative_targets(self):
+        """Both positive and negative targets must be satisfied."""
+        opt = _Wait.ground([_robot], np.array([], dtype=np.float32))
+        opt.memory["wait_target_atoms"] = {GroundAtom(_Holding, [_block0])}
+        opt.memory["wait_target_neg_atoms"] = {
+            GroundAtom(_On, [_block0, _block1])
+        }
+
+        abstract_fn = lambda s: utils.abstract(s, _ALL_PREDICATES)
+
+        # Only positive met (Holding true, On still true)
+        state1 = _make_state({_block0: [0.5, 0.0, 1.0],
+                              _block1: [0.5, 0.0, 0.0]})
+        assert utils.check_wait_target_atoms(opt, state1, abstract_fn) is False
+
+        # Only negative met (On false, Holding false)
+        state2 = _make_state({_block0: [0.0, 0.0, 0.0],
+                              _block1: [5.0, 0.0, 0.0]})
+        assert utils.check_wait_target_atoms(opt, state2, abstract_fn) is False
+
+        # Both met (Holding true, On false)
+        state3 = _make_state({_block0: [0.0, 0.0, 1.0],
+                              _block1: [5.0, 0.0, 0.0]})
+        assert utils.check_wait_target_atoms(opt, state3, abstract_fn) is True
+
+
+# ---------------------------------------------------------------------------
+# Tests: parse_wait_target_annotations and strip_wait_annotations
+# ---------------------------------------------------------------------------
+
+
+class TestWaitTargetParsing:
+    """Tests for parse_wait_target_annotations and strip_wait_annotations."""
+
+    def test_parse_positive_target(self):
+        """Parse a positive target atom."""
+        line = "Wait(robot0:robot) -> {Holding(block0:block)}"
+        pos, neg = utils.parse_wait_target_annotations(
+            line, _ALL_PREDICATES, _ALL_OBJECTS)
+        assert GroundAtom(_Holding, [_block0]) in pos
+        assert len(neg) == 0
+
+    def test_parse_negative_target(self):
+        """Parse a NOT-prefixed target atom."""
+        line = "Wait(robot0:robot) -> {NOT On(block0:block, block1:block)}"
+        pos, neg = utils.parse_wait_target_annotations(
+            line, _ALL_PREDICATES, _ALL_OBJECTS)
+        assert len(pos) == 0
+        assert GroundAtom(_On, [_block0, _block1]) in neg
+
+    def test_parse_mixed_targets(self):
+        """Parse both positive and negative target atoms."""
+        line = ("Wait(robot0:robot) -> "
+                "{Holding(block0:block), NOT On(block0:block, block1:block)}")
+        pos, neg = utils.parse_wait_target_annotations(
+            line, _ALL_PREDICATES, _ALL_OBJECTS)
+        assert GroundAtom(_Holding, [_block0]) in pos
+        assert GroundAtom(_On, [_block0, _block1]) in neg
+
+    def test_parse_no_annotation(self):
+        """Line without -> returns empty sets."""
+        line = "Wait(robot0:robot)[]"
+        pos, neg = utils.parse_wait_target_annotations(
+            line, _ALL_PREDICATES, _ALL_OBJECTS)
+        assert len(pos) == 0
+        assert len(neg) == 0
+
+    def test_strip_annotations(self):
+        """strip_wait_annotations removes -> {...} suffixes."""
+        text = ("Pick(block0:block)[0.5]\n"
+                "Wait(robot0:robot)[] -> {Holding(block0:block)}\n"
+                "Place(block0:block, block1:block)[0.1, 0.2]\n")
+        stripped = utils.strip_wait_annotations(text)
+        assert "-> {" not in stripped
+        assert "Pick(block0:block)[0.5]" in stripped
+        assert "Wait(robot0:robot)[]" in stripped
+        assert "Place(block0:block, block1:block)[0.1, 0.2]" in stripped
 
 
 # ---------------------------------------------------------------------------

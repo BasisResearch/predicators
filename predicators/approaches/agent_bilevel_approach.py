@@ -34,6 +34,8 @@ class _SketchStep:
     option: ParameterizedOption
     objects: Sequence[Object]
     subgoal_atoms: Optional[Set[GroundAtom]]  # None = no subgoal constraint
+    # Atoms that must be FALSE after this step.
+    subgoal_neg_atoms: Optional[Set[GroundAtom]] = None
 
 
 class AgentBilevelApproach(AgentPlannerApproach):
@@ -75,7 +77,11 @@ class AgentBilevelApproach(AgentPlannerApproach):
             "  OptionName(obj1:type1, obj2:type2) -> {Pred(obj1:type1), "
             "Pred2(obj1:type1, obj2:type2)}\n"
             "Always use typed references (obj:type) in subgoal atoms.\n"
-            "Subgoal annotations are optional but improve search efficiency.")
+            "Subgoal annotations are optional but improve search efficiency.\n"
+            "For Wait steps, the annotation also specifies exactly when the "
+            "Wait should terminate. Use `NOT Pred(...)` for atoms that should "
+            "become false (e.g. `Wait(robot:Robot) -> "
+            "{Boiled(water:water_type)}`).")
 
     # ------------------------------------------------------------------ #
     # Solve prompt (no continuous params, subgoal format)
@@ -173,11 +179,16 @@ Optionally annotate subgoal atoms that should hold after each step. This \
 helps the search verify progress. Use `-> {{atoms}}` after each step.
 
 After any action whose desired subgoal depends on a delayed process (e.g. \
-water filling, dominoes cascading, heating), insert a Wait action.
+water filling, dominoes cascading, heating), insert a Wait action. For Wait \
+steps, annotate with the atoms the process should produce — this tells the \
+system exactly when the Wait should end rather than terminating on any \
+incidental atom change. Use `NOT Pred(...)` for atoms that should become false.
 
 Output the plan sketch with one option per line in this format:
   OptionName(obj1:type1, obj2:type2) -> \
 {{Pred(obj1:type1), Pred2(obj1:type1, obj2:type2)}}
+  Wait(robot:Robot) -> {{Boiled(water:water_type)}}
+  Wait(robot:Robot) -> {{NOT Touching(a:block, b:block)}}
 
 Always use typed references (obj:type) in both option arguments AND subgoal \
 atoms. The `-> {{atoms}}` part is optional. If you omit it, the search will \
@@ -286,8 +297,15 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
         sketch = []
         for i, (option, objs, _) in enumerate(parsed):
             sg = subgoals[i] if i < len(subgoals) else None
-            sketch.append(
-                _SketchStep(option=option, objects=objs, subgoal_atoms=sg))
+            if sg is not None:
+                pos, neg = sg
+                sketch.append(_SketchStep(
+                    option=option, objects=objs,
+                    subgoal_atoms=pos if pos else None,
+                    subgoal_neg_atoms=neg if neg else None))
+            else:
+                sketch.append(_SketchStep(
+                    option=option, objects=objs, subgoal_atoms=None))
 
         logging.info(f"[{self._run_id}] Agent produced sketch with "
                      f"{len(sketch)} steps, "
@@ -300,21 +318,22 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
         text: str,
         predicates: Set[Predicate],
         objects: Sequence[Object],
-    ) -> List[Optional[Set[GroundAtom]]]:
-        """Parse ``-> {Pred(obj1, obj2), ...}`` annotations from plan text.
+    ) -> List[Optional[Tuple[Set[GroundAtom], Set[GroundAtom]]]]:
+        """Parse ``-> {Pred(...), NOT Pred(...)}`` annotations from plan text.
 
         Returns a list parallel to the option lines.  Entries are None
-        for lines without annotations.
+        for lines without annotations.  Each non-None entry is
+        ``(positive_atoms, negative_atoms)``.
         """
         pred_map = {p.name: p for p in predicates}
         obj_map = {o.name: o for o in objects}
 
         # Regex: match -> { ... } after the option line
         subgoal_re = re.compile(r'->\s*\{([^}]*)\}')
-        # Regex: match individual atoms like Pred(obj1, obj2)
-        atom_re = re.compile(r'(\w+)\(([^)]*)\)')
+        # Regex: match individual atoms, optionally prefixed with NOT
+        atom_re = re.compile(r'(NOT\s+)?(\w+)\(([^)]*)\)')
 
-        results: List[Optional[Set[GroundAtom]]] = []
+        results: List[Optional[Tuple[Set[GroundAtom], Set[GroundAtom]]]] = []
         option_names = {o.name for o in self._get_all_options()}
 
         for line in text.split('\n'):
@@ -333,13 +352,15 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
                 continue
 
             atoms_text = sg_match.group(1)
-            atoms: Set[GroundAtom] = set()
+            pos_atoms: Set[GroundAtom] = set()
+            neg_atoms: Set[GroundAtom] = set()
             for atom_match in atom_re.finditer(atoms_text):
-                pred_name = atom_match.group(1)
+                is_neg = atom_match.group(1) is not None
+                pred_name = atom_match.group(2)
                 # Handle both "obj" and "obj:type" formats
                 obj_names = [
                     n.strip().split(':')[0]
-                    for n in atom_match.group(2).split(',')
+                    for n in atom_match.group(3).split(',')
                 ]
 
                 if pred_name not in pred_map:
@@ -357,9 +378,16 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
                         f"Arity mismatch for {pred_name}: expected "
                         f"{len(pred.types)}, got {len(objs)}")
                     continue
-                atoms.add(GroundAtom(pred, objs))
+                atom = GroundAtom(pred, objs)
+                if is_neg:
+                    neg_atoms.add(atom)
+                else:
+                    pos_atoms.add(atom)
 
-            results.append(atoms if atoms else None)
+            if pos_atoms or neg_atoms:
+                results.append((pos_atoms, neg_atoms))
+            else:
+                results.append(None)
 
         return results
 
@@ -424,6 +452,13 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
             # Sample continuous parameters and ground option
             params = self._sample_params(step.option, cur_state, rng)
             grounded = step.option.ground(step.objects, params)
+            # Inject Wait target atoms from sketch annotations
+            if grounded.name == "Wait":
+                if step.subgoal_atoms is not None:
+                    grounded.memory["wait_target_atoms"] = step.subgoal_atoms
+                if step.subgoal_neg_atoms is not None:
+                    grounded.memory["wait_target_neg_atoms"] = \
+                        step.subgoal_neg_atoms
             plan[cur_idx] = grounded
 
             state = cur_state
@@ -547,6 +582,10 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
                                              grounded.parent)
             option_copy = env_param_opt.ground(grounded.objects,
                                                grounded.params.copy())
+            # Propagate Wait target atoms through re-grounding
+            for key in ("wait_target_atoms", "wait_target_neg_atoms"):
+                if key in grounded.memory:
+                    option_copy.memory[key] = grounded.memory[key]
 
             if not option_copy.initiable(state):
                 logging.info(f"Forward validation: step {i} "
@@ -558,10 +597,12 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
             # 2. terminate_on_repeat (stuck detection)
             # 3. wait_option_terminate_on_atom_change
             last_state_ref: List[Optional[State]] = [None]
+            abstract_fn = lambda s, _p=predicates: utils.abstract(s, _p)
 
             def _terminal(  # pylint: disable=cell-var-from-loop
                     s: State,
-                    oc: _Option = option_copy) -> bool:
+                    oc: _Option = option_copy,
+                    _abs: Callable = abstract_fn) -> bool:
                 if oc.terminal(s):
                     return True
                 prev = last_state_ref[0]
@@ -572,11 +613,17 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
                             f"Option '{oc.name}' got stuck.")
                     if (CFG.wait_option_terminate_on_atom_change
                             and oc.name == "Wait"):
-                        cur_atoms = utils.abstract(s, predicates)
-                        prev_atoms = utils.abstract(prev, predicates)
-                        if cur_atoms != prev_atoms:
+                        result = utils.check_wait_target_atoms(
+                            oc, s, _abs)
+                        if result is True:
                             last_state_ref[0] = s
                             return True
+                        if result is None:
+                            cur_atoms = _abs(s)
+                            prev_atoms = _abs(prev)
+                            if cur_atoms != prev_atoms:
+                                last_state_ref[0] = s
+                                return True
                 last_state_ref[0] = s
                 return False
 

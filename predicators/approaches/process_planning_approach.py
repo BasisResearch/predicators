@@ -99,7 +99,8 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
                 process_plan,
                 task.goal,
                 self._rng,
-                abstract_function=lambda s: utils.abstract(s, preds))
+                abstract_function=lambda s: utils.abstract(s, preds),
+                atoms_seq=atoms_seq)
             logging.debug("Current Task Plan:")
             for process in process_plan:
                 logging.debug(process.name)

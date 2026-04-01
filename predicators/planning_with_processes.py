@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from itertools import islice
 from pprint import pformat
 from typing import Any, Callable, Collection, Dict, Iterator, List, Optional, \
-    Set, Tuple
+    Sequence, Set, Tuple
 
 import numpy as np
 
@@ -1061,6 +1061,9 @@ def sesame_plan_with_processes(
             metrics["plan_length"] = len(plan)
             metrics["refinement_time"] = (time.perf_counter() -
                                           refinement_start_time)
+            # Inject Wait target atoms from atoms_sequence so
+            # execution terminates on specific atoms, not noise.
+            _inject_wait_targets(plan, skeleton, atoms_sequence)
             return plan, skeleton, metrics
 
         partial_refinements.append((skeleton, plan))
@@ -1071,6 +1074,16 @@ def sesame_plan_with_processes(
 
     raise PlanningFailure("Process planning exhausted all skeletons!",
                           info={"partial_refinements": partial_refinements})
+
+
+def _inject_wait_targets(
+    plan: List[_Option],
+    skeleton: List[_GroundEndogenousProcess],
+    atoms_sequence: Sequence[Set[GroundAtom]],
+) -> None:
+    """Inject Wait target atoms into all Wait options in a plan."""
+    for i, option in enumerate(plan):
+        utils.inject_wait_targets_for_option(option, i, atoms_sequence)
 
 
 def create_ff_heuristic(

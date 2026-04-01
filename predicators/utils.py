@@ -1584,6 +1584,107 @@ class EnvironmentFailure(ExceptionWithInfo):
         return repr(self)
 
 
+def check_wait_target_atoms(
+    option: _Option,
+    state: State,
+    abstract_function: Callable[[State], Set[GroundAtom]],
+) -> Optional[bool]:
+    """Check if a Wait option's target atoms are satisfied.
+
+    Returns True if targets are met (Wait should terminate), False if
+    not yet met, or None if no targets were specified (caller should
+    fall back to any-atom-change behaviour).
+    """
+    pos = option.memory.get("wait_target_atoms", set())
+    neg = option.memory.get("wait_target_neg_atoms", set())
+    if not pos and not neg:
+        return None
+    cur_atoms = abstract_function(state)
+    return pos.issubset(cur_atoms) and neg.isdisjoint(cur_atoms)
+
+
+def parse_wait_target_annotations(
+    line: str,
+    predicates: Collection[Predicate],
+    objects: Collection[Object],
+) -> Tuple[Set[GroundAtom], Set[GroundAtom]]:
+    """Parse ``-> {Pred(...), NOT Pred(...)}`` from a plan line.
+
+    Returns ``(positive_atoms, negative_atoms)`` where positive atoms
+    must become TRUE and negative atoms must become FALSE for the Wait
+    to terminate.
+    """
+    pred_map = {p.name: p for p in predicates}
+    obj_map = {o.name: o for o in objects}
+
+    sg_match = re.search(r'->\s*\{([^}]*)\}', line)
+    if not sg_match:
+        return set(), set()
+
+    pos_atoms: Set[GroundAtom] = set()
+    neg_atoms: Set[GroundAtom] = set()
+    atom_re = re.compile(r'(NOT\s+)?(\w+)\(([^)]*)\)')
+
+    for m in atom_re.finditer(sg_match.group(1)):
+        is_neg = m.group(1) is not None
+        pred_name = m.group(2)
+        obj_names = [n.strip().split(':')[0] for n in m.group(3).split(',')]
+
+        if pred_name not in pred_map:
+            logging.warning("Unknown predicate in Wait target: %s", pred_name)
+            continue
+        pred = pred_map[pred_name]
+        try:
+            objs = [obj_map[n] for n in obj_names]
+        except KeyError as e:
+            logging.warning("Unknown object in Wait target: %s", e)
+            continue
+        if len(objs) != len(pred.types):
+            logging.warning(
+                "Arity mismatch for %s: expected %d, got %d",
+                pred_name, len(pred.types), len(objs))
+            continue
+        atom = GroundAtom(pred, objs)
+        if is_neg:
+            neg_atoms.add(atom)
+        else:
+            pos_atoms.add(atom)
+
+    return pos_atoms, neg_atoms
+
+
+def inject_wait_targets_for_option(
+    option: _Option,
+    step_idx: int,
+    atoms_sequence: Sequence[Set[GroundAtom]],
+) -> None:
+    """Inject Wait target atoms into a single option from atoms_sequence.
+
+    Computes the expected atom delta from ``atoms_sequence[step_idx]``
+    to ``atoms_sequence[step_idx + 1]`` and stores it in the option's
+    memory so that execution terminates on specific atoms rather than
+    any noisy change.  No-op for non-Wait options or out-of-bounds
+    indices.
+    """
+    if option.name != "Wait":
+        return
+    if step_idx + 1 >= len(atoms_sequence):
+        return
+    before = atoms_sequence[step_idx]
+    after = atoms_sequence[step_idx + 1]
+    target_pos = after - before
+    target_neg = before - after
+    if target_pos:
+        option.memory["wait_target_atoms"] = target_pos
+    if target_neg:
+        option.memory["wait_target_neg_atoms"] = target_neg
+
+
+def strip_wait_annotations(text: str) -> str:
+    """Remove ``-> {...}`` annotations from plan text lines."""
+    return re.sub(r'\s*->\s*\{[^}]*\}', '', text)
+
+
 def option_policy_to_policy(
     option_policy: Callable[[State], _Option],
     max_option_steps: Optional[int] = None,
@@ -1628,13 +1729,21 @@ def option_policy_to_policy(
                 and cur_option.name == "Wait":
             assert abstract_function is not None
             assert last_state is not None
-            cur_atoms = abstract_function(state)
-            prev_atoms = abstract_function(last_state)
-            if cur_atoms != prev_atoms:
-                logging.debug(f"Wait terminating due to atom change: "
-                              f"Add: {sorted(cur_atoms-prev_atoms)} "
-                              f"Del: {sorted(prev_atoms-cur_atoms)}")
+            result = check_wait_target_atoms(
+                cur_option, state, abstract_function)
+            if result is True:
+                logging.debug("Wait terminating: target atoms satisfied")
                 wait_terminate = True
+            elif result is None:
+                # No targets specified: fall back to any-atom-change
+                cur_atoms = abstract_function(state)
+                prev_atoms = abstract_function(last_state)
+                if cur_atoms != prev_atoms:
+                    logging.debug(
+                        f"Wait terminating due to atom change: "
+                        f"Add: {sorted(cur_atoms-prev_atoms)} "
+                        f"Del: {sorted(prev_atoms-cur_atoms)}")
+                    wait_terminate = True
 
         last_state = state
 
@@ -1753,6 +1862,7 @@ def process_plan_to_greedy_option_policy(
     goal: Set[GroundAtom],
     rng: np.random.Generator,
     necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None,
+    atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None,
 ) -> Callable[[State], _Option]:
     """Greedily execute a process plan, assuming downward refinability and that
     any sample will work.
@@ -1769,9 +1879,10 @@ def process_plan_to_greedy_option_policy(
         ]
     assert len(necessary_atoms_seq) == len(process_plan) + 1
     necessary_atoms_queue = list(necessary_atoms_seq)
+    step_idx = 0
 
     def _option_policy(state: State) -> _Option:
-        nonlocal cur_process
+        nonlocal cur_process, step_idx
         if not process_queue:
             raise OptionExecutionFailure("Process plan exhausted.")
         expected_atoms = necessary_atoms_queue.pop(0)
@@ -1780,6 +1891,10 @@ def process_plan_to_greedy_option_policy(
                 "Executing the process failed to achieve the necessary atoms.")
         cur_process = process_queue.pop(0)
         cur_option = cur_process.sample_option(state, goal, rng)
+        if atoms_seq is not None:
+            inject_wait_targets_for_option(
+                cur_option, step_idx, atoms_seq)
+        step_idx += 1
         logging.debug(f"Using option {cur_option.name}{cur_option.objects}"
                       f"{cur_option.params} from process plan.")
         return cur_option
@@ -1792,11 +1907,13 @@ def process_plan_to_greedy_policy(
     goal: Set[GroundAtom],
     rng: np.random.Generator,
     necessary_atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None,
-    abstract_function: Optional[Callable[[State], Set[GroundAtom]]] = None
+    abstract_function: Optional[Callable[[State], Set[GroundAtom]]] = None,
+    atoms_seq: Optional[Sequence[Set[GroundAtom]]] = None,
 ) -> Callable[[State], Action]:
     """Convert a process plan to a greedy policy."""
     option_policy = process_plan_to_greedy_option_policy(
-        process_plan, goal, rng, necessary_atoms_seq=necessary_atoms_seq)
+        process_plan, goal, rng, necessary_atoms_seq=necessary_atoms_seq,
+        atoms_seq=atoms_seq)
     return option_policy_to_policy(option_policy,
                                    abstract_function=abstract_function)
 

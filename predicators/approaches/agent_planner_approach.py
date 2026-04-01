@@ -14,7 +14,8 @@ import datetime
 import inspect as _inspect
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, cast
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, \
+    cast
 
 import dill as pkl
 import numpy as np
@@ -28,9 +29,9 @@ from predicators.explorers import create_explorer
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.option_model import _OptionModelBase, create_option_model
 from predicators.settings import CFG
-from predicators.structs import Action, Dataset, InteractionRequest, \
-    InteractionResult, LowLevelTrajectory, ParameterizedOption, Predicate, \
-    State, Task, Type
+from predicators.structs import Action, Dataset, GroundAtom, \
+    InteractionRequest, InteractionResult, LowLevelTrajectory, Object, \
+    ParameterizedOption, Predicate, State, Task, Type
 
 
 class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
@@ -122,8 +123,12 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         "delayed process (e.g. water filling, dominoes cascading, "
         "heating), insert a Wait after it so the effect has time "
         "to occur before the next action. The Wait action holds the "
-        "robot's current pose and terminates once the abstract state "
-        "changes. Without a Wait, the robot will proceed to the next "
+        "robot's current pose. You can annotate Wait with target atoms "
+        "using `-> {atoms}` to specify exactly when it should terminate "
+        "(e.g. `Wait(robot:Robot)[] -> {Boiled(water:water_type)}`). "
+        "Use `NOT Pred(...)` for atoms that should become false. "
+        "If no annotation is provided, the Wait terminates on any atom "
+        "change. Without a Wait, the robot will proceed to the next "
         "action before the delayed effect has occurred, which might "
         "cause the plan to fail.")
 
@@ -511,10 +516,14 @@ Based on the task information and any past trajectory data, output an option pla
 
 After any action whose desired subgoal depends on a delayed process (e.g. water \
 filling, dominoes cascading, heating), insert a Wait action to let the process \
-complete before proceeding. The Wait terminates once the abstract state changes. \
-Without it, the plan will move on before the effect has occurred and fail. Only use \
-Wait when there is a genuine delayed effect; do not insert it between actions with \
-immediate effects (e.g. Pick, Place).
+complete before proceeding. You can annotate Wait with target atoms using \
+`-> {{atoms}}` to specify exactly when it should terminate. Use `NOT Pred(...)` for \
+atoms that should become false. If no annotation is provided, the Wait terminates on \
+any atom change. Only use Wait when there is a genuine delayed effect; do not insert \
+it between actions with immediate effects (e.g. Pick, Place).
+
+For Wait with target atoms: `Wait(robot:Robot)[] -> {{Boiled(water:water_type)}}`
+For negated targets: `Wait(robot:Robot)[] -> {{NOT Touching(a:block, b:block)}}`
 
 **Important — parameter tuning workflow:**
 - When a step fails or produces unexpected results, inspect the rendered images \
@@ -607,6 +616,37 @@ Output ONLY the option plan lines at the end, after any analysis."""
             lines.pop()
         return '\n'.join(lines)
 
+    def _parse_wait_annotations(
+        self,
+        text: str,
+        predicates: Set[Predicate],
+        objects: Sequence[Object],
+    ) -> List[Tuple[Set[GroundAtom], Set[GroundAtom]]]:
+        """Parse ``-> {atoms}`` annotations from plan lines.
+
+        Returns a list parallel to the option lines in the text. Each
+        entry is ``(positive_atoms, negative_atoms)`` for Wait lines
+        with annotations, or ``(set(), set())`` otherwise.
+        """
+        results: List[Tuple[Set[GroundAtom], Set[GroundAtom]]] = []
+        option_names = {o.name for o in self._get_all_options()}
+        for line in text.split('\n'):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            first_token = stripped.split('(')[0]
+            if first_token not in option_names:
+                if results:
+                    break
+                continue
+            if first_token == "Wait" and '->' in stripped:
+                pos, neg = utils.parse_wait_target_annotations(
+                    stripped, predicates, objects)
+                results.append((pos, neg))
+            else:
+                results.append((set(), set()))
+        return results
+
     def _parse_and_ground_plan(self, plan_text: str, task: Task) -> list:
         """Parse option plan text and ground into executable options."""
         objects = list(task.init)
@@ -616,8 +656,15 @@ Output ONLY the option plan lines at the end, after any analysis."""
         # Strip markdown code fences that agents often wrap plans in.
         cleaned_text = self._strip_code_fences(plan_text)
 
+        # Extract Wait target annotations before stripping them
+        wait_annotations = self._parse_wait_annotations(
+            cleaned_text, self._get_all_predicates(), objects)
+
+        # Strip annotations so the option plan parser doesn't choke
+        parseable_text = utils.strip_wait_annotations(cleaned_text)
+
         parsed = utils.parse_model_output_into_option_plan(
-            cleaned_text,
+            parseable_text,
             objects,
             self._types,
             all_options,
@@ -628,10 +675,18 @@ Output ONLY the option plan lines at the end, after any analysis."""
                                   f"  Available option names: {option_names}")
 
         grounded = []
-        for option, objs, params in parsed:
+        for i, (option, objs, params) in enumerate(parsed):
             try:
                 params_arr = np.array(params, dtype=np.float32)
                 ground_opt = option.ground(objs, params_arr)
+                # Inject Wait target atoms from annotations
+                if (ground_opt.name == "Wait"
+                        and i < len(wait_annotations)):
+                    pos, neg = wait_annotations[i]
+                    if pos:
+                        ground_opt.memory["wait_target_atoms"] = pos
+                    if neg:
+                        ground_opt.memory["wait_target_neg_atoms"] = neg
                 grounded.append(ground_opt)
             except Exception as e:  # pylint: disable=broad-except
                 logging.warning(
