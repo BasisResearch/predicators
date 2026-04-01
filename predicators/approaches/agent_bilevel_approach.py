@@ -574,87 +574,38 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
         Returns True if the plan reaches the goal, False otherwise.
         """
         state = task.init
-        option_names = cast(  # pylint: disable=protected-access
-            Any, self._option_model)._name_to_parameterized_option
         predicates = self._get_all_predicates()
         total_actions = 0
 
         for i, grounded in enumerate(plan):
-            # Create a fresh option copy (same as the option model does).
-            env_param_opt = option_names.get(grounded.parent.name,
-                                             grounded.parent)
-            option_copy = env_param_opt.ground(grounded.objects,
-                                               grounded.params.copy())
-            # Propagate Wait target atoms through re-grounding
-            for key in ("wait_target_atoms", "wait_target_neg_atoms"):
-                if key in grounded.memory:
-                    option_copy.memory[key] = grounded.memory[key]
-
-            if not option_copy.initiable(state):
+            if not grounded.initiable(state):
                 logging.info(f"Forward validation: step {i} "
-                             f"({option_copy.name}) not initiable.")
-                return False
-
-            # Build a terminal condition that mirrors the option model:
-            # 1. The option's own terminal
-            # 2. terminate_on_repeat (stuck detection)
-            # 3. wait_option_terminate_on_atom_change
-            last_state_ref: List[Optional[State]] = [None]
-            abstract_fn = lambda s, _p=predicates: utils.abstract(s, _p)
-
-            def _terminal(  # pylint: disable=cell-var-from-loop
-                    s: State,
-                    oc: _Option = option_copy,
-                    _abs: Callable = abstract_fn) -> bool:
-                if oc.terminal(s):
-                    return True
-                prev = last_state_ref[0]
-                if prev is not None:
-                    if (CFG.option_model_terminate_on_repeat
-                            and prev.allclose(s)):
-                        raise utils.OptionExecutionFailure(
-                            f"Option '{oc.name}' got stuck.")
-                    if (CFG.wait_option_terminate_on_atom_change
-                            and oc.name == "Wait"):
-                        result = utils.check_wait_target_atoms(oc, s, _abs)
-                        if result is True:
-                            last_state_ref[0] = s
-                            return True
-                        if result is None:
-                            cur_atoms = _abs(s)
-                            prev_atoms = _abs(prev)
-                            if cur_atoms != prev_atoms:
-                                last_state_ref[0] = s
-                                return True
-                last_state_ref[0] = s
+                             f"({grounded.name}) not initiable.")
                 return False
 
             try:
-                sim = cast(  # pylint: disable=protected-access
-                    Any, self._option_model)._simulator
-                traj = utils.run_policy_with_simulator(
-                    option_copy.policy,
-                    sim,
-                    state,
-                    _terminal,
-                    max_num_steps=CFG.max_num_steps_option_rollout)
-            except (utils.OptionExecutionFailure,
-                    utils.EnvironmentFailure) as e:
+                next_state, num_actions = \
+                    self._option_model.get_next_state_and_num_actions(
+                        state, grounded)
+            except utils.EnvironmentFailure as e:
                 logging.info(f"Forward validation: step {i} "
-                             f"({option_copy.name}) failed: {e}")
+                             f"({grounded.name}) failed: {e}")
                 return False
 
-            if len(traj.actions) == 0:
+            if num_actions == 0:
+                reason = cast(Any, self._option_model) \
+                    .last_execution_failure or \
+                    "produced 0 actions"
                 logging.info(f"Forward validation: step {i} "
-                             f"({option_copy.name}) produced 0 actions.")
+                             f"({grounded.name}) failed: {reason}")
                 return False
 
-            total_actions += len(traj.actions)
-            state = traj.states[-1]
+            total_actions += num_actions
+            state = next_state
             atoms = utils.abstract(state, predicates)
             logging.debug(
                 f"Forward validation: step {i} "
-                f"({option_copy.name}) OK, {len(traj.actions)} actions. "
+                f"({grounded.name}) OK, {num_actions} actions. "
                 f"Atoms: {sorted(str(a) for a in atoms)}")
 
         if not task.goal_holds(state):
