@@ -23,6 +23,7 @@ import numpy as np
 from predicators import utils
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_planner_approach import AgentPlannerApproach
+from predicators.planning import run_backtracking_refinement
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, _Option
@@ -409,6 +410,8 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
         Returns ``(plan, success)``.  On success, ``plan`` is a list of
         grounded options that achieves the task goal.  On failure,
         ``plan`` is the longest partial refinement found.
+
+        Delegates to ``run_backtracking_refinement`` for the core loop.
         """
         if not sketch:
             return [], False
@@ -416,131 +419,65 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
         rng = np.random.default_rng(CFG.seed)
         max_samples = CFG.agent_bilevel_max_samples_per_step
         check_subgoals = CFG.agent_bilevel_check_subgoals
-        start_time = time.perf_counter()
-
         n = len(sketch)
-        cur_idx = 0
-        num_tries = [0] * n
         max_tries = [
             max_samples if step.option.params_space.shape[0] > 0 else 1
             for step in sketch
         ]
-        plan: List[Optional[_Option]] = [None] * n
-        traj: List[Optional[State]] = [task.init] + [None] * n
+        predicates = self._get_all_predicates()
 
-        total_samples = 0
-
-        while cur_idx < n:
-            elapsed = time.perf_counter() - start_time
-            if elapsed > timeout:
-                logging.info(
-                    f"Sketch refinement timed out after {elapsed:.1f}s "
-                    f"at step {cur_idx}/{n}, {total_samples} total samples.")
-                return [p for p in plan if p is not None], False
-
-            step = sketch[cur_idx]
-            num_tries[cur_idx] += 1
-            total_samples += 1
-            step_name = (f"{step.option.name}"
-                         f"({', '.join(o.name for o in step.objects)})")
-
-            # Optionally log state before sampling
-            cur_state = traj[cur_idx]
-            assert cur_state is not None, f"traj[{cur_idx}] should not be None"
-
+        def sample_fn(idx: int, state: State,
+                      rng_: np.random.Generator) -> _Option:
+            step = sketch[idx]
             if CFG.agent_bilevel_log_state:
+                step_name = (f"{step.option.name}"
+                             f"({', '.join(o.name for o in step.objects)})")
                 logging.debug(f"  State before {step_name}:\n"
-                              f"{cur_state.pretty_str()}")
-
-            # Sample continuous parameters and ground option
-            params = self._sample_params(step.option, cur_state, rng)
+                              f"{state.pretty_str()}")
+            params = self._sample_params(step.option, state, rng_)
             grounded = step.option.ground(step.objects, params)
-            # Inject Wait target atoms from sketch annotations
             if grounded.name == "Wait":
                 if step.subgoal_atoms is not None:
-                    grounded.memory["wait_target_atoms"] = step.subgoal_atoms
+                    grounded.memory["wait_target_atoms"] = \
+                        step.subgoal_atoms
                 if step.subgoal_neg_atoms is not None:
                     grounded.memory["wait_target_neg_atoms"] = \
                         step.subgoal_neg_atoms
-            plan[cur_idx] = grounded
+            return grounded
 
-            state = cur_state
-            can_continue = False
-            fail_reason = "not initiable"
+        def validate_fn(idx: int, _pre_state: State, _option: _Option,
+                        post_state: State,
+                        _num_actions: int) -> Tuple[bool, str]:
+            step = sketch[idx]
+            if check_subgoals and step.subgoal_atoms is not None:
+                current_atoms = utils.abstract(post_state, predicates)
+                if not step.subgoal_atoms.issubset(current_atoms):
+                    missing = step.subgoal_atoms - current_atoms
+                    return False, (f"subgoal missing: "
+                                   f"{{{', '.join(str(a) for a in missing)}}}")
+            if idx == n - 1:
+                if not task.goal_holds(post_state):
+                    return False, "goal not reached"
+            return True, ""
 
-            if grounded.initiable(state):
-                try:
-                    next_state, num_actions = \
-                        self._option_model.get_next_state_and_num_actions(
-                            state, grounded)
-                except utils.EnvironmentFailure as e:
-                    fail_reason = f"env failure: {e}"
-                else:
-                    if num_actions == 0:
-                        model = self._option_model
-                        fail_reason = (
-                            getattr(  # type: ignore[attr-defined]
-                                model, "last_execution_failure", None)
-                            or "0 actions")
-                    else:
-                        traj[cur_idx + 1] = next_state
-                        # Check subgoals if specified
-                        if (check_subgoals and step.subgoal_atoms is not None):
-                            current_atoms = utils.abstract(
-                                next_state, self._get_all_predicates())
-                            if step.subgoal_atoms.issubset(current_atoms):
-                                can_continue = True
-                            else:
-                                missing = step.subgoal_atoms - current_atoms
-                                fail_reason = (
-                                    f"subgoal missing: "
-                                    f"{{{', '.join(str(a) for a in missing)}}}"
-                                )
-                        else:
-                            can_continue = True
-                        # Final step: also check task goal
-                        if can_continue and cur_idx == n - 1:
-                            if not task.goal_holds(next_state):
-                                can_continue = False
-                                fail_reason = "goal not reached"
+        plan, success, total_samples = run_backtracking_refinement(
+            init_state=task.init,
+            option_model=self._option_model,
+            n_steps=n,
+            max_tries=max_tries,
+            sample_fn=sample_fn,
+            validate_fn=validate_fn,
+            rng=rng,
+            timeout=timeout,
+        )
 
-            if can_continue:
-                logging.info(
-                    f"  Step {cur_idx}/{n} {step_name} OK "
-                    f"(sample {num_tries[cur_idx]}/{max_tries[cur_idx]})\n")
-                if CFG.agent_bilevel_log_state:
-                    next_st = traj[cur_idx + 1]
-                    assert next_st is not None
-                    logging.debug(f"  State after {step_name}:\n"
-                                  f"{next_st.pretty_str()}")
-                cur_idx += 1
-            else:
-                logging.debug(
-                    f"  Step {cur_idx}/{n} {step_name} FAIL "
-                    f"(sample {num_tries[cur_idx]}/{max_tries[cur_idx]})"
-                    f": {fail_reason}")
-                # Backtrack: re-try current step or go back further
-                while num_tries[cur_idx] >= max_tries[cur_idx]:
-                    bt_objs = ", ".join(o.name
-                                        for o in sketch[cur_idx].objects)
-                    bt_name = (f"{sketch[cur_idx].option.name}"
-                               f"({bt_objs})")
-                    logging.info(f"  Step {cur_idx}/{n} {bt_name} exhausted "
-                                 f"{max_tries[cur_idx]} samples, backtracking")
-                    num_tries[cur_idx] = 0
-                    plan[cur_idx] = None
-                    traj[cur_idx + 1] = None
-                    cur_idx -= 1
-                    if cur_idx < 0:
-                        logging.info(f"Sketch refinement exhausted after "
-                                     f"{total_samples} total samples.")
-                        return [], False
+        logging.info(f"Refinement {'succeeded' if success else 'failed'}: "
+                     f"{total_samples} samples for {n} steps.")
 
-        # All steps succeeded
-        assert all(p is not None for p in plan)
-        logging.info(f"Refinement complete: {total_samples} total samples "
-                     f"for {n} steps.")
-        return cast(List[_Option], plan), True
+        filtered = [p for p in plan if p is not None]
+        if success:
+            return cast(List[_Option], filtered), True
+        return filtered, False
 
     def _sample_params(self, option: ParameterizedOption, _state: State,
                        rng: np.random.Generator) -> np.ndarray:
@@ -603,10 +540,9 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
             total_actions += num_actions
             state = next_state
             atoms = utils.abstract(state, predicates)
-            logging.debug(
-                f"Forward validation: step {i} "
-                f"({grounded.name}) OK, {num_actions} actions. "
-                f"Atoms: {sorted(str(a) for a in atoms)}")
+            logging.debug(f"Forward validation: step {i} "
+                          f"({grounded.name}) OK, {num_actions} actions. "
+                          f"Atoms: {sorted(str(a) for a in atoms)}")
 
         if not task.goal_holds(state):
             atoms = utils.abstract(state, predicates)
