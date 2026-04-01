@@ -1078,7 +1078,7 @@ def sesame_plan_with_processes(
 
 def _inject_wait_targets(
     plan: List[_Option],
-    skeleton: List[_GroundEndogenousProcess],
+    _skeleton: List[_GroundEndogenousProcess],
     atoms_sequence: Sequence[Set[GroundAtom]],
 ) -> None:
     """Inject Wait target atoms into all Wait options in a plan."""
