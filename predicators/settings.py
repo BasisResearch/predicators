@@ -1015,6 +1015,7 @@ class GlobalSettings:
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
     # log state pretty_str before/after each step
     agent_bilevel_log_state = False
+    agent_bilevel_plan_sketch_file = ""  # load sketch from file instead of LLM
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:

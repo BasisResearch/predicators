@@ -26,6 +26,7 @@ APPROACHES:
       agent_planner_use_annotate_scene: True
       option_model_use_gui: True
       agent_bilevel_log_state: False
+      agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
   # agent_option_learning:
   #   NAME: "agent_option_learning"
   #   FLAGS:

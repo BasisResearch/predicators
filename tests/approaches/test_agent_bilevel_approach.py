@@ -1,5 +1,6 @@
 """Tests for AgentBilevelApproach -- parsing and refinement logic."""
 # pylint: disable=protected-access,import-outside-toplevel
+import os
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -11,6 +12,8 @@ from predicators.approaches.agent_bilevel_approach import \
     AgentBilevelApproach, _SketchStep
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
+
+_TEST_DATA_DIR = os.path.join(os.path.dirname(__file__), "test_data")
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -803,6 +806,32 @@ class TestQueryAgentForPlanSketch:
                           return_value=self._mock_responses(plan_text)):
             with pytest.raises(ApproachFailure, match="Parsed empty"):
                 approach._query_agent_for_plan_sketch(task)
+
+    def test_sketch_from_file(self):
+        """Load sketch from a saved text file via CFG option."""
+        approach, _, task = _make_approach()
+        sketch_path = os.path.join(_TEST_DATA_DIR, "simple_plan_sketch.txt")
+
+        utils.reset_config({
+            "env": "cover",
+            "approach": "agent_bilevel",
+            "num_train_tasks": 1,
+            "num_test_tasks": 1,
+            "seed": 42,
+            "agent_bilevel_plan_sketch_file": sketch_path,
+        })
+
+        sketch = approach._query_agent_for_plan_sketch(task)
+
+        assert len(sketch) == 2
+        assert sketch[0].option.name == "Pick"
+        assert list(sketch[0].objects) == [_block0]
+        assert sketch[0].subgoal_atoms is not None
+        assert GroundAtom(_Holding, [_block0]) in sketch[0].subgoal_atoms
+        assert sketch[1].option.name == "Place"
+        assert list(sketch[1].objects) == [_block0, _block1]
+        assert sketch[1].subgoal_atoms is not None
+        assert GroundAtom(_On, [_block0, _block1]) in sketch[1].subgoal_atoms
 
 
 # ---------------------------------------------------------------------------

@@ -261,16 +261,18 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
 
     def _query_agent_for_plan_sketch(self, task: Task) -> List[_SketchStep]:
         """Query agent for a plan sketch and parse it."""
-        prompt = self._build_solve_prompt(task)
-        responses = self._query_agent_sync(prompt)
-        plan_text = self._extract_option_plan_text(responses)
+        sketch_file = CFG.agent_bilevel_plan_sketch_file
+        if sketch_file:
+            with open(sketch_file, "r") as f:
+                plan_text = f.read().strip()
+            logging.info("Loaded plan sketch from file: %s", sketch_file)
+        else:
+            prompt = self._build_solve_prompt(task)
+            responses = self._query_agent_sync(prompt)
+            plan_text = self._extract_option_plan_text(responses)
 
         if not plan_text:
-            n_responses = len(responses)
-            types = [r.get("type") for r in responses]
-            raise ApproachFailure(
-                f"Agent returned empty plan text. "
-                f"Got {n_responses} responses with types: {types}")
+            raise ApproachFailure("Agent returned empty plan text.")
 
         cleaned_text = self._strip_code_fences(plan_text)
 
