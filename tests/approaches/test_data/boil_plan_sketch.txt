@@ -1,5 +1,5 @@
 PickJug(robot:robot, jug0:jug) -> {Holding(robot:robot, jug0:jug)}
-Place(robot:robot) -> {JugAtFaucet(jug0:jug, faucet:faucet), NoJugAtFaucetOrAtFaucetAndFilled(jug0:jug, faucet:faucet)}
+Place(robot:robot) -> {JugAtFaucet(jug0:jug, faucet:faucet)}
 SwitchFaucetOn(robot:robot, faucet:faucet) -> {FaucetOn(faucet:faucet)}
 Wait(robot:robot) -> {JugFilled(jug0:jug)}
 SwitchFaucetOff(robot:robot, faucet:faucet) -> {FaucetOff(faucet:faucet)}
