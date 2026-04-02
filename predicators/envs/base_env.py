@@ -198,7 +198,15 @@ class BaseEnv(abc.ABC):
 
     @property
     def _current_state(self) -> State:
-        """Default for environments where states are observations."""
+        """Typed accessor for _current_observation when it is a State.
+
+        _current_observation is the raw Observation (which may not be a
+        State in vision-based envs). _current_state provides a
+        convenience accessor with a type assertion for the common case
+        where observations are States. Use _current_observation for
+        assignment (it is the backing field); use _current_state for
+        reads when you need a State.
+        """
         assert isinstance(self._current_observation, State)
         return self._current_observation
 

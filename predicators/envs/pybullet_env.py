@@ -340,13 +340,12 @@ class PyBulletEnv(BaseEnv):
         return self._pybullet_robot.action_space
 
     def simulate(self, state: State, action: Action) -> State:
-        # Optimization: check if we're already in the right state.
-        # self._current_observation is None at the beginning
-        # state is not allclose to self._current_state when the state has been
-        # updated, so it first calls _reset_state to update the pybullet state
+        # Optimization: skip _reset_state if pybullet is already in this state.
+        # _current_observation is None before the first reset() call.
+        # Check it (not _current_state) because _current_state would fail
+        # its type assertion on None.
         if self._current_observation is None or \
             not state.allclose(self._current_state):
-            self._current_observation = state
             self._reset_state(state)
         return self.step(action)
 
@@ -381,6 +380,9 @@ class PyBulletEnv(BaseEnv):
         Used in initialization (reset(), _add_pybullet_state_to_tasks())
         and bilevel planning (when creating the option model)).
         """
+        # Keep _current_observation in sync so that step() can read it
+        # (e.g. for finger-delta computation).
+        self._current_observation = state
         self._objects = list(state.data)
         # 1) Clear old constraint if we had a held object
         if self._held_constraint_id is not None:
@@ -694,17 +696,18 @@ class PyBulletEnv(BaseEnv):
     def get_observation(self, render: bool = False) -> Observation:
         """Get the current observation of this environment.
 
-        Currently, this just return a copy of the state and optionally a
-        rendered image.
+        Reads the current state from pybullet, updates _current_observation
+        (the backing field), and returns a copy optionally with rendered images.
         """
-        self._current_observation = self._get_state()
-        assert isinstance(self._current_observation, PyBulletState)
-        state_copy = self._current_observation.copy()
+        state = self._get_state()
+        assert isinstance(state, PyBulletState)
+        self._current_observation = state
+        obs = state.copy()
 
         if render:
-            state_copy.add_images_and_masks(*self.render_segmented_obj())
+            obs.add_images_and_masks(*self.render_segmented_obj())
 
-        return state_copy
+        return obs
 
     def step(self, action: Action, render_obs: bool = False) -> Observation:
         """Execute one environment step with the given action.
@@ -926,11 +929,6 @@ class PyBulletEnv(BaseEnv):
         for task in tasks:
             # Reset the robot.
             init = task.init
-            # Extract the joints.
-            # YC: Probably need to reset_state here so I can then get an
-            # observation, would it work without the reset_state?
-            # Attempt 2: First reset it.
-            self._current_observation = init
             self._reset_state(init)
             # Cast _current_observation from type State to PybulletState
             joint_positions = self._pybullet_robot.get_joints()
