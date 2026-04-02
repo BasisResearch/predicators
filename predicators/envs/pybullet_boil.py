@@ -927,7 +927,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                               j_id,
                               physicsClientId=self._physics_client_id)
         j_min, j_max = info[8], info[9]
-        target_val = j_max if power_on else j_min
+        target_val = (j_max if power_on else j_min) * self.switch_joint_scale
         p.resetJointState(switch_id,
                           j_id,
                           target_val,
