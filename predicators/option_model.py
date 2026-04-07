@@ -141,8 +141,7 @@ class _OracleOptionModel(_OptionModelBase):
         def _terminal(s: State) -> bool:
             nonlocal last_state
             if option_copy.terminal(s):
-                if CFG.option_model_terminate_on_repeat:
-                    logging.debug("Option reached terminal state.")
+                logging.debug("Option reached terminal state.")
                 return True
             if (CFG.option_model_terminate_on_repeat
                     and last_state is not DefaultState
@@ -158,11 +157,11 @@ class _OracleOptionModel(_OptionModelBase):
             if (CFG.wait_option_terminate_on_atom_change
                     and option_copy.name == "Wait"
                     and last_state is not DefaultState
-                    and self._abstract_function is not None):
-                if _check_wait_termination(option_copy, s, last_state,
-                                           self._abstract_function):
-                    last_state = s
-                    return True
+                    and self._abstract_function is not None
+                    and _check_wait_termination(option_copy, s, last_state,
+                                                self._abstract_function)):
+                logging.debug("Wait option terminating early.")
+                return True
             last_state = s
             return False
 
