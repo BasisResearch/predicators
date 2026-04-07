@@ -696,8 +696,9 @@ class PyBulletEnv(BaseEnv):
     def get_observation(self, render: bool = False) -> Observation:
         """Get the current observation of this environment.
 
-        Reads the current state from pybullet, updates _current_observation
-        (the backing field), and returns a copy optionally with rendered images.
+        Reads the current state from pybullet, updates
+        _current_observation (the backing field), and returns a copy
+        optionally with rendered images.
         """
         state = self._get_state()
         assert isinstance(state, PyBulletState)
