@@ -13,10 +13,10 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.envs.pybullet_env import PyBulletEnv, create_pybullet_block
+from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.objects import create_object, \
-    sample_collision_free_2d_positions, update_object
+    create_pybullet_block, sample_collision_free_2d_positions, update_object
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
     Predicate, State, Type
@@ -229,10 +229,7 @@ class PyBulletFloatEnv(PyBulletEnv):
     def _get_object_ids_for_held_check(self) -> List[int]:
         return [block_obj.id for block_obj in self._blocks]
 
-    def _create_task_specific_objects(self, state: State) -> None:
-        pass
-
-    def _extract_feature(self, obj: Object, feature: str) -> float:
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
         if obj.type == self._block_type:
             # if feature == "is_light":
@@ -255,7 +252,7 @@ class PyBulletFloatEnv(PyBulletEnv):
                 return self._current_water_height
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
-    def _reset_custom_env_state(self, state: State) -> None:
+    def _set_domain_specific_state(self, state: State) -> None:
 
         # Initialize water level
         self._current_water_height = state.get(self._vessel, "water_height")
@@ -617,7 +614,7 @@ if __name__ == "__main__":
     CFG.pybullet_sim_steps_per_action = 1
     env = PyBulletFloatEnv(use_gui=True)
     task = env._make_tasks(1, np.random.default_rng(0))[0]  # pylint: disable=protected-access
-    env._reset_state(task.init)  # pylint: disable=protected-access
+    env._set_state(task.init)  # pylint: disable=protected-access
 
     while True:
         action = Action(np.array(env._pybullet_robot.initial_joint_positions))  # pylint: disable=protected-access

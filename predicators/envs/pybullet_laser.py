@@ -282,14 +282,11 @@ class PyBulletLaserEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # State Reading/Writing
     # -------------------------------------------------------------------------
-    def _create_task_specific_objects(self, state: State) -> None:
-        pass
-
     def _get_object_ids_for_held_check(self) -> List[int]:
         """Return IDs of wires (assuming the robot can pick them up)."""
         return [m.id for m in self._normal_mirrors + self._split_mirrors]
 
-    def _extract_feature(self, obj: Object, feature: str) -> float:
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
         if obj.type == self._station_type:
             if feature == "is_on":
@@ -302,7 +299,7 @@ class PyBulletLaserEnv(PyBulletEnv):
                 return 1.0 if self._is_target_hit(obj) else 0.0
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
-    def _reset_custom_env_state(self, state: State) -> None:
+    def _set_domain_specific_state(self, state: State) -> None:
         oov_x, oov_y = self._out_of_view_xy
 
         lasers_copy = _laser_ids.copy()
@@ -822,7 +819,7 @@ if __name__ == "__main__":
     CFG.laser_zero_reflection_angle = True
     env = PyBulletLaserEnv(use_gui=True)
     task = env._make_tasks(1, np.random.default_rng(CFG.seed), True)[0]  # pylint: disable=protected-access
-    env._reset_state(task.init)  # pylint: disable=protected-access
+    env._set_state(task.init)  # pylint: disable=protected-access
 
     while True:
         # Robot does nothing

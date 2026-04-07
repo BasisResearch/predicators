@@ -223,7 +223,7 @@ class PyBulletSwitchEnv(PyBulletEnv):
         """Return IDs of objects that can be held (none in this env)."""
         return []
 
-    def _extract_feature(self, obj: Object, feature: str) -> float:
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
         if obj.type == self._light_type and feature == "is_on":
             return float(self._is_power_switch_on())
@@ -236,10 +236,7 @@ class PyBulletSwitchEnv(PyBulletEnv):
             return float(self._is_switch_on(self._color_switch))
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
-    def _create_task_specific_objects(self, state: State) -> None:
-        del state  # Unused
-
-    def _reset_custom_env_state(self, state: State) -> None:
+    def _set_domain_specific_state(self, state: State) -> None:
         """Reset environment state from a State object."""
         # Set power switch state
         power_on = state.get(self._power_switch, "is_on") > 0.5
@@ -465,7 +462,7 @@ if __name__ == "__main__":
     CFG.num_train_tasks = 1
     env = PyBulletSwitchEnv(use_gui=True)
     task = env._generate_train_tasks()[0]  # pylint: disable=protected-access
-    env._reset_state(task.init)  # pylint: disable=protected-access
+    env._set_state(task.init)  # pylint: disable=protected-access
 
     while True:
         _joints = env._pybullet_robot.initial_joint_positions  # pylint: disable=protected-access

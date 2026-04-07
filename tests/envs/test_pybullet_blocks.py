@@ -70,7 +70,7 @@ class _ExposedPyBulletBlocksEnv(PyBulletBlocksEnv):
                                              simulator_state=joint_positions)
         self._current_observation = state_with_sim
         self._current_task = None
-        self._reset_state(state_with_sim)
+        self._set_state(state_with_sim)
 
     def get_state(self):
         """Expose get_state()."""

@@ -6,10 +6,10 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.envs.pybullet_env import PyBulletEnv, create_pybullet_block, \
-    create_pybullet_sphere
+from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, update_object
+from predicators.pybullet_helpers.objects import create_object, \
+    create_pybullet_block, create_pybullet_sphere, update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
@@ -610,7 +610,7 @@ class PyBulletFanEnv(PyBulletEnv):
         self._target.id = pybullet_bodies["target_id"]
 
         # Initialize boundary wall IDs list (will be populated
-        # in _reset_custom_env_state)
+        # in _set_domain_specific_state)
         # pylint: disable=attribute-defined-outside-init
         self._boundary_wall_ids: List[int] = []
 
@@ -620,10 +620,7 @@ class PyBulletFanEnv(PyBulletEnv):
     def _get_object_ids_for_held_check(self) -> List[int]:
         return []
 
-    def _create_task_specific_objects(self, state: State) -> None:
-        pass
-
-    def _reset_custom_env_state(self, state: State) -> None:
+    def _set_domain_specific_state(self, state: State) -> None:
         for switch_obj in self._switches:
             is_on_val = state.get(switch_obj, "is_on")
             self._set_switch_on(switch_obj.id, bool(is_on_val > 0.5))
@@ -838,7 +835,7 @@ class PyBulletFanEnv(PyBulletEnv):
                                   orientation=p.getQuaternionFromEuler(rot),
                                   physics_client_id=self._physics_client_id)
 
-    def _extract_feature(self, obj: Object, feature: str) -> float:
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
         if obj.type == self._fan_type:
             if feature == "facing_side":
@@ -1633,7 +1630,7 @@ if __name__ == "__main__":
         CFG.fan_train_num_walls_per_task, _rng)
 
     for _task in _tasks:
-        env._reset_state(_task.init)  # pylint: disable=protected-access
+        env._set_state(_task.init)  # pylint: disable=protected-access
         for _ in range(5000):
             _action = Action(
                 np.array(env._pybullet_robot  # pylint: disable=protected-access

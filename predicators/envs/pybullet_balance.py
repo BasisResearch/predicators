@@ -15,8 +15,9 @@ from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple, \
 import numpy as np
 import pybullet as p
 
-from predicators.envs.pybullet_env import PyBulletEnv, create_pybullet_block
+from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
+from predicators.pybullet_helpers.objects import create_pybullet_block
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, Array, ConceptPredicate, \
@@ -320,10 +321,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
 
     # -------------------------------------------------------------------------
     # State Management: Get, (Re)Set, Step
-    def _create_task_specific_objects(self, state: State) -> None:
-        pass
-
-    def _extract_feature(self, obj: Object, feature: str) -> float:
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
         if obj.type == self._block_type:
             visual_data = p.getVisualShapeData(
@@ -368,10 +366,10 @@ class PyBulletBalanceEnv(PyBulletEnv):
 
         return state
 
-    def _reset_custom_env_state(self, state: State) -> None:
-        """Replace the old `_reset_state` environment-specific logic.
+    def _set_domain_specific_state(self, state: State) -> None:
+        """Replace the old `_set_state` environment-specific logic.
 
-        The base `_reset_state` has already handled standard features
+        The base `_set_state` has already handled standard features
         for objects that appear in _get_all_objects(), so here we just
         do custom domain-specific tasks: setting plates/blocks if we
         aren't letting the base class handle them, updating button
@@ -961,7 +959,7 @@ if __name__ == "__main__":
     CFG.num_test_tasks = 1
     env = PyBulletBalanceEnv(use_gui=True)
     task = env._generate_test_tasks()[0]  # pylint: disable=protected-access
-    env._reset_state(task.init)  # pylint: disable=protected-access
+    env._set_state(task.init)  # pylint: disable=protected-access
 
     while True:
         # Robot does nothing

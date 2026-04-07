@@ -361,7 +361,7 @@ class MaraBaseAdapter(BaseEnv):
         return self._current_observation.copy()
 
     def step(self, action: PredAction) -> PredState:
-        """Step the mara env directly, avoiding a full _reset_state."""
+        """Step the mara env directly, avoiding a full _set_state."""
         from mara_robosim.structs import Action as MaraAction
 
         mara_obs = self._mara_env.step(MaraAction(action.arr))
@@ -375,7 +375,7 @@ class MaraBaseAdapter(BaseEnv):
         # Reset PyBullet from the feature vectors, then get a proper
         # PyBulletState observation before stepping.
         # pylint: disable=protected-access
-        self._mara_env._reset_state(mara_state)
+        self._mara_env._set_state(mara_state)
         self._mara_env._current_observation = (
             self._mara_env.get_observation())
         # pylint: enable=protected-access

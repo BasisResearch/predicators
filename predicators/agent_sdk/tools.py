@@ -166,7 +166,7 @@ def _render_pybullet_image(
         from PIL import Image as PILImage
 
         if state is not None:
-            ctx.env._reset_state(state)  # pylint: disable=protected-access
+            ctx.env._set_state(state)  # pylint: disable=protected-access
 
         video = ctx.env.render()
         if not video:
@@ -1767,7 +1767,7 @@ def create_mcp_tools(ctx: ToolContext,
         render_state = ctx.visualized_state or (ctx.current_task.init
                                                 if ctx.current_task else None)
         if render_state is not None:
-            ctx.env._reset_state(render_state)  # pylint: disable=protected-access
+            ctx.env._set_state(render_state)  # pylint: disable=protected-access
 
         physics_id = ctx.env._physics_client_id  # pylint: disable=protected-access
         annotations = args.get("annotations", [])

@@ -315,14 +315,6 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     def get_name(cls) -> str:
         return "pybullet_coffee"
 
-    def _create_task_specific_objects(self, state: State) -> None:
-        """Remove/rebuild cups, liquids, and cords so each new task can have
-        different cups and states."""
-        self._remake_jug_liquid(state)
-        self._remake_cup_liquids(state)
-        self._remake_cups(state)
-        self._remake_cord()
-
     def _remake_cups(self, state: State) -> None:
         """Re-load cup URDFs with appropriate scaling and color for each new
         cup."""
@@ -403,14 +395,17 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                 self._physics_client_id)
             self._plug.id = self._cord_ids[-1]
 
-    def _reset_custom_env_state(self, state: State) -> None:
-        """Handles extra coffee-specific reset steps: spawning cups from
-        scratch, adding liquid visuals, adjusting jug fill color, toggling the
-        machine button, etc.
-
-        The base `_reset_state` has already done the standard
-        position/orientation resets for objects in `_get_all_objects()`.
+    def _set_domain_specific_state(self, state: State) -> None:
+        """Coffee-specific state setup: rebuild task-specific objects
+        (cups, liquids, cords), then set visual state (button color,
+        liquid fills, etc.).
         """
+        # Rebuild objects that vary per task
+        self._remake_jug_liquid(state)
+        self._remake_cup_liquids(state)
+        self._remake_cups(state)
+        self._remake_cord()
+
         # Machine button color
         #    Check if the machine is on and the jug is in place:
         if self._MachineOn_holds(state, [self._machine]) and \
@@ -439,7 +434,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
                             rgbaColor=plate_color,
                             physicsClientId=self._physics_client_id)
 
-    def _extract_feature(self, obj: Object, feature: str) -> float:
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
         if obj.type == self._jug_type:
             if feature == "is_filled":
@@ -1275,7 +1270,7 @@ if __name__ == "__main__":
         env = PyBulletCoffeeEnv(use_gui=True)
         rng = np.random.default_rng(CFG.seed)
         task = env._make_tasks(1, rng)[0]  # type: ignore[attr-defined]  # pylint: disable=no-member
-        env._reset_state(task.init)
+        env._set_state(task.init)
 
         while True:
             # Robot does nothing

@@ -9,8 +9,9 @@ import pybullet as p
 
 from predicators import utils
 from predicators.envs.blocks import BlocksEnv
-from predicators.envs.pybullet_env import PyBulletEnv, create_pybullet_block
+from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
+from predicators.pybullet_helpers.objects import create_pybullet_block
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, Object, State
@@ -93,11 +94,8 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
         for blk, blk_id in zip(self._blocks, self._block_ids):
             blk.id = blk_id
 
-    def _create_task_specific_objects(self, state: State) -> None:
-        """No additional environment assets needed per-task."""
-
-    def _reset_custom_env_state(self, state: State) -> None:
-        """After the parent `_reset_state()` has reset the robot, set the block
+    def _set_domain_specific_state(self, state: State) -> None:
+        """After the parent `_set_state()` has reset the robot, set the block
         positions/colors and handle constraints for any 'held' block."""
         block_objs = state.get_objects(self._block_type)
         self._block_id_to_block.clear()
@@ -141,7 +139,7 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
                 self._default_orn,
                 physicsClientId=self._physics_client_id)
 
-    def _extract_feature(self, obj: Object, feature: str) -> float:
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Called by the parent class when constructing the `PyBulletState`.
 
         We read off the relevant block or robot features from PyBullet.
@@ -233,6 +231,16 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
         qx, qy, qz, qw = self.get_robot_ee_home_orn()
         return np.array([rx, ry, rz, qx, qy, qz, qw, f], dtype=np.float32)
 
+    def _get_robot_state_dict(self) -> Dict[str, float]:
+        rx, ry, rz, _, _, _, _, rf = self._pybullet_robot.get_state()
+        fingers = self._fingers_joint_to_state(self._pybullet_robot, rf)
+        return {
+            "pose_x": rx,
+            "pose_y": ry,
+            "pose_z": rz,
+            "fingers": fingers,
+        }
+
     def _get_object_ids_for_held_check(self) -> List[int]:
         """Return the IDs of blocks for which we might be checking 'held'
         contact."""
@@ -272,7 +280,7 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
         """Manually create a fixed constraint for a block that is marked 'held'
         in the State.
 
-        Called from _reset_custom_env_state().
+        Called from _set_domain_specific_state().
         """
         # Find block's pybullet ID
         block_id = None

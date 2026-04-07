@@ -543,7 +543,7 @@ class PhaseSkill:
             new_state_data, simulator_state=pb_state.simulator_state)
 
         # 3. Reset simulator to current state
-        sim._reset_state(remapped_state)  # pylint: disable=protected-access
+        sim._set_state(remapped_state)  # pylint: disable=protected-access
 
         # 4. Collect collision body IDs (exclude held objects and
         #    non-physical types) and find the held object.

@@ -12,7 +12,7 @@ import pybullet as p
 
 from predicators.envs.pybullet_domino.components.base_component import \
     DominoEnvComponent
-from predicators.envs.pybullet_env import create_pybullet_block
+from predicators.pybullet_helpers.objects import create_pybullet_block
 from predicators.structs import Object, State, Type
 
 

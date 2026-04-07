@@ -15,9 +15,10 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.envs.pybullet_env import PyBulletEnv, create_pybullet_block
+from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object
+from predicators.pybullet_helpers.objects import create_object, \
+    create_pybullet_block
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
@@ -217,7 +218,7 @@ class PyBulletBarrierEnv(PyBulletEnv):
         """Return IDs of objects that can be held (none in this env)."""
         return []
 
-    def _extract_feature(self, obj: Object, feature: str) -> float:
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
         if obj.type == self._switch_type and feature == "is_on":
             return float(self._is_switch_on(obj))
@@ -229,10 +230,7 @@ class PyBulletBarrierEnv(PyBulletEnv):
             return current_z - obj.base_z
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
-    def _create_task_specific_objects(self, state: State) -> None:
-        del state  # Unused
-
-    def _reset_custom_env_state(self, state: State) -> None:
+    def _set_domain_specific_state(self, state: State) -> None:
         """Reset environment state from a State object."""
         # Set switch states and positions
         for switch in self._switches:
@@ -474,7 +472,7 @@ if __name__ == "__main__":
     CFG.num_train_tasks = 1
     env = PyBulletBarrierEnv(use_gui=True)
     task = env._generate_train_tasks()[0]  # pylint: disable=protected-access
-    env._reset_state(task.init)  # pylint: disable=protected-access
+    env._set_state(task.init)  # pylint: disable=protected-access
 
     print("PyBullet Barrier Environment Test")
     print("Barriers should animate when switches are toggled.")

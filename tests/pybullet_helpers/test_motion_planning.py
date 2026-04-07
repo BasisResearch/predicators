@@ -6,12 +6,12 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.envs.pybullet_env import create_pybullet_block
 from predicators.pybullet_helpers.camera import create_gui_connection
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.link import get_link_state
 from predicators.pybullet_helpers.motion_planning import run_motion_planning
+from predicators.pybullet_helpers.objects import create_pybullet_block
 from predicators.pybullet_helpers.robots import \
     create_single_arm_pybullet_robot
 

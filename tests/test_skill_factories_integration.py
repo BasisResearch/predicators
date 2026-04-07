@@ -78,7 +78,7 @@ class _ExposedEnvMixin:
                                              simulator_state=joint_positions)
         self._current_observation = state_with_sim
         self._current_task = None
-        self._reset_state(state_with_sim)  # type: ignore[attr-defined]
+        self._set_state(state_with_sim)  # type: ignore[attr-defined]
 
     def get_state(self) -> Any:
         """Get state."""

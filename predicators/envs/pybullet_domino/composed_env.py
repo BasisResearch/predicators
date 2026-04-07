@@ -277,10 +277,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             ids.extend(comp.get_object_ids_for_held_check())
         return ids
 
-    def _create_task_specific_objects(self, state: State) -> None:
-        """Create any task-specific objects (not used in current impl)."""
-
-    def _extract_feature(self, obj: Object, feature: str) -> float:
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Extract state feature for an object."""
         # Try each component
         for comp in self._components:
@@ -290,7 +287,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
 
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
-    def _reset_custom_env_state(self, state: State) -> None:
+    def _set_domain_specific_state(self, state: State) -> None:
         """Reset environment to match the given state."""
         # Update ball component's state reference for is_hit feature
         if self._ball_component is not None:
@@ -699,7 +696,7 @@ if __name__ == "__main__":
         print(f"{'=' * 60}")
 
         # Reset to initial state
-        env._reset_state(task.init)  # pylint: disable=protected-access
+        env._set_state(task.init)  # pylint: disable=protected-access
 
         print("\nGoal atoms:")
         for atom in task.goal:

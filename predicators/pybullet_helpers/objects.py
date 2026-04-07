@@ -157,3 +157,108 @@ def sample_collision_free_2d_positions(
         else:
             # We successfully placed all shapes
             return positions
+
+
+def create_pybullet_block(
+    color: Tuple[float, float, float, float],
+    half_extents: Tuple[float, float, float],
+    mass: float,
+    friction: float,
+    position: Pose3D = (0.0, 0.0, 0.0),
+    orientation: Quaternion = (0.0, 0.0, 0.0, 1.0),
+    physics_client_id: int = 0,
+    add_top_triangle: bool = False,
+) -> int:
+    """Create a box-shaped PyBullet body and return its ID."""
+    collision_id = p.createCollisionShape(p.GEOM_BOX,
+                                          halfExtents=half_extents,
+                                          physicsClientId=physics_client_id)
+    visual_id = p.createVisualShape(p.GEOM_BOX,
+                                    halfExtents=half_extents,
+                                    rgbaColor=color,
+                                    physicsClientId=physics_client_id)
+    block_id = p.createMultiBody(baseMass=mass,
+                                 baseCollisionShapeIndex=collision_id,
+                                 baseVisualShapeIndex=visual_id,
+                                 basePosition=position,
+                                 baseOrientation=orientation,
+                                 physicsClientId=physics_client_id)
+    p.changeDynamics(block_id,
+                     linkIndex=-1,
+                     lateralFriction=friction,
+                     spinningFriction=friction,
+                     rollingFriction=friction,
+                     physicsClientId=physics_client_id)
+
+    if add_top_triangle:
+        triangle_size = min(half_extents[0], half_extents[1])
+        triangle_vertices = [
+            [triangle_size, 0, 0],
+            [-triangle_size, triangle_size, 0],
+            [-triangle_size, -triangle_size, 0],
+        ]
+        triangle_visual_id = p.createVisualShape(
+            p.GEOM_MESH,
+            vertices=triangle_vertices,
+            indices=[0, 1, 2],
+            rgbaColor=[1, 1, 0, 1],
+            physicsClientId=physics_client_id)
+
+        p.removeBody(block_id, physicsClientId=physics_client_id)
+
+        block_id = p.createMultiBody(
+            baseMass=mass,
+            baseCollisionShapeIndex=collision_id,
+            baseVisualShapeIndex=visual_id,
+            basePosition=position,
+            baseOrientation=orientation,
+            linkMasses=[0],
+            linkCollisionShapeIndices=[-1],
+            linkVisualShapeIndices=[triangle_visual_id],
+            linkPositions=[[0, 0, half_extents[2] + 0.001]],
+            linkOrientations=[[0, 0, 0, 1]],
+            linkInertialFramePositions=[[0, 0, 0]],
+            linkInertialFrameOrientations=[[0, 0, 0, 1]],
+            linkParentIndices=[0],
+            linkJointTypes=[p.JOINT_FIXED],
+            linkJointAxis=[[0, 0, 1]],
+            physicsClientId=physics_client_id)
+
+        p.changeDynamics(block_id,
+                         linkIndex=-1,
+                         lateralFriction=friction,
+                         spinningFriction=friction,
+                         physicsClientId=physics_client_id)
+
+    return block_id
+
+
+def create_pybullet_sphere(
+    color: Tuple[float, float, float, float],
+    radius: float,
+    mass: float,
+    friction: float,
+    position: Pose3D = (0.0, 0.0, 0.0),
+    orientation: Quaternion = (0.0, 0.0, 0.0, 1.0),
+    physics_client_id: int = 0,
+) -> int:
+    """Create a sphere-shaped PyBullet body and return its ID."""
+    collision_id = p.createCollisionShape(p.GEOM_SPHERE,
+                                          radius=radius,
+                                          physicsClientId=physics_client_id)
+    visual_id = p.createVisualShape(p.GEOM_SPHERE,
+                                    radius=radius,
+                                    rgbaColor=color,
+                                    physicsClientId=physics_client_id)
+    sphere_id = p.createMultiBody(baseMass=mass,
+                                  baseCollisionShapeIndex=collision_id,
+                                  baseVisualShapeIndex=visual_id,
+                                  basePosition=position,
+                                  baseOrientation=orientation,
+                                  physicsClientId=physics_client_id)
+    p.changeDynamics(sphere_id,
+                     linkIndex=-1,
+                     lateralFriction=friction,
+                     spinningFriction=friction,
+                     physicsClientId=physics_client_id)
+    return sphere_id

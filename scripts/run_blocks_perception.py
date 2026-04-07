@@ -98,9 +98,9 @@ from numpy.typing import NDArray
 
 from predicators import utils
 from predicators.envs.pybullet_blocks import PyBulletBlocksEnv
-from predicators.envs.pybullet_env import create_pybullet_block
 from predicators.pybullet_helpers.camera import create_gui_connection
 from predicators.pybullet_helpers.geometry import Pose3D
+from predicators.pybullet_helpers.objects import create_pybullet_block
 from predicators.pybullet_helpers.robots import \
     create_single_arm_pybullet_robot
 from predicators.settings import CFG

@@ -9,9 +9,10 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.envs.pybullet_env import PyBulletEnv, create_pybullet_block
+from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, update_object
+from predicators.pybullet_helpers.objects import create_object, \
+    create_pybullet_block, update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, DerivedPredicate, EnvironmentTask, \
@@ -211,6 +212,10 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # Keep track of the spilled water block (None if no spill yet)
         self._spilled_water_id: Optional[int] = None
+
+        # When True, step() skips process dynamics (water filling, heating,
+        # happiness) so that a learned simulator can provide them instead.
+        self._skip_process_dynamics: bool = False
 
         super().__init__(use_gui)
 
@@ -491,11 +496,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         jug_ids = [j.id for j in self._jugs if j.id is not None]
         return jug_ids
 
-    def _create_task_specific_objects(self, state: State) -> None:
-        """If you wanted additional objects depending on a given state, add
-        them here."""
-
-    def _extract_feature(self, obj: Object, feature: str) -> float:
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Map from environment object + feature name -> a float feature in the
         State."""
         # Faucet
@@ -558,8 +559,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         # Otherwise, rely on defaults (like the base PyBulletEnv) for x,y,z,...
         raise ValueError(f"Unknown feature {feature} for object {obj}.")
 
-    def _reset_custom_env_state(self, state: State) -> None:
-        """Called in _reset_state to do any environment-specific resetting.
+    def _set_domain_specific_state(self, state: State) -> None:
+        """Called in _set_state to do any environment-specific resetting.
 
         This environment only supports resetting the state at the
         beginning, because the state dict doesn't include all features
@@ -654,23 +655,24 @@ class PyBulletBoilEnv(PyBulletEnv):
         # First let the base environment perform the usual PyBullet step
         next_state = super().step(action, render_obs=False)
 
-        # 1) Handle faucet filling/spillage
-        self._handle_faucet_logic(next_state)
+        if not self._skip_process_dynamics:
+            # 1) Handle faucet filling/spillage
+            self._handle_faucet_logic(next_state)
 
-        # 2) Handle burner heating
-        self._handle_heating_logic(next_state)
+            # 2) Handle burner heating
+            self._handle_heating_logic(next_state)
 
-        # 3) Update jug colors based on their 'heat'
-        self._update_jug_colors(next_state)
+            # 3) Update jug colors based on their 'heat'
+            self._update_jug_colors(next_state)
 
-        # 4) Update burner colors based on their on/off state
-        self._update_burner_colors(next_state)
+            # 4) Update burner colors based on their on/off state
+            self._update_burner_colors(next_state)
 
-        # 5) Update the human's happiness level
-        self._update_human_happiness(next_state)
+            # 5) Update the human's happiness level
+            self._update_human_happiness(next_state)
 
-        # 6) Update prev_on states for next step
-        self._update_prev_on_states(next_state)
+            # 6) Update prev_on states for next step
+            self._update_prev_on_states(next_state)
 
         # Re-read final state
         final_state = self.get_observation(render=render_obs)
@@ -1445,7 +1447,7 @@ if __name__ == "__main__":
              burner1, faucet)
 
         for task in tasks:
-            env._reset_state(task.init)
+            env._set_state(task.init)
             for _ in range(20000):
                 action = Action(
                     np.array(env._pybullet_robot.initial_joint_positions))

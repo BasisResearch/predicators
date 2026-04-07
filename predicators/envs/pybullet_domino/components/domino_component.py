@@ -18,9 +18,9 @@ import pybullet as p
 from predicators import utils
 from predicators.envs.pybullet_domino.components.base_component import \
     DominoEnvComponent
-from predicators.envs.pybullet_env import create_pybullet_block
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, update_object
+from predicators.pybullet_helpers.objects import create_object, \
+    create_pybullet_block, update_object
 from predicators.settings import CFG
 from predicators.structs import Object, Predicate, State, Type
 

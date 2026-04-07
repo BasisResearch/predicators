@@ -88,7 +88,7 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
 
         # ---------------------------------------------------------------
         # Helper: find the switch object associated with a faucet/burner.
-        # The env sets obj.switch_id in _reset_state.
+        # The env sets obj.switch_id in _set_state.
         # ---------------------------------------------------------------
         def _get_switch_pose(
             state: State,

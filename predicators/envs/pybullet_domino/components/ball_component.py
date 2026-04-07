@@ -14,9 +14,8 @@ import pybullet as p
 
 from predicators.envs.pybullet_domino.components.base_component import \
     DominoEnvComponent
-from predicators.envs.pybullet_env import create_pybullet_block, \
-    create_pybullet_sphere
-from predicators.pybullet_helpers.objects import update_object
+from predicators.pybullet_helpers.objects import create_pybullet_block, \
+    create_pybullet_sphere, update_object
 from predicators.settings import CFG
 from predicators.structs import Object, Predicate, State, Type
 

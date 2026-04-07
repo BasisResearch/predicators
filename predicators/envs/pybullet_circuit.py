@@ -297,7 +297,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
         """Return IDs of wires (assuming the robot can pick them up)."""
         return [self._wire1.id, self._wire2.id]
 
-    def _extract_feature(self, obj: Object, feature: str) -> float:
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
         if obj.type == self._light_type and feature == "is_on":
             return int(self._is_bulb_on(obj.id))
@@ -305,10 +305,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
             return int(self._is_switch_on())
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
-    def _create_task_specific_objects(self, state: State) -> None:
-        pass
-
-    def _reset_custom_env_state(self, state: State) -> None:
+    def _set_domain_specific_state(self, state: State) -> None:
 
         is_light_on = state.get(self._light, "is_on")
         if is_light_on:
@@ -775,7 +772,7 @@ if __name__ == "__main__":
         CFG.num_train_tasks = 1
         env = PyBulletCircuitEnv(use_gui=True)
         task = env._generate_train_tasks()[0]
-        env._reset_state(task.init)
+        env._set_state(task.init)
 
         while True:
             action = Action(

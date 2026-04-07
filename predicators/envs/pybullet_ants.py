@@ -5,9 +5,9 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
-from predicators.envs.pybullet_env import PyBulletEnv, create_pybullet_block
+from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.objects import create_object, \
-    sample_collision_free_2d_positions, update_object
+    create_pybullet_block, sample_collision_free_2d_positions, update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
@@ -215,10 +215,7 @@ class PyBulletAntsEnv(PyBulletEnv):
         # If we support robot picking up food blocks, return those IDs.
         return [f.id for f in self._blocks]
 
-    def _create_task_specific_objects(self, state: State) -> None:
-        pass
-
-    def _extract_feature(self, obj: Object, feature: str) -> float:
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
         if obj.type == self._food_type:
             if feature == "attractive":
@@ -229,7 +226,7 @@ class PyBulletAntsEnv(PyBulletEnv):
 
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
-    def _reset_custom_env_state(self, state: State) -> None:
+    def _set_domain_specific_state(self, state: State) -> None:
 
         if CFG.ants_ants_attracted_to_points:
             self._ant_to_xy = {}  # type: ignore[no-redef]
@@ -533,7 +530,7 @@ if __name__ == "__main__":
     env = PyBulletAntsEnv(use_gui=True)
     rng = np.random.default_rng(CFG.seed)
     task = env._make_tasks(1, rng)[0]  # pylint: disable=protected-access
-    env._reset_state(task.init)  # pylint: disable=protected-access
+    env._set_state(task.init)  # pylint: disable=protected-access
 
     while True:
         # Robot does nothing

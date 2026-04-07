@@ -14,9 +14,10 @@ import pybullet as p
 
 from predicators import utils
 from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
-from predicators.envs.pybullet_env import PyBulletEnv, create_pybullet_block
+from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, update_object
+from predicators.pybullet_helpers.objects import create_object, \
+    create_pybullet_block, update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
@@ -265,10 +266,7 @@ class PyBulletGrowEnv(PyBulletEnv):
         jug_ids = [jug.id for jug in self._jugs if jug.id is not None]
         return jug_ids
 
-    def _create_task_specific_objects(self, state: State) -> None:
-        """No extra objects to create beyond cups and jugs."""
-
-    def _extract_feature(self, obj: Object, feature: str) -> float:
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Extract features for creating the State object."""
         # For growth, we look up the height of the liquid body
         if obj.type == self._cup_type and feature == "growth":
@@ -285,8 +283,8 @@ class PyBulletGrowEnv(PyBulletEnv):
 
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
-    def _reset_custom_env_state(self, state: State) -> None:
-        """Called in _reset_state to handle any custom resetting."""
+    def _set_domain_specific_state(self, state: State) -> None:
+        """Called in _set_state to handle any custom resetting."""
         # Remove existing "liquid bodies"
         for liquid_id in self._cup_to_liquid_id.values():
             if liquid_id is not None:
@@ -724,7 +722,7 @@ if __name__ == "__main__":
     _rng = np.random.default_rng(CFG.seed)
     _task = env._get_tasks(  # pylint: disable=protected-access
         1, CFG.grow_num_cups_test, CFG.grow_num_jugs_test, _rng)[0]
-    env._reset_state(_task.init)  # pylint: disable=protected-access
+    env._set_state(_task.init)  # pylint: disable=protected-access
 
     while True:
         # Robot does nothing
