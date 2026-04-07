@@ -7,7 +7,20 @@ and rendering.
 For a comprehensive guide on creating new PyBullet environments, see:
     docs/pybullet_env_guide.md
 
-Quick reference - required methods to implement:
+Main public API:
+    reset(train_or_test, task_idx) — reset env to a task, returns observation
+    simulate(state, action) — forward-simulate without touching real env
+    step(action) — execute action, manage grasps, return observation
+    get_observation() — read PyBullet state, optionally attach images/masks
+
+State synchronization:
+    _set_state(state) — write a State into PyBullet (robot pose, object
+        poses, grasp constraints). Delegates domain-specific setup to
+        _set_domain_specific_state().
+    _get_state() — read PyBullet into a PyBulletState. Delegates
+        domain-specific features to _get_domain_specific_feature().
+
+Required overrides in subclasses:
     - get_name() -> str
     - initialize_pybullet(using_gui) -> (physics_id, robot, bodies_dict)
     - _store_pybullet_bodies(bodies_dict)
@@ -128,25 +141,7 @@ class PyBulletEnv(BaseEnv):
         # _set_state(), and render_segmented_obj() for iteration.
         self._objects: List[Object] = []
 
-    def get_extra_collision_ids(self) -> Sequence[int]:
-        """Return extra PyBullet body IDs to treat as collision obstacles.
-
-        Called by the motion planner (skill factories) when computing
-        collision-free paths.  Override in subclasses for bodies not
-        tracked as state Objects (e.g. liquid blocks in Grow).
-        """
-        return ()
-
-    def get_object_by_id(self, obj_id: int) -> Object:
-        """Look up an Object by its PyBullet body ID.
-
-        Used by agent tools and skill factories to map from a PyBullet
-        collision/contact result back to the predicators Object.
-        """
-        for obj in self._objects:
-            if obj.id == obj_id:
-                return obj
-        raise ValueError(f"Object with ID {obj_id} not found")
+    # ── Setup & Initialization ──────────────────────────────────
 
     @classmethod
     def initialize_pybullet(
@@ -243,124 +238,52 @@ class PyBulletEnv(BaseEnv):
                                                 physics_client_id, ee_home,
                                                 base_pose)
 
-    def _extract_robot_state(self, state: State) -> Array:
-        """State -> robot array: extract robot features for PyBullet.
-
-        Converts the robot's features in a State into the array format
-        expected by self._pybullet_robot.reset_state()
-        (same format as self._pybullet_robot.get_state()).
-
-        Called by _set_state() to position the robot.
-        """
-
-        # EE Position
-        def get_pos_feature(
-                state: State,
-                feature_name: str) -> float:  # type: ignore[no-untyped-def]
-            if feature_name in self._robot.type.feature_names:
-                return state.get(self._robot, feature_name)
-            if f"pose_{feature_name}" in self._robot.type.feature_names:
-                return state.get(self._robot, f"pose_{feature_name}")
-            raise ValueError(f"Cannot find robot pos '{feature_name}'")
-
-        rx = get_pos_feature(state, "x")
-        ry = get_pos_feature(state, "y")
-        rz = get_pos_feature(state, "z")
-
-        # EE Orientation
-        _, default_tilt, default_wrist = p.getEulerFromQuaternion(
-            self.get_robot_ee_home_orn())
-        if "tilt" in self._robot.type.feature_names:
-            tilt = state.get(self._robot, "tilt")
-        else:
-            tilt = default_tilt
-        if "wrist" in self._robot.type.feature_names:
-            wrist = state.get(self._robot, "wrist")
-        else:
-            wrist = default_wrist
-        qx, qy, qz, qw = p.getQuaternionFromEuler([0.0, tilt, wrist])
-
-        # Fingers
-        f = state.get(self._robot, "fingers")
-        f = self._fingers_state_to_joint(self._pybullet_robot, f)
-
-        return np.array([rx, ry, rz, qx, qy, qz, qw, f], dtype=np.float32)
-
-    @abc.abstractmethod
-    def _get_object_ids_for_held_check(self) -> List[int]:
-        """Return PyBullet body IDs of objects that can be grasped.
-
-        Called by _detect_held_object() (inside step()) to decide which
-        bodies to check for finger contact.  Subclasses return only the
-        IDs of graspable objects (e.g. blocks, not tables).
-        """
-        raise NotImplementedError("Override me!")
-
-    def _get_expected_finger_normals(self) -> Dict[int, Array]:
-        """Compute the expected inward-facing normal for each finger.
-
-        Called by _detect_held_object() to distinguish objects between
-        the fingers (valid grasp) from objects touching the outside.
-        """
-        _rx, _ry, _rz, qx, qy, qz, qw, _rf = self._pybullet_robot.get_state()
-
-        # Convert the quaternion to a rotation matrix
-        rotation_matrix = p.getMatrixFromQuaternion([qx, qy, qz, qw])
-        rotation_matrix = np.array(rotation_matrix).reshape(3, 3)
-
-        # Define the initial normal vectors for the fingers
-        if CFG.pybullet_robot == "panda":
-            # gripper rotated 90deg so parallel to x-axis
-            normal = np.array([1., 0., 0.], dtype=np.float32)
-        elif CFG.pybullet_robot in {"fetch", "mobile_fetch"}:
-            # gripper parallel to y-axis
-            normal = np.array([0., 1., 0.], dtype=np.float32)
-        else:  # pragma: no cover
-            # Shouldn't happen unless we introduce a new robot.
-            raise ValueError(f"Unknown robot {CFG.pybullet_robot}")
-
-        # Transform the normal vectors using the rotation matrix
-        transformed_normal = rotation_matrix.dot(normal)
-        transformed_normal_neg = rotation_matrix.dot(-1 * normal)
-
-        return {
-            self._pybullet_robot.left_finger_id: transformed_normal,
-            self._pybullet_robot.right_finger_id: transformed_normal_neg,
-        }
-
     @classmethod
-    def _fingers_state_to_joint(cls, pybullet_robot: SingleArmPyBulletRobot,
-                                finger_state: float) -> float:
-        """Map finger value in a State (e.g. open_fingers=0.04) to the
-        corresponding PyBullet joint position.
+    def get_robot_ee_home_orn(cls) -> Quaternion:
+        """Return the default end-effector orientation for this env.
 
-        Called by _extract_robot_state() when writing State -> PyBullet.
+        Used by initialize_pybullet() to set the robot's home pose,
+        and by oracle options to compute motion-planning targets.
         """
-        # If open_fingers is undefined, use 1.0 as the default.
-        subs = {
-            cls.open_fingers: pybullet_robot.open_fingers,
-            cls.closed_fingers: pybullet_robot.closed_fingers,
-        }
-        match = min(subs, key=lambda k: abs(k - finger_state))
-        return subs[match]
+        robot_ee_orns = CFG.pybullet_robot_ee_orns[cls.get_name()]
+        return robot_ee_orns[CFG.pybullet_robot]
 
-    @classmethod
-    def _fingers_joint_to_state(cls, pybullet_robot: SingleArmPyBulletRobot,
-                                finger_joint: float) -> float:
-        """Inverse of _fingers_state_to_joint().
-
-        Called by _get_robot_state_dict() when reading PyBullet -> State.
-        """
-        subs = {
-            pybullet_robot.open_fingers: cls.open_fingers,
-            pybullet_robot.closed_fingers: cls.closed_fingers,
-        }
-        match = min(subs, key=lambda k: abs(k - finger_joint))
-        return subs[match]
+    # ── Public API & Properties ─────────────────────────────────
 
     @property
     def action_space(self) -> Box:
         return self._pybullet_robot.action_space
+
+    def get_extra_collision_ids(self) -> Sequence[int]:
+        """Return extra PyBullet body IDs to treat as collision obstacles.
+
+        Called by the motion planner (skill factories) when computing
+        collision-free paths.  Override in subclasses for bodies not
+        tracked as state Objects (e.g. liquid blocks in Grow).
+        """
+        return ()
+
+    def get_object_by_id(self, obj_id: int) -> Object:
+        """Look up an Object by its PyBullet body ID.
+
+        Used by agent tools and skill factories to map from a PyBullet
+        collision/contact result back to the predicators Object.
+        """
+        for obj in self._objects:
+            if obj.id == obj_id:
+                return obj
+        raise ValueError(f"Object with ID {obj_id} not found")
+
+    # ── Core Loop (Reset / Simulate / Step) ─────────────────────
+
+    def reset(self,
+              train_or_test: str,
+              task_idx: int,
+              render: bool = False) -> Observation:
+        state = super().reset(train_or_test, task_idx)
+        self._set_state(state)
+        observation = self.get_observation(render=render)
+        return observation
 
     def simulate(self, state: State, action: Action) -> State:
         """Apply an action to a state using the PyBullet simulator.
@@ -382,345 +305,6 @@ class PyBulletEnv(BaseEnv):
             not state.allclose(self._current_state):
             self._set_state(state)
         return self.step(action)
-
-    def render_state_plt(
-            self,
-            state: State,
-            task: EnvironmentTask,
-            action: Optional[Action] = None,
-            caption: Optional[str] = None) -> matplotlib.figure.Figure:
-        raise NotImplementedError("This env does not use Matplotlib")
-
-    def render_state(self,
-                     state: State,
-                     task: EnvironmentTask,
-                     action: Optional[Action] = None,
-                     caption: Optional[str] = None) -> Video:
-        raise NotImplementedError("A PyBullet environment cannot render "
-                                  "arbitrary states.")
-
-    def reset(self,
-              train_or_test: str,
-              task_idx: int,
-              render: bool = False) -> Observation:
-        state = super().reset(train_or_test, task_idx)
-        self._set_state(state)
-        observation = self.get_observation(render=render)
-        return observation
-
-    def _set_state(self, state: State) -> None:
-        """State -> PyBullet: set the simulator to match a State.
-
-        Converts the agent-facing State representation (feature dicts
-        keyed by Object) into the corresponding PyBullet scene (joint
-        positions, body poses, grasp constraints, etc.).
-
-        Call sites:
-        - reset() / _add_pybullet_state_to_tasks(): initialization
-        - simulate(): option-model / bilevel-planning rollouts
-        - external callers (skill factories, agent tools, tests)
-        """
-        # Keep _current_observation in sync so that step() can read it
-        # (e.g. for finger-delta computation).
-        self._current_observation = state
-        self._objects = list(state.data)
-        # 1) Clear old constraint if we had a held object
-        if self._held_constraint_id is not None:
-            p.removeConstraint(self._held_constraint_id,
-                               physicsClientId=self._physics_client_id)
-            self._held_constraint_id = None
-        self._held_obj_to_base_link = None
-        self._held_obj_id = None
-
-        # 2) Reset robot pose
-        self._pybullet_robot.reset_state(self._extract_robot_state(state))
-
-        # 3) Reset all known objects (position, orientation, etc.)
-        for obj in self._objects:
-            if obj.type.name == "robot" or \
-                obj.type.name in self._VIRTUAL_OBJECT_TYPES:
-                continue
-            self._reset_single_object(obj, state)
-
-        # 4) Let the subclass do any domain-specific state setup
-        self._set_domain_specific_state(state)
-
-        # 5) Check for reconstruction mismatch.
-        #    Only raise for envs that override _get_state().
-        reconstructed = self._get_state()
-        if not reconstructed.allclose(state):
-            if type(self)._get_state is not PyBulletEnv._get_state:
-                raise ValueError("Could not reconstruct state.")
-            logging.warning("Could not reconstruct state exactly in reset.")
-
-    def _reset_single_object(self, obj: Object, state: State) -> None:
-        """Set a single physical object's pose and grasp constraint in
-        PyBullet to match the given State.
-
-        Called by _set_state() for every non-robot, non-virtual object.
-        """
-        # Skip objects without pybullet IDs (handled by subclass).
-        if obj.id is None:
-            return
-
-        # 1) Position/orientation if those features exist
-        features = obj.type.feature_names
-        cur_x, cur_y, cur_z = p.getBasePositionAndOrientation(
-            obj.id, physicsClientId=self._physics_client_id)[0]
-        px = state.get(obj, "x") if "x" in obj.type.feature_names else cur_x
-        py = state.get(obj, "y") if "y" in obj.type.feature_names else cur_y
-        pz = state.get(obj, "z") if "z" in obj.type.feature_names else cur_z
-
-        if "rot" in features:
-            angle = state.get(obj, "rot")
-            # Convert from 2D angle to a 3D quaternion (assuming rotation around
-            # z)
-            orn = p.getQuaternionFromEuler([0.0, 0.0, angle])
-        elif "yaw" in features:
-            angle = state.get(obj, "yaw")
-            orn = p.getQuaternionFromEuler([0.0, 0.0, angle])
-        else:
-            orn = self._default_orn  # e.g. (0,0,0,1)
-
-        # 2) Update the object’s position/orientation in PyBullet
-        update_object(obj.id, (px, py, pz),
-                      orn,
-                      physics_client_id=self._physics_client_id)
-
-        # 3) If there's an is_held feature, reattach constraints if needed
-        if "is_held" in features:
-            if state.get(obj, "is_held") > 0.5:
-                # attach constraint
-                self._held_obj_id = obj.id
-                self._create_grasp_constraint()
-                # _create_grasp_constraint already correctly computes
-                # and stores _held_obj_to_base_link.
-
-    @abc.abstractmethod
-    def _set_domain_specific_state(self, state: State) -> None:
-        """Set simulator state for features that the base class doesn't
-        handle — e.g. switch on/off, liquid levels, button colors,
-        balance beam positions.
-
-        Called at the end of _set_state(), after the base class has
-        already set robot joints, object poses, and grasp constraints.
-        Subclasses must override.
-        """
-        raise NotImplementedError("Override me!")
-
-    # Features handled by _get_object_state_dict via PyBullet queries.
-    _PYBULLET_FEATURES: ClassVar[frozenset] = frozenset({
-        "x", "y", "z", "rot", "yaw", "roll", "pitch", "is_held", "r", "g", "b"
-    })
-
-    def _get_state(self, _render_obs: bool = False) -> State:
-        """PyBullet -> State: read the simulator into a PyBulletState.
-
-        Queries PyBullet for the current scene (joint positions, body
-        poses, visual data, etc.) and packs the values into the
-        agent-facing State representation.
-
-        Handles common features (robot pose, object x/y/z/rot/is_held,
-        color); subclass-specific features are delegated to
-        `_get_domain_specific_feature`.
-
-        Called by get_observation() (after reset/step) and by
-        _set_state() to verify reconstruction fidelity.
-        """
-        state_dict: Dict[Object, Dict[str, float]] = {}
-        state_dict[self._robot] = self._get_robot_state_dict()
-        for obj in self._objects:
-            if obj.type.name == "robot":
-                continue
-            state_dict[obj] = self._get_object_state_dict(obj)
-
-        state = utils.create_state_from_dict(state_dict)
-        joint_positions = self._pybullet_robot.get_joints()
-        pyb_state = PyBulletState(state.data,
-                                  simulator_state={
-                                      "joint_positions": joint_positions,
-                                      "physics_client_id":
-                                      self._physics_client_id,
-                                      "robot_id":
-                                      self._pybullet_robot.robot_id,
-                                  })
-        return pyb_state
-
-    def _get_object_state_dict(self, obj: Object) -> Dict[str, float]:
-        """Build a feature dict for a single non-robot object.
-
-        Virtual objects (loc, angle, etc.) delegate all features to
-        _get_domain_specific_feature.  Physical objects get
-        pose/color/is_held from PyBullet; the rest are delegated.
-        """
-        obj_features = obj.type.feature_names
-        obj_dict: Dict[str, float] = {}
-
-        if obj.type.name in self._VIRTUAL_OBJECT_TYPES:
-            for feature in obj_features:
-                obj_dict[feature] = \
-                    self._get_domain_specific_feature(obj, feature)
-            return obj_dict
-
-        # Physical object — query PyBullet for pose
-        try:
-            (px, py, pz), orn = p.getBasePositionAndOrientation(
-                obj.id, physicsClientId=self._physics_client_id)
-        except Exception as e:
-            raise RuntimeError(f"Failed to get pose for object {obj.name} "
-                               f"(id={obj.id})") from e
-        if "x" in obj_features:
-            obj_dict["x"] = px
-        if "y" in obj_features:
-            obj_dict["y"] = py
-        if "z" in obj_features:
-            obj_dict["z"] = pz
-
-        if {"rot", "yaw", "roll", "pitch"} & set(obj_features):
-            roll, pitch, yaw = p.getEulerFromQuaternion(orn)
-            if "rot" in obj_features:
-                obj_dict["rot"] = yaw
-            if "yaw" in obj_features:
-                obj_dict["yaw"] = yaw
-            if "roll" in obj_features:
-                obj_dict["roll"] = roll
-            if "pitch" in obj_features:
-                obj_dict["pitch"] = pitch
-
-        if "is_held" in obj_features:
-            obj_dict["is_held"] = 1.0 if obj.id == self._held_obj_id else 0.0
-
-        if {"r", "g", "b"} & set(obj_features):
-            visual_data = p.getVisualShapeData(
-                obj.id, physicsClientId=self._physics_client_id)[0]
-            (r, g, b, _a) = visual_data[7]
-            obj_dict["r"] = r
-            obj_dict["g"] = g
-            obj_dict["b"] = b
-
-        # Remaining features delegated to subclass
-        for feature in obj_features:
-            if feature not in self._PYBULLET_FEATURES:
-                obj_dict[feature] = \
-                    self._get_domain_specific_feature(
-                        obj, feature)
-
-        return obj_dict
-
-    @abc.abstractmethod
-    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
-        """Return a single feature value for a non-robot object.
-
-        Called by _get_object_state_dict() for:
-        - All features of virtual objects (those in _VIRTUAL_OBJECT_TYPES)
-        - Non-standard features of physical objects (anything not in
-          _PYBULLET_FEATURES, e.g. is_on, growth, water_height)
-        """
-        raise NotImplementedError("Override me!")
-
-    def _get_robot_state_dict(self) -> Dict[str, float]:
-        """Build a feature dict for the robot from PyBullet state.
-
-        Called by _get_state() to populate the robot entry in the State.
-        Subclasses with non-standard robot features (e.g. cover's
-        normalized hand, blocks' pose_x/y/z) should override this.
-        """
-        rx, ry, rz, qx, qy, qz, qw, rf = self._pybullet_robot.get_state()
-        r_dict: Dict[str, float] = {"x": rx, "y": ry, "z": rz, "fingers": rf}
-        _, tilt, wrist = p.getEulerFromQuaternion([qx, qy, qz, qw])
-        r_features = self._robot.type.feature_names
-        if "tilt" in r_features:
-            r_dict["tilt"] = tilt
-        if "wrist" in r_features:
-            r_dict["wrist"] = wrist
-        return r_dict
-
-    def _get_camera_matrices(self) -> Tuple[Any, Any, int, int]:
-        """Return (view_matrix, proj_matrix, width, height) for rendering.
-
-        Called by render() and render_segmented_obj().
-        """
-        view_matrix = p.computeViewMatrixFromYawPitchRoll(
-            cameraTargetPosition=self._camera_target,
-            distance=self._camera_distance,
-            yaw=self._camera_yaw,
-            pitch=self._camera_pitch,
-            roll=0,
-            upAxisIndex=2,
-            physicsClientId=self._physics_client_id)
-        width = CFG.pybullet_camera_width
-        height = CFG.pybullet_camera_height
-        proj_matrix = p.computeProjectionMatrixFOV(
-            fov=self._camera_fov,
-            aspect=float(width / height),
-            nearVal=0.1,
-            farVal=100.0,
-            physicsClientId=self._physics_client_id)
-        return view_matrix, proj_matrix, width, height
-
-    def render(self,
-               action: Optional[Action] = None,
-               caption: Optional[str] = None) -> Video:  # pragma: no cover
-        # Skip test coverage because GUI is too expensive to use in unit tests
-        # and cannot be used in headless mode.
-        del action, caption  # unused
-        view_matrix, proj_matrix, width, height = self._get_camera_matrices()
-        (_, _, px, _,
-         _) = p.getCameraImage(width=width,
-                               height=height,
-                               viewMatrix=view_matrix,
-                               projectionMatrix=proj_matrix,
-                               renderer=p.ER_BULLET_HARDWARE_OPENGL,
-                               physicsClientId=self._physics_client_id)
-        rgb_array = np.array(px).reshape((height, width, 4))
-        rgb_array = rgb_array[:, :, :3]
-        return [rgb_array]
-
-    def render_segmented_obj(
-        self,
-        action: Optional[Action] = None,
-        caption: Optional[str] = None,
-    ) -> Tuple[Image.Image, Dict[Object, Mask]]:
-        """Render the scene and return per-object segmentation masks.
-
-        Called by get_observation(render=True) to attach RGB images and
-        masks to the observation (used for VLM predicate grounding).
-        """
-        del action, caption  # unused
-        view_matrix, proj_matrix, width, height = self._get_camera_matrices()
-        (_, _, rgbImg, _,
-         segImg) = p.getCameraImage(width=width,
-                                    height=height,
-                                    viewMatrix=view_matrix,
-                                    projectionMatrix=proj_matrix,
-                                    renderer=p.ER_BULLET_HARDWARE_OPENGL,
-                                    physicsClientId=self._physics_client_id)
-        original_image: np.ndarray = np.array(rgbImg, dtype=np.uint8).reshape(
-            (height, width, 4))
-        seg_image = np.array(segImg).reshape((height, width))
-        state_img = Image.fromarray(  # type: ignore[no-untyped-call]
-            original_image[:, :, :3])
-        mask_dict: Dict[Object, Mask] = {}
-        for obj in self._objects:
-            mask_dict[obj] = (seg_image == obj.id)
-        return state_img, mask_dict
-
-    def get_observation(self, render: bool = False) -> Observation:
-        """Get the current observation of this environment.
-
-        Reads the current state from pybullet, updates
-        _current_observation (the backing field), and returns a copy
-        optionally with rendered images.
-        """
-        state = self._get_state()
-        assert isinstance(state, PyBulletState)
-        self._current_observation = state
-        obs = state.copy()
-
-        if render:
-            obs.add_images_and_masks(*self.render_segmented_obj())
-
-        return obs
 
     def step(self, action: Action, render_obs: bool = False) -> Observation:
         """Execute one environment step with the given action.
@@ -798,6 +382,354 @@ class PyBulletEnv(BaseEnv):
                                                 render_obs)
 
         return observation
+
+    # ── State Write (State → PyBullet) ──────────────────────────
+
+    def _set_state(self, state: State) -> None:
+        """State -> PyBullet: set the simulator to match a State.
+
+        Converts the agent-facing State representation (feature dicts
+        keyed by Object) into the corresponding PyBullet scene (joint
+        positions, body poses, grasp constraints, etc.).
+
+        Call sites:
+        - reset() / _add_pybullet_state_to_tasks(): initialization
+        - simulate(): option-model / bilevel-planning rollouts
+        - external callers (skill factories, agent tools, tests)
+        """
+        # Keep _current_observation in sync so that step() can read it
+        # (e.g. for finger-delta computation).
+        self._current_observation = state
+        self._objects = list(state.data)
+        # 1) Clear old constraint if we had a held object
+        if self._held_constraint_id is not None:
+            p.removeConstraint(self._held_constraint_id,
+                               physicsClientId=self._physics_client_id)
+            self._held_constraint_id = None
+        self._held_obj_to_base_link = None
+        self._held_obj_id = None
+
+        # 2) Reset robot pose
+        self._pybullet_robot.reset_state(self._extract_robot_state(state))
+
+        # 3) Reset all known objects (position, orientation, etc.)
+        for obj in self._objects:
+            if obj.type.name == "robot" or \
+                obj.type.name in self._VIRTUAL_OBJECT_TYPES:
+                continue
+            self._reset_single_object(obj, state)
+
+        # 4) Let the subclass do any domain-specific state setup
+        self._set_domain_specific_state(state)
+
+        # 5) Check for reconstruction mismatch.
+        #    Only raise for envs that override _get_state().
+        reconstructed = self._get_state()
+        if not reconstructed.allclose(state):
+            if type(self)._get_state is not PyBulletEnv._get_state:
+                raise ValueError("Could not reconstruct state.")
+            logging.warning("Could not reconstruct state exactly in reset.")
+
+    def _reset_single_object(self, obj: Object, state: State) -> None:
+        """Set a single physical object's pose and grasp constraint in
+        PyBullet to match the given State.
+
+        Called by _set_state() for every non-robot, non-virtual object.
+        """
+        # Skip objects without pybullet IDs (handled by subclass).
+        if obj.id is None:
+            return
+
+        # 1) Position/orientation if those features exist
+        features = obj.type.feature_names
+        cur_x, cur_y, cur_z = p.getBasePositionAndOrientation(
+            obj.id, physicsClientId=self._physics_client_id)[0]
+        px = state.get(obj, "x") if "x" in obj.type.feature_names else cur_x
+        py = state.get(obj, "y") if "y" in obj.type.feature_names else cur_y
+        pz = state.get(obj, "z") if "z" in obj.type.feature_names else cur_z
+
+        if "rot" in features:
+            angle = state.get(obj, "rot")
+            # Convert from 2D angle to a 3D quaternion (assuming rotation around
+            # z)
+            orn = p.getQuaternionFromEuler([0.0, 0.0, angle])
+        elif "yaw" in features:
+            angle = state.get(obj, "yaw")
+            orn = p.getQuaternionFromEuler([0.0, 0.0, angle])
+        else:
+            orn = self._default_orn  # e.g. (0,0,0,1)
+
+        # 2) Update the object's position/orientation in PyBullet
+        update_object(obj.id, (px, py, pz),
+                      orn,
+                      physics_client_id=self._physics_client_id)
+
+        # 3) If there's an is_held feature, reattach constraints if needed
+        if "is_held" in features:
+            if state.get(obj, "is_held") > 0.5:
+                # attach constraint
+                self._held_obj_id = obj.id
+                self._create_grasp_constraint()
+                # _create_grasp_constraint already correctly computes
+                # and stores _held_obj_to_base_link.
+
+    @abc.abstractmethod
+    def _set_domain_specific_state(self, state: State) -> None:
+        """Set simulator state for features that the base class doesn't
+        handle — e.g. switch on/off, liquid levels, button colors,
+        balance beam positions.
+
+        Called at the end of _set_state(), after the base class has
+        already set robot joints, object poses, and grasp constraints.
+        Subclasses must override.
+        """
+        raise NotImplementedError("Override me!")
+
+    def _extract_robot_state(self, state: State) -> Array:
+        """State -> robot array: extract robot features for PyBullet.
+
+        Converts the robot's features in a State into the array format
+        expected by self._pybullet_robot.reset_state()
+        (same format as self._pybullet_robot.get_state()).
+
+        Called by _set_state() to position the robot.
+        """
+
+        # EE Position
+        def get_pos_feature(
+                state: State,
+                feature_name: str) -> float:  # type: ignore[no-untyped-def]
+            if feature_name in self._robot.type.feature_names:
+                return state.get(self._robot, feature_name)
+            if f"pose_{feature_name}" in self._robot.type.feature_names:
+                return state.get(self._robot, f"pose_{feature_name}")
+            raise ValueError(f"Cannot find robot pos '{feature_name}'")
+
+        rx = get_pos_feature(state, "x")
+        ry = get_pos_feature(state, "y")
+        rz = get_pos_feature(state, "z")
+
+        # EE Orientation
+        _, default_tilt, default_wrist = p.getEulerFromQuaternion(
+            self.get_robot_ee_home_orn())
+        if "tilt" in self._robot.type.feature_names:
+            tilt = state.get(self._robot, "tilt")
+        else:
+            tilt = default_tilt
+        if "wrist" in self._robot.type.feature_names:
+            wrist = state.get(self._robot, "wrist")
+        else:
+            wrist = default_wrist
+        qx, qy, qz, qw = p.getQuaternionFromEuler([0.0, tilt, wrist])
+
+        # Fingers
+        f = state.get(self._robot, "fingers")
+        f = self._fingers_state_to_joint(self._pybullet_robot, f)
+
+        return np.array([rx, ry, rz, qx, qy, qz, qw, f], dtype=np.float32)
+
+    @classmethod
+    def _fingers_state_to_joint(cls, pybullet_robot: SingleArmPyBulletRobot,
+                                finger_state: float) -> float:
+        """Map finger value in a State (e.g. open_fingers=0.04) to the
+        corresponding PyBullet joint position.
+
+        Called by _extract_robot_state() when writing State -> PyBullet.
+        """
+        # If open_fingers is undefined, use 1.0 as the default.
+        subs = {
+            cls.open_fingers: pybullet_robot.open_fingers,
+            cls.closed_fingers: pybullet_robot.closed_fingers,
+        }
+        match = min(subs, key=lambda k: abs(k - finger_state))
+        return subs[match]
+
+    # ── State Read (PyBullet → State) ───────────────────────────
+
+    # Features handled by _get_object_state_dict via PyBullet queries.
+    _PYBULLET_FEATURES: ClassVar[frozenset] = frozenset({
+        "x", "y", "z", "rot", "yaw", "roll", "pitch", "is_held", "r", "g", "b"
+    })
+
+    def _get_state(self, _render_obs: bool = False) -> State:
+        """PyBullet -> State: read the simulator into a PyBulletState.
+
+        Queries PyBullet for the current scene (joint positions, body
+        poses, visual data, etc.) and packs the values into the
+        agent-facing State representation.
+
+        Handles common features (robot pose, object x/y/z/rot/is_held,
+        color); subclass-specific features are delegated to
+        `_get_domain_specific_feature`.
+
+        Called by get_observation() (after reset/step) and by
+        _set_state() to verify reconstruction fidelity.
+        """
+        state_dict: Dict[Object, Dict[str, float]] = {}
+        state_dict[self._robot] = self._get_robot_state_dict()
+        for obj in self._objects:
+            if obj.type.name == "robot":
+                continue
+            state_dict[obj] = self._get_object_state_dict(obj)
+
+        state = utils.create_state_from_dict(state_dict)
+        joint_positions = self._pybullet_robot.get_joints()
+        pyb_state = PyBulletState(state.data,
+                                  simulator_state={
+                                      "joint_positions": joint_positions,
+                                      "physics_client_id":
+                                      self._physics_client_id,
+                                      "robot_id":
+                                      self._pybullet_robot.robot_id,
+                                  })
+        return pyb_state
+
+    def _get_robot_state_dict(self) -> Dict[str, float]:
+        """Build a feature dict for the robot from PyBullet state.
+
+        Called by _get_state() to populate the robot entry in the State.
+        Subclasses with non-standard robot features (e.g. cover's
+        normalized hand, blocks' pose_x/y/z) should override this.
+        """
+        rx, ry, rz, qx, qy, qz, qw, rf = self._pybullet_robot.get_state()
+        r_dict: Dict[str, float] = {"x": rx, "y": ry, "z": rz, "fingers": rf}
+        _, tilt, wrist = p.getEulerFromQuaternion([qx, qy, qz, qw])
+        r_features = self._robot.type.feature_names
+        if "tilt" in r_features:
+            r_dict["tilt"] = tilt
+        if "wrist" in r_features:
+            r_dict["wrist"] = wrist
+        return r_dict
+
+    def _get_object_state_dict(self, obj: Object) -> Dict[str, float]:
+        """Build a feature dict for a single non-robot object.
+
+        Virtual objects (loc, angle, etc.) delegate all features to
+        _get_domain_specific_feature.  Physical objects get
+        pose/color/is_held from PyBullet; the rest are delegated.
+        """
+        obj_features = obj.type.feature_names
+        obj_dict: Dict[str, float] = {}
+
+        if obj.type.name in self._VIRTUAL_OBJECT_TYPES:
+            for feature in obj_features:
+                obj_dict[feature] = \
+                    self._get_domain_specific_feature(obj, feature)
+            return obj_dict
+
+        # Physical object — query PyBullet for pose
+        try:
+            (px, py, pz), orn = p.getBasePositionAndOrientation(
+                obj.id, physicsClientId=self._physics_client_id)
+        except Exception as e:
+            raise RuntimeError(f"Failed to get pose for object {obj.name} "
+                               f"(id={obj.id})") from e
+        if "x" in obj_features:
+            obj_dict["x"] = px
+        if "y" in obj_features:
+            obj_dict["y"] = py
+        if "z" in obj_features:
+            obj_dict["z"] = pz
+
+        if {"rot", "yaw", "roll", "pitch"} & set(obj_features):
+            roll, pitch, yaw = p.getEulerFromQuaternion(orn)
+            if "rot" in obj_features:
+                obj_dict["rot"] = yaw
+            if "yaw" in obj_features:
+                obj_dict["yaw"] = yaw
+            if "roll" in obj_features:
+                obj_dict["roll"] = roll
+            if "pitch" in obj_features:
+                obj_dict["pitch"] = pitch
+
+        if "is_held" in obj_features:
+            obj_dict["is_held"] = 1.0 if obj.id == self._held_obj_id else 0.0
+
+        if {"r", "g", "b"} & set(obj_features):
+            visual_data = p.getVisualShapeData(
+                obj.id, physicsClientId=self._physics_client_id)[0]
+            (r, g, b, _a) = visual_data[7]
+            obj_dict["r"] = r
+            obj_dict["g"] = g
+            obj_dict["b"] = b
+
+        # Remaining features delegated to subclass
+        for feature in obj_features:
+            if feature not in self._PYBULLET_FEATURES:
+                obj_dict[feature] = \
+                    self._get_domain_specific_feature(
+                        obj, feature)
+
+        return obj_dict
+
+    @abc.abstractmethod
+    def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
+        """Return a single feature value for a non-robot object.
+
+        Called by _get_object_state_dict() for:
+        - All features of virtual objects (those in _VIRTUAL_OBJECT_TYPES)
+        - Non-standard features of physical objects (anything not in
+          _PYBULLET_FEATURES, e.g. is_on, growth, water_height)
+        """
+        raise NotImplementedError("Override me!")
+
+    @classmethod
+    def _fingers_joint_to_state(cls, pybullet_robot: SingleArmPyBulletRobot,
+                                finger_joint: float) -> float:
+        """Inverse of _fingers_state_to_joint().
+
+        Called by _get_robot_state_dict() when reading PyBullet -> State.
+        """
+        subs = {
+            pybullet_robot.open_fingers: cls.open_fingers,
+            pybullet_robot.closed_fingers: cls.closed_fingers,
+        }
+        match = min(subs, key=lambda k: abs(k - finger_joint))
+        return subs[match]
+
+    # ── Grasp Detection & Constraint Management ─────────────────
+
+    @abc.abstractmethod
+    def _get_object_ids_for_held_check(self) -> List[int]:
+        """Return PyBullet body IDs of objects that can be grasped.
+
+        Called by _detect_held_object() (inside step()) to decide which
+        bodies to check for finger contact.  Subclasses return only the
+        IDs of graspable objects (e.g. blocks, not tables).
+        """
+        raise NotImplementedError("Override me!")
+
+    def _get_expected_finger_normals(self) -> Dict[int, Array]:
+        """Compute the expected inward-facing normal for each finger.
+
+        Called by _detect_held_object() to distinguish objects between
+        the fingers (valid grasp) from objects touching the outside.
+        """
+        _rx, _ry, _rz, qx, qy, qz, qw, _rf = self._pybullet_robot.get_state()
+
+        # Convert the quaternion to a rotation matrix
+        rotation_matrix = p.getMatrixFromQuaternion([qx, qy, qz, qw])
+        rotation_matrix = np.array(rotation_matrix).reshape(3, 3)
+
+        # Define the initial normal vectors for the fingers
+        if CFG.pybullet_robot == "panda":
+            # gripper rotated 90deg so parallel to x-axis
+            normal = np.array([1., 0., 0.], dtype=np.float32)
+        elif CFG.pybullet_robot in {"fetch", "mobile_fetch"}:
+            # gripper parallel to y-axis
+            normal = np.array([0., 1., 0.], dtype=np.float32)
+        else:  # pragma: no cover
+            # Shouldn't happen unless we introduce a new robot.
+            raise ValueError(f"Unknown robot {CFG.pybullet_robot}")
+
+        # Transform the normal vectors using the rotation matrix
+        transformed_normal = rotation_matrix.dot(normal)
+        transformed_normal_neg = rotation_matrix.dot(-1 * normal)
+
+        return {
+            self._pybullet_robot.left_finger_id: transformed_normal,
+            self._pybullet_robot.right_finger_id: transformed_normal_neg,
+        }
 
     def _detect_held_object(self) -> Optional[int]:
         """Return the PyBullet body ID of the grasped object, or None.
@@ -916,6 +848,8 @@ class PyBulletEnv(BaseEnv):
         target = joint_positions[self._pybullet_robot.left_finger_joint_idx]
         return target - finger_position
 
+    # ── Action Helpers ──────────────────────────────────────────
+
     def _split_action(self, action: Action) -> Tuple[np.ndarray, np.ndarray]:
         """Split an action into (arm_joint_targets, base_delta).
 
@@ -955,6 +889,113 @@ class PyBulletEnv(BaseEnv):
         )
         robot.set_base_pose(new_pose)  # type: ignore[attr-defined]
 
+    # ── Rendering & Observation ─────────────────────────────────
+
+    def _get_camera_matrices(self) -> Tuple[Any, Any, int, int]:
+        """Return (view_matrix, proj_matrix, width, height) for rendering.
+
+        Called by render() and render_segmented_obj().
+        """
+        view_matrix = p.computeViewMatrixFromYawPitchRoll(
+            cameraTargetPosition=self._camera_target,
+            distance=self._camera_distance,
+            yaw=self._camera_yaw,
+            pitch=self._camera_pitch,
+            roll=0,
+            upAxisIndex=2,
+            physicsClientId=self._physics_client_id)
+        width = CFG.pybullet_camera_width
+        height = CFG.pybullet_camera_height
+        proj_matrix = p.computeProjectionMatrixFOV(
+            fov=self._camera_fov,
+            aspect=float(width / height),
+            nearVal=0.1,
+            farVal=100.0,
+            physicsClientId=self._physics_client_id)
+        return view_matrix, proj_matrix, width, height
+
+    def render(self,
+               action: Optional[Action] = None,
+               caption: Optional[str] = None) -> Video:  # pragma: no cover
+        # Skip test coverage because GUI is too expensive to use in unit tests
+        # and cannot be used in headless mode.
+        del action, caption  # unused
+        view_matrix, proj_matrix, width, height = self._get_camera_matrices()
+        (_, _, px, _,
+         _) = p.getCameraImage(width=width,
+                               height=height,
+                               viewMatrix=view_matrix,
+                               projectionMatrix=proj_matrix,
+                               renderer=p.ER_BULLET_HARDWARE_OPENGL,
+                               physicsClientId=self._physics_client_id)
+        rgb_array = np.array(px).reshape((height, width, 4))
+        rgb_array = rgb_array[:, :, :3]
+        return [rgb_array]
+
+    def render_segmented_obj(
+        self,
+        action: Optional[Action] = None,
+        caption: Optional[str] = None,
+    ) -> Tuple[Image.Image, Dict[Object, Mask]]:
+        """Render the scene and return per-object segmentation masks.
+
+        Called by get_observation(render=True) to attach RGB images and
+        masks to the observation (used for VLM predicate grounding).
+        """
+        del action, caption  # unused
+        view_matrix, proj_matrix, width, height = self._get_camera_matrices()
+        (_, _, rgbImg, _,
+         segImg) = p.getCameraImage(width=width,
+                                    height=height,
+                                    viewMatrix=view_matrix,
+                                    projectionMatrix=proj_matrix,
+                                    renderer=p.ER_BULLET_HARDWARE_OPENGL,
+                                    physicsClientId=self._physics_client_id)
+        original_image: np.ndarray = np.array(rgbImg, dtype=np.uint8).reshape(
+            (height, width, 4))
+        seg_image = np.array(segImg).reshape((height, width))
+        state_img = Image.fromarray(  # type: ignore[no-untyped-call]
+            original_image[:, :, :3])
+        mask_dict: Dict[Object, Mask] = {}
+        for obj in self._objects:
+            mask_dict[obj] = (seg_image == obj.id)
+        return state_img, mask_dict
+
+    def render_state_plt(
+            self,
+            state: State,
+            task: EnvironmentTask,
+            action: Optional[Action] = None,
+            caption: Optional[str] = None) -> matplotlib.figure.Figure:
+        raise NotImplementedError("This env does not use Matplotlib")
+
+    def render_state(self,
+                     state: State,
+                     task: EnvironmentTask,
+                     action: Optional[Action] = None,
+                     caption: Optional[str] = None) -> Video:
+        raise NotImplementedError("A PyBullet environment cannot render "
+                                  "arbitrary states.")
+
+    def get_observation(self, render: bool = False) -> Observation:
+        """Get the current observation of this environment.
+
+        Reads the current state from pybullet, updates
+        _current_observation (the backing field), and returns a copy
+        optionally with rendered images.
+        """
+        state = self._get_state()
+        assert isinstance(state, PyBulletState)
+        self._current_observation = state
+        obs = state.copy()
+
+        if render:
+            obs.add_images_and_masks(*self.render_segmented_obj())
+
+        return obs
+
+    # ── Task Utilities ──────────────────────────────────────────
+
     def _add_pybullet_state_to_tasks(
             self, tasks: List[EnvironmentTask]) -> List[EnvironmentTask]:
         """Convert plain-State tasks into PyBulletState tasks.
@@ -979,13 +1020,3 @@ class PyBulletEnv(BaseEnv):
                                             goal_nl=task.goal_nl)
             pybullet_tasks.append(pybullet_task)
         return pybullet_tasks
-
-    @classmethod
-    def get_robot_ee_home_orn(cls) -> Quaternion:
-        """Return the default end-effector orientation for this env.
-
-        Used by initialize_pybullet() to set the robot's home pose,
-        and by oracle options to compute motion-planning targets.
-        """
-        robot_ee_orns = CFG.pybullet_robot_ee_orns[cls.get_name()]
-        return robot_ee_orns[CFG.pybullet_robot]
