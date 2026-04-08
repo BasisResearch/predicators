@@ -10,7 +10,10 @@ For a comprehensive guide on creating new PyBullet environments, see:
 Main public API:
     reset(train_or_test, task_idx) — reset env to a task, returns observation
     simulate(state, action) — forward-simulate without touching real env
-    step(action) — execute action, manage grasps, return observation
+    step(action) — _step_base (robot control, physics, grasps)
+        → _domain_specific_step (water filling, heating, etc.)
+        → get_observation. Domain dynamics are skipped when
+        _skip_domain_specific_dynamics is True (kinematics-only mode).
     get_observation() — read PyBullet state, optionally attach images/masks
 
 State synchronization:
@@ -27,6 +30,7 @@ Required overrides in subclasses:
     - _get_object_ids_for_held_check() -> List[int]
     - _set_domain_specific_state(state)
     - _get_domain_specific_feature(obj, feature) -> float
+    - _domain_specific_step() (optional, default no-op)
 """
 
 import abc
