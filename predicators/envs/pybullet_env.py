@@ -13,7 +13,7 @@ Main public API:
     step(action) — _step_base (robot control, physics, grasps)
         → _domain_specific_step (water filling, heating, etc.)
         → get_observation. Domain dynamics are skipped when
-        _skip_domain_specific_dynamics is True (kinematics-only mode).
+        skip_process_dynamics=True is passed to the constructor.
     get_observation() — read PyBullet state, optionally attach images/masks
 
 State synchronization:
@@ -123,7 +123,9 @@ class PyBulletEnv(BaseEnv):
     _camera_fov: ClassVar[float] = 60
     _debug_text_position: ClassVar[Pose3D] = (1.65, 0.25, 0.75)
 
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self,
+                 use_gui: bool = False,
+                 skip_process_dynamics: bool = False) -> None:
         super().__init__(use_gui)
 
         # Forward declaration: subclasses must define _robot
@@ -138,7 +140,7 @@ class PyBulletEnv(BaseEnv):
 
         # When True, _domain_specific_step() is skipped in step().
         # Used by sim-learning to create kinematics-only envs.
-        self._skip_domain_specific_dynamics: bool = False
+        self._skip_domain_specific_dynamics: bool = skip_process_dynamics
 
         # Set up all the static PyBullet content.
         self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
@@ -388,7 +390,7 @@ class PyBulletEnv(BaseEnv):
 
         Override in subclasses to add post-kinematics effects
         (water filling, heating, balance beam physics, etc.).
-        Skipped when ``_skip_domain_specific_dynamics`` is True.
+        Skipped when ``skip_process_dynamics=True`` is passed to the constructor.
         """
 
     # ── State Write (State → PyBullet) ──────────────────────────

@@ -102,7 +102,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
 
     def __init__(self,
                  components: List[DominoEnvComponent],
-                 use_gui: bool = False) -> None:
+                 use_gui: bool = False,
+                 **kwargs: Any) -> None:
         """Initialize the composed domino environment.
 
         Args:
@@ -134,7 +135,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         # Wire up fan -> ball wind connection if both present
         # (done after PyBullet init in _store_pybullet_bodies)
 
-        super().__init__(use_gui)
+        super().__init__(use_gui, **kwargs)
 
     def _create_robot_predicates(self) -> None:
         """Create robot-specific predicates."""
@@ -404,7 +405,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
 class PyBulletDominoEnvNew(PyBulletDominoComposedEnv):
     """Backward-compatible domino environment class."""
 
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         workspace_bounds = {
             "x_lb": self.x_lb,
             "x_ub": self.x_ub,
@@ -426,7 +427,8 @@ class PyBulletDominoEnvNew(PyBulletDominoComposedEnv):
                                       num_pivots_max=max_pivots,
                                       workspace_bounds=workspace_bounds)
 
-        super().__init__(components=[domino_comp], use_gui=use_gui)
+        super().__init__(components=[domino_comp], use_gui=use_gui,
+                         **kwargs)
 
     @classmethod
     def get_name(cls) -> str:
@@ -436,7 +438,7 @@ class PyBulletDominoEnvNew(PyBulletDominoComposedEnv):
 class PyBulletDominoFanEnvNew(PyBulletDominoComposedEnv):
     """Backward-compatible domino + fan + ball environment class."""
 
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         workspace_bounds = {
             "x_lb": self.x_lb,
             "x_ub": self.x_ub,
@@ -466,7 +468,7 @@ class PyBulletDominoFanEnvNew(PyBulletDominoComposedEnv):
                                   table_height=self.table_height)
 
         super().__init__(components=[domino_comp, fan_comp, ball_comp],
-                         use_gui=use_gui)
+                         use_gui=use_gui, **kwargs)
 
     @classmethod
     def get_name(cls) -> str:
@@ -492,7 +494,7 @@ class PyBulletDominoFanEnvNew(PyBulletDominoComposedEnv):
 class PyBulletDominoFanRampEnv(PyBulletDominoComposedEnv):
     """Domino + fan + ball + ramp environment class."""
 
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         workspace_bounds = {
             "x_lb": self.x_lb,
             "x_ub": self.x_ub,
@@ -527,7 +529,7 @@ class PyBulletDominoFanRampEnv(PyBulletDominoComposedEnv):
 
         super().__init__(
             components=[domino_comp, fan_comp, ball_comp, ramp_comp],
-            use_gui=use_gui)
+            use_gui=use_gui, **kwargs)
 
     @classmethod
     def get_name(cls) -> str:
@@ -553,7 +555,7 @@ class PyBulletDominoFanRampEnv(PyBulletDominoComposedEnv):
 class PyBulletDominoFanRampStairsEnv(PyBulletDominoComposedEnv):
     """Domino + fan + ball + ramp + stairs environment class."""
 
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         workspace_bounds = {
             "x_lb": self.x_lb,
             "x_ub": self.x_ub,
@@ -595,7 +597,7 @@ class PyBulletDominoFanRampStairsEnv(PyBulletDominoComposedEnv):
         super().__init__(components=[
             domino_comp, fan_comp, ball_comp, ramp_comp, stairs_comp
         ],
-                         use_gui=use_gui)
+                         use_gui=use_gui, **kwargs)
 
         # Store reference to stairs component
         self._stairs_component = stairs_comp

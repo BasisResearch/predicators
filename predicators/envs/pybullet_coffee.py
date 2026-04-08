@@ -217,7 +217,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     _camera_pitch: ClassVar[float]
     _camera_target: ClassVar[Pose3D]
 
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs) -> None:
         if CFG.coffee_render_grid_world:
             # Camera parameters for grid world
             PyBulletCoffeeEnv._camera_distance = 3
@@ -238,7 +238,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
             # PyBulletCoffeeEnv._camera_pitch = 0  # even lower
             PyBulletCoffeeEnv._camera_target = (0.75, 1.25, 0.42)
 
-        super().__init__(use_gui)
+        super().__init__(use_gui, **kwargs)
 
         # Create the cups lazily because they can change size and color.
         # self._cup_id_to_cup: Dict[int, Object] = {}

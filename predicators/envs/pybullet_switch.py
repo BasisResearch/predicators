@@ -89,14 +89,14 @@ class PyBulletSwitchEnv(PyBulletEnv):
         sim_features=["id", "joint_id", "joint_scale", "color_count"])
     _light_type = Type("light", ["x", "y", "z", "rot", "is_on", "color_index"])
 
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs) -> None:
         # Objects
         self._robot = Object("robot", self._robot_type)
         self._power_switch = Object("power_switch", self._power_switch_type)
         self._color_switch = Object("color_switch", self._color_switch_type)
         self._light = Object("light", self._light_type)
 
-        super().__init__(use_gui)
+        super().__init__(use_gui, **kwargs)
 
         # Track previous switch states for edge detection
         self._prev_color_switch_on: bool = False

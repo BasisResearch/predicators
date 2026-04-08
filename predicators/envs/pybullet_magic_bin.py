@@ -86,7 +86,7 @@ class PyBulletMagicBinEnv(PyBulletEnv):
                         sim_features=["id", "joint_id", "joint_scale"])
     _bin_type = Type("bin", ["x", "y", "z", "rot"])
 
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs) -> None:
         # Objects
         self._robot = Object("robot", self._robot_type)
         self._blocks: List[Object] = [
@@ -96,7 +96,7 @@ class PyBulletMagicBinEnv(PyBulletEnv):
         self._switch = Object("switch", self._switch_type)
         self._bin = Object("bin", self._bin_type)
 
-        super().__init__(use_gui)
+        super().__init__(use_gui, **kwargs)
 
         # Predicates
         self._HandEmpty = Predicate("HandEmpty", [self._robot_type],

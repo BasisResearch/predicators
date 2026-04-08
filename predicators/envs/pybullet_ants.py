@@ -91,7 +91,8 @@ class PyBulletAntsEnv(PyBulletEnv):
 
     def __init__(self,
                  use_gui: bool = False,
-                 debug_layout: bool = True) -> None:
+                 debug_layout: bool = True,
+                 **kwargs) -> None:
         # Create single robot
         self._robot = Object("robot", self._robot_type)
 
@@ -113,7 +114,7 @@ class PyBulletAntsEnv(PyBulletEnv):
         if CFG.ants_ants_attracted_to_points:
             self._ants_to_xy: Dict[Object, Tuple[float, float]] = {}
 
-        super().__init__(use_gui)
+        super().__init__(use_gui, **kwargs)
         self._debug_layout = debug_layout
 
         # Define predicates if needed (some are placeholders)

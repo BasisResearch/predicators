@@ -174,7 +174,7 @@ class PyBulletBoilEnv(PyBulletEnv):
     _human_type = Type("human", ["happiness_level"],
                        sim_features=["id", "happiness_level"])
 
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs) -> None:
         # Create the robot as an Object
         self._robot = Object("robot", self._robot_type)
 
@@ -213,7 +213,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         # Keep track of the spilled water block (None if no spill yet)
         self._spilled_water_id: Optional[int] = None
 
-        super().__init__(use_gui)
+        super().__init__(use_gui, **kwargs)
 
         # Optionally, define some relevant predicates
         self._JugFilled = Predicate("JugFilled", [self._jug_type],

@@ -120,7 +120,7 @@ class PyBulletFloatEnv(PyBulletEnv):
     _block_type = Type("block", ["x", "y", "z", "in_water", "is_held"],
                        sim_features=["id", "is_light"])
 
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs) -> None:
         self._robot = Object("robot", self._robot_type)
         self._vessel = Object("vessel", self._vessel_type)
         self._block0 = Object("block0", self._block_type)
@@ -128,7 +128,7 @@ class PyBulletFloatEnv(PyBulletEnv):
         self._block2 = Object("block2", self._block_type)
         self._blocks = [self._block0, self._block1, self._block2]
 
-        super().__init__(use_gui)
+        super().__init__(use_gui, **kwargs)
 
         self._InWater = Predicate("InWater", [self._block_type],
                                   self._InWater_holds)

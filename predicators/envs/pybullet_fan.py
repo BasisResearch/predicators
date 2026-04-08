@@ -257,7 +257,7 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Environment initialization
     # -------------------------------------------------------------------------
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs) -> None:
         self._robot = Object("robot", self._robot_type)
 
         # Fans - create one fan object per side instead of multiple
@@ -300,7 +300,7 @@ class PyBulletFanEnv(PyBulletEnv):
         # Target
         self._target = Object("target", self._target_type)
 
-        super().__init__(use_gui=use_gui)
+        super().__init__(use_gui=use_gui, **kwargs)
 
         # Define new predicates if desired
         self._FanOn = Predicate(

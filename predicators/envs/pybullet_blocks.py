@@ -27,8 +27,8 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
     _table_pose: ClassVar[Pose3D] = (1.35, 0.75, table_height / 2)
     _table_orientation: ClassVar[Quaternion] = (0., 0., 0., 1.)
 
-    def __init__(self, use_gui: bool = False) -> None:
-        super().__init__(use_gui)
+    def __init__(self, use_gui: bool = False, **kwargs) -> None:
+        super().__init__(use_gui, **kwargs)
         # Store references
         self._table_id: int = -1
         # self._block_ids: List[int] = []

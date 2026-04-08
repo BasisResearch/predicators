@@ -110,7 +110,7 @@ class PyBulletGrowEnv(PyBulletEnv):
     _jug_type = Type("jug", ["x", "y", "z", "rot", "is_held", "r", "g", "b"],
                      sim_features=["id", "init_x", "init_y", "init_z"])
 
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs) -> None:
         # Create the single robot Object
         self._robot = Object("robot", self._robot_type)
 
@@ -133,7 +133,7 @@ class PyBulletGrowEnv(PyBulletEnv):
         # For tracking the "liquid bodies" we create for each cup
         self._cup_to_liquid_id: Dict[Object, Optional[int]] = {}
 
-        super().__init__(use_gui)
+        super().__init__(use_gui, **kwargs)
 
         # Define Predicates
         self._Grown = Predicate("Grown", [self._cup_type], self._Grown_holds)

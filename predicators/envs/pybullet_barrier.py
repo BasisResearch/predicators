@@ -91,7 +91,7 @@ class PyBulletBarrierEnv(PyBulletEnv):
     _barrier_type = Type("barrier", ["x", "y", "rot", "height"],
                          sim_features=["id", "base_z"])
 
-    def __init__(self, use_gui: bool = False) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs) -> None:
         # Objects
         self._robot = Object("robot", self._robot_type)
         self._switches: List[Object] = [
@@ -103,7 +103,7 @@ class PyBulletBarrierEnv(PyBulletEnv):
             for i in range(self.num_barriers)
         ]
 
-        super().__init__(use_gui)
+        super().__init__(use_gui, **kwargs)
 
         # Predicates
         self._SwitchOn = Predicate("SwitchOn", [self._switch_type],
