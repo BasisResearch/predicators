@@ -95,17 +95,13 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
             blk.id = blk_id
 
     def _set_domain_specific_state(self, state: State) -> None:
-        """After the parent `_set_state()` has reset the robot, set the block
-        positions/colors and handle constraints for any 'held' block."""
+        """Set block positions, grasp constraints, out-of-view placement,
+        ID mapping, and block colors."""
         block_objs = state.get_objects(self._block_type)
-        self._block_id_to_block.clear()
 
         # Place the relevant blocks
         for i, block_obj in enumerate(block_objs):
-            block_id = self._block_ids[i]  # re-use the i-th block ID
-            self._block_id_to_block[block_id] = block_obj
-
-            # Position/orientation from the state's block features
+            block_id = self._block_ids[i]
             bx = state.get(block_obj, "pose_x")
             by = state.get(block_obj, "pose_y")
             bz = state.get(block_obj, "pose_z")
@@ -114,19 +110,9 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
                 self._default_orn,
                 physicsClientId=self._physics_client_id)
 
-            # Update color
-            r = state.get(block_obj, "color_r")
-            g = state.get(block_obj, "color_g")
-            b = state.get(block_obj, "color_b")
-            p.changeVisualShape(block_id,
-                                linkIndex=-1,
-                                rgbaColor=(r, g, b, 1.0),
-                                physicsClientId=self._physics_client_id)
-
         # If there is a held block, create the constraint
         held_block = self._get_held_block(state)
         if held_block is not None:
-            # Force grasp the relevant block
             self._force_grasp_object(held_block)
 
         # Teleport any leftover blocks out of view
@@ -138,6 +124,19 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
                 block_id, [oov_x, oov_y, i * block_size],
                 self._default_orn,
                 physicsClientId=self._physics_client_id)
+
+        self._block_id_to_block.clear()
+
+        for i, block_obj in enumerate(block_objs):
+            block_id = self._block_ids[i]
+            self._block_id_to_block[block_id] = block_obj
+            r = state.get(block_obj, "color_r")
+            g = state.get(block_obj, "color_g")
+            b = state.get(block_obj, "color_b")
+            p.changeVisualShape(block_id,
+                                linkIndex=-1,
+                                rgbaColor=(r, g, b, 1.0),
+                                physicsClientId=self._physics_client_id)
 
     def _get_domain_specific_feature(self, obj: Object, feature: str) -> float:
         """Called by the parent class when constructing the `PyBulletState`.
@@ -202,17 +201,13 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
                          f"{feature}")
 
     def step(self, action: Action, render_obs: bool = False) -> State:
-
         self._prev_held_obj_id = self._held_obj_id
-        # Otherwise, proceed with normal PyBullet step
-        next_state = super().step(action, render_obs=render_obs)
+        return super().step(action, render_obs=render_obs)
 
+    def _domain_specific_step(self) -> None:
         if CFG.blocks_high_towers_are_unstable:
-            self._apply_force_to_high_towers(next_state)
-            next_state = self._get_state()
-            self._current_observation = next_state
-
-        return next_state
+            state = self._get_state()
+            self._apply_force_to_high_towers(state)
 
     def _extract_robot_state(self, state: State) -> np.ndarray:
         """As needed, parse from the robot's `pose_x`, `pose_y`, `pose_z`,

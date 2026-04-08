@@ -237,38 +237,31 @@ class PyBulletSwitchEnv(PyBulletEnv):
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
     def _set_domain_specific_state(self, state: State) -> None:
-        """Reset environment state from a State object."""
-        # Set power switch state
+        """Set switch positions, tracking vars, color count, and light visual."""
         power_on = state.get(self._power_switch, "is_on") > 0.5
         self._set_switch_state(self._power_switch, power_on)
 
-        # Set color switch state
         color_switch_on = state.get(self._color_switch, "is_on") > 0.5
         self._set_switch_state(self._color_switch, color_switch_on)
 
-        # Track previous color switch state for edge detection
         self._prev_color_switch_on = color_switch_on
 
-        # Initialize color_count from light's color_index
         color_index = int(state.get(self._light, "color_index"))
         self._color_switch.color_count = color_index
 
-        # Update light visual
         self._update_light_visual(power_on, color_index)
 
     def step(self, action: Action, render_obs: bool = False) -> State:
-        """Process a single action step."""
-        # Get current color_count from sim_feature
-        prev_color_count = self._color_switch.color_count
+        """Save pre-step color count before kinematics."""
+        self._pre_step_color_count = self._color_switch.color_count
+        return super().step(action, render_obs=render_obs)
 
-        # Execute the action
-        super().step(action, render_obs=render_obs)
-
+    def _domain_specific_step(self) -> None:
         # Detect color switch toggle (OFF -> ON transition)
         curr_color_switch_on = self._is_switch_on(self._color_switch)
         if not self._prev_color_switch_on and curr_color_switch_on:
             # Rising edge detected - increment color count
-            self._color_switch.color_count = prev_color_count + 1
+            self._color_switch.color_count = self._pre_step_color_count + 1
 
         self._prev_color_switch_on = curr_color_switch_on
 
@@ -281,11 +274,6 @@ class PyBulletSwitchEnv(PyBulletEnv):
 
         # Update light visual
         self._update_light_visual(power_on, color_index)
-
-        # Get updated state with correct light values
-        final_state = self._get_state()
-        self._current_observation = final_state
-        return final_state
 
     # -------------------------------------------------------------------------
     # Switch helpers

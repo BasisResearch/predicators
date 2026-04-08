@@ -213,10 +213,6 @@ class PyBulletBoilEnv(PyBulletEnv):
         # Keep track of the spilled water block (None if no spill yet)
         self._spilled_water_id: Optional[int] = None
 
-        # When True, step() skips process dynamics (water filling, heating,
-        # happiness) so that a learned simulator can provide them instead.
-        self._skip_process_dynamics: bool = False
-
         super().__init__(use_gui)
 
         # Optionally, define some relevant predicates
@@ -571,7 +567,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         for i, burner_obj in enumerate(burners):
             on_val = state.get(burner_obj, "is_on")
             burner_obj.switch_id = self._burner_switches[i].id
-            burner_obj.prev_on = 0.0  # Initialize prev_on to 0
+            burner_obj.prev_on = 0.0
             self._set_switch_on(self._burner_switches[i].id,
                                 bool(on_val > 0.5))
 
@@ -601,7 +597,7 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # Faucet on/off
         self._faucet.switch_id = self._faucet_switch.id
-        self._faucet.prev_on = 0.0  # Initialize prev_on to 0
+        self._faucet.prev_on = 0.0
         f_on = state.get(self._faucet, "is_on")
         self._set_switch_on(self._faucet_switch.id, bool(f_on > 0.5))
 
@@ -616,7 +612,6 @@ class PyBulletBoilEnv(PyBulletEnv):
         self._faucet._spilled_level = -self.water_fill_speed * 20
         spilled_level = max(0.0, self._faucet._spilled_level)
         # pylint: enable=protected-access
-        # If there's already some spillage in the state, recreate a block
         if spilled_level > 0.0:
             self._spilled_water_id = self._create_spilled_water_block(
                 spilled_level, state)
@@ -628,17 +623,14 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # Move irrelevant jugs and burners out of the way
         oov_x, oov_y = self._out_of_view_xy
-        jugs = state.get_objects(self._jug_type)
         for i in range(len(jugs), len(self._jugs)):
             update_object(self._jugs[i].id,
                           position=(oov_x, oov_y, 0.0),
                           physics_client_id=self._physics_client_id)
-        burners = state.get_objects(self._burner_type)
         for i in range(len(burners), len(self._burners)):
             update_object(self._burners[i].id,
                           position=(oov_x, oov_y, 0.0),
                           physics_client_id=self._physics_client_id)
-            # Also move the corresponding switch
             update_object(self._burner_switches[i].id,
                           position=(oov_x, oov_y, self.switch_height),
                           physics_client_id=self._physics_client_id)
@@ -649,35 +641,15 @@ class PyBulletBoilEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Step Logic
     # -------------------------------------------------------------------------
-    def step(self, action: Action, render_obs: bool = False) -> State:
-        """Execute a low-level action (robot controls), then handle water
-        filling/spillage and heating."""
-        # First let the base environment perform the usual PyBullet step
-        next_state = super().step(action, render_obs=False)
-
-        if not self._skip_process_dynamics:
-            # 1) Handle faucet filling/spillage
-            self._handle_faucet_logic(next_state)
-
-            # 2) Handle burner heating
-            self._handle_heating_logic(next_state)
-
-            # 3) Update jug colors based on their 'heat'
-            self._update_jug_colors(next_state)
-
-            # 4) Update burner colors based on their on/off state
-            self._update_burner_colors(next_state)
-
-            # 5) Update the human's happiness level
-            self._update_human_happiness(next_state)
-
-            # 6) Update prev_on states for next step
-            self._update_prev_on_states(next_state)
-
-        # Re-read final state
-        final_state = self.get_observation(render=render_obs)
-        self._current_observation = final_state
-        return final_state
+    def _domain_specific_step(self) -> None:
+        """Handle water filling/spillage, heating, and happiness."""
+        state = self._get_state()
+        self._handle_faucet_logic(state)
+        self._handle_heating_logic(state)
+        self._update_jug_colors(state)
+        self._update_burner_colors(state)
+        self._update_human_happiness(state)
+        self._update_prev_on_states(state)
 
     def _handle_faucet_logic(self, state: State) -> None:
         """If faucet is on, fill any jug that is properly aligned; otherwise,

@@ -265,12 +265,8 @@ class PyBulletMagicBinEnv(PyBulletEnv):
                     self._default_orn,
                     physicsClientId=self._physics_client_id)
 
-    def step(self, action: Action, render_obs: bool = False) -> State:
-        """Process a single action step."""
-        # Execute the action
-        super().step(action, render_obs=render_obs)
-
-        # Check magic bin logic: if switch is on and block is in bin, vanish it
+    def _domain_specific_step(self) -> None:
+        """If switch is on and block is in bin, vanish it."""
         if self._is_switch_on():
             bin_pos, _ = p.getBasePositionAndOrientation(
                 self._bin.id, physicsClientId=self._physics_client_id)
@@ -300,11 +296,6 @@ class PyBulletMagicBinEnv(PyBulletEnv):
                         block.id, [oov_x, oov_y, idx * self.block_size],
                         self._default_orn,
                         physicsClientId=self._physics_client_id)
-
-        # Get updated state
-        final_state = self._get_state()
-        self._current_observation = final_state
-        return final_state
 
     # -------------------------------------------------------------------------
     # Switch helpers

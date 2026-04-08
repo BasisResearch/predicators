@@ -872,18 +872,12 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Step
     # -------------------------------------------------------------------------
-    def step(  # pylint: disable=redefined-outer-name
-            self,
-            action: Action,
-            render_obs: bool = False) -> State:
-        """Execute a low-level action, then spin fans & blow the ball."""
-        super().step(action, render_obs=render_obs)
+    def _domain_specific_step(self) -> None:
+        """Spin fans & blow the ball."""
         self._simulate_fans()
-        final_state = self._get_state()
-        self._current_observation = final_state
+        state = self._get_state()
         # Draw a debug line at the ball's position
-        bx, by = final_state.get(self._ball,
-                                 "x"), final_state.get(self._ball, "y")
+        bx, by = state.get(self._ball, "x"), state.get(self._ball, "y")
         p.addUserDebugLine(
             [bx, by, self.table_height],
             [bx, by, self.table_height + self.debug_line_height],
@@ -891,7 +885,6 @@ class PyBulletFanEnv(PyBulletEnv):
             lifeTime=self.
             debug_line_lifetime,  # short lifetime so each step refreshes
             physicsClientId=self._physics_client_id)
-        return final_state
 
     # -------------------------------------------------------------------------
     # Fan Simulation

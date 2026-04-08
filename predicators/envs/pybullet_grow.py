@@ -284,43 +284,16 @@ class PyBulletGrowEnv(PyBulletEnv):
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
     def _set_domain_specific_state(self, state: State) -> None:
-        """Called in _set_state to handle any custom resetting."""
-        # Remove existing "liquid bodies"
-        for liquid_id in self._cup_to_liquid_id.values():
-            if liquid_id is not None:
-                p.removeBody(liquid_id,
-                             physicsClientId=self._physics_client_id)
-        self._cup_to_liquid_id.clear()
-
-        # Recreate the liquid bodies as needed
+        """Set out-of-view positioning, jug init positions, liquid bodies, and
+        cup/jug colors."""
         cups = state.get_objects(self._cup_type)
-        for cup in cups:
-            liquid_id = self._create_pybullet_liquid_for_cup(cup, state)
-            self._cup_to_liquid_id[cup] = liquid_id
-
-        # Also update the PyBullet color on each cup/jug to match the (r,g,b) in
-        # the state
-        for cup in cups:
-            if cup.id is not None:
-                r = state.get(cup, "r")
-                g = state.get(cup, "g")
-                b = state.get(cup, "b")
-                update_object(cup.id,
-                              color=(r, g, b, 1.0),
-                              physics_client_id=self._physics_client_id)
         jugs = state.get_objects(self._jug_type)
+
+        # Store jug initial positions
         for jug in jugs:
-            if jug.id is not None:
-                r = state.get(jug, "r")
-                g = state.get(jug, "g")
-                b = state.get(jug, "b")
-                update_object(jug.id,
-                              color=(r, g, b, 1.0),
-                              physics_client_id=self._physics_client_id)
-                # set the sim_feature position to the initial position
-                jug.init_x = state.get(jug, "x")
-                jug.init_y = state.get(jug, "y")
-                jug.init_z = state.get(jug, "z")
+            jug.init_x = state.get(jug, "x")
+            jug.init_y = state.get(jug, "y")
+            jug.init_z = state.get(jug, "z")
 
         oov_x, oov_y = self._out_of_view_xy
         for i in range(len(cups), len(self._cups)):
@@ -332,19 +305,43 @@ class PyBulletGrowEnv(PyBulletEnv):
                           position=(oov_x, oov_y, 0.0),
                           physics_client_id=self._physics_client_id)
 
+        # Remove existing liquid bodies
+        for liquid_id in self._cup_to_liquid_id.values():
+            if liquid_id is not None:
+                p.removeBody(liquid_id,
+                             physicsClientId=self._physics_client_id)
+        self._cup_to_liquid_id.clear()
+
+        # Recreate the liquid bodies as needed
+        for cup in cups:
+            liquid_id = self._create_pybullet_liquid_for_cup(cup, state)
+            self._cup_to_liquid_id[cup] = liquid_id
+
+        # Update colors
+        for cup in cups:
+            if cup.id is not None:
+                r = state.get(cup, "r")
+                g = state.get(cup, "g")
+                b = state.get(cup, "b")
+                update_object(cup.id,
+                              color=(r, g, b, 1.0),
+                              physics_client_id=self._physics_client_id)
+        for jug in jugs:
+            if jug.id is not None:
+                r = state.get(jug, "r")
+                g = state.get(jug, "g")
+                b = state.get(jug, "b")
+                update_object(jug.id,
+                              color=(r, g, b, 1.0),
+                              physics_client_id=self._physics_client_id)
+
     # -------------------------------------------------------------------------
     # Pouring logic
 
-    def step(self, action: Action, render_obs: bool = False) -> State:
-        """Let parent handle the robot stepping, then apply custom pouring
-        logic."""
-        next_state = super().step(action, render_obs=render_obs)
-
-        self._handle_pouring(next_state)
-
-        final_state = self._get_state()
-        self._current_observation = final_state.copy()
-        return final_state
+    def _domain_specific_step(self) -> None:
+        """Apply custom pouring logic."""
+        state = self._get_state()
+        self._handle_pouring(state)
 
     def _handle_pouring(self, state: State) -> None:
         if self._held_obj_id is None:

@@ -132,6 +132,10 @@ class PyBulletEnv(BaseEnv):
         self._held_obj_to_base_link: Optional[Any] = None
         self._held_obj_id: Optional[int] = None
 
+        # When True, _domain_specific_step() is skipped in step().
+        # Used by sim-learning to create kinematics-only envs.
+        self._skip_domain_specific_dynamics: bool = False
+
         # Set up all the static PyBullet content.
         self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
             self.initialize_pybullet(self.using_gui)
@@ -224,7 +228,10 @@ class PyBulletEnv(BaseEnv):
     @classmethod
     def _create_pybullet_robot(
             cls, physics_client_id: int) -> SingleArmPyBulletRobot:
-        """Instantiate the robot model.  Called by initialize_pybullet()."""
+        """Instantiate the robot model.
+
+        Called by initialize_pybullet().
+        """
         robot_ee_orn = cls.get_robot_ee_home_orn()
         ee_home = Pose((cls.robot_init_x, cls.robot_init_y, cls.robot_init_z),
                        robot_ee_orn)
@@ -242,8 +249,8 @@ class PyBulletEnv(BaseEnv):
     def get_robot_ee_home_orn(cls) -> Quaternion:
         """Return the default end-effector orientation for this env.
 
-        Used by initialize_pybullet() to set the robot's home pose,
-        and by oracle options to compute motion-planning targets.
+        Used by initialize_pybullet() to set the robot's home pose, and
+        by oracle options to compute motion-planning targets.
         """
         robot_ee_orns = CFG.pybullet_robot_ee_orns[cls.get_name()]
         return robot_ee_orns[CFG.pybullet_robot]
@@ -309,24 +316,20 @@ class PyBulletEnv(BaseEnv):
     def step(self, action: Action, render_obs: bool = False) -> Observation:
         """Execute one environment step with the given action.
 
-        This method handles:
-        1. Robot joint control by converting action to target positions
-        2. Management of held objects and grasping constraints
-        3. Physics simulation stepping
-        4. Object grasp detection and constraint creation/removal
-        5. `self._current_observation` update
-
-        Args:
-            action (Action): The action to execute, containing target joint
-            positions
-            render_obs (bool, optional): Whether to include RGB observation.
-                Defaults to False.
-
-        Returns:
-            Observation: Updated environment observation after executing the
-            action. May include an image if render_obs=True or
-            CFG.rgb_observation=True.
+        Flow: kinematics → domain-specific dynamics → observation.
+        Subclasses override ``_domain_specific_step`` (not this method)
+        to add post-kinematics dynamics (water filling, heating, etc.).
         """
+        self._step_base(action)
+        if not self._skip_domain_specific_dynamics:
+            self._domain_specific_step()
+        observation = self.get_observation(
+            render=CFG.rgb_observation or render_obs)
+        self._current_observation = observation
+        return observation
+
+    def _step_base(self, action: Action) -> None:
+        """Run robot control, physics stepping, and grasp management."""
         # Send the action to the robot.
         target_joint_positions, base_delta = self._split_action(action)
         if base_delta.size:
@@ -376,12 +379,13 @@ class PyBulletEnv(BaseEnv):
             self._held_constraint_id = None
             self._held_obj_id = None
 
-        # Depending on the observation mode, either return object-centric state
-        # or object_centric + rgb observation
-        observation = self.get_observation(render=CFG.rgb_observation or\
-                                                render_obs)
+    def _domain_specific_step(self) -> None:
+        """Apply domain-specific dynamics after kinematics.
 
-        return observation
+        Override in subclasses to add post-kinematics effects
+        (water filling, heating, balance beam physics, etc.).
+        Skipped when ``_skip_domain_specific_dynamics`` is True.
+        """
 
     # ── State Write (State → PyBullet) ──────────────────────────
 
@@ -431,8 +435,8 @@ class PyBulletEnv(BaseEnv):
             logging.warning("Could not reconstruct state exactly in reset.")
 
     def _reset_single_object(self, obj: Object, state: State) -> None:
-        """Set a single physical object's pose and grasp constraint in
-        PyBullet to match the given State.
+        """Set a single physical object's pose and grasp constraint in PyBullet
+        to match the given State.
 
         Called by _set_state() for every non-robot, non-virtual object.
         """
@@ -475,9 +479,9 @@ class PyBulletEnv(BaseEnv):
 
     @abc.abstractmethod
     def _set_domain_specific_state(self, state: State) -> None:
-        """Set simulator state for features that the base class doesn't
-        handle — e.g. switch on/off, liquid levels, button colors,
-        balance beam positions.
+        """Set simulator state for features that the base class doesn't handle
+        — e.g. switch on/off, liquid levels, button colors, balance beam
+        positions.
 
         Called at the end of _set_state(), after the base class has
         already set robot joints, object poses, and grasp constraints.
@@ -678,7 +682,8 @@ class PyBulletEnv(BaseEnv):
                                 finger_joint: float) -> float:
         """Inverse of _fingers_state_to_joint().
 
-        Called by _get_robot_state_dict() when reading PyBullet -> State.
+        Called by _get_robot_state_dict() when reading PyBullet ->
+        State.
         """
         subs = {
             pybullet_robot.open_fingers: cls.open_fingers,
@@ -737,8 +742,8 @@ class PyBulletEnv(BaseEnv):
         Called by step() when fingers are closing and no object is
         currently held.  Checks contact between each finger and every
         graspable body (from _get_object_ids_for_held_check()), using
-        contact-normal alignment to reject touches on the outside of
-        the gripper.  If multiple objects qualify, returns the closest.
+        contact-normal alignment to reject touches on the outside of the
+        gripper.  If multiple objects qualify, returns the closest.
         """
         expected_finger_normals = self._get_expected_finger_normals()
         closest_held_obj = None
@@ -782,11 +787,11 @@ class PyBulletEnv(BaseEnv):
         return closest_held_obj
 
     def _create_grasp_constraint(self) -> None:
-        """Create a fixed PyBullet constraint between the end-effector
-        and _held_obj_id so the object moves with the gripper.
+        """Create a fixed PyBullet constraint between the end-effector and
+        _held_obj_id so the object moves with the gripper.
 
-        Called by step() after _detect_held_object() finds a grasp,
-        and by _reset_single_object() when restoring a held state.
+        Called by step() after _detect_held_object() finds a grasp, and
+        by _reset_single_object() when restoring a held state.
         """
         assert self._held_obj_id is not None
         base_link_to_world = np.r_[p.invertTransform(
@@ -830,8 +835,8 @@ class PyBulletEnv(BaseEnv):
     def _get_finger_position(self, state: State) -> float:
         """Return the current left-finger joint position from state.
 
-        Called by _action_to_finger_delta() to compute the delta
-        between current and target finger positions.
+        Called by _action_to_finger_delta() to compute the delta between
+        current and target finger positions.
         """
         state = cast(utils.PyBulletState, state)
         finger_joint_idx = self._pybullet_robot.left_finger_joint_idx

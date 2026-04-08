@@ -253,9 +253,10 @@ class PyBulletFloatEnv(PyBulletEnv):
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
     def _set_domain_specific_state(self, state: State) -> None:
-
-        # Initialize water level
+        """Set water height and redraw water bodies, block colors, and
+        displacement tracking."""
         self._current_water_height = state.get(self._vessel, "water_height")
+
         # Clear old water
         for wid in self._water_ids.values():
             if wid is not None:
@@ -264,17 +265,9 @@ class PyBulletFloatEnv(PyBulletEnv):
 
         # Reset blocks
         for blk in self._blocks:
-            # Set block's color based on is_light
-            # update_object(blk.id,
-            #               color=PyBulletFloatEnv.block_color_light \
-            #                 if state.get(blk, "is_light") > 0.5
-            #                 else PyBulletFloatEnv.block_color_heavy,
-            #               physics_client_id=self._physics_client_id)
-            # Set block's color randomly
             update_object(blk.id,
                           color=self._train_rng.choice(self._obj_colors),
                           physics_client_id=self._physics_client_id)
-            # Re-initialize displacing to False
             self._block_is_displacing[blk] = False
 
         # Re-draw water
@@ -290,21 +283,13 @@ class PyBulletFloatEnv(PyBulletEnv):
                           color=[0.5, 0.5, 1, 0.5],
                           physics_client_id=self._physics_client_id)
 
-    def step(  # pylint: disable=redefined-outer-name
-            self,
-            action: Action,
-            render_obs: bool = False) -> State:
-        next_state = super().step(action, render_obs=render_obs)
-        # Check if blocks entering/exiting water changed its level
-        changed = self._update_water_level_if_needed(next_state)
+    def _domain_specific_step(self) -> None:
+        """Update water level and float light blocks."""
+        state = self._get_state()
+        changed = self._update_water_level_if_needed(state)
         if changed:
             self._create_or_update_water(force_redraw=True)
-        # Keep light blocks floating on water surface
-        self._float_light_blocks(next_state)
-
-        final_state = self._get_state()
-        self._current_observation = final_state
-        return final_state
+        self._float_light_blocks(state)
 
     def _float_light_blocks(self, state: State) -> None:
         """Force each light, unheld block in a container compartment to float

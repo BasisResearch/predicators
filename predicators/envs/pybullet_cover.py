@@ -370,19 +370,15 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
     # Step logic (unchanged except for removing direct calls to _get_state())
     # -----------------------------------------------------------------------
     def step(self, action: Action, render_obs: bool = False) -> State:
-        """Override to handle the Cover domain's 'hand region' constraint
-        before calling the parent's step()."""
-        # Check if the pick/place position satisfies the hand constraints
+        """Check hand region constraint before kinematics."""
         if not self._satisfies_hand_contraints(action):
-            # Constraint violated => no-op
             return self._current_state.copy()
+        return super().step(action, render_obs=render_obs)
 
-        # Otherwise, proceed with normal PyBullet step
-        next_state = super().step(action, render_obs=render_obs)
-
+    def _domain_specific_step(self) -> None:
         if CFG.cover_blocks_change_color_when_cover:
-            self._change_block_color_when_cover(next_state)
-        return next_state
+            state = self._get_state()
+            self._change_block_color_when_cover(state)
 
     def _change_block_color_when_cover(self, state: State) -> None:
         """If a block is now covering a target, change it's color to

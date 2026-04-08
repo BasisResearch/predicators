@@ -288,31 +288,22 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
     def _set_domain_specific_state(self, state: State) -> None:
-        """Reset environment to match the given state."""
-        # Update ball component's state reference for is_hit feature
-        if self._ball_component is not None:
-            self._ball_component.set_current_state(state)
-
-        # Reset each component
+        """Reset each component and update ball state reference."""
         for comp in self._components:
             comp.reset_state(state)
 
-    def step(self, action: Action, render_obs: bool = False) -> State:
-        """Execute action and run component physics updates."""
-        super().step(action, render_obs=render_obs)
+        if self._ball_component is not None:
+            self._ball_component.set_current_state(state)
 
-        # Run component step functions (e.g., fan wind simulation)
+    def _domain_specific_step(self) -> None:
+        """Run component physics updates (e.g., fan wind simulation)."""
         for comp in self._components:
             comp.step()
 
-        final_state = self._get_state()
-        self._current_observation = final_state
-
         # Update ball component's state reference
         if self._ball_component is not None:
-            self._ball_component.set_current_state(final_state)
-
-        return final_state
+            state = self._get_state()
+            self._ball_component.set_current_state(state)
 
     # =========================================================================
     # PREDICATE HOLD FUNCTIONS

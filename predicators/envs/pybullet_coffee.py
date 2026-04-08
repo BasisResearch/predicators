@@ -396,18 +396,13 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
             self._plug.id = self._cord_ids[-1]
 
     def _set_domain_specific_state(self, state: State) -> None:
-        """Coffee-specific state setup: rebuild task-specific objects
-        (cups, liquids, cords), then set visual state (button color,
-        liquid fills, etc.).
-        """
-        # Rebuild objects that vary per task
+        """Reset liquid visuals, cup geometry, cord, and button colors."""
         self._remake_jug_liquid(state)
         self._remake_cup_liquids(state)
         self._remake_cups(state)
         self._remake_cord()
 
         # Machine button color
-        #    Check if the machine is on and the jug is in place:
         if self._MachineOn_holds(state, [self._machine]) and \
            self._JugInMachine_holds(state, [self._jug, self._machine]):
             button_color = self.button_color_on
@@ -475,21 +470,20 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
     def step(self, action: Action, render_obs: bool = False) -> State:
-        # Save current end-effector roll-pitch-yaw for later comparison
-        current_ee_rpy = self._pybullet_robot.forward_kinematics(
+        # Save pre-kinematics state for _domain_specific_step.
+        self._pre_step_ee_rpy = self._pybullet_robot.forward_kinematics(
             self._pybullet_robot.get_joints()).rpy
-        state = super().step(action, render_obs=render_obs)
-        # self._update_jug_liquid_position()
+        self._last_action = action
+        return super().step(action, render_obs=render_obs)
+
+    def _domain_specific_step(self) -> None:
+        state = self._get_state()
         if CFG.coffee_machine_has_plug:
             self._check_and_apply_plug_in_constraint(state)
         self._handle_machine_on_and_jug_filling(state)
         self._handle_pouring(state)
-        self._handle_twisting(state, current_ee_rpy, action)
-        # Refresh current observation
-        self._current_observation = self._get_state(_render_obs=False)
-        state = self._current_observation.copy()
-
-        return state
+        self._handle_twisting(state, self._pre_step_ee_rpy,
+                              self._last_action)
 
     def _update_jug_liquid_position(self) -> None:
         """If the jug is filled, move its liquid to match the jug's pose.

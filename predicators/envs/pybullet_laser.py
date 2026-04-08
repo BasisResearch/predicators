@@ -300,16 +300,9 @@ class PyBulletLaserEnv(PyBulletEnv):
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
     def _set_domain_specific_state(self, state: State) -> None:
+        """Set target/mirror positioning, station switch, and remove old laser
+        beams."""
         oov_x, oov_y = self._out_of_view_xy
-
-        lasers_copy = _laser_ids.copy()
-        for beam_id, creation_time, client_id in lasers_copy:
-            p.removeBody(beam_id, physicsClientId=client_id)
-            # Remove the beam from the list
-            _laser_ids.remove((beam_id, creation_time, client_id))
-            logging.debug(f"[reset] removing beam_id: {beam_id} "
-                          f"in sim{client_id}, remaining beams "
-                          f"{[bid for bid, _, _ in _laser_ids]}")
 
         # Move targets out of view if needed
         target_objs = state.get_objects(self._target_type)
@@ -341,27 +334,29 @@ class PyBulletLaserEnv(PyBulletEnv):
         switch_on = state.get(self._station, "is_on") > 0.5
         self._set_station_powered_on(switch_on)
 
+        lasers_copy = _laser_ids.copy()
+        for beam_id, creation_time, client_id in lasers_copy:
+            p.removeBody(beam_id, physicsClientId=client_id)
+            _laser_ids.remove((beam_id, creation_time, client_id))
+            logging.debug(f"[reset] removing beam_id: {beam_id} "
+                          f"in sim{client_id}, remaining beams "
+                          f"{[bid for bid, _, _ in _laser_ids]}")
+
     # -------------------------------------------------------------------------
     # Step
     # -------------------------------------------------------------------------
-    def step(self, action: Action, render_obs: bool = False) -> State:
-        next_state = super().step(action, render_obs=render_obs)
-
-        # After any motion, we simulate the laser
-        self._simulate_laser(next_state)
+    def _domain_specific_step(self) -> None:
+        state = self._get_state()
+        self._simulate_laser(state)
 
         lasers_copy = _laser_ids.copy()
         for beam_id, creation_time, client_id in lasers_copy:
             if time.time() - creation_time > self._laser_life_time:
                 p.removeBody(beam_id, physicsClientId=client_id)
-                # Remove the beam from the list
                 _laser_ids.remove((beam_id, creation_time, client_id))
                 logging.debug(f"[step] removing beam_id: {beam_id} "
                               f"in sim{client_id}, remaining beams "
                               f"{[bid for bid, _, _ in _laser_ids]}")
-        final_state = self._get_state()
-        self._current_observation = final_state
-        return final_state
 
     # -------------------------------------------------------------------------
     # Laser Simulation
