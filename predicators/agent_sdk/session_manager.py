@@ -1,4 +1,5 @@
 """Agent session lifecycle management for Claude SDK."""
+import asyncio
 import datetime
 import json
 import logging
@@ -211,3 +212,20 @@ class AgentSessionManager:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(info, f, indent=2)
         logging.info("Saved session info to %s", path)
+
+
+def run_query_sync(session: Any, message: str) -> List[Dict[str, Any]]:
+    """Synchronously run ``session.query(message)``.
+
+    Reuses a running event loop via nest_asyncio when one is active,
+    otherwise falls back to ``asyncio.run``.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import nest_asyncio  # type: ignore[import-untyped,import-not-found]  # pylint: disable=import-outside-toplevel
+            nest_asyncio.apply()
+            return loop.run_until_complete(session.query(message))
+        return loop.run_until_complete(session.query(message))
+    except RuntimeError:
+        return asyncio.run(session.query(message))
