@@ -23,7 +23,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.approaches import ApproachFailure
-from predicators.approaches.agent_session_mixin import AgentSessionMixin
+from predicators.agent_sdk.agent_session_mixin import AgentSessionMixin
 from predicators.approaches.base_approach import BaseApproach
 from predicators.explorers import create_explorer
 from predicators.explorers.base_explorer import BaseExplorer

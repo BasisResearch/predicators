@@ -16,7 +16,7 @@ from predicators import utils
 from predicators.agent_sdk.proposal_parser import ProposalBundle, \
     build_exec_context, exec_code_safely
 from predicators.approaches.agent_planner_approach import AgentPlannerApproach
-from predicators.approaches.agent_session_mixin import AgentSessionMixin
+from predicators.agent_sdk.agent_session_mixin import AgentSessionMixin
 from predicators.approaches.pp_online_process_learning_approach import \
     OnlineProcessLearningAndPlanningApproach
 from predicators.approaches.pp_predicate_invention_approach import \
