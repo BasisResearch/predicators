@@ -1,9 +1,11 @@
 # PyBullet Environments
 
-**MARA RoboSim** — a robotic world-model learning and causal-discovery
-suite. The envs ship as part of the [predicators](../../README.md)
-repository and are exposed through a standard
-[Gymnasium](https://gymnasium.farama.org/) API.
+**RoboDisco** (Robot Model Discovery Benchmark) — a robotic
+world-model learning and causal-discovery suite. The envs ship as part
+of the [predicators](../../README.md) repository and are exposed
+through a standard [Gymnasium](https://gymnasium.farama.org/) API.
+
+🌐 **Project page:** <https://yichao-liang.github.io/robodisco-site/>
 
 Each environment features a Fetch or Panda robot interacting with objects
 on a tabletop. The same envs are used by predicators' planning research
@@ -17,22 +19,22 @@ From the repo root:
 pip install -e .
 ```
 
-This installs the agent solvers and the MARA RoboSim envs together.
-The package is slightly heavy because it bundles both — a lighter
+This installs the agent solvers and the RoboDisco envs together. The
+package is slightly heavy because it bundles both — a lighter
 envs-only install is future work.
 
 ## Quick Start (Gymnasium API)
 
 ```python
 from predicators import utils
-from predicators.envs import gymnasium_wrapper as mara_robosim
+from predicators.envs import gymnasium_wrapper as robodisco
 
 # Apply parser defaults to predicators' global CFG (only needed when
 # consuming the envs as a library rather than via main.py).
 utils.reset_config({"num_train_tasks": 1, "num_test_tasks": 1})
 
-mara_robosim.register_all_environments()
-env = mara_robosim.make("mara/Blocks-v0", render_mode="rgb_array")
+robodisco.register_all_environments()
+env = robodisco.make("robodisco/Blocks-v0", render_mode="rgb_array")
 
 obs, info = env.reset()
 for _ in range(50):
@@ -62,7 +64,7 @@ The Gymnasium wrapper exposes:
 
 - **Notebook:** [`notebooks/getting_started.ipynb`](../../notebooks/getting_started.ipynb)
   — interactive walkthrough with rendering.
-- **Smoke script:** [`scripts/mara_robosim_getting_started.py`](../../scripts/mara_robosim_getting_started.py)
+- **Smoke script:** [`scripts/robodisco_getting_started.py`](../../scripts/robodisco_getting_started.py)
   — non-interactive smoke test that mirrors the notebook and resets every
   env to verify installation health.
 
@@ -75,35 +77,35 @@ Status legend:
 
 | Environment | Preview | Description | Tasks | Skills | Demos |
 |---|---|---|:---:|:---:|:---:|
-| `mara/Ants-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_ants.gif) | Place food items near ants on a tabletop | ❌ | ✅ | ❌ |
-| `mara/Balance-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_balance.gif) | Balance blocks on a beam by pressing buttons | ✅ | ✅ | ❌ |
-| `mara/Barrier-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_barrier.gif) | Move blocks past barriers to target locations | ❌ | ❌ | ❌ |
-| `mara/Blocks-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_blocks.gif) | Stack and arrange blocks on a table | ✅ | ✅ | ✅ |
-| `mara/Boil-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_boil.gif) | Fill and boil water using a jug, faucet, and burner | ✅ | ✅ | ✅ |
-| `mara/Circuit-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_circuit.gif) | Assemble circuit components (batteries, wires, switch) | ❌ | ✅ | ✅ |
-| `mara/Coffee-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_coffee.gif) | Operate a coffee machine: plug in, brew, pour, serve | ✅ | ✅ | ❌ |
-| `mara/Cover-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_cover.gif) | Place blocks to cover target regions | ✅ | ✅ | ✅ |
-| `mara/Domino-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_domino.gif) | Set up domino chains with fans, balls, and ramps | ✅ | ✅ | ✅ |
-| `mara/Fan-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_fan.gif) | Use fans to blow lightweight objects to goals | ✅ | ✅ | ✅ |
-| `mara/Float-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_float.gif) | Float light blocks by filling a container with water | ❌ | ✅ | ✅ |
-| `mara/Grow-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_grow.gif) | Grow plants by watering them | ✅ | ✅ | ✅ |
-| `mara/Laser-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_laser.gif) | Align lasers and mirrors to hit targets | ❌ | ✅ | ❌ |
-| `mara/MagicBin-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_magic_bin.gif) | Sort objects into magic bins that transform them | ❌ | ❌ | ❌ |
-| `mara/Switch-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_switch.gif) | Toggle switches to open doors and move objects | ❌ | ❌ | ❌ |
+| `robodisco/Ants-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_ants.gif) | Place food items near ants on a tabletop | ❌ | ✅ | ❌ |
+| `robodisco/Balance-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_balance.gif) | Balance blocks on a beam by pressing buttons | ✅ | ✅ | ❌ |
+| `robodisco/Barrier-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_barrier.gif) | Move blocks past barriers to target locations | ❌ | ❌ | ❌ |
+| `robodisco/Blocks-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_blocks.gif) | Stack and arrange blocks on a table | ✅ | ✅ | ✅ |
+| `robodisco/Boil-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_boil.gif) | Fill and boil water using a jug, faucet, and burner | ✅ | ✅ | ✅ |
+| `robodisco/Circuit-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_circuit.gif) | Assemble circuit components (batteries, wires, switch) | ❌ | ✅ | ✅ |
+| `robodisco/Coffee-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_coffee.gif) | Operate a coffee machine: plug in, brew, pour, serve | ✅ | ✅ | ❌ |
+| `robodisco/Cover-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_cover.gif) | Place blocks to cover target regions | ✅ | ✅ | ✅ |
+| `robodisco/Domino-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_domino.gif) | Set up domino chains with fans, balls, and ramps | ✅ | ✅ | ✅ |
+| `robodisco/Fan-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_fan.gif) | Use fans to blow lightweight objects to goals | ✅ | ✅ | ✅ |
+| `robodisco/Float-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_float.gif) | Float light blocks by filling a container with water | ❌ | ✅ | ✅ |
+| `robodisco/Grow-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_grow.gif) | Grow plants by watering them | ✅ | ✅ | ✅ |
+| `robodisco/Laser-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_laser.gif) | Align lasers and mirrors to hit targets | ❌ | ✅ | ❌ |
+| `robodisco/MagicBin-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_magic_bin.gif) | Sort objects into magic bins that transform them | ❌ | ❌ | ❌ |
+| `robodisco/Switch-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_switch.gif) | Toggle switches to open doors and move objects | ❌ | ❌ | ❌ |
 
-The Demos column was verified on 2026-04-14 by running the oracle command
-above on every env. Failing envs typically need additional `CFG`
-overrides or hit known issues (missing NSRTs, sampler-grounding errors,
-or execution drift); they may still be useful as targets for skill or
+The Demos column was verified by running the oracle command above on
+every env. Failing envs typically need additional `CFG` overrides or
+hit known issues (missing NSRTs, sampler-grounding errors, or
+execution drift); they may still be useful as targets for skill or
 NSRT learning research. A handful of envs (`Circuit`, `Cover`, `Laser`,
 `Switch`) also currently fail to instantiate through the Gymnasium
 wrapper with parser defaults — pass `cfg_overrides={...}` to
-`mara_robosim.make(...)` or call `utils.update_config({...})` before
+`robodisco.make(...)` or call `utils.update_config({...})` before
 `make()` to supply the missing fields.
 
 ## Per-environment configuration
 
-The MARA RoboSim envs read from predicators' global `CFG` object, which
+The RoboDisco envs read from predicators' global `CFG` object, which
 normally gets populated by `predicators/main.py`'s command-line parser.
 For library use, set it explicitly:
 
@@ -120,8 +122,8 @@ utils.reset_config({
 You can also pass overrides per-make via the wrapper:
 
 ```python
-env = mara_robosim.make(
-    "mara/Blocks-v0",
+env = robodisco.make(
+    "robodisco/Blocks-v0",
     render_mode="rgb_array",
     cfg_overrides={"blocks_num_blocks_train": [4]},
 )

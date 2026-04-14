@@ -1,15 +1,17 @@
-"""MARA RoboSim: a Gymnasium-API wrapper for predicators' PyBullet envs.
+"""RoboDisco: a Gymnasium-API wrapper for predicators' PyBullet envs.
 
-Exposes the 15 native ``predicators.envs.pybullet_*`` environments through a
-standard ``gymnasium.Env`` interface so the suite can be used as a
-manipulation benchmark independent of the predicators planning framework.
+RoboDisco (Robot Model Discovery Benchmark) exposes the 15 native
+``predicators.envs.pybullet_*`` environments through a standard
+``gymnasium.Env`` interface so the suite can be used as a robot
+model-discovery benchmark independent of the predicators planning
+framework.
 
 Quick start::
 
-    from predicators.envs import gymnasium_wrapper as mara_robosim
+    from predicators.envs import gymnasium_wrapper as robodisco
 
-    mara_robosim.register_all_environments()
-    env = mara_robosim.make("mara/Blocks-v0", render_mode="rgb_array")
+    robodisco.register_all_environments()
+    env = robodisco.make("robodisco/Blocks-v0", render_mode="rgb_array")
     obs, info = env.reset()
     action = env.action_space.sample()
     obs, reward, terminated, truncated, info = env.step(action)
@@ -37,10 +39,10 @@ def _ensure_cfg_initialized() -> None:
     """Make sure predicators' global ``CFG`` has its default fields set.
 
     The planning entry points (``main.py``, tests) initialize ``CFG``
-    via command-line parsing before any env is constructed.  When MARA
-    RoboSim is used as a library, that bootstrap hasn't run, so required
-    fields like ``seed`` are missing and ``BaseEnv.__init__`` would
-    crash.
+    via command-line parsing before any env is constructed.  When
+    RoboDisco is used as a library, that bootstrap hasn't run, so
+    required fields like ``seed`` are missing and ``BaseEnv.__init__``
+    would crash.
     """
     from predicators import utils  # pylint: disable=import-outside-toplevel
     from predicators.settings import \
@@ -60,7 +62,7 @@ def _resolve_cls(
     return env_cls
 
 
-class MARARoboSimEnv(gymnasium.Env):
+class RoboDiscoEnv(gymnasium.Env):
     """Wraps a predicators ``PyBulletEnv`` as a standard ``gymnasium.Env``.
 
     Observation: flattened object features as a ``Box`` space, with
@@ -191,37 +193,40 @@ class MARARoboSimEnv(gymnasium.Env):
 # Environment registry
 # ---------------------------------------------------------------------------
 
-_ENTRY_POINT = "predicators.envs.gymnasium_wrapper:MARARoboSimEnv"
+_ENTRY_POINT = "predicators.envs.gymnasium_wrapper:RoboDiscoEnv"
 
 # (gymnasium env id, predicators env class entry point).
 _ENV_REGISTRY: List[Tuple[str, str]] = [
-    ("mara/Ants-v0", "predicators.envs.pybullet_ants:PyBulletAntsEnv"),
-    ("mara/Balance-v0",
+    ("robodisco/Ants-v0", "predicators.envs.pybullet_ants:PyBulletAntsEnv"),
+    ("robodisco/Balance-v0",
      "predicators.envs.pybullet_balance:PyBulletBalanceEnv"),
-    ("mara/Barrier-v0",
+    ("robodisco/Barrier-v0",
      "predicators.envs.pybullet_barrier:PyBulletBarrierEnv"),
-    ("mara/Blocks-v0", "predicators.envs.pybullet_blocks:PyBulletBlocksEnv"),
-    ("mara/Boil-v0", "predicators.envs.pybullet_boil:PyBulletBoilEnv"),
-    ("mara/Circuit-v0",
+    ("robodisco/Blocks-v0",
+     "predicators.envs.pybullet_blocks:PyBulletBlocksEnv"),
+    ("robodisco/Boil-v0", "predicators.envs.pybullet_boil:PyBulletBoilEnv"),
+    ("robodisco/Circuit-v0",
      "predicators.envs.pybullet_circuit:PyBulletCircuitEnv"),
-    ("mara/Coffee-v0", "predicators.envs.pybullet_coffee:PyBulletCoffeeEnv"),
-    ("mara/Cover-v0", "predicators.envs.pybullet_cover:PyBulletCoverEnv"),
-    ("mara/Domino-v0",
+    ("robodisco/Coffee-v0",
+     "predicators.envs.pybullet_coffee:PyBulletCoffeeEnv"),
+    ("robodisco/Cover-v0", "predicators.envs.pybullet_cover:PyBulletCoverEnv"),
+    ("robodisco/Domino-v0",
      "predicators.envs.pybullet_domino.composed_env:PyBulletDominoEnvNew"),
-    ("mara/Fan-v0", "predicators.envs.pybullet_fan:PyBulletFanEnv"),
-    ("mara/Float-v0", "predicators.envs.pybullet_float:PyBulletFloatEnv"),
-    ("mara/Grow-v0", "predicators.envs.pybullet_grow:PyBulletGrowEnv"),
-    ("mara/Laser-v0", "predicators.envs.pybullet_laser:PyBulletLaserEnv"),
-    ("mara/MagicBin-v0",
+    ("robodisco/Fan-v0", "predicators.envs.pybullet_fan:PyBulletFanEnv"),
+    ("robodisco/Float-v0", "predicators.envs.pybullet_float:PyBulletFloatEnv"),
+    ("robodisco/Grow-v0", "predicators.envs.pybullet_grow:PyBulletGrowEnv"),
+    ("robodisco/Laser-v0", "predicators.envs.pybullet_laser:PyBulletLaserEnv"),
+    ("robodisco/MagicBin-v0",
      "predicators.envs.pybullet_magic_bin:PyBulletMagicBinEnv"),
-    ("mara/Switch-v0", "predicators.envs.pybullet_switch:PyBulletSwitchEnv"),
+    ("robodisco/Switch-v0",
+     "predicators.envs.pybullet_switch:PyBulletSwitchEnv"),
 ]
 
 _REGISTERED = False
 
 
 def register_all_environments() -> None:
-    """Register every MARA RoboSim environment with gymnasium.
+    """Register every RoboDisco environment with gymnasium.
 
     Safe to call multiple times (idempotent).
     """
@@ -238,7 +243,7 @@ def register_all_environments() -> None:
 
 
 def make(env_id: str, **kwargs: Any) -> gymnasium.Env:
-    """Create a MARA RoboSim gymnasium environment by id.
+    """Create a RoboDisco gymnasium environment by id.
 
     Automatically calls :func:`register_all_environments` if not done
     yet.
@@ -248,6 +253,6 @@ def make(env_id: str, **kwargs: Any) -> gymnasium.Env:
 
 
 def get_all_env_ids() -> Set[str]:
-    """Return the set of all registered MARA RoboSim environment ids."""
+    """Return the set of all registered RoboDisco environment ids."""
     register_all_environments()
     return {eid for eid, _ in _ENV_REGISTRY}

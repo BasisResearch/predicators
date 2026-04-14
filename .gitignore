@@ -22,7 +22,7 @@ logs*
 saved_approaches
 saved_datasets
 scripts/results
-scripts/mara_robosim_getting_started_output/
+scripts/robodisco_getting_started_output/
 pretrained_model_cache*
 tests/datasets/mock_vlm_datasets/cache/
 machines.txt
