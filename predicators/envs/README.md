@@ -1,8 +1,9 @@
 # PyBullet Environments
 
-A robotic world model learning and causal discovery benchmark. The envs ship as
-part of the [predicators](../../README.md) repository and are exposed
-through a standard [Gymnasium](https://gymnasium.farama.org/) API.
+**MARA RoboSim** — a robotic world-model learning and causal-discovery
+suite. The envs ship as part of the [predicators](../../README.md)
+repository and are exposed through a standard
+[Gymnasium](https://gymnasium.farama.org/) API.
 
 Each environment features a Fetch or Panda robot interacting with objects
 on a tabletop. The same envs are used by predicators' planning research
@@ -16,22 +17,22 @@ From the repo root:
 pip install -e .
 ```
 
-This installs the agent solvers and the benchmark suite together.
-The package is slightly heavy because it bundles both — a lighter benchmark-only
-install is future work.
+This installs the agent solvers and the MARA RoboSim envs together.
+The package is slightly heavy because it bundles both — a lighter
+envs-only install is future work.
 
 ## Quick Start (Gymnasium API)
 
 ```python
 from predicators import utils
-from predicators.envs import gymnasium_wrapper as benchmark
+from predicators.envs import gymnasium_wrapper as mara_robosim
 
 # Apply parser defaults to predicators' global CFG (only needed when
 # consuming the envs as a library rather than via main.py).
 utils.reset_config({"num_train_tasks": 1, "num_test_tasks": 1})
 
-benchmark.register_all_environments()
-env = benchmark.make("mara/Blocks-v0", render_mode="rgb_array")
+mara_robosim.register_all_environments()
+env = mara_robosim.make("mara/Blocks-v0", render_mode="rgb_array")
 
 obs, info = env.reset()
 for _ in range(50):
@@ -59,32 +60,42 @@ The Gymnasium wrapper exposes:
 
 ## Environments
 
-| Environment | Preview | Description |
-|---|---|---|
-| `mara/Ants-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_ants.gif) | Place food items near ants on a tabletop |
-| `mara/Balance-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_balance.gif) | Balance blocks on a beam by pressing buttons |
-| `mara/Barrier-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_barrier.gif) | Move blocks past barriers to target locations |
-| `mara/Blocks-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_blocks.gif) | Stack and arrange blocks on a table |
-| `mara/Boil-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_boil.gif) | Fill and boil water using a jug, faucet, and burner |
-| `mara/Circuit-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_circuit.gif) | Assemble circuit components (batteries, wires, switch) |
-| `mara/Coffee-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_coffee.gif) | Operate a coffee machine: plug in, brew, pour, serve |
-| `mara/Cover-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_cover.gif) | Place blocks to cover target regions |
-| `mara/Domino-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_domino.gif) | Set up domino chains with fans, balls, and ramps |
-| `mara/Fan-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_fan.gif) | Use fans to blow lightweight objects to goals |
-| `mara/Float-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_float.gif) | Float light blocks by filling a container with water |
-| `mara/Grow-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_grow.gif) | Grow plants by watering them |
-| `mara/Laser-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_laser.gif) | Align lasers and mirrors to hit targets |
-| `mara/MagicBin-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_magic_bin.gif) | Sort objects into magic bins that transform them |
-| `mara/Switch-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_switch.gif) | Toggle switches to open doors and move objects |
+Status legend:
+- **Tasks** — the env's task generator produces multiple init states and goals (✅) versus only a single fixed configuration (❌).
+- **Skills** — `predicators/ground_truth_models/<env>/options.py` exposes a non-empty set of primitive options (✅) versus an empty set or no factory (❌).
+- **Demos** — `python predicators/main.py --env <env_name> --approach oracle --seed 0 --num_train_tasks 1 --num_test_tasks 1 --timeout 60` solves the test task end-to-end (✅) versus failing during planning, execution, or sampler grounding (❌).
 
-A handful of envs (`Circuit`, `Cover`, `Laser`, `Switch`) currently
-require additional `CFG` overrides beyond parser defaults to instantiate
-cleanly. Pass them via `make(..., cfg_overrides={...})`, or call
-`utils.update_config({...})` before `make()`.
+| Environment | Preview | Description | Tasks | Skills | Demos |
+|---|---|---|:---:|:---:|:---:|
+| `mara/Ants-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_ants.gif) | Place food items near ants on a tabletop | ✅ | ✅ | ✅ |
+| `mara/Balance-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_balance.gif) | Balance blocks on a beam by pressing buttons | ✅ | ✅ | ❌ |
+| `mara/Barrier-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_barrier.gif) | Move blocks past barriers to target locations | ✅ | ❌ | ❌ |
+| `mara/Blocks-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_blocks.gif) | Stack and arrange blocks on a table | ✅ | ✅ | ✅ |
+| `mara/Boil-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_boil.gif) | Fill and boil water using a jug, faucet, and burner | ✅ | ✅ | ❌ |
+| `mara/Circuit-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_circuit.gif) | Assemble circuit components (batteries, wires, switch) | ✅ | ✅ | ✅ |
+| `mara/Coffee-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_coffee.gif) | Operate a coffee machine: plug in, brew, pour, serve | ✅ | ✅ | ❌ |
+| `mara/Cover-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_cover.gif) | Place blocks to cover target regions | ✅ | ✅ | ✅ |
+| `mara/Domino-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_domino.gif) | Set up domino chains with fans, balls, and ramps | ✅ | ✅ | ❌ |
+| `mara/Fan-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_fan.gif) | Use fans to blow lightweight objects to goals | ✅ | ✅ | ❌ |
+| `mara/Float-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_float.gif) | Float light blocks by filling a container with water | ✅ | ✅ | ❌ |
+| `mara/Grow-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_grow.gif) | Grow plants by watering them | ✅ | ✅ | ❌ |
+| `mara/Laser-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_laser.gif) | Align lasers and mirrors to hit targets | ✅ | ✅ | ❌ |
+| `mara/MagicBin-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_magic_bin.gif) | Sort objects into magic bins that transform them | ✅ | ❌ | ❌ |
+| `mara/Switch-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_switch.gif) | Toggle switches to open doors and move objects | ✅ | ❌ | ❌ |
+
+The Demos column was verified on 2026-04-14 by running the oracle command
+above on every env. Failing envs typically need additional `CFG`
+overrides or hit known issues (missing NSRTs, sampler-grounding errors,
+or execution drift); they may still be useful as targets for skill or
+NSRT learning research. A handful of envs (`Circuit`, `Cover`, `Laser`,
+`Switch`) also currently fail to instantiate through the Gymnasium
+wrapper with parser defaults — pass `cfg_overrides={...}` to
+`mara_robosim.make(...)` or call `utils.update_config({...})` before
+`make()` to supply the missing fields.
 
 ## Per-environment configuration
 
-The benchmark envs read from predicators' global `CFG` object, which
+The MARA RoboSim envs read from predicators' global `CFG` object, which
 normally gets populated by `predicators/main.py`'s command-line parser.
 For library use, set it explicitly:
 
@@ -101,7 +112,7 @@ utils.reset_config({
 You can also pass overrides per-make via the wrapper:
 
 ```python
-env = benchmark.make(
+env = mara_robosim.make(
     "mara/Blocks-v0",
     render_mode="rgb_array",
     cfg_overrides={"blocks_num_blocks_train": [4]},
@@ -134,7 +145,7 @@ the state into a `Box` observation.
 
 - **Notebook:** [`notebooks/getting_started.ipynb`](../../notebooks/getting_started.ipynb)
   — interactive walkthrough with rendering.
-- **Smoke script:** [`scripts/benchmark_getting_started.py`](../../scripts/benchmark_getting_started.py)
+- **Smoke script:** [`scripts/mara_robosim_getting_started.py`](../../scripts/mara_robosim_getting_started.py)
   — non-interactive smoke test that mirrors the notebook and resets every
   env to verify installation health.
 
@@ -145,6 +156,5 @@ For a comprehensive guide on writing new PyBullet environments, see
 
 ## Predicators planning framework
 
-Beyond the benchmark, these envs power the predicators bilevel-planning
-research codebase. See the [top-level README](../../README.md) for
-details.
+These envs also power the predicators bilevel-planning research codebase.
+See the [top-level README](../../README.md) for details.

@@ -1,8 +1,8 @@
-"""Smoke-test that mirrors the benchmark getting-started notebook.
+"""Smoke-test that mirrors the MARA RoboSim getting-started notebook.
 
 Run::
 
-    PYTHONHASHSEED=0 python scripts/benchmark_getting_started.py
+    PYTHONHASHSEED=0 python scripts/mara_robosim_getting_started.py
 """
 
 from pathlib import Path
@@ -13,10 +13,11 @@ from numpy.typing import NDArray
 from PIL import Image
 
 from predicators import utils
-from predicators.envs import gymnasium_wrapper as benchmark
+from predicators.envs import gymnasium_wrapper as mara_robosim
 from predicators.structs import State
 
-OUT_DIR = Path(__file__).resolve().parent / "benchmark_getting_started_output"
+OUT_DIR = Path(
+    __file__).resolve().parent / "mara_robosim_getting_started_output"
 OUT_DIR.mkdir(exist_ok=True)
 
 # Apply small task counts so the smoke test runs quickly.
@@ -24,8 +25,8 @@ utils.reset_config({"num_train_tasks": 1, "num_test_tasks": 1})
 
 # ── 1. Discover environments ─────────────────────────────────────────────
 
-benchmark.register_all_environments()
-env_ids = sorted(benchmark.get_all_env_ids())
+mara_robosim.register_all_environments()
+env_ids = sorted(mara_robosim.get_all_env_ids())
 print(f"[1/6] Found {len(env_ids)} environments")
 assert len(env_ids) == 15, f"Expected 15 environments, got {len(env_ids)}"
 for eid in env_ids:
@@ -33,7 +34,7 @@ for eid in env_ids:
 
 # ── 2. Create environment ────────────────────────────────────────────────
 
-env = benchmark.make("mara/Blocks-v0", render_mode="rgb_array")
+env = mara_robosim.make("mara/Blocks-v0", render_mode="rgb_array")
 obs, info = env.reset()
 print("\n[2/6] Created mara/Blocks-v0")
 assert isinstance(obs, np.ndarray)
@@ -121,7 +122,7 @@ print("\n[7/7] Resetting every registered env (non-fatal report):")
 ok, fail = [], []
 for eid in env_ids:
     try:
-        e = benchmark.make(eid)
+        e = mara_robosim.make(eid)
         e.reset()
         e.close()
         ok.append(eid)

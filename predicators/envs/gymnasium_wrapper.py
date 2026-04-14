@@ -1,15 +1,15 @@
-"""Gymnasium wrapper for predicators' PyBullet environments.
+"""MARA RoboSim: a Gymnasium-API wrapper for predicators' PyBullet envs.
 
 Exposes the 15 native ``predicators.envs.pybullet_*`` environments through a
-standard ``gymnasium.Env`` interface so the suite can be used as a benchmark
-independent of the predicators planning framework.
+standard ``gymnasium.Env`` interface so the suite can be used as a
+manipulation benchmark independent of the predicators planning framework.
 
 Quick start::
 
-    from predicators.envs import gymnasium_wrapper as benchmark
+    from predicators.envs import gymnasium_wrapper as mara_robosim
 
-    benchmark.register_all_environments()
-    env = benchmark.make("mara/Blocks-v0", render_mode="rgb_array")
+    mara_robosim.register_all_environments()
+    env = mara_robosim.make("mara/Blocks-v0", render_mode="rgb_array")
     obs, info = env.reset()
     action = env.action_space.sample()
     obs, reward, terminated, truncated, info = env.step(action)
@@ -37,10 +37,10 @@ def _ensure_cfg_initialized() -> None:
     """Make sure predicators' global ``CFG`` has its default fields set.
 
     The planning entry points (``main.py``, tests) initialize ``CFG``
-    via command-line parsing before any env is constructed.  When the
-    benchmark wrapper is used as a library, that bootstrap hasn't run,
-    so required fields like ``seed`` are missing and
-    ``BaseEnv.__init__`` would crash.
+    via command-line parsing before any env is constructed.  When MARA
+    RoboSim is used as a library, that bootstrap hasn't run, so required
+    fields like ``seed`` are missing and ``BaseEnv.__init__`` would
+    crash.
     """
     from predicators import utils  # pylint: disable=import-outside-toplevel
     from predicators.settings import \
@@ -60,7 +60,7 @@ def _resolve_cls(
     return env_cls
 
 
-class PredicatorsBenchmarkEnv(gymnasium.Env):
+class MARARoboSimEnv(gymnasium.Env):
     """Wraps a predicators ``PyBulletEnv`` as a standard ``gymnasium.Env``.
 
     Observation: flattened object features as a ``Box`` space, with
@@ -191,7 +191,7 @@ class PredicatorsBenchmarkEnv(gymnasium.Env):
 # Environment registry
 # ---------------------------------------------------------------------------
 
-_ENTRY_POINT = "predicators.envs.gymnasium_wrapper:PredicatorsBenchmarkEnv"
+_ENTRY_POINT = "predicators.envs.gymnasium_wrapper:MARARoboSimEnv"
 
 # (gymnasium env id, predicators env class entry point).
 _ENV_REGISTRY: List[Tuple[str, str]] = [
@@ -221,7 +221,7 @@ _REGISTERED = False
 
 
 def register_all_environments() -> None:
-    """Register every benchmark environment with gymnasium.
+    """Register every MARA RoboSim environment with gymnasium.
 
     Safe to call multiple times (idempotent).
     """
@@ -238,7 +238,7 @@ def register_all_environments() -> None:
 
 
 def make(env_id: str, **kwargs: Any) -> gymnasium.Env:
-    """Create a benchmark gymnasium environment by id.
+    """Create a MARA RoboSim gymnasium environment by id.
 
     Automatically calls :func:`register_all_environments` if not done
     yet.
@@ -248,6 +248,6 @@ def make(env_id: str, **kwargs: Any) -> gymnasium.Env:
 
 
 def get_all_env_ids() -> Set[str]:
-    """Return the set of all registered benchmark environment ids."""
+    """Return the set of all registered MARA RoboSim environment ids."""
     register_all_environments()
     return {eid for eid, _ in _ENV_REGISTRY}
