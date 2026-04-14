@@ -65,6 +65,53 @@ assert os.environ.get("PYTHONHASHSEED") == "0", \
         "Please add `export PYTHONHASHSEED=0` to your bash profile!"
 
 
+def main() -> None:
+    """Main entry point for running approaches in environments."""
+    script_start = time.perf_counter()
+
+    # Parse & validate args
+    args = utils.parse_args()
+    utils.update_config(args)
+    str_args = " ".join(sys.argv)
+
+    # Setup logging and directories
+    utils.configure_logging()
+    os.makedirs(CFG.results_dir, exist_ok=True)
+    os.makedirs(CFG.eval_trajectories_dir, exist_ok=True)
+
+    # Log initial info
+    utils.log_initial_info(str_args)
+
+    # Setup environment and tasks
+    env, approach_train_tasks, train_tasks = setup_environment()
+
+    # Setup predicates
+    included_preds, excluded_preds = utils.parse_config_excluded_predicates(
+        env)
+    preds = utils.replace_goals_with_agent_specific_goals(
+        included_preds, excluded_preds,
+        env) if CFG.approach != "oracle" else included_preds
+
+    # Create approach
+    approach = setup_approach(env, preds, approach_train_tasks)
+
+    # Create dataset and cognitive manager
+    offline_dataset = create_offline_dataset(env, train_tasks, preds, approach)
+    execution_monitor = create_execution_monitor(CFG.execution_monitor)
+    cogman = CogMan(approach, create_perceiver(CFG.perceiver),
+                    execution_monitor)
+
+    # Run pipeline
+    _run_pipeline(env, cogman, approach_train_tasks, offline_dataset)
+
+    # Log completion
+    script_time = time.perf_counter() - script_start
+    logging.info(f"\n\nMain script terminated in {script_time:.5f} seconds")
+
+
+# ── Setup helpers ────────────────────────────────────────────────
+
+
 def setup_environment() -> Tuple[BaseEnv, List[Task], List[Task]]:
     """Create and setup the environment and tasks.
 
@@ -141,48 +188,7 @@ def create_offline_dataset(env: BaseEnv, train_tasks: List[Task], preds: set,
     return None
 
 
-def main() -> None:
-    """Main entry point for running approaches in environments."""
-    script_start = time.perf_counter()
-
-    # Parse & validate args
-    args = utils.parse_args()
-    utils.update_config(args)
-    str_args = " ".join(sys.argv)
-
-    # Setup logging and directories
-    utils.configure_logging()
-    os.makedirs(CFG.results_dir, exist_ok=True)
-    os.makedirs(CFG.eval_trajectories_dir, exist_ok=True)
-
-    # Log initial info
-    utils.log_initial_info(str_args)
-
-    # Setup environment and tasks
-    env, approach_train_tasks, train_tasks = setup_environment()
-
-    # Setup predicates
-    included_preds, excluded_preds = utils.parse_config_excluded_predicates(
-        env)
-    preds = utils.replace_goals_with_agent_specific_goals(
-        included_preds, excluded_preds,
-        env) if CFG.approach != "oracle" else included_preds
-
-    # Create approach
-    approach = setup_approach(env, preds, approach_train_tasks)
-
-    # Create dataset and cognitive manager
-    offline_dataset = create_offline_dataset(env, train_tasks, preds, approach)
-    execution_monitor = create_execution_monitor(CFG.execution_monitor)
-    cogman = CogMan(approach, create_perceiver(CFG.perceiver),
-                    execution_monitor)
-
-    # Run pipeline
-    _run_pipeline(env, cogman, approach_train_tasks, offline_dataset)
-
-    # Log completion
-    script_time = time.perf_counter() - script_start
-    logging.info(f"\n\nMain script terminated in {script_time:.5f} seconds")
+# ── Pipeline ─────────────────────────────────────────────────────
 
 
 def _run_pipeline(env: BaseEnv,
