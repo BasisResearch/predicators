@@ -1,6 +1,6 @@
 """Agent planner approach: fixed-vocabulary open-loop planning.
 
-Combines online trajectory collection (via AgentExplorer) with open-loop
+Combines online trajectory collection (via AgentPlanExplorer) with open-loop
 option plan generation (via Claude Agent SDK). No predicate/process/type
 invention — just stores trajectories and generates plans.
 
@@ -8,7 +8,7 @@ Example command:
     python predicators/main.py --env pybullet_domino \
         --approach agent_planner --seed 0 \
         --num_train_tasks 1 --num_test_tasks 1 \
-        --num_online_learning_cycles 1 --explorer agent
+        --num_online_learning_cycles 1 --explorer agent_plan
 """
 import datetime
 import inspect as _inspect
@@ -37,7 +37,7 @@ from predicators.structs import Action, Dataset, GroundAtom, \
 class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
     """Fixed-vocabulary open-loop planning via Claude Agent SDK.
 
-    - Collects trajectories online using AgentExplorer
+    - Collects trajectories online using AgentPlanExplorer
     - At solve time, queries the agent for an option plan
     - No predicate/process/type invention
     """
@@ -705,7 +705,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
     def _create_explorer(self) -> BaseExplorer:
         """Create explorer for interaction requests."""
-        if CFG.explorer == "agent":
+        if CFG.explorer == "agent_plan":
             self._sync_tool_context()
             return self._create_agent_explorer(self._get_all_predicates(),
                                                self._get_all_options())

@@ -9,7 +9,7 @@ Example command:
     python predicators/main.py --env pybullet_domino \
         --approach agent_closed_loop --seed 0 \
         --num_train_tasks 1 --num_test_tasks 1 \
-        --num_online_learning_cycles 1 --explorer agent
+        --num_online_learning_cycles 1 --explorer agent_plan
 """
 import logging
 from typing import Callable, List

@@ -1,4 +1,10 @@
-"""An explorer that queries a Claude agent to generate option plans."""
+"""Agent plan explorer: Claude agent generates grounded option plans.
+
+Produces fully-grounded option plans (including continuous parameters) and
+rolls them out in the real environment. The agent is expected to provide
+complete parameters itself; this explorer does not run backtracking
+refinement against a learned option model.
+"""
 
 import logging
 from typing import Any, Dict, List, Set
@@ -16,8 +22,8 @@ from predicators.structs import Action, ExplorationStrategy, \
     ParameterizedOption, Predicate, State, Task, Type
 
 
-class AgentExplorer(BaseExplorer):
-    """Queries a Claude agent to produce option plans for exploration."""
+class AgentPlanExplorer(BaseExplorer):
+    """Queries a Claude agent to produce grounded option plans."""
 
     def __init__(self, predicates: Set[Predicate],
                  options: Set[ParameterizedOption], types: Set[Type],
@@ -31,7 +37,7 @@ class AgentExplorer(BaseExplorer):
 
     @classmethod
     def get_name(cls) -> str:
-        return "agent"
+        return "agent_plan"
 
     def _get_exploration_strategy(self, train_task_idx: int,
                                   timeout: int) -> ExplorationStrategy:

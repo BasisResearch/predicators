@@ -109,7 +109,7 @@ def create_explorer(
                                action_space, train_tasks,
                                max_steps_before_termination, nsrts,
                                maple_q_function)
-            elif name == "agent":
+            elif name == "agent_plan":
                 assert tool_context is not None
                 assert agent_session is not None
                 explorer = cls(initial_predicates, initial_options, types,

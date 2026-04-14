@@ -10,7 +10,7 @@ Example command::
     python predicators/main.py --env pybullet_domino \
         --approach agent_bilevel --seed 0 \
         --num_train_tasks 1 --num_test_tasks 1 \
-        --num_online_learning_cycles 1 --explorer agent
+        --num_online_learning_cycles 1 --explorer agent_plan
 """
 import dataclasses
 import logging

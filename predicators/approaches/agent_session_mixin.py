@@ -190,7 +190,7 @@ class AgentSessionMixin:
         """Create an agent explorer with tool_context and agent_session."""
         self._ensure_agent_session()
         return create_explorer(
-            "agent",
+            "agent_plan",
             predicates,
             options,
             self._types,  # type: ignore[attr-defined]

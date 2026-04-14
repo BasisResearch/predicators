@@ -18,7 +18,7 @@ APPROACHES:
   # agent_planner:
   #   NAME: "agent_planner"
   #   FLAGS:
-  #     explorer: "agent"
+  #     explorer: "agent_plan"
   #     demonstrator: "oracle_process_planning"
   #     terminate_on_goal_reached_and_option_terminated: True
   #     # agent_sdk_use_docker_sandbox: True
@@ -32,7 +32,7 @@ APPROACHES:
   # agent_bilevel:
   #   NAME: "agent_bilevel"
   #   FLAGS:
-  #     explorer: "agent"
+  #     explorer: "agent_plan"
   #     demonstrator: "oracle_process_planning"
   #     terminate_on_goal_reached_and_option_terminated: True
   #     # agent_sdk_use_docker_sandbox: True
@@ -46,7 +46,7 @@ APPROACHES:
   # agent_option_learning:
   #   NAME: "agent_option_learning"
   #   FLAGS:
-  #     explorer: "agent"
+  #     explorer: "agent_plan"
   #     option_learner: "agent"
   #     demonstrator: "oracle_process_planning"
   #     terminate_on_goal_reached_and_option_terminated: True
@@ -60,7 +60,7 @@ APPROACHES:
   #     terminate_on_goal_reached_and_option_terminated: True
   #     bilevel_plan_without_sim: True
   #     max_initial_demos: 0
-  #     explorer: "agent"
+  #     explorer: "agent_plan"
   #     num_online_learning_cycles: 4
   #     online_nsrt_learning_requests_per_cycle: 1
 ENVS:

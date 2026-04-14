@@ -477,7 +477,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
     def _create_explorer(self) -> BaseExplorer:
         """Create explorer, passing agent context if using agent explorer."""
-        if CFG.explorer == "agent":
+        if CFG.explorer == "agent_plan":
             all_trajs = (self._offline_dataset.trajectories +
                          self._online_dataset.trajectories)
             self._sync_tool_context(all_trajs)
