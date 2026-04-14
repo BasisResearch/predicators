@@ -67,21 +67,21 @@ Status legend:
 
 | Environment | Preview | Description | Tasks | Skills | Demos |
 |---|---|---|:---:|:---:|:---:|
-| `mara/Ants-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_ants.gif) | Place food items near ants on a tabletop | ✅ | ✅ | ✅ |
+| `mara/Ants-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_ants.gif) | Place food items near ants on a tabletop | ❌ | ✅ | ❌ |
 | `mara/Balance-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_balance.gif) | Balance blocks on a beam by pressing buttons | ✅ | ✅ | ❌ |
-| `mara/Barrier-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_barrier.gif) | Move blocks past barriers to target locations | ✅ | ❌ | ❌ |
+| `mara/Barrier-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_barrier.gif) | Move blocks past barriers to target locations | ❌ | ❌ | ❌ |
 | `mara/Blocks-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_blocks.gif) | Stack and arrange blocks on a table | ✅ | ✅ | ✅ |
-| `mara/Boil-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_boil.gif) | Fill and boil water using a jug, faucet, and burner | ✅ | ✅ | ❌ |
-| `mara/Circuit-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_circuit.gif) | Assemble circuit components (batteries, wires, switch) | ✅ | ✅ | ✅ |
+| `mara/Boil-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_boil.gif) | Fill and boil water using a jug, faucet, and burner | ✅ | ✅ | ✅ |
+| `mara/Circuit-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_circuit.gif) | Assemble circuit components (batteries, wires, switch) | ❌ | ✅ | ✅ |
 | `mara/Coffee-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_coffee.gif) | Operate a coffee machine: plug in, brew, pour, serve | ✅ | ✅ | ❌ |
 | `mara/Cover-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_cover.gif) | Place blocks to cover target regions | ✅ | ✅ | ✅ |
-| `mara/Domino-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_domino.gif) | Set up domino chains with fans, balls, and ramps | ✅ | ✅ | ❌ |
-| `mara/Fan-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_fan.gif) | Use fans to blow lightweight objects to goals | ✅ | ✅ | ❌ |
-| `mara/Float-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_float.gif) | Float light blocks by filling a container with water | ✅ | ✅ | ❌ |
-| `mara/Grow-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_grow.gif) | Grow plants by watering them | ✅ | ✅ | ❌ |
-| `mara/Laser-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_laser.gif) | Align lasers and mirrors to hit targets | ✅ | ✅ | ❌ |
-| `mara/MagicBin-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_magic_bin.gif) | Sort objects into magic bins that transform them | ✅ | ❌ | ❌ |
-| `mara/Switch-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_switch.gif) | Toggle switches to open doors and move objects | ✅ | ❌ | ❌ |
+| `mara/Domino-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_domino.gif) | Set up domino chains with fans, balls, and ramps | ✅ | ✅ | ✅ |
+| `mara/Fan-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_fan.gif) | Use fans to blow lightweight objects to goals | ✅ | ✅ | ✅ |
+| `mara/Float-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_float.gif) | Float light blocks by filling a container with water | ❌ | ✅ | ✅ |
+| `mara/Grow-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_grow.gif) | Grow plants by watering them | ✅ | ✅ | ✅ |
+| `mara/Laser-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_laser.gif) | Align lasers and mirrors to hit targets | ❌ | ✅ | ❌ |
+| `mara/MagicBin-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_magic_bin.gif) | Sort objects into magic bins that transform them | ❌ | ❌ | ❌ |
+| `mara/Switch-v0` | ![](../../docs/envs/assets/random_action_gifs/pybullet_switch.gif) | Toggle switches to open doors and move objects | ❌ | ❌ | ❌ |
 
 The Demos column was verified on 2026-04-14 by running the oracle command
 above on every env. Failing envs typically need additional `CFG`
