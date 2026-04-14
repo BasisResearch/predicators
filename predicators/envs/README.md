@@ -149,14 +149,6 @@ This gives you direct access to `env.predicates`, `env.types`,
 `env.goal_predicates`, `env.get_train_tasks()`, etc., without flattening
 the state into a `Box` observation.
 
-## Walkthroughs
-
-- **Notebook:** [`notebooks/getting_started.ipynb`](../../notebooks/getting_started.ipynb)
-  — interactive walkthrough with rendering.
-- **Smoke script:** [`scripts/mara_robosim_getting_started.py`](../../scripts/mara_robosim_getting_started.py)
-  — non-interactive smoke test that mirrors the notebook and resets every
-  env to verify installation health.
-
 ## Developing new envs
 
 For a guide on writing new PyBullet environments, see
