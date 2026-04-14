@@ -10,6 +10,8 @@ This codebase implements a framework for *bilevel planning with learned neuro-sy
 4. [Predicate Invention for Bilevel Planning](https://arxiv.org/abs/2203.09634). Silver*, Chitnis*, Kumar, McClinton, Lozano-Perez, Kaelbling, Tenenbaum. AAAI 2023.
 5. [Embodied Active Learning of Relational State Abstractions for Bilevel Planning](https://arxiv.org/abs/2303.04912). Li, Silver. CoLLAs 2023.
 6. [Learning Efficient Abstract Planning Models that Choose What to Predict](https://arxiv.org/abs/2208.07737). Kumar*, McClinton*, Chitnis, Silver, Lozano-Perez, Kaelbling. CoRL 2023.
+7. [VisualPredicator: Learning Abstract World Models with Neuro-Symbolic Predicates for Robot Planning](https://arxiv.org/abs/2410.23156). Liang, Kumar, Tang, Weller, Tenenbaum, Silver, Henriques, Ellis. ICLR 2025.
+8. [ExoPredicator: Learning Abstract Models of Dynamic Worlds for Robot Planning](https://arxiv.org/abs/2509.26255). Liang, Nguyen, Yang, Li, Tenenbaum, Rasmussen, Weller, Tavares, Silver*, Ellis*. ICLR 2026.
 
 ### Code Structure
 
