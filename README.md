@@ -11,8 +11,6 @@ This codebase implements a framework for *bilevel planning with learned neuro-sy
 5. [Embodied Active Learning of Relational State Abstractions for Bilevel Planning](https://arxiv.org/abs/2303.04912). Li, Silver. CoLLAs 2023.
 6. [Learning Efficient Abstract Planning Models that Choose What to Predict](https://arxiv.org/abs/2208.07737). Kumar*, McClinton*, Chitnis, Silver, Lozano-Perez, Kaelbling. CoRL 2023.
 
-The codebase is still under active development. **Please contact <tslvr@mit.edu> or <njk@mit.edu> before attempting to use it for your own research.**
-
 ### Code Structure
 
 In `predicators/`, the environments are defined in the `envs/` directory, and the approaches (both learning-based and not) are defined in the `approaches/` directory. The core [NSRT learning algorithm](https://arxiv.org/abs/2105.14074) happens in `predicators/nsrt_learning/nsrt_learning_main.py`, which has the following steps:
@@ -25,6 +23,9 @@ In `predicators/`, the environments are defined in the `envs/` directory, and th
 Methods for predicate learning are implemented as Approaches (e.g., `predicators/approaches/grammar_search_invention_approach.py`), and may interface with the core structure of `predicators/nsrt_learning/nsrt_learning_main.py` in various ways.
 
 A simple implementation of search-then-sample bilevel planning is provided in `predicators/planning.py`. This implementation uses the "SeSamE" strategy: SEarch-and-SAMple planning, then Execution.
+
+## PyBullet Benchmark Suite
+Predicators contains multiple PyBullet environments with a standard [Gymnasium](https://gymnasium.farama.org/) API, suitable for world-model learning, causal discovery, and RL research independent of the planning framework. See [`predicators/envs/README.md`](predicators/envs/README.md) for the env list, install instructions, quick-start code, standalone API, and getting-started notebook.
 
 ## Installation
 * This repository uses Python versions 3.10-3.11. We recommend 3.10.14.

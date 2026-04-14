@@ -22,6 +22,7 @@ logs*
 saved_approaches
 saved_datasets
 scripts/results
+scripts/benchmark_getting_started_output/
 pretrained_model_cache*
 tests/datasets/mock_vlm_datasets/cache/
 machines.txt
