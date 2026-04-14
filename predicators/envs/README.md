@@ -58,6 +58,14 @@ The Gymnasium wrapper exposes:
   for the current step (predicates, types, sim state).
 - `info["goal_reached"]`: shortcut for `env.goal_reached()`.
 
+## Walkthroughs
+
+- **Notebook:** [`notebooks/getting_started.ipynb`](../../notebooks/getting_started.ipynb)
+  — interactive walkthrough with rendering.
+- **Smoke script:** [`scripts/mara_robosim_getting_started.py`](../../scripts/mara_robosim_getting_started.py)
+  — non-interactive smoke test that mirrors the notebook and resets every
+  env to verify installation health.
+
 ## Environments
 
 Status legend:
@@ -151,7 +159,7 @@ the state into a `Box` observation.
 
 ## Developing new envs
 
-For a comprehensive guide on writing new PyBullet environments, see
+For a guide on writing new PyBullet environments, see
 [`docs/pybullet_env_guide.md`](../../docs/pybullet_env_guide.md).
 
 ## Predicators planning framework
