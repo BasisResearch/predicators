@@ -114,6 +114,11 @@ class ToolContext:
     turn_id: int = 0  # current query/turn within the session
     test_call_id: int = 0  # incremented per test_option_plan call
     visualized_state: Optional[State] = None  # last state from visualize_state
+    # Populated by AgentBilevelExplorer so learning approaches can diff
+    # mental-model subgoals against real trajectories.
+    # TODO(sim-learning): consume these in learn_from_interaction_results.
+    last_sketch_subgoals: Optional[Any] = None
+    last_sketch_options: Optional[Any] = None
 
 
 def _text_result(text: str) -> Dict[str, Any]:

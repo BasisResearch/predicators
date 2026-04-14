@@ -12,31 +12,21 @@ Example command::
         --num_train_tasks 1 --num_test_tasks 1 \
         --num_online_learning_cycles 1 --explorer agent_plan
 """
-import dataclasses
 import logging
-import re
 import time
-from typing import Callable, List, Optional, Sequence, Set, Tuple, cast
+from typing import Callable, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
 from predicators import utils
+from predicators.agent_sdk import bilevel_sketch
+from predicators.agent_sdk.bilevel_sketch import SketchStep as _SketchStep
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_planner_approach import AgentPlannerApproach
 from predicators.planning import run_backtracking_refinement
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, _Option
-
-
-@dataclasses.dataclass
-class _SketchStep:
-    """One step in an agent-produced plan sketch."""
-    option: ParameterizedOption
-    objects: Sequence[Object]
-    subgoal_atoms: Optional[Set[GroundAtom]]  # None = no subgoal constraint
-    # Atoms that must be FALSE after this step.
-    subgoal_neg_atoms: Optional[Set[GroundAtom]] = None
 
 
 class AgentBilevelApproach(AgentPlannerApproach):
@@ -90,114 +80,13 @@ class AgentBilevelApproach(AgentPlannerApproach):
 
     def _build_solve_prompt(self, task: Task) -> str:
         """Build prompt asking for a plan sketch without continuous params."""
-        init_state = task.init
-        objects = list(init_state)
-
-        # Objects
-        obj_strs = []
-        for obj in sorted(objects, key=lambda o: o.name):
-            obj_strs.append(f"  {obj.name}: {obj.type.name}")
-
-        # Goal
-        goal_strs = [str(a) for a in sorted(task.goal, key=str)]
-
-        # Options (show params_space info so agent understands what's tunable)
-        option_strs = []
-        for opt in sorted(self._get_all_options(), key=lambda o: o.name):
-            type_sig = ", ".join(t.name for t in opt.types)
-            params_dim = opt.params_space.shape[0]
-            if params_dim > 0:
-                low = opt.params_space.low.tolist()
-                high = opt.params_space.high.tolist()
-                if opt.params_description:
-                    desc = ", ".join(opt.params_description)
-                    param_info = (f"  [auto-searched params: {desc}, "
-                                  f"range {low} to {high}]")
-                else:
-                    param_info = (f"  [auto-searched: {params_dim}d, "
-                                  f"range {low} to {high}]")
-            else:
-                param_info = ""
-            option_strs.append(f"  {opt.name}({type_sig}){param_info}")
-
-        # Current atoms
-        atoms = utils.abstract(init_state, self._get_all_predicates())
-        atom_strs = [str(a) for a in sorted(atoms, key=str)]
-
-        # Trajectory summary
-        traj_summary = self._build_trajectory_summary()
-
-        # State features
-        state_str = init_state.dict_str(indent=2)
-
-        # Available tools
-        tool_names = self._get_agent_tool_names()
-        tools_str = ""
-        if tool_names:
-            tool_list = "\n".join(f"  - {t}" for t in tool_names)
-            tools_str = f"\n## Available Tools\n{tool_list}\n"
-
-        # Natural language goal
-        goal_nl_section = ""
-        if task.goal_nl:
-            goal_nl_section = f"\n## Goal Description\n{task.goal_nl}\n"
-
-        # Available predicates for subgoal annotations
-        pred_strs = []
-        for pred in sorted(self._get_all_predicates(), key=lambda p: p.name):
-            type_sig = ", ".join(t.name for t in pred.types)
-            pred_strs.append(f"  {pred.name}({type_sig})")
-
-        prompt = f"""You are solving a task. \
-Generate a plan sketch to achieve the goal.
-{goal_nl_section}
-## Goal Atoms
-{chr(10).join(goal_strs)}
-
-## Initial State Atoms
-{chr(10).join(atom_strs)}
-
-## Initial State Features
-{state_str}
-
-## Objects
-{chr(10).join(obj_strs)}
-
-## Available Options
-{chr(10).join(option_strs)}
-
-## Available Predicates (for subgoal annotations)
-{chr(10).join(pred_strs)}
-{traj_summary}{tools_str}
-## Instructions
-Use your available tools to inspect the environment before producing the plan.
-
-Generate a plan SKETCH — the sequence of options with object arguments, but \
-WITHOUT continuous parameters. Continuous parameters will be found \
-automatically by a backtracking search procedure.
-
-Optionally annotate subgoal atoms that should hold after each step. This \
-helps the search verify progress. Use `-> {{atoms}}` after each step.
-
-After any action whose desired subgoal depends on a delayed process (e.g. \
-water filling, dominoes cascading, heating), insert a Wait action. For Wait \
-steps, annotate with the atoms the process should produce — this tells the \
-system exactly when the Wait should end rather than terminating on any \
-incidental atom change. Use `NOT Pred(...)` for atoms that should become false.
-
-Output the plan sketch with one option per line in this format:
-  OptionName(obj1:type1, obj2:type2) -> \
-{{Pred(obj1:type1), Pred2(obj1:type1, obj2:type2)}}
-  Wait(robot:Robot) -> {{Boiled(water:water_type)}}
-  Wait(robot:Robot) -> {{NOT Touching(a:block, b:block)}}
-
-Always use typed references (obj:type) in both option arguments AND subgoal \
-atoms. The `-> {{atoms}}` part is optional. If you omit it, the search will \
-only check that the option executed successfully (non-zero actions).
-
-Output ONLY the plan sketch lines at the end, after any analysis."""
-
-        return prompt
+        return bilevel_sketch.build_solve_prompt(
+            task,
+            all_predicates=self._get_all_predicates(),
+            all_options=self._get_all_options(),
+            trajectory_summary=self._build_trajectory_summary(),
+            tool_names=self._get_agent_tool_names(),
+        )
 
     # ------------------------------------------------------------------ #
     # Solving
@@ -274,128 +163,25 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
         if not plan_text:
             raise ApproachFailure("Agent returned empty plan text.")
 
-        cleaned_text = self._strip_code_fences(plan_text)
+        sketch = bilevel_sketch.parse_sketch_from_text(
+            plan_text,
+            task,
+            predicates=self._get_all_predicates(),
+            options=self._get_all_options(),
+            types=self._types,
+        )
 
-        # Phase 1: parse options + objects (no continuous params)
-        objects = list(task.init)
-        parsed = utils.parse_model_output_into_option_plan(
-            cleaned_text,
-            objects,
-            self._types,
-            self._get_all_options(),
-            parse_continuous_params=False)
-
-        if not parsed:
+        if not sketch:
             option_names = sorted(o.name for o in self._get_all_options())
             raise ApproachFailure(f"Parsed empty plan sketch from agent.\n"
                                   f"  Plan text:\n{plan_text}\n"
                                   f"  Available option names: {option_names}")
-
-        # Phase 2: parse subgoal annotations from raw text
-        subgoals = self._parse_subgoal_annotations(cleaned_text,
-                                                   self._get_all_predicates(),
-                                                   objects)
-
-        # Zip into sketch steps
-        sketch = []
-        for i, (option, objs, _) in enumerate(parsed):
-            sg = subgoals[i] if i < len(subgoals) else None
-            if sg is not None:
-                pos, neg = sg
-                sketch.append(
-                    _SketchStep(option=option,
-                                objects=objs,
-                                subgoal_atoms=pos if pos else None,
-                                subgoal_neg_atoms=neg if neg else None))
-            else:
-                sketch.append(
-                    _SketchStep(option=option,
-                                objects=objs,
-                                subgoal_atoms=None))
 
         logging.info(f"[{self._run_id}] Agent produced sketch with "
                      f"{len(sketch)} steps, "
                      f"{sum(1 for s in sketch if s.subgoal_atoms)} "
                      f"with subgoals.")
         return sketch
-
-    def _parse_subgoal_annotations(
-        self,
-        text: str,
-        predicates: Set[Predicate],
-        objects: Sequence[Object],
-    ) -> List[Optional[Tuple[Set[GroundAtom], Set[GroundAtom]]]]:
-        """Parse ``-> {Pred(...), NOT Pred(...)}`` annotations from plan text.
-
-        Returns a list parallel to the option lines.  Entries are None
-        for lines without annotations.  Each non-None entry is
-        ``(positive_atoms, negative_atoms)``.
-        """
-        pred_map = {p.name: p for p in predicates}
-        obj_map = {o.name: o for o in objects}
-
-        # Regex: match -> { ... } after the option line
-        subgoal_re = re.compile(r'->\s*\{([^}]*)\}')
-        # Regex: match individual atoms, optionally prefixed with NOT
-        atom_re = re.compile(r'(NOT\s+)?(\w+)\(([^)]*)\)')
-
-        results: List[Optional[Tuple[Set[GroundAtom], Set[GroundAtom]]]] = []
-        option_names = {o.name for o in self._get_all_options()}
-
-        for line in text.split('\n'):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            # Check if this line starts with a valid option name
-            first_token = stripped.split('(')[0]
-            if first_token not in option_names:
-                continue
-
-            # This is an option line — check for subgoal annotation
-            sg_match = subgoal_re.search(stripped)
-            if not sg_match:
-                results.append(None)
-                continue
-
-            atoms_text = sg_match.group(1)
-            pos_atoms: Set[GroundAtom] = set()
-            neg_atoms: Set[GroundAtom] = set()
-            for atom_match in atom_re.finditer(atoms_text):
-                is_neg = atom_match.group(1) is not None
-                pred_name = atom_match.group(2)
-                # Handle both "obj" and "obj:type" formats
-                obj_names = [
-                    n.strip().split(':')[0]
-                    for n in atom_match.group(3).split(',')
-                ]
-
-                if pred_name not in pred_map:
-                    logging.warning(f"Unknown predicate in subgoal: "
-                                    f"{pred_name}")
-                    continue
-                pred = pred_map[pred_name]
-                try:
-                    objs = [obj_map[n] for n in obj_names]
-                except KeyError as e:
-                    logging.warning(f"Unknown object in subgoal: {e}")
-                    continue
-                if len(objs) != len(pred.types):
-                    logging.warning(
-                        f"Arity mismatch for {pred_name}: expected "
-                        f"{len(pred.types)}, got {len(objs)}")
-                    continue
-                atom = GroundAtom(pred, objs)
-                if is_neg:
-                    neg_atoms.add(atom)
-                else:
-                    pos_atoms.add(atom)
-
-            if pos_atoms or neg_atoms:
-                results.append((pos_atoms, neg_atoms))
-            else:
-                results.append(None)
-
-        return results
 
     # ------------------------------------------------------------------ #
     # Backtracking refinement
@@ -413,86 +199,37 @@ Output ONLY the plan sketch lines at the end, after any analysis."""
         grounded options that achieves the task goal.  On failure,
         ``plan`` is the longest partial refinement found.
 
-        Delegates to ``run_backtracking_refinement`` for the core loop.
+        Delegates to ``bilevel_sketch.refine_sketch``.
         """
-        if not sketch:
-            return [], False
-
-        rng = np.random.default_rng(CFG.seed)
-        max_samples = CFG.agent_bilevel_max_samples_per_step
-        check_subgoals = CFG.agent_bilevel_check_subgoals
-        n = len(sketch)
-        max_tries = [
-            max_samples if step.option.params_space.shape[0] > 0 else 1
-            for step in sketch
-        ]
-        predicates = self._get_all_predicates()
-
-        def sample_fn(idx: int, state: State,
-                      rng_: np.random.Generator) -> _Option:
-            step = sketch[idx]
-            if CFG.agent_bilevel_log_state:
-                step_name = (f"{step.option.name}"
-                             f"({', '.join(o.name for o in step.objects)})")
-                logging.debug(f"  State before {step_name}:\n"
-                              f"{state.pretty_str()}")
-            params = self._sample_params(step.option, state, rng_)
-            grounded = step.option.ground(step.objects, params)
-            if grounded.name == "Wait":
-                if step.subgoal_atoms is not None:
-                    grounded.memory["wait_target_atoms"] = \
-                        step.subgoal_atoms
-                if step.subgoal_neg_atoms is not None:
-                    grounded.memory["wait_target_neg_atoms"] = \
-                        step.subgoal_neg_atoms
-            return grounded
-
-        def validate_fn(idx: int, _pre_state: State, _option: _Option,
-                        post_state: State,
-                        _num_actions: int) -> Tuple[bool, str]:
-            step = sketch[idx]
-            if check_subgoals and step.subgoal_atoms is not None:
-                current_atoms = utils.abstract(post_state, predicates)
-                if not step.subgoal_atoms.issubset(current_atoms):
-                    missing = step.subgoal_atoms - current_atoms
-                    return False, (f"subgoal missing: "
-                                   f"{{{', '.join(str(a) for a in missing)}}}")
-            if idx == n - 1:
-                if not task.goal_holds(post_state):
-                    return False, "goal not reached"
-            return True, ""
-
-        plan, success, total_samples = run_backtracking_refinement(
-            init_state=task.init,
-            option_model=self._option_model,
-            n_steps=n,
-            max_tries=max_tries,
-            sample_fn=sample_fn,
-            validate_fn=validate_fn,
-            rng=rng,
+        plan, success, _ = bilevel_sketch.refine_sketch(
+            task,
+            sketch,
+            self._option_model,
+            predicates=self._get_all_predicates(),
             timeout=timeout,
+            rng=np.random.default_rng(CFG.seed),
+            max_samples_per_step=CFG.agent_bilevel_max_samples_per_step,
+            check_subgoals=CFG.agent_bilevel_check_subgoals,
+            log_state=CFG.agent_bilevel_log_state,
+            run_id=self._run_id,
         )
-
-        logging.info(f"Refinement {'succeeded' if success else 'failed'}: "
-                     f"{total_samples} samples for {n} steps.")
-
-        filtered = [p for p in plan if p is not None]
-        if success:
-            return cast(List[_Option], filtered), True
-        return filtered, False
+        return plan, success
 
     def _sample_params(self, option: ParameterizedOption, _state: State,
                        rng: np.random.Generator) -> np.ndarray:
-        """Sample continuous parameters for an option.
+        """Sample continuous parameters for an option."""
+        return bilevel_sketch.sample_params(option, rng)
 
-        Currently uniform random; hook point for future learned
-        samplers.
-        """
-        if option.params_space.shape[0] == 0:
-            return np.array([], dtype=np.float32)
-        low = option.params_space.low
-        high = option.params_space.high
-        return rng.uniform(low, high).astype(np.float32)
+    def _parse_subgoal_annotations(
+        self,
+        text: str,
+        predicates: Set[Predicate],
+        objects: Sequence[Object],
+    ) -> List[Optional[Tuple[Set[GroundAtom], Set[GroundAtom]]]]:
+        """Shim over ``bilevel_sketch.parse_subgoal_annotations``."""
+        option_names = {o.name for o in self._get_all_options()}
+        return bilevel_sketch.parse_subgoal_annotations(
+            text, predicates, objects, option_names)
 
     # ------------------------------------------------------------------ #
     # Forward validation

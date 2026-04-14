@@ -705,10 +705,13 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
     def _create_explorer(self) -> BaseExplorer:
         """Create explorer for interaction requests."""
-        if CFG.explorer == "agent_plan":
+        if CFG.explorer in ("agent_plan", "agent_bilevel"):
             self._sync_tool_context()
-            return self._create_agent_explorer(self._get_all_predicates(),
-                                               self._get_all_options())
+            return self._create_agent_explorer(
+                self._get_all_predicates(),
+                self._get_all_options(),
+                name=CFG.explorer,
+            )
         return create_explorer(
             CFG.explorer,
             self._get_all_predicates(),
