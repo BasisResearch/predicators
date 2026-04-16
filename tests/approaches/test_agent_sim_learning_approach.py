@@ -16,11 +16,12 @@ import pytest
 
 from predicators import utils
 from predicators.approaches.agent_bilevel_approach import _SketchStep
-from predicators.code_sim_learning.utils import merge_updates
+from predicators.code_sim_learning.utils import LearnedSimulator, \
+    apply_rules, merge_updates
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.ground_truth_models.boil.gt_simulator import \
-    BOIL_PARAM_SPECS, PROCESS_RULES, get_gt_process_features
+    BOIL_PARAM_SPECS, PROCESS_RULES
 from predicators.option_model import _OracleOptionModel
 from predicators.planning import run_backtracking_refinement
 from predicators.structs import GroundAtom, Object, ParameterizedOption, \
@@ -82,22 +83,29 @@ def _build_kinematics_only_oracle(env):
 def _build_combined_model(env):
     """Build a combined model: kinematics-only env + GT step-level dynamics.
 
-    This mirrors the approach's design: compose a kinematics-only
-    env.simulate with a step-level dynamics function into a single
-    simulator, then plug into a standard _OracleOptionModel.
+    Uses the same construction as AgentSimLearningApproach: wraps GT
+    rules in a LearnedSimulator via apply_rules, composes with a
+    kinematics-only env, and derives process_features from env.types
+    (all features, not just GT process features).
     """
     base_env = create_new_env("pybullet_boil",
                               do_cache=False,
                               use_gui=False,
                               skip_process_dynamics=True)
-    process_features = get_gt_process_features()
+    process_features = {
+        t.name: list(t.feature_names)
+        for t in env.types if t.feature_names
+    }
     gt_params = {s.name: s.init_value for s in BOIL_PARAM_SPECS}
+    rules = PROCESS_RULES
+
+    simulator = LearnedSimulator(
+        step_fn=lambda s, _r=rules, _p=gt_params: apply_rules(s, _r, _p),
+        name="gt_combined")
 
     def combined_simulate(state, action):
         kin_state = base_env.simulate(state, action)
-        updates = {}
-        for rule in PROCESS_RULES:
-            updates = rule(kin_state, updates, gt_params)
+        updates = simulator.predict_step(kin_state)
         if not updates:
             return kin_state
         return merge_updates(kin_state, updates, process_features)
