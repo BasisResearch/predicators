@@ -1016,6 +1016,11 @@ class GlobalSettings:
     # log state pretty_str before/after each step
     agent_bilevel_log_state = False
     agent_bilevel_plan_sketch_file = ""  # load sketch from file instead of LLM
+    # Agent bilevel explorer settings. Separate from the solve-path budget
+    # above because the explorer runs full backtracking while looking for
+    # the deepest subgoal-failure to truncate at, and each exhausted
+    # upstream step multiplies the cost.
+    agent_bilevel_explorer_max_samples_per_step = 50
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:

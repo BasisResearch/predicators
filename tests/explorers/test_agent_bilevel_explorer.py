@@ -142,6 +142,7 @@ def _reset_config(**overrides):
         "num_test_tasks": 1,
         "seed": 42,
         "agent_bilevel_max_samples_per_step": 5,
+        "agent_bilevel_explorer_max_samples_per_step": 5,
         "agent_bilevel_max_retries": 0,
         "agent_bilevel_check_subgoals": True,
         "agent_bilevel_log_state": False,
