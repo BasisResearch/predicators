@@ -46,7 +46,7 @@ def _setup_env():
         "wait_option_terminate_on_atom_change": True,
     })
     env = create_new_env("pybullet_boil", do_cache=False, use_gui=False)
-    task = [t.task for t in env.get_train_tasks()][0]
+    task = [t.task for t in env.get_test_tasks()][0]
     options = get_gt_options(env.get_name())
     options_dict = {o.name: o for o in options}
     objects_dict = {obj.name: obj for obj in task.init}
@@ -300,7 +300,7 @@ SKETCH_FILE = os.path.join(os.path.dirname(__file__), "test_data",
 
 @pytest.mark.parametrize("model_type", ["oracle", "combined"])
 def test_boil_sketch_refinement(model_type):
-    """Test that backtracking refinement solves a boil task."""
+    """Test that backtracking refinement solves the first test task."""
     env, task, options_dict, objects_dict = _setup_env()
     predicates = env.predicates
     options = get_gt_options(env.get_name())
