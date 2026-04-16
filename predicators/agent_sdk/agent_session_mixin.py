@@ -129,15 +129,17 @@ class AgentSessionMixin:
             )
 
             extra_names = [
-                getattr(t, "name", "") for t in
-                self._tool_context.extra_mcp_tools]
+                getattr(t, "name", "")
+                for t in self._tool_context.extra_mcp_tools
+            ]
             self._agent_session = AgentSessionManager(
                 system_prompt=self._get_agent_system_prompt(),
                 mcp_server=mcp_server,
                 log_dir=self._get_log_dir(),
                 model_name=CFG.agent_sdk_model_name,
-                allowed_tools=get_allowed_tool_list(
-                    tool_names, extra_names=extra_names or None),
+                allowed_tools=get_allowed_tool_list(tool_names,
+                                                    extra_names=extra_names
+                                                    or None),
             )
 
         if self._agent_session_id is not None:

@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 # Type alias: {Object: {feature_name: new_value}}
 ProcessUpdate = Dict[Object, Dict[str, float]]
 
-
 # ── Primitives ────────────────────────────────────────────────────
 
 
@@ -37,7 +36,8 @@ def apply_rules(state: State, rules: List,
     for rule in rules:
         updates = rule(state, updates, params)
     return {
-        obj: {feat: float(val) for feat, val in feat_dict.items()}
+        obj: {feat: float(val)
+              for feat, val in feat_dict.items()}
         for obj, feat_dict in updates.items()
     }
 

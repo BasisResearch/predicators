@@ -83,8 +83,7 @@ def _water_filling(state: State, updates: ProcessUpdate,
                     spill = float(state.get(faucet, "spilled_level"))
                     new_spill = min(params["max_water_spill_width"],
                                     spill + params["water_fill_speed"])
-                    updates.setdefault(
-                        faucet, {})["spilled_level"] = new_spill
+                    updates.setdefault(faucet, {})["spilled_level"] = new_spill
                 break
 
         if not jug_catching:
@@ -161,15 +160,15 @@ class PyBulletBoilGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
     """GT process-dynamics simulator for pybullet_boil."""
 
     @classmethod
-    def get_env_names(cls):
+    def get_env_names(cls) -> set:
         return {"pybullet_boil"}
 
     @classmethod
-    def get_rules(cls):
+    def get_rules(cls) -> list:
         return list(PROCESS_RULES)
 
     @classmethod
-    def get_param_specs(cls):
+    def get_param_specs(cls) -> list:
         return list(BOIL_PARAM_SPECS)
 
 

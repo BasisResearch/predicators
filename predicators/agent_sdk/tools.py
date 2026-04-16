@@ -2001,8 +2001,8 @@ def create_synthesis_tools(
     from claude_agent_sdk import \
         tool  # pylint: disable=import-outside-toplevel
 
-    from predicators.approaches.agent_sim_learning_approach import (  # pylint: disable=import-outside-toplevel
-        AgentSimLearningApproach)
+    from predicators.approaches.agent_sim_learning_approach import \
+        AgentSimLearningApproach  # pylint: disable=import-outside-toplevel
 
     _run_count = [0]  # mutable counter in closure
 
@@ -2060,33 +2060,32 @@ def create_synthesis_tools(
         "Fit parameters using PROCESS_RULES and PARAM_SPECS "
         "from the run_python namespace. Reports MSE and fitted "
         "parameter values.",
-        {"type": "object", "properties": {}},
+        {
+            "type": "object",
+            "properties": {}
+        },
     )
-    async def evaluate_simulator(
-            args: Dict[str, Any]) -> Dict[str, Any]:
+    async def evaluate_simulator(args: Dict[str, Any]) -> Dict[str, Any]:
         rules = exec_ns.get("PROCESS_RULES")
         specs = exec_ns.get("PARAM_SPECS")
         if not isinstance(rules, list) or not rules:
-            return _text(
-                "Error: PROCESS_RULES not defined. Use "
-                "run_python to define it first.")
+            return _text("Error: PROCESS_RULES not defined. Use "
+                         "run_python to define it first.")
         if not isinstance(specs, list) or not specs:
-            return _text(
-                "Error: PARAM_SPECS not defined. Use "
-                "run_python to define it first.")
+            return _text("Error: PARAM_SPECS not defined. Use "
+                         "run_python to define it first.")
 
         try:
-            fitted_params, mse = (
-                AgentSimLearningApproach._fit_parameters(
-                    rules, specs, step_transitions, process_features,
-                    base_env))
+            fitted_params, mse = (AgentSimLearningApproach._fit_parameters(
+                rules, specs, step_transitions, process_features, base_env))
         except Exception as e:  # pylint: disable=broad-except
             return _text(f"Error: fit_params failed:\n{e}")
 
         lines = [
             f"MSE: {mse:.6f} on "
             f"{len(step_transitions)} step transitions.",
-            "", "Fitted parameters:",
+            "",
+            "Fitted parameters:",
         ]
         for name, val in fitted_params.items():
             lines.append(f"  {name}: {val:.6f}")
@@ -2104,20 +2103,19 @@ def create_synthesis_tools(
             "properties": {
                 "max_transitions": {
                     "type": "integer",
-                    "description":
-                        "Max transitions to test (default 100).",
+                    "description": "Max transitions to test (default 100).",
                 },
                 "tolerance": {
-                    "type": "number",
+                    "type":
+                    "number",
                     "description":
-                        "Absolute tolerance for mismatch "
-                        "(default 1e-4).",
+                    "Absolute tolerance for mismatch "
+                    "(default 1e-4).",
                 },
             },
         },
     )
-    async def test_simulator(
-            args: Dict[str, Any]) -> Dict[str, Any]:
+    async def test_simulator(args: Dict[str, Any]) -> Dict[str, Any]:
         rules = exec_ns.get("PROCESS_RULES")
         specs = exec_ns.get("PARAM_SPECS")
         if not isinstance(rules, list) or not rules:
@@ -2152,17 +2150,15 @@ def create_synthesis_tools(
                     if obj in updates and feat in updates[obj]:
                         pred = updates[obj][feat]
                         pred = (pred.item()
-                                if hasattr(pred, "item")
-                                else float(pred))
+                                if hasattr(pred, "item") else float(pred))
                     else:
                         pred = s_t.get(obj, feat)
                     obs = s_next_obs.get(obj, feat)
                     err = abs(pred - obs)
                     if err > tol:
-                        entry.append(
-                            f"  {obj.name}.{feat}: "
-                            f"pred={pred:.6f} obs={obs:.6f} "
-                            f"err={err:.6f}")
+                        entry.append(f"  {obj.name}.{feat}: "
+                                     f"pred={pred:.6f} obs={obs:.6f} "
+                                     f"err={err:.6f}")
 
             n_tested += 1
             if entry:
@@ -2171,9 +2167,8 @@ def create_synthesis_tools(
                 lines.extend(entry)
                 lines.append("")
 
-        lines.append(
-            f"Tested {n_tested} steps: {n_mismatch} mismatches, "
-            f"{n_tested - n_mismatch} correct.")
+        lines.append(f"Tested {n_tested} steps: {n_mismatch} mismatches, "
+                     f"{n_tested - n_mismatch} correct.")
         return _text("\n".join(lines))
 
     return [run_python, evaluate_simulator, test_simulator]

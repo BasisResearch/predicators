@@ -68,8 +68,10 @@ def _build_kinematics_only_oracle(env):
     Creates a separate env instance with process dynamics disabled, so
     that water filling, heating, and happiness are not simulated.
     """
-    base_env = create_new_env("pybullet_boil", do_cache=False, use_gui=False,
-                             skip_process_dynamics=True)
+    base_env = create_new_env("pybullet_boil",
+                              do_cache=False,
+                              use_gui=False,
+                              skip_process_dynamics=True)
     options = get_gt_options(base_env.get_name())
     oracle = _OracleOptionModel(options, base_env.simulate)
     preds = env.predicates
@@ -84,8 +86,10 @@ def _build_combined_model(env):
     env.simulate with a step-level dynamics function into a single
     simulator, then plug into a standard _OracleOptionModel.
     """
-    base_env = create_new_env("pybullet_boil", do_cache=False, use_gui=False,
-                             skip_process_dynamics=True)
+    base_env = create_new_env("pybullet_boil",
+                              do_cache=False,
+                              use_gui=False,
+                              skip_process_dynamics=True)
     process_features = get_gt_process_features()
     gt_params = {s.name: s.init_value for s in BOIL_PARAM_SPECS}
 

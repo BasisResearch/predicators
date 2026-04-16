@@ -208,8 +208,7 @@ def parse_subgoal_annotations(
             is_neg = atom_match.group(1) is not None
             pred_name = atom_match.group(2)
             obj_names = [
-                n.strip().split(':')[0]
-                for n in atom_match.group(3).split(',')
+                n.strip().split(':')[0] for n in atom_match.group(3).split(',')
             ]
 
             if pred_name not in pred_map:
@@ -222,9 +221,8 @@ def parse_subgoal_annotations(
                 logging.warning(f"Unknown object in subgoal: {e}")
                 continue
             if len(objs) != len(pred.types):
-                logging.warning(
-                    f"Arity mismatch for {pred_name}: expected "
-                    f"{len(pred.types)}, got {len(objs)}")
+                logging.warning(f"Arity mismatch for {pred_name}: expected "
+                                f"{len(pred.types)}, got {len(objs)}")
                 continue
             atom = GroundAtom(pred, objs)
             if is_neg:
@@ -259,11 +257,7 @@ def parse_sketch_from_text(
     option_names = {o.name for o in options}
 
     parsed = utils.parse_model_output_into_option_plan(
-        cleaned_text,
-        objects,
-        types,
-        options,
-        parse_continuous_params=False)
+        cleaned_text, objects, types, options, parse_continuous_params=False)
 
     if not parsed:
         return []
@@ -283,9 +277,7 @@ def parse_sketch_from_text(
                            subgoal_neg_atoms=neg if neg else None))
         else:
             sketch.append(
-                SketchStep(option=option,
-                           objects=objs,
-                           subgoal_atoms=None))
+                SketchStep(option=option, objects=objs, subgoal_atoms=None))
     return sketch
 
 
@@ -366,8 +358,7 @@ def refine_sketch(
         return grounded
 
     def validate_fn(idx: int, _pre_state: State, _option: _Option,
-                    post_state: State,
-                    _num_actions: int) -> Tuple[bool, str]:
+                    post_state: State, _num_actions: int) -> Tuple[bool, str]:
         step = sketch[idx]
         if check_subgoals and step.subgoal_atoms is not None:
             current_atoms = utils.abstract(post_state, predicates)
@@ -415,10 +406,9 @@ def refine_sketch(
             and deepest_subgoal_fail_idx[0] >= 0):
         snapshot = deepest_subgoal_fail_prefix[0]
         refined = [p for p in snapshot if p is not None]
-        logging.info(
-            f"[{run_id}] Truncating at deepest subgoal failure "
-            f"(step {deepest_subgoal_fail_idx[0]}): "
-            f"{len(refined)}/{n} steps in experiment plan.")
+        logging.info(f"[{run_id}] Truncating at deepest subgoal failure "
+                     f"(step {deepest_subgoal_fail_idx[0]}): "
+                     f"{len(refined)}/{n} steps in experiment plan.")
         return cast(List[_Option], refined), False, total_samples
 
     refined = [p for p in plan if p is not None]

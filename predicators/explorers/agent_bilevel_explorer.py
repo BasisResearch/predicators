@@ -108,7 +108,7 @@ class AgentBilevelExplorer(BaseExplorer):
                 timeout=float(timeout),
                 rng=np.random.default_rng(CFG.seed),
                 max_samples_per_step=CFG.
-                    agent_bilevel_explorer_max_samples_per_step,
+                agent_bilevel_explorer_max_samples_per_step,
                 check_subgoals=True,
                 check_final_goal=False,
                 truncate_on_subgoal_fail=True,
@@ -124,11 +124,9 @@ class AgentBilevelExplorer(BaseExplorer):
                 for i, opt in enumerate(plan):
                     obj_s = ", ".join(o.name for o in opt.objects)
                     par_s = ", ".join(f"{p:.4f}" for p in opt.params)
-                    plan_strs.append(
-                        f"  {i}: {opt.name}({obj_s})[{par_s}]")
-                logging.info(
-                    "agent_bilevel explorer: experiment plan:\n" +
-                    "\n".join(plan_strs))
+                    plan_strs.append(f"  {i}: {opt.name}({obj_s})[{par_s}]")
+                logging.info("agent_bilevel explorer: experiment plan:\n%s",
+                             "\n".join(plan_strs))
 
             if plan:
                 policy = utils.option_plan_to_policy(
@@ -153,8 +151,8 @@ class AgentBilevelExplorer(BaseExplorer):
     # ------------------------------------------------------------------ #
 
     def _wrap_policy(
-        self, policy: Callable[[State], Action]
-    ) -> Callable[[State], Action]:
+            self, policy: Callable[[State],
+                                   Action]) -> Callable[[State], Action]:
         """Convert OptionExecutionFailure into RequestActPolicyFailure.
 
         This lets the main loop cleanly terminate the episode when the
@@ -219,8 +217,8 @@ class AgentBilevelExplorer(BaseExplorer):
 
         return "\n".join(lines)
 
-    def _extract_option_plan_text(
-            self, responses: List[Dict[str, Any]]) -> str:
+    def _extract_option_plan_text(self, responses: List[Dict[str,
+                                                             Any]]) -> str:
         """Extract plan text from the last assistant text response."""
         last_text_parts: List[str] = []
         for resp in responses:

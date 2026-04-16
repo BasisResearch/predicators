@@ -26,22 +26,20 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.approaches.agent_bilevel_approach import AgentBilevelApproach
 from predicators.agent_sdk.tools import create_synthesis_tools
-from predicators.code_sim_learning.training import (ParamSpec, compute_mse,
-                                                     fit_params)
-from predicators.code_sim_learning.utils import (LearnedSimulator,
-                                                    apply_rules, merge_updates)
+from predicators.approaches.agent_bilevel_approach import AgentBilevelApproach
+from predicators.code_sim_learning.training import ParamSpec, compute_mse, \
+    fit_params
+from predicators.code_sim_learning.utils import LearnedSimulator, \
+    apply_rules, merge_updates
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.settings import CFG
-from predicators.structs import (Action, InteractionResult,
-                                 LowLevelTrajectory, ParameterizedOption,
-                                 Predicate, State, Task, Type)
+from predicators.structs import Action, InteractionResult, \
+    LowLevelTrajectory, ParameterizedOption, Predicate, State, Task, Type
 
 logger = logging.getLogger(__name__)
-
 
 # ── Approach ─────────────────────────────────────────────────────
 
@@ -78,9 +76,10 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         # GUI connections) and is the only env this approach holds.
         # learn_from_interaction_results later wraps a kin+learned
         # combined simulator around the same env.
-        self._base_env = create_new_env(CFG.env, do_cache=False,
-                                       use_gui=CFG.option_model_use_gui,
-                                       skip_process_dynamics=True)
+        self._base_env = create_new_env(CFG.env,
+                                        do_cache=False,
+                                        use_gui=CFG.option_model_use_gui,
+                                        skip_process_dynamics=True)
         if option_model is None:
             option_model = _OracleOptionModel(initial_options,
                                               self._base_env.simulate)
@@ -128,15 +127,17 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         if self._process_rules is not None and self._fitted_params is not None:
             rules, params = self._process_rules, self._fitted_params
             self._simulator = LearnedSimulator(
-                step_fn=lambda s, _r=rules, _p=params: apply_rules(s, _r, _p),
+                step_fn=lambda s, _r=rules, _p=params:  # type: ignore[misc]
+                apply_rules(s, _r, _p),
                 name="agent_synthesized")
         elif self._simulator is None:
             logger.warning("Synthesis produced no simulator, skipping.")
             return
 
         # Build combined simulator.
-        combined_sim = self._build_combined_simulator(
-            self._base_env, self._simulator, self._process_features)
+        combined_sim = self._build_combined_simulator(self._base_env,
+                                                      self._simulator,
+                                                      self._process_features)
 
         # Build learned option model
         self._option_model = self._build_option_model(combined_sim)
@@ -195,8 +196,9 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             if not CFG.agent_sim_learn_oracle_sim_params:
                 rng = np.random.default_rng(CFG.seed)
                 specs = [
-                    ParamSpec(s.name, s.init_value + rng.normal(
-                        0, max(abs(s.init_value) * 0.2, 1e-4)))
+                    ParamSpec(
+                        s.name, s.init_value +
+                        rng.normal(0, max(abs(s.init_value) * 0.2, 1e-4)))
                     for s in specs
                 ]
             logger.info("Loaded oracle sim program (%d rules, %d params).",
@@ -214,9 +216,11 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             }
 
             # Build synthesis tools (run_python, evaluate, test).
-            tools = create_synthesis_tools(
-                exec_ns, step_transitions, process_features, self._base_env,
-                save_dir=save_dir)
+            tools = create_synthesis_tools(exec_ns,
+                                           step_transitions,
+                                           process_features,
+                                           self._base_env,
+                                           save_dir=save_dir)
             self._tool_context.extra_mcp_tools = tools
             self._learning_mode = True
 
@@ -251,25 +255,26 @@ Read that file first, then explore the trajectory data with \
             if rules is None or specs is None:
                 return
 
-            logger.info("Agent synthesized %d rules, %d params.",
-                        len(rules), len(specs))
+            logger.info("Agent synthesized %d rules, %d params.", len(rules),
+                        len(specs))
 
         self._process_rules = rules
 
         # ── Obtain fitted parameters ────────────────────────────
-        base = self._base_env
         if CFG.agent_sim_learn_oracle_sim_params:
             self._fitted_params = {s.name: s.init_value for s in specs}
+            env = self._base_env
             self._fit_mse = compute_mse(
-                lambda s, a, p: apply_rules(base.simulate(s, a), rules, p),
+                lambda s, a, p: apply_rules(  # type: ignore[misc]
+                    env.simulate(s, a), rules, p),
                 step_transitions, self._fitted_params, process_features)
             logger.info("Using oracle params (MSE: %.6f).", self._fit_mse)
         else:
             self._fitted_params, self._fit_mse = self._fit_parameters(
                 rules, specs, step_transitions, process_features,
-                base)
-            logger.info("Fitted %d params (MSE: %.6f).",
-                        len(specs), self._fit_mse)
+                self._base_env)
+            logger.info("Fitted %d params (MSE: %.6f).", len(specs),
+                        self._fit_mse)
 
     # ── Parameter fitting ────────────────────────────────────────
 
@@ -292,8 +297,8 @@ Read that file first, then explore the trajectory data with \
             (fitted_params, mse) tuple.
         """
 
-        def sim_fn(state: State, action: Action,
-                   params: Dict[str, float]) -> Dict:
+        def sim_fn(state: State, action: Action, params: Dict[str,
+                                                              float]) -> Dict:
             if base_env is not None:
                 state = base_env.simulate(state, action)
             return apply_rules(state, rules, params)
@@ -305,8 +310,8 @@ Read that file first, then explore the trajectory data with \
             process_features=process_features,
         )
 
-        mse = compute_mse(
-            sim_fn, step_transitions, result.point_estimate, process_features)
+        mse = compute_mse(sim_fn, step_transitions, result.point_estimate,
+                          process_features)
         return result.point_estimate, mse
 
     @staticmethod
@@ -325,9 +330,8 @@ Read that file first, then explore the trajectory data with \
             logger.warning("No simulator code dir at %s.", save_dir)
             return None, None
 
-        files = sorted(
-            f for f in os.listdir(save_dir)
-            if f.endswith(".py") and f[0].isdigit())
+        files = sorted(f for f in os.listdir(save_dir)
+                       if f.endswith(".py") and f[0].isdigit())
         if not files:
             logger.warning("No code files in %s.", save_dir)
             return None, None
@@ -343,8 +347,9 @@ Read that file first, then explore the trajectory data with \
                 code = f.read()
             try:
                 exec(code, ns)  # pylint: disable=exec-used
-            except Exception:
-                logger.warning("Failed to exec %s, skipping.", fpath,
+            except Exception:  # pylint: disable=broad-except
+                logger.warning("Failed to exec %s, skipping.",
+                               fpath,
                                exc_info=True)
 
         rules = ns.get("PROCESS_RULES")
@@ -367,7 +372,7 @@ Read that file first, then explore the trajectory data with \
 
         Returns the path the agent should Read.
         """
-        from predicators.structs import (  # pylint: disable=import-outside-toplevel
+        from predicators.structs import (  # pylint: disable=import-outside-toplevel,reimported
             Action as _Action, LowLevelTrajectory as _LLT,
             Object as _Object, State as _State, Type as _Type)
 
