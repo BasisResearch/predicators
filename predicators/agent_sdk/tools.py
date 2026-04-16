@@ -72,7 +72,10 @@ ALL_TOOL_NAMES = (INSPECTION_TOOL_NAMES + PROPOSAL_TOOL_NAMES +
                   PLANNING_TOOL_NAMES + SCENE_TOOL_NAMES)
 
 
-def get_allowed_tool_list(tool_names: Optional[List[str]] = None) -> List[str]:
+def get_allowed_tool_list(
+    tool_names: Optional[List[str]] = None,
+    extra_names: Optional[List[str]] = None,
+) -> List[str]:
     """Compute the allowed_tools list for the agent SDK.
 
     Args:
@@ -82,6 +85,8 @@ def get_allowed_tool_list(tool_names: Optional[List[str]] = None) -> List[str]:
     prefix = f"mcp__{MCP_SERVER_NAME}__"
     names = ALL_TOOL_NAMES if tool_names is None else \
         [n for n in tool_names if n in set(ALL_TOOL_NAMES)]
+    if extra_names:
+        names = list(names) + list(extra_names)
     return [f"{prefix}{n}" for n in names]
 
 
@@ -114,6 +119,7 @@ class ToolContext:
     turn_id: int = 0  # current query/turn within the session
     test_call_id: int = 0  # incremented per test_option_plan call
     visualized_state: Optional[State] = None  # last state from visualize_state
+    extra_mcp_tools: list = field(default_factory=list)  # injected by subclass
     # Populated by AgentBilevelExplorer so learning approaches can diff
     # mental-model subgoals against real trajectories.
     # TODO(sim-learning): consume these in learn_from_interaction_results.
@@ -1950,5 +1956,224 @@ def create_mcp_tools(ctx: ToolContext,
         "visualize_state": visualize_state,
     }
     if tool_names is None:
-        return list(_all.values())
-    return [_all[n] for n in tool_names if n in _all]
+        tools = list(_all.values())
+    else:
+        tools = [_all[n] for n in tool_names if n in _all]
+    tools.extend(ctx.extra_mcp_tools)
+    return tools
+
+
+# ── Sim-learning tools ───────────────────────────────────────────
+
+
+def create_synthesis_tools(
+    exec_ns: Dict[str, Any],
+    step_transitions: list,
+    process_features: Dict[str, List[str]],
+    kin_env: Any = None,
+    save_dir: Optional[str] = None,
+) -> list:
+    """Create MCP tools for the sim-learning synthesis agent.
+
+    Returns ``[run_python, evaluate_simulator, test_simulator]``.
+
+    * ``run_python`` — executes arbitrary Python in a persistent
+      namespace pre-loaded with trajectory data.
+    * ``evaluate_simulator`` — fits parameters via MCMC on
+      ``PROCESS_RULES`` / ``PARAM_SPECS`` defined in the namespace.
+    * ``test_simulator`` — tests predictions vs observations.
+
+    Args:
+        exec_ns: Persistent namespace for ``run_python``.  Should
+            contain ``trajectories``, ``np``, ``ParamSpec``.
+        step_transitions: ``(State, Action, State)`` triples.
+        process_features: ``{type_name: [feat_names]}`` for MSE.
+        kin_env: Kinematics-only environment.  When provided,
+            evaluate/test tools run kinematics before learned rules.
+        save_dir: Directory to save simulator source code to.
+            Each ``run_python`` call appends code to
+            ``save_dir/simulator_code.py``.
+    """
+    import io  # pylint: disable=import-outside-toplevel
+    import sys  # pylint: disable=import-outside-toplevel
+    import traceback  # pylint: disable=import-outside-toplevel
+
+    from claude_agent_sdk import \
+        tool  # pylint: disable=import-outside-toplevel
+
+    from predicators.approaches.agent_sim_learning_approach import (  # pylint: disable=import-outside-toplevel
+        AgentSimLearningApproach)
+
+    _run_count = [0]  # mutable counter in closure
+
+    def _text(msg: str) -> Dict[str, Any]:
+        return {"type": "text", "text": msg}
+
+    # ── run_python ──────────────────────────────────────────
+
+    @tool(
+        "run_python",
+        "Execute Python code with trajectory data in scope. "
+        "Available variables: trajectories (List[LowLevelTrajectory]),"
+        " np, ParamSpec. print() output is returned. "
+        "The namespace persists across calls.",
+        {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "Python code to execute.",
+                }
+            },
+            "required": ["code"],
+        },
+    )
+    async def run_python(args: Dict[str, Any]) -> Dict[str, Any]:
+        code = args["code"]
+        old_stdout = sys.stdout
+        sys.stdout = captured = io.StringIO()
+        try:
+            exec(code, exec_ns)  # pylint: disable=exec-used
+        except Exception:  # pylint: disable=broad-except
+            tb = traceback.format_exc()
+            return _text(f"Error:\n{tb}")
+        finally:
+            sys.stdout = old_stdout
+
+        # Save each successful run_python call as a versioned file;
+        # _load_simulator_from_file replays these in order.
+        if save_dir is not None:
+            _run_count[0] += 1
+            os.makedirs(save_dir, exist_ok=True)
+            filename = f"{_run_count[0]:03d}_run_python.py"
+            filepath = os.path.join(save_dir, filename)
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(code)
+
+        output = captured.getvalue()
+        return _text(output or "(no output)")
+
+    # ── evaluate_simulator ──────────────────────────────────
+
+    @tool(
+        "evaluate_simulator",
+        "Fit parameters using PROCESS_RULES and PARAM_SPECS "
+        "from the run_python namespace. Reports MSE and fitted "
+        "parameter values.",
+        {"type": "object", "properties": {}},
+    )
+    async def evaluate_simulator(
+            args: Dict[str, Any]) -> Dict[str, Any]:
+        rules = exec_ns.get("PROCESS_RULES")
+        specs = exec_ns.get("PARAM_SPECS")
+        if not isinstance(rules, list) or not rules:
+            return _text(
+                "Error: PROCESS_RULES not defined. Use "
+                "run_python to define it first.")
+        if not isinstance(specs, list) or not specs:
+            return _text(
+                "Error: PARAM_SPECS not defined. Use "
+                "run_python to define it first.")
+
+        try:
+            fitted_params, mse = (
+                AgentSimLearningApproach._fit_parameters(
+                    rules, specs, step_transitions, process_features,
+                    kin_env))
+        except Exception as e:  # pylint: disable=broad-except
+            return _text(f"Error: fit_params failed:\n{e}")
+
+        lines = [
+            f"MSE: {mse:.6f} on "
+            f"{len(step_transitions)} step transitions.",
+            "", "Fitted parameters:",
+        ]
+        for name, val in fitted_params.items():
+            lines.append(f"  {name}: {val:.6f}")
+
+        return _text("\n".join(lines))
+
+    # ── test_simulator ──────────────────────────────────────
+
+    @tool(
+        "test_simulator",
+        "Test PROCESS_RULES predictions vs observations on "
+        "step transitions. Shows mismatches.",
+        {
+            "type": "object",
+            "properties": {
+                "max_transitions": {
+                    "type": "integer",
+                    "description":
+                        "Max transitions to test (default 100).",
+                },
+                "tolerance": {
+                    "type": "number",
+                    "description":
+                        "Absolute tolerance for mismatch "
+                        "(default 1e-4).",
+                },
+            },
+        },
+    )
+    async def test_simulator(
+            args: Dict[str, Any]) -> Dict[str, Any]:
+        rules = exec_ns.get("PROCESS_RULES")
+        specs = exec_ns.get("PARAM_SPECS")
+        if not isinstance(rules, list) or not rules:
+            return _text("Error: PROCESS_RULES not defined.")
+
+        max_n = args.get("max_transitions", 100)
+        tol = args.get("tolerance", 1e-4)
+        pairs = step_transitions[:max_n]
+
+        # Use init params if not yet fitted.
+        if specs:
+            t_params = {s.name: s.init_value for s in specs}
+        else:
+            t_params = {}
+
+        lines: list = []
+        n_tested = 0
+        n_mismatch = 0
+
+        for s_t, action, s_next_obs in pairs:
+            # Run kinematics first so rules see post-kin state.
+            kin_state = (kin_env.simulate(s_t, action)
+                         if kin_env is not None else s_t)
+            updates: Dict = {}
+            for rule in rules:
+                updates = rule(kin_state, updates, t_params)
+
+            entry: list = []
+            for obj in s_t:
+                type_name = obj.type.name
+                for feat in process_features.get(type_name, []):
+                    if obj in updates and feat in updates[obj]:
+                        pred = updates[obj][feat]
+                        pred = (pred.item()
+                                if hasattr(pred, "item")
+                                else float(pred))
+                    else:
+                        pred = s_t.get(obj, feat)
+                    obs = s_next_obs.get(obj, feat)
+                    err = abs(pred - obs)
+                    if err > tol:
+                        entry.append(
+                            f"  {obj.name}.{feat}: "
+                            f"pred={pred:.6f} obs={obs:.6f} "
+                            f"err={err:.6f}")
+
+            n_tested += 1
+            if entry:
+                n_mismatch += 1
+                lines.append(f"Step {n_tested}:")
+                lines.extend(entry)
+                lines.append("")
+
+        lines.append(
+            f"Tested {n_tested} steps: {n_mismatch} mismatches, "
+            f"{n_tested - n_mismatch} correct.")
+        return _text("\n".join(lines))
+
+    return [run_python, evaluate_simulator, test_simulator]
