@@ -12,6 +12,7 @@ import numpy as np
 
 from predicators.code_sim_learning.training import ParamSpec
 from predicators.code_sim_learning.utils import ProcessUpdate
+from predicators.ground_truth_models import GroundTruthSimulatorFactory
 from predicators.structs import Object, State
 
 # Constants matching pybullet_boil.py exactly.
@@ -154,6 +155,22 @@ def _happiness(state: State, updates: ProcessUpdate,
 
 
 PROCESS_RULES = [_water_filling, _heating, _happiness]
+
+
+class PyBulletBoilGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
+    """GT process-dynamics simulator for pybullet_boil."""
+
+    @classmethod
+    def get_env_names(cls):
+        return {"pybullet_boil"}
+
+    @classmethod
+    def get_rules(cls):
+        return list(PROCESS_RULES)
+
+    @classmethod
+    def get_param_specs(cls):
+        return list(BOIL_PARAM_SPECS)
 
 
 def get_gt_process_features() -> Dict[str, List[str]]:

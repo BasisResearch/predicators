@@ -68,6 +68,28 @@ class GroundTruthProcessFactory(abc.ABC):
         raise NotImplementedError("Override me!")
 
 
+class GroundTruthSimulatorFactory(abc.ABC):
+    """Parent class for ground-truth process-dynamics simulator programs."""
+
+    @classmethod
+    @abc.abstractmethod
+    def get_env_names(cls) -> Set[str]:
+        """Get the env names that this factory builds simulators for."""
+        raise NotImplementedError("Override me!")
+
+    @classmethod
+    @abc.abstractmethod
+    def get_rules(cls) -> list:
+        """Return the list of process rule functions."""
+        raise NotImplementedError("Override me!")
+
+    @classmethod
+    @abc.abstractmethod
+    def get_param_specs(cls) -> list:
+        """Return the list of ParamSpec objects."""
+        raise NotImplementedError("Override me!")
+
+
 class GroundTruthLDLBridgePolicyFactory(abc.ABC):
     """Ground-truth policies implemented with LDLs saved in text files."""
 
@@ -249,6 +271,21 @@ def get_gt_processes(env_name: str,
             for p in final_processes if isinstance(p, EndogenousProcess)
         }
     return final_processes
+
+
+def get_gt_simulator(env_name: str) -> tuple:
+    """Load ground-truth process rules and param specs for an env.
+
+    Returns ``(rules, param_specs)`` where *rules* is a list of
+    process rule functions and *param_specs* is a list of
+    ``ParamSpec`` objects whose ``init_value`` is the GT value.
+    """
+    gt_name = _normalize_env_name_for_gt(env_name)
+    for cls in utils.get_all_subclasses(GroundTruthSimulatorFactory):
+        if not cls.__abstractmethods__ and gt_name in cls.get_env_names():
+            return cls.get_rules(), cls.get_param_specs()
+    raise NotImplementedError("Ground-truth simulator not implemented for "
+                              f"env: {env_name}")
 
 
 def get_gt_ldl_bridge_policy(env_name: str, types: Set[Type],

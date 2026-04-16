@@ -30,8 +30,10 @@ from predicators.approaches.agent_bilevel_approach import AgentBilevelApproach
 from predicators.agent_sdk.tools import create_synthesis_tools
 from predicators.code_sim_learning.training import (ParamSpec, compute_mse,
                                                      fit_params)
-from predicators.code_sim_learning.utils import LearnedSimulator
+from predicators.code_sim_learning.utils import (LearnedSimulator,
+                                                    apply_rules, merge_updates)
 from predicators.envs import create_new_env
+from predicators.ground_truth_models import get_gt_simulator
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.settings import CFG
 from predicators.structs import (Action, InteractionResult,
@@ -39,67 +41,6 @@ from predicators.structs import (Action, InteractionResult,
                                  Predicate, State, Task, Type)
 
 logger = logging.getLogger(__name__)
-
-
-# ── Helpers ───────────────────────────────────────────────────────
-
-
-def _build_fitted_step_fn(
-    process_rules: List,
-    fitted_params: Dict[str, float],
-) -> Callable[[State], Dict]:
-    """Create a step function from fitted process rules + parameters."""
-
-    def step_fn(state: State) -> Dict:
-        updates: Dict = {}
-        for rule in process_rules:
-            updates = rule(state, updates, fitted_params)
-        result: Dict = {}
-        for obj, feat_dict in updates.items():
-            result[obj] = {}
-            for feat, val in feat_dict.items():
-                result[obj][feat] = float(val)
-        return result
-
-    return step_fn
-
-
-def merge_process_updates(
-    base_state: State,
-    updates: Dict,
-    process_features: Dict[str, List[str]],
-) -> State:
-    """Apply learned process updates on top of a base state.
-
-    Args:
-        base_state: The state to merge into (e.g. from kinematics).
-        updates: {Object: {feat_name: new_value}} from learned dynamics.
-        process_features: {type_name: [feat_names]} identifying which
-            features to overwrite.
-
-    Returns:
-        A copy of base_state with process features overwritten.
-    """
-    if not updates:
-        return base_state
-
-    new_data = {}
-    for obj in base_state:
-        arr = base_state[obj].copy()
-        type_name = obj.type.name
-        process_feats = set(process_features.get(type_name, []))
-
-        if obj in updates:
-            for feat_name, new_val in updates[obj].items():
-                if feat_name in process_feats:
-                    idx = obj.type.feature_names.index(feat_name)
-                    arr[idx] = new_val
-
-        new_data[obj] = arr
-
-    merged = base_state.copy()
-    merged.data = new_data
-    return merged
 
 
 # ── Approach ─────────────────────────────────────────────────────
@@ -141,11 +82,6 @@ class AgentSimLearningApproach(AgentBilevelApproach):
                                        use_gui=CFG.option_model_use_gui,
                                        skip_process_dynamics=True)
         if option_model is None:
-            # Use initial_options directly rather than get_gt_options(CFG.env)
-            # — the latter calls get_or_create_env which would create a
-            # second cached env (without GUI, with full dynamics) and the
-            # two PyBullet connections then fight over the physics server,
-            # producing "Not connected to physics server" mid-rollout.
             option_model = _OracleOptionModel(initial_options,
                                               self._base_env.simulate)
         super().__init__(initial_predicates,
@@ -156,8 +92,11 @@ class AgentSimLearningApproach(AgentBilevelApproach):
                          *args,
                          option_model=option_model,
                          **kwargs)
-        self._types = types
         self._simulator: Optional[LearnedSimulator] = None
+        self._process_features: Dict[str, List[str]] = {
+            t.name: list(t.feature_names)
+            for t in types if t.feature_names
+        }
         # Persistent state across learning cycles.
         self._process_rules: Optional[List] = None
         self._fitted_params: Optional[Dict[str, float]] = None
@@ -183,43 +122,25 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             self, results: Sequence[InteractionResult]) -> None:
         super().learn_from_interaction_results(results)
 
-        if not self._online_trajectories:
-            logger.warning("No transitions, skipping.")
-            return
+        self._synthesize_with_agent(self._process_features)
 
-        logger.info("Sim-learning cycle %d: %d total trajectories.",
-                    self._online_learning_cycle,
-                    len(self._online_trajectories))
-
-        # Include all features so the agent can synthesize rules for any
-        # feature, not just pre-identified "process" features.
-        process_features: Dict[str, List[str]] = {}
-        for t in self._types:
-            if t.feature_names:
-                process_features[t.name] = list(t.feature_names)
-
-        # synthesize via agent.
-        self._synthesize_with_agent(process_features)
-
-        # Build simulator from fitted rules.
+        # Build learned simulator.
         if self._process_rules is not None and self._fitted_params is not None:
-            step_fn = _build_fitted_step_fn(
-                self._process_rules, self._fitted_params)
+            rules, params = self._process_rules, self._fitted_params
             self._simulator = LearnedSimulator(
-                step_fn=step_fn,
+                step_fn=lambda s, _r=rules, _p=params: apply_rules(s, _r, _p),
                 name="agent_synthesized")
         elif self._simulator is None:
             logger.warning("Synthesis produced no simulator, skipping.")
             return
 
-        # Build combined simulator: kinematics → learned dynamics.
+        # Build combined simulator.
         combined_sim = self._build_combined_simulator(
-            self._base_env, self._simulator, process_features)
+            self._base_env, self._simulator, self._process_features)
 
-        # Wrap in an option model with interleaved per-step simulation.
+        # Build learned option model
         self._option_model = self._build_option_model(combined_sim)
-        logger.info("Built learned option model (MSE: %.6f).",
-                    self._fit_mse)
+        logger.info("Built learned option model (MSE: %.6f).", self._fit_mse)
 
     def _build_option_model(
         self,
@@ -256,38 +177,59 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         ``trajectories`` pre-loaded), then defines ``PROCESS_RULES``
         and ``PARAM_SPECS``.  Each ``run_python`` call appends code
         to a saved file; after the session we reload from that file.
+
+        Behaviour is modified by two CFG flags:
+
+        - ``agent_sim_learn_oracle_sim_program``: skip agent synthesis
+          and load GT rules/specs instead (init_values perturbed so
+          MCMC has non-trivial work).
+        - ``agent_sim_learn_oracle_sim_params``: skip MCMC fitting and
+          use the GT parameter values directly.
         """
         step_transitions = self._extract_step_transitions(
             self._online_trajectories)
 
-        # Directory for saving simulator source code.
-        base = self._tool_context.sandbox_dir or self._get_log_dir()
-        save_dir = os.path.join(base, "simulator_code")
+        # ── Obtain rules + specs ────────────────────────────────
+        if CFG.agent_sim_learn_oracle_sim_program:
+            rules, specs = get_gt_simulator(CFG.env)
+            if not CFG.agent_sim_learn_oracle_sim_params:
+                rng = np.random.default_rng(CFG.seed)
+                specs = [
+                    ParamSpec(s.name, s.init_value + rng.normal(
+                        0, max(abs(s.init_value) * 0.2, 1e-4)))
+                    for s in specs
+                ]
+            logger.info("Loaded oracle sim program (%d rules, %d params).",
+                        len(rules), len(specs))
+        else:
+            # Directory for saving simulator source code.
+            base = self._tool_context.sandbox_dir or self._get_log_dir()
+            save_dir = os.path.join(base, "simulator_code")
 
-        # Persistent exec namespace — the agent's "scratch-pad".
-        exec_ns: Dict[str, Any] = {
-            "trajectories": self._online_trajectories,
-            "np": np,
-            "ParamSpec": ParamSpec,
-        }
+            # Persistent exec namespace — the agent's "scratch-pad".
+            exec_ns: Dict[str, Any] = {
+                "trajectories": self._online_trajectories,
+                "np": np,
+                "ParamSpec": ParamSpec,
+            }
 
-        # Build synthesis tools (run_python, evaluate, test).
-        tools = create_synthesis_tools(
-            exec_ns, step_transitions, process_features, self._base_env,
-            save_dir=save_dir)
-        self._tool_context.extra_mcp_tools = tools
-        self._learning_mode = True
+            # Build synthesis tools (run_python, evaluate, test).
+            tools = create_synthesis_tools(
+                exec_ns, step_transitions, process_features, self._base_env,
+                save_dir=save_dir)
+            self._tool_context.extra_mcp_tools = tools
+            self._learning_mode = True
 
-        # Force a fresh session so the synthesis system prompt and
-        # tool set take effect.
-        self._close_agent_session()
-        self._ensure_agent_session()
+            # Force a fresh session so the synthesis system prompt and
+            # tool set take effect.
+            self._close_agent_session()
+            self._ensure_agent_session()
 
-        # Write data-structure reference for the agent to Read.
-        structs_ref = self._write_structs_reference()
+            # Write data-structure reference for the agent to Read.
+            structs_ref = self._write_structs_reference()
 
-        n_trajs = len(self._online_trajectories)
-        message = f"""\
+            n_trajs = len(self._online_trajectories)
+            message = f"""\
 Synthesize a process dynamics simulator for this environment. \
 There are {n_trajs} trajectories ({len(step_transitions)} step \
 transitions) available.
@@ -296,28 +238,38 @@ Data-structure source code is at: {structs_ref}
 Read that file first, then explore the trajectory data with \
 `run_python` and define PROCESS_RULES and PARAM_SPECS."""
 
-        try:
-            self._query_agent_sync(message)
-        finally:
-            self._tool_context.extra_mcp_tools = []
-            self._learning_mode = False
-            self._close_agent_session()
+            try:
+                self._query_agent_sync(message)
+            finally:
+                self._tool_context.extra_mcp_tools = []
+                self._learning_mode = False
+                self._close_agent_session()
 
-        # Load results from saved versioned files.
-        rules, specs = self._load_simulator_from_file(
-            save_dir, self._online_trajectories)
-        if rules is None or specs is None:
-            return
+            # Load results from saved versioned files.
+            rules, specs = self._load_simulator_from_file(
+                save_dir, self._online_trajectories)
+            if rules is None or specs is None:
+                return
+
+            logger.info("Agent synthesized %d rules, %d params.",
+                        len(rules), len(specs))
 
         self._process_rules = rules
 
-        # Fit parameters via MCMC.
-        self._fitted_params, self._fit_mse = self._fit_parameters(
-            rules, specs, step_transitions, process_features,
-            self._base_env)
-        logger.info(
-            "Agent synthesized %d rules, %d params (MSE: %.6f).",
-            len(rules), len(specs), self._fit_mse)
+        # ── Obtain fitted parameters ────────────────────────────
+        base = self._base_env
+        if CFG.agent_sim_learn_oracle_sim_params:
+            self._fitted_params = {s.name: s.init_value for s in specs}
+            self._fit_mse = compute_mse(
+                lambda s, a, p: apply_rules(base.simulate(s, a), rules, p),
+                step_transitions, self._fitted_params, process_features)
+            logger.info("Using oracle params (MSE: %.6f).", self._fit_mse)
+        else:
+            self._fitted_params, self._fit_mse = self._fit_parameters(
+                rules, specs, step_transitions, process_features,
+                base)
+            logger.info("Fitted %d params (MSE: %.6f).",
+                        len(specs), self._fit_mse)
 
     # ── Parameter fitting ────────────────────────────────────────
 
@@ -327,12 +279,12 @@ Read that file first, then explore the trajectory data with \
         specs: List[ParamSpec],
         step_transitions: List[Tuple[State, Action, State]],
         process_features: Dict[str, List[str]],
-        kin_env: Any = None,
+        base_env: Any = None,
     ) -> Tuple[Dict[str, float], float]:
         """Fit parameters for the synthesized rules via MCMC.
 
         Args:
-            kin_env: Kinematics-only environment.  When provided the
+            base_env: Kinematics-only environment.  When provided the
                 simulator runs kinematics first so learned rules see
                 the post-kinematics state (consistent with inference).
 
@@ -342,12 +294,9 @@ Read that file first, then explore the trajectory data with \
 
         def sim_fn(state: State, action: Action,
                    params: Dict[str, float]) -> Dict:
-            if kin_env is not None:
-                state = kin_env.simulate(state, action)
-            updates: Dict = {}
-            for rule in rules:
-                updates = rule(state, updates, params)
-            return updates
+            if base_env is not None:
+                state = base_env.simulate(state, action)
+            return apply_rules(state, rules, params)
 
         result = fit_params(
             simulator_fn=sim_fn,
@@ -453,18 +402,18 @@ Read that file first, then explore the trajectory data with \
 
     @staticmethod
     def _build_combined_simulator(
-        kin_env: Any,
+        base_env: Any,
         simulator: LearnedSimulator,
         process_features: Dict[str, List[str]],
     ) -> Callable[[State, Action], State]:
         """Compose kinematics-only env with learned step-level dynamics."""
 
         def combined_simulate(state: State, action: Action) -> State:
-            kin_state = kin_env.simulate(state, action)
+            kin_state = base_env.simulate(state, action)
             updates = simulator.predict_step(kin_state)
             if not updates:
                 return kin_state
-            return merge_process_updates(kin_state, updates, process_features)
+            return merge_updates(kin_state, updates, process_features)
 
         return combined_simulate
 

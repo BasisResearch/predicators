@@ -1022,6 +1022,13 @@ class GlobalSettings:
     # upstream step multiplies the cost.
     agent_bilevel_explorer_max_samples_per_step = 50
 
+    # Sim-learning oracle flags (for ablation / debugging).
+    # When True, load GT process rules instead of running agent synthesis.
+    # Parameters init_values are perturbed so MCMC still has work to do.
+    agent_sim_learn_oracle_sim_program = False
+    # When True, use GT parameter values directly, skipping MCMC fitting.
+    agent_sim_learn_oracle_sim_params = False
+
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:
         """A workaround for global settings that are derived from the

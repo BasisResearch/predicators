@@ -1970,7 +1970,7 @@ def create_synthesis_tools(
     exec_ns: Dict[str, Any],
     step_transitions: list,
     process_features: Dict[str, List[str]],
-    kin_env: Any = None,
+    base_env: Any = None,
     save_dir: Optional[str] = None,
 ) -> list:
     """Create MCP tools for the sim-learning synthesis agent.
@@ -1988,7 +1988,7 @@ def create_synthesis_tools(
             contain ``trajectories``, ``np``, ``ParamSpec``.
         step_transitions: ``(State, Action, State)`` triples.
         process_features: ``{type_name: [feat_names]}`` for MSE.
-        kin_env: Kinematics-only environment.  When provided,
+        base_env: Kinematics-only environment.  When provided,
             evaluate/test tools run kinematics before learned rules.
         save_dir: Directory to save simulator source code to.
             Each ``run_python`` call appends code to
@@ -2079,7 +2079,7 @@ def create_synthesis_tools(
             fitted_params, mse = (
                 AgentSimLearningApproach._fit_parameters(
                     rules, specs, step_transitions, process_features,
-                    kin_env))
+                    base_env))
         except Exception as e:  # pylint: disable=broad-except
             return _text(f"Error: fit_params failed:\n{e}")
 
@@ -2139,8 +2139,8 @@ def create_synthesis_tools(
 
         for s_t, action, s_next_obs in pairs:
             # Run kinematics first so rules see post-kin state.
-            kin_state = (kin_env.simulate(s_t, action)
-                         if kin_env is not None else s_t)
+            kin_state = (base_env.simulate(s_t, action)
+                         if base_env is not None else s_t)
             updates: Dict = {}
             for rule in rules:
                 updates = rule(kin_state, updates, t_params)

@@ -16,8 +16,7 @@ import pytest
 
 from predicators import utils
 from predicators.approaches.agent_bilevel_approach import _SketchStep
-from predicators.approaches.agent_sim_learning_approach import \
-    merge_process_updates
+from predicators.code_sim_learning.utils import merge_updates
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
 from predicators.ground_truth_models.boil.gt_simulator import \
@@ -69,10 +68,10 @@ def _build_kinematics_only_oracle(env):
     Creates a separate env instance with process dynamics disabled, so
     that water filling, heating, and happiness are not simulated.
     """
-    kin_env = create_new_env("pybullet_boil", do_cache=False, use_gui=False,
+    base_env = create_new_env("pybullet_boil", do_cache=False, use_gui=False,
                              skip_process_dynamics=True)
-    options = get_gt_options(kin_env.get_name())
-    oracle = _OracleOptionModel(options, kin_env.simulate)
+    options = get_gt_options(base_env.get_name())
+    oracle = _OracleOptionModel(options, base_env.simulate)
     preds = env.predicates
     oracle._abstract_function = lambda s: utils.abstract(s, preds)
     return oracle
@@ -85,19 +84,19 @@ def _build_combined_model(env):
     env.simulate with a step-level dynamics function into a single
     simulator, then plug into a standard _OracleOptionModel.
     """
-    kin_env = create_new_env("pybullet_boil", do_cache=False, use_gui=False,
+    base_env = create_new_env("pybullet_boil", do_cache=False, use_gui=False,
                              skip_process_dynamics=True)
     process_features = get_gt_process_features()
     gt_params = {s.name: s.init_value for s in BOIL_PARAM_SPECS}
 
     def combined_simulate(state, action):
-        kin_state = kin_env.simulate(state, action)
+        kin_state = base_env.simulate(state, action)
         updates = {}
         for rule in PROCESS_RULES:
             updates = rule(kin_state, updates, gt_params)
         if not updates:
             return kin_state
-        return merge_process_updates(kin_state, updates, process_features)
+        return merge_updates(kin_state, updates, process_features)
 
     options = get_gt_options(env.get_name())
     model = _OracleOptionModel(options, combined_simulate)
