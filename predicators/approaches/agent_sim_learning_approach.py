@@ -36,7 +36,7 @@ from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.settings import CFG
-from predicators.structs import Action, InteractionResult, \
+from predicators.structs import Action, Dataset, InteractionResult, \
     LowLevelTrajectory, ParameterizedOption, Predicate, State, Task, Type
 
 logger = logging.getLogger(__name__)
@@ -115,13 +115,24 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             return self._build_synthesis_system_prompt()
         return super()._get_agent_system_prompt()
 
-    # ── Online learning ──────────────────────────────────────────
+    # ── Learning ────────────────────────────────────────────────
+
+    def learn_from_offline_dataset(self, dataset: Dataset) -> None:
+        super().learn_from_offline_dataset(dataset)
+        self._learn_simulator(dataset.trajectories)
 
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
         super().learn_from_interaction_results(results)
+        self._learn_simulator(self._online_trajectories)
 
-        self._synthesize_with_agent(self._process_features)
+    def _learn_simulator(self, trajectories: List[LowLevelTrajectory]) -> None:
+        """Synthesize rules, fit parameters, and build the option model.
+
+        Shared by ``learn_from_offline_dataset`` and
+        ``learn_from_interaction_results``.
+        """
+        self._synthesize_with_agent(self._process_features, trajectories)
 
         # Build learned simulator.
         if self._process_rules is not None and self._fitted_params is not None:
@@ -169,6 +180,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
     def _synthesize_with_agent(
         self,
         process_features: Dict[str, List[str]],
+        trajectories: List[LowLevelTrajectory],
     ) -> None:
         """Synthesize parameterized process rules via a Claude agent.
 
@@ -187,8 +199,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         - ``agent_sim_learn_oracle_sim_params``: skip MCMC fitting and
           use the GT parameter values directly.
         """
-        step_transitions = self._extract_step_transitions(
-            self._online_trajectories)
+        step_transitions = self._extract_step_transitions(trajectories)
 
         # ── Obtain rules + specs ────────────────────────────────
         if CFG.agent_sim_learn_oracle_sim_program:
@@ -210,7 +221,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
 
             # Persistent exec namespace — the agent's "scratch-pad".
             exec_ns: Dict[str, Any] = {
-                "trajectories": self._online_trajectories,
+                "trajectories": trajectories,
                 "np": np,
                 "ParamSpec": ParamSpec,
             }
@@ -232,7 +243,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             # Write data-structure reference for the agent to Read.
             structs_ref = self._write_structs_reference()
 
-            n_trajs = len(self._online_trajectories)
+            n_trajs = len(trajectories)
             message = f"""\
 Synthesize a process dynamics simulator for this environment. \
 There are {n_trajs} trajectories ({len(step_transitions)} step \
@@ -251,7 +262,7 @@ Read that file first, then explore the trajectory data with \
 
             # Load results from saved versioned files.
             rules, specs = self._load_simulator_from_file(
-                save_dir, self._online_trajectories)
+                save_dir, trajectories)
             if rules is None or specs is None:
                 return
 
@@ -261,18 +272,24 @@ Read that file first, then explore the trajectory data with \
         self._process_rules = rules
 
         # ── Obtain fitted parameters ────────────────────────────
+        # Use a headless env for fitting so the GUI env isn't
+        # thrashed by thousands of _set_state calls during MCMC.
+        fit_env = create_new_env(CFG.env,
+                                 do_cache=False,
+                                 use_gui=False,
+                                 skip_process_dynamics=True)
         if CFG.agent_sim_learn_oracle_sim_params:
             self._fitted_params = {s.name: s.init_value for s in specs}
-            env = self._base_env
             self._fit_mse = compute_mse(
                 lambda s, a, p: apply_rules(  # type: ignore[misc]
-                    env.simulate(s, a), rules, p),
-                step_transitions, self._fitted_params, process_features)
+                    fit_env.simulate(s, a), rules, p),
+                step_transitions,
+                self._fitted_params,
+                process_features)
             logger.info("Using oracle params (MSE: %.6f).", self._fit_mse)
         else:
             self._fitted_params, self._fit_mse = self._fit_parameters(
-                rules, specs, step_transitions, process_features,
-                self._base_env)
+                rules, specs, step_transitions, process_features, fit_env)
             logger.info("Fitted %d params (MSE: %.6f).", len(specs),
                         self._fit_mse)
 
@@ -372,9 +389,12 @@ Read that file first, then explore the trajectory data with \
 
         Returns the path the agent should Read.
         """
-        from predicators.structs import (  # pylint: disable=import-outside-toplevel,reimported
-            Action as _Action, LowLevelTrajectory as _LLT,
-            Object as _Object, State as _State, Type as _Type)
+        # pylint: disable=import-outside-toplevel,reimported
+        from predicators.structs import Action as _Action
+        from predicators.structs import LowLevelTrajectory as _LLT
+        from predicators.structs import Object as _Object
+        from predicators.structs import State as _State
+        from predicators.structs import Type as _Type
 
         source = "\n\n".join(
             inspect.getsource(cls)
