@@ -257,7 +257,7 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Environment initialization
     # -------------------------------------------------------------------------
-    def __init__(self, use_gui: bool = False, **kwargs) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         self._robot = Object("robot", self._robot_type)
 
         # Fans - create one fan object per side instead of multiple

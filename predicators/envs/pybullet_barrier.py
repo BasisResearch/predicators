@@ -91,7 +91,7 @@ class PyBulletBarrierEnv(PyBulletEnv):
     _barrier_type = Type("barrier", ["x", "y", "rot", "height"],
                          sim_features=["id", "base_z"])
 
-    def __init__(self, use_gui: bool = False, **kwargs) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         # Objects
         self._robot = Object("robot", self._robot_type)
         self._switches: List[Object] = [

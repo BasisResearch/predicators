@@ -59,7 +59,7 @@ class PyBulletCoverEnv(PyBulletEnv, CoverEnv):
                                             float]]] = [(0, 0, 0, 1.),
                                                         (1, 1, 1, 1.)]
 
-    def __init__(self, use_gui: bool = False, **kwargs) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         super().__init__(use_gui, **kwargs)
         # Store block/target IDs (from initialize_pybullet) so that we can
         # reset their positions in _set_domain_specific_state().

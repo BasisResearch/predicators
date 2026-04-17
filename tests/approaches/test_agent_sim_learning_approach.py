@@ -125,7 +125,7 @@ def _parse_sketch_from_file(
     objects: Sequence[Object],
 ) -> List[_SketchStep]:
     """Parse a plan sketch from a text file, same as agent_bilevel_approach."""
-    with open(sketch_file, "r") as f:
+    with open(sketch_file, "r", encoding="utf-8") as f:
         plan_text = f.read().strip()
 
     # Phase 1: parse options + objects (no continuous params)
@@ -165,7 +165,7 @@ def _parse_sketch_from_file(
                 continue
             pred = pred_map[pred_name]
             try:
-                objs = [obj_map[n] for n in obj_names]
+                objs: Sequence[Object] = [obj_map[n] for n in obj_names]
             except KeyError:
                 continue
             if len(objs) != len(pred.types):
@@ -309,7 +309,7 @@ SKETCH_FILE = os.path.join(os.path.dirname(__file__), "test_data",
 @pytest.mark.parametrize("model_type", ["oracle", "combined"])
 def test_boil_sketch_refinement(model_type):
     """Test that backtracking refinement solves the first test task."""
-    env, task, options_dict, objects_dict = _setup_env()
+    env, task, _options_dict, _objects_dict = _setup_env()
     predicates = env.predicates
     options = get_gt_options(env.get_name())
 
@@ -372,5 +372,5 @@ def test_boil_sketch_refinement(model_type):
 
 if __name__ == "__main__":
     import sys
-    model = sys.argv[1] if len(sys.argv) > 1 else "oracle"
-    test_boil_sketch_refinement(model)
+    _model = sys.argv[1] if len(sys.argv) > 1 else "oracle"
+    test_boil_sketch_refinement(_model)

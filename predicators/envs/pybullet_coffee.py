@@ -217,7 +217,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     _camera_pitch: ClassVar[float]
     _camera_target: ClassVar[Pose3D]
 
-    def __init__(self, use_gui: bool = False, **kwargs) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         if CFG.coffee_render_grid_world:
             # Camera parameters for grid world
             PyBulletCoffeeEnv._camera_distance = 3
@@ -253,6 +253,11 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
         self._cord_constraints: Optional[List[int]] = None
         self._machine_plugged_in_id: Optional[int] = None
         self._last_jug_liquid_level: float = 0.0
+
+        # Captured in step() before kinematics, consumed by
+        # _domain_specific_step() to detect twisting motions.
+        self._pre_step_ee_rpy: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self._last_action: Action = Action(np.zeros(0, dtype=np.float32))
 
     @property
     def oracle_proposed_predicates(self) -> Set[Predicate]:
@@ -482,8 +487,7 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
             self._check_and_apply_plug_in_constraint(state)
         self._handle_machine_on_and_jug_filling(state)
         self._handle_pouring(state)
-        self._handle_twisting(state, self._pre_step_ee_rpy,
-                              self._last_action)
+        self._handle_twisting(state, self._pre_step_ee_rpy, self._last_action)
 
     def _update_jug_liquid_position(self) -> None:
         """If the jug is filled, move its liquid to match the jug's pose.

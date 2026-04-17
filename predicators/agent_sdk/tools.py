@@ -1996,7 +1996,7 @@ def create_synthesis_tools(
     """
     import io  # pylint: disable=import-outside-toplevel
     import sys  # pylint: disable=import-outside-toplevel
-    import traceback  # pylint: disable=import-outside-toplevel
+    import traceback  # pylint: disable=import-outside-toplevel,redefined-outer-name,reimported
 
     from claude_agent_sdk import \
         tool  # pylint: disable=import-outside-toplevel
@@ -2065,7 +2065,7 @@ def create_synthesis_tools(
             "properties": {}
         },
     )
-    async def evaluate_simulator(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def evaluate_simulator(_args: Dict[str, Any]) -> Dict[str, Any]:
         rules = exec_ns.get("PROCESS_RULES")
         specs = exec_ns.get("PARAM_SPECS")
         if not isinstance(rules, list) or not rules:
@@ -2076,8 +2076,10 @@ def create_synthesis_tools(
                          "run_python to define it first.")
 
         try:
-            fitted_params, mse = (AgentSimLearningApproach._fit_parameters(
-                rules, specs, step_transitions, process_features, base_env))
+            fitted_params, mse = (
+                AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
+                    rules, specs, step_transitions, process_features,
+                    base_env))
         except Exception as e:  # pylint: disable=broad-except
             return _text(f"Error: fit_params failed:\n{e}")
 

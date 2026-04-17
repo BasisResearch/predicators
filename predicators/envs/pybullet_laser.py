@@ -121,7 +121,7 @@ class PyBulletLaserEnv(PyBulletEnv):
                         ["x", "y", "z", "rot", "split_mirror", "is_held"])
     _target_type = Type("target", ["x", "y", "z", "rot", "is_hit"])
 
-    def __init__(self, use_gui: bool = False, **kwargs) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         # Create environment objects (logic-level)
         self._robot = Object("robot", self._robot_type)
         self._station = Object("station", self._station_type)

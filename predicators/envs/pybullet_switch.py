@@ -89,7 +89,7 @@ class PyBulletSwitchEnv(PyBulletEnv):
         sim_features=["id", "joint_id", "joint_scale", "color_count"])
     _light_type = Type("light", ["x", "y", "z", "rot", "is_on", "color_index"])
 
-    def __init__(self, use_gui: bool = False, **kwargs) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         # Objects
         self._robot = Object("robot", self._robot_type)
         self._power_switch = Object("power_switch", self._power_switch_type)
@@ -100,6 +100,7 @@ class PyBulletSwitchEnv(PyBulletEnv):
 
         # Track previous switch states for edge detection
         self._prev_color_switch_on: bool = False
+        self._pre_step_color_count: int = 0
 
         # Predicates
         self._PowerOn = Predicate("PowerOn", [self._power_switch_type],
@@ -237,7 +238,8 @@ class PyBulletSwitchEnv(PyBulletEnv):
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
     def _set_domain_specific_state(self, state: State) -> None:
-        """Set switch positions, tracking vars, color count, and light visual."""
+        """Set switch positions, tracking vars, color count, and light
+        visual."""
         power_on = state.get(self._power_switch, "is_on") > 0.5
         self._set_switch_state(self._power_switch, power_on)
 

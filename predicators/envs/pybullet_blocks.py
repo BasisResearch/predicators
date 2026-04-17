@@ -27,7 +27,7 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
     _table_pose: ClassVar[Pose3D] = (1.35, 0.75, table_height / 2)
     _table_orientation: ClassVar[Quaternion] = (0., 0., 0., 1.)
 
-    def __init__(self, use_gui: bool = False, **kwargs) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         super().__init__(use_gui, **kwargs)
         # Store references
         self._table_id: int = -1
@@ -95,8 +95,8 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
             blk.id = blk_id
 
     def _set_domain_specific_state(self, state: State) -> None:
-        """Set block positions, grasp constraints, out-of-view placement,
-        ID mapping, and block colors."""
+        """Set block positions, grasp constraints, out-of-view placement, ID
+        mapping, and block colors."""
         block_objs = state.get_objects(self._block_type)
 
         # Place the relevant blocks

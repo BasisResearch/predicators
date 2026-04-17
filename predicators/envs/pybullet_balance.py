@@ -88,7 +88,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
     _num_blocks_train = CFG.balance_num_blocks_train
     _num_blocks_test = CFG.balance_num_blocks_test
 
-    def __init__(self, use_gui: bool = False, **kwargs) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         # Types
         # bbox_features = ["bbox_left", "bbox_right",
         #                  "bbox_upper", "bbox_lower"]

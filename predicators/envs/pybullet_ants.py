@@ -92,7 +92,7 @@ class PyBulletAntsEnv(PyBulletEnv):
     def __init__(self,
                  use_gui: bool = False,
                  debug_layout: bool = True,
-                 **kwargs) -> None:
+                 **kwargs: Any) -> None:
         # Create single robot
         self._robot = Object("robot", self._robot_type)
 
@@ -228,8 +228,8 @@ class PyBulletAntsEnv(PyBulletEnv):
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
     def _set_domain_specific_state(self, state: State) -> None:
-        """Hide unused objects, set attraction points, food colors, and
-        ant target references."""
+        """Hide unused objects, set attraction points, food colors, and ant
+        target references."""
         oov_x, oov_y = self._out_of_view_xy
         block_objs = state.get_objects(self._food_type)
         for i in range(len(block_objs), len(self._blocks)):

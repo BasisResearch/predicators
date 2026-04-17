@@ -9,20 +9,20 @@ import os
 import re
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
-import predicators.approaches  # noqa: F401 (bootstrap circular import)
 import numpy as np
 
+import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 from predicators import utils
 from predicators.approaches.agent_bilevel_approach import _SketchStep
 from predicators.code_sim_learning.training import ParamSpec, fit_params
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
-from predicators.ground_truth_models.boil.gt_simulator import (
-    BOIL_PARAM_SPECS, PROCESS_RULES, get_gt_process_features)
+from predicators.ground_truth_models.boil.gt_simulator import \
+    BOIL_PARAM_SPECS, PROCESS_RULES, get_gt_process_features
 from predicators.option_model import _OracleOptionModel
 from predicators.planning import run_backtracking_refinement
-from predicators.structs import Action, GroundAtom, Object, \
-    ParameterizedOption, Predicate, State
+from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \
+    Object, ParameterizedOption, Predicate, State
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ def _build_oracle_model(env):
     options = get_gt_options(env.get_name())
     oracle = _OracleOptionModel(options, env.simulate)
     preds = env.predicates
-    oracle._abstract_function = lambda s: utils.abstract(s, preds)
+    oracle._abstract_function = lambda s: utils.abstract(s, preds)  # pylint: disable=protected-access
     return oracle
 
 
@@ -72,7 +72,7 @@ def _parse_sketch_from_file(
     objects: Sequence[Object],
 ) -> List[_SketchStep]:
     """Parse a plan sketch from a text file."""
-    with open(sketch_file, "r") as f:
+    with open(sketch_file, "r", encoding="utf-8") as f:
         plan_text = f.read().strip()
 
     parsed = utils.parse_model_output_into_option_plan(
@@ -110,7 +110,7 @@ def _parse_sketch_from_file(
                 continue
             pred = pred_map[pred_name]
             try:
-                objs = [obj_map[n] for n in obj_names]
+                objs: Sequence[Object] = [obj_map[n] for n in obj_names]
             except KeyError:
                 continue
             if len(objs) != len(pred.types):
@@ -186,7 +186,10 @@ def _informed_place_params(pre_state, sketch, step_idx, rng, n):
 
 
 def _generate_oracle_transitions(
-    env, task, options, oracle,
+    env,
+    task,
+    options,
+    oracle,
 ) -> List[Tuple[State, Action, State]]:
     """Generate (s, a, s') triples by running the oracle on the boil task.
 
@@ -200,8 +203,7 @@ def _generate_oracle_transitions(
     n = len(sketch)
     rng = np.random.default_rng(0)
     max_tries = [
-        500 if step.option.params_space.shape[0] > 0 else 1
-        for step in sketch
+        500 if step.option.params_space.shape[0] > 0 else 1 for step in sketch
     ]
 
     def sample_fn(idx, state, rng_):
@@ -231,7 +233,7 @@ def _generate_oracle_transitions(
 
     # Collect trajectories during refinement (not replay, since
     # PyBullet state reconstruction is imperfect).
-    step_trajectories: Dict[int, object] = {}
+    step_trajectories: Dict[int, LowLevelTrajectory] = {}
 
     orig_validate = validate_fn
 
@@ -241,7 +243,7 @@ def _generate_oracle_transitions(
             step_trajectories[idx] = oracle.last_trajectory
         return ok, reason
 
-    plan, success, _ = run_backtracking_refinement(
+    _plan, success, _ = run_backtracking_refinement(
         init_state=task.init,
         option_model=oracle,
         n_steps=n,
@@ -276,7 +278,7 @@ def test_emcee_recovers_rate_params():
 
     logger.info("Generated %d oracle transitions.", len(transitions))
 
-    def simulator_fn(state, action, params):
+    def simulator_fn(state, _action, params):
         updates = {}
         for rule in PROCESS_RULES:
             updates = rule(state, updates, params)
@@ -285,8 +287,7 @@ def test_emcee_recovers_rate_params():
     # Perturb rate params (50%), keep others at true.
     param_specs = []
     for s in BOIL_PARAM_SPECS:
-        if s.name in ("water_fill_speed", "heating_speed",
-                       "happiness_speed"):
+        if s.name in ("water_fill_speed", "heating_speed", "happiness_speed"):
             param_specs.append(ParamSpec(s.name, s.init_value * 0.5))
         else:
             param_specs.append(s)
@@ -307,8 +308,8 @@ def test_emcee_recovers_rate_params():
     for name, val in fitted.items():
         true_val = GT_PARAMS[name]
         rel_err = abs(val - true_val) / max(true_val, 1e-8)
-        logger.info("  %s: fitted=%.4f, true=%.4f, rel_err=%.1f%%",
-                    name, val, true_val, rel_err * 100)
+        logger.info("  %s: fitted=%.4f, true=%.4f, rel_err=%.1f%%", name, val,
+                    true_val, rel_err * 100)
 
     for name in ["water_fill_speed", "heating_speed", "happiness_speed"]:
         true_val = GT_PARAMS[name]

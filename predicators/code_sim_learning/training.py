@@ -113,7 +113,7 @@ def fit_params(
     Returns:
         FitResult with posterior samples and log-probabilities.
     """
-    import emcee  # pylint: disable=import-outside-toplevel
+    import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
 
     names = [s.name for s in param_specs]
     init_values = np.array([s.init_value for s in param_specs])

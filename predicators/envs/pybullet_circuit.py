@@ -104,7 +104,7 @@ class PyBulletCircuitEnv(PyBulletEnv):
     _c_battery_type = Type("c_battery",
                            ["x", "y", "z", "yaw", "pitch", "roll"])
 
-    def __init__(self, use_gui: bool = False, **kwargs) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
 
         # Objects
         self._robot = Object("robot", self._robot_type)
@@ -323,8 +323,8 @@ class PyBulletCircuitEnv(PyBulletEnv):
         # Check basic conditions for turning on the bulb
         switch_on = self._SwitchedOn_holds(state, [self._battery])
         basic_conditions = switch_on and (
-            CFG.circuit_light_doesnt_need_battery or self._CircuitClosed_holds(
-                state, [self._light, self._battery]))
+            CFG.circuit_light_doesnt_need_battery
+            or self._CircuitClosed_holds(state, [self._light, self._battery]))
 
         # Additional condition: if not using battery_in_box mode,
         # both C batteries must be in the battery box

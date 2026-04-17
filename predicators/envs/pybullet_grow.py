@@ -110,7 +110,7 @@ class PyBulletGrowEnv(PyBulletEnv):
     _jug_type = Type("jug", ["x", "y", "z", "rot", "is_held", "r", "g", "b"],
                      sim_features=["id", "init_x", "init_y", "init_z"])
 
-    def __init__(self, use_gui: bool = False, **kwargs) -> None:
+    def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         # Create the single robot Object
         self._robot = Object("robot", self._robot_type)
 
