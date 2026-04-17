@@ -15,7 +15,6 @@ from predicators.structs import Action, State
 
 logger = logging.getLogger(__name__)
 
-
 # Step-level simulator: (State, Action, params_dict) -> {Object: {feat: val}}
 StepSimulatorFn = Callable[[State, Action, Dict[str, float]], Dict]
 
@@ -64,7 +63,7 @@ def compute_mse(
                     continue
                 v = pred_val.item() if hasattr(pred_val, 'item') else pred_val
                 obs_val = float(s_next_obs.get(obj, feat_name))
-                total_se += (v - obs_val) ** 2
+                total_se += (v - obs_val)**2
                 count += 1
 
         # Penalize unpredicted features (model predicts no change).
@@ -75,7 +74,7 @@ def compute_mse(
                     continue
                 pred_val = float(s_t.get(obj, feat_name))
                 obs_val = float(s_next_obs.get(obj, feat_name))
-                total_se += (pred_val - obs_val) ** 2
+                total_se += (pred_val - obs_val)**2
                 count += 1
 
     if count == 0:
@@ -128,12 +127,10 @@ def fit_params(
             return -np.inf
         params = {n: float(theta[i]) for i, n in enumerate(names)}
         # Broad Gaussian prior centered on init values
-        log_prior = -0.5 * np.sum(
-            ((theta - init_values) / prior_sigma) ** 2)
+        log_prior = -0.5 * np.sum(((theta - init_values) / prior_sigma)**2)
         # Likelihood
-        mse = compute_mse(simulator_fn, transitions,
-                           params, process_features)
-        return log_prior + (-0.5 * mse / (noise_sigma ** 2))
+        mse = compute_mse(simulator_fn, transitions, params, process_features)
+        return log_prior + (-0.5 * mse / (noise_sigma**2))
 
     # Initialize walkers in a small ball around init values.
     p0 = init_values * (1.0 + 0.01 * np.random.randn(num_walkers, ndim))
@@ -142,7 +139,17 @@ def fit_params(
 
     logger.info("Running emcee: %d walkers, %d steps, %d burn-in.",
                 num_walkers, num_steps, burn_in)
-    sampler.run_mcmc(p0, num_steps, progress=False)
+
+    # Run with periodic progress reports.
+    report_interval = max(1, num_steps // 5)
+    for i, _result in enumerate(sampler.sample(p0, iterations=num_steps),
+                                start=1):
+        if i % report_interval == 0 or i == num_steps:
+            best_lp = sampler.get_log_prob()[:i].max()
+            logger.info("  emcee step %d/%d  (best log-prob: %.2f)", i,
+                        num_steps, best_lp)
+            for h in logger.handlers + logging.getLogger().handlers:
+                h.flush()
 
     # Discard burn-in, flatten chains.
     samples = sampler.get_chain(discard=burn_in, flat=True)
@@ -151,6 +158,7 @@ def fit_params(
     result = FitResult(names=names, samples=samples, log_probs=log_probs)
 
     logger.info("emcee done. Posterior mean: %s",
-                {k: f"{v:.4f}" for k, v in result.point_estimate.items()})
+                {k: f"{v:.4f}"
+                 for k, v in result.point_estimate.items()})
 
     return result
