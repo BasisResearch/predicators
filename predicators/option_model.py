@@ -20,11 +20,13 @@ from predicators.structs import Action, DefaultState, LowLevelTrajectory, \
     ParameterizedOption, State, _Option
 
 
-def _check_wait_termination(option: _Option, state: State,
-                            last_state: State,
+def _check_wait_termination(option: _Option, state: State, last_state: State,
                             abstract_fn: Callable[[State], Set]) -> bool:
     """Check if a Wait option should terminate based on target atoms or atom
-    change. Returns True if it should terminate."""
+    change.
+
+    Returns True if it should terminate.
+    """
     result = utils.check_wait_target_atoms(option, state, abstract_fn)
     if result is True:
         logging.info("Wait terminating: target atoms satisfied")
@@ -33,10 +35,9 @@ def _check_wait_termination(option: _Option, state: State,
         cur_atoms = abstract_fn(state)
         prev_atoms = abstract_fn(last_state)
         if cur_atoms != prev_atoms:
-            logging.info(
-                f"Wait terminating due to atom change: "
-                f"Add: {sorted(cur_atoms - prev_atoms)} "
-                f"Del: {sorted(prev_atoms - cur_atoms)}")
+            logging.info(f"Wait terminating due to atom change: "
+                         f"Add: {sorted(cur_atoms - prev_atoms)} "
+                         f"Del: {sorted(prev_atoms - cur_atoms)}")
             return True
     return False
 

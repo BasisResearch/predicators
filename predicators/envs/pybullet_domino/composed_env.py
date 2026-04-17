@@ -427,8 +427,7 @@ class PyBulletDominoEnvNew(PyBulletDominoComposedEnv):
                                       num_pivots_max=max_pivots,
                                       workspace_bounds=workspace_bounds)
 
-        super().__init__(components=[domino_comp], use_gui=use_gui,
-                         **kwargs)
+        super().__init__(components=[domino_comp], use_gui=use_gui, **kwargs)
 
     @classmethod
     def get_name(cls) -> str:
@@ -468,7 +467,8 @@ class PyBulletDominoFanEnvNew(PyBulletDominoComposedEnv):
                                   table_height=self.table_height)
 
         super().__init__(components=[domino_comp, fan_comp, ball_comp],
-                         use_gui=use_gui, **kwargs)
+                         use_gui=use_gui,
+                         **kwargs)
 
     @classmethod
     def get_name(cls) -> str:
@@ -529,7 +529,8 @@ class PyBulletDominoFanRampEnv(PyBulletDominoComposedEnv):
 
         super().__init__(
             components=[domino_comp, fan_comp, ball_comp, ramp_comp],
-            use_gui=use_gui, **kwargs)
+            use_gui=use_gui,
+            **kwargs)
 
     @classmethod
     def get_name(cls) -> str:
@@ -597,7 +598,8 @@ class PyBulletDominoFanRampStairsEnv(PyBulletDominoComposedEnv):
         super().__init__(components=[
             domino_comp, fan_comp, ball_comp, ramp_comp, stairs_comp
         ],
-                         use_gui=use_gui, **kwargs)
+                         use_gui=use_gui,
+                         **kwargs)
 
         # Store reference to stairs component
         self._stairs_component = stairs_comp

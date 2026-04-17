@@ -1,7 +1,6 @@
 """Handle creation of environments."""
 
 import logging
-
 from typing import Any
 
 from predicators import utils

@@ -1,1 +1,1 @@
-"""Compositional world modeling via code"""
+"""Compositional world modeling via code."""

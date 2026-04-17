@@ -1,9 +1,10 @@
 """Agent plan explorer: Claude agent generates grounded option plans.
 
-Produces fully-grounded option plans (including continuous parameters) and
-rolls them out in the real environment. Unlike ``AgentBilevelExplorer``, it
-does not run backtracking refinement against a learned option model — the
-agent is expected to provide complete parameters itself.
+Produces fully-grounded option plans (including continuous parameters)
+and rolls them out in the real environment. Unlike
+``AgentBilevelExplorer``, it does not run backtracking refinement
+against a learned option model — the agent is expected to provide
+complete parameters itself.
 """
 
 import logging

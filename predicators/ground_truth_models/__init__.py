@@ -276,9 +276,9 @@ def get_gt_processes(env_name: str,
 def get_gt_simulator(env_name: str) -> tuple:
     """Load ground-truth process rules and param specs for an env.
 
-    Returns ``(rules, param_specs)`` where *rules* is a list of
-    process rule functions and *param_specs* is a list of
-    ``ParamSpec`` objects whose ``init_value`` is the GT value.
+    Returns ``(rules, param_specs)`` where *rules* is a list of process
+    rule functions and *param_specs* is a list of ``ParamSpec`` objects
+    whose ``init_value`` is the GT value.
     """
     gt_name = _normalize_env_name_for_gt(env_name)
     for cls in utils.get_all_subclasses(GroundTruthSimulatorFactory):

@@ -177,8 +177,8 @@ def parse_subgoal_annotations(
     """Parse ``-> {Pred(...), NOT Pred(...)}`` annotations from plan text.
 
     Returns a list parallel to the option lines in ``text``. Each entry
-    is ``None`` for a line with no annotation, or
-    ``(positive_atoms, negative_atoms)`` otherwise.
+    is ``None`` for a line with no annotation, or ``(positive_atoms,
+    negative_atoms)`` otherwise.
     """
     pred_map = {p.name: p for p in predicates}
     obj_map = {o.name: o for o in objects}
