@@ -688,7 +688,17 @@ def run_low_level_search(
                 for atom in atoms_sequence[idx + 1]
                 if atom.predicate.name != _NOT_CAUSES_FAILURE
             }
-            if all(a.holds(post_state) for a in expected_atoms):
+            # Use utils.abstract to evaluate atoms so that
+            # DerivedPredicates (which need a Set[GroundAtom], not a
+            # State) are handled correctly.
+            preds: Set[Predicate] = set()
+            for a in expected_atoms:
+                preds.add(a.predicate)
+                aux = getattr(a.predicate, "auxiliary_predicates", None)
+                if aux:
+                    preds.update(aux)
+            current_atoms = utils.abstract(post_state, preds)
+            if expected_atoms.issubset(current_atoms):
                 return True, ""
             return False, "expected atoms not hold"
         # No atoms check — verify goal on final step.
