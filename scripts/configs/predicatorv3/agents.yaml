@@ -3,5 +3,58 @@
 ---
 includes:
   - common.yaml
-  - approaches/agents.yaml
   - envs/all.yaml
+APPROACHES:
+  # agent_planner:
+  #   NAME: "agent_planner"
+  #   FLAGS:
+  #     explorer: "agent_plan"
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     agent_sdk_use_local_sandbox: True
+  #     option_model_terminate_on_repeat: False
+  #     agent_sdk_max_agent_turns_per_iteration: 50
+  #     agent_planner_use_scratchpad: False
+  #     agent_planner_use_visualize_state: True
+  #     agent_planner_use_annotate_scene: True
+  #     option_model_use_gui: True
+  # agent_bilevel:
+  #   NAME: "agent_bilevel"
+  #   FLAGS:
+  #     explorer: "agent_plan"
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     agent_sdk_use_local_sandbox: True
+  #     option_model_terminate_on_repeat: False
+  #     agent_sdk_max_agent_turns_per_iteration: 50
+  #     agent_planner_use_scratchpad: False
+  #     agent_planner_use_visualize_state: True
+  #     agent_planner_use_annotate_scene: True
+  #     option_model_use_gui: True
+  #     agent_bilevel_log_state: False
+  #     agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
+  agent_sim_learning:
+    NAME: "agent_sim_learning"
+    FLAGS:
+      explorer: "agent_bilevel"
+      demonstrator: "oracle_process_planning"
+      terminate_on_goal_reached_and_option_terminated: True
+      agent_sdk_use_local_sandbox: True
+      option_model_terminate_on_repeat: False
+      agent_sdk_max_agent_turns_per_iteration: 50
+      agent_planner_use_scratchpad: False
+      agent_planner_use_visualize_state: True
+      agent_planner_use_annotate_scene: True
+      option_model_use_gui: True
+      agent_bilevel_log_state: False
+      agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
+      skip_test_until_last_ite_or_early_stopping: True
+  # agent_option_learning:
+  #   NAME: "agent_option_learning"
+  #   FLAGS:
+  #     explorer: "agent_plan"
+  #     option_learner: "agent"
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     agent_sdk_use_local_sandbox: True
+  #     agent_sdk_max_agent_turns_per_iteration: 50
