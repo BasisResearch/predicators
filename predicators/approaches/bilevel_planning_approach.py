@@ -5,7 +5,7 @@ then Execution.
 """
 import abc
 import logging
-from typing import Any, Callable, List, Optional, Set, Tuple
+from typing import Any, Callable, List, Optional, Set, Tuple, cast
 
 from gym.spaces import Box
 
@@ -47,6 +47,17 @@ class BilevelPlanningApproach(BaseApproach):
         if option_model is None:
             option_model = create_option_model(CFG.option_model_name)
         self._option_model = option_model
+        # Let the option model terminate Wait on atom change. Without
+        # this, Wait runs to max_num_steps_option_rollout during
+        # refinement and the step is rejected for "exceeded individual
+        # horizon", even when the expected atoms have already become
+        # true. Mirrors AgentPlannerApproach.__init__.
+        if CFG.wait_option_terminate_on_atom_change:
+            preds = self._get_current_predicates()
+            cast(  # pylint: disable=protected-access
+                Any, self._option_model
+            )._abstract_function = \
+                lambda s, _p=preds: utils.abstract(s, _p)
         self._num_calls = 0
         self._last_plan: List[_Option] = []  # used if plan WITH sim
         self._last_nsrt_plan: List[_GroundNSRT] = []  # plan WITHOUT sim

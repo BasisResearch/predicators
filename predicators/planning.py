@@ -660,6 +660,12 @@ def run_low_level_search(
         discovered_failures[idx] = None
         metrics["num_samples"] += 1
         option = skeleton[idx].sample_option(state, task.goal, rng_)
+        # Inject Wait target atoms so Wait terminates as soon as the
+        # expected atoms hold rather than running to
+        # max_num_steps_option_rollout. Without this, refinement keeps
+        # hitting "exceeded individual horizon" even when heating /
+        # filling / etc. has already completed.
+        utils.inject_wait_targets_for_option(option, idx, atoms_sequence)
         logging.info(f"Running option {option}")
         return option
 

@@ -47,6 +47,7 @@ from predicators import utils
 from predicators.envs import BaseEnv
 from predicators.pybullet_helpers.camera import create_gui_connection
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
+from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.link import get_link_state
 from predicators.pybullet_helpers.objects import update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot, \
@@ -433,8 +434,14 @@ class PyBulletEnv(BaseEnv):
             self._held_obj_to_base_link = None
             self._held_obj_id = None
 
-            # 2) Reset robot pose
-            self._pybullet_robot.reset_state(self._extract_robot_state(state))
+            # 2) Reset robot pose. Prefer exact joint positions when the
+            # State carries them in simulator_state — IK from (x, y, z,
+            # tilt, wrist) drops wrist roll, which corrupts the held-
+            # object offset that _create_grasp_constraint records below.
+            joint_positions = self._extract_robot_joint_positions(state)
+            self._pybullet_robot.reset_state(
+                self._extract_robot_state(state),
+                joint_positions=joint_positions)
 
             # 3) Reset all known objects (position, orientation, etc.)
             for obj in self._objects:
@@ -569,6 +576,31 @@ class PyBulletEnv(BaseEnv):
         f = self._fingers_state_to_joint(self._pybullet_robot, f)
 
         return np.array([rx, ry, rz, qx, qy, qz, qw, f], dtype=np.float32)
+
+    def _extract_robot_joint_positions(
+            self, state: State) -> Optional[JointPositions]:
+        """Pull arm joint positions out of a State's simulator_state.
+
+        Returns None when the State doesn't carry them (plain State, or
+        a PyBulletState whose simulator_state has a different shape than
+        this robot's arm). Callers fall back to IK in that case.
+        """
+        sim_state = getattr(state, "simulator_state", None)
+        jp: Any
+        if isinstance(sim_state, dict):
+            jp = sim_state.get("joint_positions")
+        else:
+            # Legacy: simulator_state is the joint_positions list itself.
+            jp = sim_state
+        if jp is None:
+            return None
+        try:
+            jp_list = list(jp)
+        except TypeError:
+            return None
+        if len(jp_list) != len(self._pybullet_robot.arm_joints):
+            return None
+        return cast(JointPositions, jp_list)
 
     @classmethod
     def _fingers_state_to_joint(cls, pybullet_robot: SingleArmPyBulletRobot,

@@ -119,7 +119,9 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
             self._last_option_plan = option_plan
             self._last_process_plan = process_plan
             # pylint: enable=attribute-defined-outside-init
-            policy = utils.option_plan_to_policy(option_plan)
+            policy = utils.option_plan_to_policy(
+                option_plan,
+                abstract_function=lambda s: utils.abstract(s, preds))
 
         self._save_metrics(metrics, processes, preds)
 

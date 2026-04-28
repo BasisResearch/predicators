@@ -239,11 +239,20 @@ class SingleArmPyBulletRobot(abc.ABC):
         joint_positions[self.right_finger_joint_idx] = self.open_fingers
         return joint_positions
 
-    def reset_state(self, robot_state: Array) -> None:
+    def reset_state(
+        self,
+        robot_state: Array,
+        joint_positions: Optional[JointPositions] = None,
+    ) -> None:
         """Reset the robot state to match the input state.
 
         The robot_state corresponds to the State vector for the robot
-        object.
+        object. If joint_positions is provided, the arm joints are set
+        directly from it; otherwise IK is run from the EE pose, which
+        loses information not encoded in (x, y, z, tilt, wrist) — most
+        importantly wrist roll. Preserving exact joints is required for
+        held-object grasps to round-trip through state save/restore
+        without geometric drift.
         """
         rx, ry, rz, qx, qy, qz, qw, rf = robot_state
         p.resetBasePositionAndOrientation(
@@ -252,14 +261,17 @@ class SingleArmPyBulletRobot(abc.ABC):
             self._base_pose.orientation,
             physicsClientId=self.physics_client_id,
         )
-        # First, reset the joint values to initial joint positions,
-        # so that IK is consistent (less sensitive to initialization).
-        self.set_joints(self.initial_joint_positions)
+        if joint_positions is not None:
+            self.set_joints(list(joint_positions))
+        else:
+            # First, reset the joint values to initial joint positions,
+            # so that IK is consistent (less sensitive to initialization).
+            self.set_joints(self.initial_joint_positions)
 
-        # Now run IK to get to the actual starting rx, ry, rz. We use
-        # validate=True to ensure that this initialization works.
-        pose = Pose((rx, ry, rz), (qx, qy, qz, qw))
-        self.inverse_kinematics(pose, validate=True)
+            # Now run IK to get to the actual starting rx, ry, rz. We use
+            # validate=True to ensure that this initialization works.
+            pose = Pose((rx, ry, rz), (qx, qy, qz, qw))
+            self.inverse_kinematics(pose, validate=True)
 
         # Handle setting the robot finger joints.
         for finger_id in [self.left_finger_id, self.right_finger_id]:
