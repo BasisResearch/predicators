@@ -45,6 +45,7 @@ setup(
         "claude-agent-sdk",
         "nest_asyncio",
         "mara_robosim@git+https://github.com/yichao-liang/mara-robosim.git",
+        "emcee",
     ],
     include_package_data=True,
     extras_require={
