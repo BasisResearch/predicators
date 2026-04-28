@@ -25,7 +25,7 @@ setup(
         "pillow==10.3.0",
         "requests",
         "slack_bolt",
-        "pybullet>=3.2.0",
+        "pybullet-arm64>=3.2.8",
         "scikit-learn>=1.1.3",
         "graphlib-backport",
         "openai==1.19.0",
