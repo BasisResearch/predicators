@@ -9,8 +9,8 @@ ARGS:
   # - "make_test_images"  # query images
   # - "save_atoms"
 FLAGS:
-  max_initial_demos: 0
-  num_online_learning_cycles: 1
+  max_initial_demos: 1
+  num_online_learning_cycles: 0
   online_nsrt_learning_requests_per_cycle: 1
   skill_phase_use_motion_planning: True
   max_num_steps_interaction_request: 300
