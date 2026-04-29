@@ -439,9 +439,8 @@ class PyBulletEnv(BaseEnv):
             # tilt, wrist) drops wrist roll, which corrupts the held-
             # object offset that _create_grasp_constraint records below.
             joint_positions = self._extract_robot_joint_positions(state)
-            self._pybullet_robot.reset_state(
-                self._extract_robot_state(state),
-                joint_positions=joint_positions)
+            self._pybullet_robot.reset_state(self._extract_robot_state(state),
+                                             joint_positions=joint_positions)
 
             # 3) Reset all known objects (position, orientation, etc.)
             for obj in self._objects:
