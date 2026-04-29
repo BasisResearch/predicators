@@ -262,6 +262,9 @@ class SingleArmPyBulletRobot(abc.ABC):
             physicsClientId=self.physics_client_id,
         )
         if joint_positions is not None:
+            # arm_joints includes fingers, so set_joints already
+            # restored both — skip the snapped-finger overwrite below
+            # so continuous finger values round-trip cleanly.
             self.set_joints(list(joint_positions))
         else:
             # First, reset the joint values to initial joint positions,
@@ -273,12 +276,12 @@ class SingleArmPyBulletRobot(abc.ABC):
             pose = Pose((rx, ry, rz), (qx, qy, qz, qw))
             self.inverse_kinematics(pose, validate=True)
 
-        # Handle setting the robot finger joints.
-        for finger_id in [self.left_finger_id, self.right_finger_id]:
-            p.resetJointState(self.robot_id,
-                              finger_id,
-                              rf,
-                              physicsClientId=self.physics_client_id)
+            # IK does not touch fingers, so snap them from the EE state.
+            for finger_id in [self.left_finger_id, self.right_finger_id]:
+                p.resetJointState(self.robot_id,
+                                  finger_id,
+                                  rf,
+                                  physicsClientId=self.physics_client_id)
 
     def get_state(self) -> Array:
         """Get the robot state vector based on the current PyBullet state.

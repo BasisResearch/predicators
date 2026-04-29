@@ -41,15 +41,18 @@ def get_link_state(
 ) -> LinkState:
     """Get the state of a link in a given body.
 
-    Note: it is unclear what the computeForwardKinematics flag does as we
-    could not reproduce any difference in the resulting Cartesian world
-    position or orientation of the link after setting joint positions
-    with both the flag set to False or True.
-
-    The default PyBullet flag is computeForwardKinematics=False, so we
-    will stick to that.
+    With ``computeForwardKinematics=False`` (PyBullet's default),
+    getLinkState returns the link's Cartesian pose from the last
+    physics-step / FK cache, which is stale immediately after
+    ``resetJointState``. After a state save/restore round-trip this
+    showed up as ~50-500μm drift in the reported EE pose. We pass
+    ``computeForwardKinematics=1`` so the world pose is recomputed
+    from current joint positions on every call.
     """
-    link_state = p.getLinkState(body, link, physicsClientId=physics_client_id)
+    link_state = p.getLinkState(body,
+                                link,
+                                computeForwardKinematics=1,
+                                physicsClientId=physics_client_id)
     return LinkState(*link_state)
 
 
