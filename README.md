@@ -28,7 +28,8 @@ A simple implementation of search-then-sample bilevel planning is provided in `p
 
 ## Installation
 * This repository uses Python versions 3.10-3.11. We recommend 3.10.14.
-* Run `pip install -e .` to install dependencies.
+* Run `./setup.sh` to install dependencies (handles macOS PyBullet source build automatically).
+* Alternatively, run `pip install -e .` directly if not on macOS.
 
 ## Instructions For Running Code
 
