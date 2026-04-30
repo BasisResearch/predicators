@@ -191,11 +191,11 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         and ``PARAM_SPECS``.  Each ``run_python`` call appends code
         to a saved file; after the session we reload from that file.
 
-        Behaviour is modified by two CFG flags:
-
         - ``agent_sim_learn_oracle_sim_program``: skip agent synthesis
           and load GT rules/specs instead (init_values perturbed so
           MCMC has non-trivial work).
+        - ``agent_sim_learn_oracle_sim_param_noise_scale``: adjust the
+          magnitude of the perturbation applied to oracle init_values.
         - ``agent_sim_learn_oracle_sim_params``: skip MCMC fitting and
           use the GT parameter values directly.
         """
@@ -206,12 +206,22 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             rules, specs = get_gt_simulator(CFG.env)
             if not CFG.agent_sim_learn_oracle_sim_params:
                 rng = np.random.default_rng(CFG.seed)
-                specs = [
-                    ParamSpec(
-                        s.name, s.init_value +
-                        rng.normal(0, max(abs(s.init_value) * 0.2, 1e-4)))
-                    for s in specs
-                ]
+                noise_scale = CFG.agent_sim_learn_oracle_sim_param_noise_scale
+                if noise_scale < 0.0:
+                    raise ValueError(
+                        "agent_sim_learn_oracle_sim_param_noise_scale must "
+                        "be non-negative.")
+                perturbed = []
+                for s in specs:
+                    val = s.init_value * (
+                        1.0 + float(rng.normal(0, noise_scale)))
+                    if s.lo is not None:
+                        val = max(s.lo, val)
+                    if s.hi is not None:
+                        val = min(s.hi, val)
+                    perturbed.append(
+                        ParamSpec(s.name, val, lo=s.lo, hi=s.hi))
+                specs = perturbed
             logger.info("Loaded oracle sim program (%d rules, %d params).",
                         len(rules), len(specs))
         else:
@@ -290,8 +300,12 @@ Read that file first, then explore the trajectory data with \
         else:
             self._fitted_params, self._fit_mse = self._fit_parameters(
                 rules, specs, step_transitions, process_features, fit_env)
-            logger.info("Fitted %d params (MSE: %.6f).", len(specs),
-                        self._fit_mse)
+            if CFG.code_sim_learning_num_mcmc_steps == 0:
+                logger.info("Skipped fitting; using %d initial params "
+                            "(MSE: %.6f).", len(specs), self._fit_mse)
+            else:
+                logger.info("Fitted %d params (MSE: %.6f).", len(specs),
+                            self._fit_mse)
 
     # ── Parameter fitting ────────────────────────────────────────
 
