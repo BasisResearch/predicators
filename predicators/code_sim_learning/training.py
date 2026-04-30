@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from predicators.settings import CFG
 from predicators.structs import Action, State
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,8 @@ class ParamSpec:
 
     name: str
     init_value: float
+    lo: Optional[float] = None
+    hi: Optional[float] = None
 
 
 @dataclass
@@ -88,7 +91,7 @@ def fit_params(
     param_specs: List[ParamSpec],
     process_features: Dict[str, List[str]],
     num_walkers: int = 32,
-    num_steps: int = 500,
+    num_steps: Optional[int] = None,
     burn_in: int = 200,
     noise_sigma: float = 0.05,
     prior_sigma_scale: float = 2.0,
@@ -105,7 +108,9 @@ def fit_params(
         param_specs: Parameter specifications (name, init_value).
         process_features: {type_name: [feat_names]} to fit.
         num_walkers: Number of ensemble walkers (>= 2*ndim).
-        num_steps: Total MCMC steps per walker.
+        num_steps: Total MCMC steps per walker. If None, defaults to
+            CFG.code_sim_learning_num_mcmc_steps. If 0, skip training and
+            use initial parameter values directly.
         burn_in: Steps to discard as burn-in.
         noise_sigma: Observation noise std dev for likelihood.
         prior_sigma_scale: Prior width as multiple of init_value.
@@ -113,13 +118,23 @@ def fit_params(
     Returns:
         FitResult with posterior samples and log-probabilities.
     """
-    import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
-
     names = [s.name for s in param_specs]
     init_values = np.array([s.init_value for s in param_specs])
+    if num_steps is None:
+        num_steps = CFG.code_sim_learning_num_mcmc_steps
+    if num_steps < 0:
+        raise ValueError("code_sim_learning_num_mcmc_steps must be "
+                         "non-negative.")
+    if num_steps == 0:
+        logger.info("Skipping emcee; using initial parameter values.")
+        return FitResult(names, init_values[None, :], np.zeros(1))
+
+    import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
+
     ndim = len(param_specs)
     num_walkers = max(num_walkers, 2 * ndim + 2)
     prior_sigma = init_values * prior_sigma_scale
+    burn_in = min(burn_in, max(num_steps - 1, 0))
 
     def log_posterior(theta: np.ndarray) -> float:
         # Reject negative values

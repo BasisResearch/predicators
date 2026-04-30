@@ -1022,10 +1022,16 @@ class GlobalSettings:
     # upstream step multiplies the cost.
     agent_bilevel_explorer_max_samples_per_step = 50
 
+    # Code sim-learning parameter fitting settings.
+    # Set to 0 to skip MCMC and use initial parameter values directly.
+    code_sim_learning_num_mcmc_steps = 500
+
     # Sim-learning oracle flags (for ablation / debugging).
     # When True, load GT process rules instead of running agent synthesis.
     # Parameters init_values are perturbed so MCMC still has work to do.
     agent_sim_learn_oracle_sim_program = False
+    # Relative scale for perturbing oracle parameter init_values before MCMC.
+    agent_sim_learn_oracle_sim_param_noise_scale = 0.2
     # When True, use GT parameter values directly, skipping MCMC fitting.
     agent_sim_learn_oracle_sim_params = False
 
