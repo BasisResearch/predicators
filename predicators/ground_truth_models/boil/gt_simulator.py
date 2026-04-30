@@ -13,10 +13,12 @@ import numpy as np
 from predicators.code_sim_learning.training import ParamSpec
 from predicators.code_sim_learning.utils import ProcessUpdate
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
+from predicators.settings import CFG
 from predicators.structs import Object, State
 
-# Constants matching pybullet_boil.py exactly.
-WATER_FILL_SPEED = 0.02  # 0.002 * water_height_to_level_ratio(10)
+# Constants matching pybullet_boil.py exactly. Note: water_fill_speed is
+# derived from CFG at spec-build time (env uses
+# CFG.boil_water_fill_speed * water_height_to_level_ratio).
 HEATING_SPEED = 0.03
 HAPPINESS_SPEED = 0.05
 MAX_JUG_WATER_CAPACITY = 1.3
@@ -25,19 +27,28 @@ MAX_WATER_SPILL_WIDTH = 0.3
 FAUCET_ALIGN_THRESHOLD = 0.1
 BURNER_ALIGN_THRESHOLD = 0.05
 FAUCET_X_LEN = 0.15
+_WATER_HEIGHT_TO_LEVEL_RATIO = 10
 
-# Parameter specs for fitting.
-BOIL_PARAM_SPECS: List[ParamSpec] = [
-    ParamSpec("water_fill_speed", WATER_FILL_SPEED),
-    ParamSpec("heating_speed", HEATING_SPEED),
-    ParamSpec("happiness_speed", HAPPINESS_SPEED),
-    ParamSpec("max_jug_water_capacity", MAX_JUG_WATER_CAPACITY),
-    ParamSpec("water_filled_height", WATER_FILLED_HEIGHT),
-    ParamSpec("max_water_spill_width", MAX_WATER_SPILL_WIDTH),
-    ParamSpec("faucet_x_len", FAUCET_X_LEN),
-    ParamSpec("faucet_align_threshold", FAUCET_ALIGN_THRESHOLD),
-    ParamSpec("burner_align_threshold", BURNER_ALIGN_THRESHOLD),
-]
+
+def _build_param_specs() -> List[ParamSpec]:
+    """Build at call time so CFG-driven values match the current run."""
+    water_fill_speed = (CFG.boil_water_fill_speed *
+                        _WATER_HEIGHT_TO_LEVEL_RATIO)
+    return [
+        ParamSpec("water_fill_speed", water_fill_speed, lo=0.0),
+        ParamSpec("heating_speed", HEATING_SPEED, lo=0.0),
+        ParamSpec("happiness_speed", HAPPINESS_SPEED, lo=0.0),
+        ParamSpec("max_jug_water_capacity", MAX_JUG_WATER_CAPACITY, lo=0.0),
+        ParamSpec("water_filled_height", WATER_FILLED_HEIGHT, lo=0.0),
+        ParamSpec("max_water_spill_width", MAX_WATER_SPILL_WIDTH, lo=0.0),
+        ParamSpec("faucet_x_len", FAUCET_X_LEN, lo=0.0),
+        ParamSpec("faucet_align_threshold", FAUCET_ALIGN_THRESHOLD, lo=0.0),
+        ParamSpec("burner_align_threshold", BURNER_ALIGN_THRESHOLD, lo=0.0),
+    ]
+
+
+# Static specs for tests / introspection (uses CFG defaults at import time).
+BOIL_PARAM_SPECS: List[ParamSpec] = _build_param_specs()
 
 Params = Dict[str, float]
 
@@ -169,7 +180,7 @@ class PyBulletBoilGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
 
     @classmethod
     def get_param_specs(cls) -> list:
-        return list(BOIL_PARAM_SPECS)
+        return _build_param_specs()
 
 
 def get_gt_process_features() -> Dict[str, List[str]]:
