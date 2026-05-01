@@ -11,6 +11,7 @@ import logging
 from typing import Callable, Optional, Set, Tuple
 
 import numpy as np
+import pybullet
 
 from predicators import utils
 from predicators.envs import create_new_env
@@ -173,9 +174,9 @@ class _OracleOptionModel(_OptionModelBase):
                 state,
                 _terminal,
                 max_num_steps=CFG.max_num_steps_option_rollout)
-        except utils.OptionExecutionFailure as e:
-            # If there is a failure during the execution of the option, treat
-            # this as a noop.
+        except (utils.OptionExecutionFailure, pybullet.error) as e:
+            # Treat PyBullet physics engine errors the same as planned
+            # execution failures (e.g. GUI/Metal crash on macOS).
             self.last_execution_failure = str(e)
             return state, 0
         # Note that in the case of using a PyBullet environment, the

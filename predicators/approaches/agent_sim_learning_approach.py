@@ -23,6 +23,7 @@ import os
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
+import pybullet
 from gym.spaces import Box
 
 from predicators import utils
@@ -146,8 +147,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             return
 
         # Build combined simulator.
-        combined_sim = self._build_combined_simulator(self._base_env,
-                                                      self._simulator,
+        combined_sim = self._build_combined_simulator(self._simulator,
                                                       self._process_features)
 
         # Build learned option model
@@ -439,16 +439,45 @@ Read that file first, then explore the trajectory data with \
                     (traj.states[i], traj.actions[i], traj.states[i + 1]))
         return triples
 
-    @staticmethod
+    def _recreate_base_env(self) -> None:
+        """Reconnect after a PyBullet physics-server crash.
+
+        Disconnects the dead client (best-effort), then spins up a fresh
+        env with the same settings so subsequent simulate() calls work.
+        """
+        try:
+            pybullet.disconnect(self._base_env._physics_client_id)
+        except Exception:  # client may already be dead
+            pass
+        logging.warning(
+            "PyBullet physics client crashed; recreating base env "
+            "(use_gui=%s).", CFG.option_model_use_gui)
+        self._base_env = create_new_env(CFG.env,
+                                        do_cache=False,
+                                        use_gui=CFG.option_model_use_gui,
+                                        skip_process_dynamics=True)
+
     def _build_combined_simulator(
-        base_env: Any,
+        self,
         simulator: LearnedSimulator,
         process_features: Dict[str, List[str]],
     ) -> Callable[[State, Action], State]:
-        """Compose kinematics-only env with learned step-level dynamics."""
+        """Compose kinematics-only env with learned step-level dynamics.
+
+        Captures ``self`` so that if the PyBullet physics server crashes
+        (common on macOS Metal with GUI mode after many simulation steps),
+        the closure can recreate ``self._base_env`` and retry once.
+        """
 
         def combined_simulate(state: State, action: Action) -> State:
-            kin_state = base_env.simulate(state, action)
+            try:
+                kin_state = self._base_env.simulate(state, action)
+            except pybullet.error as e:
+                logging.warning(
+                    "PyBullet error in combined_simulate (%s); "
+                    "recreating base env and retrying.", e)
+                self._recreate_base_env()
+                kin_state = self._base_env.simulate(state, action)
             updates = simulator.predict_step(kin_state)
             if not updates:
                 return kin_state
