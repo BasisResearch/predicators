@@ -1364,8 +1364,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         cx = state.get(jug, "x")
         cy = state.get(jug, "y")
         cz = self.z_lb + liquid_height / 2 + 0.02  # sits on table
-        # jug_rot = state.get(jug, "rot")
-        # orientation = p.getQuaternionFromEuler([0.0, 0.0, jug_rot])
+        jug_rot = state.get(jug, "rot")
+        orientation = p.getQuaternionFromEuler([0.0, 0.0, jug_rot])
 
         color = self.water_color
         return create_pybullet_block(color=color,
@@ -1373,7 +1373,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                                      mass=0.01,
                                      friction=0.5,
                                      position=(cx, cy, cz),
-                                    #  orientation=orientation,
+                                     orientation=orientation,
                                      physics_client_id=self._physics_client_id)
 
 
