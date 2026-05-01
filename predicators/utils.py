@@ -1684,6 +1684,39 @@ def strip_wait_annotations(text: str) -> str:
     return re.sub(r'\s*->\s*\{[^}]*\}', '', text)
 
 
+def _format_wait_target_debug(
+        state: State, target_atoms: Set[GroundAtom],
+        abstract_function: Callable[[State], Set[GroundAtom]]) -> str:
+    """Format state details for debugging why Wait has not terminated."""
+    cur_atoms = abstract_function(state)
+    missing_targets = target_atoms - cur_atoms
+    target_objects = sorted({
+        ent
+        for atom in target_atoms for ent in atom.entities
+        if isinstance(ent, Object)
+    },
+                            key=lambda o: o.name)
+    object_details = []
+    for obj in target_objects:
+        feature_values = []
+        for feature_name in obj.type.feature_names:
+            value = state.get(obj, feature_name)
+            if isinstance(value, float):
+                value_str = f"{value:.4f}"
+            else:
+                value_str = str(value)
+            feature_values.append(f"{feature_name}={value_str}")
+        object_details.append(f"{obj}: " + ", ".join(feature_values))
+    details = [
+        f"Targets: {sorted(target_atoms)}",
+        f"Missing: {sorted(missing_targets)}",
+        f"cur_atoms: {sorted(cur_atoms)}",
+    ]
+    if object_details:
+        details.append(f"target_objects: {'; '.join(object_details)}")
+    return "; ".join(details)
+
+
 def option_policy_to_policy(
     option_policy: Callable[[State], _Option],
     max_option_steps: Optional[int] = None,
@@ -1728,11 +1761,26 @@ def option_policy_to_policy(
                 and cur_option.name == "Wait":
             assert abstract_function is not None
             assert last_state is not None
+            target_atoms = cur_option.memory.get("wait_target_atoms")
             result = check_wait_target_atoms(cur_option, state,
                                              abstract_function)
             if result is True:
-                logging.debug("Wait terminating: target atoms satisfied")
+                cur_atoms = abstract_function(state)
+                logging.debug(
+                    "Wait terminating: target atoms satisfied. "
+                    f"Targets: {target_atoms}, "
+                    f"cur_atoms: {sorted(cur_atoms)}, "
+                    f"num_option_steps={num_cur_option_steps}")
                 wait_terminate = True
+            elif result is False:
+                assert target_atoms is not None
+                if num_cur_option_steps <= 1 or num_cur_option_steps % 25 == 0:
+                    wait_debug = _format_wait_target_debug(
+                        state, target_atoms, abstract_function)
+                    logging.debug(
+                        "Wait continuing: target atoms not yet satisfied. "
+                        "%s, num_option_steps=%d", wait_debug,
+                        num_cur_option_steps)
             elif result is None:
                 # No targets specified: fall back to any-atom-change
                 cur_atoms = abstract_function(state)
@@ -1766,6 +1814,9 @@ def option_policy_to_policy(
                 raise OptionExecutionFailure(
                     "Unsound option policy.",
                     info={"last_failed_option": last_option})
+            logging.debug(
+                f"[option_policy] Started option {cur_option.name}, "
+                f"initiable=True")
             num_cur_option_steps = 0
 
         num_cur_option_steps += 1
@@ -1783,13 +1834,20 @@ def option_plan_to_policy(
 ) -> Callable[[State], Action]:
     """Create a policy that executes a sequence of options in order."""
     queue = list(plan)  # don't modify plan, just in case
+    total_options = len(queue)
 
     def _option_policy(state: State) -> _Option:
         del state  # not used
         if not queue:
+            logging.info("Option plan exhausted after %d options.",
+                         total_options)
             raise OptionExecutionFailure("Option plan exhausted!")
         option = queue.pop(0)
-        logging.info(f"Executing option {option.simple_str()}")
+        option_num = total_options - len(queue)
+        next_option = None if not queue else queue[0].simple_str()
+        logging.info("Executing option %d/%d: %s (remaining=%d, next=%s)",
+                     option_num, total_options, option.simple_str(),
+                     len(queue), next_option)
         return option
 
     return option_policy_to_policy(

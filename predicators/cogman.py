@@ -78,6 +78,7 @@ class CogMan:
             self._episode_state_history.append(state)
         if self._termination_fn is not None and self._termination_fn(state):
             logging.info("[CogMan] Termination triggered.")
+            logging.debug("[CogMan] step returning None: termination_fn fired")
             return None
         # Check if we should replan.
         if self._exec_monitor.step(state):
@@ -227,8 +228,9 @@ def run_episode_and_get_observations(
     metrics["policy_call_time"] = 0.0
     metrics["num_options_executed"] = 0.0
     exception_raised_in_step = False
+    step_num = -1
     if not (terminate_on_goal_reached and env.goal_reached()):
-        for _ in range(max_num_steps):
+        for step_num in range(max_num_steps):
             monitor_observed = False
             exception_raised_in_step = False
             try:
@@ -236,6 +238,7 @@ def run_episode_and_get_observations(
                 act = cogman.step(obs)
                 metrics["policy_call_time"] += time.perf_counter() - start_time
                 if act is None:
+                    logging.debug("[CogMan] loop break: act is None")
                     break
                 if act.has_option() and act.get_option() != curr_option:
                     curr_option = act.get_option()
@@ -264,9 +267,14 @@ def run_episode_and_get_observations(
                    any(issubclass(type(e), c) for c in exceptions_to_break_on):
                     if monitor_observed:
                         exception_raised_in_step = True
+                    logging.debug(
+                        f"[CogMan] loop break: exception in break_on set: {e}")
                     break
                 if CFG.terminate_on_goal_reached_and_option_terminated and \
                     env.goal_reached():
+                    logging.debug(
+                        f"[CogMan] loop break: goal_reached+option_terminated "
+                        f"(exception: {e})")
                     break
                 if monitor is not None and not monitor_observed:
                     monitor.observe(obs, None)
@@ -277,7 +285,17 @@ def run_episode_and_get_observations(
                     return traj, solved, metrics
                 raise e
             if terminate_on_goal_reached and env.goal_reached():
+                logging.debug("[CogMan] loop break: terminate_on_goal_reached")
                 break
+        else:
+            option_str = (None if curr_option is None else
+                          curr_option.simple_str())
+            logging.info("[CogMan] Reached max_num_steps=%d while executing "
+                         "option %s.", max_num_steps, option_str)
+            logging.debug("[CogMan] Final loop step index before horizon: %d",
+                          step_num)
+            logging.debug("[CogMan] Atoms at horizon: %s",
+                          sorted(utils.abstract(obs, env.predicates)))
     if monitor is not None and not exception_raised_in_step:
         monitor.observe(obs, None)
     cogman.finish_episode(obs)
