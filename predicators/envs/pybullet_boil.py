@@ -584,6 +584,8 @@ class PyBulletBoilEnv(PyBulletEnv):
             jug.heat_level = state.get(jug, "heat_level")
             liquid_id = self._create_liquid_for_jug(jug, state)
             self._jug_to_liquid_id[jug] = liquid_id
+        
+        self._update_liquid_colors(state)
 
         # Update jug body colors from state
         for jug in jugs:
@@ -646,7 +648,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         state = self._get_state()
         self._handle_faucet_logic(state)
         self._handle_heating_logic(state)
-        self._update_jug_colors(state)
+        self._update_liquid_colors(state)
         self._update_burner_colors(state)
         self._update_human_happiness(state)
         self._update_prev_on_states(state)
@@ -764,7 +766,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                         new_heat = min(1.0, old_heat + self.heating_speed)
                         jug_obj.heat_level = new_heat
 
-    def _update_jug_colors(self, state: State) -> None:
+    def _update_liquid_colors(self, state: State) -> None:
         """Simple linear interpolation from blue (0.0) to red (1.0) based on
         jug.heat."""
         jugs = state.get_objects(self._jug_type)
@@ -1362,8 +1364,8 @@ class PyBulletBoilEnv(PyBulletEnv):
         cx = state.get(jug, "x")
         cy = state.get(jug, "y")
         cz = self.z_lb + liquid_height / 2 + 0.02  # sits on table
-        jug_rot = state.get(jug, "rot")
-        orientation = p.getQuaternionFromEuler([0.0, 0.0, jug_rot])
+        # jug_rot = state.get(jug, "rot")
+        # orientation = p.getQuaternionFromEuler([0.0, 0.0, jug_rot])
 
         color = self.water_color
         return create_pybullet_block(color=color,
@@ -1371,7 +1373,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                                      mass=0.01,
                                      friction=0.5,
                                      position=(cx, cy, cz),
-                                     orientation=orientation,
+                                    #  orientation=orientation,
                                      physics_client_id=self._physics_client_id)
 
 
