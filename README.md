@@ -10,8 +10,8 @@ This codebase implements a framework for *bilevel planning with learned neuro-sy
 4. [Predicate Invention for Bilevel Planning](https://arxiv.org/abs/2203.09634). Silver*, Chitnis*, Kumar, McClinton, Lozano-Perez, Kaelbling, Tenenbaum. AAAI 2023.
 5. [Embodied Active Learning of Relational State Abstractions for Bilevel Planning](https://arxiv.org/abs/2303.04912). Li, Silver. CoLLAs 2023.
 6. [Learning Efficient Abstract Planning Models that Choose What to Predict](https://arxiv.org/abs/2208.07737). Kumar*, McClinton*, Chitnis, Silver, Lozano-Perez, Kaelbling. CoRL 2023.
-
-The codebase is still under active development. **Please contact <tslvr@mit.edu> or <njk@mit.edu> before attempting to use it for your own research.**
+7. [VisualPredicator: Learning Abstract World Models with Neuro-Symbolic Predicates for Robot Planning](https://arxiv.org/abs/2410.23156). Liang, Kumar, Tang, Weller, Tenenbaum, Silver, Henriques, Ellis. ICLR 2025.
+8. [ExoPredicator: Learning Abstract Models of Dynamic Worlds for Robot Planning](https://arxiv.org/abs/2509.26255). Liang, Nguyen, Yang, Li, Tenenbaum, Rasmussen, Weller, Tavares, Silver*, Ellis*. ICLR 2026.
 
 ### Code Structure
 
@@ -25,6 +25,9 @@ In `predicators/`, the environments are defined in the `envs/` directory, and th
 Methods for predicate learning are implemented as Approaches (e.g., `predicators/approaches/grammar_search_invention_approach.py`), and may interface with the core structure of `predicators/nsrt_learning/nsrt_learning_main.py` in various ways.
 
 A simple implementation of search-then-sample bilevel planning is provided in `predicators/planning.py`. This implementation uses the "SeSamE" strategy: SEarch-and-SAMple planning, then Execution.
+
+## RoboDisco
+Predicators ships **RoboDisco** (Robot Model Discovery Benchmark), a collection of PyBullet manipulation environments exposed through a standard [Gymnasium](https://gymnasium.farama.org/) API and suitable for world-model learning, causal discovery, and RL research independent of the planning framework. See [`predicators/envs/README.md`](predicators/envs/README.md) for the env list, install instructions, quick-start code, standalone API, and getting-started notebook.
 
 ## Installation
 * This repository uses Python versions 3.10-3.11. We recommend 3.10.14.

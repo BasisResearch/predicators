@@ -10,6 +10,7 @@ setup(
         "pytest==7.1.3",
         "mypy==1.8.0",
         "gym==0.26.2",
+        "gymnasium>=0.28.0",
         "matplotlib==3.6.2",
         "imageio==2.22.2",
         "imageio-ffmpeg",
