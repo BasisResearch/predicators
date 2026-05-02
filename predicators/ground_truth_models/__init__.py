@@ -270,9 +270,8 @@ def get_gt_simulator(env_name: str) -> tuple:
     rule functions and *param_specs* is a list of ``ParamSpec`` objects
     whose ``init_value`` is the GT value.
     """
-    gt_name = _normalize_env_name_for_gt(env_name)
     for cls in utils.get_all_subclasses(GroundTruthSimulatorFactory):
-        if not cls.__abstractmethods__ and gt_name in cls.get_env_names():
+        if not cls.__abstractmethods__ and env_name in cls.get_env_names():
             return cls.get_rules(), cls.get_param_specs()
     raise NotImplementedError("Ground-truth simulator not implemented for "
                               f"env: {env_name}")
