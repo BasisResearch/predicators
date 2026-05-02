@@ -4,7 +4,7 @@ Extends AgentBilevelApproach to learn process dynamics via an
 agent-synthesized step-level simulator with parameterized process
 rules. Parameters are fitted via emcee ensemble MCMC (training.py).
 
-The approach creates a kinematics-only oracle (PyBullet with process
+The approach creates a base oracle (PyBullet with process
 dynamics disabled) and composes it with the learned step-level
 dynamics into a single simulator function, plugged into a standard
 _OracleOptionModel for true per-step interleaving.
@@ -53,7 +53,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
     2. Segment into option-level transitions
     3. Synthesize parameterized process rules via Claude agent
     4. Fit rule parameters via emcee ensemble MCMC
-    5. Compose with kinematics-only oracle into a combined simulator
+    5. Compose with base oracle into a combined simulator
     6. Build _OracleOptionModel with the combined simulator
 
     During solving:
@@ -70,7 +70,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
                  *args: Any,
                  option_model: Optional[_OptionModelBase] = None,
                  **kwargs: Any) -> None:
-        # Build the kinematics-only env BEFORE super().__init__ and pass
+        # Build the base env BEFORE super().__init__ and pass
         # the resulting option model in via option_model=. This stops
         # AgentPlannerApproach.__init__ from spinning up its own full-
         # process env (which would conflict with this one over PyBullet
@@ -162,7 +162,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
 
         Plumbs ``_abstract_function`` for Wait-target atom-change
         termination so the model behaves identically whether it's
-        wrapping the bare kin-only simulator (init) or the learned
+        wrapping the bare base simulator (init) or the learned
         kin+process combined simulator (post learn_from_interaction).
         Uses ``self._get_all_options()`` rather than
         ``get_gt_options(CFG.env)`` to avoid spawning a second cached
@@ -282,12 +282,12 @@ Read that file first, then explore the trajectory data with \
         self._process_rules = rules
 
         # ── Obtain fitted parameters ────────────────────────────
-        # Use a headless env for fitting so the GUI env isn't
-        # thrashed by thousands of _set_state calls during MCMC.
+        # Use a headless env for fitting.
         fit_env = create_new_env(CFG.env,
                                  do_cache=False,
                                  use_gui=False,
                                  skip_process_dynamics=True)
+        _noise_sigma = 0.05  # matches fit_params default
         if CFG.agent_sim_learn_oracle_sim_params:
             self._fitted_params = {s.name: s.init_value for s in specs}
             self._fit_mse = compute_mse(
@@ -296,16 +296,19 @@ Read that file first, then explore the trajectory data with \
                 step_transitions,
                 self._fitted_params,
                 process_features)
-            logger.info("Using oracle params (MSE: %.6f).", self._fit_mse)
+            fit_ll = -0.5 * self._fit_mse / (_noise_sigma**2)
+            logger.info("Oracle params — MSE: %.6f  log-likelihood: %.2f",
+                        self._fit_mse, fit_ll)
+            for name, val in sorted(self._fitted_params.items()):
+                logger.info("  %-30s  %.4f", name, val)
         else:
             self._fitted_params, self._fit_mse = self._fit_parameters(
                 rules, specs, step_transitions, process_features, fit_env)
             if CFG.code_sim_learning_num_mcmc_steps == 0:
-                logger.info("Skipped fitting; using %d initial params "
-                            "(MSE: %.6f).", len(specs), self._fit_mse)
+                logger.info("Skipped MCMC; using %d initial params.",
+                            len(specs))
             else:
-                logger.info("Fitted %d params (MSE: %.6f).", len(specs),
-                            self._fit_mse)
+                logger.info("Fitted %d params.", len(specs))
 
     # ── Parameter fitting ────────────────────────────────────────
 
@@ -315,35 +318,65 @@ Read that file first, then explore the trajectory data with \
         specs: List[ParamSpec],
         step_transitions: List[Tuple[State, Action, State]],
         process_features: Dict[str, List[str]],
-        base_env: Any = None,
+        base_env: Any,
     ) -> Tuple[Dict[str, float], float]:
         """Fit parameters for the synthesized rules via MCMC.
 
         Args:
-            base_env: Kinematics-only environment.  When provided the
-                simulator runs kinematics first so learned rules see
-                the post-kinematics state (consistent with inference).
+            base_env: Base environment. base_env.simulate(s, a) handles the
+                first half of each transition, leaving only the learned
+                process-rule updates for the MCMC loop to evaluate.
 
         Returns:
             (fitted_params, mse) tuple.
         """
+        assert base_env is not None, "base_env required"
+        # base_env.simulate(s, a) is param-independent, so pre-compute it
+        # once here rather than inside every MCMC log-posterior call
+        # (num_walkers × num_steps × len(transitions) invocations).
+        # The MCMC loop then only evaluates the cheap apply_rules step.
+        logger.info("Pre-computing base states for %d transitions.",
+                    len(step_transitions))
+        base_transitions: List[Tuple[State, Action, State]] = [
+            (base_env.simulate(s, a), a, s_next)
+            for s, a, s_next in step_transitions
+        ]
 
-        def sim_fn(state: State, action: Action, params: Dict[str,
-                                                              float]) -> Dict:
-            if base_env is not None:
-                state = base_env.simulate(state, action)
+        def sim_fn(state: State, action: Action,
+                   params: Dict[str, float]) -> Dict:
             return apply_rules(state, rules, params)
+
+        noise_sigma = 0.05  # matches fit_params default
+        init_params = {s.name: s.init_value for s in specs}
+        pre_mse = compute_mse(sim_fn, base_transitions, init_params,
+                              process_features)
+        pre_ll = -0.5 * pre_mse / (noise_sigma**2)
+        logger.info("Before fitting — MSE: %.6f  log-likelihood: %.2f",
+                    pre_mse, pre_ll)
 
         result = fit_params(
             simulator_fn=sim_fn,
-            transitions=step_transitions,
+            transitions=base_transitions,
             param_specs=specs,
             process_features=process_features,
         )
 
-        mse = compute_mse(sim_fn, step_transitions, result.point_estimate,
-                          process_features)
-        return result.point_estimate, mse
+        fitted_params = result.point_estimate
+        post_mse = compute_mse(sim_fn, base_transitions, fitted_params,
+                               process_features)
+        post_ll = -0.5 * post_mse / (noise_sigma**2)
+        logger.info("After fitting  — MSE: %.6f  log-likelihood: %.2f",
+                    post_mse, post_ll)
+
+        for name in sorted(fitted_params):
+            init_val = init_params[name]
+            fit_val = fitted_params[name]
+            delta = fit_val - init_val
+            pct = (delta / init_val * 100) if init_val != 0 else float("nan")
+            logger.info("  %-30s  %.4f -> %.4f  (Δ=%.4f, %+.1f%%)", name,
+                        init_val, fit_val, delta, pct)
+
+        return fitted_params, post_mse
 
     @staticmethod
     def _load_simulator_from_file(
@@ -462,7 +495,7 @@ Read that file first, then explore the trajectory data with \
         simulator: LearnedSimulator,
         process_features: Dict[str, List[str]],
     ) -> Callable[[State, Action], State]:
-        """Compose kinematics-only env with learned step-level dynamics.
+        """Compose base env with learned step-level dynamics.
 
         Captures ``self`` so that if the PyBullet physics server crashes
         (common on macOS Metal with GUI mode after many simulation steps),
