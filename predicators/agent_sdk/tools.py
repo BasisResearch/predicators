@@ -2058,7 +2058,7 @@ def create_synthesis_tools(
     @tool(
         "evaluate_simulator",
         "Fit parameters using PROCESS_RULES and PARAM_SPECS "
-        "from the run_python namespace. Reports MSE and fitted "
+        "from the run_python namespace. Reports SSE and fitted "
         "parameter values.",
         {
             "type": "object",
@@ -2076,7 +2076,7 @@ def create_synthesis_tools(
                          "run_python to define it first.")
 
         try:
-            fitted_params, mse = (
+            fitted_params, sse = (
                 AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
                     rules, specs, step_transitions, process_features,
                     base_env))
@@ -2084,7 +2084,7 @@ def create_synthesis_tools(
             return _text(f"Error: fit_params failed:\n{e}")
 
         lines = [
-            f"MSE: {mse:.6f} on "
+            f"SSE: {sse:.6f} on "
             f"{len(step_transitions)} step transitions.",
             "",
             "Fitted parameters:",

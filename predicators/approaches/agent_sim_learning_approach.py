@@ -29,7 +29,7 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk.tools import create_synthesis_tools
 from predicators.approaches.agent_bilevel_approach import AgentBilevelApproach
-from predicators.code_sim_learning.training import ParamSpec, compute_mse, \
+from predicators.code_sim_learning.training import ParamSpec, compute_sse, \
     fit_params
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, merge_updates
@@ -100,7 +100,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         # Persistent state across learning cycles.
         self._process_rules: Optional[List] = None
         self._fitted_params: Optional[Dict[str, float]] = None
-        self._fit_mse: float = float("inf")
+        self._fit_sse: float = float("inf")
         # True during simulator synthesis (learning); False during
         # plan generation (decision-making).
         self._learning_mode: bool = False
@@ -152,7 +152,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
 
         # Build learned option model
         self._option_model = self._build_option_model(combined_sim)
-        logger.info("Built learned option model (MSE: %.6f).", self._fit_mse)
+        logger.info("Built learned option model (SSE: %.6f).", self._fit_sse)
 
     def _build_option_model(
         self,
@@ -290,19 +290,19 @@ Read that file first, then explore the trajectory data with \
         _noise_sigma = 0.05  # matches fit_params default
         if CFG.agent_sim_learn_oracle_sim_params:
             self._fitted_params = {s.name: s.init_value for s in specs}
-            self._fit_mse = compute_mse(
+            self._fit_sse = compute_sse(
                 lambda s, a, p: apply_rules(  # type: ignore[misc]
                     fit_env.simulate(s, a), rules, p),
                 step_transitions,
                 self._fitted_params,
                 process_features)
-            fit_ll = -0.5 * self._fit_mse / (_noise_sigma**2)
-            logger.info("Oracle params — MSE: %.6f  log-likelihood: %.2f",
-                        self._fit_mse, fit_ll)
+            fit_ll = -0.5 * self._fit_sse / (_noise_sigma**2)
+            logger.info("Oracle params — SSE: %.6f  log-likelihood: %.2f",
+                        self._fit_sse, fit_ll)
             for name, val in sorted(self._fitted_params.items()):
                 logger.info("  %-30s  %.4f", name, val)
         else:
-            self._fitted_params, self._fit_mse = self._fit_parameters(
+            self._fitted_params, self._fit_sse = self._fit_parameters(
                 rules, specs, step_transitions, process_features, fit_env)
             if CFG.code_sim_learning_num_mcmc_steps == 0:
                 logger.info("Skipped MCMC; using %d initial params.",
@@ -328,7 +328,7 @@ Read that file first, then explore the trajectory data with \
                 process-rule updates for the MCMC loop to evaluate.
 
         Returns:
-            (fitted_params, mse) tuple.
+            (fitted_params, sse) tuple.
         """
         assert base_env is not None, "base_env required"
         # base_env.simulate(s, a) is param-independent, so pre-compute it
@@ -348,11 +348,11 @@ Read that file first, then explore the trajectory data with \
 
         noise_sigma = 0.05  # matches fit_params default
         init_params = {s.name: s.init_value for s in specs}
-        pre_mse = compute_mse(sim_fn, base_transitions, init_params,
+        pre_sse = compute_sse(sim_fn, base_transitions, init_params,
                               process_features)
-        pre_ll = -0.5 * pre_mse / (noise_sigma**2)
-        logger.info("Before fitting — MSE: %.6f  log-likelihood: %.2f",
-                    pre_mse, pre_ll)
+        pre_ll = -0.5 * pre_sse / (noise_sigma**2)
+        logger.info("Before fitting — SSE: %.6f  log-likelihood: %.2f",
+                    pre_sse, pre_ll)
 
         result = fit_params(
             simulator_fn=sim_fn,
@@ -362,11 +362,11 @@ Read that file first, then explore the trajectory data with \
         )
 
         fitted_params = result.point_estimate
-        post_mse = compute_mse(sim_fn, base_transitions, fitted_params,
+        post_sse = compute_sse(sim_fn, base_transitions, fitted_params,
                                process_features)
-        post_ll = -0.5 * post_mse / (noise_sigma**2)
-        logger.info("After fitting  — MSE: %.6f  log-likelihood: %.2f",
-                    post_mse, post_ll)
+        post_ll = -0.5 * post_sse / (noise_sigma**2)
+        logger.info("After fitting  — SSE: %.6f  log-likelihood: %.2f",
+                    post_sse, post_ll)
 
         for name in sorted(fitted_params):
             init_val = init_params[name]
@@ -376,7 +376,7 @@ Read that file first, then explore the trajectory data with \
             logger.info("  %-30s  %.4f -> %.4f  (Δ=%.4f, %+.1f%%)", name,
                         init_val, fit_val, delta, pct)
 
-        return fitted_params, post_mse
+        return fitted_params, post_sse
 
     @staticmethod
     def _load_simulator_from_file(
@@ -534,7 +534,7 @@ non-kinematic features that change due to ongoing physical or causal processes.
 - `run_python(code)` — execute Python in a persistent namespace. `print()` \
 output is returned. The namespace persists across calls.
 - `evaluate_simulator` — fit parameters using PROCESS_RULES and PARAM_SPECS \
-from the namespace. Reports MSE.
+from the namespace. Reports SSE.
 - `test_simulator` — test predictions vs observations on step transitions. \
 Shows mismatches.
 
@@ -586,7 +586,7 @@ ParamSpec(name: str, init_value: float)
 state changes over time
 2. Identify which features change due to process dynamics (not kinematics)
 3. Define `PROCESS_RULES` and `PARAM_SPECS` in the namespace via `run_python`
-4. Call `evaluate_simulator` to fit parameters and check MSE
+4. Call `evaluate_simulator` to fit parameters and check SSE
 5. Call `test_simulator` to see prediction mismatches
 6. Iterate if needed
 

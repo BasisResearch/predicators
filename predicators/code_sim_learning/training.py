@@ -40,20 +40,27 @@ class FitResult:
 
     @property
     def point_estimate(self) -> Dict[str, float]:
-        """Posterior mean."""
-        mean = self.samples.mean(axis=0)
-        return {n: float(mean[i]) for i, n in enumerate(self.names)}
+        """MAP (sample with highest log-probability)."""
+        best_idx = int(np.argmax(self.log_probs))
+        return {n: float(self.samples[best_idx, i])
+                for i, n in enumerate(self.names)}
 
 
-def compute_mse(
+def compute_sse(
     simulator_fn: StepSimulatorFn,
     transitions: List[Tuple[State, Action, State]],
     params: Dict[str, float],
     process_features: Dict[str, List[str]],
 ) -> float:
-    """Compute MSE between predicted and observed process features."""
+    """Sum of squared errors between predicted and observed process features.
+
+    Returns the total (un-normalized) SSE so that the Gaussian
+    log-likelihood ``-0.5 * SSE / noise_sigma**2`` is the correct
+    iid-observation form. Dividing by count would silently rescale the
+    per-observation noise by sqrt(count), making the chain insensitive
+    to parameter changes.
+    """
     total_se = 0.0
-    count = 0
 
     for s_t, action, s_next_obs in transitions:
         updates = simulator_fn(s_t, action, params)
@@ -67,7 +74,6 @@ def compute_mse(
                 v = pred_val.item() if hasattr(pred_val, 'item') else pred_val
                 obs_val = float(s_next_obs.get(obj, feat_name))
                 total_se += (v - obs_val)**2
-                count += 1
 
         # Penalize unpredicted features (model predicts no change).
         for obj in s_t:
@@ -78,11 +84,8 @@ def compute_mse(
                 pred_val = float(s_t.get(obj, feat_name))
                 obs_val = float(s_next_obs.get(obj, feat_name))
                 total_se += (pred_val - obs_val)**2
-                count += 1
 
-    if count == 0:
-        return 0.0
-    return total_se / count
+    return total_se
 
 
 def fit_params(
@@ -94,7 +97,7 @@ def fit_params(
     num_steps: Optional[int] = None,
     burn_in: int = 200,
     noise_sigma: float = 0.05,
-    prior_sigma_scale: float = 2.0,
+    prior_sigma_scale: float = 1.0,
 ) -> FitResult:
     """Fit simulator parameters via emcee ensemble MCMC.
 
@@ -144,11 +147,15 @@ def fit_params(
         # Broad Gaussian prior centered on init values
         log_prior = -0.5 * np.sum(((theta - init_values) / prior_sigma)**2)
         # Likelihood
-        mse = compute_mse(simulator_fn, transitions, params, process_features)
-        return log_prior + (-0.5 * mse / (noise_sigma**2))
+        sse = compute_sse(simulator_fn, transitions, params, process_features)
+        return log_prior + (-0.5 * sse / (noise_sigma**2))
 
-    # Initialize walkers in a small ball around init values.
-    p0 = init_values * (1.0 + 0.01 * np.random.randn(num_walkers, ndim))
+    # Initialize walkers across the prior support (sigma = half the prior
+    # width). A tight ball around init traps the chain on flat plateaus
+    # of the likelihood (e.g., when threshold-based rules don't fire),
+    # because emcee stretch moves scale with the swarm's spread.
+    p0 = init_values + 0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
+    p0 = np.clip(p0, 1e-6, None)
 
     sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
 
