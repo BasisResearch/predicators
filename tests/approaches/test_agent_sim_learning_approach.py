@@ -81,11 +81,11 @@ def _build_kinematics_only_oracle(env):
 
 
 def _build_combined_model(env):
-    """Build a combined model: kinematics-only env + GT step-level dynamics.
+    """Build a combined model: base-sim-only env + GT step-level dynamics.
 
     Mirrors AgentSimLearningApproach: wraps GT rules in a
-    LearnedSimulator via apply_rules and composes with a kinematics-only
-    base env.
+    LearnedSimulator via apply_rules and composes with a base-sim-only
+    env.
     """
     base_env = create_new_env("pybullet_boil",
                               do_cache=False,

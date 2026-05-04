@@ -371,7 +371,7 @@ def fit_params(
 
     Args:
         simulator_fn: Simulator(state, action, params_dict) -> updates.
-            Should run kinematics internally if needed.
+            Should run the base sim internally if needed.
         transitions: List of (s_t, action, s_{t+1}_obs) triples.
         param_specs: Parameter specifications (name, init_value).
         process_features: {type_name: [feat_names]} to fit.
