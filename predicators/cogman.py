@@ -288,10 +288,11 @@ def run_episode_and_get_observations(
                 logging.debug("[CogMan] loop break: terminate_on_goal_reached")
                 break
         else:
-            option_str = (None if curr_option is None else
-                          curr_option.simple_str())
-            logging.info("[CogMan] Reached max_num_steps=%d while executing "
-                         "option %s.", max_num_steps, option_str)
+            option_str = (None
+                          if curr_option is None else curr_option.simple_str())
+            logging.info(
+                "[CogMan] Reached max_num_steps=%d while executing "
+                "option %s.", max_num_steps, option_str)
             logging.debug("[CogMan] Final loop step index before horizon: %d",
                           step_num)
             logging.debug("[CogMan] Atoms at horizon: %s",

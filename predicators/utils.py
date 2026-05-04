@@ -1690,12 +1690,13 @@ def _format_wait_target_debug(
     """Format state details for debugging why Wait has not terminated."""
     cur_atoms = abstract_function(state)
     missing_targets = target_atoms - cur_atoms
-    target_objects = sorted({
-        ent
-        for atom in target_atoms for ent in atom.entities
-        if isinstance(ent, Object)
-    },
-                            key=lambda o: o.name)
+    target_objects = sorted(
+        {
+            ent
+            for atom in target_atoms
+            for ent in atom.entities if isinstance(ent, Object)
+        },
+        key=lambda o: o.name)
     object_details = []
     for obj in target_objects:
         feature_values = []
@@ -1766,11 +1767,10 @@ def option_policy_to_policy(
                                              abstract_function)
             if result is True:
                 cur_atoms = abstract_function(state)
-                logging.debug(
-                    "Wait terminating: target atoms satisfied. "
-                    f"Targets: {target_atoms}, "
-                    f"cur_atoms: {sorted(cur_atoms)}, "
-                    f"num_option_steps={num_cur_option_steps}")
+                logging.debug("Wait terminating: target atoms satisfied. "
+                              f"Targets: {target_atoms}, "
+                              f"cur_atoms: {sorted(cur_atoms)}, "
+                              f"num_option_steps={num_cur_option_steps}")
                 wait_terminate = True
             elif result is False:
                 assert target_atoms is not None
@@ -1814,9 +1814,8 @@ def option_policy_to_policy(
                 raise OptionExecutionFailure(
                     "Unsound option policy.",
                     info={"last_failed_option": last_option})
-            logging.debug(
-                f"[option_policy] Started option {cur_option.name}, "
-                f"initiable=True")
+            logging.debug(f"[option_policy] Started option {cur_option.name}, "
+                          f"initiable=True")
             num_cur_option_steps = 0
 
         num_cur_option_steps += 1

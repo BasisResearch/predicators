@@ -42,8 +42,10 @@ class FitResult:
     def point_estimate(self) -> Dict[str, float]:
         """MAP (sample with highest log-probability)."""
         best_idx = int(np.argmax(self.log_probs))
-        return {n: float(self.samples[best_idx, i])
-                for i, n in enumerate(self.names)}
+        return {
+            n: float(self.samples[best_idx, i])
+            for i, n in enumerate(self.names)
+        }
 
 
 def compute_sse(
@@ -239,13 +241,13 @@ def fit_map_lm(
       * MCMC warm start — center emcee walkers on theta_map (and short-
         circuit to it directly when ``num_mcmc_steps == 0``).
     """
-    from scipy.optimize import least_squares  # pylint: disable=import-outside-toplevel
+    from scipy.optimize import \
+        least_squares  # pylint: disable=import-outside-toplevel
 
     names = [s.name for s in param_specs]
     init = np.array([s.init_value for s in param_specs], dtype=float)
     lo = np.array([s.lo if s.lo is not None else 1e-6 for s in param_specs])
-    hi = np.array(
-        [s.hi if s.hi is not None else np.inf for s in param_specs])
+    hi = np.array([s.hi if s.hi is not None else np.inf for s in param_specs])
     # Nudge init strictly into the interior so trf doesn't reject it.
     init = np.maximum(init, lo + 1e-9)
     safe_hi = np.where(np.isfinite(hi), hi - 1e-9, np.inf)
@@ -275,14 +277,14 @@ def fit_map_lm(
         return init, None
 
     sse_lm = float(2.0 * result.cost)
-    delta = {names[i]: float(result.x[i] - init[i])
-             for i in range(len(names))}
+    delta = {names[i]: float(result.x[i] - init[i]) for i in range(len(names))}
     logger.info(
         "LM diagnostic fit: SSE %.4f -> %.4f in %d fn-evals (status=%d, %s).",
         sse_init, sse_lm, result.nfev, result.status,
         "converged" if result.success else "max-evals")
     logger.info("LM theta_map - init: %s",
-                {k: f"{v:+.4f}" for k, v in delta.items()})
+                {k: f"{v:+.4f}"
+                 for k, v in delta.items()})
 
     jac = np.asarray(result.jac, dtype=float)
     if jac.size == 0:
@@ -321,8 +323,8 @@ def log_hessian_identifiability(
     eigvals, eigvecs = np.linalg.eigh(H)  # ascending
 
     cond = float(eigvals[-1] / max(eigvals[0], 1e-30))
-    logger.info("Hessian eigenanalysis (cond %.2e, %d params):",
-                cond, len(param_names))
+    logger.info("Hessian eigenanalysis (cond %.2e, %d params):", cond,
+                len(param_names))
 
     def _format(vec: np.ndarray) -> str:
         order = np.argsort(-np.abs(vec))
@@ -341,14 +343,14 @@ def log_hessian_identifiability(
 
     logger.info("  Stiff (well-constrained):")
     for i in stiff_idx:
-        logger.info("    lambda = %10.3e :  %s",
-                    eigvals[i], _format(eigvecs[:, i]))
+        logger.info("    lambda = %10.3e :  %s", eigvals[i],
+                    _format(eigvecs[:, i]))
 
     if sloppy_idx:
         logger.info("  Sloppy (under-constrained):")
         for i in sloppy_idx:
-            logger.info("    lambda = %10.3e :  %s",
-                        eigvals[i], _format(eigvecs[:, i]))
+            logger.info("    lambda = %10.3e :  %s", eigvals[i],
+                        _format(eigvecs[:, i]))
 
 
 def fit_params(
@@ -408,14 +410,21 @@ def fit_params(
         if CFG.code_sim_learning_warm_start_with_lm:
             walker_center = np.asarray(theta_map, dtype=float)
             logger.info("Warm-starting MCMC walkers from LM MAP estimate.")
-            lm_params = {n: float(walker_center[i]) for i, n in enumerate(names)}
+            lm_params = {
+                n: float(walker_center[i])
+                for i, n in enumerate(names)
+            }
             lm_sse = compute_sse(simulator_fn, transitions, lm_params,
                                  process_features)
             lm_ll = -0.5 * lm_sse / (noise_sigma**2)
-            logger.info("After LM warm start — SSE: %.6f  log-likelihood: %.2f",
-                        lm_sse, lm_ll)
-            log_sse_breakdown(simulator_fn, transitions, lm_params,
-                              process_features, label="lm-warm-start")
+            logger.info(
+                "After LM warm start — SSE: %.6f  log-likelihood: %.2f",
+                lm_sse, lm_ll)
+            log_sse_breakdown(simulator_fn,
+                              transitions,
+                              lm_params,
+                              process_features,
+                              label="lm-warm-start")
 
     if num_steps == 0:
         if CFG.code_sim_learning_warm_start_with_lm:

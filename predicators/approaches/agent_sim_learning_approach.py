@@ -188,8 +188,8 @@ class AgentSimLearningApproach(AgentBilevelApproach):
     ) -> None:
         """Synthesize PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES via agent.
 
-        ``inferred_hint`` is passed to the agent as a starting point
-        and used as the eval/test scope until it declares its own
+        ``inferred_hint`` is passed to the agent as a starting point and
+        used as the eval/test scope until it declares its own
         ``PROCESS_FEATURES``. CFG flags
         ``agent_sim_learn_oracle_sim_program`` and
         ``agent_sim_learn_oracle_sim_params`` short-circuit the agent
@@ -209,14 +209,13 @@ class AgentSimLearningApproach(AgentBilevelApproach):
                         "be non-negative.")
                 perturbed = []
                 for s in specs:
-                    val = s.init_value * (
-                        1.0 + float(rng.normal(0, noise_scale)))
+                    val = s.init_value * (1.0 +
+                                          float(rng.normal(0, noise_scale)))
                     if s.lo is not None:
                         val = max(s.lo, val)
                     if s.hi is not None:
                         val = min(s.hi, val)
-                    perturbed.append(
-                        ParamSpec(s.name, val, lo=s.lo, hi=s.hi))
+                    perturbed.append(ParamSpec(s.name, val, lo=s.lo, hi=s.hi))
                 specs = perturbed
             logger.info("Loaded oracle sim program (%d rules, %d params).",
                         len(rules), len(specs))
@@ -289,15 +288,16 @@ PROCESS_FEATURES."""
             oracle_sim_fn = lambda s, a, p: apply_rules(  # noqa: E731
                 s, rules, p)
             self._fit_sse = compute_sse(oracle_sim_fn, base_pred_triples,
-                                        self._fitted_params,
-                                        process_features)
+                                        self._fitted_params, process_features)
             fit_ll = -0.5 * self._fit_sse / (_noise_sigma**2)
             logger.info("Oracle params — SSE: %.6f  log-likelihood: %.2f",
                         self._fit_sse, fit_ll)
             for name, val in sorted(self._fitted_params.items()):
                 logger.info("  %-30s  %.4f", name, val)
-            log_sse_breakdown(oracle_sim_fn, base_pred_triples,
-                              self._fitted_params, process_features,
+            log_sse_breakdown(oracle_sim_fn,
+                              base_pred_triples,
+                              self._fitted_params,
+                              process_features,
                               label="oracle")
         else:
             self._fitted_params, self._fit_sse = self._fit_parameters(
@@ -323,8 +323,8 @@ PROCESS_FEATURES."""
         precomputing avoids re-running it inside the MCMC inner loop.
         """
 
-        def sim_fn(state: State, action: Action,
-                   params: Dict[str, float]) -> Dict:
+        def sim_fn(state: State, action: Action, params: Dict[str,
+                                                              float]) -> Dict:
             return apply_rules(state, rules, params)
 
         noise_sigma = 0.05  # matches fit_params default
@@ -334,8 +334,11 @@ PROCESS_FEATURES."""
         pre_ll = -0.5 * pre_sse / (noise_sigma**2)
         logger.info("Before fitting — SSE: %.6f  log-likelihood: %.2f",
                     pre_sse, pre_ll)
-        log_sse_breakdown(sim_fn, base_pred_triples, init_params,
-                          process_features, label="before")
+        log_sse_breakdown(sim_fn,
+                          base_pred_triples,
+                          init_params,
+                          process_features,
+                          label="before")
 
         result = fit_params(
             simulator_fn=sim_fn,
@@ -350,8 +353,11 @@ PROCESS_FEATURES."""
         post_ll = -0.5 * post_sse / (noise_sigma**2)
         logger.info("After fitting  — SSE: %.6f  log-likelihood: %.2f",
                     post_sse, post_ll)
-        log_sse_breakdown(sim_fn, base_pred_triples, fitted_params,
-                          process_features, label="after")
+        log_sse_breakdown(sim_fn,
+                          base_pred_triples,
+                          fitted_params,
+                          process_features,
+                          label="after")
 
         for name in sorted(fitted_params):
             init_val = init_params[name]
@@ -430,8 +436,8 @@ PROCESS_FEATURES."""
     def _load_simulator_from_file(
         save_dir: str,
         trajectories: Optional[List[LowLevelTrajectory]] = None,
-    ) -> Tuple[Optional[List], Optional[List[ParamSpec]],
-               Optional[Dict[str, List[str]]]]:
+    ) -> Tuple[Optional[List], Optional[List[ParamSpec]], Optional[Dict[
+            str, List[str]]]]:
         """Load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from saved files.
 
         Execs all ``NNN_run_python.py`` files in ``save_dir`` in order
@@ -481,7 +487,8 @@ PROCESS_FEATURES."""
     # ── Static helpers ───────────────────────────────────────────
 
     def _write_structs_reference(self) -> str:
-        """Write key struct sources to the sandbox; return the agent-visible path."""
+        """Write key struct sources to the sandbox; return the agent-visible
+        path."""
         # pylint: disable=import-outside-toplevel,reimported
         from predicators.structs import Action as _Action
         from predicators.structs import LowLevelTrajectory as _LLT

@@ -584,7 +584,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             jug.heat_level = state.get(jug, "heat_level")
             liquid_id = self._create_liquid_for_jug(jug, state)
             self._jug_to_liquid_id[jug] = liquid_id
-        
+
         self._update_liquid_colors(state)
 
         # Update jug body colors from state

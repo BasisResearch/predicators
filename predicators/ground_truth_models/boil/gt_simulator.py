@@ -106,8 +106,8 @@ def _water_filling(state: State, updates: ProcessUpdate,
 
     Alignment and capacity gates are soft (sigmoid-weighted) so the
     residual is differentiable in ``faucet_align_threshold``,
-    ``faucet_x_len``, and ``max_jug_water_capacity`` — needed for the
-    LM Jacobian (and downstream Hessian diagnostic) to be informative.
+    ``faucet_x_len``, and ``max_jug_water_capacity`` — needed for the LM
+    Jacobian (and downstream Hessian diagnostic) to be informative.
     """
     objs = _objs_by_type(state)
     for faucet in objs.get("faucet", []):
@@ -145,9 +145,8 @@ def _water_filling(state: State, updates: ProcessUpdate,
 
         # Uncaught water spills (clamped at max_water_spill_width).
         spill = float(state.get(faucet, "spilled_level"))
-        new_spill = min(
-            params["max_water_spill_width"],
-            spill + (1.0 - catch_w) * params["water_fill_speed"])
+        new_spill = min(params["max_water_spill_width"],
+                        spill + (1.0 - catch_w) * params["water_fill_speed"])
         updates.setdefault(faucet, {})["spilled_level"] = new_spill
 
     return updates
@@ -160,8 +159,8 @@ def _heating(state: State, updates: ProcessUpdate,
     Alignment gate is soft so the residual is differentiable in
     ``burner_align_threshold`` (LM's finite-difference Jacobian needs
     this; MCMC also avoids flat-likelihood plateaus as a side effect).
-    The heat cap at 1.0 stays hard since 1.0 is a constant boundary,
-    not a learned parameter.
+    The heat cap at 1.0 stays hard since 1.0 is a constant boundary, not
+    a learned parameter.
     """
     objs = _objs_by_type(state)
     for burner in objs.get("burner", []):
@@ -193,10 +192,10 @@ def _happiness(state: State, updates: ProcessUpdate,
     """Jug filled + boiled + no spill + burner off → human happy.
 
     The water-filled gate is soft on ``water_filled_height`` so the
-    residual is differentiable in that parameter for LM (and emcee
-    gets a non-flat likelihood as a side effect). The heat>=1.0 gate
-    stays hard (1.0 is a constant cap, not a learned parameter).
-    Spill / burner-on gates are state-dependent.
+    residual is differentiable in that parameter for LM (and emcee gets
+    a non-flat likelihood as a side effect). The heat>=1.0 gate stays
+    hard (1.0 is a constant cap, not a learned parameter). Spill /
+    burner-on gates are state-dependent.
     """
     objs = _objs_by_type(state)
     faucets = objs.get("faucet", [])
@@ -212,8 +211,7 @@ def _happiness(state: State, updates: ProcessUpdate,
     # semantics even when the env reports zero, so treat anything below
     # the smoothing scale as "no spill" to avoid spuriously gating
     # happiness off.
-    any_spill = any(
-        _get_val(f, "spilled_level") > _SOFT_EPS for f in faucets)
+    any_spill = any(_get_val(f, "spilled_level") > _SOFT_EPS for f in faucets)
     any_burner_on = any(state.get(b, "is_on") > 0.5 for b in burners)
 
     if any_spill or any_burner_on:
