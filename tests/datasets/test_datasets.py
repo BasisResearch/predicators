@@ -1,5 +1,6 @@
 """Test cases for dataset generation."""
 import os
+import pickle as pkl
 import shutil
 from contextlib import nullcontext as does_not_raise
 
@@ -304,6 +305,11 @@ def _ensure_cover_demo_data_exists():
     this data file existing (for truncation and extension). When pytest-
     split distributes parametrized cases across groups, the generating
     case may not run first, so we ensure it here.
+
+    Earlier tests (test_demo_dataset's max_initial_demos / impossible-
+    goal blocks) write a partial dataset under this same filename, so a
+    bare ``os.path.exists`` check is not enough — we also have to verify
+    the file actually carries 7 trajectories before trusting it.
     """
     saved_cfg = {
         "env": CFG.env,
@@ -323,7 +329,12 @@ def _ensure_cover_demo_data_exists():
     })
     dataset_fname, _ = utils.create_dataset_filename_str(
         saving_ground_atoms=False)
-    if not os.path.exists(dataset_fname):
+    has_full_dataset = False
+    if os.path.exists(dataset_fname):
+        with open(dataset_fname, "rb") as f:
+            existing = pkl.load(f)
+        has_full_dataset = len(existing.trajectories) == 7
+    if not has_full_dataset:
         env = CoverEnv()
         train_tasks = [t.task for t in env.get_train_tasks()]
         predicates, _ = utils.parse_config_excluded_predicates(env)
@@ -383,6 +394,43 @@ def test_demo_dataset_loading(num_train_tasks, load_data, demonstrator,
                    for traj in dataset.trajectories)
     else:
         assert "Cannot load data" in str(e)
+
+
+def test_ensure_cover_demo_data_regenerates_partial_file():
+    """A partial cover demo file under the 7-task name must be regenerated.
+
+    Earlier tests in test_demo_dataset can write a 3-trajectory dataset
+    under ``cover__demo__oracle__7__...`` (e.g. the max_initial_demos
+    block). When pytest-split lands a downstream test that depends on a
+    7-trajectory file (test_demo_dataset_loading[10-True-oracle-...]) in
+    a different shard, that downstream test loads the truncated file and
+    the load+extend path produces the wrong total. Lock in the helper's
+    "validate count, not just existence" contract.
+    """
+    # Compute the 7-task filename in the default data_dir, since the
+    # helper resets data_dir during its reset_config call.
+    utils.reset_config({
+        "env": "cover",
+        "approach": "random_actions",
+        "offline_data_method": "demo",
+        "offline_data_planning_timeout": 500,
+        "option_learner": "no_learning",
+        "num_train_tasks": 7,
+        "load_data": False,
+        "demonstrator": "oracle",
+    })
+    dataset_fname, _ = utils.create_dataset_filename_str(
+        saving_ground_atoms=False)
+    os.makedirs(os.path.dirname(dataset_fname) or ".", exist_ok=True)
+    # Stage a stale empty dataset under the 7-task filename to simulate
+    # the leftover from earlier tests' partial writes.
+    stub = Dataset([])
+    with open(dataset_fname, "wb") as f:
+        pkl.dump(stub, f)
+    _ensure_cover_demo_data_exists()
+    with open(dataset_fname, "rb") as f:
+        regenerated = pkl.load(f)
+    assert len(regenerated.trajectories) == 7
 
 
 def _ensure_blocks_demo_data_exists():
