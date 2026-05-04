@@ -60,13 +60,14 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         else:
             self._option_model = create_option_model(CFG.option_model_name)
         # Let the option model terminate Wait on atom change using the
-        # approach's predicates (which may include invented ones).
+        # approach's predicates (which may include invented ones). Looked
+        # up lazily so the lambda picks up predicates invented after
+        # __init__.
         if CFG.wait_option_terminate_on_atom_change:
-            preds = self._get_all_predicates()
             cast(  # pylint: disable=protected-access
                 Any, self._option_model
-            )._abstract_function = \
-                lambda s, _p=preds: utils.abstract(s, _p)
+            )._abstract_function = (
+                lambda s: utils.abstract(s, self._get_all_predicates()))
         self._online_learning_cycle = 0
         self._requests_train_task_idxs: Optional[List[int]] = None
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

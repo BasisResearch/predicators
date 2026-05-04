@@ -172,9 +172,8 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         """
         model = _OracleOptionModel(self._get_all_options(), simulator_fn)
         if CFG.wait_option_terminate_on_atom_change:
-            preds = self._get_all_predicates()
             model._abstract_function = (  # pylint: disable=protected-access
-                lambda s, _p=preds: utils.abstract(s, _p))
+                lambda s: utils.abstract(s, self._get_all_predicates()))
         return model
 
     # ── Agent-based synthesis ────────────────────────────────────
