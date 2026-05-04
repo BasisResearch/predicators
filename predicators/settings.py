@@ -1025,6 +1025,12 @@ class GlobalSettings:
     # Code sim-learning parameter fitting settings.
     # Set to 0 to skip MCMC and use initial parameter values directly.
     code_sim_learning_num_mcmc_steps = 500
+    # Diagnostic: log the Hessian eigendecomposition at the MAP to
+    # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
+    code_sim_learning_log_hessian_identifiability = False
+    # If True, run an LM fit and center MCMC walkers on its MAP estimate
+    # instead of init_values. Adds ~5-15s per fit.
+    code_sim_learning_warm_start_with_lm = True
 
     # Sim-learning oracle flags (for ablation / debugging).
     # When True, load GT process rules instead of running agent synthesis.
