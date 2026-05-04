@@ -405,6 +405,46 @@ def test_pybullet_blocks_putontable_corners(env):
         assert abs(state.get(block, "pose_y") - by) < 1e-2
 
 
+def test_robot_matches_state_atol_forces_reset_on_small_drift(env):
+    """A small joint drift (~5e-3) must NOT be treated as "already there".
+
+    Locks in the _robot_matches_state atol regression: with the prior
+    1e-2 tolerance, a caller-supplied initial_joint_positions hint was
+    silently accepted whenever the live joints were within 1e-2 of
+    initial, leaving the EE pose ~3e-3 off the requested state — past
+    the 1e-3 State.allclose threshold. The fast-path must agree with
+    State.allclose precision.
+    """
+    robot = env.robot
+    block = Object("block0", env.block_type)
+    bx = (env.x_lb + env.x_ub) / 2
+    by = (env.y_lb + env.y_ub) / 2
+    bz = env.table_height + 0.5 * env.block_size
+    rx, ry, rz = env.robot_init_x, env.robot_init_y, env.robot_init_z
+    rf = env.open_fingers
+    init_state = State({
+        robot: np.array([rx, ry, rz, rf]),
+        block: np.array([bx, by, bz, 0.0, 1.0, 0.0, 0.0]),
+    })
+    # First, get the env into the requested init pose.
+    env.set_state(init_state)
+    initial_joints = list(env._pybullet_robot.initial_joint_positions)  # pylint: disable=protected-access
+    # Nudge the live joints by ~5e-3 (within old 1e-2 atol, outside new
+    # 1e-3 atol) so the fast-path *would* incorrectly accept under the
+    # old tolerance.
+    drifted_joints = [j + 5e-3 for j in initial_joints]
+    env._pybullet_robot.set_joints(drifted_joints)  # pylint: disable=protected-access
+    # State carries the original initial joints as a "should be here" hint.
+    hint_state = utils.PyBulletState(init_state.data,
+                                     simulator_state=initial_joints)
+    # The fast-path comparison must reject the drift.
+    assert not env._robot_matches_state(hint_state)  # pylint: disable=protected-access
+    # And calling _set_state must actually move the robot back to the
+    # requested EE pose at State.allclose precision (atol=1e-3).
+    env._set_state(hint_state)  # pylint: disable=protected-access
+    assert env.get_state().allclose(init_state)
+
+
 def test_pybullet_blocks_close_pick_place(env):
     """Test a tricky case where we attempt to pick and place immediately next
     to a pile of blocks.
