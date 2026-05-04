@@ -47,7 +47,21 @@ def _build_param_specs() -> List[ParamSpec]:
     ]
 
 
-# Static specs for tests / introspection (uses CFG defaults at import time).
+# Module-level globals consumed by ``read_simulator_components`` (the
+# same contract used by agent-synthesized simulator files).
+# ``PARAM_SPECS`` is bound to the *callable* rather than its result so
+# CFG-dependent defaults are evaluated when the loader pulls the value,
+# after CFG has been finalized.
+PARAM_SPECS = _build_param_specs
+
+PROCESS_FEATURES: Dict[str, List[str]] = {
+    "jug": ["water_volume", "heat_level"],
+    "faucet": ["spilled_level"],
+    "human": ["happiness_level"],
+}
+
+# Backward-compat alias for tests that import a static, eagerly-built
+# spec list (uses CFG defaults at import time).
 BOIL_PARAM_SPECS: List[ParamSpec] = _build_param_specs()
 
 Params = Dict[str, float]
@@ -167,26 +181,20 @@ def _happiness(state: State, updates: ProcessUpdate,
 PROCESS_RULES = [_water_filling, _heating, _happiness]
 
 
+def get_gt_process_features() -> Dict[str, List[str]]:
+    """Backward-compat accessor; prefer the ``PROCESS_FEATURES`` global."""
+    return dict(PROCESS_FEATURES)
+
+
 class PyBulletBoilGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
-    """GT process-dynamics simulator for pybullet_boil."""
+    """GT process-dynamics simulator for pybullet_boil.
+
+    The actual simulator components (``PROCESS_RULES``, ``PARAM_SPECS``,
+    ``PROCESS_FEATURES``) live as module globals above; this class only
+    pins the env-name binding so ``get_gt_simulator`` can locate the
+    right module via the factory registry.
+    """
 
     @classmethod
     def get_env_names(cls) -> set:
         return {"pybullet_boil"}
-
-    @classmethod
-    def get_rules(cls) -> list:
-        return list(PROCESS_RULES)
-
-    @classmethod
-    def get_param_specs(cls) -> list:
-        return _build_param_specs()
-
-
-def get_gt_process_features() -> Dict[str, List[str]]:
-    """Process features handled by the simulator (not PyBullet)."""
-    return {
-        "jug": ["water_volume", "heat_level"],
-        "faucet": ["spilled_level"],
-        "human": ["happiness_level"],
-    }

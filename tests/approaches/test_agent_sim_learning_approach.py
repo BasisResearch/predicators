@@ -83,19 +83,14 @@ def _build_kinematics_only_oracle(env):
 def _build_combined_model(env):
     """Build a combined model: kinematics-only env + GT step-level dynamics.
 
-    Uses the same construction as AgentSimLearningApproach: wraps GT
-    rules in a LearnedSimulator via apply_rules, composes with a
-    kinematics-only env, and derives process_features from env.types
-    (all features, not just GT process features).
+    Mirrors AgentSimLearningApproach: wraps GT rules in a
+    LearnedSimulator via apply_rules and composes with a
+    kinematics-only base env.
     """
     base_env = create_new_env("pybullet_boil",
                               do_cache=False,
                               use_gui=False,
                               skip_process_dynamics=True)
-    process_features = {
-        t.name: list(t.feature_names)
-        for t in env.types if t.feature_names
-    }
     gt_params = {s.name: s.init_value for s in BOIL_PARAM_SPECS}
     rules = PROCESS_RULES
 
@@ -108,7 +103,7 @@ def _build_combined_model(env):
         updates = simulator.predict_step(kin_state)
         if not updates:
             return kin_state
-        return merge_updates(kin_state, updates, process_features)
+        return merge_updates(kin_state, updates)
 
     options = get_gt_options(env.get_name())
     model = _OracleOptionModel(options, combined_simulate)

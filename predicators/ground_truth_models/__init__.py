@@ -1,5 +1,6 @@
 """Implements ground-truth NSRTs and options."""
 import abc
+import sys
 from pathlib import Path
 from typing import Dict, List, Sequence, Set
 
@@ -69,24 +70,20 @@ class GroundTruthProcessFactory(abc.ABC):
 
 
 class GroundTruthSimulatorFactory(abc.ABC):
-    """Parent class for ground-truth process-dynamics simulator programs."""
+    """Parent class for ground-truth process-dynamics simulator programs.
+
+    The factory itself only pins an env-name binding. The actual
+    simulator components (``PROCESS_RULES``, ``PARAM_SPECS``,
+    ``PROCESS_FEATURES``) live as module-level globals on the same file
+    as the subclass, matching the contract used by agent-synthesized
+    simulators. ``get_gt_simulator`` reads them via
+    ``read_simulator_components``.
+    """
 
     @classmethod
     @abc.abstractmethod
     def get_env_names(cls) -> Set[str]:
         """Get the env names that this factory builds simulators for."""
-        raise NotImplementedError("Override me!")
-
-    @classmethod
-    @abc.abstractmethod
-    def get_rules(cls) -> list:
-        """Return the list of process rule functions."""
-        raise NotImplementedError("Override me!")
-
-    @classmethod
-    @abc.abstractmethod
-    def get_param_specs(cls) -> list:
-        """Return the list of ParamSpec objects."""
         raise NotImplementedError("Override me!")
 
 
@@ -266,13 +263,31 @@ def get_gt_processes(env_name: str,
 def get_gt_simulator(env_name: str) -> tuple:
     """Load ground-truth process rules and param specs for an env.
 
-    Returns ``(rules, param_specs)`` where *rules* is a list of process
-    rule functions and *param_specs* is a list of ``ParamSpec`` objects
-    whose ``init_value`` is the GT value.
+    Returns ``(rules, param_specs, process_features)``: *rules* is the
+    list of process rule functions, *param_specs* is the list of
+    ``ParamSpec`` objects whose ``init_value`` is the GT value, and
+    *process_features* is the ``{type_name: [feat_names]}`` mapping that
+    scopes which features the rules predict.
+
+    Locates the right module via the ``GroundTruthSimulatorFactory``
+    registry (env-name binding) and reads the three components from
+    that module's globals via ``read_simulator_components``. This
+    mirrors the loader used for agent-synthesized simulators.
     """
+    # Local import to avoid pulling code_sim_learning into ground_truth_models
+    # at import time.
+    # pylint: disable=import-outside-toplevel
+    from predicators.code_sim_learning.utils import read_simulator_components
+
     for cls in utils.get_all_subclasses(GroundTruthSimulatorFactory):
         if not cls.__abstractmethods__ and env_name in cls.get_env_names():
-            return cls.get_rules(), cls.get_param_specs()
+            module = sys.modules[cls.__module__]
+            rules, specs, features = read_simulator_components(vars(module))
+            if rules is None or specs is None or features is None:
+                raise RuntimeError(
+                    f"GT simulator module {cls.__module__} is missing one "
+                    "of PROCESS_RULES / PARAM_SPECS / PROCESS_FEATURES.")
+            return rules, specs, features
     raise NotImplementedError("Ground-truth simulator not implemented for "
                               f"env: {env_name}")
 
