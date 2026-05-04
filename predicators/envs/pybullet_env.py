@@ -453,10 +453,10 @@ class PyBulletEnv(BaseEnv):
         #     constraint, so a kept constraint would leave the held
         #     body behind).
         new_held_id = self._held_obj_id_in_state(state)
-        held_obj_moved = (self._held_obj_id is not None and any(
-            o.id == self._held_obj_id for o in objects_to_reset))
-        rebuild_constraint = (full_reset
-                              or new_held_id != self._held_obj_id
+        held_obj_moved = (self._held_obj_id is not None
+                          and any(o.id == self._held_obj_id
+                                  for o in objects_to_reset))
+        rebuild_constraint = (full_reset or new_held_id != self._held_obj_id
                               or (self._held_obj_id is not None and
                                   (robot_changed or held_obj_moved)))
 
@@ -506,9 +506,7 @@ class PyBulletEnv(BaseEnv):
                 logging.warning(
                     "Could not reconstruct state exactly in reset.")
 
-    def _robot_matches_state(self,
-                             state: State,
-                             atol: float = 1e-2) -> bool:
+    def _robot_matches_state(self, state: State, atol: float = 1e-3) -> bool:
         """True if PyBullet's live robot pose already equals state's.
 
         Compares at the joint level. The EE-quaternion path that
@@ -516,6 +514,13 @@ class PyBulletEnv(BaseEnv):
         non-zero wrist roll in the live PyBullet pose would spuriously
         fail an EE-pose comparison and trigger a full robot reset on
         every simulate() call (visible jitter).
+
+        ``atol`` matches ``State.allclose``'s feature tolerance: a looser
+        check would let the fast-path skip a reset even when the live EE
+        pose differs from the requested state by more than allclose
+        accepts (e.g. when a caller hands us
+        ``initial_joint_positions`` as a hint and the live joints are
+        only 1e-2 close).
 
         Returns False when ``state`` has no joint_positions — the only
         live caller in that situation is
@@ -572,8 +577,8 @@ class PyBulletEnv(BaseEnv):
     def _held_obj_id_in_state(self, state: State) -> Optional[int]:
         """Which PyBullet body id is marked is_held > 0.5 in ``state``.
 
-        Returns None if no object is held in ``state``. Mirrors the
-        per-object logic in _reset_single_object before constraint
+        Returns None if no object is held in ``state``. Mirrors the per-
+        object logic in _reset_single_object before constraint
         management was hoisted out into _set_state.
         """
         for obj in state.data:

@@ -65,9 +65,8 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         # __init__.
         if CFG.wait_option_terminate_on_atom_change:
             cast(  # pylint: disable=protected-access
-                Any, self._option_model
-            )._abstract_function = (
-                lambda s: utils.abstract(s, self._get_all_predicates()))
+                Any, self._option_model)._abstract_function = (
+                    lambda s: utils.abstract(s, self._get_all_predicates()))
         self._online_learning_cycle = 0
         self._requests_train_task_idxs: Optional[List[int]] = None
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

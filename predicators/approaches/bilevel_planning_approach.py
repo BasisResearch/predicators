@@ -58,9 +58,9 @@ class BilevelPlanningApproach(BaseApproach):
         # and so predicates invented later are reflected at call time.
         if CFG.wait_option_terminate_on_atom_change:
             cast(  # pylint: disable=protected-access
-                Any, self._option_model
-            )._abstract_function = (
-                lambda s: utils.abstract(s, self._get_current_predicates()))
+                Any, self._option_model)._abstract_function = (
+                    lambda s: utils.abstract(s, self._get_current_predicates())
+                )
         self._num_calls = 0
         self._last_plan: List[_Option] = []  # used if plan WITH sim
         self._last_nsrt_plan: List[_GroundNSRT] = []  # plan WITHOUT sim
