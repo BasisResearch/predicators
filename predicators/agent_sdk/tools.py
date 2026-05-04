@@ -1968,9 +1968,8 @@ def create_mcp_tools(ctx: ToolContext,
 
 def create_synthesis_tools(
     exec_ns: Dict[str, Any],
-    step_transitions: list,
-    process_features: Dict[str, List[str]],
-    base_env: Any = None,
+    base_pred_triples: list,
+    inferred_process_features: Dict[str, List[str]],
     save_dir: Optional[str] = None,
 ) -> list:
     """Create MCP tools for the sim-learning synthesis agent.
@@ -1983,13 +1982,18 @@ def create_synthesis_tools(
       ``PROCESS_RULES`` / ``PARAM_SPECS`` defined in the namespace.
     * ``test_simulator`` — tests predictions vs observations.
 
+    Both eval/test read ``PROCESS_FEATURES`` from ``exec_ns`` on each
+    call, falling back to ``inferred_process_features`` if the agent
+    hasn't declared it yet.
+
     Args:
-        exec_ns: Persistent namespace for ``run_python``.  Should
+        exec_ns: Persistent namespace for ``run_python``. Should
             contain ``trajectories``, ``np``, ``ParamSpec``.
-        step_transitions: ``(State, Action, State)`` triples.
-        process_features: ``{type_name: [feat_names]}`` for MSE.
-        base_env: Kinematics-only environment.  When provided,
-            evaluate/test tools run kinematics before learned rules.
+        base_pred_triples: ``(s_base, action, s_next_obs)`` triples
+            with the base step already advanced — eval/test consume
+            ``s_base`` directly so no live env is needed.
+        inferred_process_features: Data-driven default scope used
+            until the agent defines ``PROCESS_FEATURES`` in exec_ns.
         save_dir: Directory to save simulator source code to.
             Each ``run_python`` call appends code to
             ``save_dir/simulator_code.py``.
@@ -2075,17 +2079,23 @@ def create_synthesis_tools(
             return _text("Error: PARAM_SPECS not defined. Use "
                          "run_python to define it first.")
 
+        declared = exec_ns.get("PROCESS_FEATURES")
+        process_features = (declared if isinstance(declared, dict) else
+                            inferred_process_features)
+        scope_note = ("PROCESS_FEATURES" if isinstance(declared, dict) else
+                      "inferred (PROCESS_FEATURES not declared)")
+
         try:
             fitted_params, sse = (
                 AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
-                    rules, specs, step_transitions, process_features,
-                    base_env))
+                    rules, specs, base_pred_triples, process_features))
         except Exception as e:  # pylint: disable=broad-except
             return _text(f"Error: fit_params failed:\n{e}")
 
         lines = [
             f"SSE: {sse:.6f} on "
-            f"{len(step_transitions)} step transitions.",
+            f"{len(base_pred_triples)} step transitions "
+            f"(scope: {scope_note}).",
             "",
             "Fitted parameters:",
         ]
@@ -2123,9 +2133,13 @@ def create_synthesis_tools(
         if not isinstance(rules, list) or not rules:
             return _text("Error: PROCESS_RULES not defined.")
 
+        declared = exec_ns.get("PROCESS_FEATURES")
+        process_features = (declared if isinstance(declared, dict) else
+                            inferred_process_features)
+
         max_n = args.get("max_transitions", 100)
         tol = args.get("tolerance", 1e-4)
-        pairs = step_transitions[:max_n]
+        pairs = base_pred_triples[:max_n]
 
         # Use init params if not yet fitted.
         if specs:
@@ -2137,16 +2151,13 @@ def create_synthesis_tools(
         n_tested = 0
         n_mismatch = 0
 
-        for s_t, action, s_next_obs in pairs:
-            # Run kinematics first so rules see post-kin state.
-            kin_state = (base_env.simulate(s_t, action)
-                         if base_env is not None else s_t)
+        for base_state, _action, s_next_obs in pairs:
             updates: Dict = {}
             for rule in rules:
-                updates = rule(kin_state, updates, t_params)
+                updates = rule(base_state, updates, t_params)
 
             entry: list = []
-            for obj in s_t:
+            for obj in base_state:
                 type_name = obj.type.name
                 for feat in process_features.get(type_name, []):
                     if obj in updates and feat in updates[obj]:
@@ -2154,7 +2165,7 @@ def create_synthesis_tools(
                         pred = (pred.item()
                                 if hasattr(pred, "item") else float(pred))
                     else:
-                        pred = s_t.get(obj, feat)
+                        pred = base_state.get(obj, feat)
                     obs = s_next_obs.get(obj, feat)
                     err = abs(pred - obs)
                     if err > tol:
