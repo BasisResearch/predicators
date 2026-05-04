@@ -403,9 +403,14 @@ class PyBulletCoffeeEnv(PyBulletEnv, CoffeeEnv):
     def _set_domain_specific_state(self, state: State) -> None:
         """Reset liquid visuals, cup geometry, cord, and button colors."""
         self._remake_jug_liquid(state)
-        self._remake_cup_liquids(state)
         self._remake_cups(state)
+        for cup in state.get_objects(self._cup_type):
+            self._reset_single_object(cup, state)
+        self._remake_cup_liquids(state)
         self._remake_cord()
+        if CFG.coffee_machine_has_plug:
+            for plug in state.get_objects(self._plug_type):
+                self._reset_single_object(plug, state)
 
         # Machine button color
         if self._MachineOn_holds(state, [self._machine]) and \
