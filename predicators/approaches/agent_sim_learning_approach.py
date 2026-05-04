@@ -527,8 +527,9 @@ PROCESS_FEATURES."""
     def _recreate_base_env(self) -> None:
         """Reconnect after a PyBullet physics-server crash."""
         try:
-            pybullet.disconnect(self._base_env._physics_client_id)
-        except Exception:  # client may already be dead
+            client_id = self._base_env._physics_client_id  # type: ignore[attr-defined]  # pylint: disable=protected-access
+            pybullet.disconnect(client_id)
+        except Exception:  # pylint: disable=broad-except  # client may already be dead
             pass
         logging.warning(
             "PyBullet physics client crashed; recreating base env "
