@@ -323,8 +323,8 @@ PROCESS_FEATURES."""
         precomputing avoids re-running it inside the MCMC inner loop.
         """
 
-        def sim_fn(state: State, action: Action, params: Dict[str,
-                                                              float]) -> Dict:
+        def sim_fn(state: State, _action: Action, params: Dict[str,
+                                                               float]) -> Dict:
             return apply_rules(state, rules, params)
 
         noise_sigma = 0.05  # matches fit_params default
