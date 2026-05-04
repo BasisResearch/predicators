@@ -261,27 +261,34 @@ class SingleArmPyBulletRobot(abc.ABC):
             self._base_pose.orientation,
             physicsClientId=self.physics_client_id,
         )
+        target = np.array([rx, ry, rz, qx, qy, qz, qw, rf], dtype=np.float32)
         if joint_positions is not None:
             # arm_joints includes fingers, so set_joints already
             # restored both — skip the snapped-finger overwrite below
             # so continuous finger values round-trip cleanly.
             self.set_joints(list(joint_positions))
-        else:
-            # First, reset the joint values to initial joint positions,
-            # so that IK is consistent (less sensitive to initialization).
-            self.set_joints(self.initial_joint_positions)
+            # Some callers attach nominal joints to plain states as a reset
+            # hint. Preserve exact joints only when they really reconstruct the
+            # requested EE pose; otherwise fall back to IK, matching the legacy
+            # reset behavior.
+            if np.allclose(self.get_state()[:7], target[:7], atol=1e-3):
+                return
 
-            # Now run IK to get to the actual starting rx, ry, rz. We use
-            # validate=True to ensure that this initialization works.
-            pose = Pose((rx, ry, rz), (qx, qy, qz, qw))
-            self.inverse_kinematics(pose, validate=True)
+        # First, reset the joint values to initial joint positions,
+        # so that IK is consistent (less sensitive to initialization).
+        self.set_joints(self.initial_joint_positions)
 
-            # IK does not touch fingers, so snap them from the EE state.
-            for finger_id in [self.left_finger_id, self.right_finger_id]:
-                p.resetJointState(self.robot_id,
-                                  finger_id,
-                                  rf,
-                                  physicsClientId=self.physics_client_id)
+        # Now run IK to get to the actual starting rx, ry, rz. We use
+        # validate=True to ensure that this initialization works.
+        pose = Pose((rx, ry, rz), (qx, qy, qz, qw))
+        self.inverse_kinematics(pose, validate=True)
+
+        # IK does not touch fingers, so snap them from the EE state.
+        for finger_id in [self.left_finger_id, self.right_finger_id]:
+            p.resetJointState(self.robot_id,
+                              finger_id,
+                              rf,
+                              physicsClientId=self.physics_client_id)
 
     def get_state(self) -> Array:
         """Get the robot state vector based on the current PyBullet state.

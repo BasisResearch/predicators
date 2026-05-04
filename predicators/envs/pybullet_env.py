@@ -140,7 +140,7 @@ class PyBulletEnv(BaseEnv):
         self._held_obj_id: Optional[int] = None
 
         # When True, _domain_specific_step() is skipped in step().
-        # Used by sim-learning to create kinematics-only envs.
+        # Used by sim-learning to create base-sim-only envs.
         self._skip_domain_specific_dynamics: bool = skip_process_dynamics
 
         # Set up all the static PyBullet content.
@@ -323,9 +323,9 @@ class PyBulletEnv(BaseEnv):
     def step(self, action: Action, render_obs: bool = False) -> Observation:
         """Execute one environment step with the given action.
 
-        Flow: kinematics → domain-specific dynamics → observation.
+        Flow: base sim → domain-specific dynamics → observation.
         Subclasses override ``_domain_specific_step`` (not this method)
-        to add post-kinematics dynamics (water filling, heating, etc.).
+        to add post-base-sim dynamics (water filling, heating, etc.).
         """
         self._step_base(action)
         if not self._skip_domain_specific_dynamics:
@@ -387,9 +387,9 @@ class PyBulletEnv(BaseEnv):
             self._held_obj_id = None
 
     def _domain_specific_step(self) -> None:
-        """Apply domain-specific dynamics after kinematics.
+        """Apply domain-specific dynamics after the base sim.
 
-        Override in subclasses to add post-kinematics effects (water
+        Override in subclasses to add post-base-sim effects (water
         filling, heating, balance beam physics, etc.). Skipped when
         ``skip_process_dynamics=True`` is passed to the constructor.
         """
@@ -397,64 +397,108 @@ class PyBulletEnv(BaseEnv):
     # ── State Write (State → PyBullet) ──────────────────────────
 
     def _set_state(self, state: State) -> None:
-        """State -> PyBullet: set the simulator to match a State.
+        """State -> PyBullet: write the requested State into the simulator.
 
-        Converts the agent-facing State representation (feature dicts
-        keyed by Object) into the corresponding PyBullet scene (joint
-        positions, body poses, grasp constraints, etc.).
-
-        When robot and object poses already match (e.g. sequential
-        simulate calls where only process features changed), the
-        kinematic reset is skipped to avoid discontinuous joint resets
-        and grasp constraint teardown/recreation that cause visible
-        jitter.
+        Per-component diff: each piece of the State (robot pose, each
+        object pose, held-object identity) is compared against the live
+        PyBullet world and only re-written when it actually differs.
+        This lets sequential rollouts (option model, learned process
+        simulators) advance without snapping the arm or rebuilding the
+        grasp constraint when only a subset of features changed — which
+        is what eliminates the visible robot jitter during combined
+        base+learned simulator calls. It also lets a learned rule move
+        an *unheld* object without disturbing the arm or any other body.
 
         Call sites:
         - reset() / _add_pybullet_state_to_tasks(): initialization
         - simulate(): option-model / bilevel-planning rollouts
         - external callers (skill factories, agent tools, tests)
         """
-        # Check if kinematics already match before overwriting
-        # _current_observation.  When only process features differ
-        # (e.g. combined kin+learned simulator), we can skip the
-        # expensive kinematic reset that causes robot arm jitter.
-        skip_kin = self._kinematics_match(state)
+        # Cohort change or the very first call forces a full reset:
+        # per-component compares assume the same set of bodies.
+        full_reset = (self._current_observation is None
+                      or set(self._objects) != set(state.data))
 
-        # Keep _current_observation in sync so that step() can read it
+        # Keep _current_observation in sync so step() can read it
         # (e.g. for finger-delta computation).
         self._current_observation = state
         self._objects = list(state.data)
 
-        if not skip_kin:
-            # 1) Clear old constraint if we had a held object
+        wrote_anything = False
+
+        # 1) Robot pose diff. Skipping this branch when the live joints
+        # already match the requested pose is what eliminates arm
+        # jitter: resetJointState would otherwise hard-snap the arm
+        # on every simulate() call in a sequential rollout.
+        robot_changed = full_reset or not self._robot_matches_state(state)
+
+        # 2) Object pose diff. Identify which non-virtual object bodies
+        # have moved relative to PyBullet.
+        objects_to_reset: List[Object] = []
+        for obj in self._objects:
+            if obj.type.name == "robot" or \
+                obj.type.name in self._VIRTUAL_OBJECT_TYPES or \
+                obj.id is None:
+                continue
+            if full_reset or not self._object_pose_matches_state(obj, state):
+                objects_to_reset.append(obj)
+
+        # 3) Held-object identity diff. The grasp constraint must be
+        # torn down and rebuilt whenever:
+        #   - the held identity changes (including held → unheld and
+        #     unheld → held),
+        #   - the held object's recorded pose changes (the offset to
+        #     the gripper moves), or
+        #   - the gripper itself moves (resetJointState bypasses the
+        #     constraint, so a kept constraint would leave the held
+        #     body behind).
+        new_held_id = self._held_obj_id_in_state(state)
+        held_obj_moved = (self._held_obj_id is not None and any(
+            o.id == self._held_obj_id for o in objects_to_reset))
+        rebuild_constraint = (full_reset
+                              or new_held_id != self._held_obj_id
+                              or (self._held_obj_id is not None and
+                                  (robot_changed or held_obj_moved)))
+
+        # Tear down before robot/object resets so the held body is free
+        # while we move things around.
+        if rebuild_constraint:
             if self._held_constraint_id is not None:
                 p.removeConstraint(self._held_constraint_id,
                                    physicsClientId=self._physics_client_id)
-                self._held_constraint_id = None
+                wrote_anything = True
+            self._held_constraint_id = None
             self._held_obj_to_base_link = None
             self._held_obj_id = None
 
-            # 2) Reset robot pose. Prefer exact joint positions when the
-            # State carries them in simulator_state — IK from (x, y, z,
-            # tilt, wrist) drops wrist roll, which corrupts the held-
-            # object offset that _create_grasp_constraint records below.
+        if robot_changed:
+            # Prefer exact joint positions when the State carries them in
+            # simulator_state — IK from (x, y, z, tilt, wrist) drops
+            # wrist roll, which corrupts the held-object offset that
+            # _create_grasp_constraint records below.
             joint_positions = self._extract_robot_joint_positions(state)
             self._pybullet_robot.reset_state(self._extract_robot_state(state),
                                              joint_positions=joint_positions)
+            wrote_anything = True
 
-            # 3) Reset all known objects (position, orientation, etc.)
-            for obj in self._objects:
-                if obj.type.name == "robot" or \
-                    obj.type.name in self._VIRTUAL_OBJECT_TYPES:
-                    continue
-                self._reset_single_object(obj, state)
+        for obj in objects_to_reset:
+            self._reset_single_object(obj, state)
+            wrote_anything = True
 
-        # 4) Let the subclass do any domain-specific state setup
+        # Recreate the constraint after objects are repositioned so the
+        # recorded base_link → object offset matches the new pose.
+        if rebuild_constraint and new_held_id is not None:
+            self._held_obj_id = new_held_id
+            self._create_grasp_constraint()
+            wrote_anything = True
+
+        # 4) Subclass-specific state always runs (idempotent and cheap).
         self._set_domain_specific_state(state)
 
-        # 5) Check for reconstruction mismatch.
-        #    Only raise for envs that override _get_state().
-        if not skip_kin:
+        # 5) Reconstruction check — only when we actually wrote
+        # something kinematic. Only raise for envs that override
+        # _get_state().
+        if wrote_anything:
             reconstructed = self._get_state()
             if not reconstructed.allclose(state):
                 if type(self)._get_state is not PyBulletEnv._get_state:
@@ -462,26 +506,97 @@ class PyBulletEnv(BaseEnv):
                 logging.warning(
                     "Could not reconstruct state exactly in reset.")
 
-    def _kinematics_match(self, state: State) -> bool:
-        """Check if robot pose in *state* matches the current PyBullet state.
+    def _robot_matches_state(self,
+                             state: State,
+                             atol: float = 1e-2) -> bool:
+        """True if PyBullet's live robot pose already equals state's.
 
-        Used by ``_set_state`` to skip the kinematic reset when only
-        non-kinematic features (process dynamics) have changed.
+        Compares at the joint level. The EE-quaternion path that
+        ``_extract_robot_state`` builds always uses ``roll=0``, so any
+        non-zero wrist roll in the live PyBullet pose would spuriously
+        fail an EE-pose comparison and trigger a full robot reset on
+        every simulate() call (visible jitter).
+
+        Returns False when ``state`` has no joint_positions — the only
+        live caller in that situation is
+        ``_add_pybullet_state_to_tasks``, where forcing a reset is
+        exactly the desired behavior.
         """
-        if self._current_observation is None:
+        jp = self._extract_robot_joint_positions(state)
+        if jp is None:
             return False
         try:
-            new_robot = self._extract_robot_state(state)
-            cur_robot = self._extract_robot_state(self._current_observation)
-            return bool(np.allclose(new_robot, cur_robot, atol=1e-3))
+            cur_jp = self._pybullet_robot.get_joints()
+        except (KeyError, ValueError):
+            return False
+        return bool(np.allclose(jp, cur_jp, atol=atol))
+
+    def _object_pose_matches_state(self,
+                                   obj: Object,
+                                   state: State,
+                                   atol: float = 1e-2) -> bool:
+        """True if PyBullet's live pose for ``obj`` equals state[obj]."""
+        if obj.id is None:
+            return True
+        try:
+            features = obj.type.feature_names
+            (px, py, pz), orn = p.getBasePositionAndOrientation(
+                obj.id, physicsClientId=self._physics_client_id)
+            if "x" in features and \
+                    not np.isclose(state.get(obj, "x"), px, atol=atol):
+                return False
+            if "y" in features and \
+                    not np.isclose(state.get(obj, "y"), py, atol=atol):
+                return False
+            if "z" in features and \
+                    not np.isclose(state.get(obj, "z"), pz, atol=atol):
+                return False
+            if {"rot", "yaw", "roll", "pitch"} & set(features):
+                roll, pitch, yaw = p.getEulerFromQuaternion(orn)
+                if "rot" in features and not np.isclose(
+                        state.get(obj, "rot"), yaw, atol=atol):
+                    return False
+                if "yaw" in features and not np.isclose(
+                        state.get(obj, "yaw"), yaw, atol=atol):
+                    return False
+                if "roll" in features and not np.isclose(
+                        state.get(obj, "roll"), roll, atol=atol):
+                    return False
+                if "pitch" in features and not np.isclose(
+                        state.get(obj, "pitch"), pitch, atol=atol):
+                    return False
+            return True
         except (KeyError, ValueError):
             return False
 
-    def _reset_single_object(self, obj: Object, state: State) -> None:
-        """Set a single physical object's pose and grasp constraint in PyBullet
-        to match the given State.
+    def _held_obj_id_in_state(self, state: State) -> Optional[int]:
+        """Which PyBullet body id is marked is_held > 0.5 in ``state``.
 
-        Called by _set_state() for every non-robot, non-virtual object.
+        Returns None if no object is held in ``state``. Mirrors the
+        per-object logic in _reset_single_object before constraint
+        management was hoisted out into _set_state.
+        """
+        for obj in state.data:
+            if obj.id is None:
+                continue
+            if "is_held" not in obj.type.feature_names:
+                continue
+            try:
+                if state.get(obj, "is_held") > 0.5:
+                    return obj.id
+            except (KeyError, ValueError):
+                continue
+        return None
+
+    def _reset_single_object(self, obj: Object, state: State) -> None:
+        """Teleport a single physical object to match the given State.
+
+        Pose only — grasp-constraint management is centralized in
+        _set_state so teardown/rebuild stays in one place.
+
+        Called by _set_state() for every non-robot, non-virtual object
+        whose pose differs from PyBullet (or for all such objects on a
+        full reset).
         """
         # Skip objects without pybullet IDs (handled by subclass).
         if obj.id is None:
@@ -510,15 +625,6 @@ class PyBulletEnv(BaseEnv):
         update_object(obj.id, (px, py, pz),
                       orn,
                       physics_client_id=self._physics_client_id)
-
-        # 3) If there's an is_held feature, reattach constraints if needed
-        if "is_held" in features:
-            if state.get(obj, "is_held") > 0.5:
-                # attach constraint
-                self._held_obj_id = obj.id
-                self._create_grasp_constraint()
-                # _create_grasp_constraint already correctly computes
-                # and stores _held_obj_to_base_link.
 
     @abc.abstractmethod
     def _set_domain_specific_state(self, state: State) -> None:
@@ -588,8 +694,12 @@ class PyBulletEnv(BaseEnv):
         jp: Any
         if isinstance(sim_state, dict):
             jp = sim_state.get("joint_positions")
+        elif sim_state is None:
+            return None
         else:
-            # Legacy: simulator_state is the joint_positions list itself.
+            # PyBulletState also accepts simulator_state passed as a raw
+            # joint-positions sequence (see PyBulletState.joint_positions
+            # and tests/envs/test_pybullet_blocks.py:69-70).
             jp = sim_state
         if jp is None:
             return None
