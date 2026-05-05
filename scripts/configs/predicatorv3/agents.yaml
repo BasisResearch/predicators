@@ -33,7 +33,28 @@ APPROACHES:
   #     option_model_use_gui: True
   #     agent_bilevel_log_state: False
   #     agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
-  agent_sim_learning:
+  # agent_param_learning:
+  #   NAME: "agent_sim_learning"
+  #   FLAGS:
+  #     explorer: "agent_bilevel"
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     agent_sdk_use_local_sandbox: True
+  #     option_model_terminate_on_repeat: False
+  #     agent_sdk_max_agent_turns_per_iteration: 50
+  #     agent_planner_use_scratchpad: False
+  #     agent_planner_use_visualize_state: True
+  #     agent_planner_use_annotate_scene: True
+  #     option_model_use_gui: True
+  #     agent_bilevel_log_state: False
+  #     agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
+  #     skip_test_until_last_ite_or_early_stopping: False
+  #     agent_sim_learn_oracle_sim_program: True
+  #     agent_sim_learn_oracle_sim_params: False
+  #     agent_sim_learn_oracle_sim_param_noise_scale: 1.0 # 1.0 allows successful planning but insatisficing plan; 0.8 produces satisficing plan
+  #     code_sim_learning_num_mcmc_steps: 0
+  #     code_sim_learning_warm_start_with_lm: True
+  agent_rule_learning:
     NAME: "agent_sim_learning"
     FLAGS:
       explorer: "agent_bilevel"
