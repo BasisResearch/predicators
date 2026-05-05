@@ -1,4 +1,5 @@
 """Custom MCP tool definitions for the agent SDK approach."""
+import hashlib
 import json
 import logging
 import os
@@ -1970,21 +1971,41 @@ def create_synthesis_tools(
     exec_ns: Dict[str, Any],
     base_pred_triples: list,
     inferred_process_features: Dict[str, List[str]],
-    save_dir: Optional[str] = None,
+    simulator_file: str,
+    versions_dir: str,
+    approach: Optional[Any] = None,
 ) -> list:
     """Create MCP tools for the sim-learning synthesis agent.
 
-    Returns ``[run_python, evaluate_simulator, test_simulator]``.
+    Returns ``[run_python, evaluate_step_fit, report_residuals,
+    evaluate_plan_refinement]``.
+
+    The agent's source-of-truth for the simulator is the file at
+    ``simulator_file`` (which it edits with ``Write`` / ``Edit``). The
+    three synthesis tools each ``exec`` that file fresh into an
+    isolated namespace per call and read ``PROCESS_RULES``,
+    ``PARAM_SPECS``, ``PROCESS_FEATURES`` from it — no namespace state
+    leaks across iterations. Before loading, every call also snapshots
+    the current contents into ``versions_dir`` (``001_simulator.py``,
+    ``002_simulator.py`` …) so the full history of evaluated versions
+    is preserved; identical-content calls reuse the prior snapshot.
+    Each tool's output is prefixed with the version tag (``[vNNN]``).
 
     * ``run_python`` — executes arbitrary Python in a persistent
-      namespace pre-loaded with trajectory data.
-    * ``evaluate_simulator`` — fits parameters via MCMC on
-      ``PROCESS_RULES`` / ``PARAM_SPECS`` defined in the namespace.
-    * ``test_simulator`` — tests predictions vs observations.
-
-    Both eval/test read ``PROCESS_FEATURES`` from ``exec_ns`` on each
-    call, falling back to ``inferred_process_features`` if the agent
-    hasn't declared it yet.
+      namespace pre-loaded with trajectory data. Use this for ad-hoc
+      exploration of ``trajectories`` etc.; it does **not** define
+      rules — write ``simulator.py`` for that.
+    * ``evaluate_step_fit`` — SSE of the current ``PROCESS_RULES`` at
+      init_value params; optional MCMC fit reports post-fit SSE,
+      percent improvement, and fitted parameter values.
+    * ``report_residuals`` — per-feature breakdown of where the
+      current rules disagree with observations: mismatch counts,
+      mean/max abs error, comparison to the no-rule baseline, and
+      worst-N example transitions per feature.
+    * ``evaluate_plan_refinement`` — builds the combined simulator
+      from current rules+params and runs backtracking refinement on a
+      training task, reporting where (if anywhere) the planner gets
+      stuck. Requires ``approach`` to be passed.
 
     Args:
         exec_ns: Persistent namespace for ``run_python``. Should
@@ -1993,34 +2014,95 @@ def create_synthesis_tools(
             with the base step already advanced — eval/test consume
             ``s_base`` directly so no live env is needed.
         inferred_process_features: Data-driven default scope used
-            until the agent defines ``PROCESS_FEATURES`` in exec_ns.
-        save_dir: Directory to save simulator source code to.
-            Each ``run_python`` call appends code to
-            ``save_dir/simulator_code.py``.
+            when the agent hasn't declared ``PROCESS_FEATURES`` in
+            ``simulator.py`` yet.
+        simulator_file: Host path to the canonical simulator file
+            the agent edits. Synthesis tools ``exec`` this file
+            fresh on every call.
+        versions_dir: Directory to write per-call snapshots into
+            (created on first use).
+        approach: ``AgentSimLearningApproach`` instance, used by
+            ``evaluate_plan_refinement`` to access training tasks,
+            build the combined simulator/option model, and run
+            refinement. If ``None``, that tool returns an error.
     """
     import io  # pylint: disable=import-outside-toplevel
     import sys  # pylint: disable=import-outside-toplevel
     import traceback  # pylint: disable=import-outside-toplevel,redefined-outer-name,reimported
+    from collections import \
+        defaultdict  # pylint: disable=import-outside-toplevel
 
     from claude_agent_sdk import \
         tool  # pylint: disable=import-outside-toplevel
 
     from predicators.approaches.agent_sim_learning_approach import \
         AgentSimLearningApproach  # pylint: disable=import-outside-toplevel
+    from predicators.code_sim_learning.synthesis_validation import \
+        run_refinement_for_synthesis  # pylint: disable=import-outside-toplevel
+    from predicators.code_sim_learning.training import (  # pylint: disable=import-outside-toplevel
+        ParamSpec, compute_sse)
+    from predicators.code_sim_learning.utils import (  # pylint: disable=import-outside-toplevel
+        apply_rules, iter_feature_residuals, merge_updates,
+        read_simulator_components)
 
-    _run_count = [0]  # mutable counter in closure
+    _version_count = [0]
+    _last_snapshot_hash: List[Optional[str]] = [None]
 
     def _text(msg: str) -> Dict[str, Any]:
         return {"type": "text", "text": msg}
+
+    def _snapshot_and_load(path: str):
+        """Snapshot ``path`` then exec it into a fresh namespace.
+
+        Returns ``(rules, specs, features, version_tag, error_msg)``;
+        ``error_msg`` is ``None`` on success. Snapshots are deduped by
+        SHA256, so repeated calls on unchanged content reuse the prior
+        ``vNNN`` tag.
+        """
+        if not os.path.isfile(path):
+            return None, None, None, None, (
+                f"Simulator file not found: {path}. Use Write to create it "
+                "with PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES.")
+        with open(path, "rb") as f:
+            raw = f.read()
+        digest = hashlib.sha256(raw).hexdigest()
+        if digest != _last_snapshot_hash[0]:
+            _version_count[0] += 1
+            os.makedirs(versions_dir, exist_ok=True)
+            snap_path = os.path.join(
+                versions_dir, f"{_version_count[0]:03d}_simulator.py")
+            with open(snap_path, "wb") as f:
+                f.write(raw)
+            _last_snapshot_hash[0] = digest
+        version_tag = f"v{_version_count[0]:03d}"
+
+        ns: Dict[str, Any] = {"np": np, "ParamSpec": ParamSpec}
+        try:
+            exec(raw.decode("utf-8"), ns)  # pylint: disable=exec-used
+        except Exception:  # pylint: disable=broad-except
+            return None, None, None, version_tag, (
+                f"[{version_tag}] Error executing {path}:\n"
+                f"{traceback.format_exc()}")
+        rules, specs, features = read_simulator_components(ns)
+        if rules is None:
+            return None, None, None, version_tag, (
+                f"[{version_tag}] PROCESS_RULES missing or empty in {path}.")
+        if specs is None:
+            return None, None, None, version_tag, (
+                f"[{version_tag}] PARAM_SPECS missing or empty in {path}.")
+        return rules, specs, features, version_tag, None
 
     # ── run_python ──────────────────────────────────────────
 
     @tool(
         "run_python",
-        "Execute Python code with trajectory data in scope. "
-        "Available variables: trajectories (List[LowLevelTrajectory]),"
-        " np, ParamSpec. print() output is returned. "
-        "The namespace persists across calls.",
+        "Execute Python code for ad-hoc data exploration. Available "
+        "variables: trajectories (List[LowLevelTrajectory]), np, "
+        "ParamSpec. print() output is returned. The namespace persists "
+        "across calls. This does NOT define rules — write `simulator.py` "
+        "for that; the synthesis tools (evaluate_step_fit, report_residuals, "
+        "evaluate_plan_refinement) load PROCESS_RULES, PARAM_SPECS, "
+        "PROCESS_FEATURES from that file.",
         {
             "type": "object",
             "properties": {
@@ -2044,144 +2126,356 @@ def create_synthesis_tools(
         finally:
             sys.stdout = old_stdout
 
-        # Save each successful run_python call as a versioned file;
-        # _load_simulator_from_file replays these in order.
-        if save_dir is not None:
-            _run_count[0] += 1
-            os.makedirs(save_dir, exist_ok=True)
-            filename = f"{_run_count[0]:03d}_run_python.py"
-            filepath = os.path.join(save_dir, filename)
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(code)
-
         output = captured.getvalue()
         return _text(output or "(no output)")
 
-    # ── evaluate_simulator ──────────────────────────────────
+    # ── evaluate_step_fit ────────────────────────────────────────
 
     @tool(
-        "evaluate_simulator",
-        "Fit parameters using PROCESS_RULES and PARAM_SPECS "
-        "from the run_python namespace. Reports SSE and fitted "
-        "parameter values.",
+        "evaluate_step_fit",
+        "Score the current PROCESS_RULES (loaded fresh from "
+        "`simulator.py`) by SSE on the step transitions. By default "
+        "evaluates at init_value params from PARAM_SPECS — fast, "
+        "repeatable, ideal for comparing proposals. Pass fit=true to "
+        "additionally run MCMC, report the post-fit SSE and percent "
+        "improvement, and show fitted parameter values with their "
+        "delta from init. Each call snapshots the simulator file into "
+        "simulator_versions/; output is tagged [vNNN].",
         {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "fit": {
+                    "type": "boolean",
+                    "description": "If true, run MCMC fit and also "
+                    "report post-fit SSE plus fitted parameters "
+                    "(slow). Default false.",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Override simulator file path "
+                    "(defaults to the canonical simulator.py).",
+                },
+            },
         },
     )
-    async def evaluate_simulator(_args: Dict[str, Any]) -> Dict[str, Any]:
-        rules = exec_ns.get("PROCESS_RULES")
-        specs = exec_ns.get("PARAM_SPECS")
-        if not isinstance(rules, list) or not rules:
-            return _text("Error: PROCESS_RULES not defined. Use "
-                         "run_python to define it first.")
-        if not isinstance(specs, list) or not specs:
-            return _text("Error: PARAM_SPECS not defined. Use "
-                         "run_python to define it first.")
+    async def evaluate_step_fit(args: Dict[str, Any]) -> Dict[str, Any]:
+        path = args.get("path") or simulator_file
+        rules, specs, declared, version_tag, err = _snapshot_and_load(path)
+        if err:
+            return _text(err)
 
-        declared = exec_ns.get("PROCESS_FEATURES")
         process_features = (declared if isinstance(declared, dict) else
                             inferred_process_features)
-        scope_note = ("PROCESS_FEATURES" if isinstance(declared, dict) else
+        scope_note = ("declared" if isinstance(declared, dict) else
                       "inferred (PROCESS_FEATURES not declared)")
 
+        do_fit = bool(args.get("fit", False))
+
+        init_params = {s.name: s.init_value for s in specs}
+        sim_fn = lambda s, _a, p: apply_rules(s, rules, p)  # noqa: E731
         try:
-            fitted_params, sse = (
-                AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
-                    rules, specs, base_pred_triples, process_features))
+            pre_sse = compute_sse(sim_fn, base_pred_triples, init_params,
+                                  process_features)
         except Exception as e:  # pylint: disable=broad-except
-            return _text(f"Error: fit_params failed:\n{e}")
+            return _text(f"[{version_tag}] Error: SSE computation failed:\n{e}")
 
         lines = [
-            f"SSE: {sse:.6f} on "
-            f"{len(base_pred_triples)} step transitions "
-            f"(scope: {scope_note}).",
+            f"[{version_tag}] Fit evaluation on {len(base_pred_triples)} "
+            f"step transitions (scope: {scope_note}).",
             "",
-            "Fitted parameters:",
+            f"At init_value params:  SSE = {pre_sse:.6f}",
         ]
-        for name, val in fitted_params.items():
-            lines.append(f"  {name}: {val:.6f}")
+
+        if do_fit:
+            try:
+                fitted_params, post_sse = (
+                    AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
+                        rules, specs, base_pred_triples, process_features))
+            except Exception as e:  # pylint: disable=broad-except
+                return _text(f"[{version_tag}] Error: fit_params failed:\n{e}")
+            if pre_sse > 0:
+                pct = (pre_sse - post_sse) / pre_sse * 100
+                pct_str = f"({pct:+.1f}% vs init)"
+            else:
+                pct_str = "(init SSE was 0)"
+            lines.append(f"After MCMC fit:        SSE = {post_sse:.6f}  "
+                         f"{pct_str}")
+            lines.append("")
+            lines.append("Fitted parameters:")
+            for name in sorted(fitted_params):
+                init_val = init_params[name]
+                fit_val = fitted_params[name]
+                delta = fit_val - init_val
+                ppct = ((delta / init_val * 100)
+                        if init_val != 0 else float("nan"))
+                lines.append(f"  {name:<30} {init_val:.4f} -> "
+                             f"{fit_val:.4f}  (delta={delta:+.4f}, "
+                             f"{ppct:+.1f}%)")
 
         return _text("\n".join(lines))
 
-    # ── test_simulator ──────────────────────────────────────
+    # ── report_residuals ────────────────────────────────────
 
     @tool(
-        "test_simulator",
-        "Test PROCESS_RULES predictions vs observations on "
-        "step transitions. Shows mismatches.",
+        "report_residuals",
+        "Per-feature breakdown of where the current PROCESS_RULES "
+        "(loaded fresh from `simulator.py`) disagree with "
+        "observations on step transitions. For each feature in "
+        "PROCESS_FEATURES (or the inferred fallback) reports mismatch "
+        "count, mean abs error, max abs error, and the relative "
+        "improvement over the no-rule baseline (negative means rules "
+        "are worse than not running them at all). Also lists the "
+        "worst-N example transitions per feature so you can see what "
+        "edge cases break. Uses init_value from PARAM_SPECS by "
+        "default; pass fit_params=true to MCMC-fit first. Tolerance: "
+        "|pred - obs| > rel_tol * |obs| + abs_tol. Each call "
+        "snapshots the simulator file into simulator_versions/; "
+        "output is tagged [vNNN].",
         {
             "type": "object",
             "properties": {
                 "max_transitions": {
                     "type": "integer",
-                    "description": "Max transitions to test (default 100).",
+                    "description": "Max transitions to inspect "
+                    "(default 100).",
                 },
-                "tolerance": {
-                    "type":
-                    "number",
-                    "description":
-                    "Absolute tolerance for mismatch "
-                    "(default 1e-4).",
+                "abs_tol": {
+                    "type": "number",
+                    "description": "Absolute tolerance (default 1e-4).",
+                },
+                "rel_tol": {
+                    "type": "number",
+                    "description": "Relative tolerance (default 1e-3).",
+                },
+                "num_worst_examples": {
+                    "type": "integer",
+                    "description": "Worst-N mismatched transitions to "
+                    "list per feature (default 3, 0 to suppress).",
+                },
+                "fit_params": {
+                    "type": "boolean",
+                    "description": "If true, run MCMC fit before "
+                    "computing residuals; otherwise use init_value "
+                    "(default false).",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Override simulator file path "
+                    "(defaults to the canonical simulator.py).",
                 },
             },
         },
     )
-    async def test_simulator(args: Dict[str, Any]) -> Dict[str, Any]:
-        rules = exec_ns.get("PROCESS_RULES")
-        specs = exec_ns.get("PARAM_SPECS")
-        if not isinstance(rules, list) or not rules:
-            return _text("Error: PROCESS_RULES not defined.")
+    async def report_residuals(args: Dict[str, Any]) -> Dict[str, Any]:
+        path = args.get("path") or simulator_file
+        rules, specs, declared, version_tag, err = _snapshot_and_load(path)
+        if err:
+            return _text(err)
 
-        declared = exec_ns.get("PROCESS_FEATURES")
+        process_features = (declared if isinstance(declared, dict) else
+                            inferred_process_features)
+        scope_label = ("declared" if isinstance(declared, dict)
+                       else "inferred")
+
+        max_n = int(args.get("max_transitions", 100))
+        abs_tol = float(args.get("abs_tol", 1e-4))
+        rel_tol = float(args.get("rel_tol", 1e-3))
+        n_examples = int(args.get("num_worst_examples", 3))
+        do_fit = bool(args.get("fit_params", False))
+
+        pairs = base_pred_triples[:max_n]
+        if do_fit:
+            try:
+                t_params, _ = (
+                    AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
+                        rules, specs, base_pred_triples, process_features))
+                param_label = "fitted"
+            except Exception as e:  # pylint: disable=broad-except
+                return _text(
+                    f"[{version_tag}] Error: param fitting failed:\n{e}")
+        else:
+            t_params = {s.name: s.init_value for s in specs}
+            param_label = "init_value"
+
+        triples_rules: List = []
+        triples_base: List = []
+        for base_state, _action, s_next_obs in pairs:
+            updates = apply_rules(base_state, rules, t_params)
+            s_pred_rules = (merge_updates(base_state, updates)
+                            if updates else base_state)
+            triples_rules.append((s_pred_rules, s_next_obs))
+            triples_base.append((base_state, s_next_obs))
+
+        # Per-feature accumulators keyed by (type_name, feat_name).
+        rule_n_total: Dict = defaultdict(int)
+        rule_n_mismatch: Dict = defaultdict(int)
+        rule_sum_err: Dict = defaultdict(float)
+        rule_max_err: Dict = defaultdict(float)
+        base_n_total: Dict = defaultdict(int)
+        base_sum_err: Dict = defaultdict(float)
+        worst: Dict = defaultdict(list)
+        mismatched_steps: set = set()
+
+        for i, obj, tn, feat, pred, obs in iter_feature_residuals(
+                triples_rules, process_features):
+            key = (tn, feat)
+            err = abs(pred - obs)
+            thr = rel_tol * abs(obs) + abs_tol
+            rule_n_total[key] += 1
+            rule_sum_err[key] += err
+            if err > rule_max_err[key]:
+                rule_max_err[key] = err
+            if err > thr:
+                rule_n_mismatch[key] += 1
+                mismatched_steps.add(i)
+                worst[key].append((i, obj.name, pred, obs, err))
+
+        for _, _, tn, feat, pred, obs in iter_feature_residuals(
+                triples_base, process_features):
+            key = (tn, feat)
+            base_n_total[key] += 1
+            base_sum_err[key] += abs(pred - obs)
+
+        if not rule_n_total:
+            return _text(
+                f"[{version_tag}] PROCESS_FEATURES is empty; "
+                "nothing to report.")
+
+        n_steps = len(pairs)
+        perfect_steps = n_steps - len(mismatched_steps)
+        lines = [
+            f"[{version_tag}] Residual report — {n_steps} step transitions, "
+            f"scope: {scope_label} PROCESS_FEATURES, "
+            f"params: {param_label}, "
+            f"tol: {rel_tol:g}*|obs| + {abs_tol:g}.",
+            f"Steps with all in-scope features within tol: "
+            f"{perfect_steps}/{n_steps}.",
+            "",
+            f"{'feature':<35} {'misses/total':<14} {'mean_err':<10} "
+            f"{'max_err':<10} {'vs base':<14}",
+        ]
+        for key in sorted(rule_n_total):
+            tn, feat = key
+            n_tot = rule_n_total[key]
+            n_mm = rule_n_mismatch[key]
+            mean = rule_sum_err[key] / max(1, n_tot)
+            mx = rule_max_err[key]
+            bn = max(1, base_n_total[key])
+            base_mean = base_sum_err[key] / bn
+            if base_mean > 0:
+                improvement = (base_mean - mean) / base_mean * 100
+                vs_base = f"{improvement:+.0f}%"
+                if improvement < 0:
+                    vs_base += " (worse)"
+            elif mean == 0:
+                vs_base = "exact"
+            else:
+                vs_base = "rules add err"
+            lines.append(
+                f"{tn + '.' + feat:<35} {f'{n_mm}/{n_tot}':<14} "
+                f"{mean:<10.4f} {mx:<10.4f} {vs_base:<14}")
+
+        if n_examples > 0 and worst:
+            lines.append("")
+            lines.append(f"Worst {n_examples} mismatches per feature:")
+            for key in sorted(worst):
+                tn, feat = key
+                entries = sorted(worst[key],
+                                 key=lambda x: x[4],
+                                 reverse=True)
+                for step, oname, pred, obs, err in entries[:n_examples]:
+                    lines.append(f"  step {step:>4}  {oname}.{feat}: "
+                                 f"pred={pred:.6f} obs={obs:.6f} "
+                                 f"err={err:.6f}")
+
+        return _text("\n".join(lines))
+
+    # ── evaluate_plan_refinement ────────────────────────────
+
+    @tool(
+        "evaluate_plan_refinement",
+        "MCMC-fit PARAM_SPECS (loaded fresh from `simulator.py`), "
+        "build the combined simulator from current PROCESS_RULES + "
+        "the fitted params, then run backtracking refinement on a "
+        "training task against a plan you propose. Always fits first "
+        "because refinement needs to test the simulator at its "
+        "deployed (fitted) params, not at init_value. Pass `plan` as "
+        "the option-skeleton you believe should solve the task, one "
+        "option call per line, e.g. `PickJug(jug0)\\nSwitchFaucetOn"
+        "(faucet0)\\n...`. Subgoal annotations are supported (see the "
+        "bilevel sketch parser). Falls back to "
+        "CFG.agent_bilevel_plan_sketch_file or oracle task planning "
+        "when `plan` is empty. Reports success, refined-plan length, "
+        "sketch source, post-fit SSE, and (on failure) which step "
+        "refinement got stuck on. Each call snapshots the simulator "
+        "file into simulator_versions/; output is tagged [vNNN]. "
+        "Slow — use sparingly.",
+        {
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "type": "string",
+                    "description": "Option-skeleton plan text, one "
+                    "option call per line. This is the primary "
+                    "interface — supply it whenever you can.",
+                },
+                "task_idx": {
+                    "type": "integer",
+                    "description": "Index into training tasks "
+                    "(default 0).",
+                },
+                "timeout": {
+                    "type": "number",
+                    "description": "Refinement timeout in seconds "
+                    "(default 30). Note: MCMC fitting runs before "
+                    "refinement and is not subject to this timeout.",
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Override simulator file path "
+                    "(defaults to the canonical simulator.py).",
+                },
+            },
+        },
+    )
+    async def evaluate_plan_refinement(
+            args: Dict[str, Any]) -> Dict[str, Any]:
+        if approach is None:
+            return _text("Error: evaluate_plan_refinement is unavailable "
+                         "(no approach instance bound to the tool).")
+
+        path = args.get("path") or simulator_file
+        rules, specs, declared, version_tag, err = _snapshot_and_load(path)
+        if err:
+            return _text(err)
+
         process_features = (declared if isinstance(declared, dict) else
                             inferred_process_features)
 
-        max_n = args.get("max_transitions", 100)
-        tol = args.get("tolerance", 1e-4)
-        pairs = base_pred_triples[:max_n]
+        task_idx = int(args.get("task_idx", 0))
+        timeout = float(args.get("timeout", 30.0))
+        plan_text = args.get("plan", "") or ""
 
-        # Use init params if not yet fitted.
-        if specs:
-            t_params = {s.name: s.init_value for s in specs}
-        else:
-            t_params = {}
+        try:
+            report = run_refinement_for_synthesis(
+                approach,
+                rules=rules,
+                specs=specs,
+                process_features=process_features,
+                base_pred_triples=base_pred_triples,
+                task_idx=task_idx,
+                timeout=timeout,
+                plan_text=plan_text,
+            )
+        except Exception:  # pylint: disable=broad-except
+            tb = traceback.format_exc()
+            return _text(f"[{version_tag}] Error: validation failed:\n{tb}")
 
-        lines: list = []
-        n_tested = 0
-        n_mismatch = 0
+        return _text(f"[{version_tag}] {report}")
 
-        for base_state, _action, s_next_obs in pairs:
-            updates: Dict = {}
-            for rule in rules:
-                updates = rule(base_state, updates, t_params)
-
-            entry: list = []
-            for obj in base_state:
-                type_name = obj.type.name
-                for feat in process_features.get(type_name, []):
-                    if obj in updates and feat in updates[obj]:
-                        pred = updates[obj][feat]
-                        pred = (pred.item()
-                                if hasattr(pred, "item") else float(pred))
-                    else:
-                        pred = base_state.get(obj, feat)
-                    obs = s_next_obs.get(obj, feat)
-                    err = abs(pred - obs)
-                    if err > tol:
-                        entry.append(f"  {obj.name}.{feat}: "
-                                     f"pred={pred:.6f} obs={obs:.6f} "
-                                     f"err={err:.6f}")
-
-            n_tested += 1
-            if entry:
-                n_mismatch += 1
-                lines.append(f"Step {n_tested}:")
-                lines.extend(entry)
-                lines.append("")
-
-        lines.append(f"Tested {n_tested} steps: {n_mismatch} mismatches, "
-                     f"{n_tested - n_mismatch} correct.")
-        return _text("\n".join(lines))
-
-    return [run_python, evaluate_simulator, test_simulator]
+    return [
+        report_residuals,
+        run_python,
+        evaluate_step_fit,
+        evaluate_plan_refinement,
+    ]

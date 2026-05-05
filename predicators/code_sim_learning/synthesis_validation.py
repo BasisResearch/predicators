@@ -1,0 +1,175 @@
+"""Synthesis-time validation hooks for the agent sim-learning approach.
+
+These helpers run inside an active synthesis-agent session: they need
+approach state (base env, train tasks, predicates, options) but never
+re-enter the agent — no sketch-prompt query, no new session — so they
+can be invoked from a synthesis tool without disturbing the live
+session's prompt or tool set. They live here (rather than on the
+approach class) to keep the approach module focused on orchestration
+and to group them with the other ``code_sim_learning`` simulation /
+fitting primitives.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Tuple
+
+import numpy as np
+
+from predicators.code_sim_learning.training import ParamSpec
+from predicators.code_sim_learning.utils import LearnedSimulator, apply_rules
+from predicators.settings import CFG
+from predicators.structs import Action, State, Task
+
+
+def run_refinement_for_synthesis(
+    approach: Any,
+    rules: List,
+    specs: List[ParamSpec],
+    process_features: Dict[str, List[str]],
+    base_pred_triples: List[Tuple[State, Action, State]],
+    task_idx: int,
+    timeout: float,
+    plan_text: str = "",
+) -> str:
+    """Validate that the candidate simulator supports plan refinement.
+
+    MCMC-fits parameters from ``specs``, builds a combined option
+    model from ``rules`` + the fitted params, obtains a plan sketch
+    (from ``plan_text`` if provided, else
+    ``CFG.agent_bilevel_plan_sketch_file`` if set, else from oracle
+    task planning over the env's GT NSRTs), and runs
+    ``bilevel_sketch.refine_sketch`` on it. Always fits before
+    refinement: the candidate's deployed behaviour is the *fitted*
+    simulator, so refining against init_value params would test the
+    wrong model. Returns a human-readable report.
+    """
+    # pylint: disable=import-outside-toplevel,protected-access
+    from predicators.agent_sdk import bilevel_sketch
+
+    if task_idx < 0 or task_idx >= len(approach._train_tasks):
+        return (f"Error: task_idx {task_idx} out of range "
+                f"[0, {len(approach._train_tasks)}).")
+
+    try:
+        params, fit_sse = approach._fit_parameters(rules, specs,
+                                                   base_pred_triples,
+                                                   process_features)
+    except Exception as e:  # pylint: disable=broad-except
+        return f"Error: param fitting failed:\n{e}"
+
+    learned = LearnedSimulator(
+        step_fn=lambda s, _r=rules, _p=params:  # type: ignore[misc]
+        apply_rules(s, _r, _p),
+        name="agent_in_session")
+    combined_sim = approach._build_combined_simulator(learned)
+    candidate_om = approach._build_option_model(combined_sim)
+
+    task = approach._train_tasks[task_idx]
+    try:
+        sketch, sketch_source = get_or_build_sketch(approach,
+                                                    task,
+                                                    plan_text=plan_text)
+    except Exception as e:  # pylint: disable=broad-except
+        return f"Error: could not obtain plan sketch:\n{e}"
+    if not sketch:
+        return f"Error: empty plan sketch (source: {sketch_source})."
+
+    plan, success, n_samples = bilevel_sketch.refine_sketch(
+        task,
+        sketch,
+        candidate_om,
+        predicates=approach._get_all_predicates(),
+        timeout=timeout,
+        rng=np.random.default_rng(CFG.seed),
+        max_samples_per_step=CFG.agent_bilevel_max_samples_per_step,
+        check_subgoals=CFG.agent_bilevel_check_subgoals,
+        log_state=CFG.agent_bilevel_log_state,
+        run_id=f"{getattr(approach, '_run_id', 'sim_learn')}_validate",
+    )
+
+    verdict = "SUCCESS" if success else "FAILURE"
+    lines = [
+        f"Task {task_idx}: {verdict}  (sketch source: {sketch_source})",
+        f"  Sketch: {len(sketch)} steps  Refined: {len(plan)} steps  "
+        f"Samples: {n_samples}",
+        f"  Post-fit SSE: {fit_sse:.6f}",
+    ]
+    if not success and len(plan) < len(sketch):
+        stuck = sketch[len(plan)]
+        objs = ", ".join(o.name for o in stuck.objects)
+        lines.append(f"  Stuck at step {len(plan)}: "
+                     f"{stuck.option.name}({objs})")
+        if stuck.subgoal_atoms:
+            atoms = ", ".join(str(a) for a in stuck.subgoal_atoms)
+            lines.append(f"    subgoals: {atoms}")
+    return "\n".join(lines)
+
+
+def get_or_build_sketch(
+    approach: Any,
+    task: Task,
+    plan_text: str = "",
+) -> Tuple[List, str]:
+    """Return ``(sketch, source_label)`` for ``task``.
+
+    Resolution order (first non-empty wins):
+      1. ``plan_text`` — agent-proposed plan, parsed via
+         ``parse_sketch_from_text``. This is the primary path.
+      2. ``CFG.agent_bilevel_plan_sketch_file`` — fall-through for
+         pre-baked sketches.
+      3. Oracle task planning over the env's GT NSRTs — last-resort
+         cold-start fallback.
+    """
+    # pylint: disable=import-outside-toplevel,protected-access
+    from predicators.agent_sdk import bilevel_sketch
+    from predicators.ground_truth_models import get_gt_nsrts
+    from predicators.planning import run_task_plan_once
+
+    if plan_text and plan_text.strip():
+        sketch_from_agent = bilevel_sketch.parse_sketch_from_text(
+            plan_text.strip(),
+            task,
+            predicates=approach._get_all_predicates(),
+            options=approach._get_all_options(),
+            types=approach._types,
+        )
+        return sketch_from_agent, "agent_proposed"
+
+    sketch_file = CFG.agent_bilevel_plan_sketch_file
+    if sketch_file:
+        with open(sketch_file, "r", encoding="utf-8") as f:
+            file_text = f.read().strip()
+        sketch_from_file = bilevel_sketch.parse_sketch_from_text(
+            file_text,
+            task,
+            predicates=approach._get_all_predicates(),
+            options=approach._get_all_options(),
+            types=approach._types,
+        )
+        return sketch_from_file, f"file:{sketch_file}"
+
+    nsrts = get_gt_nsrts(CFG.env, approach._initial_predicates,
+                         approach._initial_options)
+    # Symbolic-only; 10 s is plenty for any env with GT NSRTs and
+    # decouples this step from the refinement timeout.
+    plan, atoms_seq, _ = run_task_plan_once(
+        task,
+        nsrts,
+        approach._initial_predicates,
+        approach._types,
+        timeout=10.0,
+        seed=CFG.seed,
+        task_planning_heuristic=CFG.sesame_task_planning_heuristic,
+    )
+    sketch: List = []
+    for i, gnsrt in enumerate(plan):
+        delta = (atoms_seq[i + 1] -
+                 atoms_seq[i] if i + 1 < len(atoms_seq) else set())
+        sketch.append(
+            bilevel_sketch.SketchStep(
+                option=gnsrt.option,
+                objects=list(gnsrt.option_objs),
+                subgoal_atoms=delta if delta else None,
+            ))
+    return sketch, "oracle_task_plan"

@@ -32,7 +32,8 @@ from predicators.approaches.agent_bilevel_approach import AgentBilevelApproach
 from predicators.code_sim_learning.training import ParamSpec, compute_sse, \
     fit_params, log_sse_breakdown
 from predicators.code_sim_learning.utils import LearnedSimulator, \
-    apply_rules, merge_updates, read_simulator_components
+    apply_rules, iter_feature_residuals, merge_updates, \
+    read_simulator_components
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
@@ -208,19 +209,26 @@ class AgentSimLearningApproach(AgentBilevelApproach):
                         "be non-negative.")
                 perturbed = []
                 for s in specs:
-                    val = s.init_value * (1.0 +
-                                          float(rng.normal(0, noise_scale)))
-                    if s.lo is not None:
-                        val = max(s.lo, val)
-                    if s.hi is not None:
-                        val = min(s.hi, val)
+                    val = float(
+                        np.clip(
+                            s.init_value * (1.0 + rng.normal(0, noise_scale)),
+                            s.lo, s.hi))
                     perturbed.append(ParamSpec(s.name, val, lo=s.lo, hi=s.hi))
                 specs = perturbed
             logger.info("Loaded oracle sim program (%d rules, %d params).",
                         len(rules), len(specs))
         else:
             base = self._tool_context.sandbox_dir or self._get_log_dir()
-            save_dir = os.path.join(base, "simulator_code")
+            simulator_file = os.path.join(base, "simulator.py")
+            versions_dir = os.path.join(base, "simulator_versions")
+
+            # Path the agent sees: in local-sandbox mode the dir is
+            # mounted as /sandbox; otherwise the host path is what the
+            # agent reads/writes.
+            if self._tool_context.sandbox_dir:
+                simulator_file_for_agent = "/sandbox/simulator.py"
+            else:
+                simulator_file_for_agent = simulator_file
 
             exec_ns: Dict[str, Any] = {
                 "trajectories": trajectories,
@@ -231,7 +239,9 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             tools = create_synthesis_tools(exec_ns,
                                            base_pred_triples,
                                            inferred_hint,
-                                           save_dir=save_dir)
+                                           simulator_file=simulator_file,
+                                           versions_dir=versions_dir,
+                                           approach=self)
             self._tool_context.extra_mcp_tools = tools
             self._learning_mode = True
 
@@ -255,8 +265,13 @@ observed next state suggests these features carry process dynamics \
 {inferred_hint}
 
 Read the data-structures file first, then explore the trajectory \
-data with `run_python` and define PROCESS_RULES, PARAM_SPECS, and \
-PROCESS_FEATURES."""
+data with `run_python`. Write your simulator to \
+`{simulator_file_for_agent}` — define PROCESS_RULES, PARAM_SPECS, \
+and PROCESS_FEATURES there. The synthesis tools (evaluate_step_fit, \
+report_residuals, evaluate_plan_refinement) load that file fresh on \
+every call and snapshot it into `simulator_versions/` so each \
+evaluated version is preserved (output tag [vNNN]). Iterate with \
+`Edit` and re-run the tools."""
 
             try:
                 self._query_agent_sync(message)
@@ -265,8 +280,8 @@ PROCESS_FEATURES."""
                 self._learning_mode = False
                 self._close_agent_session()
 
-            rules, specs, declared = self._load_simulator_from_file(
-                save_dir, trajectories)
+            rules, specs, declared = self._load_simulator_from_module_file(
+                simulator_file, trajectories)
             if rules is None or specs is None:
                 return
             assert declared is not None, (
@@ -393,16 +408,12 @@ PROCESS_FEATURES."""
         on at least ``min_hits`` triples. The ``min_hits`` floor keeps
         one-off PyBullet jitter from leaking base-handled features into the set.
         """
+        del obs_triples  # objects are identical across both triple lists
+        pairs = [(s_base, s_obs) for s_base, _, s_obs in base_pred_triples]
         hits: Dict[Tuple[str, str], int] = {}
-        for (s_t, _, _), (s_base, _, s_obs) in zip(obs_triples,
-                                                   base_pred_triples):
-            for obj in s_t:
-                for feat in obj.type.feature_names:
-                    pred = float(s_base.get(obj, feat))
-                    obs = float(s_obs.get(obj, feat))
-                    if abs(pred - obs) > rel_tol * abs(obs) + abs_tol:
-                        key = (obj.type.name, feat)
-                        hits[key] = hits.get(key, 0) + 1
+        for _, _, tn, feat, pred, obs in iter_feature_residuals(pairs):
+            if abs(pred - obs) > rel_tol * abs(obs) + abs_tol:
+                hits[(tn, feat)] = hits.get((tn, feat), 0) + 1
         out: Dict[str, List[str]] = {}
         for (t, f), n in hits.items():
             if n >= min_hits:
@@ -432,27 +443,22 @@ PROCESS_FEATURES."""
             logger.info("  only in %s: %s", b_label, only_b)
 
     @staticmethod
-    def _load_simulator_from_file(
-        save_dir: str,
+    def _load_simulator_from_module_file(
+        path: str,
         trajectories: Optional[List[LowLevelTrajectory]] = None,
     ) -> Tuple[Optional[List], Optional[List[ParamSpec]], Optional[Dict[
             str, List[str]]]]:
-        """Load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from saved files.
+        """Load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from one file.
 
-        Execs all ``NNN_run_python.py`` files in ``save_dir`` in order
-        into one namespace. Returns ``(None, None, None)`` if rules or
-        specs are missing; ``features`` may be ``None`` independently,
-        in which case the caller asserts (PROCESS_FEATURES is required
-        from the agent).
+        Execs ``path`` once in a fresh namespace. Returns
+        ``(None, None, None)`` on missing file, exec failure, or if
+        either ``PROCESS_RULES`` or ``PARAM_SPECS`` is absent;
+        ``features`` may be ``None`` independently, in which case the
+        caller asserts (``PROCESS_FEATURES`` is required from the
+        agent).
         """
-        if not os.path.isdir(save_dir):
-            logger.warning("No simulator code dir at %s.", save_dir)
-            return None, None, None
-
-        files = sorted(f for f in os.listdir(save_dir)
-                       if f.endswith(".py") and f[0].isdigit())
-        if not files:
-            logger.warning("No code files in %s.", save_dir)
+        if not os.path.isfile(path):
+            logger.warning("No simulator file at %s.", path)
             return None, None, None
 
         ns: Dict[str, Any] = {
@@ -460,27 +466,24 @@ PROCESS_FEATURES."""
             "ParamSpec": ParamSpec,
             "trajectories": trajectories or [],
         }
-        for fname in files:
-            fpath = os.path.join(save_dir, fname)
-            with open(fpath, "r", encoding="utf-8") as f:
-                code = f.read()
-            try:
-                exec(code, ns)  # pylint: disable=exec-used
-            except Exception:  # pylint: disable=broad-except
-                logger.warning("Failed to exec %s, skipping.",
-                               fpath,
-                               exc_info=True)
+        with open(path, "r", encoding="utf-8") as f:
+            code = f.read()
+        try:
+            exec(code, ns)  # pylint: disable=exec-used
+        except Exception:  # pylint: disable=broad-except
+            logger.warning("Failed to exec %s.", path, exc_info=True)
+            return None, None, None
 
         rules, specs, features = read_simulator_components(ns)
         if rules is None:
-            logger.warning("Saved code did not define PROCESS_RULES.")
+            logger.warning("Simulator file %s missing PROCESS_RULES.", path)
             return None, None, None
         if specs is None:
-            logger.warning("Saved code did not define PARAM_SPECS.")
+            logger.warning("Simulator file %s missing PARAM_SPECS.", path)
             return None, None, None
 
-        logger.info("Loaded %d rules, %d param specs from %d files in %s.",
-                    len(rules), len(specs), len(files), save_dir)
+        logger.info("Loaded %d rules, %d param specs from %s.",
+                    len(rules), len(specs), path)
         return rules, specs, features
 
     # ── Static helpers ───────────────────────────────────────────
@@ -568,87 +571,101 @@ PROCESS_FEATURES."""
     def _build_synthesis_system_prompt() -> str:
         """Build the system prompt for the synthesis agent."""
         return """\
-You are synthesizing a parameterized process dynamics simulator for a \
+You are synthesizing a parameterized process-dynamics simulator for a \
 robotic manipulation environment.
 
-A separate base physics engine (PyBullet) handles robot movement, grasping, \
-and rigid body physics. Your simulator handles **process dynamics**: features \
-that change due to ongoing physical or causal processes (e.g., water filling, \
-heat transfer) that the base sim doesn't model.
+A separate PyBullet base sim handles robot movement, grasping, and rigid- \
+body physics. Your simulator handles **process dynamics** — features \
+that change due to physical or causal processes (water filling, heat \
+transfer, etc.) that the base sim doesn't model.
 
-## Tools
+## What you produce
 
-- `run_python(code)` — execute Python in a persistent namespace. `print()` \
-output is returned. The namespace persists across calls.
-- `evaluate_simulator` — fit parameters using PROCESS_RULES and PARAM_SPECS \
-from the namespace. Reports SSE.
-- `test_simulator` — test predictions vs observations on step transitions. \
-Shows mismatches.
+One file `simulator.py` (path given in the first message) defining three \
+top-level names:
 
-### Pre-loaded variables
+```python
+PROCESS_RULES:    List[Callable]            # rule functions (see signature below)
+PARAM_SPECS:      List[ParamSpec]           # learnable parameters
+PROCESS_FEATURES: Dict[str, List[str]]      # {type_name: [feature_names]} your rules predict
+```
 
-- `trajectories`: List[LowLevelTrajectory] — the collected trajectory data
-- `np`, `ParamSpec` — standard imports
+`PROCESS_FEATURES` defines both the loss scope and the test-time overwrite \
+scope: only the listed `(type, feature)` pairs are scored against \
+observations, and only those are written on top of the base sim at test \
+time. Be honest — listing features your rules don't actually update \
+inflates the loss without giving MCMC anything to optimise.
 
-### Data structures
-
-The trajectory data uses classes from `predicators.structs` (Type, Object, \
-State, Action, LowLevelTrajectory). Their source code is provided as a \
-reference file — Read the path given in the first message.
-
-## Goal
-
-Define three variables in the `run_python` namespace:
-
-- `PROCESS_RULES`: list of rule functions
-- `PARAM_SPECS`: list of ParamSpec objects
-- `PROCESS_FEATURES`: `Dict[str, List[str]]` — for each object type, \
-the feature names your rules predict. This is treated as the truth: \
-the loss only penalises mismatches on these features, and at test \
-time the learned simulator only overwrites these features on top of \
-the base sim's prediction. Be honest — listing features your rules \
-don't actually update will inflate the loss without giving MCMC \
-anything to optimise.
-
-Parameters are fitted automatically after the session ends.
-
-### Process rule signature
+### Rule signature
 
 ```python
 def rule(state, updates, params):
-    \"\"\"Apply one process for a single simulation step.
-
-    Args:
-        state: Current env state.
-        updates: Dict[Object, Dict[str, value]] accumulated from prior rules.
-        params: Dict[str, float] of learned parameters.
-
-    Returns:
-        The (possibly modified) updates dict.
-    \"\"\"
+    # state:   the current env State
+    # updates: Dict[Object, Dict[str, float]] accumulated from prior rules
+    # params:  Dict[str, float], one entry per ParamSpec
+    #
+    # Accumulate, don't replace:
+    #     updates.setdefault(obj, {})[feat] = new_value
+    # Return the same dict.
+    ...
 ```
 
 ### ParamSpec
 
 ```python
-ParamSpec(name: str, init_value: float)
+ParamSpec(name: str, init_value: float,
+          lo: Optional[float] = None, hi: Optional[float] = None)
 ```
+
+Bounds shape both the MCMC prior and the warm-start clamp. Set `lo=0.0` \
+for non-negative rates, etc.
+
+### Pre-injected when `simulator.py` is exec'd
+
+`numpy as np`, `ParamSpec`. Import anything else at the top of the file. \
+The data classes (`State`, `Object`, `Action`, ...) come from \
+`predicators.structs`; source is in the reference file linked in the \
+first message.
+
+## Tools
+
+`Write` / `Edit` `simulator.py` is your normal coding loop. The synthesis \
+tools below load it fresh every call and snapshot it into \
+`simulator_versions/NNN_simulator.py` (deduped by content), prefixing \
+output with `[vNNN]` so you and reviewers can diff iterations.
+
+- `run_python(code)` — ad-hoc data exploration. `trajectories`, `np`, \
+`ParamSpec` in scope. **Does not** define rules.
+- `evaluate_step_fit(fit=false)` — per-step prediction accuracy: SSE \
+on the step transitions at `init_value` params. Pass `fit=true` to \
+also MCMC-fit and report post-fit SSE plus fitted parameters. Cheap; \
+the inner-loop signal.
+- `report_residuals` — per-feature breakdown: mismatch counts, mean / \
+max abs error, vs-baseline improvement (negative ⇒ rules are adding \
+error), worst-N example transitions. Diagnostic for *which* rule to fix.
+- `evaluate_plan_refinement(plan, task_idx)` — per-task planning \
+success: MCMC-fits, builds the combined simulator, runs backtracking \
+refinement against a plan **you propose** (one option call per line, e.g. \
+`"PickJug(jug0)\\nSwitchFaucetOn(faucet0)\\n..."`). Reports success or \
+the step that got stuck. Slow; the gate before declaring done.
+
+`evaluate_step_fit` and `evaluate_plan_refinement` test complementary \
+things — pointwise accuracy vs. goal reachability. A rule can have \
+ε-small SSE and still get a saturation threshold or alignment cap *just* \
+wrong enough that refinement can't satisfy a subgoal. Use step-fit + \
+residuals as the fast inner loop and plan-refinement as the slow \
+goal-relevant gate.
 
 ## Workflow
 
-1. Explore the trajectory data with `run_python`: types, features, \
-state changes over time
-2. Identify which features change due to process dynamics (not the base sim)
-3. Define `PROCESS_RULES` and `PARAM_SPECS` in the namespace via `run_python`
-4. Call `evaluate_simulator` to fit parameters and check SSE
-5. Call `test_simulator` to see prediction mismatches
-6. Iterate if needed
-
-## Tips
-
-- Each trajectory is a sequence of states from one episode. Compare \
-consecutive states to see per-step changes.
-- Group objects by type: \
-`groups = {}; for o in state: groups.setdefault(o.type.name, []).append(o)`
-- Accumulate updates: `updates.setdefault(obj, {})[feat] = new_value`
+1. Explore data with `run_python` — what features change per step, \
+which ones aren't explained by the base sim.
+2. `Write` `simulator.py`; `Edit` to iterate.
+3. Score with `evaluate_step_fit`, then `report_residuals` to find \
+diverging features. Negative `vs base` ⇒ a rule is actively hurting — \
+usually a wrong gate or sign.
+4. When SSE is plausible, propose an option-skeleton plan and call \
+`evaluate_plan_refinement(plan="...", task_idx=i)`. A stuck step means \
+the rules gating its subgoal atoms are too tight or too loose; fix and \
+re-validate.
 """
