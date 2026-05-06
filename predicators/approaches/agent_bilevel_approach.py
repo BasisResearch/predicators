@@ -58,9 +58,10 @@ class AgentBilevelApproach(AgentPlannerApproach):
             "NOT need to specify continuous parameters — those will be found "
             "automatically by a search procedure.\n\n"
             "Some effects may not be immediate — if an action triggers a "
-            "delayed process (e.g. water filling, dominoes cascading, "
-            "heating), insert a Wait after it so the effect has time to "
-            "occur before the next action.\n\n"
+            "delayed process (e.g. gradual accumulation, propagation "
+            "through contacting objects, a sensor catching up to an "
+            "actuator), insert a Wait after it so the effect has time "
+            "to occur before the next action.\n\n"
             "## Subgoal Annotations\n"
             "After each step you can annotate which predicate atoms should "
             "hold after that step succeeds. This helps the search procedure "
@@ -71,8 +72,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
             "Subgoal annotations are optional but improve search efficiency.\n"
             "For Wait steps, the annotation also specifies exactly when the "
             "Wait should terminate. Use `NOT Pred(...)` for atoms that should "
-            "become false (e.g. `Wait(robot:Robot) -> "
-            "{Boiled(water:water_type)}`).")
+            "become false (e.g. `Wait(robot:robot) -> "
+            "{Ready(widget:widget)}`).")
 
     # ------------------------------------------------------------------ #
     # Solve prompt (no continuous params, subgoal format)

@@ -597,8 +597,9 @@ robotic manipulation environment.
 
 A separate PyBullet base sim handles robot movement, grasping, and rigid- \
 body physics. Your simulator handles **process dynamics** — features \
-that change due to physical or causal processes (water filling, heat \
-transfer, etc.) that the base sim doesn't model.
+that change due to physical or causal processes (gradual level changes, \
+accumulation, propagation between contacting objects, sensor readouts \
+that lag actuators, etc.) that the base sim doesn't model.
 
 ## What you produce
 
@@ -631,6 +632,23 @@ def rule(state, updates, params):
     ...
 ```
 
+### Timing
+
+Each rule fires once per step:
+
+```
+state[t] ──base_sim──▶ draft state[t+1] ──your rules──▶ final state[t+1]
+                                               ^^^^^^^
+                        (only PROCESS_FEATURES are overwritten)
+```
+
+Rules see `state[t]`. They cannot see actions, the base sim's draft, or \
+`state[t+2]`. If a feature changes one step *after* its gating event \
+(e.g. an action toggles a gating flag at `t`, but the feature it drives \
+only starts changing at `t+1`), that's an inherent 1-step lag in the \
+data — accept the single boundary residual or model the delay with an \
+extra parameter rather than chasing it with ever-stricter conditions.
+
 ### ParamSpec
 
 ```python
@@ -657,18 +675,17 @@ output with `[vNNN]` so you and reviewers can diff iterations.
 
 - `run_python(code)` — ad-hoc data exploration. `trajectories`, `np`, \
 `ParamSpec` in scope. **Does not** define rules.
-- `evaluate_step_fit(fit=false)` — per-step prediction accuracy: SSE \
-on the step transitions at `init_value` params. Pass `fit=true` to \
-also MCMC-fit and report post-fit SSE plus fitted parameters. Cheap; \
-the inner-loop signal.
+- `evaluate_step_fit` — per-step prediction accuracy: SSE on the step \
+transitions at `init_value` params, plus post-fit SSE and fitted \
+parameters from a parameter fit. Cheap; the inner-loop signal.
 - `report_residuals` — per-feature breakdown: mismatch counts, mean / \
 max abs error, vs-baseline improvement (negative ⇒ rules are adding \
 error), worst-N example transitions. Diagnostic for *which* rule to fix.
 - `evaluate_plan_refinement(plan, task_idx)` — per-task planning \
 success: MCMC-fits, builds the combined simulator, runs backtracking \
-refinement against a plan **you propose** (one option call per line, e.g. \
-`"PickJug(jug0)\\nSwitchFaucetOn(faucet0)\\n..."`). Reports success or \
-the step that got stuck. Slow; the gate before declaring done.
+refinement against a plan **you propose** (see "Plan format" below). \
+Reports success or the step that got stuck. Slow; the gate before \
+declaring done.
 
 `evaluate_step_fit` and `evaluate_plan_refinement` test complementary \
 things — pointwise accuracy vs. goal reachability. A rule can have \
@@ -676,6 +693,37 @@ things — pointwise accuracy vs. goal reachability. A rule can have \
 wrong enough that refinement can't satisfy a subgoal. Use step-fit + \
 residuals as the fast inner loop and plan-refinement as the slow \
 goal-relevant gate.
+
+## Plan format for `evaluate_plan_refinement`
+
+One option call per line, **with every option argument supplied and using \
+typed object references** (`obj:type`), matching exactly what the inspect \
+tools report. Use the inspect tools (or `run_python` over a trajectory) to \
+read off the right names and arities — the parser is strict and silently \
+omitting an argument will not be auto-filled. Example:
+
+```
+PickWidget(robot:robot, widget0:widget)
+Place(robot:robot) -> {WidgetAtFixture(widget0:widget, fixture0:fixture)}
+ActivateFixture(robot:robot, fixture0:fixture)
+Wait(robot:robot) -> {WidgetReady(widget0:widget)}
+...
+```
+
+(The names above are illustrative — use whatever options, types, and \
+predicates the inspect tools actually report for your task.) Insert a \
+`Wait` after any action that triggers a delayed process (gradual \
+accumulation, propagation, sensor catch-up) so your rules have steps to \
+fire on.
+
+**Subgoal annotations** (`-> {Atom(obj:type, ...)}` after a step) are \
+optional in general but **effectively required after open-ended skills \
+like `Place`**. Without one the backtracking search has no preference for \
+*where* to put the object, so a `Place; Wait` pair will refine cleanly \
+but skip past the relevant target location and your rules never fire — \
+the run looks like a rule bug but is actually a missing subgoal. For \
+`Wait`, the annotation also specifies when the wait should terminate; \
+prefix an atom with `NOT` if it should become false.
 
 ## Workflow
 
