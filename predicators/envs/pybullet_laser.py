@@ -114,7 +114,8 @@ class PyBulletLaserEnv(PyBulletEnv):
     # -------------
     # Types
     # -------------
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
     _station_type = Type("station", ["x", "y", "z", "rot", "is_on"],
                          sim_features=["id", "joint_id"])
     _mirror_type = Type("mirror",

@@ -105,7 +105,8 @@ class PyBulletGrowEnv(PyBulletEnv):
     _camera_target: ClassVar[Pose3D] = (0.75, 1.25, 0.42)
 
     # Types now include r, g, b features for color
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
     _cup_type = Type("cup", ["x", "y", "z", "growth", "r", "g", "b"])
     _jug_type = Type("jug", ["x", "y", "z", "rot", "is_held", "r", "g", "b"],
                      sim_features=["id", "init_x", "init_y", "init_z"])

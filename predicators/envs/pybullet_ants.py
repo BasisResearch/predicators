@@ -78,7 +78,8 @@ class PyBulletAntsEnv(PyBulletEnv):
 
     # -------------------------------------------------------------------------
     # Types
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
 
     # Food has color channels + "attractive" as 0.0 or 1.0
     _food_type = Type(

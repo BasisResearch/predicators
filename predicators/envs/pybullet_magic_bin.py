@@ -80,7 +80,8 @@ class PyBulletMagicBinEnv(PyBulletEnv):
     _camera_target: ClassVar[Pose3D] = (0.75, 1.25, 0.42)
 
     # Types
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
     _block_type = Type("block", ["x", "y", "z", "is_held", "vanished"])
     _switch_type = Type("switch", ["x", "y", "z", "rot", "is_on"],
                         sim_features=["id", "joint_id", "joint_scale"])

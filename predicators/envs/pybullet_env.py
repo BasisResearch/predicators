@@ -669,8 +669,12 @@ class PyBulletEnv(BaseEnv):
         rz = get_pos_feature(state, "z")
 
         # EE Orientation
-        _, default_tilt, default_wrist = p.getEulerFromQuaternion(
+        default_roll, default_tilt, default_wrist = p.getEulerFromQuaternion(
             self.get_robot_ee_home_orn())
+        if "roll" in self._robot.type.feature_names:
+            roll = state.get(self._robot, "roll")
+        else:
+            roll = default_roll
         if "tilt" in self._robot.type.feature_names:
             tilt = state.get(self._robot, "tilt")
         else:
@@ -679,7 +683,7 @@ class PyBulletEnv(BaseEnv):
             wrist = state.get(self._robot, "wrist")
         else:
             wrist = default_wrist
-        qx, qy, qz, qw = p.getQuaternionFromEuler([0.0, tilt, wrist])
+        qx, qy, qz, qw = p.getQuaternionFromEuler([roll, tilt, wrist])
 
         # Fingers
         f = state.get(self._robot, "fingers")
@@ -781,8 +785,10 @@ class PyBulletEnv(BaseEnv):
         """
         rx, ry, rz, qx, qy, qz, qw, rf = self._pybullet_robot.get_state()
         r_dict: Dict[str, float] = {"x": rx, "y": ry, "z": rz, "fingers": rf}
-        _, tilt, wrist = p.getEulerFromQuaternion([qx, qy, qz, qw])
+        roll, tilt, wrist = p.getEulerFromQuaternion([qx, qy, qz, qw])
         r_features = self._robot.type.feature_names
+        if "roll" in r_features:
+            r_dict["roll"] = roll
         if "tilt" in r_features:
             r_dict["tilt"] = tilt
         if "wrist" in r_features:

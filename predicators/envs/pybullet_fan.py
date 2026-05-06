@@ -210,7 +210,8 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Types
     # -------------------------------------------------------------------------
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
     _fan_type = Type(
         "fan",
         [

@@ -155,7 +155,8 @@ class PyBulletBoilEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Types
     # -------------------------------------------------------------------------
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
 
     _jug_type = Type("jug", [
         "x", "y", "z", "rot", "is_held", "water_volume", "heat_level", "r",
