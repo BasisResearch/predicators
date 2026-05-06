@@ -76,7 +76,17 @@ class LocalSandboxSessionManager:
         self._query_count: int = 0
         self._session_id: Optional[str] = None
         self._conversation_log: List[Dict[str, Any]] = []
-        self._sandbox_dir: Optional[str] = None
+        # Sandbox path is deterministic from log_dir; expose it on the
+        # tool context eagerly so callers that build sandbox-relative
+        # paths before the first query() see the right value. Directory
+        # creation + file copying still happen lazily in
+        # ``_ensure_sandbox_dir`` on first query.
+        self._sandbox_dir: Optional[str] = os.path.abspath(
+            os.path.join(self._log_dir, "sandbox"))
+        self._tool_context.sandbox_dir = self._sandbox_dir
+        self._tool_context.image_save_dir = str(
+            os.path.join(self._sandbox_dir, "test_images"))
+        self._sandbox_populated = False
         self._client: Any = None
         self._started = False
         self._sandbox_log_path: Optional[str] = None
@@ -112,12 +122,16 @@ class LocalSandboxSessionManager:
     # -- Sandbox setup --
 
     def _ensure_sandbox_dir(self) -> None:
-        """Create and populate the sandbox directory if it doesn't exist."""
-        if self._sandbox_dir is not None:
-            return
+        """Create and populate the sandbox directory if it doesn't exist.
 
-        self._sandbox_dir = os.path.abspath(
-            os.path.join(self._log_dir, "sandbox"))
+        The path itself is set in ``__init__`` (so callers can use it
+        before the first query); this method handles dir creation and
+        seeding, which is idempotent across calls but only needs to run
+        once per session.
+        """
+        if self._sandbox_populated:
+            return
+        assert self._sandbox_dir is not None  # set in __init__
 
         setup_sandbox_directory(
             sandbox_dir=self._sandbox_dir,
@@ -128,11 +142,7 @@ class LocalSandboxSessionManager:
             log_dir=self._log_dir,
             seed_scratchpad=CFG.agent_planner_use_scratchpad,
         )
-
-        # Set sandbox paths on tool context
-        self._tool_context.image_save_dir = str(
-            os.path.join(self._sandbox_dir, "test_images"))
-        self._tool_context.sandbox_dir = self._sandbox_dir
+        self._sandbox_populated = True
 
     # -- Session lifecycle --
 

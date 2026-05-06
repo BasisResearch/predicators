@@ -218,14 +218,31 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             logger.info("Loaded oracle sim program (%d rules, %d params).",
                         len(rules), len(specs))
         else:
-            base = self._tool_context.sandbox_dir or self._get_log_dir()
+            # Resolve sandbox_dir without depending on a live session
+            # manager. LocalSandboxSessionManager does set this on
+            # tool_context in __init__, but it isn't constructed until
+            # _ensure_agent_session() runs further below — and the
+            # original ordering (build tools → set extra_mcp_tools →
+            # ensure session) is required so the in-process
+            # AgentSessionManager (which freezes allowed_tools at
+            # construction) sees the synthesis tools.
+            if CFG.agent_sdk_use_local_sandbox:
+                sandbox_dir: Optional[str] = os.path.abspath(
+                    os.path.join(self._get_log_dir(), "sandbox"))
+            else:
+                sandbox_dir = self._tool_context.sandbox_dir
+
+            base = sandbox_dir or self._get_log_dir()
             simulator_file = os.path.join(base, "simulator.py")
             versions_dir = os.path.join(base, "simulator_versions")
 
-            # Path the agent sees: in local-sandbox mode the dir is
-            # mounted as /sandbox; otherwise the host path is what the
-            # agent reads/writes.
-            if self._tool_context.sandbox_dir:
+            # Path the agent sees: cwd-relative for local-sandbox (the
+            # validation hook resolves against cwd and rejects literal
+            # ``/sandbox/...`` paths), docker mount point for docker,
+            # absolute host path otherwise.
+            if CFG.agent_sdk_use_local_sandbox:
+                simulator_file_for_agent = "./simulator.py"
+            elif sandbox_dir:
                 simulator_file_for_agent = "/sandbox/simulator.py"
             else:
                 simulator_file_for_agent = simulator_file
@@ -450,12 +467,11 @@ evaluated version is preserved (output tag [vNNN]). Iterate with \
             str, List[str]]]]:
         """Load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from one file.
 
-        Execs ``path`` once in a fresh namespace. Returns
-        ``(None, None, None)`` on missing file, exec failure, or if
-        either ``PROCESS_RULES`` or ``PARAM_SPECS`` is absent;
-        ``features`` may be ``None`` independently, in which case the
-        caller asserts (``PROCESS_FEATURES`` is required from the
-        agent).
+        Execs ``path`` once in a fresh namespace. Returns ``(None, None,
+        None)`` on missing file, exec failure, or if either
+        ``PROCESS_RULES`` or ``PARAM_SPECS`` is absent; ``features`` may
+        be ``None`` independently, in which case the caller asserts
+        (``PROCESS_FEATURES`` is required from the agent).
         """
         if not os.path.isfile(path):
             logger.warning("No simulator file at %s.", path)
@@ -482,8 +498,8 @@ evaluated version is preserved (output tag [vNNN]). Iterate with \
             logger.warning("Simulator file %s missing PARAM_SPECS.", path)
             return None, None, None
 
-        logger.info("Loaded %d rules, %d param specs from %s.",
-                    len(rules), len(specs), path)
+        logger.info("Loaded %d rules, %d param specs from %s.", len(rules),
+                    len(specs), path)
         return rules, specs, features
 
     # ── Static helpers ───────────────────────────────────────────
@@ -509,7 +525,12 @@ evaluated version is preserved (output tag [vNNN]). Iterate with \
         with open(ref_path, "w", encoding="utf-8") as f:
             f.write(source)
 
-        # Agent sees the sandbox-mounted path, not the host path.
+        # Path the agent sees: relative to its cwd in local-sandbox mode
+        # (the sandbox-validation hook resolves against cwd and rejects
+        # any literal ``/sandbox/...`` path), the docker mount point in
+        # docker mode, or the absolute host path otherwise.
+        if CFG.agent_sdk_use_local_sandbox:
+            return "./reference/structs.py"
         if self._tool_context.sandbox_dir:
             return "/sandbox/reference/structs.py"
         return ref_path
