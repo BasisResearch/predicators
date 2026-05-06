@@ -1290,6 +1290,7 @@ class PyBulletFanEnv(PyBulletEnv):
                     "y": self.robot_init_y,
                     "z": self.robot_init_z,
                     "fingers": self.open_fingers,
+                    "roll": self.robot_init_roll,
                     "tilt": self.robot_init_tilt,
                     "wrist": self.robot_init_wrist,
                 }

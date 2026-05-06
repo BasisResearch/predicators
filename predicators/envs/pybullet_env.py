@@ -74,6 +74,12 @@ class PyBulletEnv(BaseEnv):
     robot_init_x: ClassVar[float]
     robot_init_y: ClassVar[float]
     robot_init_z: ClassVar[float]
+    # Default initial EE orientation (Euler). Subclasses may override.
+    # Used by per-env task-init dicts when populating the robot's
+    # roll/tilt/wrist features.
+    robot_init_roll: ClassVar[float] = 0.0
+    robot_init_tilt: ClassVar[float] = 0.0
+    robot_init_wrist: ClassVar[float] = 0.0
     y_lb: ClassVar[float]
     y_ub: ClassVar[float]
     robot_base_pos: ClassVar[Optional[Tuple[float, float, float]]] = None
