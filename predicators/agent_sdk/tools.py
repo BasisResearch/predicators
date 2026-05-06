@@ -2026,25 +2026,23 @@ def create_synthesis_tools(
             build the combined simulator/option model, and run
             refinement. If ``None``, that tool returns an error.
     """
-    import io  # pylint: disable=import-outside-toplevel
-    import sys  # pylint: disable=import-outside-toplevel
-    import traceback  # pylint: disable=import-outside-toplevel,redefined-outer-name,reimported
-    from collections import \
-        defaultdict  # pylint: disable=import-outside-toplevel
+    # pylint: disable=import-outside-toplevel
+    import io
+    import sys
+    import traceback  # pylint: disable=redefined-outer-name,reimported
+    from collections import defaultdict
 
-    from claude_agent_sdk import \
-        tool  # pylint: disable=import-outside-toplevel
+    from claude_agent_sdk import tool
 
     from predicators.approaches.agent_sim_learning_approach import \
-        AgentSimLearningApproach  # pylint: disable=import-outside-toplevel
+        AgentSimLearningApproach
     from predicators.code_sim_learning.synthesis_validation import \
-        run_refinement_for_synthesis  # pylint: disable=import-outside-toplevel
-    from predicators.code_sim_learning.training import \
-        compute_sse  # pylint: disable=import-outside-toplevel
-    from predicators.code_sim_learning.training import ParamSpec
+        run_refinement_for_synthesis
+    from predicators.code_sim_learning.training import ParamSpec, compute_sse
     from predicators.code_sim_learning.utils import apply_rules, \
-        iter_feature_residuals, merge_updates, read_simulator_components \
-        # pylint: disable=import-outside-toplevel
+        iter_feature_residuals, merge_updates, read_simulator_components
+
+    # pylint: enable=import-outside-toplevel
 
     _version_count = [0]
     _last_snapshot_hash: List[Optional[str]] = [None]
