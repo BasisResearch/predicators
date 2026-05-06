@@ -507,10 +507,64 @@ class PyBulletEnv(BaseEnv):
         if wrote_anything:
             reconstructed = self._get_state()
             if not reconstructed.allclose(state):
+                diff = self._reconstruction_diff(state, reconstructed)
                 if type(self)._get_state is not PyBulletEnv._get_state:
-                    raise ValueError("Could not reconstruct state.")
+                    raise ValueError(
+                        f"Could not reconstruct state. Mismatched "
+                        f"features:\n{diff}")
                 logging.warning(
-                    "Could not reconstruct state exactly in reset.")
+                    "Could not reconstruct state exactly in reset. "
+                    "Mismatched features:\n%s", diff)
+
+    @staticmethod
+    def _reconstruction_diff(requested: State,
+                             reconstructed: State,
+                             atol: float = 1e-3,
+                             max_lines: int = 10) -> str:
+        """Format per-feature mismatches between two States for debugging.
+
+        Returns a human-readable summary of which (object, feature)
+        pairs differ by more than ``atol``, sorted by largest absolute
+        delta. Truncates to ``max_lines`` rows so the warning stays
+        scannable.
+        """
+        req_objs = set(requested.data)
+        rec_objs = set(reconstructed.data)
+        rows = []
+        only_in_req = req_objs - rec_objs
+        only_in_rec = rec_objs - req_objs
+        if only_in_req:
+            rows.append(f"  objects only in requested: "
+                        f"{sorted(o.name for o in only_in_req)}")
+        if only_in_rec:
+            rows.append(f"  objects only in reconstructed: "
+                        f"{sorted(o.name for o in only_in_rec)}")
+        feature_diffs: List[Tuple[float, str, str, float, float]] = []
+        for obj in req_objs & rec_objs:
+            req_vals = requested.data[obj]
+            rec_vals = reconstructed.data[obj]
+            if len(req_vals) != len(rec_vals):
+                rows.append(f"  {obj.name}: feature-count mismatch "
+                            f"requested={len(req_vals)} "
+                            f"reconstructed={len(rec_vals)}")
+                continue
+            for i, feat in enumerate(obj.type.feature_names):
+                delta = float(rec_vals[i] - req_vals[i])
+                if abs(delta) > atol:
+                    feature_diffs.append((abs(delta), obj.name, feat,
+                                          float(req_vals[i]),
+                                          float(rec_vals[i])))
+        feature_diffs.sort(reverse=True)
+        for _absdelta, name, feat, req, rec in feature_diffs[:max_lines]:
+            rows.append(f"  {name}.{feat}: requested={req:.6f} "
+                        f"reconstructed={rec:.6f} (Δ={rec - req:+.6f})")
+        if len(feature_diffs) > max_lines:
+            rows.append(f"  ... and {len(feature_diffs) - max_lines} "
+                        f"more features over the {atol:g} tolerance")
+        if not rows:
+            rows.append("  (no per-feature delta exceeded "
+                        f"{atol:g}; check simulator_state)")
+        return "\n".join(rows)
 
     def _robot_matches_state(self, state: State, atol: float = 1e-3) -> bool:
         """True if PyBullet's live robot pose already equals state's.
