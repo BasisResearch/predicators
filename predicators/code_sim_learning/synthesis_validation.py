@@ -13,7 +13,7 @@ primitives.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -32,7 +32,7 @@ def run_refinement_for_synthesis(
     process_features: Dict[str, List[str]],
     base_pred_triples: List[Tuple[State, Action, State]],
     task_idx: int,
-    timeout: float,
+    timeout: Optional[float] = None,
     plan_text: str = "",
 ) -> str:
     """Validate that the candidate simulator supports plan refinement.
@@ -45,7 +45,19 @@ def run_refinement_for_synthesis(
     ``bilevel_sketch.refine_sketch`` on it. Always fits before
     refinement: the candidate's deployed behaviour is the *fitted*
     simulator, so refining against init_value params would test the
-    wrong model. Returns a human-readable report.
+    wrong model.
+
+    ``timeout`` is wall-clock seconds for refinement only (MCMC
+    fitting is not subject to it). When ``None``, it auto-scales with
+    sketch length:
+    ``max(CFG.agent_bilevel_refinement_timeout_min,
+         CFG.agent_bilevel_refinement_timeout_per_step * len(sketch))``
+    so longer plans automatically get more budget.
+
+    Returns a human-readable report. On failure the report includes a
+    termination reason (``timeout`` vs ``exhausted``), per-step
+    cumulative sample counts, wall-clock used vs allotted, and a hint
+    on whether to raise the timeout or revisit the rules.
     """
     # pylint: disable=import-outside-toplevel,protected-access
     from predicators.agent_sdk import bilevel_sketch
@@ -78,8 +90,18 @@ def run_refinement_for_synthesis(
     if not sketch:
         return f"Error: empty plan sketch (source: {sketch_source})."
 
-    logger.info("Refining plan sketch (task %d, source: %s, %d steps):",
-                task_idx, sketch_source, len(sketch))
+    if timeout is None:
+        timeout = max(
+            CFG.agent_bilevel_refinement_timeout_min,
+            CFG.agent_bilevel_refinement_timeout_per_step * len(sketch))
+        timeout_source = "auto"
+    else:
+        timeout_source = "explicit"
+
+    logger.info(
+        "Refining plan sketch (task %d, source: %s, %d steps, "
+        "timeout=%.0fs/%s):", task_idx, sketch_source, len(sketch),
+        timeout, timeout_source)
     for i, step in enumerate(sketch):
         objs = ", ".join(f"{o.name}:{o.type.name}" for o in step.objects)
         line = f"  {i}: {step.option.name}({objs})"
@@ -88,6 +110,9 @@ def run_refinement_for_synthesis(
             line += f"  [subgoals: {atoms}]"
         logger.info(line)
 
+    step_samples_cumulative: List[int] = [0] * len(sketch)
+    termination_reason: List[str] = []
+    elapsed_holder: List[float] = []
     plan, success, n_samples = bilevel_sketch.refine_sketch(
         task,
         sketch,
@@ -99,23 +124,68 @@ def run_refinement_for_synthesis(
         check_subgoals=CFG.agent_bilevel_check_subgoals,
         log_state=CFG.agent_bilevel_log_state,
         run_id=f"{getattr(approach, '_run_id', 'sim_learn')}_validate",
+        step_samples_cumulative=step_samples_cumulative,
+        termination_reason=termination_reason,
+        elapsed_holder=elapsed_holder,
     )
 
-    verdict = "SUCCESS" if success else "FAILURE"
+    reason = termination_reason[0] if termination_reason else (
+        "success" if success else "exhausted")
+    elapsed = elapsed_holder[0] if elapsed_holder else 0.0
+    cap = CFG.agent_bilevel_max_samples_per_step
+    if success:
+        verdict = "SUCCESS"
+    elif reason == "timeout":
+        verdict = "FAILURE: TIMEOUT"
+    elif reason == "exhausted":
+        verdict = "FAILURE: SAMPLE_EXHAUSTED"
+    else:
+        verdict = "FAILURE"
+
     lines = [
         f"Task {task_idx}: {verdict}  (sketch source: {sketch_source})",
         f"  Sketch: {len(sketch)} steps  Refined: {len(plan)} steps  "
-        f"Samples: {n_samples}",
+        f"Samples: {n_samples} total",
+        f"  Per-step samples: {step_samples_cumulative}  (cap "
+        f"{cap}/step)",
+        f"  Time: {elapsed:.1f}s used / {timeout:.1f}s allotted "
+        f"(timeout source: {timeout_source})",
         f"  Post-fit SSE: {fit_sse:.6f}",
     ]
     if not success and len(plan) < len(sketch):
-        stuck = sketch[len(plan)]
-        objs = ", ".join(o.name for o in stuck.objects)
-        lines.append(f"  Stuck at step {len(plan)}: "
+        stuck_idx = len(plan)
+        stuck = sketch[stuck_idx]
+        objs = ", ".join(f"{o.name}:{o.type.name}" for o in stuck.objects)
+        lines.append(f"  Stuck at step {stuck_idx}: "
                      f"{stuck.option.name}({objs})")
         if stuck.subgoal_atoms:
             atoms = ", ".join(str(a) for a in stuck.subgoal_atoms)
             lines.append(f"    subgoals: {atoms}")
+
+        stuck_samples = (step_samples_cumulative[stuck_idx]
+                         if stuck_idx < len(step_samples_cumulative) else 0)
+        # Suggest a timeout that proportionally scales the time the
+        # search actually used. If the deepest step never got many
+        # tries (search backtracked early instead of grinding on it),
+        # samples-per-step won't tell us much, so fall back to 1.5×
+        # the elapsed budget.
+        suggested_timeout = max(timeout * 1.5, elapsed * 2.0)
+        if reason == "timeout":
+            lines.append(
+                f"  Hint: timeout exhausted before search converged. "
+                f"Try `timeout={suggested_timeout:.0f}` and re-run; "
+                f"if per-step samples at the stuck step are well "
+                f"under the cap ({stuck_samples}/{cap}), the search "
+                f"was making progress and just needed more wall-clock.")
+        elif reason == "exhausted":
+            lines.append(
+                "  Hint: search exhausted its sample budget without "
+                "timing out — every branch at step 0 ran its "
+                f"{cap}-sample cap and still failed downstream. "
+                "This is usually a *rule* problem (a subgoal can't "
+                "be satisfied by the current simulator), not a "
+                "budget problem; re-check the rules gating the "
+                "stuck step's subgoal atoms.")
     return "\n".join(lines)
 
 

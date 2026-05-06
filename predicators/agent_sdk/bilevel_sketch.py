@@ -297,6 +297,9 @@ def refine_sketch(
     run_id: str = "bilevel",
     on_step_fail: Optional[Callable[[int, List[Optional[_Option]], str],
                                     None]] = None,
+    step_samples_cumulative: Optional[List[int]] = None,
+    termination_reason: Optional[List[str]] = None,
+    elapsed_holder: Optional[List[float]] = None,
 ) -> Tuple[List[_Option], bool, int]:
     """Backtracking search over continuous parameters for a plan sketch.
 
@@ -396,6 +399,9 @@ def refine_sketch(
         rng=rng,
         timeout=timeout,
         on_step_fail=wrapped_on_step_fail,
+        step_samples_cumulative=step_samples_cumulative,
+        termination_reason=termination_reason,
+        elapsed_holder=elapsed_holder,
     )
 
     logging.info(

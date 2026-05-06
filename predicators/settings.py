@@ -1016,6 +1016,12 @@ class GlobalSettings:
     # log state pretty_str before/after each step
     agent_bilevel_log_state = False
     agent_bilevel_plan_sketch_file = ""  # load sketch from file instead of LLM
+    # When evaluate_plan_refinement is called without an explicit timeout,
+    # the synthesis tool computes
+    #   max(_min, _per_step * len(sketch))
+    # so plans with more steps automatically get more wall-clock budget.
+    agent_bilevel_refinement_timeout_per_step = 30.0  # seconds per step
+    agent_bilevel_refinement_timeout_min = 30.0  # floor on auto-scaled timeout
     # Agent bilevel explorer settings. Separate from the solve-path budget
     # above because the explorer runs full backtracking while looking for
     # the deepest subgoal-failure to truncate at, and each exhausted

@@ -521,6 +521,9 @@ def run_backtracking_refinement(
                                     None]] = None,
     on_exhausted: Optional[Callable[[List[Optional[_Option]]], None]] = None,
     step_times: Optional[List[float]] = None,
+    step_samples_cumulative: Optional[List[int]] = None,
+    termination_reason: Optional[List[str]] = None,
+    elapsed_holder: Optional[List[float]] = None,
 ) -> Tuple[List[Optional[_Option]], bool, int]:
     """Backtracking search over continuous parameters.
 
@@ -534,6 +537,14 @@ def run_backtracking_refinement(
 
     Callbacks ``on_env_failure``, ``on_step_fail``, and ``on_exhausted``
     may raise to abort the search (e.g. for failure propagation).
+
+    Optional mutable output containers (same pattern as ``step_times``):
+    ``step_samples_cumulative[i]`` accumulates every attempt at step i
+    across backtracks (the in-loop ``num_tries_arr`` resets on
+    backtrack, so it only reflects the live frontier).
+    ``termination_reason`` is set to ``"success"``, ``"timeout"`` or
+    ``"exhausted"`` on exit.  ``elapsed_holder[0]`` is set to total
+    wall-clock seconds.
     """
     start_time = time.perf_counter()
     cur_idx = 0
@@ -542,16 +553,27 @@ def run_backtracking_refinement(
     traj: List[Optional[State]] = [init_state] + [None] * n_steps
     total_samples = 0
 
+    def _finish(reason: str) -> None:
+        if termination_reason is not None:
+            termination_reason.clear()
+            termination_reason.append(reason)
+        if elapsed_holder is not None:
+            elapsed_holder.clear()
+            elapsed_holder.append(time.perf_counter() - start_time)
+
     while cur_idx < n_steps:
         if time.perf_counter() - start_time > timeout:
             logging.debug(
                 "Backtracking refinement timed out at step "
                 "%d/%d.", cur_idx, n_steps)
+            _finish("timeout")
             return plan, False, total_samples
 
         attempt_start = time.perf_counter()
         num_tries_arr[cur_idx] += 1
         total_samples += 1
+        if step_samples_cumulative is not None:
+            step_samples_cumulative[cur_idx] += 1
         state = traj[cur_idx]
         assert state is not None
 
@@ -602,8 +624,10 @@ def run_backtracking_refinement(
                 if cur_idx < 0:
                     if on_exhausted is not None:
                         on_exhausted(plan)
+                    _finish("exhausted")
                     return plan, False, total_samples
 
+    _finish("success")
     return plan, True, total_samples
 
 
