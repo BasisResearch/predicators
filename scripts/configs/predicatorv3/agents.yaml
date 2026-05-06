@@ -70,7 +70,7 @@ APPROACHES:
       agent_bilevel_log_state: False
       agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
       skip_test_until_last_ite_or_early_stopping: False
-      agent_sim_learn_oracle_sim_program: True
+      agent_sim_learn_oracle_sim_program: False
       agent_sim_learn_oracle_sim_params: False
       agent_sim_learn_oracle_sim_param_noise_scale: 1.0 # 1.0 allows successful planning but insatisficing plan; 0.8 produces satisficing plan
       code_sim_learning_num_mcmc_steps: 0
