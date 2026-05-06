@@ -269,6 +269,8 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             structs_ref = self._write_structs_reference()
 
             n_trajs = len(trajectories)
+            predicate_listing = self._format_predicate_signatures(
+                self._get_all_predicates())
             message = f"""\
 Synthesize a process dynamics simulator for this environment. \
 There are {n_trajs} trajectories ({len(obs_triples)} step \
@@ -280,6 +282,15 @@ A residual scan between the base simulator's prediction and the \
 observed next state suggests these features carry process dynamics \
 (starting hint, may include base-sim jitter — refine as you go):
 {inferred_hint}
+
+## Available Predicates (for subgoal annotations)
+{predicate_listing}
+
+Subgoal annotations in your plans for `evaluate_plan_refinement` \
+must reference these predicate names with matching arity and types. \
+Any threshold or condition you bake into a rule must be consistent \
+with what the predicate's classifier actually checks, or refinement \
+will reject parameter samples that look correct on paper.
 
 Read the data-structures file first, then explore the trajectory \
 data with `run_python`. Write your simulator to \
@@ -458,6 +469,19 @@ evaluated version is preserved (output tag [vNNN]). Iterate with \
             logger.info("  only in %s: %s", a_label, only_a)
         if only_b:
             logger.info("  only in %s: %s", b_label, only_b)
+
+    @staticmethod
+    def _format_predicate_signatures(predicates: Set[Predicate]) -> str:
+        """Pretty-print predicates as ``Name(type1, type2)`` lines.
+
+        Mirrors the ``## Available Predicates`` block in
+        ``bilevel_sketch.build_solve_prompt``.
+        """
+        lines = []
+        for pred in sorted(predicates, key=lambda p: p.name):
+            type_sig = ", ".join(t.name for t in pred.types)
+            lines.append(f"  {pred.name}({type_sig})")
+        return "\n".join(lines)
 
     @staticmethod
     def _load_simulator_from_module_file(
