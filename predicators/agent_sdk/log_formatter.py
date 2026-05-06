@@ -87,9 +87,8 @@ def _format_assistant_block(block: Dict[str, Any], lines: List[str]) -> None:
         tool_id = block.get("id", "")
         inp = block.get("input", {})
         lines.append(f"**Tool Call:** `{name}` (id: `{tool_id}`)")
-        lines.append("```json")
-        lines.append(json.dumps(inp, indent=2, default=str))
-        lines.append("```\n")
+        _format_tool_input(inp, lines)
+        lines.append("")
     else:
         _format_unknown_block(block, lines)
 
@@ -127,6 +126,47 @@ def _format_user_block(block: Dict[str, Any], lines: List[str]) -> None:
         lines.append(f"**User:** {block.get('text', '')}\n")
     else:
         _format_unknown_block(block, lines)
+
+
+_LANG_BY_KEY = {
+    "code": "python",
+    "command": "bash",
+    "script": "bash",
+    "content": "",
+    "new_string": "",
+    "old_string": "",
+    "query": "",
+}
+
+
+def _format_tool_input(inp: Any, lines: List[str]) -> None:
+    """Render a tool-call input dict.
+
+    Multiline string values become fenced code blocks (so embedded
+    newlines render verbatim instead of as ``\\n``); the remaining
+    scalar fields go in a compact JSON block.
+    """
+    if not isinstance(inp, dict) or not any(
+            isinstance(v, str) and "\n" in v for v in inp.values()):
+        lines.append("```json")
+        lines.append(json.dumps(inp, indent=2, default=str))
+        lines.append("```")
+        return
+
+    scalars: Dict[str, Any] = {}
+    for k, v in inp.items():
+        if isinstance(v, str) and "\n" in v:
+            lang = _LANG_BY_KEY.get(k, "")
+            lines.append(f"*{k}:*")
+            lines.append(f"```{lang}")
+            lines.append(v)
+            lines.append("```")
+        else:
+            scalars[k] = v
+    if scalars:
+        lines.append("```json")
+        lines.append(json.dumps(scalars, indent=2, default=str))
+        lines.append("```")
 
 
 def _format_unknown_block(block: Dict[str, Any], lines: List[str]) -> None:

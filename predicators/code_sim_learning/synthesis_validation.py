@@ -5,13 +5,14 @@ approach state (base env, train tasks, predicates, options) but never
 re-enter the agent — no sketch-prompt query, no new session — so they
 can be invoked from a synthesis tool without disturbing the live
 session's prompt or tool set. They live here (rather than on the
-approach class) to keep the approach module focused on orchestration
-and to group them with the other ``code_sim_learning`` simulation /
-fitting primitives.
+approach class) to keep the approach module focused on orchestration and
+to group them with the other ``code_sim_learning`` simulation / fitting
+primitives.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
@@ -20,6 +21,8 @@ from predicators.code_sim_learning.training import ParamSpec
 from predicators.code_sim_learning.utils import LearnedSimulator, apply_rules
 from predicators.settings import CFG
 from predicators.structs import Action, State, Task
+
+logger = logging.getLogger(__name__)
 
 
 def run_refinement_for_synthesis(
@@ -74,6 +77,16 @@ def run_refinement_for_synthesis(
         return f"Error: could not obtain plan sketch:\n{e}"
     if not sketch:
         return f"Error: empty plan sketch (source: {sketch_source})."
+
+    logger.info("Refining plan sketch (task %d, source: %s, %d steps):",
+                task_idx, sketch_source, len(sketch))
+    for i, step in enumerate(sketch):
+        objs = ", ".join(f"{o.name}:{o.type.name}" for o in step.objects)
+        line = f"  {i}: {step.option.name}({objs})"
+        if step.subgoal_atoms:
+            atoms = ", ".join(str(a) for a in step.subgoal_atoms)
+            line += f"  [subgoals: {atoms}]"
+        logger.info(line)
 
     plan, success, n_samples = bilevel_sketch.refine_sketch(
         task,
