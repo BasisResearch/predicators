@@ -17,8 +17,8 @@ from predicators.approaches.agent_bilevel_approach import _SketchStep
 from predicators.code_sim_learning.training import ParamSpec, fit_params
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
-from predicators.ground_truth_models.boil.gt_simulator import \
-    PARAM_SPECS, PROCESS_FEATURES, PROCESS_RULES
+from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \
+    PROCESS_FEATURES, PROCESS_RULES
 from predicators.option_model import _OracleOptionModel
 from predicators.planning import run_backtracking_refinement
 from predicators.structs import Action, GroundAtom, LowLevelTrajectory, \

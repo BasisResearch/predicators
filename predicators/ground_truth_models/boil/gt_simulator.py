@@ -21,8 +21,8 @@ from typing import Dict, List
 import numpy as np
 
 from predicators.code_sim_learning.training import ParamSpec
-from predicators.code_sim_learning.utils import Params, ProcessUpdate, \
-    SOFT_EPS, objs_by_type, sigmoid
+from predicators.code_sim_learning.utils import SOFT_EPS, Params, \
+    ProcessUpdate, objs_by_type, sigmoid
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
 from predicators.settings import CFG
 from predicators.structs import Object, State
@@ -167,8 +167,7 @@ def _happiness(state: State, updates: ProcessUpdate,
         heat = _get_val(jug, "heat_level")
         if heat < 1.0:
             continue
-        filled_w = sigmoid(
-            (water - params["water_filled_height"]) / SOFT_EPS)
+        filled_w = sigmoid((water - params["water_filled_height"]) / SOFT_EPS)
         for human in objs.get("human", []):
             h = float(state.get(human, "happiness_level"))
             new_h = min(1.0, h + filled_w * params["happiness_speed"])

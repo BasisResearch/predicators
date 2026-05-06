@@ -20,8 +20,8 @@ from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, merge_updates
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_options
-from predicators.ground_truth_models.boil.gt_simulator import \
-    PARAM_SPECS, PROCESS_RULES
+from predicators.ground_truth_models.boil.gt_simulator import PARAM_SPECS, \
+    PROCESS_RULES
 from predicators.option_model import _OracleOptionModel
 from predicators.planning import run_backtracking_refinement
 from predicators.structs import GroundAtom, Object, ParameterizedOption, \

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, \
-    Optional, Tuple
+    Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -129,17 +129,15 @@ def iter_feature_residuals(
     Walks each ``(s_pred, s_obs)`` pair and emits one tuple per
     ``(object, feature)``. If ``feature_scope`` is provided, only
     features listed under each type name are emitted; otherwise every
-    feature in the type's ``feature_names`` is emitted. Used by both
-    the residual-based feature-discovery scan and the per-feature
-    residual report so the two stay in sync.
+    feature in the type's ``feature_names`` is emitted. Used by both the
+    residual-based feature-discovery scan and the per-feature residual
+    report so the two stay in sync.
     """
     for i, (s_pred, s_obs) in enumerate(triples):
         for obj in s_pred:
             tn = obj.type.name
-            if feature_scope is not None:
-                feats = feature_scope.get(tn, [])
-            else:
-                feats = obj.type.feature_names
+            feats: Sequence[str] = (feature_scope.get(tn, []) if feature_scope
+                                    is not None else obj.type.feature_names)
             for feat in feats:
                 yield (
                     i,
