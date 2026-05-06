@@ -5,7 +5,7 @@ import logging
 import os
 import traceback
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -2039,19 +2039,26 @@ def create_synthesis_tools(
         AgentSimLearningApproach  # pylint: disable=import-outside-toplevel
     from predicators.code_sim_learning.synthesis_validation import \
         run_refinement_for_synthesis  # pylint: disable=import-outside-toplevel
-    from predicators.code_sim_learning.training import (  # pylint: disable=import-outside-toplevel
-        ParamSpec, compute_sse)
-    from predicators.code_sim_learning.utils import (  # pylint: disable=import-outside-toplevel
-        apply_rules, iter_feature_residuals, merge_updates,
-        read_simulator_components)
+    from predicators.code_sim_learning.training import \
+        compute_sse  # pylint: disable=import-outside-toplevel
+    from predicators.code_sim_learning.training import ParamSpec
+    from predicators.code_sim_learning.utils import apply_rules, \
+        iter_feature_residuals, merge_updates, read_simulator_components \
+        # pylint: disable=import-outside-toplevel
 
     _version_count = [0]
     _last_snapshot_hash: List[Optional[str]] = [None]
 
     def _text(msg: str) -> Dict[str, Any]:
-        return {"type": "text", "text": msg}
+        # MCP @tool callables must return a CallToolResult-shape dict
+        # (``{"content": [<block>, ...]}``), not a bare content block.
+        # Returning the bare block triggers a Pydantic validation error
+        # on every tool call (the runtime falls through to the default
+        # CallToolResult fields and tries to validate ``meta`` / empty
+        # ``content`` as TextContent items).
+        return {"content": [{"type": "text", "text": msg}]}
 
-    def _snapshot_and_load(path: str):
+    def _snapshot_and_load(path: str) -> Tuple[Any, Any, Any, Any, Any]:
         """Snapshot ``path`` then exec it into a fresh namespace.
 
         Returns ``(rules, specs, features, version_tag, error_msg)``;
@@ -2069,8 +2076,8 @@ def create_synthesis_tools(
         if digest != _last_snapshot_hash[0]:
             _version_count[0] += 1
             os.makedirs(versions_dir, exist_ok=True)
-            snap_path = os.path.join(
-                versions_dir, f"{_version_count[0]:03d}_simulator.py")
+            snap_path = os.path.join(versions_dir,
+                                     f"{_version_count[0]:03d}_simulator.py")
             with open(snap_path, "wb") as f:
                 f.write(raw)
             _last_snapshot_hash[0] = digest
@@ -2145,14 +2152,18 @@ def create_synthesis_tools(
             "type": "object",
             "properties": {
                 "fit": {
-                    "type": "boolean",
-                    "description": "If true, run MCMC fit and also "
+                    "type":
+                    "boolean",
+                    "description":
+                    "If true, run MCMC fit and also "
                     "report post-fit SSE plus fitted parameters "
                     "(slow). Default false.",
                 },
                 "path": {
-                    "type": "string",
-                    "description": "Override simulator file path "
+                    "type":
+                    "string",
+                    "description":
+                    "Override simulator file path "
                     "(defaults to the canonical simulator.py).",
                 },
             },
@@ -2177,7 +2188,8 @@ def create_synthesis_tools(
             pre_sse = compute_sse(sim_fn, base_pred_triples, init_params,
                                   process_features)
         except Exception as e:  # pylint: disable=broad-except
-            return _text(f"[{version_tag}] Error: SSE computation failed:\n{e}")
+            return _text(
+                f"[{version_tag}] Error: SSE computation failed:\n{e}")
 
         lines = [
             f"[{version_tag}] Fit evaluation on {len(base_pred_triples)} "
@@ -2206,8 +2218,8 @@ def create_synthesis_tools(
                 init_val = init_params[name]
                 fit_val = fitted_params[name]
                 delta = fit_val - init_val
-                ppct = ((delta / init_val * 100)
-                        if init_val != 0 else float("nan"))
+                ppct = ((delta / init_val *
+                         100) if init_val != 0 else float("nan"))
                 lines.append(f"  {name:<30} {init_val:.4f} -> "
                              f"{fit_val:.4f}  (delta={delta:+.4f}, "
                              f"{ppct:+.1f}%)")
@@ -2248,19 +2260,25 @@ def create_synthesis_tools(
                     "description": "Relative tolerance (default 1e-3).",
                 },
                 "num_worst_examples": {
-                    "type": "integer",
-                    "description": "Worst-N mismatched transitions to "
+                    "type":
+                    "integer",
+                    "description":
+                    "Worst-N mismatched transitions to "
                     "list per feature (default 3, 0 to suppress).",
                 },
                 "fit_params": {
-                    "type": "boolean",
-                    "description": "If true, run MCMC fit before "
+                    "type":
+                    "boolean",
+                    "description":
+                    "If true, run MCMC fit before "
                     "computing residuals; otherwise use init_value "
                     "(default false).",
                 },
                 "path": {
-                    "type": "string",
-                    "description": "Override simulator file path "
+                    "type":
+                    "string",
+                    "description":
+                    "Override simulator file path "
                     "(defaults to the canonical simulator.py).",
                 },
             },
@@ -2274,8 +2292,8 @@ def create_synthesis_tools(
 
         process_features = (declared if isinstance(declared, dict) else
                             inferred_process_features)
-        scope_label = ("declared" if isinstance(declared, dict)
-                       else "inferred")
+        scope_label = ("declared"
+                       if isinstance(declared, dict) else "inferred")
 
         max_n = int(args.get("max_transitions", 100))
         abs_tol = float(args.get("abs_tol", 1e-4))
@@ -2337,9 +2355,8 @@ def create_synthesis_tools(
             base_sum_err[key] += abs(pred - obs)
 
         if not rule_n_total:
-            return _text(
-                f"[{version_tag}] PROCESS_FEATURES is empty; "
-                "nothing to report.")
+            return _text(f"[{version_tag}] PROCESS_FEATURES is empty; "
+                         "nothing to report.")
 
         n_steps = len(pairs)
         perfect_steps = n_steps - len(mismatched_steps)
@@ -2371,18 +2388,15 @@ def create_synthesis_tools(
                 vs_base = "exact"
             else:
                 vs_base = "rules add err"
-            lines.append(
-                f"{tn + '.' + feat:<35} {f'{n_mm}/{n_tot}':<14} "
-                f"{mean:<10.4f} {mx:<10.4f} {vs_base:<14}")
+            lines.append(f"{tn + '.' + feat:<35} {f'{n_mm}/{n_tot}':<14} "
+                         f"{mean:<10.4f} {mx:<10.4f} {vs_base:<14}")
 
         if n_examples > 0 and worst:
             lines.append("")
             lines.append(f"Worst {n_examples} mismatches per feature:")
             for key in sorted(worst):
                 tn, feat = key
-                entries = sorted(worst[key],
-                                 key=lambda x: x[4],
-                                 reverse=True)
+                entries = sorted(worst[key], key=lambda x: x[4], reverse=True)
                 for step, oname, pred, obs, err in entries[:n_examples]:
                     lines.append(f"  step {step:>4}  {oname}.{feat}: "
                                  f"pred={pred:.6f} obs={obs:.6f} "
@@ -2414,8 +2428,10 @@ def create_synthesis_tools(
             "type": "object",
             "properties": {
                 "plan": {
-                    "type": "string",
-                    "description": "Option-skeleton plan text, one "
+                    "type":
+                    "string",
+                    "description":
+                    "Option-skeleton plan text, one "
                     "option call per line. This is the primary "
                     "interface — supply it whenever you can.",
                 },
@@ -2425,21 +2441,24 @@ def create_synthesis_tools(
                     "(default 0).",
                 },
                 "timeout": {
-                    "type": "number",
-                    "description": "Refinement timeout in seconds "
+                    "type":
+                    "number",
+                    "description":
+                    "Refinement timeout in seconds "
                     "(default 30). Note: MCMC fitting runs before "
                     "refinement and is not subject to this timeout.",
                 },
                 "path": {
-                    "type": "string",
-                    "description": "Override simulator file path "
+                    "type":
+                    "string",
+                    "description":
+                    "Override simulator file path "
                     "(defaults to the canonical simulator.py).",
                 },
             },
         },
     )
-    async def evaluate_plan_refinement(
-            args: Dict[str, Any]) -> Dict[str, Any]:
+    async def evaluate_plan_refinement(args: Dict[str, Any]) -> Dict[str, Any]:
         if approach is None:
             return _text("Error: evaluate_plan_refinement is unavailable "
                          "(no approach instance bound to the tool).")
