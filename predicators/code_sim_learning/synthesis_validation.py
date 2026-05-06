@@ -38,11 +38,9 @@ def run_refinement_for_synthesis(
     """Validate that the candidate simulator supports plan refinement.
 
     MCMC-fits parameters from ``specs``, builds a combined option
-    model from ``rules`` + the fitted params, obtains a plan sketch
-    (from ``plan_text`` if provided, else
-    ``CFG.agent_bilevel_plan_sketch_file`` if set, else from oracle
-    task planning over the env's GT NSRTs), and runs
-    ``bilevel_sketch.refine_sketch`` on it. Always fits before
+    model from ``rules`` + the fitted params, parses ``plan_text``
+    into a sketch via ``bilevel_sketch.parse_sketch_from_text``, and
+    runs ``bilevel_sketch.refine_sketch`` on it. Always fits before
     refinement: the candidate's deployed behaviour is the *fitted*
     simulator, so refining against init_value params would test the
     wrong model.
@@ -57,7 +55,9 @@ def run_refinement_for_synthesis(
     Returns a human-readable report. On failure the report includes a
     termination reason (``timeout`` vs ``exhausted``), per-step
     cumulative sample counts, wall-clock used vs allotted, and a hint
-    on whether to raise the timeout or revisit the rules.
+    on whether to raise the timeout or revisit the rules. The hint
+    branches on whether the stuck step exhausted its per-step sample
+    cap (rule problem) or not (likely budget problem).
     """
     # pylint: disable=import-outside-toplevel,protected-access
     from predicators.agent_sdk import bilevel_sketch
@@ -80,28 +80,41 @@ def run_refinement_for_synthesis(
     combined_sim = approach._build_combined_simulator(learned)
     candidate_om = approach._build_option_model(combined_sim)
 
+    if not plan_text or not plan_text.strip():
+        return ("Error: `plan` is required. Pass an option-skeleton plan "
+                "(one option call per line, typed `obj:type` references, "
+                "every argument supplied) — there is no oracle/file "
+                "fallback. See the tool description for the format.")
+
     task = approach._train_tasks[task_idx]
     try:
-        sketch, sketch_source = get_or_build_sketch(approach,
-                                                    task,
-                                                    plan_text=plan_text)
+        sketch = bilevel_sketch.parse_sketch_from_text(
+            plan_text.strip(),
+            task,
+            predicates=approach._get_all_predicates(),
+            options=approach._get_all_options(),
+            types=approach._types,
+        )
     except Exception as e:  # pylint: disable=broad-except
-        return f"Error: could not obtain plan sketch:\n{e}"
+        return f"Error: could not parse plan:\n{e}"
     if not sketch:
-        return f"Error: empty plan sketch (source: {sketch_source})."
+        return ("Error: parsed empty plan sketch from `plan`. Check that "
+                "every line names a known option with typed `obj:type` "
+                "arguments matching what the inspect tools report.")
 
     if timeout is None:
-        timeout = max(
-            CFG.agent_bilevel_refinement_timeout_min,
-            CFG.agent_bilevel_refinement_timeout_per_step * len(sketch))
+        timeout = float(
+            max(CFG.agent_bilevel_refinement_timeout_min,
+                CFG.agent_bilevel_refinement_timeout_per_step * len(sketch)))
         timeout_source = "auto"
     else:
+        timeout = float(timeout)
         timeout_source = "explicit"
+    assert timeout is not None
 
     logger.info(
-        "Refining plan sketch (task %d, source: %s, %d steps, "
-        "timeout=%.0fs/%s):", task_idx, sketch_source, len(sketch),
-        timeout, timeout_source)
+        "Refining plan sketch (task %d, %d steps, timeout=%.0fs/%s):",
+        task_idx, len(sketch), timeout, timeout_source)
     for i, step in enumerate(sketch):
         objs = ", ".join(f"{o.name}:{o.type.name}" for o in step.objects)
         line = f"  {i}: {step.option.name}({objs})"
@@ -143,7 +156,7 @@ def run_refinement_for_synthesis(
         verdict = "FAILURE"
 
     lines = [
-        f"Task {task_idx}: {verdict}  (sketch source: {sketch_source})",
+        f"Task {task_idx}: {verdict}",
         f"  Sketch: {len(sketch)} steps  Refined: {len(plan)} steps  "
         f"Samples: {n_samples} total",
         f"  Per-step samples: {step_samples_cumulative}  (cap "
@@ -161,31 +174,6 @@ def run_refinement_for_synthesis(
         if stuck.subgoal_atoms:
             atoms = ", ".join(str(a) for a in stuck.subgoal_atoms)
             lines.append(f"    subgoals: {atoms}")
-
-        stuck_samples = (step_samples_cumulative[stuck_idx]
-                         if stuck_idx < len(step_samples_cumulative) else 0)
-        # Suggest a timeout that proportionally scales the time the
-        # search actually used. If the deepest step never got many
-        # tries (search backtracked early instead of grinding on it),
-        # samples-per-step won't tell us much, so fall back to 1.5×
-        # the elapsed budget.
-        suggested_timeout = max(timeout * 1.5, elapsed * 2.0)
-        if reason == "timeout":
-            lines.append(
-                f"  Hint: timeout exhausted before search converged. "
-                f"Try `timeout={suggested_timeout:.0f}` and re-run; "
-                f"if per-step samples at the stuck step are well "
-                f"under the cap ({stuck_samples}/{cap}), the search "
-                f"was making progress and just needed more wall-clock.")
-        elif reason == "exhausted":
-            lines.append(
-                "  Hint: search exhausted its sample budget without "
-                "timing out — every branch at step 0 ran its "
-                f"{cap}-sample cap and still failed downstream. "
-                "This is usually a *rule* problem (a subgoal can't "
-                "be satisfied by the current simulator), not a "
-                "budget problem; re-check the rules gating the "
-                "stuck step's subgoal atoms.")
     return "\n".join(lines)
 
 
