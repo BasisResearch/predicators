@@ -1834,7 +1834,7 @@ def create_mcp_tools(ctx: ToolContext,
                         "properties": {
                             "object": {
                                 "type": "string",
-                                "description": "Object name (e.g. 'jug0')"
+                                "description": "Object name (e.g. 'widget0')"
                             },
                             "features": {
                                 "type":
@@ -1996,8 +1996,8 @@ def create_synthesis_tools(
       exploration of ``trajectories`` etc.; it does **not** define
       rules — write ``simulator.py`` for that.
     * ``evaluate_step_fit`` — SSE of the current ``PROCESS_RULES`` at
-      init_value params; optional MCMC fit reports post-fit SSE,
-      percent improvement, and fitted parameter values.
+      init_value params, plus post-fit SSE, percent improvement, and
+      fitted parameter values from a parameter fit.
     * ``report_residuals`` — per-feature breakdown of where the
       current rules disagree with observations: mismatch counts,
       mean/max abs error, comparison to the no-rule baseline, and
@@ -2139,24 +2139,15 @@ def create_synthesis_tools(
     @tool(
         "evaluate_step_fit",
         "Score the current PROCESS_RULES (loaded fresh from "
-        "`simulator.py`) by SSE on the step transitions. By default "
-        "evaluates at init_value params from PARAM_SPECS — fast, "
-        "repeatable, ideal for comparing proposals. Pass fit=true to "
-        "additionally run MCMC, report the post-fit SSE and percent "
-        "improvement, and show fitted parameter values with their "
-        "delta from init. Each call snapshots the simulator file into "
-        "simulator_versions/; output is tagged [vNNN].",
+        "`simulator.py`) by SSE on the step transitions. Reports SSE "
+        "at init_value params from PARAM_SPECS, then fits parameters "
+        "and reports the post-fit SSE plus percent improvement and the "
+        "fitted parameter values with their delta from init. Each call "
+        "snapshots the simulator file into simulator_versions/; output "
+        "is tagged [vNNN].",
         {
             "type": "object",
             "properties": {
-                "fit": {
-                    "type":
-                    "boolean",
-                    "description":
-                    "If true, run MCMC fit and also "
-                    "report post-fit SSE plus fitted parameters "
-                    "(slow). Default false.",
-                },
                 "path": {
                     "type":
                     "string",
@@ -2178,8 +2169,6 @@ def create_synthesis_tools(
         scope_note = ("declared" if isinstance(declared, dict) else
                       "inferred (PROCESS_FEATURES not declared)")
 
-        do_fit = bool(args.get("fit", False))
-
         init_params = {s.name: s.init_value for s in specs}
         sim_fn = lambda s, _a, p: apply_rules(s, rules, p)  # noqa: E731
         try:
@@ -2196,31 +2185,30 @@ def create_synthesis_tools(
             f"At init_value params:  SSE = {pre_sse:.6f}",
         ]
 
-        if do_fit:
-            try:
-                fitted_params, post_sse = (
-                    AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
-                        rules, specs, base_pred_triples, process_features))
-            except Exception as e:  # pylint: disable=broad-except
-                return _text(f"[{version_tag}] Error: fit_params failed:\n{e}")
-            if pre_sse > 0:
-                pct = (pre_sse - post_sse) / pre_sse * 100
-                pct_str = f"({pct:+.1f}% vs init)"
-            else:
-                pct_str = "(init SSE was 0)"
-            lines.append(f"After MCMC fit:        SSE = {post_sse:.6f}  "
-                         f"{pct_str}")
-            lines.append("")
-            lines.append("Fitted parameters:")
-            for name in sorted(fitted_params):
-                init_val = init_params[name]
-                fit_val = fitted_params[name]
-                delta = fit_val - init_val
-                ppct = ((delta / init_val *
-                         100) if init_val != 0 else float("nan"))
-                lines.append(f"  {name:<30} {init_val:.4f} -> "
-                             f"{fit_val:.4f}  (delta={delta:+.4f}, "
-                             f"{ppct:+.1f}%)")
+        try:
+            fitted_params, post_sse = (
+                AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
+                    rules, specs, base_pred_triples, process_features))
+        except Exception as e:  # pylint: disable=broad-except
+            return _text(f"[{version_tag}] Error: fit_params failed:\n{e}")
+        if pre_sse > 0:
+            pct = (pre_sse - post_sse) / pre_sse * 100
+            pct_str = f"({pct:+.1f}% vs init)"
+        else:
+            pct_str = "(init SSE was 0)"
+        lines.append(f"After fit:             SSE = {post_sse:.6f}  "
+                     f"{pct_str}")
+        lines.append("")
+        lines.append("Fitted parameters:")
+        for name in sorted(fitted_params):
+            init_val = init_params[name]
+            fit_val = fitted_params[name]
+            delta = fit_val - init_val
+            ppct = ((delta / init_val *
+                     100) if init_val != 0 else float("nan"))
+            lines.append(f"  {name:<30} {init_val:.4f} -> "
+                         f"{fit_val:.4f}  (delta={delta:+.4f}, "
+                         f"{ppct:+.1f}%)")
 
         return _text("\n".join(lines))
 
@@ -2391,7 +2379,9 @@ def create_synthesis_tools(
 
         if n_examples > 0 and worst:
             lines.append("")
-            lines.append(f"Worst {n_examples} mismatches per feature:")
+            lines.append(f"Worst {n_examples} mismatches per feature "
+                         f"(step N = trajectory transition state[N] -> "
+                         f"state[N+1]):")
             for key in sorted(worst):
                 tn, feat = key
                 entries = sorted(worst[key], key=lambda x: x[4], reverse=True)
@@ -2413,13 +2403,31 @@ def create_synthesis_tools(
         "because refinement needs to test the simulator at its "
         "deployed (fitted) params, not at init_value. Pass `plan` as "
         "the option-skeleton you believe should solve the task, one "
-        "option call per line, e.g. `PickJug(jug0)\\nSwitchFaucetOn"
-        "(faucet0)\\n...`. Subgoal annotations are supported (see the "
-        "bilevel sketch parser). Falls back to "
-        "CFG.agent_bilevel_plan_sketch_file or oracle task planning "
-        "when `plan` is empty. Reports success, refined-plan length, "
-        "sketch source, post-fit SSE, and (on failure) which step "
-        "refinement got stuck on. Each call snapshots the simulator "
+        "option call per line, with every option argument supplied "
+        "and typed object references (`obj:type`) matching what the "
+        "inspect tools report — the parser is strict and will not "
+        "auto-fill omitted arguments. Example shape (substitute the "
+        "options/types/predicates your task actually exposes): "
+        "`PickWidget(robot:robot, widget0:widget)\\nPlace(robot:robot) "
+        "-> {WidgetAtFixture(widget0:widget, fixture0:fixture)}\\n...`. "
+        "Subgoal "
+        "annotations (`-> {Atom(obj:type, ...)}`) are optional in "
+        "general but effectively required after open-ended skills "
+        "like `Place`: without a subgoal the search has no "
+        "preference for *where* to put the object, so a downstream "
+        "`Wait` may get stuck and look like a rule bug. For `Wait`, "
+        "the annotation also specifies when the wait should "
+        "terminate; prefix an atom with `NOT` to require it become "
+        "false. Falls back to oracle task planning when `plan` is "
+        "empty. The `timeout` "
+        "argument auto-scales with sketch length when omitted (see "
+        "the `timeout` field below); start without it and only "
+        "override if the report says TIMEOUT. Reports success, "
+        "refined-plan length, sketch source, post-fit SSE, and on "
+        "failure: a termination reason (TIMEOUT vs SAMPLE_EXHAUSTED), "
+        "per-step cumulative samples, wall-clock used vs allotted, "
+        "the stuck step, and a hint on whether to raise the timeout "
+        "or revisit the rules. Each call snapshots the simulator "
         "file into simulator_versions/; output is tagged [vNNN]. "
         "Slow — use sparingly.",
         {
@@ -2430,8 +2438,11 @@ def create_synthesis_tools(
                     "string",
                     "description":
                     "Option-skeleton plan text, one "
-                    "option call per line. This is the primary "
-                    "interface — supply it whenever you can.",
+                    "option call per line. Use typed object "
+                    "references (`obj:type`) and supply every "
+                    "option argument. Optional `-> {Atom(...)}` "
+                    "subgoal after each step; effectively required "
+                    "after open-ended skills like `Place`.",
                 },
                 "task_idx": {
                     "type": "integer",
@@ -2442,9 +2453,13 @@ def create_synthesis_tools(
                     "type":
                     "number",
                     "description":
-                    "Refinement timeout in seconds "
-                    "(default 30). Note: MCMC fitting runs before "
-                    "refinement and is not subject to this timeout.",
+                    "Refinement timeout in seconds. Omit "
+                    "for an auto value that scales with the "
+                    "number of steps in the sketch; the actual "
+                    "value used is reported back. Override only "
+                    "if the previous report said TIMEOUT. MCMC "
+                    "fitting runs before refinement and is not "
+                    "subject to this timeout.",
                 },
                 "path": {
                     "type":
@@ -2470,7 +2485,11 @@ def create_synthesis_tools(
                             inferred_process_features)
 
         task_idx = int(args.get("task_idx", 0))
-        timeout = float(args.get("timeout", 30.0))
+        # Treat missing/None timeout as "auto-scale by sketch length"
+        # (computed inside run_refinement_for_synthesis from
+        # CFG.agent_bilevel_refinement_timeout_per_step / _min).
+        timeout_arg = args.get("timeout", None)
+        timeout = float(timeout_arg) if timeout_arg is not None else None
         plan_text = args.get("plan", "") or ""
 
         try:
