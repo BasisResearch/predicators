@@ -121,7 +121,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
             logging.info("[%s] Sketch (attempt %d):\n%s", self._run_id,
                          attempt, "\n".join(sketch_lines))
 
-            plan, success = self._refine_sketch(task, sketch, remaining)
+            plan, success = self._refine_sketch(task, sketch, remaining,
+                                                attempt=attempt)
             if success:
                 plan_strs = []
                 for i, o in enumerate(plan):
@@ -136,9 +137,12 @@ class AgentBilevelApproach(AgentPlannerApproach):
 
                 # Forward validation: verify the plan works in
                 # continuous execution (no state resets between steps).
-                # if self._validate_plan_forward(task, plan):
-                return self._plan_to_policy(plan)
-                # logging.info("Forward validation failed; retrying.")
+                # Catches refinement/execution drift from option-model
+                # state-reset noise (see pybullet_env.py:506 warning).
+                if self._validate_plan_forward(task, plan):
+                    return self._plan_to_policy(plan)
+                logging.info(f"[{self._run_id}] Forward validation failed "
+                             f"(attempt {attempt}); retrying.")
             logging.info(f"Refinement failed (attempt {attempt}), "
                          f"{len(sketch)} steps.")
 
@@ -193,12 +197,18 @@ class AgentBilevelApproach(AgentPlannerApproach):
         task: Task,
         sketch: List[_SketchStep],
         timeout: float,
+        attempt: int = 0,
     ) -> Tuple[List[_Option], bool]:
         """Backtracking search over continuous parameters for a plan sketch.
 
         Returns ``(plan, success)``.  On success, ``plan`` is a list of
         grounded options that achieves the task goal.  On failure,
         ``plan`` is the longest partial refinement found.
+
+        ``attempt`` perturbs the RNG so retries explore different
+        samples — without it, refinement is deterministic in
+        ``CFG.seed`` and a forward-validation failure would loop on
+        the identical plan.
 
         Delegates to ``bilevel_sketch.refine_sketch``.
         """
@@ -208,7 +218,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             self._option_model,
             predicates=self._get_all_predicates(),
             timeout=timeout,
-            rng=np.random.default_rng(CFG.seed),
+            rng=np.random.default_rng(CFG.seed + attempt),
             max_samples_per_step=CFG.agent_bilevel_max_samples_per_step,
             check_subgoals=CFG.agent_bilevel_check_subgoals,
             log_state=CFG.agent_bilevel_log_state,

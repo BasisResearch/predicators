@@ -1011,7 +1011,7 @@ class GlobalSettings:
 
     # Agent bilevel approach settings
     agent_bilevel_max_samples_per_step = 50  # param samples per step
-    agent_bilevel_max_retries = 1  # re-query agent on refinement failure
+    agent_bilevel_max_retries = 3  # re-query agent on refinement failure
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
     # log state pretty_str before/after each step
     agent_bilevel_log_state = False
