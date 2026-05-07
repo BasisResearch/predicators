@@ -146,6 +146,7 @@ def create_pick_skill(
             action_type=PhaseAction.CHANGE_FINGERS,
             target_fn=_close_fingers_target,
             terminal_fn=None,
+            finger_direction="close",
         ),
         make_move_to_phase("LiftSlightly", _slight_lift_pose, "closed")
     ])

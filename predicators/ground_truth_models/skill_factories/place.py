@@ -95,7 +95,7 @@ def create_place_skill(
         robot_obj = objects[0]
         current = cfg.fingers_state_to_joint(cfg.robot,
                                              state.get(robot_obj, "fingers"))
-        target = cfg.open_fingers_joint - 0.01
+        target = cfg.open_fingers_joint
         return current, target
 
     def _above_pose(
@@ -129,6 +129,7 @@ def create_place_skill(
             name="OpenFingers",
             action_type=PhaseAction.CHANGE_FINGERS,
             target_fn=_open_fingers_target,
+            finger_direction="open",
         ),
         make_move_to_phase("Retreat", _above_pose, "open"),
     ])
