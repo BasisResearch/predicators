@@ -112,9 +112,8 @@ def run_refinement_for_synthesis(
         timeout_source = "explicit"
     assert timeout is not None
 
-    logger.info(
-        "Refining plan sketch (task %d, %d steps, timeout=%.0fs/%s):",
-        task_idx, len(sketch), timeout, timeout_source)
+    logger.info("Refining plan sketch (task %d, %d steps, timeout=%.0fs/%s):",
+                task_idx, len(sketch), timeout, timeout_source)
     for i, step in enumerate(sketch):
         objs = ", ".join(f"{o.name}:{o.type.name}" for o in step.objects)
         line = f"  {i}: {step.option.name}({objs})"

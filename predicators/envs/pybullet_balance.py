@@ -97,8 +97,7 @@ class PyBulletBalanceEnv(PyBulletEnv):
             ["x", "y", "z", "is_held", "color_r", "color_g", "color_b"
              ])  # + (bbox_features if CFG.env_include_bbox_features else []))
         self._robot_type = Type(
-            "robot",
-            ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])  #+
+            "robot", ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])  #+
         # (bbox_features if CFG.env_include_bbox_features else []))
         self._plate_type = Type("plate", ["z"])  #+
         # (bbox_features if CFG.env_include_bbox_features else []))

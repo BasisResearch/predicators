@@ -121,7 +121,9 @@ class AgentBilevelApproach(AgentPlannerApproach):
             logging.info("[%s] Sketch (attempt %d):\n%s", self._run_id,
                          attempt, "\n".join(sketch_lines))
 
-            plan, success = self._refine_sketch(task, sketch, remaining,
+            plan, success = self._refine_sketch(task,
+                                                sketch,
+                                                remaining,
                                                 attempt=attempt)
             if success:
                 plan_strs = []
