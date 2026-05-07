@@ -6,7 +6,7 @@ Anything that varies between runs should be a command-line arg
 
 from collections import defaultdict
 from types import SimpleNamespace
-from typing import Any, Dict, Set
+from typing import Any, Dict, List, Set
 
 import numpy as np
 
@@ -1046,6 +1046,12 @@ class GlobalSettings:
     agent_sim_learn_oracle_sim_param_noise_scale = 0.2
     # When True, use GT parameter values directly, skipping MCMC fitting.
     agent_sim_learn_oracle_sim_params = False
+
+    # Names of env predicates kept (not stripped) for the
+    # agent_sim_predicate_invention approach. Empty list defers to the
+    # subclass's KEPT_INITIAL_PREDICATE_NAMES class attribute (default
+    # {"Holding"}).
+    agent_sim_predicate_invention_kept_predicate_names: List[str] = []
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:
