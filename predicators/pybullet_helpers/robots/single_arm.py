@@ -270,8 +270,12 @@ class SingleArmPyBulletRobot(abc.ABC):
             # Some callers attach nominal joints to plain states as a reset
             # hint. Preserve exact joints only when they really reconstruct the
             # requested EE pose; otherwise fall back to IK, matching the legacy
-            # reset behavior.
-            if np.allclose(self.get_state()[:7], target[:7], atol=1e-3):
+            # reset behavior. Use a loose tolerance: when joint_positions came
+            # from a fresh _get_state, the live EE pose can differ from the
+            # quat rebuilt from (roll,tilt,wrist) features by ~1e-3 due to
+            # PyBullet FK / quaternion-sign normalisation; a strict 1e-3 atol
+            # rejects these benign cases and forces lossy IK.
+            if np.allclose(self.get_state()[:7], target[:7], atol=1e-2):
                 return
 
         # First, reset the joint values to initial joint positions,
