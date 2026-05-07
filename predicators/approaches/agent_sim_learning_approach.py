@@ -108,6 +108,51 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             return self._build_synthesis_system_prompt()
         return super()._get_agent_system_prompt()
 
+    # ── Subclass hooks ──────────────────────────────────────────
+    # Default implementations are no-ops so subclasses can add
+    # predicate-invention (or other) extensions without copying
+    # _synthesize_with_agent.
+
+    def _compute_extra_synthesis_paths(self,
+                                       base: str) -> Dict[str, str]:
+        """Return extra path bindings for the synthesis sandbox."""
+        del base
+        return {}
+
+    def _extra_synthesis_tools(
+        self,
+        exec_ns: Dict[str, Any],
+        base_pred_triples: List[Tuple[State, Action, State]],
+        inferred_hint: Dict[str, List[str]],
+        extra_paths: Dict[str, str],
+    ) -> List[Any]:
+        """Return additional MCP tools to append to the synthesis tool list."""
+        del exec_ns, base_pred_triples, inferred_hint, extra_paths
+        return []
+
+    def _extra_synthesis_message(self, extra_paths: Dict[str, str]) -> str:
+        """Return text to append to the agent's first synthesis message."""
+        del extra_paths
+        return ""
+
+    def _extra_synthesis_system_prompt(self) -> str:
+        """Return text to append to the synthesis system prompt."""
+        return ""
+
+    def _post_synthesis_loading(
+        self,
+        extra_paths: Dict[str, str],
+        specs: List[ParamSpec],
+    ) -> None:
+        """Hook run after the simulator file is loaded post-session.
+
+        ``specs`` are the just-loaded ``PARAM_SPECS``; subclasses may
+        seed ``self._fitted_params`` from their ``init_value``s before
+        the proper fit runs (useful when loading other artifacts that
+        close over ``params``).
+        """
+        del extra_paths, specs
+
     # ── Learning ────────────────────────────────────────────────
 
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
@@ -235,6 +280,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             base = sandbox_dir or self._get_log_dir()
             simulator_file = os.path.join(base, "simulator.py")
             versions_dir = os.path.join(base, "simulator_versions")
+            extra_paths = self._compute_extra_synthesis_paths(base)
 
             # Path the agent sees: cwd-relative for local-sandbox (the
             # validation hook resolves against cwd and rejects literal
@@ -259,6 +305,9 @@ class AgentSimLearningApproach(AgentBilevelApproach):
                                            simulator_file=simulator_file,
                                            versions_dir=versions_dir,
                                            approach=self)
+            tools.extend(
+                self._extra_synthesis_tools(exec_ns, base_pred_triples,
+                                            inferred_hint, extra_paths))
             self._tool_context.extra_mcp_tools = tools
             self._learning_mode = True
 
@@ -301,6 +350,10 @@ every call and snapshot it into `simulator_versions/` so each \
 evaluated version is preserved (output tag [vNNN]). Iterate with \
 `Edit` and re-run the tools."""
 
+            extra_message = self._extra_synthesis_message(extra_paths)
+            if extra_message:
+                message = message + "\n\n" + extra_message
+
             try:
                 self._query_agent_sync(message)
             finally:
@@ -320,6 +373,7 @@ evaluated version is preserved (output tag [vNNN]). Iterate with \
                                        "inferred", "declared")
             logger.info("Agent synthesized %d rules, %d params.", len(rules),
                         len(specs))
+            self._post_synthesis_loading(extra_paths, specs)
 
         self._process_rules = rules
         self._process_features = process_features
@@ -612,10 +666,9 @@ evaluated version is preserved (output tag [vNNN]). Iterate with \
 
         return combined_simulate
 
-    @staticmethod
-    def _build_synthesis_system_prompt() -> str:
+    def _build_synthesis_system_prompt(self) -> str:
         """Build the system prompt for the synthesis agent."""
-        return """\
+        base_prompt = """\
 You are synthesizing a parameterized process-dynamics simulator for a \
 robotic manipulation environment.
 
@@ -717,7 +770,7 @@ things — pointwise accuracy vs. goal reachability. A rule can have \
 wrong enough that refinement can't satisfy a subgoal. Use step-fit + \
 residuals as the fast inner loop and plan-refinement as the slow \
 goal-relevant gate.
-
+__SYNTHESIS_PROMPT_EXTRA__
 ## Plan format for `evaluate_plan_refinement`
 
 One option call per line, **with every option argument supplied and using \
@@ -762,3 +815,8 @@ usually a wrong gate or sign.
 the rules gating its subgoal atoms are too tight or too loose; fix and \
 re-validate.
 """
+        extra = self._extra_synthesis_system_prompt()
+        if extra:
+            return base_prompt.replace("__SYNTHESIS_PROMPT_EXTRA__",
+                                       "\n" + extra.rstrip() + "\n")
+        return base_prompt.replace("__SYNTHESIS_PROMPT_EXTRA__", "")
