@@ -122,6 +122,13 @@ class PyBulletEnv(BaseEnv):
     _VIRTUAL_OBJECT_TYPES: ClassVar[frozenset] = frozenset(
         {"loc", "angle", "human", "side", "direction"})
 
+    # Features whose values are angles in radians; comparisons should
+    # treat them modulo 2π so a State that carries wrist=4.68 (out of
+    # the canonical range PyBullet reports) round-trips against
+    # _get_state's wrist=-1.60 without firing the reconstruction warning.
+    _ANGLE_FEATURES: ClassVar[frozenset] = frozenset(
+        {"rot", "yaw", "roll", "pitch", "tilt", "wrist"})
+
     # Camera parameters.
     _camera_distance: ClassVar[float] = 0.8
     _camera_yaw: ClassVar[float] = 90.0
@@ -506,8 +513,8 @@ class PyBulletEnv(BaseEnv):
         # _get_state().
         if wrote_anything:
             reconstructed = self._get_state()
-            if not reconstructed.allclose(state):
-                diff = self._reconstruction_diff(state, reconstructed)
+            diff = self._reconstruction_diff(state, reconstructed)
+            if diff:
                 if type(self)._get_state is not PyBulletEnv._get_state:
                     raise ValueError(
                         f"Could not reconstruct state. Mismatched "
@@ -516,8 +523,9 @@ class PyBulletEnv(BaseEnv):
                     "Could not reconstruct state exactly in reset. "
                     "Mismatched features:\n%s", diff)
 
-    @staticmethod
-    def _reconstruction_diff(requested: State,
+    @classmethod
+    def _reconstruction_diff(cls,
+                             requested: State,
                              reconstructed: State,
                              atol: float = 1e-3,
                              max_lines: int = 10) -> str:
@@ -526,7 +534,12 @@ class PyBulletEnv(BaseEnv):
         Returns a human-readable summary of which (object, feature)
         pairs differ by more than ``atol``, sorted by largest absolute
         delta. Truncates to ``max_lines`` rows so the warning stays
-        scannable.
+        scannable. Returns an empty string when no feature exceeds
+        ``atol`` and the object set matches.
+
+        Angle features (see ``_ANGLE_FEATURES``) are compared modulo 2π
+        so a wrist value of 4.68 matches a reconstructed -1.60 (same
+        physical orientation, different euler representation).
         """
         req_objs = set(requested.data)
         rec_objs = set(reconstructed.data)
@@ -549,11 +562,16 @@ class PyBulletEnv(BaseEnv):
                             f"reconstructed={len(rec_vals)}")
                 continue
             for i, feat in enumerate(obj.type.feature_names):
-                delta = float(rec_vals[i] - req_vals[i])
+                req_v = float(req_vals[i])
+                rec_v = float(rec_vals[i])
+                if feat in cls._ANGLE_FEATURES:
+                    # Wrap the difference into [-π, π].
+                    delta = (rec_v - req_v + np.pi) % (2 * np.pi) - np.pi
+                else:
+                    delta = rec_v - req_v
                 if abs(delta) > atol:
-                    feature_diffs.append((abs(delta), obj.name, feat,
-                                          float(req_vals[i]),
-                                          float(rec_vals[i])))
+                    feature_diffs.append(
+                        (abs(delta), obj.name, feat, req_v, rec_v))
         feature_diffs.sort(reverse=True)
         for _absdelta, name, feat, req, rec in feature_diffs[:max_lines]:
             rows.append(f"  {name}.{feat}: requested={req:.6f} "
@@ -561,9 +579,6 @@ class PyBulletEnv(BaseEnv):
         if len(feature_diffs) > max_lines:
             rows.append(f"  ... and {len(feature_diffs) - max_lines} "
                         f"more features over the {atol:g} tolerance")
-        if not rows:
-            rows.append("  (no per-feature delta exceeded "
-                        f"{atol:g}; check simulator_state)")
         return "\n".join(rows)
 
     def _robot_matches_state(self, state: State, atol: float = 1e-3) -> bool:
