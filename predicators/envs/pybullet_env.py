@@ -801,15 +801,21 @@ class PyBulletEnv(BaseEnv):
         """Map finger value in a State (e.g. open_fingers=0.04) to the
         corresponding PyBullet joint position.
 
+        Linearly interpolates between the State-domain endpoints
+        (cls.open_fingers / cls.closed_fingers) and the PyBullet-domain
+        endpoints (pybullet_robot.open_fingers / .closed_fingers) so
+        mid-transition finger values round-trip through _get_state /
+        _set_state without being snapped to an endpoint.
+
         Called by _extract_robot_state() when writing State -> PyBullet.
         """
-        # If open_fingers is undefined, use 1.0 as the default.
-        subs = {
-            cls.open_fingers: pybullet_robot.open_fingers,
-            cls.closed_fingers: pybullet_robot.closed_fingers,
-        }
-        match = min(subs, key=lambda k: abs(k - finger_state))
-        return subs[match]
+        s_open, s_closed = cls.open_fingers, cls.closed_fingers
+        r_open, r_closed = (pybullet_robot.open_fingers,
+                            pybullet_robot.closed_fingers)
+        if s_open == s_closed:
+            return r_open
+        t = (finger_state - s_closed) / (s_open - s_closed)
+        return r_closed + t * (r_open - r_closed)
 
     # ── State Read (PyBullet → State) ───────────────────────────
 
@@ -947,15 +953,18 @@ class PyBulletEnv(BaseEnv):
                                 finger_joint: float) -> float:
         """Inverse of _fingers_state_to_joint().
 
+        Linear interpolation (see _fingers_state_to_joint for rationale).
+
         Called by _get_robot_state_dict() when reading PyBullet ->
         State.
         """
-        subs = {
-            pybullet_robot.open_fingers: cls.open_fingers,
-            pybullet_robot.closed_fingers: cls.closed_fingers,
-        }
-        match = min(subs, key=lambda k: abs(k - finger_joint))
-        return subs[match]
+        s_open, s_closed = cls.open_fingers, cls.closed_fingers
+        r_open, r_closed = (pybullet_robot.open_fingers,
+                            pybullet_robot.closed_fingers)
+        if r_open == r_closed:
+            return s_open
+        t = (finger_joint - r_closed) / (r_open - r_closed)
+        return s_closed + t * (s_open - s_closed)
 
     # ── Grasp Detection & Constraint Management ─────────────────
 
