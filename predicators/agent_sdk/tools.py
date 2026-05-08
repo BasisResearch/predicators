@@ -2127,10 +2127,14 @@ def create_synthesis_tools(
     @tool(
         "run_python",
         "Execute Python code for ad-hoc data exploration. Available "
-        "variables: trajectories (List[LowLevelTrajectory]), np, "
-        "ParamSpec. print() output is returned. The namespace persists "
-        "across calls. This does NOT define rules — write `simulator.py` "
-        "for that; the synthesis tools (evaluate_step_fit, report_residuals, "
+        "variables: trajectories (List[LowLevelTrajectory]; each has "
+        "`is_demo`, `train_task_idx`, `states`, `actions`), train_tasks "
+        "(List[Task]; each has `init`, `goal`, `goal_holds(state)`), "
+        "is_goal_state (callable: state, task_idx -> bool — a "
+        "ground-truth black-box reward), np, ParamSpec. print() output "
+        "is returned. The namespace persists across calls. This does "
+        "NOT define rules — write `simulator.py` for that; the "
+        "synthesis tools (evaluate_step_fit, report_residuals, "
         "evaluate_plan_refinement) load PROCESS_RULES, PARAM_SPECS, "
         "PROCESS_FEATURES from that file.",
         {

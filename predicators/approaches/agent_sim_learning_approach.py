@@ -157,12 +157,12 @@ class AgentSimLearningApproach(AgentBilevelApproach):
 
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         super().learn_from_offline_dataset(dataset)
-        self._learn_simulator(dataset.trajectories)
+        self._learn_simulator(self._get_all_trajectories())
 
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
         super().learn_from_interaction_results(results)
-        self._learn_simulator(self._online_trajectories)
+        self._learn_simulator(self._get_all_trajectories())
 
     def _learn_simulator(self, trajectories: List[LowLevelTrajectory]) -> None:
         """Synthesize rules, fit parameters, and build the option model."""
@@ -295,6 +295,9 @@ class AgentSimLearningApproach(AgentBilevelApproach):
 
             exec_ns: Dict[str, Any] = {
                 "trajectories": trajectories,
+                "train_tasks": self._train_tasks,
+                "is_goal_state": lambda state, task_idx: self._train_tasks[
+                    task_idx].goal_holds(state),
                 "np": np,
                 "ParamSpec": ParamSpec,
             }
@@ -318,12 +321,25 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             structs_ref = self._write_structs_reference()
 
             n_trajs = len(trajectories)
+            n_demos = sum(1 for t in trajectories if t.is_demo)
+            n_interaction = n_trajs - n_demos
             predicate_listing = self._format_predicate_signatures(
                 self._get_all_predicates())
             message = f"""\
 Synthesize a process dynamics simulator for this environment. \
 There are {n_trajs} trajectories ({len(obs_triples)} step \
-transitions) available.
+transitions) available: {n_demos} oracle demonstration(s) (goal \
+reached by construction) and {n_interaction} interaction \
+trajectory/ies (collected during online learning; some may have \
+failed to reach the goal).
+
+Each trajectory carries a `train_task_idx`. You can query the \
+ground-truth goal-check (a black-box binary reward) by calling \
+`is_goal_state(state, task_idx)`. Equivalently \
+`train_tasks[task_idx].goal_holds(state)`. Use this to (1) confirm \
+which trajectories reached the goal and (2) treat failed \
+interaction trajectories as counterexamples — places where your \
+predicate or rule said "this should work" but the env disagreed.
 
 Data-structure source code is at: {structs_ref}
 
@@ -342,7 +358,8 @@ with what the predicate's classifier actually checks, or refinement \
 will reject parameter samples that look correct on paper.
 
 Read the data-structures file first, then explore the trajectory \
-data with `run_python`. Write your simulator to \
+data with `run_python` (variables: `trajectories`, `train_tasks`, \
+`is_goal_state`, `np`, `ParamSpec`). Write your simulator to \
 `{simulator_file_for_agent}` — define PROCESS_RULES, PARAM_SPECS, \
 and PROCESS_FEATURES there. The synthesis tools (evaluate_step_fit, \
 report_residuals, evaluate_plan_refinement) load that file fresh on \
