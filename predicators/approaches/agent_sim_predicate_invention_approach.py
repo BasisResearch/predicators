@@ -50,6 +50,16 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         self._kept_initial_predicates: Set[Predicate] = (
             self._compute_kept_initial_predicates())
         self._predicates_cycle_count: int = 0
+        # We hide env goal predicate atoms from the agent and only present
+        # goals as natural language; the env therefore owes us a goal_nl
+        # for every train task.
+        missing = [
+            i for i, t in enumerate(self._train_tasks) if not t.goal_nl
+        ]
+        assert not missing, (
+            f"{type(self).__name__} requires every train task to set "
+            f"`goal_nl` (env goal atoms are deliberately not exposed to "
+            f"the agent). Missing on task indices: {missing}")
         kept_names = sorted(p.name for p in self._kept_initial_predicates)
         stripped = sorted(p.name for p in self._initial_predicates
                           if p not in self._kept_initial_predicates)
@@ -133,13 +143,7 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
 
     def _extra_synthesis_message(self, extra_paths: Dict[str, str]) -> str:
         path = extra_paths["predicates_file_for_agent"]
-        goal_sigs = self._format_goal_predicate_signatures()
-        if goal_sigs:
-            goal_block = (
-                f"Goal predicates (these must be invented or refinement "
-                f"can't check goal achievement):\n{goal_sigs}\n\n")
-        else:
-            goal_block = ""
+        goal_block = self._format_goal_nl_block()
         return (
             f"## Predicate Invention\n\n"
             f"Important: this approach has stripped the env's symbolic "
@@ -151,13 +155,22 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
             f"`{path}` as `LEARNED_PREDICATES`. See the system prompt "
             f"section \"Predicate Invention\" for the file format.\n\n"
             f"{goal_block}"
-            f"Goal expressibility: training-task goals reference the env's "
-            f"original predicate names. For goals to remain checkable, "
-            f"reuse those exact names with matching arity/types when you "
-            f"invent the corresponding classifiers (a `WaterBoiled(jug)` "
-            f"you invent will be treated as the same predicate as the "
-            f"env's `WaterBoiled(jug)` — equality is by name+types). You "
-            f"may also invent extra predicates with new names.\n\n"
+            f"Goal achievement is checked externally — the env owns the "
+            f"goal definition. You do **not** need to invent goal "
+            f"predicates or match any env predicate names. To check "
+            f"whether a state satisfies the goal, call the black-box "
+            f"reward `is_goal_state(state, task_idx)` (equivalently "
+            f"`train_tasks[task_idx].goal_holds(state)`). Refinement uses "
+            f"the same env-side check, so your invented predicates are "
+            f"free to use any names you like and only need to support "
+            f"plan-sketch subgoals (gating Wait, Place, etc.).\n\n"
+            f"Failure trajectories are signal: when an interaction "
+            f"trajectory has `reached_goal=False`, look for points where "
+            f"your predicate was true but downstream progress stalled "
+            f"(e.g. a placement predicate fires but the relevant rule "
+            f"feature stops advancing). That's evidence the threshold is "
+            f"too loose; tighten it or share the gating parameter with "
+            f"the rule via `params[...]` so MCMC can fit them jointly.\n\n"
             f"Workflow: edit `predicates.py`, call "
             f"`evaluate_predicate_quality` (fast, also reloads predicates "
             f"into the live set), then call `evaluate_plan_refinement` "
@@ -165,27 +178,25 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
             f"predicate you reference in a sketch must exist in "
             f"`predicates.py` first.")
 
-    def _format_goal_predicate_signatures(self) -> str:
-        """List `Name(t1, t2)` for every predicate used in any train goal.
+    def _format_goal_nl_block(self) -> str:
+        """Render the natural-language goals for the train tasks.
 
-        Restricted to predicates NOT in the kept allowlist (those still
-        come from the env). Empty string if no goals reference stripped
-        predicates.
+        Lists each task's `goal_nl`, deduped (since several tasks often
+        share the same goal description). Returns an empty string only
+        if every task is missing one — but ``__init__`` asserts they're
+        present, so in practice this always returns a non-empty block.
         """
-        kept_names = {p.name for p in self._kept_initial_predicates}
-        goal_preds: Dict[str, Tuple[str, ...]] = {}
+        seen: List[str] = []
         for task in self._train_tasks:
-            for atom in task.goal:
-                if atom.predicate.name in kept_names:
-                    continue
-                sig = tuple(t.name for t in atom.predicate.types)
-                goal_preds[atom.predicate.name] = sig
-        if not goal_preds:
+            nl = task.goal_nl
+            if nl and nl not in seen:
+                seen.append(nl)
+        if not seen:
             return ""
-        lines = []
-        for name in sorted(goal_preds):
-            lines.append(f"  {name}({', '.join(goal_preds[name])})")
-        return "\n".join(lines)
+        if len(seen) == 1:
+            return f"Goal (natural language): {seen[0]}\n\n"
+        bullets = "\n".join(f"  - {g}" for g in seen)
+        return f"Goals across train tasks (natural language):\n{bullets}\n\n"
 
     def _extra_synthesis_system_prompt(self) -> str:
         return _PREDICATE_PROMPT_SECTION
@@ -308,6 +319,14 @@ will use as subgoal atoms in plan sketches. Only `Holding` is provided \
 as a primitive; placement, device-state, and process-completion \
 predicates do not exist until you invent them.
 
+Goals are presented to you in natural language (see the synthesis \
+message). Goal achievement is checked externally by the env via \
+`is_goal_state(state, task_idx)` / `train_tasks[task_idx].goal_holds(state)`. \
+You do **not** need to invent any goal-named predicates and you do \
+**not** need to match env predicate names. Your invented predicates \
+are purely for plan-sketch subgoals (gating Wait/Place/etc.) and can \
+be named freely.
+
 Define them in `predicates.py` (path given in the first message):
 
 ```python
@@ -325,7 +344,7 @@ LEARNED_PREDICATES = [
                               < params["jug_at_faucet_dist"]**2),
     Predicate("FaucetOn", [faucet_type],
               lambda s, objs: s.get(objs[0], "is_on") > 0.5),
-    Predicate("WaterBoiled", [jug_type],
+    Predicate("BoilingDone", [jug_type],
               lambda s, objs: s.get(objs[0], "heat_level") >= params["boiled_threshold"]),
 ]
 ```
@@ -334,7 +353,10 @@ A pre-injected `params` view is in scope; it always reads the **current \
 fitted values** of every `ParamSpec` declared in `simulator.py`. Whenever \
 MCMC re-fits, predicates picking up `params["name"]` see the new values \
 automatically. To share a threshold between a rule and a predicate, declare \
-it once in `PARAM_SPECS` and reference `params["name"]` from both.
+it once in `PARAM_SPECS` and reference `params["name"]` from both — this \
+is the recommended pattern when a single physical threshold gates both \
+process dynamics (the rule's "fire" condition) and a control-relevant \
+predicate (the planner's "this subgoal is reached" check).
 
 Caveat: a parameter used only by predicates (not by any rule) has no SSE \
 signal — it stays at `init_value`. Pick good initial values for those.
@@ -349,10 +371,14 @@ with rule saturation values; an inconsistency causes evaluate_step_fit to \
 look fine while evaluate_plan_refinement gets stuck on the Wait subgoal.
 
 Validate with `evaluate_predicate_quality` (cheap; reports first-flip step, \
-monotonicity, coverage on demos). A good milestone predicate flips False→True \
-exactly once per goal-reaching demo and stays true. A placement predicate \
-should be true exactly when an object is at its intended location and false \
-otherwise.
+monotonicity, coverage across all available trajectories). On goal-reaching \
+trajectories (`reached_goal=True` in `inspect_trajectories`) a milestone \
+predicate should flip False→True exactly once and stay true; on failed \
+interaction trajectories (`reached_goal=False`) the same predicate may \
+fire but the rest of the trajectory won't show goal completion — useful \
+signal for spotting an over-loose threshold (predicate fires, downstream \
+physics doesn't follow). A placement predicate should be true exactly \
+when an object is at its intended location and false otherwise.
 
 `evaluate_predicate_quality` is also the loader: it updates the predicate \
 set used by `evaluate_plan_refinement`. Call it after every edit to \
@@ -360,5 +386,8 @@ set used by `evaluate_plan_refinement`. Call it after every edit to \
 
 Predicates persist across online cycles — the file is preserved between \
 synthesis sessions. Edit it freely; archives of each cycle's final state \
-live in `predicates_archive/`.
+live in `predicates_archive/`. Each online cycle re-runs synthesis with \
+the full trajectory history (offline demos + every interaction trajectory \
+collected so far), so failed past attempts remain visible for the agent \
+to learn from.
 """
