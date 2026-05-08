@@ -376,7 +376,7 @@ evaluated version is preserved (output tag [vNNN]). Iterate with \
                 message = message + "\n\n" + extra_message
 
             try:
-                self._query_agent_sync(message)
+                self._query_agent_sync(message, kind="learn")
             finally:
                 self._tool_context.extra_mcp_tools = []
                 self._learning_mode = False

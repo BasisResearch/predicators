@@ -68,7 +68,9 @@ class AgentBilevelExplorer(BaseExplorer):
                 trajectory_summary=self._build_trajectory_summary(),
                 tool_names=self._agent_tool_names(),
             )
-            responses = run_query_sync(self._agent_session, prompt)
+            responses = run_query_sync(self._agent_session,
+                                       prompt,
+                                       kind="explore")
             plan_text = self._extract_option_plan_text(responses)
             if not plan_text:
                 raise ValueError("agent returned empty plan text")

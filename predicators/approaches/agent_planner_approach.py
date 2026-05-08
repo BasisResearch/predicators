@@ -410,7 +410,7 @@ scene, then annotate_scene overlays markers on it."""
     def _query_agent_for_option_plan(self, task: Task) -> list:
         """Query the agent for an option plan and parse it."""
         prompt = self._build_solve_prompt(task)
-        responses = self._query_agent_sync(prompt)
+        responses = self._query_agent_sync(prompt, kind="test")
         plan_text = self._extract_option_plan_text(responses)
 
         if not plan_text:

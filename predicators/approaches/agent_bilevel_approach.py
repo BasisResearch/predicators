@@ -164,7 +164,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             logging.info("Loaded plan sketch from file: %s", sketch_file)
         else:
             prompt = self._build_solve_prompt(task)
-            responses = self._query_agent_sync(prompt)
+            responses = self._query_agent_sync(prompt, kind="test")
             plan_text = self._extract_option_plan_text(responses)
 
         if not plan_text:
