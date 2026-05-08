@@ -346,23 +346,22 @@ class HumanLowLevelControlApproach(BaseApproach):
 def _get_shadow_robot_for_env() -> SingleArmPyBulletRobot:
     """Create a shadow robot for IK calculations.
 
-    IK is base-pose-dependent (each env may translate/rotate the
-    fetch's base), so we instantiate a fetch at the active env's
-    base pose. We deliberately bypass each subclass's
-    ``initialize_pybullet`` override to avoid loading env-specific
-    bodies (tables/blocks/fans/etc.) that the IK does not need; we
-    just connect a fresh DIRECT client, drop a ground plane, and ask
-    the env class for a robot.
+    IK is base-pose-dependent (each env may translate/rotate the fetch's
+    base), so we instantiate a fetch at the active env's base pose. We
+    deliberately bypass each subclass's ``initialize_pybullet`` override
+    to avoid loading env-specific bodies (tables/blocks/fans/etc.) that
+    the IK does not need; we just connect a fresh DIRECT client, drop a
+    ground plane, and ask the env class for a robot.
     """
     # pylint: disable=import-outside-toplevel
-    from predicators import utils as _utils
     from predicators.envs.base_env import BaseEnv
     from predicators.envs.pybullet_env import PyBulletEnv
+
     # pylint: enable=import-outside-toplevel
 
     env_name = CFG.env
     env_cls = None
-    for cls in _utils.get_all_subclasses(BaseEnv):
+    for cls in utils.get_all_subclasses(BaseEnv):
         if cls.__abstractmethods__:
             continue
         if not issubclass(cls, PyBulletEnv):
