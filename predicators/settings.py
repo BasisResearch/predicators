@@ -631,6 +631,11 @@ class GlobalSettings:
     planning_filter_unreachable_nsrt = True
     planning_check_dr_reachable = True
     no_repeated_arguments_in_grounding = False
+    # If True, replace per-attempt backtracking and option-execution log
+    # output with a tqdm progress bar during run_backtracking_refinement.
+    # Suppresses DEBUG/INFO/WARNING/ERROR on all handlers (terminal + log
+    # files) for the duration of the search; only CRITICAL passes through.
+    refinement_progress_bar = True
 
     # evaluation parameters
     log_dir = "logs"
