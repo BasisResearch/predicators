@@ -73,7 +73,9 @@ class AgentSessionManager:
         self._started = True
         logging.info("Agent SDK session started.")
 
-    def _init_incremental_log(self, query: str) -> Optional[str]:
+    def _init_incremental_log(self,
+                              query: str,
+                              kind: str = "query") -> Optional[str]:
         """Initialize log file for incremental writing.
 
         Returns filepath.
@@ -83,12 +85,13 @@ class AgentSessionManager:
 
         self._query_count += 1
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"agent_query_{self._query_count:03d}_{timestamp}.json"
+        filename = f"{kind}_{self._query_count:03d}_{timestamp}.json"
         filepath = os.path.join(self._log_dir, filename)
         os.makedirs(self._log_dir, exist_ok=True)
 
         self._current_log_meta = {
             "query_number": self._query_count,
+            "kind": kind,
             "timestamp": timestamp,
             "query": query,
             "session_id": self._session_id,
@@ -104,7 +107,9 @@ class AgentSessionManager:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(log_data, f, indent=2, default=str)
 
-    async def query(self, message: str) -> List[Dict[str, Any]]:
+    async def query(self,
+                    message: str,
+                    kind: str = "query") -> List[Dict[str, Any]]:
         """Send a message to the agent and collect all response messages.
 
         Returns a list of dicts with message content for logging.
@@ -113,7 +118,7 @@ class AgentSessionManager:
             await self.start_session()
 
         collected: List[Dict[str, Any]] = []
-        log_path = self._init_incremental_log(message)
+        log_path = self._init_incremental_log(message, kind=kind)
 
         try:
             await self._client.query(message)
@@ -214,18 +219,22 @@ class AgentSessionManager:
         logging.info("Saved session info to %s", path)
 
 
-def run_query_sync(session: Any, message: str) -> List[Dict[str, Any]]:
-    """Synchronously run ``session.query(message)``.
+def run_query_sync(session: Any,
+                   message: str,
+                   **query_kwargs: Any) -> List[Dict[str, Any]]:
+    """Synchronously run ``session.query(message, **query_kwargs)``.
 
     Reuses a running event loop via nest_asyncio when one is active,
-    otherwise falls back to ``asyncio.run``.
+    otherwise falls back to ``asyncio.run``. Extra kwargs (e.g.
+    ``kind="learn"`` for log-file tagging) are forwarded to ``query``.
     """
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
             import nest_asyncio  # type: ignore[import-untyped,import-not-found]  # pylint: disable=import-outside-toplevel
             nest_asyncio.apply()
-            return loop.run_until_complete(session.query(message))
-        return loop.run_until_complete(session.query(message))
+            return loop.run_until_complete(
+                session.query(message, **query_kwargs))
+        return loop.run_until_complete(session.query(message, **query_kwargs))
     except RuntimeError:
-        return asyncio.run(session.query(message))
+        return asyncio.run(session.query(message, **query_kwargs))

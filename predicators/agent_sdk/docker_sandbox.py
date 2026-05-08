@@ -53,12 +53,11 @@ from predicators.settings import CFG
 logger = logging.getLogger(__name__)
 
 # Build Docker-specific prompts from shared templates.
-_CLAUDE_MD_TEMPLATE = build_claude_md(log_prefix="docker_query")
+_CLAUDE_MD_TEMPLATE = build_claude_md()
 _SANDBOX_SYSTEM_PROMPT = build_sandbox_system_prompt(
     env_description="an isolated Docker sandbox",
     workspace_description="/sandbox/",
     ref_path="/sandbox/reference/",
-    log_prefix="docker_query",
 )
 
 # ---------------------------------------------------------------------------
@@ -205,7 +204,9 @@ class DockerSessionManager:
     async def start_session(self) -> None:
         """No-op: each query() is a fresh docker run."""
 
-    async def query(self, message: str) -> List[Dict[str, Any]]:
+    async def query(self,
+                    message: str,
+                    kind: str = "query") -> List[Dict[str, Any]]:
         """Run the agent in Docker and return collected response messages.
 
         Returns the same ``List[Dict[str, Any]]`` format as
@@ -213,6 +214,7 @@ class DockerSessionManager:
         """
         self._query_count += 1
         self._tool_context.turn_id = self._query_count
+        self._last_kind = kind
 
         # Ensure sandbox is set up (lazy init, persists across queries)
         self._ensure_sandbox_dir()
@@ -225,8 +227,7 @@ class DockerSessionManager:
         # Compute final log filename upfront so the container can write
         # directly to the log directory (incremental updates visible on host).
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_filename = (f"docker_query_{self._query_count:03d}_"
-                        f"{timestamp}.md")
+        log_filename = f"{kind}_{self._query_count:03d}_{timestamp}.md"
         if self._log_dir:
             os.makedirs(self._log_dir, exist_ok=True)
             incremental_log_path = os.path.join(self._log_dir, log_filename)
@@ -531,8 +532,8 @@ class DockerSessionManager:
             return
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = (f"docker_query_{self._query_count:03d}_"
-                    f"{timestamp}.md")
+        kind = getattr(self, "_last_kind", "query")
+        filename = f"{kind}_{self._query_count:03d}_{timestamp}.md"
         filepath = os.path.join(self._log_dir, filename)
 
         lines = [

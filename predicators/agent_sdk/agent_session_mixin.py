@@ -182,11 +182,16 @@ class AgentSessionMixin:
         except Exception:  # pylint: disable=broad-except
             pass
 
-    def _query_agent_sync(self, message: str) -> List[Dict[str, Any]]:
-        """Synchronous wrapper for async agent query."""
+    def _query_agent_sync(self, message: str,
+                          **query_kwargs: Any) -> List[Dict[str, Any]]:
+        """Synchronous wrapper for async agent query.
+
+        Extra kwargs (e.g. ``kind="learn"``) are forwarded to the
+        session's ``query`` method for log-file tagging.
+        """
         self._ensure_agent_session()
         assert self._agent_session is not None
-        return run_query_sync(self._agent_session, message)
+        return run_query_sync(self._agent_session, message, **query_kwargs)
 
     def _create_agent_explorer(
         self,

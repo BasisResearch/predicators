@@ -100,13 +100,8 @@ SANDBOX_SETTINGS: Dict[str, Any] = {
 _BUILTIN_TOOLS_STR = ", ".join(BUILTIN_TOOLS)
 
 
-def build_claude_md(log_prefix: str = "query") -> str:
-    """Build the CLAUDE.md content written into the sandbox directory.
-
-    Args:
-        log_prefix: Prefix for log filenames shown in examples
-            (e.g. ``"local_sandbox_query"`` or ``"docker_query"``).
-    """
+def build_claude_md() -> str:
+    """Build the CLAUDE.md content written into the sandbox directory."""
     return f"""\
 # Predicators Agent Sandbox
 
@@ -129,11 +124,13 @@ Curated source files are available in ./reference/ for you to read.
 Read these to understand the APIs before writing code.
 
 ## Session Logs
-Your past session queries and tool results are in ./session_logs/. Use Glob and
-Read to review your earlier attempts when debugging:
+Your past session queries and tool results are in ./session_logs/. Files are
+named `<kind>_<NNN>_<timestamp>.md` where `<kind>` is the query phase
+(e.g. `learn`, `test`, `explore`) and `<NNN>` is a run-wide counter.
+Use Glob and Read to review your earlier attempts when debugging:
 
     Glob ./session_logs/*.md
-    Read ./session_logs/{log_prefix}_001_*.md
+    Read ./session_logs/learn_001_*.md
 
 ## Scene Images
 `test_option_plan` automatically saves scene images to ./test_images/
@@ -173,7 +170,6 @@ def build_sandbox_system_prompt(
     env_description: str = "a local sandbox environment",
     workspace_description: str = "the current directory",
     ref_path: str = "./reference/",
-    log_prefix: str = "query",
 ) -> str:
     """Build the system prompt suffix appended for sandbox sessions.
 
@@ -181,7 +177,6 @@ def build_sandbox_system_prompt(
         env_description: Short description of the sandbox environment.
         workspace_description: How the workspace directory is described.
         ref_path: Path to reference files shown in examples.
-        log_prefix: Prefix for log filenames shown in examples.
     """
     return f"""
 
@@ -209,10 +204,11 @@ Read these files to understand the system APIs before writing code.
 
 ### Session Logs
 Your past queries and tool results are saved in ./session_logs/ as markdown
-files. Use Glob and Read to review your previous attempts:
+files named `<kind>_<NNN>_<timestamp>.md` (e.g. `learn_001_...md`,
+`test_002_...md`). Use Glob and Read to review previous attempts:
 ```
 Glob ./session_logs/*.md
-Read ./session_logs/{log_prefix}_001_*.md
+Read ./session_logs/learn_001_*.md
 ```
 
 ### Scene Images

@@ -25,6 +25,7 @@ import datetime
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 from predicators.agent_sdk.log_formatter import format_conversation_markdown
@@ -38,12 +39,11 @@ from predicators.settings import CFG
 logger = logging.getLogger(__name__)
 
 # Build local-sandbox-specific prompts from shared templates.
-_LOCAL_CLAUDE_MD = build_claude_md(log_prefix="local_sandbox_query")
+_LOCAL_CLAUDE_MD = build_claude_md()
 _LOCAL_SANDBOX_SYSTEM_PROMPT = build_sandbox_system_prompt(
     env_description="a local sandbox environment",
     workspace_description="the current directory",
     ref_path="./reference/",
-    log_prefix="local_sandbox_query",
 )
 
 
@@ -91,6 +91,7 @@ class LocalSandboxSessionManager:
         self._started = False
         self._sandbox_log_path: Optional[str] = None
         self._current_log_meta: Dict[str, Any] = {}
+        self._query_count_seeded: bool = False
 
     # -- Properties matching session manager interface --
 
@@ -189,8 +190,17 @@ class LocalSandboxSessionManager:
         logger.info("Local sandbox session started (cwd=%s)",
                     self._sandbox_dir)
 
-    async def query(self, message: str) -> List[Dict[str, Any]]:
-        """Send a message to the agent and collect all response messages."""
+    async def query(self,
+                    message: str,
+                    kind: str = "query") -> List[Dict[str, Any]]:
+        """Send a message to the agent and collect all response messages.
+
+        ``kind`` is a short tag (e.g. ``learn``, ``test``, ``explore``)
+        that becomes the prefix of the saved log filename.
+        """
+        # Continue numbering across sessions in the same run by seeding the
+        # counter from any existing log files in _log_dir on first use.
+        self._seed_query_count_from_log_dir()
         self._query_count += 1
         self._tool_context.turn_id = self._query_count
         collected: List[Dict[str, Any]] = []
@@ -201,7 +211,7 @@ class LocalSandboxSessionManager:
         # Create and commit the log file BEFORE starting the session so that
         # Claude Code's Glob (which indexes files at session startup) can
         # discover it.
-        log_path = self._init_incremental_log(message)
+        log_path = self._init_incremental_log(message, kind=kind)
 
         if not self._started:
             await self.start_session()
@@ -316,7 +326,31 @@ class LocalSandboxSessionManager:
 
     # -- Logging helpers --
 
-    def _init_incremental_log(self, query: str) -> Optional[str]:
+    _LOG_FILENAME_RE = re.compile(
+        r"^[a-z][a-z_]*_(\d{3})_\d{8}_\d{6}\.md$")
+
+    def _seed_query_count_from_log_dir(self) -> None:
+        """Make the per-session counter continuous across the run.
+
+        On first use, scan ``_log_dir`` for prior log files matching
+        ``<kind>_NNN_<ts>.md`` and pick up where the last session left
+        off. Without this, every fresh session would restart at 001.
+        """
+        if self._query_count_seeded:
+            return
+        self._query_count_seeded = True
+        if not self._log_dir or not os.path.isdir(self._log_dir):
+            return
+        max_n = 0
+        for name in os.listdir(self._log_dir):
+            m = self._LOG_FILENAME_RE.match(name)
+            if m:
+                max_n = max(max_n, int(m.group(1)))
+        self._query_count = max_n
+
+    def _init_incremental_log(self,
+                              query: str,
+                              kind: str = "query") -> Optional[str]:
         """Initialize log file for incremental writing.
 
         Writes to both the sandbox ``session_logs/`` dir (so the agent
@@ -326,8 +360,7 @@ class LocalSandboxSessionManager:
             return None
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = (f"local_sandbox_query_{self._query_count:03d}_"
-                    f"{timestamp}.md")
+        filename = f"{kind}_{self._query_count:03d}_{timestamp}.md"
         # Primary: main log dir (host-visible)
         filepath = os.path.join(self._log_dir, filename)
         os.makedirs(self._log_dir, exist_ok=True)
@@ -341,6 +374,7 @@ class LocalSandboxSessionManager:
 
         self._current_log_meta = {
             "query_number": self._query_count,
+            "kind": kind,
             "timestamp": timestamp,
             "query": query,
             "session_id": self._session_id,
