@@ -87,6 +87,7 @@ APPROACHES:
       option_model_use_gui: False
       agent_bilevel_log_state: False
       skip_test_until_last_ite_or_early_stopping: False
+      online_learning_early_stopping: True
       agent_sim_learn_oracle_sim_program: False
       agent_sim_learn_oracle_sim_params: False
       agent_sim_learn_oracle_sim_param_noise_scale: 1.0 # 1.0 allows successful planning but insatisficing plan; 0.8 produces satisficing plan
