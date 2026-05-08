@@ -25,7 +25,7 @@ Example command::
 import logging
 import os
 import shutil
-from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Set, Tuple
 
 from predicators.agent_sdk.tools import create_predicate_synthesis_tools
 from predicators.approaches.agent_sim_learning_approach import \
@@ -213,9 +213,11 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         # Seed _fitted_params from init values so predicate lambdas
         # closing over ``params["..."]`` can be evaluated during
         # validation. The actual MCMC fit runs later in the base flow
-        # and will overwrite these values.
+        # and will overwrite these values. Mutate in place so
+        # _ParamsView holders pick up the seeds.
         if specs:
-            self._fitted_params = {s.name: s.init_value for s in specs}
+            self._fitted_params.clear()
+            self._fitted_params.update({s.name: s.init_value for s in specs})
 
         loaded = self._load_predicates_from_module_file(predicates_file)
         self._learned_predicates = loaded
@@ -265,7 +267,7 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
             predicates=self._kept_initial_predicates,
             options=self._get_all_options(),
             extra_context={
-                "params": _ParamsView(self),
+                "params": _ParamsView(self._fitted_params),
                 "ParamSpec": ParamSpec,
             })
 

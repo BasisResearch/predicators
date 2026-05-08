@@ -93,7 +93,11 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         # Loss-scope mask for parameter fitting (compute_sse).
         self._process_features: Dict[str, List[str]] = {}
         self._process_rules: Optional[List] = None
-        self._fitted_params: Optional[Dict[str, float]] = None
+        # Always the same dict object — fits update it in place via
+        # clear()+update() so _ParamsView (held by invented predicate
+        # classifiers) picks up new values without holding a reference
+        # to ``self``. Truthy iff a fit has populated it.
+        self._fitted_params: Dict[str, float] = {}
         self._fit_sse: float = float("inf")
         self._learning_mode: bool = False
 
@@ -192,7 +196,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         self._synthesize_with_agent(trajectories, obs_triples,
                                     base_pred_triples, inferred_hint)
 
-        if self._process_rules is not None and self._fitted_params is not None:
+        if self._process_rules is not None and self._fitted_params:
             rules, params = self._process_rules, self._fitted_params
             self._learned_simulator = LearnedSimulator(
                 step_fn=lambda s, _r=rules, _p=params:  # type: ignore[misc]
@@ -397,7 +401,8 @@ evaluated version is preserved (output tag [vNNN]). Iterate with \
 
         _noise_sigma = 0.05  # matches fit_params default
         if CFG.agent_sim_learn_oracle_sim_params:
-            self._fitted_params = {s.name: s.init_value for s in specs}
+            self._fitted_params.clear()
+            self._fitted_params.update({s.name: s.init_value for s in specs})
             oracle_sim_fn = lambda s, a, p: apply_rules(  # noqa: E731
                 s, rules, p)
             self._fit_sse = compute_sse(oracle_sim_fn, base_pred_triples,
@@ -413,8 +418,10 @@ evaluated version is preserved (output tag [vNNN]). Iterate with \
                               process_features,
                               label="oracle")
         else:
-            self._fitted_params, self._fit_sse = self._fit_parameters(
+            new_params, self._fit_sse = self._fit_parameters(
                 rules, specs, base_pred_triples, process_features)
+            self._fitted_params.clear()
+            self._fitted_params.update(new_params)
             if CFG.code_sim_learning_num_mcmc_steps == 0:
                 logger.info("Skipped MCMC; using %d initial params.",
                             len(specs))

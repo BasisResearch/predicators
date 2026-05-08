@@ -2548,40 +2548,34 @@ def create_synthesis_tools(
 
 
 class _ParamsView:
-    """Read-through view onto ``approach._fitted_params``.
+    """Read-through view onto a fitted-parameters dict.
 
-    Predicate classifiers close over this view so that whenever the
-    approach re-fits and replaces ``_fitted_params``, the lambdas pick
-    up the new values automatically. Behaves like a read-only dict.
+    Holds the dict directly (not the approach) so predicate classifiers
+    that close over this view do not transitively reference the
+    approach. The approach must mutate the same dict object in place
+    on each re-fit (clear + update) so the view picks up new values
+    automatically; replacing the dict would break the live link.
     """
 
-    def __init__(self, approach: Any) -> None:
-        self._approach = approach
-
-    def _live(self) -> Optional[Dict[str, float]]:
-        return getattr(self._approach, "_fitted_params", None)
+    def __init__(self, params: Dict[str, float]) -> None:
+        self._params = params
 
     def __getitem__(self, key: str) -> float:
-        live = self._live()
-        if live is None:
+        if key not in self._params:
             raise KeyError(
                 f"params[{key!r}] accessed before any parameter fit; "
                 "call evaluate_step_fit or evaluate_plan_refinement to "
                 "populate self._fitted_params first.")
-        return live[key]
+        return self._params[key]
 
     def __contains__(self, key: object) -> bool:
-        live = self._live()
-        return live is not None and key in live
+        return key in self._params
 
     def get(self, key: str, default: Any = None) -> Any:
-        live = self._live()
-        if live is None:
-            return default
-        return live.get(key, default)
+        return self._params.get(key, default)
 
     def __repr__(self) -> str:
-        return f"_ParamsView({self._live()!r})"
+        return f"_ParamsView({self._params!r})"
 
 
 def create_predicate_synthesis_tools(
@@ -2624,7 +2618,7 @@ def create_predicate_synthesis_tools(
     def _text(msg: str) -> Dict[str, Any]:
         return {"content": [{"type": "text", "text": msg}]}
 
-    params_view = _ParamsView(approach)
+    params_view = _ParamsView(approach._fitted_params)  # pylint: disable=protected-access
 
     def _snapshot_and_load_predicates(
         path: str,
