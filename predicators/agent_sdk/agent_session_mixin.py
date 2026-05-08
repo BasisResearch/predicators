@@ -150,7 +150,7 @@ class AgentSessionMixin:
         # Save system prompt to log directory
         log_dir = self._get_log_dir()
         os.makedirs(log_dir, exist_ok=True)
-        prompt_path = os.path.join(log_dir, "system_prompt.txt")
+        prompt_path = os.path.join(log_dir, "system_prompt.md")
         with open(prompt_path, "w", encoding="utf-8") as f:
             f.write(self._get_agent_system_prompt())
 

@@ -84,7 +84,7 @@ APPROACHES:
       agent_sdk_max_agent_turns_per_iteration: 50
       agent_planner_use_visualize_state: True
       agent_planner_use_annotate_scene: True
-      option_model_use_gui: True
+      option_model_use_gui: False
       agent_bilevel_log_state: False
       skip_test_until_last_ite_or_early_stopping: False
       agent_sim_learn_oracle_sim_program: False
