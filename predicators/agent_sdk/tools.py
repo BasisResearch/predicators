@@ -559,10 +559,20 @@ def create_mcp_tools(ctx: ToolContext,
                                  f"Available: 0-{len(all_trajs)-1}")
 
         traj = all_trajs[traj_idx]
-        lines = [
-            f"Trajectory {traj_idx}: {len(traj.states)} states, "
-            f"{len(traj.actions)} actions"
-        ]
+        provenance = "demo" if traj.is_demo else "interaction"
+        task_idx = traj._train_task_idx  # pylint: disable=protected-access
+        header = (f"Trajectory {traj_idx}: {len(traj.states)} states, "
+                  f"{len(traj.actions)} actions  "
+                  f"[provenance={provenance}, task={task_idx}")
+        if task_idx is not None and 0 <= task_idx < len(ctx.train_tasks):
+            task = ctx.train_tasks[task_idx]
+            reached = task.goal_holds(traj.states[-1])
+            goal_str = ", ".join(str(g) for g in sorted(task.goal))
+            header += f", reached_goal={reached}]"
+            lines = [header, f"Goal: {{{goal_str}}}"]
+        else:
+            header += "]"
+            lines = [header]
 
         for t_step, state in enumerate(traj.states[:max_timesteps]):
             lines.append(f"\n--- Timestep {t_step} ---")
@@ -626,14 +636,21 @@ def create_mcp_tools(ctx: ToolContext,
                 return _error_result(f"Invalid task_idx {task_idx}. "
                                      f"Available: 0-{len(ctx.train_tasks)-1}")
             task = ctx.train_tasks[task_idx]
-            goal_str = ", ".join(str(g) for g in sorted(task.goal))
+            if task.goal_nl:
+                goal_line = f"  Goal (natural language): {task.goal_nl}"
+            else:
+                goal_str = ", ".join(str(g) for g in sorted(task.goal))
+                goal_line = f"  Goal: {{{goal_str}}}"
             init_atoms = utils.abstract(task.init, ctx.predicates)
             atoms_str = ", ".join(str(a) for a in sorted(init_atoms))
             objects = sorted(task.init, key=str)
             obj_str = ", ".join(f"{o.name}:{o.type.name}" for o in objects)
             state_str = task.init.pretty_str()
             text = (f"Task {task_idx}:\n"
-                    f"  Goal: {{{goal_str}}}\n"
+                    f"{goal_line}\n"
+                    f"  Goal achievement: query "
+                    f"`is_goal_state(state, {task_idx})` or "
+                    f"`train_tasks[{task_idx}].goal_holds(state)`.\n"
                     f"  Initial atoms: {{{atoms_str}}}\n"
                     f"  Objects: [{obj_str}]\n\n"
                     f"Initial state details:\n{state_str}")
@@ -651,8 +668,11 @@ def create_mcp_tools(ctx: ToolContext,
 
         lines = [f"Total tasks: {len(ctx.train_tasks)}"]
         for i, task in enumerate(ctx.train_tasks[:10]):
-            goal_str = ", ".join(str(g) for g in sorted(task.goal))
-            lines.append(f"  Task {i}: goal={{{goal_str}}}")
+            if task.goal_nl:
+                lines.append(f"  Task {i}: {task.goal_nl}")
+            else:
+                goal_str = ", ".join(str(g) for g in sorted(task.goal))
+                lines.append(f"  Task {i}: goal={{{goal_str}}}")
         if len(ctx.train_tasks) > 10:
             lines.append(f"  ... ({len(ctx.train_tasks) - 10} more tasks)")
         return _text_result("\n".join(lines))
@@ -1407,13 +1427,18 @@ def create_mcp_tools(ctx: ToolContext,
             state = next_state
 
         final_atoms = utils.abstract(state, ctx.predicates)
-        goal_achieved = task.goal.issubset(final_atoms)
-        goal_str = ", ".join(str(g) for g in sorted(task.goal))
+        # Use the env's goal-check (its own classifiers); robust to
+        # invented predicates that don't reuse env names.
+        goal_achieved = task.goal_holds(state)
         final_atoms_str = ", ".join(str(a) for a in sorted(final_atoms))
         lines.append(f"\nFinal atoms: {{{final_atoms_str}}}")
-        lines.append(f"Goal: {{{goal_str}}}")
+        if task.goal_nl:
+            lines.append(f"Goal (natural language): {task.goal_nl}")
+        else:
+            goal_str = ", ".join(str(g) for g in sorted(task.goal))
+            lines.append(f"Goal: {{{goal_str}}}")
         lines.append(f"Goal achieved: {goal_achieved}")
-        if not goal_achieved:
+        if not goal_achieved and not task.goal_nl:
             missing = task.goal - final_atoms
             missing_str = ", ".join(str(a) for a in sorted(missing))
             lines.append(f"Missing goal atoms: {{{missing_str}}}")
@@ -1553,10 +1578,10 @@ def create_mcp_tools(ctx: ToolContext,
             else:
                 lines.append(f"Step {step_idx}: {option_line}")
 
-        # Check goal
+        # Check goal via env-side classifiers so the result is robust
+        # to invented predicates that don't reuse env names.
         if ctx.option_model is not None:
-            final_atoms = utils.abstract(state, all_preds)
-            goal_achieved = task.goal.issubset(final_atoms)
+            goal_achieved = task.goal_holds(state)
             lines.append(f"\nGoal achieved: {goal_achieved}")
 
         lines.append("\n## Option Plan (copy-paste format):")
