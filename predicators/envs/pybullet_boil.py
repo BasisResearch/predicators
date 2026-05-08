@@ -1296,15 +1296,20 @@ class PyBulletBoilEnv(PyBulletEnv):
                 "rot": 0.0,
                 "is_on": 0.0
             }
-            # Humans - one for each jug used in this task
-            for i in range(num_jugs):
-                human_obj = self._humans[i]
-                init_dict[human_obj] = {"happiness_level": 0.0}
+            # Humans - one for each jug used in this task. Only included
+            # when the goal references human happiness, so other goal
+            # modes don't expose the irrelevant `happiness_level` feature
+            # to the agent.
+            if CFG.boil_goal == "human_happy":
+                for i in range(num_jugs):
+                    human_obj = self._humans[i]
+                    init_dict[human_obj] = {"happiness_level": 0.0}
 
             init_state = utils.create_state_from_dict(init_dict)
 
             # Example goal: Water boiled, no water spilled, etc.
             goal_atoms = set()
+            goal_nl: str
 
             if CFG.boil_goal == "human_happy":
                 # Add goal for each human used in this task
@@ -1318,8 +1323,14 @@ class PyBulletBoilEnv(PyBulletEnv):
                     goal_atoms.add(
                         GroundAtom(self._HumanHappy,
                                    [human_obj, jug_obj, burner_obj]))
+                goal_nl = ("Make the human happy by serving them boiled "
+                           "water — fill a jug at the faucet, heat it on "
+                           "the burner until it boils, and turn the burner "
+                           "off, all without spilling water.")
             elif CFG.boil_goal == "task_completed":
                 goal_atoms.add(GroundAtom(self._TaskCompleted, []))
+                goal_nl = ("Complete the boiling task — boil the water in "
+                           "the jug.")
             elif CFG.boil_goal == "simple":
                 goal_atoms.add(GroundAtom(self._NoWaterSpilled, []))
                 # Only add goals for the jugs and burners used in this task
@@ -1330,10 +1341,15 @@ class PyBulletBoilEnv(PyBulletEnv):
                 for i in range(num_burners):
                     b_obj = self._burners[i]
                     goal_atoms.add(GroundAtom(self._BurnerOff, [b_obj]))
+                jug_word = "the jug" if num_jugs == 1 else "every jug"
+                goal_nl = (f"Boil a full jug of water on the burner without "
+                           f"spilling any water, turn the burner off "
+                           f"once {jug_word} has finished boiling.")
             else:
                 raise ValueError(f"Unknown goal type {CFG.boil_goal}.")
 
-            tasks.append(EnvironmentTask(init_state, goal_atoms))
+            tasks.append(
+                EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl))
 
         return self._add_pybullet_state_to_tasks(tasks)
 
