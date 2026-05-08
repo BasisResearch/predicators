@@ -128,6 +128,9 @@ class BallComponent(DominoEnvComponent):
             radius=self.ball_radius,
             mass=self.ball_mass,
             friction=self.ball_friction,
+            # Match lateral with spinning to preserve the prior behavior
+            # where the ball didn't pinwheel around the contact normal.
+            spinning_friction=self.ball_friction,
             position=(0.75, 1.35, self.table_height + self.ball_height_offset),
             orientation=p.getQuaternionFromEuler([0, 0, 0]),
             physics_client_id=physics_client_id)

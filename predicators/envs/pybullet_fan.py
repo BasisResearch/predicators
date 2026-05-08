@@ -526,6 +526,10 @@ class PyBulletFanEnv(PyBulletEnv):
             radius=cls.ball_radius,
             mass=cls.ball_mass,
             friction=cls.ball_friction,
+            # Match lateral with spinning so the ball resists rotating around
+            # the contact normal — necessary for it to "stick" where the fan
+            # parks it instead of pinwheeling.
+            spinning_friction=cls.ball_friction,
             position=(0.75, 1.35, cls.table_height + cls.ball_height_offset),
             orientation=p.getQuaternionFromEuler([0, 0, 0]),
             physics_client_id=physics_client_id)

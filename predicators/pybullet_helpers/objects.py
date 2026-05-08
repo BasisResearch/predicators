@@ -168,8 +168,19 @@ def create_pybullet_block(
     orientation: Quaternion = (0.0, 0.0, 0.0, 1.0),
     physics_client_id: int = 0,
     add_top_triangle: bool = False,
+    spinning_friction: float = 0.0,
+    rolling_friction: float = 0.0,
 ) -> int:
-    """Create a box-shaped PyBullet body and return its ID."""
+    """Create a box-shaped PyBullet body and return its ID.
+
+    `friction` controls only lateral (sliding) friction.
+    `spinning_friction` and `rolling_friction` default to 0.0
+    (PyBullet's own defaults); set them explicitly only if you actually
+    want to resist rotation around the contact normal or rolling over a
+    contact edge. Setting these equal to `friction` was the prior
+    behavior and caused boxes to freeze in unstable poses (balanced on
+    an edge or corner) on contact.
+    """
     collision_id = p.createCollisionShape(p.GEOM_BOX,
                                           halfExtents=half_extents,
                                           physicsClientId=physics_client_id)
@@ -186,8 +197,8 @@ def create_pybullet_block(
     p.changeDynamics(block_id,
                      linkIndex=-1,
                      lateralFriction=friction,
-                     spinningFriction=friction,
-                     rollingFriction=friction,
+                     spinningFriction=spinning_friction,
+                     rollingFriction=rolling_friction,
                      physicsClientId=physics_client_id)
 
     if add_top_triangle:
@@ -227,7 +238,8 @@ def create_pybullet_block(
         p.changeDynamics(block_id,
                          linkIndex=-1,
                          lateralFriction=friction,
-                         spinningFriction=friction,
+                         spinningFriction=spinning_friction,
+                         rollingFriction=rolling_friction,
                          physicsClientId=physics_client_id)
 
     return block_id
@@ -241,8 +253,16 @@ def create_pybullet_sphere(
     position: Pose3D = (0.0, 0.0, 0.0),
     orientation: Quaternion = (0.0, 0.0, 0.0, 1.0),
     physics_client_id: int = 0,
+    spinning_friction: float = 0.0,
+    rolling_friction: float = 0.0,
 ) -> int:
-    """Create a sphere-shaped PyBullet body and return its ID."""
+    """Create a sphere-shaped PyBullet body and return its ID.
+
+    `friction` controls only lateral (sliding) friction.
+    `spinning_friction` and `rolling_friction` default to 0.0
+    (PyBullet's own defaults); set them explicitly only when you want a
+    sphere to resist spinning or rolling on contact.
+    """
     collision_id = p.createCollisionShape(p.GEOM_SPHERE,
                                           radius=radius,
                                           physicsClientId=physics_client_id)
@@ -259,6 +279,7 @@ def create_pybullet_sphere(
     p.changeDynamics(sphere_id,
                      linkIndex=-1,
                      lateralFriction=friction,
-                     spinningFriction=friction,
+                     spinningFriction=spinning_friction,
+                     rollingFriction=rolling_friction,
                      physicsClientId=physics_client_id)
     return sphere_id
