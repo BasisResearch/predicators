@@ -590,9 +590,9 @@ class GlobalSettings:
     vlm_open_loop_use_training_demos = False
     vlm_open_loop_no_image = False  # Use object-centric state
 
-    # parameters for the human_interaction_approach
-    human_interaction_approach_use_scripted_option = False
-    human_interaction_approach_use_all_options = False
+    # parameters for the human_option_control_approach
+    human_option_control_approach_use_scripted_option = False
+    human_option_control_approach_use_all_options = False
     scripted_option_dir = "scripted_options"
     script_option_file_name = "scripted_plan.txt"
 

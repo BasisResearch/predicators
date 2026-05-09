@@ -2,11 +2,11 @@
 # Usage: python scripts/local/launch_simp.py -c predicatorv3/predicator_v3.yaml
 ---
 APPROACHES:
-  # human_interaction:
-  #   NAME: "human_interaction"
+  # human_option_control:
+  #   NAME: "human_option_control"
   #   FLAGS:
-  #     human_interaction_approach_use_scripted_option: True
-  #     human_interaction_approach_use_all_options: True
+  #     human_option_control_approach_use_scripted_option: True
+  #     human_option_control_approach_use_all_options: True
   #     scripted_option_dir: "scripted_option_policies"
   #     skill_phase_use_motion_planning: True
   oracle:

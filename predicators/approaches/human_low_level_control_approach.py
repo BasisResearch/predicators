@@ -32,7 +32,7 @@ from predicators.structs import Action, ParameterizedOption, Predicate, \
 class HumanLowLevelControlApproach(BaseApproach):
     """A human-in-the-loop approach for low-level robot control via keyboard.
 
-    Unlike the HumanInteractionApproach which selects high-level options via
+    Unlike the HumanOptionControlApproach which selects high-level options via
     terminal, this approach generates raw joint position Actions based on
     keyboard input from the terminal.
 
