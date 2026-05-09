@@ -1480,8 +1480,8 @@ def test_coffee_place_no_button_press():
         f"PlaceJugInMachine — robot arm likely triggered the button.")
 
 
-def test_human_interaction_scripted_domino_solves_task():
-    """Full pipeline: human_interaction approach with scripted option plan
+def test_human_option_control_scripted_domino_solves_task():
+    """Full pipeline: human_option_control approach with scripted option plan
     (domino2.txt) solves the 1st test task in pybullet_domino."""
     try:
         from predicators.envs.pybullet_domino import PyBulletDominoEnv
@@ -1495,7 +1495,7 @@ def test_human_interaction_scripted_domino_solves_task():
 
     utils.reset_config({
         "env": "pybullet_domino",
-        "approach": "human_interaction",
+        "approach": "human_option_control",
         "seed": 0,
         "use_gui": False,
         "pybullet_control_mode": "position",
@@ -1514,8 +1514,8 @@ def test_human_interaction_scripted_domino_solves_task():
         "domino_has_glued_dominos": False,
         "keep_failed_demos": True,
         "skill_phase_use_motion_planning": True,
-        "human_interaction_approach_use_scripted_option": True,
-        "human_interaction_approach_use_all_options": True,
+        "human_option_control_approach_use_scripted_option": True,
+        "human_option_control_approach_use_all_options": True,
         "scripted_option_dir": "scripted_option_policies",
         "script_option_file_name": "domino2.txt",
     })
@@ -1528,7 +1528,7 @@ def test_human_interaction_scripted_domino_solves_task():
 
     options = get_gt_options(env.get_name())
     approach = create_approach(
-        "human_interaction",
+        "human_option_control",
         env.predicates,
         options,
         env.types,
