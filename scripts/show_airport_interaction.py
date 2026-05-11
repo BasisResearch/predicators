@@ -25,14 +25,14 @@ def show_interaction():
     env = PyBulletAirportEnv(use_gui=True)
     state = env.reset("train", 0)
     
-    # Set camera for better view
-    p.resetDebugVisualizerCamera(
-        cameraDistance=1.5,
-        cameraYaw=45,
-        cameraPitch=-30,
-        cameraTargetPosition=[1.5, 0.75, 0.4],
-        physicsClientId=env._physics_client_id
-    )
+    # # Set camera for better view
+    # p.resetDebugVisualizerCamera(
+    #     cameraDistance=1.5,
+    #     cameraYaw=45,
+    #     cameraPitch=-30,
+    #     cameraTargetPosition=[1.5, 0.75, 0.4],
+    #     physicsClientId=env._physics_client_id
+    # )
     
     button = [obj for obj in state.get_objects(env._button_type)][0]
     pusher = [obj for obj in state.get_objects(env._pusher_type)][0]
@@ -62,7 +62,7 @@ def show_interaction():
     
     if press_act is not None:
         print("Holding button and watching pusher...")
-        for i in range(200):
+        for i in range(60):
             state = env.step(press_act)
             if i % 20 == 0:
                 print(f"Step {i}: Pusher y = {state.get(pusher, 'y'):.4f}, Button is_pressed = {state.get(button, 'is_pressed')}")

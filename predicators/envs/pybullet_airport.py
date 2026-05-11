@@ -93,7 +93,7 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
             color=(1.0, 0.0, 0.0, 1.0),
             half_extents=(cls.button_radius, cls.button_radius,
                           cls.button_height / 2.0),
-            mass=0.05,
+            mass=0.005,
             friction=1.0,
             position=(cls.button_stand_x, cls.button_stand_y,
                       cls.button_stand_z + cls.button_height / 2.0),
@@ -130,7 +130,7 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
             physics_client_id=physics_client_id)
         bodies["table_id"] = table_id
 
-        num_items = 5
+        num_items = 7
         item_ids = []
         for i in range(num_items):
             color = cls._obj_colors[i % len(cls._obj_colors)]
@@ -240,7 +240,7 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
             if self._OnConveyor_holds(state, [item, self._conveyor]):
                 pos, orn = p.getBasePositionAndOrientation(
                     item.id, physicsClientId=self._physics_client_id)
-                new_pos = (pos[0] + 0.005, pos[1], pos[2])
+                new_pos = (pos[0] + 0.01, pos[1], pos[2])
                 p.resetBasePositionAndOrientation(
                     item.id,
                     new_pos,
@@ -275,8 +275,8 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
     def _get_tasks(self, num_tasks: int) -> List[EnvironmentTask]:
         tasks = []
         for _ in range(num_tasks):
-            # Use 3 items for each task
-            items = self._items[:3]
+            # Use 5 items for each task
+            items = self._items[:5]
             data: Dict[Object, Any] = {}
             data[self._conveyor] = {
                 "x": self.conveyor_x,
@@ -321,7 +321,7 @@ class PyBulletAirportEnv(PyBulletEnv, AirportEnv):
             }
             for i, item in enumerate(items):
                 data[item] = {
-                    "x": self.conveyor_x + 0.1 + i * 0.5 - 1.0, # TODO
+                    "x": self.conveyor_x + 0.1 + i * 0.5 - 1.5, # TODO
                     # "x": self.conveyor_x + 0.1 + i * 0.5 - 0,
                     "y": self.conveyor_y,
                     "z": self.conveyor_height / 2 + 0.05,

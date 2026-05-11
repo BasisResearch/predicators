@@ -88,8 +88,8 @@ class AirportEnv(BaseEnv):
 
     @property
     def predicates(self) -> Set[Predicate]:
-        return {self._OnConveyor, self._OnTable, self._Pressed}
+        return {self._OnConveyor, self._Pressed}
 
     @property
     def goal_predicates(self) -> Set[Predicate]:
-        return {self._OnConveyor, self._OnTable, self._Pressed}
+        return {self._OnConveyor, self._Pressed}
