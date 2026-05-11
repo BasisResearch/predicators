@@ -292,10 +292,13 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             # absolute host path otherwise.
             if CFG.agent_sdk_use_local_sandbox:
                 simulator_file_for_agent = "./simulator.py"
+                sandbox_dir_for_agent: Optional[str] = "."
             elif sandbox_dir:
                 simulator_file_for_agent = "/sandbox/simulator.py"
+                sandbox_dir_for_agent = "/sandbox"
             else:
                 simulator_file_for_agent = simulator_file
+                sandbox_dir_for_agent = None
 
             exec_ns: Dict[str, Any] = {
                 "trajectories": trajectories,
@@ -306,12 +309,16 @@ class AgentSimLearningApproach(AgentBilevelApproach):
                 "ParamSpec": ParamSpec,
             }
 
-            tools = create_synthesis_tools(exec_ns,
-                                           base_pred_triples,
-                                           inferred_hint,
-                                           simulator_file=simulator_file,
-                                           versions_dir=versions_dir,
-                                           approach=self)
+            tools = create_synthesis_tools(
+                exec_ns,
+                base_pred_triples,
+                inferred_hint,
+                simulator_file=simulator_file,
+                versions_dir=versions_dir,
+                approach=self,
+                sandbox_dir=base,
+                sandbox_dir_for_agent=sandbox_dir_for_agent,
+            )
             tools.extend(
                 self._extra_synthesis_tools(exec_ns, base_pred_triples,
                                             inferred_hint, extra_paths))

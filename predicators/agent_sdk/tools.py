@@ -1999,6 +1999,8 @@ def create_synthesis_tools(
     simulator_file: str,
     versions_dir: str,
     approach: Optional[Any] = None,
+    sandbox_dir: Optional[str] = None,
+    sandbox_dir_for_agent: Optional[str] = None,
 ) -> list:
     """Create MCP tools for the sim-learning synthesis agent.
 
@@ -2050,6 +2052,16 @@ def create_synthesis_tools(
             ``evaluate_plan_refinement`` to access training tasks,
             build the combined simulator/option model, and run
             refinement. If ``None``, that tool returns an error.
+        sandbox_dir: Host path to the agent's sandbox root.  When set,
+            ``run_python`` spills oversize output to
+            ``<sandbox_dir>/tool_outputs/run_python/`` instead of
+            letting the agent SDK truncate and dump it to
+            ``~/.claude/projects/.../tool-results/``.  When ``None``,
+            output is always returned inline.
+        sandbox_dir_for_agent: Path prefix the agent sees for
+            ``sandbox_dir`` (e.g. ``"."`` for local sandbox or
+            ``"/sandbox"`` for docker).  Used only when building the
+            human-readable path included in the spilled-output message.
     """
     # pylint: disable=import-outside-toplevel
     import io
@@ -2071,6 +2083,33 @@ def create_synthesis_tools(
 
     _version_count = [0]
     _last_snapshot_hash: List[Optional[str]] = [None]
+    _run_python_count = [0]
+
+    # Threshold above which run_python output is spilled to a file in the
+    # sandbox rather than returned inline. Kept well under the agent SDK's
+    # MCP tool-result token cap so the harness never has to truncate and
+    # dump to ``~/.claude/projects/.../tool-results/``.
+    _run_python_inline_char_limit = 30000
+    _run_python_preview_head_lines = 30
+    _run_python_preview_tail_lines = 30
+
+    # Where oversize ``run_python`` outputs are written. The agent reads
+    # these back via ``Read``/``Grep`` using ``sandbox_dir_for_agent`` as
+    # the path prefix (e.g. ``./tool_outputs/run_python/...`` for local
+    # sandbox, ``/sandbox/tool_outputs/run_python/...`` for docker, or an
+    # absolute host path otherwise).
+    _run_python_outputs_subdir = os.path.join("tool_outputs", "run_python")
+    _run_python_outputs_dir_host: Optional[str] = (
+        os.path.join(sandbox_dir, _run_python_outputs_subdir)
+        if sandbox_dir else None)
+    if sandbox_dir_for_agent:
+        _run_python_outputs_dir_agent: Optional[str] = (
+            f"{sandbox_dir_for_agent.rstrip('/')}/"
+            f"{_run_python_outputs_subdir.replace(os.sep, '/')}")
+    elif _run_python_outputs_dir_host:
+        _run_python_outputs_dir_agent = _run_python_outputs_dir_host
+    else:
+        _run_python_outputs_dir_agent = None
 
     def _text(msg: str) -> Dict[str, Any]:
         # MCP @tool callables must return a CallToolResult-shape dict
@@ -2132,11 +2171,15 @@ def create_synthesis_tools(
         "(List[Task]; each has `init`, `goal`, `goal_holds(state)`), "
         "is_goal_state (callable: state, task_idx -> bool — a "
         "ground-truth black-box reward), np, ParamSpec. print() output "
-        "is returned. The namespace persists across calls. This does "
-        "NOT define rules — write `simulator.py` for that; the "
-        "synthesis tools (evaluate_step_fit, report_residuals, "
-        "evaluate_plan_refinement) load PROCESS_RULES, PARAM_SPECS, "
-        "PROCESS_FEATURES from that file.",
+        "is returned. The namespace persists across calls. If output "
+        "exceeds ~30k chars it is saved to "
+        "`tool_outputs/run_python/call_NNNN.txt` in the sandbox and only "
+        "a head/tail preview plus that path is returned — use Read/Grep "
+        "to inspect the full file. This does NOT define rules — write "
+        "`simulator.py` for that; the synthesis tools "
+        "(evaluate_step_fit, report_residuals, evaluate_plan_refinement) "
+        "load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from that "
+        "file.",
         {
             "type": "object",
             "properties": {
@@ -2161,7 +2204,48 @@ def create_synthesis_tools(
             sys.stdout = old_stdout
 
         output = captured.getvalue()
-        return _text(output or "(no output)")
+        if not output:
+            return _text("(no output)")
+
+        if (len(output) <= _run_python_inline_char_limit
+                or _run_python_outputs_dir_host is None):
+            return _text(output)
+
+        _run_python_count[0] += 1
+        os.makedirs(_run_python_outputs_dir_host, exist_ok=True)
+        filename = f"call_{_run_python_count[0]:04d}.txt"
+        host_path = os.path.join(_run_python_outputs_dir_host, filename)
+        with open(host_path, "w", encoding="utf-8") as f:
+            f.write(output)
+
+        lines = output.splitlines()
+        total_lines = len(lines)
+        head = lines[:_run_python_preview_head_lines]
+        tail = (lines[-_run_python_preview_tail_lines:]
+                if total_lines > (_run_python_preview_head_lines +
+                                  _run_python_preview_tail_lines) else [])
+        agent_path = (f"{_run_python_outputs_dir_agent}/{filename}"
+                      if _run_python_outputs_dir_agent else host_path)
+        preview_parts = [
+            f"[run_python output too large to inline: "
+            f"{len(output):,} chars across {total_lines:,} lines; "
+            f"full output saved to {agent_path}. Use Read/Grep to "
+            f"inspect, or rerun with narrower print() to keep results "
+            f"inline.]",
+            "",
+            f"--- head ({len(head)} lines) ---",
+            *head,
+        ]
+        if tail:
+            omitted = total_lines - len(head) - len(tail)
+            preview_parts.extend([
+                "",
+                f"... [{omitted:,} lines omitted] ...",
+                "",
+                f"--- tail ({len(tail)} lines) ---",
+                *tail,
+            ])
+        return _text("\n".join(preview_parts))
 
     # ── evaluate_step_fit ────────────────────────────────────────
 
