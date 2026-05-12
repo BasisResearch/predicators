@@ -139,6 +139,7 @@ class DockerSessionManager:
         self._query_count: int = 0
         self._session_id: Optional[str] = None
         self._conversation_log: List[Dict[str, Any]] = []
+        self._last_kind: str = "query"
 
         # Persistent sandbox directory (created lazily, cleaned up on close)
         self._sandbox_dir: Optional[str] = None

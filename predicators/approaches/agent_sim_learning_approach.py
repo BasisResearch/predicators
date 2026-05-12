@@ -124,11 +124,11 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         """Complete tool surface for the synthesis agent.
 
         Combines the static MCP tools the agent may call (the inspect
-        family — used to read off option/predicate/type signatures
-        when writing rules) with the names of the dynamic synthesis
-        callables (``run_python``, ``evaluate_step_fit``,
-        ``report_residuals``, ``evaluate_plan_refinement``) attached
-        to ``ctx.extra_mcp_tools`` inside :meth:`_synthesize_with_agent`.
+        family — used to read off option/predicate/type signatures when
+        writing rules) with the names of the dynamic synthesis callables
+        (``run_python``, ``evaluate_step_fit``, ``report_residuals``,
+        ``evaluate_plan_refinement``) attached to
+        ``ctx.extra_mcp_tools`` inside :meth:`_synthesize_with_agent`.
         The mixin asserts the attached instances and this list agree.
         """
         return list(INSPECTION_TOOL_NAMES) + list(SYNTHESIS_TOOL_NAMES)
@@ -506,14 +506,15 @@ the tools."""
                 self._current_simulator_version = final_sim_tag
                 logger.info("Final simulator snapshot: %s", final_sim_tag)
 
-            rules, specs, declared = self._load_simulator_from_module_file(
-                simulator_file, trajectories)
+            rules, specs, declared_features = (
+                self._load_simulator_from_module_file(simulator_file,
+                                                      trajectories))
             if rules is None or specs is None:
                 return
-            assert declared is not None, (
+            assert declared_features is not None, (
                 "Agent did not declare PROCESS_FEATURES; "
                 "synthesis output is incomplete.")
-            process_features = declared
+            process_features = declared_features
             self._log_feature_set_diff(inferred_hint, process_features,
                                        "inferred", "declared")
             logger.info("Agent synthesized %d rules, %d params.", len(rules),

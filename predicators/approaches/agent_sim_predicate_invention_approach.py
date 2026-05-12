@@ -108,12 +108,12 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         """Extend the planner's tool subset with the SCENE tools.
 
         ``annotate_scene`` and ``visualize_state`` are useful for
-        predicate invention: rendering the scene lets the agent
-        confirm geometry it would otherwise have to infer numerically.
-        The parent (``AgentPlannerApproach``) gates these on
+        predicate invention: rendering the scene lets the agent confirm
+        geometry it would otherwise have to infer numerically. The
+        parent (``AgentPlannerApproach``) gates these on
         ``agent_planner_use_*`` CFG flags, but those names refer to a
-        different use case — for predicate invention we always want
-        them available.
+        different use case — for predicate invention we always want them
+        available.
         """
         names = super()._get_solve_tool_names()
         if names is None:
@@ -124,8 +124,8 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         return names
 
     def _get_synthesis_tool_names(self) -> Optional[List[str]]:
-        """Extend the sim-learning synthesis surface with SCENE tools
-        and the predicate-synthesis callable.
+        """Extend the sim-learning synthesis surface with SCENE tools and the
+        predicate-synthesis callable.
 
         Adds ``visualize_state`` / ``annotate_scene`` (the
         predicate-invention prompt explicitly tells the agent to call
@@ -136,7 +136,8 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         names = super()._get_synthesis_tool_names()
         if names is None:
             return None
-        for extra in list(SCENE_TOOL_NAMES) + list(PREDICATE_SYNTHESIS_TOOL_NAMES):
+        for extra in list(SCENE_TOOL_NAMES) + list(
+                PREDICATE_SYNTHESIS_TOOL_NAMES):
             if extra not in names:
                 names.append(extra)
         return names

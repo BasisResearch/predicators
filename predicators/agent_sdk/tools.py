@@ -88,16 +88,15 @@ SYNTHESIS_TOOL_NAMES = (
 PREDICATE_SYNTHESIS_TOOL_NAMES = ("evaluate_predicate_quality", )
 
 
-def get_allowed_tool_list(
-        tool_names: Optional[List[str]] = None) -> List[str]:
+def get_allowed_tool_list(tool_names: Optional[List[str]] = None) -> List[str]:
     """Compute the allowed_tools list for the agent SDK.
 
     ``tool_names`` is the caller's declared tool surface; it may mix
     static MCP names (in ``ALL_TOOL_NAMES``) with names of dynamic
-    ``SdkMcpTool`` instances supplied via ``ctx.extra_mcp_tools``. We
-    do not silently filter — typos surface as "unknown tool" errors
-    from the SDK rather than as missing-allowlist mysteries. Passing
-    ``None`` keeps the legacy "all static MCP tools" default.
+    ``SdkMcpTool`` instances supplied via ``ctx.extra_mcp_tools``. We do
+    not silently filter — typos surface as "unknown tool" errors from
+    the SDK rather than as missing-allowlist mysteries. Passing ``None``
+    keeps the legacy "all static MCP tools" default.
     """
     prefix = f"mcp__{MCP_SERVER_NAME}__"
     names = list(ALL_TOOL_NAMES) if tool_names is None else list(tool_names)
@@ -2196,8 +2195,8 @@ class _ArtifactSnapshotter:
 
     Used by the synthesis-tools factories to dedup snapshots by SHA256
     and tag each load with ``cycle_XXX_vers_YYY``. ``YYY`` is per
-    instance and starts at 0 — it resets each time a new snapshotter
-    is created (typically once per factory call). ``XXX`` is read from
+    instance and starts at 0 — it resets each time a new snapshotter is
+    created (typically once per factory call). ``XXX`` is read from
     ``cycle_index_provider`` at each call so live cycle bumps are
     reflected in subsequent tags.
     """
@@ -2219,6 +2218,7 @@ class _ArtifactSnapshotter:
         self._last_digest: Optional[str] = None
 
     def current_cycle(self) -> int:
+        """Return the active learning-cycle index, or 0 if unknown."""
         if self._cycle_index_provider is None:
             return 0
         try:
@@ -2924,6 +2924,7 @@ class _ParamsView:
         return key in self._params
 
     def get(self, key: str, default: Any = None) -> Any:
+        """Dict-style fallback lookup; mirrors ``dict.get``."""
         return self._params.get(key, default)
 
     def __repr__(self) -> str:

@@ -9,8 +9,6 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Set, Union
 
-logger = logging.getLogger(__name__)
-
 from predicators.agent_sdk.session_manager import AgentSessionManager, \
     run_query_sync
 from predicators.agent_sdk.tools import ALL_TOOL_NAMES, ToolContext, \
@@ -19,6 +17,8 @@ from predicators.explorers import create_explorer
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.settings import CFG
 from predicators.structs import ParameterizedOption, Predicate, Task, Type
+
+logger = logging.getLogger(__name__)
 
 
 class AgentSessionMixin:
@@ -79,8 +79,8 @@ class AgentSessionMixin:
         """Return the complete tool surface for solve / explore sessions.
 
         May mix static MCP tool names with names of dynamic
-        ``SdkMcpTool`` instances. ``None`` means "all static MCP
-        tools"; override to subset.
+        ``SdkMcpTool`` instances. ``None`` means "all static MCP tools";
+        override to subset.
         """
         return None
 
@@ -88,8 +88,8 @@ class AgentSessionMixin:
         """Return the complete tool surface for the synthesis session.
 
         Selected when ``_learning_mode`` is True. Independent of the
-        solve list — the two phases may share names or be disjoint.
-        Each name must back either a static MCP tool (member of
+        solve list — the two phases may share names or be disjoint. Each
+        name must back either a static MCP tool (member of
         ``ALL_TOOL_NAMES``) or a dynamic ``SdkMcpTool`` instance the
         approach attaches via ``ctx.extra_mcp_tools``. Default ``[]``
         means no tools (approaches with no synthesis phase need not
@@ -145,16 +145,18 @@ class AgentSessionMixin:
             attached = list(self._tool_context.extra_mcp_tools or ())
             built = {getattr(t, "name", "") for t in attached}
             missing = dynamic_declared - built
+            phase_for_msg = ("synthesis" if getattr(self, "_learning_mode",
+                                                    False) else "solve")
             assert not missing, (
                 f"Dynamic tool name(s) {sorted(missing)} declared in "
-                f"_get_{'synthesis' if getattr(self, '_learning_mode', False) else 'solve'}_tool_names "
-                f"but no matching tool attached to ctx.extra_mcp_tools "
-                f"— add them to the builder or drop the names.")
+                f"_get_{phase_for_msg}_tool_names but no matching tool "
+                f"attached to ctx.extra_mcp_tools — add them to the "
+                f"builder or drop the names.")
 
         phase = "synthesis" if getattr(self, "_learning_mode",
                                        False) else "solve"
-        approach_name = getattr(type(self), "get_name", lambda: type(self).
-                                __name__)()
+        approach_name = getattr(type(self), "get_name",
+                                lambda: type(self).__name__)()
         if tool_names is None:
             logger.info(
                 "[%s] %s session tool surface: ALL static MCP tools "

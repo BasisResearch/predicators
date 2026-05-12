@@ -102,7 +102,7 @@ _BUILTIN_TOOLS_STR = ", ".join(BUILTIN_TOOLS)
 
 def build_claude_md() -> str:
     """Build the CLAUDE.md content written into the sandbox directory."""
-    return f"""\
+    return """\
 # Predicators Agent Sandbox
 
 ## Working Directory

@@ -359,7 +359,8 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
         #                this guards against a single lucky sample masking
         #                a buggy learned model.
         #
-        # (B) Test-driven (CFG.online_learning_early_stopping_by_test_solve_rate).
+        # (B) Test-driven
+        #     (CFG.online_learning_early_stopping_by_test_solve_rate).
         #     Stop once test_solve_rate hits 1.0. Note: testing for cycle i
         #     happens AFTER this check (see _run_testing below), so the
         #     test_solve_rate we read here is from cycle i-1 (or 0.0 before
@@ -369,9 +370,8 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
         if CFG.online_learning_early_stopping_require_all_attempts:
             train_tasks_all_attempts_solved = (
                 len(task_all_solve_attempts) == len(train_tasks)
-                and all(
-                    attempts and all(attempts)
-                    for attempts in task_all_solve_attempts.values()))
+                and all(attempts and all(attempts)
+                        for attempts in task_all_solve_attempts.values()))
             train_early_stop_msg = (
                 "All training tasks solved on every attempt this cycle, "
                 "triggering early stopping.\n")
@@ -385,8 +385,7 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
         train_driven_early_stop = (
             CFG.online_learning_early_stopping
             and not CFG.online_learning_early_stopping_by_test_solve_rate
-            and i > 0
-            and train_tasks_all_attempts_solved)
+            and i > 0 and train_tasks_all_attempts_solved)
         test_driven_early_stop = (
             CFG.online_learning_early_stopping_by_test_solve_rate
             and test_solve_rate == 1.0)
@@ -395,9 +394,8 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
             early_stopping = True
             should_run_testing = True  # Run testing when early stopping
         elif test_driven_early_stop:
-            logging.info(
-                "Test solve rate from the previous cycle is 1.0, "
-                "triggering early stopping.\n")
+            logging.info("Test solve rate from the previous cycle is 1.0, "
+                         "triggering early stopping.\n")
             early_stopping = True
             should_run_testing = True  # Run testing when early stopping
         # Learn from results if appropriate

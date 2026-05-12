@@ -83,8 +83,8 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         # ``__self__``; pinning the env reference here ensures scene
         # rendering tools (annotate_scene, visualize_state) keep working
         # in every synthesis/solve cycle.
-        env_self = getattr(
-            getattr(self._option_model, '_simulator', None), '__self__', None)
+        env_self = getattr(getattr(self._option_model, '_simulator', None),
+                           '__self__', None)
         if env_self is not None:
             self._tool_context.env = env_self
 

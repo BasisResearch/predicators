@@ -559,7 +559,7 @@ def run_backtracking_refinement(
 
     use_bar = (CFG.refinement_progress_bar
                if progress_bar is None else progress_bar)
-    bar: Optional[tqdm] = None
+    progress: Optional[tqdm] = None
     prev_root_level: Optional[int] = None
     if use_bar:
         # Suppress refinement chatter on all handlers (terminal + log
@@ -570,20 +570,20 @@ def run_backtracking_refinement(
         root_logger = logging.getLogger()
         prev_root_level = root_logger.level
         root_logger.setLevel(logging.CRITICAL)
-        bar = tqdm(total=n_steps,
-                   desc="Refinement",
-                   leave=False,
-                   dynamic_ncols=True)
+        progress = tqdm(total=n_steps,
+                        desc="Refinement",
+                        leave=False,
+                        dynamic_ncols=True)
 
     def _update_bar() -> None:
-        if bar is None:
+        if progress is None:
             return
-        bar.n = max_depth
-        bar.set_postfix_str(
+        progress.n = max_depth
+        progress.set_postfix_str(
             f"step={cur_idx}/{n_steps} samples={total_samples} "
             f"backtracks={backtrack_count}",
             refresh=False)
-        bar.refresh()
+        progress.refresh()
 
     def _finish(reason: str) -> None:
         if termination_reason is not None:
@@ -668,8 +668,8 @@ def run_backtracking_refinement(
         _finish("success")
         return plan, True, total_samples
     finally:
-        if bar is not None:
-            bar.close()
+        if progress is not None:
+            progress.close()
         if prev_root_level is not None:
             logging.getLogger().setLevel(prev_root_level)
 
