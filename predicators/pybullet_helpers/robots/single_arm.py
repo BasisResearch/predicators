@@ -268,14 +268,19 @@ class SingleArmPyBulletRobot(abc.ABC):
             # so continuous finger values round-trip cleanly.
             self.set_joints(list(joint_positions))
             # Some callers attach nominal joints to plain states as a reset
-            # hint. Preserve exact joints only when they really reconstruct the
-            # requested EE pose; otherwise fall back to IK, matching the legacy
-            # reset behavior. Use a loose tolerance: when joint_positions came
-            # from a fresh _get_state, the live EE pose can differ from the
-            # quat rebuilt from (roll,tilt,wrist) features by ~1e-3 due to
-            # PyBullet FK / quaternion-sign normalisation; a strict 1e-3 atol
-            # rejects these benign cases and forces lossy IK.
-            if np.allclose(self.get_state()[:7], target[:7], atol=1e-2):
+            # hint; preserve exact joints only when they really reconstruct
+            # the requested EE pose, otherwise fall back to IK. Position
+            # tol matches State.allclose (1e-3) so a 4 mm hint mismatch
+            # forces IK. Orientation uses a looser 1e-2 because the
+            # Euler->Quat roundtrip in pybullet_env._extract_robot_state can
+            # add ~1e-3 noise; it also tries both signs because q and -q
+            # encode the same rotation and the roundtrip canonicalises sign.
+            live = self.get_state()
+            pos_match = np.allclose(live[:3], target[:3], atol=1e-3)
+            orn_match = (np.allclose(live[3:7], target[3:7], atol=1e-2)
+                         or np.allclose(live[3:7], -target[3:7], atol=1e-2))
+            finger_match = abs(float(live[7]) - float(target[7])) <= 1e-2
+            if pos_match and orn_match and finger_match:
                 return
 
         # First, reset the joint values to initial joint positions,
