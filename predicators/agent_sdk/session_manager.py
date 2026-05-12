@@ -19,12 +19,17 @@ class AgentSessionManager:
                  mcp_server: Any,
                  log_dir: str,
                  model_name: str,
-                 allowed_tools: Optional[List[str]] = None) -> None:
+                 allowed_tools: Optional[List[str]] = None,
+                 tool_context: Any = None) -> None:
         self._system_prompt = system_prompt
         self._mcp_server = mcp_server
         self._log_dir = log_dir
         self._model_name = model_name
         self._allowed_tools = allowed_tools
+        # Optional ToolContext reference — read at session start so the
+        # caller can inject ``extra_session_hooks`` between sessions
+        # without rebuilding the manager.
+        self._tool_context = tool_context
         self._client: Any = None
         self._session_id: Optional[str] = None
         self._total_cost_usd: float = 0.0
@@ -59,6 +64,10 @@ class AgentSessionManager:
         from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient \
             # pylint: disable=import-outside-toplevel
 
+        extra_hooks: Dict[str, Any] = {}
+        if self._tool_context is not None:
+            extra_hooks = dict(
+                getattr(self._tool_context, "extra_session_hooks", {}) or {})
         options = ClaudeAgentOptions(
             allowed_tools=self._allowed_tools or [],
             mcp_servers={"predicator_tools": self._mcp_server},
@@ -66,6 +75,7 @@ class AgentSessionManager:
             system_prompt=self._system_prompt,
             model=self._model_name,
             max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
+            hooks=extra_hooks if extra_hooks else None,
         )
 
         self._client = ClaudeSDKClient(options=options)

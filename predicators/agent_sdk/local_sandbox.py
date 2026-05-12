@@ -173,6 +173,7 @@ class LocalSandboxSessionManager:
         mcp_tool_list = get_allowed_tool_list(self._tool_names)
         allowed_tools = BUILTIN_TOOLS + mcp_tool_list
 
+        extra_hooks = dict(self._tool_context.extra_session_hooks or {})
         options = ClaudeAgentOptions(
             allowed_tools=allowed_tools,
             mcp_servers={"predicator_tools": mcp_server},
@@ -182,6 +183,7 @@ class LocalSandboxSessionManager:
             max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
             cwd=self._sandbox_dir,
             setting_sources=["project", "local"],
+            hooks=extra_hooks if extra_hooks else None,
         )
 
         self._client = ClaudeSDKClient(options=options)

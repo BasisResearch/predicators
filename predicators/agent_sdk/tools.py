@@ -5,7 +5,7 @@ import logging
 import os
 import traceback
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -121,6 +121,11 @@ class ToolContext:
     test_call_id: int = 0  # incremented per test_option_plan call
     visualized_state: Optional[State] = None  # last state from visualize_state
     extra_mcp_tools: list = field(default_factory=list)  # injected by subclass
+    # Extra Claude Agent SDK ``HookMatcher`` instances applied to the
+    # next session that's started. Read once at session start, then
+    # frozen for the session's lifetime. Subclasses set this before
+    # opening a fresh session and clear it on close.
+    extra_session_hooks: Dict[str, list] = field(default_factory=dict)
     # Populated by AgentBilevelExplorer so learning approaches can diff
     # mental-model subgoals against real trajectories.
     # TODO(sim-learning): consume these in learn_from_interaction_results.
@@ -1992,6 +1997,145 @@ def create_mcp_tools(ctx: ToolContext,
 # ── Sim-learning tools ───────────────────────────────────────────
 
 
+class _SnapshotTarget:  # pylint: disable=too-few-public-methods
+    """One file to watch for write-time snapshots."""
+
+    def __init__(
+        self,
+        live_file: str,
+        versions_dir: str,
+        artifact_name: str,
+        cycle_index_provider: Callable[[], int],
+    ) -> None:
+        self.live_file = os.path.realpath(live_file)
+        self.versions_dir = versions_dir
+        self.artifact_name = artifact_name
+        self.cycle_index_provider = cycle_index_provider
+
+
+def make_write_snapshot_hook(
+    targets: List[_SnapshotTarget],
+    sandbox_dir: str,
+) -> Callable[..., Any]:
+    """Build a PostToolUse hook that snapshots target files on Write/Edit.
+
+    The returned async callable matches the Claude Agent SDK's hook
+    signature ``(hook_input, tool_use_id, hook_context) -> dict``. It
+    fires after a successful Write / Edit / MultiEdit / NotebookEdit
+    and, if the tool's ``file_path`` (resolved against ``sandbox_dir``)
+    matches any target's ``live_file``, writes a new versioned snapshot
+    (via :func:`finalize_versioned_snapshot`).
+
+    Dedup-by-hash means a no-op Edit that produces identical content
+    leaves no new file. Failures are swallowed — a snapshot hook
+    failing should never break the agent's edit loop.
+    """
+    abs_sandbox = os.path.abspath(sandbox_dir)
+
+    def _resolve(path: str) -> str:
+        if os.path.isabs(path):
+            return os.path.realpath(path)
+        return os.path.realpath(os.path.join(abs_sandbox, path))
+
+    target_by_path: Dict[str, _SnapshotTarget] = {
+        t.live_file: t
+        for t in targets
+    }
+
+    async def _hook(hook_input: Any, _tool_use_id: Any,
+                    _context: Any) -> Dict[str, Any]:
+        try:
+            tool_name = getattr(hook_input, "tool_name", None)
+            if tool_name not in {"Write", "Edit", "MultiEdit"}:
+                return {}
+            tool_input = getattr(hook_input, "tool_input", None) or {}
+            raw_path = tool_input.get("file_path")
+            if not raw_path:
+                return {}
+            resolved = _resolve(raw_path)
+            target = target_by_path.get(resolved)
+            if target is None:
+                return {}
+            finalize_versioned_snapshot(
+                target.live_file,
+                target.versions_dir,
+                cycle_idx=int(target.cycle_index_provider()),
+                artifact_name=target.artifact_name,
+            )
+        except Exception:  # pylint: disable=broad-except
+            # Never let a snapshot failure break the agent's edit loop.
+            pass
+        return {}
+
+    return _hook
+
+
+def finalize_versioned_snapshot(
+    live_file: str,
+    versions_dir: str,
+    cycle_idx: int,
+    artifact_name: str,
+) -> Optional[str]:
+    """Take a final ``cycle_XXX_vers_(YYY+1)`` snapshot if needed.
+
+    Called from the approach after the agent session ends so that any
+    post-evaluation edits to ``live_file`` (which would otherwise be
+    lost — the synthesis tools only snapshot on eval calls) are
+    captured. If the live file's hash matches the highest existing
+    ``cycle_XXX_vers_YYY_<artifact_name>.py`` in ``versions_dir`` (this
+    cycle), the existing tag is returned and no new file is written.
+
+    Args:
+        live_file: Host path to the file (e.g. simulator.py).
+        versions_dir: Directory containing the per-call snapshots.
+        cycle_idx: Current cycle (1-indexed) — used to find the highest
+            existing ``vers_YYY`` for this cycle and to name the new
+            snapshot.
+        artifact_name: Stem used in the filename, e.g. ``"simulator"``
+            or ``"predicates"``.
+
+    Returns the final version tag (``cycle_XXX_vers_YYY``) or ``None``
+    if ``live_file`` does not exist.
+    """
+    if not os.path.isfile(live_file):
+        return None
+    with open(live_file, "rb") as f:
+        live_raw = f.read()
+    live_digest = hashlib.sha256(live_raw).hexdigest()
+
+    prefix = f"cycle_{cycle_idx:03d}_vers_"
+    suffix = f"_{artifact_name}.py"
+    highest_vers = 0
+    highest_path: Optional[str] = None
+    if os.path.isdir(versions_dir):
+        for name in os.listdir(versions_dir):
+            if not (name.startswith(prefix) and name.endswith(suffix)):
+                continue
+            vers_str = name[len(prefix):-len(suffix)]
+            try:
+                vers = int(vers_str)
+            except ValueError:
+                continue
+            if vers > highest_vers:
+                highest_vers = vers
+                highest_path = os.path.join(versions_dir, name)
+
+    if highest_path is not None:
+        with open(highest_path, "rb") as f:
+            existing_digest = hashlib.sha256(f.read()).hexdigest()
+        if existing_digest == live_digest:
+            return f"cycle_{cycle_idx:03d}_vers_{highest_vers:03d}"
+
+    os.makedirs(versions_dir, exist_ok=True)
+    new_vers = highest_vers + 1
+    snap_path = os.path.join(
+        versions_dir,
+        f"cycle_{cycle_idx:03d}_vers_{new_vers:03d}_{artifact_name}.py")
+    with open(snap_path, "wb") as f:
+        f.write(live_raw)
+    return f"cycle_{cycle_idx:03d}_vers_{new_vers:03d}"
+
+
 def create_synthesis_tools(
     exec_ns: Dict[str, Any],
     base_pred_triples: list,
@@ -2001,6 +2145,7 @@ def create_synthesis_tools(
     approach: Optional[Any] = None,
     sandbox_dir: Optional[str] = None,
     sandbox_dir_for_agent: Optional[str] = None,
+    cycle_index_provider: Optional[Callable[[], int]] = None,
 ) -> list:
     """Create MCP tools for the sim-learning synthesis agent.
 
@@ -2013,10 +2158,13 @@ def create_synthesis_tools(
     isolated namespace per call and read ``PROCESS_RULES``,
     ``PARAM_SPECS``, ``PROCESS_FEATURES`` from it — no namespace state
     leaks across iterations. Before loading, every call also snapshots
-    the current contents into ``versions_dir`` (``001_simulator.py``,
-    ``002_simulator.py`` …) so the full history of evaluated versions
-    is preserved; identical-content calls reuse the prior snapshot.
-    Each tool's output is prefixed with the version tag (``[vNNN]``).
+    the current contents into ``versions_dir`` as
+    ``cycle_XXX_vers_YYY_simulator.py`` (``XXX`` from
+    ``cycle_index_provider()``, ``YYY`` resetting per
+    ``create_synthesis_tools`` call) so the full history of evaluated
+    versions is preserved across cycles; identical-content calls reuse
+    the prior snapshot. Each tool's output is prefixed with the version
+    tag (``[cycle_XXX_vers_YYY]``).
 
     * ``run_python`` — executes arbitrary Python in a persistent
       namespace pre-loaded with trajectory data. Use this for ad-hoc
@@ -2062,6 +2210,11 @@ def create_synthesis_tools(
             ``sandbox_dir`` (e.g. ``"."`` for local sandbox or
             ``"/sandbox"`` for docker).  Used only when building the
             human-readable path included in the spilled-output message.
+        cycle_index_provider: Callable returning the current online
+            learning cycle (1-indexed). Read at snapshot time so the
+            same tools instance reflects later cycle bumps. If ``None``,
+            cycle defaults to 0 (still valid; produces
+            ``cycle_000_vers_YYY``).
     """
     # pylint: disable=import-outside-toplevel
     import io
@@ -2120,13 +2273,21 @@ def create_synthesis_tools(
         # ``content`` as TextContent items).
         return {"content": [{"type": "text", "text": msg}]}
 
+    def _current_cycle() -> int:
+        if cycle_index_provider is None:
+            return 0
+        try:
+            return int(cycle_index_provider())
+        except Exception:  # pylint: disable=broad-except
+            return 0
+
     def _snapshot_and_load(path: str) -> Tuple[Any, Any, Any, Any, Any]:
         """Snapshot ``path`` then exec it into a fresh namespace.
 
         Returns ``(rules, specs, features, version_tag, error_msg)``;
         ``error_msg`` is ``None`` on success. Snapshots are deduped by
         SHA256, so repeated calls on unchanged content reuse the prior
-        ``vNNN`` tag.
+        ``cycle_XXX_vers_YYY`` tag.
         """
         if not os.path.isfile(path):
             return None, None, None, None, (
@@ -2135,15 +2296,19 @@ def create_synthesis_tools(
         with open(path, "rb") as f:
             raw = f.read()
         digest = hashlib.sha256(raw).hexdigest()
+        cycle_idx = _current_cycle()
         if digest != _last_snapshot_hash[0]:
             _version_count[0] += 1
             os.makedirs(versions_dir, exist_ok=True)
-            snap_path = os.path.join(versions_dir,
-                                     f"{_version_count[0]:03d}_simulator.py")
+            snap_path = os.path.join(
+                versions_dir,
+                f"cycle_{cycle_idx:03d}_vers_"
+                f"{_version_count[0]:03d}_simulator.py")
             with open(snap_path, "wb") as f:
                 f.write(raw)
             _last_snapshot_hash[0] = digest
-        version_tag = f"v{_version_count[0]:03d}"
+        version_tag = (
+            f"cycle_{cycle_idx:03d}_vers_{_version_count[0]:03d}")
 
         ns: Dict[str, Any] = {"np": np, "ParamSpec": ParamSpec}
         try:
@@ -2257,7 +2422,7 @@ def create_synthesis_tools(
         "and reports the post-fit SSE plus percent improvement and the "
         "fitted parameter values with their delta from init. Each call "
         "snapshots the simulator file into simulator_versions/; output "
-        "is tagged [vNNN].",
+        "is tagged [cycle_XXX_vers_YYY].",
         {
             "type": "object",
             "properties": {
@@ -2341,7 +2506,7 @@ def create_synthesis_tools(
         "default; pass fit_params=true to MCMC-fit first. Tolerance: "
         "|pred - obs| > rel_tol * |obs| + abs_tol. Each call "
         "snapshots the simulator file into simulator_versions/; "
-        "output is tagged [vNNN].",
+        "output is tagged [cycle_XXX_vers_YYY].",
         {
             "type": "object",
             "properties": {
@@ -2539,8 +2704,8 @@ def create_synthesis_tools(
         "used vs allotted, and the stuck step (with its subgoals). "
         "Diagnose causes from those numbers — the report does not "
         "speculate. Each call snapshots the simulator file into "
-        "simulator_versions/; output is tagged [vNNN]. Slow — use "
-        "sparingly.",
+        "simulator_versions/; output is tagged [cycle_XXX_vers_YYY]. "
+        "Slow — use sparingly.",
         {
             "type": "object",
             "properties": {
@@ -2667,15 +2832,17 @@ def create_predicate_synthesis_tools(
     predicates_versions_dir: str,
     approach: Any,
     trajectories: List[LowLevelTrajectory],
+    cycle_index_provider: Optional[Callable[[], int]] = None,
 ) -> list:
     """Create the predicate-invention synthesis tool.
 
     Returns ``[evaluate_predicate_quality]``. The tool loads
     ``predicates.py`` fresh on each call (snapshotting into
-    ``predicates_versions_dir``), validates each ``Predicate``, mutates
-    ``approach._learned_predicates`` so subsequent refinement calls see
-    the agent's draft, and reports milestone behaviour over the demo
-    trajectories.
+    ``predicates_versions_dir`` as
+    ``cycle_XXX_vers_YYY_predicates.py``), validates each
+    ``Predicate``, mutates ``approach._learned_predicates`` so
+    subsequent refinement calls see the agent's draft, and reports
+    milestone behaviour over the demo trajectories.
 
     Args:
         predicates_file: Host path to the canonical ``predicates.py``
@@ -2686,6 +2853,8 @@ def create_predicate_synthesis_tools(
             Must expose ``_types``, ``_kept_initial_predicates``,
             ``_get_all_options()``, and ``_learned_predicates``.
         trajectories: Demo trajectories used for milestone reporting.
+        cycle_index_provider: Callable returning the current cycle
+            (1-indexed) at snapshot time. Defaults to a constant 0.
     """
     # pylint: disable=import-outside-toplevel
     import traceback  # pylint: disable=redefined-outer-name,reimported
@@ -2704,6 +2873,14 @@ def create_predicate_synthesis_tools(
 
     params_view = _ParamsView(approach._fitted_params)  # pylint: disable=protected-access
 
+    def _current_cycle() -> int:
+        if cycle_index_provider is None:
+            return 0
+        try:
+            return int(cycle_index_provider())
+        except Exception:  # pylint: disable=broad-except
+            return 0
+
     def _snapshot_and_load_predicates(
         path: str,
     ) -> Tuple[List[Predicate], Optional[str], Optional[str], List[str]]:
@@ -2720,16 +2897,19 @@ def create_predicate_synthesis_tools(
         with open(path, "rb") as f:
             raw = f.read()
         digest = hashlib.sha256(raw).hexdigest()
+        cycle_idx = _current_cycle()
         if digest != _last_snapshot_hash[0]:
             _version_count[0] += 1
             os.makedirs(predicates_versions_dir, exist_ok=True)
             snap_path = os.path.join(
                 predicates_versions_dir,
+                f"cycle_{cycle_idx:03d}_vers_"
                 f"{_version_count[0]:03d}_predicates.py")
             with open(snap_path, "wb") as f:
                 f.write(raw)
             _last_snapshot_hash[0] = digest
-        version_tag = f"v{_version_count[0]:03d}"
+        version_tag = (
+            f"cycle_{cycle_idx:03d}_vers_{_version_count[0]:03d}")
 
         ctx = build_exec_context(
             types=approach._types,  # pylint: disable=protected-access
@@ -2834,7 +3014,7 @@ def create_predicate_synthesis_tools(
         "evaluate_plan_refinement is updated — so call this tool any "
         "time you edit predicates.py before re-running refinement. "
         "Snapshots the predicates file into predicates_versions/; "
-        "output tagged [vNNN].",
+        "output tagged [cycle_XXX_vers_YYY].",
         {
             "type": "object",
             "properties": {

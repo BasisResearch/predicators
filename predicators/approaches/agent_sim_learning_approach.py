@@ -27,7 +27,9 @@ import pybullet
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.tools import create_synthesis_tools
+from predicators.agent_sdk.tools import _SnapshotTarget, \
+    create_synthesis_tools, finalize_versioned_snapshot, \
+    make_write_snapshot_hook
 from predicators.approaches.agent_bilevel_approach import AgentBilevelApproach
 from predicators.code_sim_learning.training import ParamSpec, compute_sse, \
     fit_params, log_sse_breakdown
@@ -100,6 +102,12 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         self._fitted_params: Dict[str, float] = {}
         self._fit_sse: float = float("inf")
         self._learning_mode: bool = False
+        # Snapshot tags of the most recent simulator / predicates files
+        # committed by the synthesis agent — used to stamp newly
+        # collected online trajectories with their source-version
+        # provenance (consumed in the next learn-phase prompt).
+        self._current_simulator_version: Optional[str] = None
+        self._current_predicates_version: Optional[str] = None
 
     @classmethod
     def get_name(cls) -> str:
@@ -116,6 +124,16 @@ class AgentSimLearningApproach(AgentBilevelApproach):
     # Default implementations are no-ops so subclasses can add
     # predicate-invention (or other) extensions without copying
     # _synthesize_with_agent.
+
+    def _learning_cycle_index(self) -> int:
+        """1-indexed cycle number used in versioned snapshot filenames.
+
+        Offline learning is cycle 1; ``_online_learning_cycle`` is
+        incremented before each online learn call, so adding 1 keeps
+        the offline pass and the first online pass on different
+        indices.
+        """
+        return self._online_learning_cycle + 1
 
     def _compute_extra_synthesis_paths(self,
                                        base: str) -> Dict[str, str]:
@@ -156,6 +174,56 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         close over ``params``).
         """
         del extra_paths, specs
+
+    def _build_write_snapshot_targets(
+        self,
+        simulator_file: str,
+        versions_dir: str,
+        extra_paths: Dict[str, str],
+    ) -> List[_SnapshotTarget]:
+        """Files the PostToolUse snapshot hook should watch.
+
+        Defaults to just the simulator. Subclasses (e.g. predicate
+        invention) may append their own artifacts. ``extra_paths`` is
+        the same dict returned by ``_compute_extra_synthesis_paths``.
+        """
+        del extra_paths
+        return [
+            _SnapshotTarget(
+                live_file=simulator_file,
+                versions_dir=versions_dir,
+                artifact_name="simulator",
+                cycle_index_provider=self._learning_cycle_index,
+            ),
+        ]
+
+    @staticmethod
+    def _build_synthesis_session_hooks(
+        targets: List[_SnapshotTarget],
+        sandbox_dir: str,
+    ) -> Dict[str, list]:
+        """Wrap snapshot targets in a Claude Agent SDK ``HookMatcher``.
+
+        Returns the dict suitable for assignment to
+        ``ToolContext.extra_session_hooks``. Falls back to an empty
+        dict if the SDK ``HookMatcher`` isn't importable (so the
+        approach still works against older SDK versions).
+        """
+        if not targets:
+            return {}
+        try:
+            from claude_agent_sdk import \
+                HookMatcher  # pylint: disable=import-outside-toplevel
+        except ImportError:
+            logger.warning("claude_agent_sdk.HookMatcher unavailable; "
+                           "write-time snapshots disabled.")
+            return {}
+        hook = make_write_snapshot_hook(targets, sandbox_dir=sandbox_dir)
+        return {
+            "PostToolUse": [
+                HookMatcher(matcher="Write|Edit|MultiEdit", hooks=[hook]),
+            ],
+        }
 
     # ── Learning ────────────────────────────────────────────────
 
@@ -318,12 +386,23 @@ class AgentSimLearningApproach(AgentBilevelApproach):
                 approach=self,
                 sandbox_dir=base,
                 sandbox_dir_for_agent=sandbox_dir_for_agent,
+                cycle_index_provider=self._learning_cycle_index,
             )
             tools.extend(
                 self._extra_synthesis_tools(exec_ns, base_pred_triples,
                                             inferred_hint, extra_paths))
             self._tool_context.extra_mcp_tools = tools
             self._learning_mode = True
+
+            # PostToolUse hook: snapshot simulator.py / predicates.py on
+            # every successful Write/Edit/MultiEdit, so the version
+            # history covers everything the agent committed to file
+            # (not just states that happened to coincide with an eval
+            # call). Only active for this synthesis session.
+            snapshot_targets = self._build_write_snapshot_targets(
+                simulator_file, versions_dir, extra_paths)
+            self._tool_context.extra_session_hooks = (
+                self._build_synthesis_session_hooks(snapshot_targets, base))
 
             # Fresh session so the synthesis prompt + tools take effect.
             self._close_agent_session()
@@ -336,6 +415,8 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             n_interaction = n_trajs - n_demos
             predicate_listing = self._format_predicate_signatures(
                 self._get_all_predicates())
+            trajectory_listing = self._format_trajectory_listing(trajectories)
+            prior_state_block = self._format_prior_state_block(base)
             message = f"""\
 Synthesize a process dynamics simulator for this environment. \
 There are {n_trajs} trajectories ({len(obs_triples)} step \
@@ -344,6 +425,7 @@ reached by construction) and {n_interaction} interaction \
 trajectory/ies (collected during online learning; some may have \
 failed to reach the goal).
 
+{trajectory_listing}
 Each trajectory carries a `train_task_idx`. You can query the \
 ground-truth goal-check (a black-box binary reward) by calling \
 `is_goal_state(state, task_idx)`. Equivalently \
@@ -352,7 +434,7 @@ which trajectories reached the goal and (2) treat failed \
 interaction trajectories as counterexamples — places where your \
 predicate or rule said "this should work" but the env disagreed.
 
-Data-structure source code is at: {structs_ref}
+{prior_state_block}Data-structure source code is at: {structs_ref}
 
 A residual scan between the base simulator's prediction and the \
 observed next state suggests these features carry process dynamics \
@@ -372,11 +454,13 @@ Read the data-structures file first, then explore the trajectory \
 data with `run_python` (variables: `trajectories`, `train_tasks`, \
 `is_goal_state`, `np`, `ParamSpec`). Write your simulator to \
 `{simulator_file_for_agent}` — define PROCESS_RULES, PARAM_SPECS, \
-and PROCESS_FEATURES there. The synthesis tools (evaluate_step_fit, \
-report_residuals, evaluate_plan_refinement) load that file fresh on \
-every call and snapshot it into `simulator_versions/` so each \
-evaluated version is preserved (output tag [vNNN]). Iterate with \
-`Edit` and re-run the tools."""
+and PROCESS_FEATURES there. Every successful Write/Edit of \
+`{simulator_file_for_agent}` is snapshotted to `simulator_versions/` as \
+`cycle_XXX_vers_YYY_simulator.py` (deduped by content); the synthesis \
+tools (evaluate_step_fit, report_residuals, evaluate_plan_refinement) \
+load that file fresh on every call and report the version tag \
+[cycle_XXX_vers_YYY] in their output. Iterate with `Edit` and re-run \
+the tools."""
 
             extra_message = self._extra_synthesis_message(extra_paths)
             if extra_message:
@@ -386,8 +470,19 @@ evaluated version is preserved (output tag [vNNN]). Iterate with \
                 self._query_agent_sync(message, kind="learn")
             finally:
                 self._tool_context.extra_mcp_tools = []
+                self._tool_context.extra_session_hooks = {}
                 self._learning_mode = False
                 self._close_agent_session()
+
+            final_sim_tag = finalize_versioned_snapshot(
+                simulator_file,
+                versions_dir,
+                cycle_idx=self._learning_cycle_index(),
+                artifact_name="simulator",
+            )
+            if final_sim_tag is not None:
+                self._current_simulator_version = final_sim_tag
+                logger.info("Final simulator snapshot: %s", final_sim_tag)
 
             rules, specs, declared = self._load_simulator_from_module_file(
                 simulator_file, trajectories)
@@ -567,6 +662,68 @@ evaluated version is preserved (output tag [vNNN]). Iterate with \
             type_sig = ", ".join(t.name for t in pred.types)
             lines.append(f"  {pred.name}({type_sig})")
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_trajectory_listing(
+            trajectories: List[LowLevelTrajectory]) -> str:
+        """Render a per-trajectory listing with provenance tags.
+
+        Each interaction trajectory shows the simulator / predicates
+        snapshot used to generate the plan that collected it (if
+        tracked). Demo trajectories list as ``demo``. Listed in the
+        same order the agent sees them via the ``trajectories`` var.
+        """
+        if not trajectories:
+            return ""
+        lines = ["Trajectory roster (matches the `trajectories` list):"]
+        for idx, traj in enumerate(trajectories):
+            kind = "demo" if traj.is_demo else "interaction"
+            try:
+                task_str = f"task {traj.train_task_idx}"
+            except AssertionError:
+                task_str = "task ?"
+            provenance: List[str] = []
+            sim_v = traj.source_simulator_version
+            preds_v = traj.source_predicates_version
+            if sim_v:
+                provenance.append(f"sim {sim_v}")
+            if preds_v:
+                provenance.append(f"predicates {preds_v}")
+            tail = (f" — generated using {', '.join(provenance)}"
+                    if provenance else "")
+            lines.append(f"  [{idx}] {kind}, {task_str}{tail}")
+        return "\n".join(lines) + "\n"
+
+    def _format_prior_state_block(self, base: str) -> str:
+        """Tell the agent about any simulator/predicates left over from a
+        previous learning cycle.
+
+        Returns a paragraph the agent can act on (read the files first
+        and treat this cycle as incremental refinement) or an empty
+        string if no prior state exists. The base sandbox dir is
+        scanned for ``simulator.py`` / ``predicates.py``.
+        """
+        prior: List[str] = []
+        sim_path = os.path.join(base, "simulator.py")
+        preds_path = os.path.join(base, "predicates.py")
+        if os.path.isfile(sim_path):
+            prior.append("`./simulator.py`")
+        if os.path.isfile(preds_path):
+            prior.append("`./predicates.py`")
+        if not prior:
+            return ""
+        joined = " and ".join(prior)
+        return f"""\
+Prior cycle state: {joined} already exist in the sandbox from a previous \
+learning cycle. Read them first — they are the previous cycle's committed \
+result and a reasonable starting point for incremental refinement (though \
+a fresh rewrite is fine if the prior approach looks fundamentally wrong). \
+Earlier versions are in `./simulator_versions/` and \
+`./predicates_versions/` (named `cycle_XXX_vers_YYY_*.py`); \
+cross-reference the trajectory roster's provenance tags against those \
+files to see exactly which rules and predicates produced each failed plan.
+
+"""
 
     @staticmethod
     def _load_simulator_from_module_file(
@@ -776,10 +933,13 @@ first message.
 
 ## Tools
 
-`Write` / `Edit` `simulator.py` is your normal coding loop. The synthesis \
-tools below load it fresh every call and snapshot it into \
-`simulator_versions/NNN_simulator.py` (deduped by content), prefixing \
-output with `[vNNN]` so you and reviewers can diff iterations.
+`Write` / `Edit` `simulator.py` is your normal coding loop. Every \
+successful write is snapshotted to \
+`simulator_versions/cycle_XXX_vers_YYY_simulator.py` (deduped by \
+content; ``XXX`` is the current cycle, ``YYY`` resets per cycle). The \
+synthesis tools below load the file fresh on every call and prefix \
+their output with `[cycle_XXX_vers_YYY]` so you and reviewers can diff \
+iterations.
 
 - `run_python(code)` — ad-hoc data exploration. `trajectories`, `np`, \
 `ParamSpec` in scope. **Does not** define rules.

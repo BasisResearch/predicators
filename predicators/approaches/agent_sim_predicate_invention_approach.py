@@ -11,8 +11,9 @@ every other call site that asks the approach for its current
 predicates.
 
 Predicates persist across online learning cycles — ``predicates.py``
-is preserved at the sandbox root, and each cycle's final state is
-archived to ``predicates_archive/cycle_NNN_predicates.py``.
+is preserved at the sandbox root, and every version evaluated during
+synthesis (plus a final snapshot of any post-eval edits) is saved to
+``predicates_versions/`` as ``cycle_XXX_vers_YYY_predicates.py``.
 
 Example command::
 
@@ -24,10 +25,10 @@ Example command::
 
 import logging
 import os
-import shutil
 from typing import Any, Dict, FrozenSet, List, Set, Tuple
 
-from predicators.agent_sdk.tools import create_predicate_synthesis_tools
+from predicators.agent_sdk.tools import _SnapshotTarget, \
+    create_predicate_synthesis_tools, finalize_versioned_snapshot
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
 from predicators.settings import CFG
@@ -49,7 +50,6 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         self._learned_predicates: Set[Predicate] = set()
         self._kept_initial_predicates: Set[Predicate] = (
             self._compute_kept_initial_predicates())
-        self._predicates_cycle_count: int = 0
         # We hide env goal predicate atoms from the agent and only present
         # goals as natural language; the env therefore owes us a goal_nl
         # for every train task.
@@ -109,7 +109,6 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
                                        base: str) -> Dict[str, str]:
         predicates_file = os.path.join(base, "predicates.py")
         predicates_versions_dir = os.path.join(base, "predicates_versions")
-        predicates_archive_dir = os.path.join(base, "predicates_archive")
 
         if CFG.agent_sdk_use_local_sandbox:
             predicates_file_for_agent = "./predicates.py"
@@ -121,7 +120,6 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         return {
             "predicates_file": predicates_file,
             "predicates_versions_dir": predicates_versions_dir,
-            "predicates_archive_dir": predicates_archive_dir,
             "predicates_file_for_agent": predicates_file_for_agent,
         }
 
@@ -139,44 +137,62 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
             predicates_versions_dir=extra_paths["predicates_versions_dir"],
             approach=self,
             trajectories=trajectories,
+            cycle_index_provider=self._learning_cycle_index,
         )
+
+    def _build_write_snapshot_targets(
+        self,
+        simulator_file: str,
+        versions_dir: str,
+        extra_paths: Dict[str, str],
+    ) -> List[_SnapshotTarget]:
+        targets = super()._build_write_snapshot_targets(
+            simulator_file, versions_dir, extra_paths)
+        targets.append(
+            _SnapshotTarget(
+                live_file=extra_paths["predicates_file"],
+                versions_dir=extra_paths["predicates_versions_dir"],
+                artifact_name="predicates",
+                cycle_index_provider=self._learning_cycle_index,
+            ))
+        return targets
 
     def _extra_synthesis_message(self, extra_paths: Dict[str, str]) -> str:
         path = extra_paths["predicates_file_for_agent"]
         goal_block = self._format_goal_nl_block()
-        return (
-            f"## Predicate Invention\n\n"
-            f"Important: this approach has stripped the env's symbolic "
-            f"predicates down to the \"## Available Predicates\" allowlist "
-            f"above (just `Holding` by default). You must invent everything "
-            f"else used as a subgoal in plan sketches — placements (e.g. "
-            f"JugAtFaucet), device states (FaucetOn / FaucetOff), and "
-            f"process completions (e.g. WaterBoiled) — by writing them to "
-            f"`{path}` as `LEARNED_PREDICATES`. See the system prompt "
-            f"section \"Predicate Invention\" for the file format.\n\n"
-            f"{goal_block}"
-            f"Goal achievement is checked externally — the env owns the "
-            f"goal definition. You do **not** need to invent goal "
-            f"predicates or match any env predicate names. To check "
-            f"whether a state satisfies the goal, call the black-box "
-            f"reward `is_goal_state(state, task_idx)` (equivalently "
-            f"`train_tasks[task_idx].goal_holds(state)`). Refinement uses "
-            f"the same env-side check, so your invented predicates are "
-            f"free to use any names you like and only need to support "
-            f"plan-sketch subgoals (gating Wait, Place, etc.).\n\n"
-            f"Failure trajectories are signal: when an interaction "
-            f"trajectory has `reached_goal=False`, look for points where "
-            f"your predicate was true but downstream progress stalled "
-            f"(e.g. a placement predicate fires but the relevant rule "
-            f"feature stops advancing). That's evidence the threshold is "
-            f"too loose; tighten it or share the gating parameter with "
-            f"the rule via `params[...]` so MCMC can fit them jointly.\n\n"
-            f"Workflow: edit `predicates.py`, call "
-            f"`evaluate_predicate_quality` (fast, also reloads predicates "
-            f"into the live set), then call `evaluate_plan_refinement` "
-            f"with sketches that reference your invented names. Any "
-            f"predicate you reference in a sketch must exist in "
-            f"`predicates.py` first.")
+        return f"""\
+## Predicate Invention
+
+Important: this approach has stripped the env's symbolic predicates down \
+to the "## Available Predicates" allowlist above (just `Holding` by \
+default). You must invent everything else used as a subgoal in plan \
+sketches — placements (e.g. JugAtFaucet), device states (FaucetOn / \
+FaucetOff), and process completions (e.g. WaterBoiled) — by writing them \
+to `{path}` as `LEARNED_PREDICATES`. See the system prompt section \
+"Predicate Invention" for the file format.
+
+{goal_block}\
+Goal achievement is checked externally — the env owns the goal \
+definition. You do **not** need to invent goal predicates or match any \
+env predicate names. To check whether a state satisfies the goal, call \
+the black-box reward `is_goal_state(state, task_idx)` (equivalently \
+`train_tasks[task_idx].goal_holds(state)`). Refinement uses the same \
+env-side check, so your invented predicates are free to use any names \
+you like and only need to support plan-sketch subgoals (gating Wait, \
+Place, etc.).
+
+Failure trajectories are signal: when an interaction trajectory has \
+`reached_goal=False`, look for points where your predicate was true but \
+downstream progress stalled (e.g. a placement predicate fires but the \
+relevant rule feature stops advancing). That's evidence the threshold \
+is too loose; tighten it or share the gating parameter with the rule \
+via `params[...]` so MCMC can fit them jointly.
+
+Workflow: edit `predicates.py`, call `evaluate_predicate_quality` \
+(fast, also reloads predicates into the live set), then call \
+`evaluate_plan_refinement` with sketches that reference your invented \
+names. Any predicate you reference in a sketch must exist in \
+`predicates.py` first."""
 
     def _format_goal_nl_block(self) -> str:
         """Render the natural-language goals for the train tasks.
@@ -206,9 +222,9 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         extra_paths: Dict[str, str],
         specs: List[Any],
     ) -> None:
-        """Load predicates.py and archive the cycle's final state."""
+        """Load predicates.py and snapshot the cycle's final state."""
         predicates_file = extra_paths["predicates_file"]
-        archive_dir = extra_paths["predicates_archive_dir"]
+        predicates_versions_dir = extra_paths["predicates_versions_dir"]
 
         # Seed _fitted_params from init values so predicate lambdas
         # closing over ``params["..."]`` can be evaluated during
@@ -219,6 +235,16 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
             self._fitted_params.clear()
             self._fitted_params.update({s.name: s.init_value for s in specs})
 
+        final_pred_tag = finalize_versioned_snapshot(
+            predicates_file,
+            predicates_versions_dir,
+            cycle_idx=self._learning_cycle_index(),
+            artifact_name="predicates",
+        )
+        if final_pred_tag is not None:
+            self._current_predicates_version = final_pred_tag
+            logger.info("Final predicates snapshot: %s", final_pred_tag)
+
         loaded = self._load_predicates_from_module_file(predicates_file)
         self._learned_predicates = loaded
         logger.info("Loaded %d learned predicate(s) from %s.", len(loaded),
@@ -226,15 +252,6 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         for p in sorted(loaded, key=lambda x: x.name):
             sig = ", ".join(t.name for t in p.types)
             logger.info("  %s(%s)", p.name, sig)
-
-        if os.path.isfile(predicates_file):
-            os.makedirs(archive_dir, exist_ok=True)
-            self._predicates_cycle_count += 1
-            archive_path = os.path.join(
-                archive_dir,
-                f"cycle_{self._predicates_cycle_count:03d}_predicates.py")
-            shutil.copy2(predicates_file, archive_path)
-            logger.info("Archived predicates.py to %s.", archive_path)
 
     # ── Predicate loading ────────────────────────────────────────
 
@@ -387,9 +404,10 @@ set used by `evaluate_plan_refinement`. Call it after every edit to \
 `predicates.py` before re-running plan refinement.
 
 Predicates persist across online cycles — the file is preserved between \
-synthesis sessions. Edit it freely; archives of each cycle's final state \
-live in `predicates_archive/`. Each online cycle re-runs synthesis with \
-the full trajectory history (offline demos + every interaction trajectory \
-collected so far), so failed past attempts remain visible for the agent \
-to learn from.
+synthesis sessions. Edit it freely; every successful Write/Edit (and a \
+final post-session check) is snapshotted to \
+`predicates_versions/cycle_XXX_vers_YYY_predicates.py`. Each online cycle \
+re-runs synthesis with the full trajectory history (offline demos + every \
+interaction trajectory collected so far), so failed past attempts remain \
+visible for the agent to learn from.
 """

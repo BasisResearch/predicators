@@ -140,6 +140,7 @@ class AgentSessionMixin:
                 allowed_tools=get_allowed_tool_list(tool_names,
                                                     extra_names=extra_names
                                                     or None),
+                tool_context=self._tool_context,
             )
 
         if self._agent_session_id is not None:

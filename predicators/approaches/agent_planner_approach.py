@@ -344,11 +344,25 @@ scene, then annotate_scene overlays markers on it."""
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
         assert self._requests_train_task_idxs is not None
+        # Subclasses (e.g. AgentSimLearningApproach) may track the
+        # snapshot tags of the simulator/predicates files in effect
+        # when the explorer generated these plans. Tag each new
+        # trajectory so the next learn-phase prompt can surface
+        # provenance. ``None`` for any approach that doesn't track
+        # versions.
+        sim_version: Optional[str] = getattr(
+            self, "_current_simulator_version", None)
+        preds_version: Optional[str] = getattr(
+            self, "_current_predicates_version", None)
         for i, result in enumerate(results):
             task_idx = self._requests_train_task_idxs[i]
-            traj = LowLevelTrajectory(result.states,
-                                      result.actions,
-                                      _train_task_idx=task_idx)
+            traj = LowLevelTrajectory(
+                result.states,
+                result.actions,
+                _train_task_idx=task_idx,
+                _source_simulator_version=sim_version,
+                _source_predicates_version=preds_version,
+            )
             self._online_trajectories.append(traj)
 
         # Update tool context
