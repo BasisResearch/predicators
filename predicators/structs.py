@@ -1755,16 +1755,16 @@ class LowLevelTrajectory:
 
     @property
     def source_simulator_version(self) -> Optional[str]:
-        """Snapshot tag of the simulator that generated the plan that
-        collected this trajectory (e.g. ``cycle_002_vers_005``), or
-        ``None`` for offline demos / trajectories collected before the
-        provenance tracking existed."""
+        """Snapshot tag of the simulator that generated the plan that collected
+        this trajectory (e.g. ``cycle_002_vers_005``), or ``None`` for offline
+        demos / trajectories collected before the provenance tracking
+        existed."""
         return self._source_simulator_version
 
     @property
     def source_predicates_version(self) -> Optional[str]:
-        """Snapshot tag of the predicates set used to generate the plan
-        that collected this trajectory, or ``None`` if not tracked."""
+        """Snapshot tag of the predicates set used to generate the plan that
+        collected this trajectory, or ``None`` if not tracked."""
         return self._source_predicates_version
 
 

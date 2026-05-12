@@ -11,18 +11,14 @@ predicates synthesis pipeline:
 Both are pure-Python and side-effect on the filesystem only; no agent
 SDK calls are made.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,unused-import
 import asyncio
-import os
 from types import SimpleNamespace
-
-import pytest
 
 # Bootstrap circular imports before pulling from predicators.agent_sdk.
 import predicators.utils  # noqa: F401 — required for import side effects
 from predicators.agent_sdk.tools import _SnapshotTarget, \
     finalize_versioned_snapshot, make_write_snapshot_hook
-
 
 # ── finalize_versioned_snapshot ──────────────────────────────────────
 
@@ -38,7 +34,7 @@ def test_finalize_versioned_snapshot_missing_live_file(tmp_path):
         artifact_name="simulator",
     )
     assert tag is None
-    assert list(versions.iterdir()) == []
+    assert not list(versions.iterdir())
 
 
 def test_finalize_versioned_snapshot_creates_first_snapshot(tmp_path):
@@ -53,7 +49,8 @@ def test_finalize_versioned_snapshot_creates_first_snapshot(tmp_path):
     assert tag == "cycle_001_vers_001"
     snapshots = sorted(p.name for p in versions.iterdir())
     assert snapshots == ["cycle_001_vers_001_simulator.py"]
-    assert (versions / "cycle_001_vers_001_simulator.py").read_text() == "# v1\n"
+    assert (versions /
+            "cycle_001_vers_001_simulator.py").read_text() == "# v1\n"
 
 
 def test_finalize_versioned_snapshot_dedup_on_unchanged_file(tmp_path):
@@ -96,8 +93,8 @@ def test_finalize_versioned_snapshot_bumps_on_change(tmp_path):
 
 
 def test_finalize_versioned_snapshot_new_cycle_restarts_vers_yyy(tmp_path):
-    """A new cycle starts at ``vers_001`` even when other cycles populated
-    the same directory."""
+    """A new cycle starts at ``vers_001`` even when other cycles populated the
+    same directory."""
     live = tmp_path / "simulator.py"
     versions = tmp_path / "simulator_versions"
     live.write_text("# v1\n")
@@ -121,8 +118,8 @@ def test_finalize_versioned_snapshot_new_cycle_restarts_vers_yyy(tmp_path):
 
 
 def test_finalize_versioned_snapshot_other_artifact_ignored(tmp_path):
-    """Existing files for a *different* ``artifact_name`` don't influence
-    the version count."""
+    """Existing files for a *different* ``artifact_name`` don't influence the
+    version count."""
     live = tmp_path / "predicates.py"
     versions = tmp_path / "shared_versions"
     versions.mkdir()
@@ -197,8 +194,8 @@ def test_write_hook_dedup_on_no_op_edit(tmp_path):
 
 
 def test_write_hook_resolves_absolute_and_relative_paths(tmp_path):
-    """A relative ``./predicates.py`` and an absolute path resolve to the
-    same target — both trigger snapshots, but dedup means only one file."""
+    """A relative ``./predicates.py`` and an absolute path resolve to the same
+    target — both trigger snapshots, but dedup means only one file."""
     hook, paths = _make_hook(tmp_path)
     paths["preds"].write_text("LEARNED_PREDICATES = []\n")
     _run_hook(hook, "Write", "./predicates.py")
@@ -220,8 +217,8 @@ def test_write_hook_ignores_files_outside_target_list(tmp_path):
 
 
 def test_write_hook_swallows_exceptions(tmp_path):
-    """A snapshot failure must not propagate — hooks failing should
-    never break the agent's edit loop."""
+    """A snapshot failure must not propagate — hooks failing should never break
+    the agent's edit loop."""
     hook, _paths = _make_hook(tmp_path)
     # Missing file_path is one quiet failure path; a non-string is another.
     hook_input = SimpleNamespace(tool_name="Write", tool_input={})
@@ -237,7 +234,8 @@ def test_write_hook_swallows_exceptions(tmp_path):
         artifact_name="simulator",
         cycle_index_provider=lambda: 1,
     )
-    bad_hook = make_write_snapshot_hook([bad_target], sandbox_dir=str(tmp_path))
+    bad_hook = make_write_snapshot_hook([bad_target],
+                                        sandbox_dir=str(tmp_path))
     (tmp_path / "simulator.py").write_text("body")
     asyncio.run(
         bad_hook(
@@ -249,8 +247,8 @@ def test_write_hook_swallows_exceptions(tmp_path):
 
 
 def test_write_hook_uses_cycle_provider_at_call_time(tmp_path):
-    """The cycle index is read each time the hook fires, not captured up
-    front, so consecutive cycles land in different filenames."""
+    """The cycle index is read each time the hook fires, not captured up front,
+    so consecutive cycles land in different filenames."""
     sandbox = tmp_path
     sim = sandbox / "simulator.py"
     sim_vd = sandbox / "simulator_versions"

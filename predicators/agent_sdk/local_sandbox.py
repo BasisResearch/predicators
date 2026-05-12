@@ -183,7 +183,8 @@ class LocalSandboxSessionManager:
             max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
             cwd=self._sandbox_dir,
             setting_sources=["project", "local"],
-            hooks=extra_hooks if extra_hooks else None,
+            hooks=(extra_hooks
+                   if extra_hooks else None),  # type: ignore[arg-type]
         )
 
         self._client = ClaudeSDKClient(options=options)
@@ -328,8 +329,7 @@ class LocalSandboxSessionManager:
 
     # -- Logging helpers --
 
-    _LOG_FILENAME_RE = re.compile(
-        r"^[a-z][a-z_]*_(\d{3})_\d{8}_\d{6}\.md$")
+    _LOG_FILENAME_RE = re.compile(r"^[a-z][a-z_]*_(\d{3})_\d{8}_\d{6}\.md$")
 
     def _seed_query_count_from_log_dir(self) -> None:
         """Make the per-session counter continuous across the run.

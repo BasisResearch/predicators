@@ -53,9 +53,7 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         # We hide env goal predicate atoms from the agent and only present
         # goals as natural language; the env therefore owes us a goal_nl
         # for every train task.
-        missing = [
-            i for i, t in enumerate(self._train_tasks) if not t.goal_nl
-        ]
+        missing = [i for i, t in enumerate(self._train_tasks) if not t.goal_nl]
         assert not missing, (
             f"{type(self).__name__} requires every train task to set "
             f"`goal_nl` (env goal atoms are deliberately not exposed to "
@@ -105,8 +103,7 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
 
     # ── Synthesis hooks ──────────────────────────────────────────
 
-    def _compute_extra_synthesis_paths(self,
-                                       base: str) -> Dict[str, str]:
+    def _compute_extra_synthesis_paths(self, base: str) -> Dict[str, str]:
         predicates_file = os.path.join(base, "predicates.py")
         predicates_versions_dir = os.path.join(base, "predicates_versions")
 
@@ -255,8 +252,7 @@ names. Any predicate you reference in a sketch must exist in \
 
     # ── Predicate loading ────────────────────────────────────────
 
-    def _load_predicates_from_module_file(
-            self, path: str) -> Set[Predicate]:
+    def _load_predicates_from_module_file(self, path: str) -> Set[Predicate]:
         """Load LEARNED_PREDICATES from ``path``; validate each.
 
         Mirrors the simulator-loader pattern. Returns the empty set on
@@ -269,6 +265,7 @@ names. Any predicate you reference in a sketch must exist in \
             exec_code_safely, validate_predicate
         from predicators.agent_sdk.tools import _ParamsView
         from predicators.code_sim_learning.training import ParamSpec
+
         # pylint: enable=import-outside-toplevel
 
         if not os.path.isfile(path):
@@ -279,23 +276,23 @@ names. Any predicate you reference in a sketch must exist in \
         with open(path, "r", encoding="utf-8") as f:
             code = f.read()
 
-        ctx = build_exec_context(
-            types=self._types,
-            predicates=self._kept_initial_predicates,
-            options=self._get_all_options(),
-            extra_context={
-                "params": _ParamsView(self._fitted_params),
-                "ParamSpec": ParamSpec,
-            })
+        ctx = build_exec_context(types=self._types,
+                                 predicates=self._kept_initial_predicates,
+                                 options=self._get_all_options(),
+                                 extra_context={
+                                     "params":
+                                     _ParamsView(self._fitted_params),
+                                     "ParamSpec": ParamSpec,
+                                 })
 
         result, err = exec_code_safely(code, ctx, "LEARNED_PREDICATES")
         if err is not None:
             logger.warning("Failed to load %s:\n%s", path, err)
             return set()
         if not isinstance(result, list):
-            logger.warning(
-                "%s: LEARNED_PREDICATES must be a list, got %s.", path,
-                type(result).__name__)
+            logger.warning("%s: LEARNED_PREDICATES must be a list, got %s.",
+                           path,
+                           type(result).__name__)
             return set()
 
         kept_names = {p.name for p in self._kept_initial_predicates}

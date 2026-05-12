@@ -121,8 +121,7 @@ def build_solve_prompt(
 
     goal_atoms_section = ""
     if goal_strs:
-        goal_atoms_section = (
-            f"\n## Goal Atoms\n{chr(10).join(goal_strs)}\n")
+        goal_atoms_section = (f"\n## Goal Atoms\n{chr(10).join(goal_strs)}\n")
 
     pred_strs = []
     for pred in sorted(all_predicates, key=lambda p: p.name):

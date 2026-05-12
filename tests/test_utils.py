@@ -1078,8 +1078,7 @@ def test_strip_task_preserves_goal_nl():
 
 def test_strip_task_propagates_missing_goal_nl():
     """Tasks that never set ``goal_nl`` come out with ``None``, not a
-    fabricated default — callers downstream rely on the missing-NL
-    branch."""
+    fabricated default — callers downstream rely on the missing-NL branch."""
     utils.reset_config({"env": "cover"})
     env = CoverEnv()
     base_task = env.get_train_tasks()[0].task

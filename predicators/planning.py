@@ -628,8 +628,8 @@ def run_backtracking_refinement(
                 else:
                     if num_actions == 0:
                         fail_reason = (getattr(option_model,
-                                               'last_execution_failure',
-                                               None) or "0 actions")
+                                               'last_execution_failure', None)
+                                       or "0 actions")
                     else:
                         traj[cur_idx + 1] = next_state
                         can_continue, fail_reason = validate_fn(
@@ -644,8 +644,8 @@ def run_backtracking_refinement(
                     max_depth = cur_idx
                 _update_bar()
             else:
-                logging.debug("  Step %d/%d FAIL (attempt %d/%d): %s",
-                              cur_idx, n_steps, num_tries_arr[cur_idx],
+                logging.debug("  Step %d/%d FAIL (attempt %d/%d): %s", cur_idx,
+                              n_steps, num_tries_arr[cur_idx],
                               max_tries[cur_idx], fail_reason)
                 if on_step_fail is not None:
                     on_step_fail(cur_idx, plan, fail_reason)

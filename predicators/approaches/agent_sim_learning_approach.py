@@ -129,14 +129,12 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         """1-indexed cycle number used in versioned snapshot filenames.
 
         Offline learning is cycle 1; ``_online_learning_cycle`` is
-        incremented before each online learn call, so adding 1 keeps
-        the offline pass and the first online pass on different
-        indices.
+        incremented before each online learn call, so adding 1 keeps the
+        offline pass and the first online pass on different indices.
         """
         return self._online_learning_cycle + 1
 
-    def _compute_extra_synthesis_paths(self,
-                                       base: str) -> Dict[str, str]:
+    def _compute_extra_synthesis_paths(self, base: str) -> Dict[str, str]:
         """Return extra path bindings for the synthesis sandbox."""
         del base
         return {}
@@ -205,9 +203,9 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         """Wrap snapshot targets in a Claude Agent SDK ``HookMatcher``.
 
         Returns the dict suitable for assignment to
-        ``ToolContext.extra_session_hooks``. Falls back to an empty
-        dict if the SDK ``HookMatcher`` isn't importable (so the
-        approach still works against older SDK versions).
+        ``ToolContext.extra_session_hooks``. Falls back to an empty dict
+        if the SDK ``HookMatcher`` isn't importable (so the approach
+        still works against older SDK versions).
         """
         if not targets:
             return {}
@@ -369,12 +367,17 @@ class AgentSimLearningApproach(AgentBilevelApproach):
                 sandbox_dir_for_agent = None
 
             exec_ns: Dict[str, Any] = {
-                "trajectories": trajectories,
-                "train_tasks": self._train_tasks,
-                "is_goal_state": lambda state, task_idx: self._train_tasks[
-                    task_idx].goal_holds(state),
-                "np": np,
-                "ParamSpec": ParamSpec,
+                "trajectories":
+                trajectories,
+                "train_tasks":
+                self._train_tasks,
+                "is_goal_state":
+                lambda state, task_idx: self._train_tasks[task_idx].goal_holds(
+                    state),
+                "np":
+                np,
+                "ParamSpec":
+                ParamSpec,
             }
 
             tools = create_synthesis_tools(
@@ -670,8 +673,8 @@ the tools."""
 
         Each interaction trajectory shows the simulator / predicates
         snapshot used to generate the plan that collected it (if
-        tracked). Demo trajectories list as ``demo``. Listed in the
-        same order the agent sees them via the ``trajectories`` var.
+        tracked). Demo trajectories list as ``demo``. Listed in the same
+        order the agent sees them via the ``trajectories`` var.
         """
         if not trajectories:
             return ""
@@ -700,8 +703,8 @@ the tools."""
 
         Returns a paragraph the agent can act on (read the files first
         and treat this cycle as incremental refinement) or an empty
-        string if no prior state exists. The base sandbox dir is
-        scanned for ``simulator.py`` / ``predicates.py``.
+        string if no prior state exists. The base sandbox dir is scanned
+        for ``simulator.py`` / ``predicates.py``.
         """
         prior: List[str] = []
         sim_path = os.path.join(base, "simulator.py")

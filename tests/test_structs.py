@@ -791,8 +791,8 @@ def test_low_level_trajectory_provenance_defaults():
     """Source-version fields default to ``None`` for backward compatibility.
 
     The provenance fields are optional so existing callers that build a
-    ``LowLevelTrajectory`` positionally (e.g. demo-replay datasets,
-    pre-update fixtures) keep working unchanged.
+    ``LowLevelTrajectory`` positionally (e.g. demo-replay datasets, pre-
+    update fixtures) keep working unchanged.
     """
     cup_type = Type("cup_type", ["f"])
     cup = cup_type("cup")

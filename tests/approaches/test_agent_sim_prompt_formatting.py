@@ -4,10 +4,9 @@ These are pure-Python staticmethods (or `self`-less methods) on
 ``AgentSimLearningApproach`` and ``AgentSimPredicateInventionApproach``
 that render parts of the agent's first synthesis message. They were
 added so the agent (a) knows the provenance of each interaction
-trajectory and (b) gets reminded about prior-cycle files in the
-sandbox.
+trajectory and (b) gets reminded about prior-cycle files in the sandbox.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,import-outside-toplevel,unused-import
 from __future__ import annotations
 
 import numpy as np
@@ -51,9 +50,9 @@ def test_trajectory_listing_empty(approach_cls):
 
 
 def test_trajectory_listing_demo_has_no_provenance_tail(approach_cls):
-    """Demo trajectories never carry provenance — even if the tags are
-    set, the listing should still render them as plain demos for
-    consistency with the offline-data semantics."""
+    """Demo trajectories never carry provenance — even if the tags are set, the
+    listing should still render them as plain demos for consistency with the
+    offline-data semantics."""
     trajs = [_mk_traj(is_demo=True, task_idx=0)]
     out = approach_cls._format_trajectory_listing(trajs)
     assert "[0] demo, task 0" in out
@@ -75,8 +74,8 @@ def test_trajectory_listing_interaction_with_provenance(approach_cls):
 
 
 def test_trajectory_listing_partial_provenance(approach_cls):
-    """A trajectory with only ``source_simulator_version`` set should
-    list only the sim tag — no stray ``, `` from a missing pair."""
+    """A trajectory with only ``source_simulator_version`` set should list only
+    the sim tag — no stray ``, `` from a missing pair."""
     trajs = [_mk_traj(is_demo=False, task_idx=1, sim_v="cycle_001_vers_007")]
     out = approach_cls._format_trajectory_listing(trajs)
     line = [l for l in out.splitlines() if l.startswith("  [0]")][0]

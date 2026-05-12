@@ -75,7 +75,8 @@ class AgentSessionManager:
             system_prompt=self._system_prompt,
             model=self._model_name,
             max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
-            hooks=extra_hooks if extra_hooks else None,
+            hooks=(extra_hooks
+                   if extra_hooks else None),  # type: ignore[arg-type]
         )
 
         self._client = ClaudeSDKClient(options=options)
@@ -229,8 +230,7 @@ class AgentSessionManager:
         logging.info("Saved session info to %s", path)
 
 
-def run_query_sync(session: Any,
-                   message: str,
+def run_query_sync(session: Any, message: str,
                    **query_kwargs: Any) -> List[Dict[str, Any]]:
     """Synchronously run ``session.query(message, **query_kwargs)``.
 

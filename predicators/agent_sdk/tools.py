@@ -2037,10 +2037,9 @@ def make_write_snapshot_hook(
             return os.path.realpath(path)
         return os.path.realpath(os.path.join(abs_sandbox, path))
 
-    target_by_path: Dict[str, _SnapshotTarget] = {
-        t.live_file: t
-        for t in targets
-    }
+    target_by_path: Dict[str,
+                         _SnapshotTarget] = {t.live_file: t
+                                             for t in targets}
 
     async def _hook(hook_input: Any, _tool_use_id: Any,
                     _context: Any) -> Dict[str, Any]:
@@ -2252,9 +2251,8 @@ def create_synthesis_tools(
     # sandbox, ``/sandbox/tool_outputs/run_python/...`` for docker, or an
     # absolute host path otherwise).
     _run_python_outputs_subdir = os.path.join("tool_outputs", "run_python")
-    _run_python_outputs_dir_host: Optional[str] = (
-        os.path.join(sandbox_dir, _run_python_outputs_subdir)
-        if sandbox_dir else None)
+    _run_python_outputs_dir_host: Optional[str] = (os.path.join(
+        sandbox_dir, _run_python_outputs_subdir) if sandbox_dir else None)
     if sandbox_dir_for_agent:
         _run_python_outputs_dir_agent: Optional[str] = (
             f"{sandbox_dir_for_agent.rstrip('/')}/"
@@ -2301,14 +2299,12 @@ def create_synthesis_tools(
             _version_count[0] += 1
             os.makedirs(versions_dir, exist_ok=True)
             snap_path = os.path.join(
-                versions_dir,
-                f"cycle_{cycle_idx:03d}_vers_"
+                versions_dir, f"cycle_{cycle_idx:03d}_vers_"
                 f"{_version_count[0]:03d}_simulator.py")
             with open(snap_path, "wb") as f:
                 f.write(raw)
             _last_snapshot_hash[0] = digest
-        version_tag = (
-            f"cycle_{cycle_idx:03d}_vers_{_version_count[0]:03d}")
+        version_tag = (f"cycle_{cycle_idx:03d}_vers_{_version_count[0]:03d}")
 
         ns: Dict[str, Any] = {"np": np, "ParamSpec": ParamSpec}
         try:
@@ -2386,9 +2382,9 @@ def create_synthesis_tools(
         lines = output.splitlines()
         total_lines = len(lines)
         head = lines[:_run_python_preview_head_lines]
-        tail = (lines[-_run_python_preview_tail_lines:]
-                if total_lines > (_run_python_preview_head_lines +
-                                  _run_python_preview_tail_lines) else [])
+        tail = (lines[-_run_python_preview_tail_lines:] if total_lines >
+                (_run_python_preview_head_lines +
+                 _run_python_preview_tail_lines) else [])
         agent_path = (f"{_run_python_outputs_dir_agent}/{filename}"
                       if _run_python_outputs_dir_agent else host_path)
         preview_parts = [
@@ -2801,8 +2797,8 @@ class _ParamsView:
 
     Holds the dict directly (not the approach) so predicate classifiers
     that close over this view do not transitively reference the
-    approach. The approach must mutate the same dict object in place
-    on each re-fit (clear + update) so the view picks up new values
+    approach. The approach must mutate the same dict object in place on
+    each re-fit (clear + update) so the view picks up new values
     automatically; replacing the dict would break the live link.
     """
 
@@ -2902,14 +2898,12 @@ def create_predicate_synthesis_tools(
             _version_count[0] += 1
             os.makedirs(predicates_versions_dir, exist_ok=True)
             snap_path = os.path.join(
-                predicates_versions_dir,
-                f"cycle_{cycle_idx:03d}_vers_"
+                predicates_versions_dir, f"cycle_{cycle_idx:03d}_vers_"
                 f"{_version_count[0]:03d}_predicates.py")
             with open(snap_path, "wb") as f:
                 f.write(raw)
             _last_snapshot_hash[0] = digest
-        version_tag = (
-            f"cycle_{cycle_idx:03d}_vers_{_version_count[0]:03d}")
+        version_tag = (f"cycle_{cycle_idx:03d}_vers_{_version_count[0]:03d}")
 
         ctx = build_exec_context(
             types=approach._types,  # pylint: disable=protected-access
@@ -2931,19 +2925,18 @@ def create_predicate_synthesis_tools(
 
         kept_names = {
             p.name
-            for p in
-            approach._kept_initial_predicates  # pylint: disable=protected-access
+            for p in approach._kept_initial_predicates  # pylint: disable=protected-access
         }
-        example_state = (approach._train_tasks[0].init  # pylint: disable=protected-access
-                         if approach._train_tasks else None)  # pylint: disable=protected-access
+        example_state = (
+            approach._train_tasks[0].init  # pylint: disable=protected-access
+            if approach._train_tasks else None)  # pylint: disable=protected-access
 
         valid: List[Predicate] = []
         warnings: List[str] = []
         seen_names = set()
         for entry in result:
             if not isinstance(entry, Predicate):
-                warnings.append(
-                    f"Skipped non-Predicate entry: {entry!r}")
+                warnings.append(f"Skipped non-Predicate entry: {entry!r}")
                 continue
             if entry.name in kept_names:
                 warnings.append(f"Skipped '{entry.name}' (collides "
@@ -2953,8 +2946,10 @@ def create_predicate_synthesis_tools(
                 warnings.append(f"Skipped duplicate '{entry.name}'.")
                 continue
             if example_state is not None:
-                verr = validate_predicate(entry, approach._types,  # pylint: disable=protected-access
-                                          example_state)
+                verr = validate_predicate(
+                    entry,
+                    approach._types,  # pylint: disable=protected-access
+                    example_state)
                 if verr is not None:
                     warnings.append(
                         f"Predicate '{entry.name}' failed validation: "
@@ -2974,7 +2969,8 @@ def create_predicate_synthesis_tools(
     ) -> List[Tuple[Any, ...]]:
         """Distinct-object groundings of ``pred_types`` from ``state``.
 
-        Capped at ``max_groundings``; sufficient for milestone reporting.
+        Capped at ``max_groundings``; sufficient for milestone
+        reporting.
         """
         objs_by_type: Dict[str, List[Any]] = {}
         for obj in state:
@@ -3024,8 +3020,10 @@ def create_predicate_synthesis_tools(
                     "(default 10).",
                 },
                 "max_groundings_per_predicate": {
-                    "type": "integer",
-                    "description": "Max object groundings to evaluate "
+                    "type":
+                    "integer",
+                    "description":
+                    "Max object groundings to evaluate "
                     "per predicate (default 4).",
                 },
             },
@@ -3070,14 +3068,14 @@ def create_predicate_synthesis_tools(
             lines.append("")
             lines.append(f"{pred.name}({sig})")
             ever_true = ever_false = False
-            flip_records: List[Tuple[int, Tuple[Any, ...], int, int, bool]] = []
+            flip_records: List[Tuple[int, Tuple[Any, ...], int, int,
+                                     bool]] = []
             no_grounding_trajs = 0
             error_lines: List[str] = []
             for ti, traj in enumerate(scanned):
                 if not traj.states:
                     continue
-                groundings = _enumerate_groundings(traj.states[0],
-                                                   pred.types,
+                groundings = _enumerate_groundings(traj.states[0], pred.types,
                                                    max_groundings)
                 if not groundings:
                     no_grounding_trajs += 1
@@ -3103,26 +3101,23 @@ def create_predicate_synthesis_tools(
                     flip_records.append(
                         (ti, gr, flips_up, flips_dn, truth[-1]))
 
-            coverage = (
-                "ever-T + ever-F" if ever_true and ever_false else
-                ("always-T (likely useless)" if ever_true else
-                 ("always-F (likely useless)" if ever_false else "no-data")))
+            coverage = ("ever-T + ever-F" if ever_true and ever_false else (
+                "always-T (likely useless)" if ever_true else
+                ("always-F (likely useless)" if ever_false else "no-data")))
             n_records = len(flip_records)
             n_monotone = sum(1 for _, _, up, dn, _ in flip_records
                              if up == 1 and dn == 0)
             n_never_flipped = sum(1 for _, _, up, dn, _ in flip_records
                                   if up == 0 and dn == 0)
             lines.append(f"  coverage: {coverage}")
-            lines.append(
-                f"  groundings scored: {n_records}, "
-                f"monotone (1↑ 0↓): {n_monotone}, "
-                f"never-flipped: {n_never_flipped}, "
-                f"no-grounding trajs: {no_grounding_trajs}")
+            lines.append(f"  groundings scored: {n_records}, "
+                         f"monotone (1↑ 0↓): {n_monotone}, "
+                         f"never-flipped: {n_never_flipped}, "
+                         f"no-grounding trajs: {no_grounding_trajs}")
             for ti, gr, up, dn, final in flip_records[:max_trajs]:
                 names = ", ".join(o.name for o in gr)
-                lines.append(
-                    f"  traj {ti} ({names}): ↑={up}, ↓={dn}, "
-                    f"final={'T' if final else 'F'}")
+                lines.append(f"  traj {ti} ({names}): ↑={up}, ↓={dn}, "
+                             f"final={'T' if final else 'F'}")
             for el in error_lines[:max_trajs]:
                 lines.append(el)
 

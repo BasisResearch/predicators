@@ -350,10 +350,12 @@ scene, then annotate_scene overlays markers on it."""
         # trajectory so the next learn-phase prompt can surface
         # provenance. ``None`` for any approach that doesn't track
         # versions.
-        sim_version: Optional[str] = getattr(
-            self, "_current_simulator_version", None)
-        preds_version: Optional[str] = getattr(
-            self, "_current_predicates_version", None)
+        sim_version: Optional[str] = getattr(self,
+                                             "_current_simulator_version",
+                                             None)
+        preds_version: Optional[str] = getattr(self,
+                                               "_current_predicates_version",
+                                               None)
         for i, result in enumerate(results):
             task_idx = self._requests_train_task_idxs[i]
             traj = LowLevelTrajectory(
