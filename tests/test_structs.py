@@ -787,6 +787,43 @@ def test_low_level_trajectory():
         traj = LowLevelTrajectory(states[:-1], actions)
 
 
+def test_low_level_trajectory_provenance_defaults():
+    """Source-version fields default to ``None`` for backward compatibility.
+
+    The provenance fields are optional so existing callers that build a
+    ``LowLevelTrajectory`` positionally (e.g. demo-replay datasets,
+    pre-update fixtures) keep working unchanged.
+    """
+    cup_type = Type("cup_type", ["f"])
+    cup = cup_type("cup")
+    states = [State({cup: [0.0]}), State({cup: [1.0]})]
+    actions = [Action([0.5])]
+    traj = LowLevelTrajectory(states, actions)
+    assert traj.source_simulator_version is None
+    assert traj.source_predicates_version is None
+
+
+def test_low_level_trajectory_provenance_roundtrip():
+    """Provenance tags assigned at construction are surfaced via properties."""
+    cup_type = Type("cup_type", ["f"])
+    cup = cup_type("cup")
+    states = [State({cup: [0.0]}), State({cup: [1.0]})]
+    actions = [Action([0.5])]
+    traj = LowLevelTrajectory(
+        states,
+        actions,
+        _is_demo=False,
+        _train_task_idx=3,
+        _source_simulator_version="cycle_002_vers_005",
+        _source_predicates_version="cycle_002_vers_003",
+    )
+    assert traj.source_simulator_version == "cycle_002_vers_005"
+    assert traj.source_predicates_version == "cycle_002_vers_003"
+    # Existing fields still work.
+    assert traj.train_task_idx == 3
+    assert not traj.is_demo
+
+
 def test_image_option_trajectory():
     """Tests for the ImageOptionTrajectory class."""
     # This setup is copied from the test for the LowLevelTrajectory class.
