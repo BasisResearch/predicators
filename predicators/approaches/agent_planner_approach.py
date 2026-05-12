@@ -315,7 +315,7 @@ scene, then annotate_scene overlays markers on it."""
             files["options.py"] = options_path
         return files
 
-    def _get_agent_tool_names(self) -> Optional[List[str]]:
+    def _get_solve_tool_names(self) -> Optional[List[str]]:
         tools = [
             "inspect_options", "inspect_trajectories", "inspect_train_tasks",
             "test_option_plan"
@@ -505,7 +505,7 @@ scene, then annotate_scene overlays markers on it."""
         state_str = init_state.dict_str(indent=2)
 
         # Available tools
-        tool_names = self._get_agent_tool_names()
+        tool_names = self._get_solve_tool_names()
         tools_str = ""
         if tool_names:
             tool_list = "\n".join(f"  - {t}" for t in tool_names)

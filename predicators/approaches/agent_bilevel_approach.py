@@ -43,6 +43,14 @@ class AgentBilevelApproach(AgentPlannerApproach):
         return "agent_bilevel"
 
     # ------------------------------------------------------------------ #
+    # Agent session hooks
+    # ------------------------------------------------------------------ #
+
+    def _get_synthesis_tool_names(self) -> Optional[List[str]]:
+        """No synthesis phase in this approach — declare an empty set."""
+        return []
+
+    # ------------------------------------------------------------------ #
     # System prompt (simplified — no parameter tuning workflow)
     # ------------------------------------------------------------------ #
 
@@ -86,7 +94,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             all_predicates=self._get_all_predicates(),
             all_options=self._get_all_options(),
             trajectory_summary=self._build_trajectory_summary(),
-            tool_names=self._get_agent_tool_names(),
+            tool_names=self._get_solve_tool_names(),
         )
 
     # ------------------------------------------------------------------ #

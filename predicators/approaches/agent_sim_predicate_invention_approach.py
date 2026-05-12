@@ -25,10 +25,11 @@ Example command::
 
 import logging
 import os
-from typing import Any, Dict, FrozenSet, List, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
-from predicators.agent_sdk.tools import _SnapshotTarget, \
-    create_predicate_synthesis_tools, finalize_versioned_snapshot
+from predicators.agent_sdk.tools import PREDICATE_SYNTHESIS_TOOL_NAMES, \
+    SCENE_TOOL_NAMES, _SnapshotTarget, create_predicate_synthesis_tools, \
+    finalize_versioned_snapshot
 from predicators.approaches.agent_sim_learning_approach import \
     AgentSimLearningApproach
 from predicators.settings import CFG
@@ -100,6 +101,45 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         if cfg_override:
             return frozenset(cfg_override)
         return self.KEPT_INITIAL_PREDICATE_NAMES
+
+    # ── Agent session hooks ─────────────────────────────────────
+
+    def _get_solve_tool_names(self) -> Optional[List[str]]:
+        """Extend the planner's tool subset with the SCENE tools.
+
+        ``annotate_scene`` and ``visualize_state`` are useful for
+        predicate invention: rendering the scene lets the agent
+        confirm geometry it would otherwise have to infer numerically.
+        The parent (``AgentPlannerApproach``) gates these on
+        ``agent_planner_use_*`` CFG flags, but those names refer to a
+        different use case — for predicate invention we always want
+        them available.
+        """
+        names = super()._get_solve_tool_names()
+        if names is None:
+            return None
+        for extra in SCENE_TOOL_NAMES:
+            if extra not in names:
+                names.append(extra)
+        return names
+
+    def _get_synthesis_tool_names(self) -> Optional[List[str]]:
+        """Extend the sim-learning synthesis surface with SCENE tools
+        and the predicate-synthesis callable.
+
+        Adds ``visualize_state`` / ``annotate_scene`` (the
+        predicate-invention prompt explicitly tells the agent to call
+        them when verifying geometric thresholds) and
+        ``evaluate_predicate_quality`` (the dynamic tool built by
+        :meth:`_extra_synthesis_tools`).
+        """
+        names = super()._get_synthesis_tool_names()
+        if names is None:
+            return None
+        for extra in list(SCENE_TOOL_NAMES) + list(PREDICATE_SYNTHESIS_TOOL_NAMES):
+            if extra not in names:
+                names.append(extra)
+        return names
 
     # ── Synthesis hooks ──────────────────────────────────────────
 
@@ -385,6 +425,26 @@ option like Place — refinement needs these or it picks an arbitrary location.
 Wait steps know when to terminate. Keep classifier thresholds consistent \
 with rule saturation values; an inconsistency causes evaluate_step_fit to \
 look fine while evaluate_plan_refinement gets stuck on the Wait subgoal.
+
+Verifying classifiers against the scene and data (applies to all predicates):
+
+A classifier picks features and parameter values; both can be wrong. Do \
+not pick either from intuition — verify before committing.
+
+- `visualize_state` / `annotate_scene` (available for any PyBullet env): \
+use whenever a predicate depends on geometry. A body's recorded pose \
+often doesn't coincide with the feature that matters (a faucet's spout, \
+a switch's handle, a burner's hot zone, the inside of a container); \
+render the scene, annotate candidate target points / regions, and \
+confirm what's actually where before encoding a threshold.
+- `run_python` (numerical workbench): iterate trajectory states and \
+compute the candidate classifier (or its underlying numeric expression) \
+at each step. The right parameter values cleanly separate the steps \
+where a downstream effect actually happens — the relevant rule feature \
+advances, the goal-relevant quantity changes — from the steps where it \
+doesn't. Sweep candidates against that signal and pick by separation. \
+This applies to every kind of predicate: placement thresholds, \
+process-completion cutoffs, on/off comparison points, etc.
 
 Validate with `evaluate_predicate_quality` (cheap; reports first-flip step, \
 monotonicity, coverage across all available trajectories). On goal-reaching \

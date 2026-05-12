@@ -27,9 +27,9 @@ import pybullet
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.tools import _SnapshotTarget, \
-    create_synthesis_tools, finalize_versioned_snapshot, \
-    make_write_snapshot_hook
+from predicators.agent_sdk.tools import INSPECTION_TOOL_NAMES, \
+    SYNTHESIS_TOOL_NAMES, _SnapshotTarget, create_synthesis_tools, \
+    finalize_versioned_snapshot, make_write_snapshot_hook
 from predicators.approaches.agent_bilevel_approach import AgentBilevelApproach
 from predicators.code_sim_learning.training import ParamSpec, compute_sse, \
     fit_params, log_sse_breakdown
@@ -119,6 +119,19 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         if self._learning_mode:
             return self._build_synthesis_system_prompt()
         return super()._get_agent_system_prompt()
+
+    def _get_synthesis_tool_names(self) -> Optional[List[str]]:
+        """Complete tool surface for the synthesis agent.
+
+        Combines the static MCP tools the agent may call (the inspect
+        family — used to read off option/predicate/type signatures
+        when writing rules) with the names of the dynamic synthesis
+        callables (``run_python``, ``evaluate_step_fit``,
+        ``report_residuals``, ``evaluate_plan_refinement``) attached
+        to ``ctx.extra_mcp_tools`` inside :meth:`_synthesize_with_agent`.
+        The mixin asserts the attached instances and this list agree.
+        """
+        return list(INSPECTION_TOOL_NAMES) + list(SYNTHESIS_TOOL_NAMES)
 
     # ── Subclass hooks ──────────────────────────────────────────
     # Default implementations are no-ops so subclasses can add
@@ -336,11 +349,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             # Resolve sandbox_dir without depending on a live session
             # manager. LocalSandboxSessionManager does set this on
             # tool_context in __init__, but it isn't constructed until
-            # _ensure_agent_session() runs further below — and the
-            # original ordering (build tools → set extra_mcp_tools →
-            # ensure session) is required so the in-process
-            # AgentSessionManager (which freezes allowed_tools at
-            # construction) sees the synthesis tools.
+            # _ensure_agent_session() runs further below.
             if CFG.agent_sdk_use_local_sandbox:
                 sandbox_dir: Optional[str] = os.path.abspath(
                     os.path.join(self._get_log_dir(), "sandbox"))
@@ -380,6 +389,13 @@ class AgentSimLearningApproach(AgentBilevelApproach):
                 ParamSpec,
             }
 
+            # Build dynamic synthesis tools and attach them to the
+            # tool context *before* opening the session. The attached
+            # set is filtered against ``_get_synthesis_tool_names`` so
+            # that method is the single source of truth for what the
+            # agent sees — anything a builder constructs but the names
+            # list omits is dropped here. The ``finally`` block below
+            # clears the attachment.
             tools = create_synthesis_tools(
                 exec_ns,
                 base_pred_triples,
@@ -394,7 +410,10 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             tools.extend(
                 self._extra_synthesis_tools(exec_ns, base_pred_triples,
                                             inferred_hint, extra_paths))
-            self._tool_context.extra_mcp_tools = tools
+            declared = set(self._get_synthesis_tool_names() or ())
+            self._tool_context.extra_mcp_tools = [
+                t for t in tools if getattr(t, "name", "") in declared
+            ]
             self._learning_mode = True
 
             # PostToolUse hook: snapshot simulator.py / predicates.py on
@@ -472,8 +491,8 @@ the tools."""
             try:
                 self._query_agent_sync(message, kind="learn")
             finally:
-                self._tool_context.extra_mcp_tools = []
                 self._tool_context.extra_session_hooks = {}
+                self._tool_context.extra_mcp_tools = []
                 self._learning_mode = False
                 self._close_agent_session()
 
