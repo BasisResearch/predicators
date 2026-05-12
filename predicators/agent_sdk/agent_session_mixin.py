@@ -5,8 +5,11 @@ AgentSessionManager creation, async-to-sync bridging, and agent explorer
 creation from AgentPlannerApproach and AgentAbstractionLearningApproach.
 """
 import asyncio
+import logging
 import os
 from typing import Any, Dict, List, Optional, Set, Union
+
+logger = logging.getLogger(__name__)
 
 from predicators.agent_sdk.session_manager import AgentSessionManager, \
     run_query_sync
@@ -147,6 +150,23 @@ class AgentSessionMixin:
                 f"_get_{'synthesis' if getattr(self, '_learning_mode', False) else 'solve'}_tool_names "
                 f"but no matching tool attached to ctx.extra_mcp_tools "
                 f"— add them to the builder or drop the names.")
+
+        phase = "synthesis" if getattr(self, "_learning_mode",
+                                       False) else "solve"
+        approach_name = getattr(type(self), "get_name", lambda: type(self).
+                                __name__)()
+        if tool_names is None:
+            logger.info(
+                "[%s] %s session tool surface: ALL static MCP tools "
+                "(no subset declared).", approach_name, phase)
+        else:
+            static = sorted(n for n in tool_names if n in set(ALL_TOOL_NAMES))
+            dynamic = sorted(n for n in tool_names
+                             if n not in set(ALL_TOOL_NAMES))
+            logger.info(
+                "[%s] %s session tool surface (%d total): "
+                "static=%s dynamic=%s", approach_name, phase, len(tool_names),
+                static, dynamic)
 
         if CFG.agent_sdk_use_docker_sandbox:
             from predicators.agent_sdk.docker_sandbox import \
