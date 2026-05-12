@@ -1,0 +1,24 @@
+From: predicators bullet-web
+Subject: [PATCH] Wavefront2GLInstanceGraphicsShape: drop SimpleOpenGL3App include
+
+The Wavefront OBJ→GL shape converter pulls in SimpleOpenGL3App.h purely
+to make b3Max visible. We compile headless under Emscripten and don't
+have GL headers in the include path; including b3MinMax.h directly
+yields the same b3Max without dragging in OpenGL.
+---
+ examples/Importers/ImportObjDemo/Wavefront2GLInstanceGraphicsShape.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/examples/Importers/ImportObjDemo/Wavefront2GLInstanceGraphicsShape.cpp b/examples/Importers/ImportObjDemo/Wavefront2GLInstanceGraphicsShape.cpp
+--- a/examples/Importers/ImportObjDemo/Wavefront2GLInstanceGraphicsShape.cpp
++++ b/examples/Importers/ImportObjDemo/Wavefront2GLInstanceGraphicsShape.cpp
+@@ -4,7 +4,8 @@
+ #include "../../OpenGLWindow/GLInstanceGraphicsShape.h"
+ //#include "btBulletDynamicsCommon.h"
+ #include "LinearMath/btVector3.h"
+-#include "../../OpenGLWindow/SimpleOpenGL3App.h"
++// SimpleOpenGL3App include removed (unused; pulls in GL).
++#include "Bullet3Common/b3MinMax.h"
+ #include "Wavefront2GLInstanceGraphicsShape.h"
+ #include "../../OpenGLWindow/GLInstancingRenderer.h"
+ #include "../../OpenGLWindow/GLInstanceGraphicsShape.h"

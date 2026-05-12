@@ -58,12 +58,13 @@ Explicitly excluded — would not work in a browser anyway:
 
 ```
 pyodide-bullet/
+├── packages/
+│   └── pybullet/
+│       ├── meta.yaml         # Pyodide recipe (declarative build spec)
+│       ├── patches/          # source/patches referenced from meta.yaml
+│       └── extras/           # source/extras drop-ins (setup.py, pyproject.toml)
 ├── recipes/
-│   ├── setup_emscripten.py   # Curated setup.py (drops GL/networking)
-│   ├── pyproject.toml        # Build deps (numpy)
-│   ├── source_patches.py     # Tiny in-place source patches
-│   ├── retag.py              # Wheel-tag rewriter (see below)
-│   └── build.sh              # End-to-end build script
+│   └── retag.py              # Wheel-tag rewriter for toolchain mismatches
 ├── src/
 │   ├── pybullet-3.2.7.tar.gz # Upstream sdist (80 MB)
 │   └── pybullet-3.2.7/       # Extracted source
@@ -77,15 +78,17 @@ pyodide-bullet/
 
 ## How to rebuild
 
+The wheel is produced from a Pyodide [package recipe](https://pyodide.org/en/0.27.7/development/new-packages.html)
+under `packages/pybullet/`. See that directory's README for the full
+build flow. Short version:
+
 ```bash
 cd pyodide-bullet
 source .venv/bin/activate
-source "$HOME/.cache/.pyodide-xbuildenv-0.34.3/0.27.7/emsdk/emsdk_env.sh"
-recipes/build.sh
-python recipes/retag.py out/pybullet-3.2.7-cp312-cp312-pyemscripten_2024_0_wasm32.whl
+pyodide build-recipes pybullet --recipe-dir packages --install-dir out
 ```
 
-First-time setup (already done):
+First-time toolchain setup (already done):
 
 ```bash
 uv venv --python 3.12 .venv
@@ -130,9 +133,10 @@ dropped.
 
 3. **`Wavefront2GLInstanceGraphicsShape`.** Pure data conversion (OBJ
    → mesh struct) but its source file `#include`s
-   `SimpleOpenGL3App.h`, which pulls in OpenGL. `source_patches.py`
-   drops the unused include and adds `Bullet3Common/b3MinMax.h` to
-   replace the implicit `b3Max` it brought in.
+   `SimpleOpenGL3App.h`, which pulls in OpenGL. The recipe's
+   `patches/0001-wavefront-drop-opengl-include.patch` drops the unused
+   include and adds `Bullet3Common/b3MinMax.h` to replace the implicit
+   `b3Max` it brought in.
 
 4. **Soft body.** I excluded `BulletSoftBody/*` initially, but
    `PhysicsServerCommandProcessor` unconditionally links

@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=64", "wheel", "numpy>=1.23"]
-build-backend = "setuptools.build_meta"
+requires = ["scikit-build-core>=0.8"]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "pybullet"

@@ -7,3 +7,8 @@ out/
 logs/
 test/node_modules/
 test/package-lock.json
+
+# pyodide build-recipes artifacts under each recipe directory.
+packages/*/build/
+packages/*/dist/
+packages/*/build.log

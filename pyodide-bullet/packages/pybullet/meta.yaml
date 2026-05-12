@@ -1,0 +1,114 @@
+package:
+  name: pybullet
+  version: 3.2.7
+  top-level:
+    - pybullet
+    - pybullet_data
+
+source:
+  url: https://files.pythonhosted.org/packages/source/p/pybullet/pybullet-3.2.7.tar.gz
+  sha256: 042879db8d101ac7590dee475fc6aded508b85fe1273fdbbfde1d88bd200e14f
+
+  # Upstream's setup.py / CMakeLists.txt build OpenGL examples, the
+  # ExampleBrowser, networking, etc. — none of which apply to Pyodide.
+  # We swap in a curated CMakeLists.txt + scikit-build-core pyproject
+  # that compiles only the headless physics surface area (core
+  # dynamics, soft body, URDF/MJCF/Collada parsers, BussIK, TinyRenderer
+  # for getCameraImage). See extras/CMakeLists.txt for the source list.
+  extras:
+    - [extras/CMakeLists.txt, CMakeLists.txt]
+    - [extras/pyproject.toml, pyproject.toml]
+
+  # Drops `#include "../../OpenGLWindow/SimpleOpenGL3App.h"` from the
+  # Wavefront OBJ converter (used only to make b3Max visible). We
+  # include Bullet3Common/b3MinMax.h directly instead so the file
+  # compiles without GL headers on the include path.
+  patches:
+    - patches/0001-wavefront-drop-opengl-include.patch
+
+build:
+  # The Python binding pybullet.c registers `PyInit_pybullet` and is the
+  # only entry point we need exported. `pyinit` is the default — listed
+  # explicitly for clarity.
+  exports: pyinit
+
+  # Pybullet ships ~80 MB of bundled assets — RL policy checkpoints,
+  # mocap reference motions, robot meshes — that the CMakeLists.txt's
+  # `install(DIRECTORY pybullet_data ...)` would otherwise pack into
+  # the wheel. Stripping them here drops the wheel to ~5 MB.
+  script: |
+    DATA_DIR="examples/pybullet/gym/pybullet_data"
+    if [ -d "$DATA_DIR" ]; then
+      # RL policies / mocap / large samplers — never used at runtime.
+      rm -rf \
+        "$DATA_DIR/data/policies" \
+        "$DATA_DIR/data/motions" \
+        "$DATA_DIR/policies" \
+        "$DATA_DIR/MPL" \
+        "$DATA_DIR/samurai_monastry.obj" \
+        "$DATA_DIR/random_urdfs" \
+        "$DATA_DIR/random_urdfs.zip" \
+        "$DATA_DIR/toys" \
+        "$DATA_DIR/heightmaps" \
+        "$DATA_DIR/testdata"
+      # Robot models — most predicators envs ship their own under
+      # predicators/envs/assets/urdf/, so the bundled copies are dead
+      # weight. Keep plane.urdf / cube.urdf / sphere2.urdf which a few
+      # pybullet APIs reference by default.
+      rm -rf \
+        "$DATA_DIR/laikago" \
+        "$DATA_DIR/atlas" \
+        "$DATA_DIR/quadruped" \
+        "$DATA_DIR/humanoid" \
+        "$DATA_DIR/biped" \
+        "$DATA_DIR/franka_panda" \
+        "$DATA_DIR/xarm" \
+        "$DATA_DIR/a1" \
+        "$DATA_DIR/mini_cheetah" \
+        "$DATA_DIR/aliengo" \
+        "$DATA_DIR/roboschool" \
+        "$DATA_DIR/racecar" \
+        "$DATA_DIR/kuka_iiwa" \
+        "$DATA_DIR/bicycle" \
+        "$DATA_DIR/husky" \
+        "$DATA_DIR/differential" \
+        "$DATA_DIR/dinnerware" \
+        "$DATA_DIR/duck.obj" \
+        "$DATA_DIR/duck.dae" \
+        "$DATA_DIR/duck_vhacd.obj" \
+        "$DATA_DIR/duck_vhacd.urdf" \
+        "$DATA_DIR/r2d2_concave.urdf" \
+        "$DATA_DIR/r2d2.urdf" \
+        "$DATA_DIR/kiva_shelf" \
+        "$DATA_DIR/jenga" \
+        "$DATA_DIR/lego" \
+        "$DATA_DIR/torus.vtk" \
+        "$DATA_DIR/soccerball.obj" \
+        "$DATA_DIR/pickup2.zip" \
+        "$DATA_DIR/table" \
+        "$DATA_DIR/tray"
+    fi
+    # Upstream README.md is huge and gets pulled into the wheel as
+    # long_description metadata; replace with a one-liner.
+    if [ -f README.md ]; then
+      printf "pybullet for Pyodide (headless)\n" > README.md
+    fi
+
+requirements:
+  # numpy provides `Python3::NumPy` via find_package at build time and
+  # is used by the binding's array-returning helpers at runtime.
+  host:
+    - numpy
+  run:
+    - numpy
+
+test:
+  imports:
+    - pybullet
+    - pybullet_data
+
+about:
+  home: https://github.com/bulletphysics/bullet3
+  PyPI: https://pypi.org/project/pybullet
+  summary: Pyodide-targeted build of pybullet (headless physics).
+  license: zlib
