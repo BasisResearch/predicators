@@ -15,7 +15,6 @@ Parallels ``AgentPlanExplorer`` for session plumbing and
 import logging
 from typing import Any, Callable, Dict, List, Optional, Set
 
-import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
@@ -108,7 +107,7 @@ class AgentBilevelExplorer(BaseExplorer):
                 option_model,
                 predicates=self._predicates,
                 timeout=float(timeout),
-                rng=np.random.default_rng(CFG.seed),
+                rng=self._rng,
                 max_samples_per_step=CFG.
                 agent_bilevel_explorer_max_samples_per_step,
                 check_subgoals=True,
