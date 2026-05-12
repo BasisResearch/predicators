@@ -84,6 +84,7 @@ class BaseDemoEnv(abc.ABC):
         orientation: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0),
         color: tuple[float, float, float, float] = (0.7, 0.7, 0.7, 1.0),
         friction: float = 0.6,
+        restitution: float = 0.0,
         kinematic: bool = False,
     ) -> int:
         col = p.createCollisionShape(p.GEOM_BOX,
@@ -100,11 +101,47 @@ class BaseDemoEnv(abc.ABC):
                                  baseOrientation=list(orientation),
                                  physicsClientId=self._client_id)
         p.changeDynamics(body, -1, lateralFriction=friction,
+                         restitution=restitution,
                          physicsClientId=self._client_id)
         self._bodies.append(body)
         self._render_meta[body] = {
             "kind": "box",
             "half_extents": tuple(half_extents),
+            "color": tuple(color),
+        }
+        return body
+
+    def spawn_sphere(
+        self,
+        radius: float,
+        mass: float,
+        position: tuple[float, float, float],
+        color: tuple[float, float, float, float] = (0.7, 0.7, 0.7, 1.0),
+        friction: float = 0.5,
+        rolling_friction: float = 0.001,
+        restitution: float = 0.0,
+        kinematic: bool = False,
+    ) -> int:
+        col = p.createCollisionShape(p.GEOM_SPHERE, radius=radius,
+                                     physicsClientId=self._client_id)
+        vis = p.createVisualShape(p.GEOM_SPHERE, radius=radius,
+                                  rgbaColor=list(color),
+                                  physicsClientId=self._client_id)
+        body = p.createMultiBody(baseMass=0.0 if kinematic else mass,
+                                 baseCollisionShapeIndex=col,
+                                 baseVisualShapeIndex=vis,
+                                 basePosition=list(position),
+                                 physicsClientId=self._client_id)
+        p.changeDynamics(body, -1,
+                         lateralFriction=friction,
+                         rollingFriction=rolling_friction,
+                         spinningFriction=rolling_friction,
+                         restitution=restitution,
+                         physicsClientId=self._client_id)
+        self._bodies.append(body)
+        self._render_meta[body] = {
+            "kind": "sphere",
+            "radius": radius,
             "color": tuple(color),
         }
         return body
@@ -141,6 +178,57 @@ class BaseDemoEnv(abc.ABC):
     def release(self, constraint_id: int) -> None:
         p.removeConstraint(constraint_id,
                            physicsClientId=self._client_id)
+
+    def hang_from_world(
+        self,
+        body_id: int,
+        anchor_world: tuple[float, float, float],
+    ) -> int:
+        """Pin `body_id` to a fixed point in world space via a P2P
+        (ball-and-socket) constraint, treating the rod from body center
+        to anchor as a rigid swing arm.
+
+        The body must already be spawned at the desired end-of-arm
+        position; the function computes the lever-arm offset from the
+        body's current pose.
+
+        PyBullet rejects parentBodyUniqueId=-1 for world anchoring, so
+        we spawn a tiny invisible static helper body at the anchor point
+        and constrain to that. Returns the constraint id."""
+        # Compute the lever-arm offset (anchor − body_center) in the
+        # body's local frame. For an unrotated body this is identical
+        # to the world-space vector; once the body rotates, the offset
+        # rotates with it (giving correct rigid-arm pendulum behaviour).
+        body_pos, _ = self.get_pose(body_id)
+        child_local = (
+            anchor_world[0] - body_pos[0],
+            anchor_world[1] - body_pos[1],
+            anchor_world[2] - body_pos[2],
+        )
+        # Static helper body: 1 mm collision sphere, no visual, mass=0.
+        # (No render_meta entry → not drawn.)
+        col = p.createCollisionShape(p.GEOM_SPHERE, radius=0.001,
+                                     physicsClientId=self._client_id)
+        anchor = p.createMultiBody(baseMass=0.0,
+                                   baseCollisionShapeIndex=col,
+                                   basePosition=list(anchor_world),
+                                   physicsClientId=self._client_id)
+        # Disable collision between the anchor stub and the constrained
+        # body so the helper sphere doesn't perturb the swing.
+        p.setCollisionFilterPair(anchor, body_id, -1, -1, 0,
+                                 physicsClientId=self._client_id)
+        self._bodies.append(anchor)
+        return p.createConstraint(
+            parentBodyUniqueId=anchor,
+            parentLinkIndex=-1,
+            childBodyUniqueId=body_id,
+            childLinkIndex=-1,
+            jointType=p.JOINT_POINT2POINT,
+            jointAxis=[0, 0, 0],
+            parentFramePosition=[0, 0, 0],
+            childFramePosition=list(child_local),
+            physicsClientId=self._client_id,
+        )
 
     # ---- accessors used by the JS host ---------------------------------
     def get_pose(self, body_id: int):

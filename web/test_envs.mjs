@@ -19,8 +19,11 @@ const ENV_FILES = [
   "envs/__init__.py",
   "envs/base.py",
   "envs/blocks.py",
+  "envs/bowling.py",
   "envs/cover.py",
   "envs/domino.py",
+  "envs/newton.py",
+  "envs/wrecking.py",
   "demo.py",
 ];
 

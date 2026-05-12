@@ -18,7 +18,12 @@ _BLOCK_COLORS = [
     (0.95, 0.7, 0.2, 1.0),
     (0.7, 0.3, 0.85, 1.0),
 ]
-_HOVER_Z = 0.35
+# Hover height has to clear the top of any partially-built stack PLUS
+# the held block (which dangles `_GRIPPER_SIZE[2] + _BLOCK_SIZE[2]` below
+# the gripper center). With 4 blocks the topmost placement sits at
+# z ≈ 0.40, so the held-block bottom needs to be above that during the
+# horizontal approach — hence hover ≈ 0.50.
+_HOVER_Z = 0.50
 _APPROACH_SPEED = 0.6
 _LIFT_SPEED = 0.4
 _NUM_BLOCKS = 4

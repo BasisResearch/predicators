@@ -66,6 +66,20 @@ function addPlaneMesh(id) {
   meshes.set(id, mesh);
 }
 
+function addSphereMesh(id, radius, color) {
+  const geom = new THREE.SphereGeometry(radius, 24, 16);
+  const mat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(color[0], color[1], color[2]),
+    opacity: color[3], transparent: color[3] < 1.0,
+    roughness: 0.4, metalness: 0.1,
+  });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  meshes.set(id, mesh);
+}
+
 function clearMeshes() {
   for (const m of meshes.values()) {
     scene.remove(m);
@@ -80,6 +94,8 @@ function applyManifest(manifest) {
   for (const entry of manifest) {
     if (entry.kind === "box") {
       addBoxMesh(entry.id, entry.half_extents, entry.color);
+    } else if (entry.kind === "sphere") {
+      addSphereMesh(entry.id, entry.radius, entry.color);
     } else if (entry.kind === "plane") {
       addPlaneMesh(entry.id);
     }
@@ -140,8 +156,11 @@ async function mountWebPackage(py) {
     "envs/__init__.py",
     "envs/base.py",
     "envs/blocks.py",
+    "envs/bowling.py",
     "envs/cover.py",
     "envs/domino.py",
+    "envs/newton.py",
+    "envs/wrecking.py",
     "demo.py",
   ];
   py.FS.mkdirTree("/home/pyodide/web");

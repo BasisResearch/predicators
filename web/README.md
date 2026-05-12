@@ -36,17 +36,31 @@ web/
 ├── envs/
 │   ├── base.py         # tiny BaseDemoEnv (wraps pybullet calls,
 │   │                    #  tracks render metadata for Three.js)
-│   ├── blocks.py       # scripted stacker — uses real pybullet
-│   ├── cover.py        # slide blocks to cover targets
-│   └── domino.py       # tip the chain
+│   ├── blocks.py       # scripted gripper stacks cubes
+│   ├── bowling.py      # rolling ball into a triangle of pins
+│   ├── cover.py        # slide blocks onto target zones
+│   ├── domino.py       # cascading chain
+│   ├── newton.py       # Newton's cradle — pendulum + elastic contacts
+│   └── wrecking.py     # heavy pendulum smashes a tower
 ├── wheels/
-│   └── pybullet-3.2.7-cp312-cp312-emscripten_3_1_58_wasm32.whl  (74 MB)
+│   └── pybullet-3.2.7-cp312-cp312-emscripten_3_1_58_wasm32.whl  (5.4 MB)
 ├── app.js              # Pyodide loader + Three.js renderer
 ├── demo.py             # Pyodide-side entry: load_env / step / poses
 ├── index.html          # host page
 ├── test_envs.mjs       # Node-based headless smoke test
 └── README.md
 ```
+
+## The envs and what each one exercises
+
+| name       | physics features                                                  |
+|------------|-------------------------------------------------------------------|
+| `blocks`   | gravity, contact, fixed-constraint grasping, stacking             |
+| `cover`    | sliding friction, kinematic vs dynamic interaction                |
+| `domino`   | cascading contact, dynamic finger + velocity transfer             |
+| `newton`   | point-to-point constraints (pendulum), near-elastic restitution   |
+| `wrecking` | heavy pendulum momentum, tower collapse, debris scatter           |
+| `bowling`  | rolling friction, ball spin, 10-body contact cascade              |
 
 ## How the pieces fit together
 
