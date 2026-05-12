@@ -76,6 +76,18 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         self._init_agent_session_state(types, initial_predicates,
                                        initial_options, train_tasks)
 
+        # Capture the underlying env once, at construction time. The
+        # initial option model wraps ``env.simulate`` (a bound method),
+        # so ``__self__`` is the env. Later cycles may rebuild
+        # ``_option_model`` with a plain learned simulator that has no
+        # ``__self__``; pinning the env reference here ensures scene
+        # rendering tools (annotate_scene, visualize_state) keep working
+        # in every synthesis/solve cycle.
+        env_self = getattr(
+            getattr(self._option_model, '_simulator', None), '__self__', None)
+        if env_self is not None:
+            self._tool_context.env = env_self
+
     @classmethod
     def get_name(cls) -> str:
         return "agent_planner"
@@ -766,13 +778,18 @@ Output ONLY the option plan lines at the end, after any analysis."""
         if all_trajs:
             self._tool_context.example_state = all_trajs[0].states[0]
 
-        # Extract env from option model for scene rendering
+        # Refresh env from option model only if extraction succeeds.
+        # After sim learning, ``_simulator`` may be a plain lambda with
+        # no ``__self__``; don't clobber the env reference seeded in
+        # ``__init__`` in that case.
         if self._option_model is not None and \
                 hasattr(self._option_model, '_simulator'):
-            self._tool_context.env = getattr(
+            env_self = getattr(
                 self._option_model._simulator,  # pylint: disable=protected-access
                 '__self__',
                 None)
+            if env_self is not None:
+                self._tool_context.env = env_self
 
     # ------------------------------------------------------------------ #
     # Save / Load
