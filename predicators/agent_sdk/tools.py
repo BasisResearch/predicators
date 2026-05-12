@@ -2135,6 +2135,81 @@ def finalize_versioned_snapshot(
     return f"cycle_{cycle_idx:03d}_vers_{new_vers:03d}"
 
 
+class _ArtifactSnapshotter:
+    """Per-call versioned snapshotting for one artifact file.
+
+    Used by the synthesis-tools factories to dedup snapshots by SHA256
+    and tag each load with ``cycle_XXX_vers_YYY``. ``YYY`` is per
+    instance and starts at 0 — it resets each time a new snapshotter
+    is created (typically once per factory call). ``XXX`` is read from
+    ``cycle_index_provider`` at each call so live cycle bumps are
+    reflected in subsequent tags.
+    """
+
+    def __init__(
+        self,
+        live_file: str,
+        versions_dir: str,
+        artifact_name: str,
+        cycle_index_provider: Optional[Callable[[], int]],
+        missing_file_hint: str = "",
+    ) -> None:
+        self._live_file = live_file
+        self._versions_dir = versions_dir
+        self._artifact_name = artifact_name
+        self._cycle_index_provider = cycle_index_provider
+        self._missing_file_hint = missing_file_hint
+        self._version_count = 0
+        self._last_digest: Optional[str] = None
+
+    def current_cycle(self) -> int:
+        if self._cycle_index_provider is None:
+            return 0
+        try:
+            return int(self._cycle_index_provider())
+        except Exception:  # pylint: disable=broad-except
+            return 0
+
+    def snapshot(
+        self,
+        path: Optional[str] = None,
+    ) -> Tuple[Optional[bytes], Optional[str], Optional[str]]:
+        """Read the live file and write a versioned snapshot on change.
+
+        Returns ``(raw_bytes, version_tag, error_msg)``. On a missing
+        file, ``raw_bytes`` and ``version_tag`` are ``None`` and
+        ``error_msg`` carries a user-facing message (suffixed with
+        ``missing_file_hint`` when configured).
+
+        ``path`` may override the configured ``live_file`` per call —
+        the snapshotter still writes into the configured
+        ``versions_dir`` under ``artifact_name``, sharing the version
+        counter and digest cache so dedup spans both files.
+        """
+        target = path or self._live_file
+        if not os.path.isfile(target):
+            msg = (f"{self._artifact_name.capitalize()} file not found: "
+                   f"{target}.")
+            if self._missing_file_hint:
+                msg = f"{msg} {self._missing_file_hint}"
+            return None, None, msg
+        with open(target, "rb") as f:
+            raw = f.read()
+        digest = hashlib.sha256(raw).hexdigest()
+        cycle_idx = self.current_cycle()
+        if digest != self._last_digest:
+            self._version_count += 1
+            os.makedirs(self._versions_dir, exist_ok=True)
+            snap_path = os.path.join(
+                self._versions_dir, f"cycle_{cycle_idx:03d}_vers_"
+                f"{self._version_count:03d}_{self._artifact_name}.py")
+            with open(snap_path, "wb") as f:
+                f.write(raw)
+            self._last_digest = digest
+        return raw, (f"cycle_{cycle_idx:03d}_vers_"
+                     f"{self._version_count:03d}"), None
+
+
 def create_synthesis_tools(
     exec_ns: Dict[str, Any],
     base_pred_triples: list,
@@ -2233,8 +2308,14 @@ def create_synthesis_tools(
 
     # pylint: enable=import-outside-toplevel
 
-    _version_count = [0]
-    _last_snapshot_hash: List[Optional[str]] = [None]
+    _snapshotter = _ArtifactSnapshotter(
+        live_file=simulator_file,
+        versions_dir=versions_dir,
+        artifact_name="simulator",
+        cycle_index_provider=cycle_index_provider,
+        missing_file_hint=("Use Write to create it with PROCESS_RULES, "
+                           "PARAM_SPECS, PROCESS_FEATURES."),
+    )
     _run_python_count = [0]
 
     # Threshold above which run_python output is spilled to a file in the
@@ -2262,22 +2343,7 @@ def create_synthesis_tools(
     else:
         _run_python_outputs_dir_agent = None
 
-    def _text(msg: str) -> Dict[str, Any]:
-        # MCP @tool callables must return a CallToolResult-shape dict
-        # (``{"content": [<block>, ...]}``), not a bare content block.
-        # Returning the bare block triggers a Pydantic validation error
-        # on every tool call (the runtime falls through to the default
-        # CallToolResult fields and tries to validate ``meta`` / empty
-        # ``content`` as TextContent items).
-        return {"content": [{"type": "text", "text": msg}]}
-
-    def _current_cycle() -> int:
-        if cycle_index_provider is None:
-            return 0
-        try:
-            return int(cycle_index_provider())
-        except Exception:  # pylint: disable=broad-except
-            return 0
+    _text = _text_result
 
     def _snapshot_and_load(path: str) -> Tuple[Any, Any, Any, Any, Any]:
         """Snapshot ``path`` then exec it into a fresh namespace.
@@ -2287,25 +2353,10 @@ def create_synthesis_tools(
         SHA256, so repeated calls on unchanged content reuse the prior
         ``cycle_XXX_vers_YYY`` tag.
         """
-        if not os.path.isfile(path):
-            return None, None, None, None, (
-                f"Simulator file not found: {path}. Use Write to create it "
-                "with PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES.")
-        with open(path, "rb") as f:
-            raw = f.read()
-        digest = hashlib.sha256(raw).hexdigest()
-        cycle_idx = _current_cycle()
-        if digest != _last_snapshot_hash[0]:
-            _version_count[0] += 1
-            os.makedirs(versions_dir, exist_ok=True)
-            snap_path = os.path.join(
-                versions_dir, f"cycle_{cycle_idx:03d}_vers_"
-                f"{_version_count[0]:03d}_simulator.py")
-            with open(snap_path, "wb") as f:
-                f.write(raw)
-            _last_snapshot_hash[0] = digest
-        version_tag = (f"cycle_{cycle_idx:03d}_vers_{_version_count[0]:03d}")
-
+        raw, version_tag, err = _snapshotter.snapshot(path)
+        if err is not None:
+            return None, None, None, None, err
+        assert raw is not None and version_tag is not None
         ns: Dict[str, Any] = {"np": np, "ParamSpec": ParamSpec}
         try:
             exec(raw.decode("utf-8"), ns)  # pylint: disable=exec-used
@@ -2861,21 +2912,17 @@ def create_predicate_synthesis_tools(
 
     # pylint: enable=import-outside-toplevel
 
-    _version_count = [0]
-    _last_snapshot_hash: List[Optional[str]] = [None]
-
-    def _text(msg: str) -> Dict[str, Any]:
-        return {"content": [{"type": "text", "text": msg}]}
+    _text = _text_result
+    _snapshotter = _ArtifactSnapshotter(
+        live_file=predicates_file,
+        versions_dir=predicates_versions_dir,
+        artifact_name="predicates",
+        cycle_index_provider=cycle_index_provider,
+        missing_file_hint=("Use Write to create it with "
+                           "LEARNED_PREDICATES = [...]."),
+    )
 
     params_view = _ParamsView(approach._fitted_params)  # pylint: disable=protected-access
-
-    def _current_cycle() -> int:
-        if cycle_index_provider is None:
-            return 0
-        try:
-            return int(cycle_index_provider())
-        except Exception:  # pylint: disable=broad-except
-            return 0
 
     def _snapshot_and_load_predicates(
         path: str,
@@ -2886,24 +2933,10 @@ def create_predicate_synthesis_tools(
         ``error_msg`` is ``None`` on success. Predicates that failed
         validation are excluded; ``warnings`` describes them.
         """
-        if not os.path.isfile(path):
-            return [], None, (
-                f"Predicates file not found: {path}. Use Write to "
-                "create it with LEARNED_PREDICATES = [...]."), []
-        with open(path, "rb") as f:
-            raw = f.read()
-        digest = hashlib.sha256(raw).hexdigest()
-        cycle_idx = _current_cycle()
-        if digest != _last_snapshot_hash[0]:
-            _version_count[0] += 1
-            os.makedirs(predicates_versions_dir, exist_ok=True)
-            snap_path = os.path.join(
-                predicates_versions_dir, f"cycle_{cycle_idx:03d}_vers_"
-                f"{_version_count[0]:03d}_predicates.py")
-            with open(snap_path, "wb") as f:
-                f.write(raw)
-            _last_snapshot_hash[0] = digest
-        version_tag = (f"cycle_{cycle_idx:03d}_vers_{_version_count[0]:03d}")
+        raw, version_tag, err = _snapshotter.snapshot(path)
+        if err is not None:
+            return [], None, err, []
+        assert raw is not None and version_tag is not None
 
         ctx = build_exec_context(
             types=approach._types,  # pylint: disable=protected-access
