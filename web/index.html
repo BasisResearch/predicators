@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>predicators / browser demos (real pybullet)</title>
+  <style>
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f2f4f8; color: #1d2433;
+    }
+    #toolbar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px;
+      background: #ffffff;
+      border-bottom: 1px solid #dde2eb;
+    }
+    #toolbar h1 { font-size: 16px; margin: 0; font-weight: 600; }
+    #status { margin-left: auto; font-size: 13px; color: #5a6276; }
+    select, button {
+      font: inherit;
+      padding: 6px 10px;
+      border: 1px solid #cdd3dd;
+      background: #ffffff;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover, select:hover { border-color: #99a3b5; }
+    #canvas-wrap {
+      position: relative;
+      height: calc(100vh - 53px);
+    }
+    #canvas { width: 100%; height: 100%; display: block; }
+  </style>
+
+  <!-- Three.js renderer (UMD build) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+
+  <!-- Pyodide loader -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js"></script>
+</head>
+<body>
+  <div id="toolbar">
+    <h1>predicators / browser demos &middot; real pybullet</h1>
+    <label for="env-selector">env:</label>
+    <select id="env-selector"></select>
+    <button id="reset-btn">reset</button>
+    <span id="status">Booting…</span>
+  </div>
+  <div id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

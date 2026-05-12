@@ -1,0 +1,4 @@
+node_modules
+# Keep the canonical wheel committed so the demo works on checkout.
+# Discard scratch/intermediate wheels (e.g. with old tag suffixes).
+wheels/*pyemscripten*.whl

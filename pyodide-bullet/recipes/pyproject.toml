@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=64", "wheel", "numpy>=1.23"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pybullet"
+version = "3.2.7"
+description = "Pyodide-targeted build of pybullet (headless physics only)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "zlib" }
+authors = [
+    { name = "Erwin Coumans, Yunfei Bai, Jasmine Hsu" },
+]
+dependencies = ["numpy"]

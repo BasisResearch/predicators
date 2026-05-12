@@ -1,0 +1,9 @@
+# Heavy build artefacts. The 80 MB upstream tarball and the 77 MB wheel
+# don't belong in git.
+.venv/
+src/pybullet-3.2.7/
+src/pybullet-3.2.7.tar.gz
+out/
+logs/
+test/node_modules/
+test/package-lock.json
