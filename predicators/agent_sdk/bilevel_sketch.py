@@ -77,7 +77,15 @@ def build_solve_prompt(
     for obj in sorted(objects, key=lambda o: o.name):
         obj_strs.append(f"  {obj.name}: {obj.type.name}")
 
-    goal_strs = [str(a) for a in sorted(task.goal, key=str)]
+    # Only expose goal atoms whose predicate is in the agent's current
+    # predicate set. Approaches that strip env predicates (e.g.
+    # agent_sim_predicate_invention) rely on goal_nl to communicate the
+    # goal; leaking unfiltered task.goal atoms would expose predicates the
+    # agent is supposed to invent for itself.
+    goal_strs = [
+        str(a) for a in sorted(task.goal, key=str)
+        if a.predicate in all_predicates
+    ]
 
     option_strs = []
     for opt in sorted(all_options, key=lambda o: o.name):
@@ -111,6 +119,11 @@ def build_solve_prompt(
     if task.goal_nl:
         goal_nl_section = f"\n## Goal Description\n{task.goal_nl}\n"
 
+    goal_atoms_section = ""
+    if goal_strs:
+        goal_atoms_section = (
+            f"\n## Goal Atoms\n{chr(10).join(goal_strs)}\n")
+
     pred_strs = []
     for pred in sorted(all_predicates, key=lambda p: p.name):
         type_sig = ", ".join(t.name for t in pred.types)
@@ -118,10 +131,7 @@ def build_solve_prompt(
 
     prompt = f"""You are solving a task. \
 Generate a plan sketch to achieve the goal.
-{goal_nl_section}
-## Goal Atoms
-{chr(10).join(goal_strs)}
-
+{goal_nl_section}{goal_atoms_section}
 ## Initial State Atoms
 {chr(10).join(atom_strs)}
 
