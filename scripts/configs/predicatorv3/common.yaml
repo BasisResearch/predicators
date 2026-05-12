@@ -12,7 +12,8 @@ FLAGS:
   max_initial_demos: 1
   num_online_learning_cycles: 10
   online_learning_early_stopping: True
-  online_nsrt_learning_requests_per_cycle: 1
+  online_learning_early_stopping_require_all_attempts: True
+  online_nsrt_learning_requests_per_cycle: 2
   skill_phase_use_motion_planning: True
   max_num_steps_interaction_request: 300
   pretrained_model_service_provider: "openrouter"
@@ -21,7 +22,7 @@ FLAGS:
   terminate_on_goal_reached: False
   pybullet_ik_validate: False
   num_train_tasks: 1
-  num_test_tasks: 1
+  num_test_tasks: 5
   video_fps: 20
   pybullet_camera_height: 900
   pybullet_camera_width: 900

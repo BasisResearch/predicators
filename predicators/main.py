@@ -40,7 +40,7 @@ import sys
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import dill as pkl
 
@@ -296,24 +296,38 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
                 cogman, env, teacher,
                 interaction_requests, i)
 
-        # Track first solve attempt per task for solve rate calculation
-        task_first_solve_attempts = {
-        }  # task_idx -> bool (solved on first attempt)
-        task_attempted = set()  # track which tasks have been attempted
-        # Track first solve attempts for each task
+        # Track every solve attempt per task. The first attempt is used for
+        # the legacy solve-rate metric; the full list is used when
+        # online_learning_early_stopping_require_all_attempts is on.
+        task_first_solve_attempts: Dict[int, bool] = {}
+        task_all_solve_attempts: Dict[int, List[bool]] = {}
         for request, solved in zip(interaction_requests, task_solved_status):
             task_idx = request.train_task_idx
-            if task_idx not in task_attempted:
+            task_all_solve_attempts.setdefault(task_idx, []).append(solved)
+            if task_idx not in task_first_solve_attempts:
                 task_first_solve_attempts[task_idx] = solved
-                task_attempted.add(task_idx)
 
         num_online_transitions += sum(
             len(result.actions) for result in interaction_results)
         total_query_cost += query_cost
         logging.info(f"Query cost incurred this cycle: {query_cost}")
 
-        # Calculate train task solve rate
-        if task_first_solve_attempts:
+        # Calculate train task solve rate. When require_all_attempts is on,
+        # report over every attempt this cycle so the denominator matches the
+        # early-stop criterion (which inspects task_all_solve_attempts).
+        if CFG.online_learning_early_stopping_require_all_attempts:
+            all_attempts = [
+                solved for attempts in task_all_solve_attempts.values()
+                for solved in attempts
+            ]
+            if all_attempts:
+                train_task_solve_rate = sum(all_attempts) / len(all_attempts)
+                logging.info(
+                    f"Train task solve rate: {train_task_solve_rate:.3f} "
+                    f"({sum(all_attempts)}/{len(all_attempts)})")
+            else:
+                train_task_solve_rate = 0.0
+        elif task_first_solve_attempts:
             train_task_solve_rate = sum(task_first_solve_attempts.values()
                                         ) / len(task_first_solve_attempts)
             logging.info(f"Train task solve rate: {train_task_solve_rate:.3f} "
@@ -328,17 +342,62 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
         should_run_testing = (
             is_last_iteration
             or not CFG.skip_test_until_last_ite_or_early_stopping)
-        # Check for early stopping based on train task solve rate
+        # Early stopping has two mutually-exclusive modes, selected by
+        # CFG.online_learning_early_stopping_by_test_solve_rate:
+        #
+        # (A) Train-driven (default; require online_learning_early_stopping
+        #     to be True). Stop once this cycle's interaction requests cover
+        #     every train task and all of those attempts succeeded. The
+        #     i > 0 guard skips cycle 0 so we always run at least one
+        #     learning update before stopping. Sub-mode controlled by
+        #     online_learning_early_stopping_require_all_attempts:
+        #       - False: only the first attempt per task must succeed
+        #                (legacy behaviour).
+        #       - True:  every attempt must succeed. Combined with multiple
+        #                interaction requests per cycle and the explorer's
+        #                advancing rng (so each request samples differently)
+        #                this guards against a single lucky sample masking
+        #                a buggy learned model.
+        #
+        # (B) Test-driven (CFG.online_learning_early_stopping_by_test_solve_rate).
+        #     Stop once test_solve_rate hits 1.0. Note: testing for cycle i
+        #     happens AFTER this check (see _run_testing below), so the
+        #     test_solve_rate we read here is from cycle i-1 (or 0.0 before
+        #     the first test run). This mode ignores the i > 0 guard and
+        #     online_learning_early_stopping itself.
         early_stopping = False
-        if (CFG.online_learning_early_stopping and \
-           len(task_first_solve_attempts) == len(train_tasks) and \
-           all(task_first_solve_attempts.values()) and \
-           i > 0 and \
-           not CFG.online_learning_early_stopping_by_test_solve_rate) or \
-           (CFG.online_learning_early_stopping_by_test_solve_rate and \
-           test_solve_rate == 1.0):
-            logging.info("All training tasks solved on first attempt, "
-                         "triggering early stopping.\n")
+        if CFG.online_learning_early_stopping_require_all_attempts:
+            train_tasks_all_attempts_solved = (
+                len(task_all_solve_attempts) == len(train_tasks)
+                and all(
+                    attempts and all(attempts)
+                    for attempts in task_all_solve_attempts.values()))
+            train_early_stop_msg = (
+                "All training tasks solved on every attempt this cycle, "
+                "triggering early stopping.\n")
+        else:
+            train_tasks_all_attempts_solved = (
+                len(task_first_solve_attempts) == len(train_tasks)
+                and all(task_first_solve_attempts.values()))
+            train_early_stop_msg = (
+                "All training tasks solved on first attempt, "
+                "triggering early stopping.\n")
+        train_driven_early_stop = (
+            CFG.online_learning_early_stopping
+            and not CFG.online_learning_early_stopping_by_test_solve_rate
+            and i > 0
+            and train_tasks_all_attempts_solved)
+        test_driven_early_stop = (
+            CFG.online_learning_early_stopping_by_test_solve_rate
+            and test_solve_rate == 1.0)
+        if train_driven_early_stop:
+            logging.info(train_early_stop_msg)
+            early_stopping = True
+            should_run_testing = True  # Run testing when early stopping
+        elif test_driven_early_stop:
+            logging.info(
+                "Test solve rate from the previous cycle is 1.0, "
+                "triggering early stopping.\n")
             early_stopping = True
             should_run_testing = True  # Run testing when early stopping
         # Learn from results if appropriate
