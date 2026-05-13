@@ -181,6 +181,7 @@ class AgentSessionMixin:
                 tool_names=tool_names,
                 image=CFG.agent_sdk_docker_image,
                 extra_reference_files=self._get_sandbox_reference_files(),
+                phase=phase,
             )
         elif CFG.agent_sdk_use_local_sandbox:
             from predicators.agent_sdk.local_sandbox import \
@@ -192,6 +193,7 @@ class AgentSessionMixin:
                 tool_context=self._tool_context,
                 tool_names=tool_names,
                 extra_reference_files=self._get_sandbox_reference_files(),
+                phase=phase,
             )
         else:
             from claude_agent_sdk import \
@@ -218,10 +220,12 @@ class AgentSessionMixin:
             sess.session_id = (  # type: ignore[attr-defined,union-attr]
                 self._agent_session_id)
 
-        # Save system prompt to log directory
+        # Save system prompt to log directory. Suffix with the phase tag
+        # so solve and synthesis prompts don't overwrite each other across
+        # phase switches.
         log_dir = self._get_log_dir()
         os.makedirs(log_dir, exist_ok=True)
-        prompt_path = os.path.join(log_dir, "system_prompt.md")
+        prompt_path = os.path.join(log_dir, f"system_prompt_{phase}.md")
         with open(prompt_path, "w", encoding="utf-8") as f:
             f.write(self._get_agent_system_prompt())
 

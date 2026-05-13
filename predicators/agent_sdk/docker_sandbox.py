@@ -53,7 +53,8 @@ from predicators.settings import CFG
 logger = logging.getLogger(__name__)
 
 # Build Docker-specific prompts from shared templates.
-_CLAUDE_MD_TEMPLATE = build_claude_md()
+# CLAUDE.md is built per-instance with the phase tag so the agent reads
+# phase-appropriate strategy guidance every turn (see build_claude_md).
 _SANDBOX_SYSTEM_PROMPT = build_sandbox_system_prompt(
     env_description="an isolated Docker sandbox",
     workspace_description="/sandbox/",
@@ -123,6 +124,7 @@ class DockerSessionManager:
         tool_names: Optional[List[str]] = None,
         image: str = "predicators-sandbox",
         extra_reference_files: Optional[Dict[str, str]] = None,
+        phase: Optional[str] = None,
     ) -> None:
         # Append sandbox instructions to the system prompt
         self._system_prompt = system_prompt + _SANDBOX_SYSTEM_PROMPT
@@ -133,6 +135,7 @@ class DockerSessionManager:
         self._image = image
         self._extra_reference_files = extra_reference_files or {}
         self._repo_root = str(find_repo_root())
+        self._phase = phase
 
         self._total_cost_usd: float = 0.0
         self._total_turns: int = 0
@@ -187,10 +190,11 @@ class DockerSessionManager:
             sandbox_dir=self._sandbox_dir,
             repo_root=self._repo_root,
             extra_reference_files=self._extra_reference_files,
-            claude_md_content=_CLAUDE_MD_TEMPLATE,
+            claude_md_content=build_claude_md(phase=self._phase),
             system_prompt=self._system_prompt,
             log_dir=self._log_dir,
             seed_scratchpad=CFG.agent_planner_use_scratchpad,
+            phase=self._phase,
         )
 
         # Set sandbox paths on tool context
