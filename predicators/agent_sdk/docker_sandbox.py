@@ -231,8 +231,10 @@ class DockerSessionManager:
 
         # Compute final log filename upfront so the container can write
         # directly to the log directory (incremental updates visible on host).
+        # Counter-first layout: alphabetical sort matches chronological
+        # order across mixed ``learn``/``test``/``explore`` phases.
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_filename = f"{kind}_{self._query_count:03d}_{timestamp}.md"
+        log_filename = f"{self._query_count:03d}_{kind}_{timestamp}.md"
         if self._log_dir:
             os.makedirs(self._log_dir, exist_ok=True)
             incremental_log_path = os.path.join(self._log_dir, log_filename)
@@ -538,7 +540,7 @@ class DockerSessionManager:
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         kind = getattr(self, "_last_kind", "query")
-        filename = f"{kind}_{self._query_count:03d}_{timestamp}.md"
+        filename = f"{self._query_count:03d}_{kind}_{timestamp}.md"
         filepath = os.path.join(self._log_dir, filename)
 
         lines = [

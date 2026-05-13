@@ -123,12 +123,13 @@ Read these to understand the APIs before writing code.
 
 ## Session Logs
 Your past session queries and tool results are in ./session_logs/. Files are
-named `<kind>_<NNN>_<timestamp>.md` where `<kind>` is the query phase
-(e.g. `learn`, `test`, `explore`) and `<NNN>` is a run-wide counter.
-Use Glob and Read to review your earlier attempts when debugging:
+named `<NNN>_<kind>_<timestamp>.md` where `<NNN>` is a run-wide counter and
+`<kind>` is the query phase (e.g. `learn`, `test`, `explore`). The counter
+comes first so alphabetical sort matches chronological order. Use Glob and
+Read to review your earlier attempts when debugging:
 
     Glob ./session_logs/*.md
-    Read ./session_logs/learn_001_*.md
+    Read ./session_logs/001_learn_*.md
 
 ## Scene Images
 `test_option_plan` automatically saves scene images to ./test_images/
@@ -267,11 +268,12 @@ Read these files to understand the system APIs before writing code.
 
 ### Session Logs
 Your past queries and tool results are saved in ./session_logs/ as markdown
-files named `<kind>_<NNN>_<timestamp>.md` (e.g. `learn_001_...md`,
-`test_002_...md`). Use Glob and Read to review previous attempts:
+files named `<NNN>_<kind>_<timestamp>.md` (e.g. `001_learn_...md`,
+`002_test_...md`). The counter comes first so alphabetical sort matches
+chronological order. Use Glob and Read to review previous attempts:
 ```
 Glob ./session_logs/*.md
-Read ./session_logs/learn_001_*.md
+Read ./session_logs/001_learn_*.md
 ```
 
 ### Scene Images

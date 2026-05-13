@@ -96,7 +96,9 @@ class AgentSessionManager:
 
         self._query_count += 1
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{kind}_{self._query_count:03d}_{timestamp}.json"
+        # Counter-first layout: alphabetical sort matches chronological
+        # order across mixed ``learn``/``test``/``explore`` phases.
+        filename = f"{self._query_count:03d}_{kind}_{timestamp}.json"
         filepath = os.path.join(self._log_dir, filename)
         os.makedirs(self._log_dir, exist_ok=True)
 

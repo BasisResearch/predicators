@@ -333,14 +333,19 @@ class LocalSandboxSessionManager:
 
     # -- Logging helpers --
 
-    _LOG_FILENAME_RE = re.compile(r"^[a-z][a-z_]*_(\d{3})_\d{8}_\d{6}\.md$")
+    # Matches both the new ``NNN_kind_ts.md`` layout and the legacy
+    # ``kind_NNN_ts.md`` layout so resuming across the migration is
+    # lossless. The counter is always captured in group 1 or 2.
+    _LOG_FILENAME_RE = re.compile(
+        r"^(?:(\d{3})_[a-z][a-z_]*|[a-z][a-z_]*_(\d{3}))_\d{8}_\d{6}\.md$")
 
     def _seed_query_count_from_log_dir(self) -> None:
         """Make the per-session counter continuous across the run.
 
         On first use, scan ``_log_dir`` for prior log files matching
-        ``<kind>_NNN_<ts>.md`` and pick up where the last session left
-        off. Without this, every fresh session would restart at 001.
+        ``NNN_<kind>_<ts>.md`` (or the legacy ``<kind>_NNN_<ts>.md``)
+        and pick up where the last session left off. Without this,
+        every fresh session would restart at 001.
         """
         if self._query_count_seeded:
             return
@@ -351,7 +356,10 @@ class LocalSandboxSessionManager:
         for name in os.listdir(self._log_dir):
             m = self._LOG_FILENAME_RE.match(name)
             if m:
-                max_n = max(max_n, int(m.group(1)))
+                # Group 1 is the new layout, group 2 is the legacy
+                # layout; exactly one matches per file.
+                captured = m.group(1) or m.group(2)
+                max_n = max(max_n, int(captured))
         self._query_count = max_n
 
     def _init_incremental_log(self,
@@ -366,7 +374,9 @@ class LocalSandboxSessionManager:
             return None
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{kind}_{self._query_count:03d}_{timestamp}.md"
+        # Counter-first layout: alphabetical sort matches chronological
+        # order across mixed ``learn``/``test``/``explore`` phases.
+        filename = f"{self._query_count:03d}_{kind}_{timestamp}.md"
         # Primary: main log dir (host-visible)
         filepath = os.path.join(self._log_dir, filename)
         os.makedirs(self._log_dir, exist_ok=True)
