@@ -972,18 +972,6 @@ The data classes (`State`, `Object`, `Action`, ...) come from \
 `predicators.structs`; source is in the reference file linked in the \
 first message.
 
-## Session bootstrap
-
-The `mcp__predicator_tools__*` tools are listed by name but their schemas \
-are NOT pre-loaded — calling one directly fails until you select it via \
-`ToolSearch`. Your very first action must be a single `ToolSearch` that \
-selects **every** `mcp__predicator_tools__*` name listed in the available \
-tools section, so all schemas are loaded for the rest of the session. \
-Geometry-verification tools (`visualize_state`, `annotate_scene`) are \
-easy to forget in this initial select — make sure they are in it, \
-because once you commit to a numeric-only fitting path you typically \
-won't realize you needed them until it's too late.
-
 ## Tools
 
 `Write` / `Edit` `simulator.py` is your normal coding loop. Every \

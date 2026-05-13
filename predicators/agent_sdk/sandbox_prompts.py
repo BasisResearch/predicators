@@ -174,19 +174,6 @@ _CLAUDE_MD_SYNTHESIS_STRATEGY = """\
 
 ## Model-Learning Strategy
 
-### Session bootstrap
-
-The `mcp__predicator_tools__*` tools are listed by name only — their
-schemas are NOT pre-loaded, so calling one directly fails with
-`InputValidationError` until you select it via `ToolSearch`. Your very
-first action this session MUST be a single `ToolSearch` call that
-selects every `mcp__predicator_tools__*` name listed in the available
-tools section, so all of their schemas are loaded for the rest of the
-session. In particular, do not omit `visualize_state` or
-`annotate_scene` — geometric verification (see protocol below) only
-works if those schemas are loaded, and once you commit to a numeric
-fitting path you may not realize you needed them until it's too late.
-
 Trajectory numbers are evidence, not ground truth. Two states with nearly
 identical recorded coordinates can be geometrically very different — an
 object's recorded pose origin often does not coincide with the part that
