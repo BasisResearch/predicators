@@ -165,10 +165,15 @@ class AgentSessionMixin:
             static = sorted(n for n in tool_names if n in set(ALL_TOOL_NAMES))
             dynamic = sorted(n for n in tool_names
                              if n not in set(ALL_TOOL_NAMES))
-            logger.info(
-                "[%s] %s session tool surface (%d total): "
-                "static=%s dynamic=%s", approach_name, phase, len(tool_names),
-                static, dynamic)
+            lines = [
+                f"[{approach_name}] {phase} session tool surface "
+                f"({len(tool_names)} total):"
+            ]
+            for n in static:
+                lines.append(f"  static   {n}")
+            for n in dynamic:
+                lines.append(f"  dynamic  {n}")
+            logger.info("\n".join(lines))
 
         if CFG.agent_sdk_use_docker_sandbox:
             from predicators.agent_sdk.docker_sandbox import \
