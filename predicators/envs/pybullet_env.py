@@ -617,8 +617,8 @@ class PyBulletEnv(BaseEnv):
                                    atol: float = 1e-3) -> bool:
         """True if PyBullet's live pose for ``obj`` equals state[obj].
 
-        ``atol`` matches ``_reconstruction_diff``'s tolerance so an object
-        that the diff helper would complain about is also one the
+        ``atol`` matches ``_reconstruction_diff``'s tolerance so an
+        object that the diff helper would complain about is also one the
         matches-check rejects — without this alignment, an object whose
         pose drifts within 1e-3..1e-2 sits stale in the planning sim
         (skipped by this check) while the diff still flags it, and the

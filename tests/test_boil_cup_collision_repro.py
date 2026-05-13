@@ -21,9 +21,10 @@ import numpy as np
 import pytest
 
 from predicators import utils
+from predicators.envs import _MOST_RECENT_ENV_INSTANCE
 from predicators.envs.pybullet_boil import PyBulletBoilEnv
 from predicators.ground_truth_models import get_gt_options
-from predicators.envs import _MOST_RECENT_ENV_INSTANCE
+from predicators.structs import DefaultEnvironmentTask
 
 
 class _ExposedBoilEnv(PyBulletBoilEnv):
@@ -40,7 +41,7 @@ class _ExposedBoilEnv(PyBulletBoilEnv):
         state_with_sim = utils.PyBulletState(state.data,
                                              simulator_state=joint_positions)
         self._current_observation = state_with_sim
-        self._current_task = None
+        self._current_task = DefaultEnvironmentTask
         self._set_state(state_with_sim)
 
     def execute_option(self, option: Any, max_steps: int = 300) -> Any:
@@ -68,8 +69,9 @@ class _ExposedBoilEnv(PyBulletBoilEnv):
     strict=True,
 )
 def test_switch_burner_on_after_place_at_attempt2_pose(caplog):
-    """Reproduce Cycle 0 attempt 2 end-to-end: pick the jug, place it on
-    the burner at the failing Place params, then run SwitchBurnerOn.
+    """Reproduce Cycle 0 attempt 2 end-to-end: pick the jug, place it on the
+    burner at the failing Place params, then run SwitchBurnerOn.
+
     Documents the *geometric* cup-collision bug; should fail until a
     clearance-aware Place sampler lands.
     """
@@ -101,27 +103,25 @@ def test_switch_burner_on_after_place_at_attempt2_pose(caplog):
     caplog.set_level(logging.ERROR)
 
     # 1) Pick the jug (any grasp z works for the geometry test).
-    env.execute_option(options["PickJug"].ground(
-        [robot, jug], np.array([0.01], dtype=np.float32)))
+    env.execute_option(options["PickJug"].ground([robot, jug],
+                                                 np.array([0.01],
+                                                          dtype=np.float32)))
 
     # 2) Place at the attempt-2 coordinates that produced the failure.
     env.execute_option(options["Place"].ground(
-        [robot], np.array([0.5313, 1.2899, 0.5659, 2.5974],
-                          dtype=np.float32)))
+        [robot], np.array([0.5313, 1.2899, 0.5659, 2.5974], dtype=np.float32)))
 
     # 3) SwitchBurnerOn with the same params the failing run used.
-    opt = options["SwitchBurnerOn"].ground(
-        [robot, burner],
-        np.array([0.0413, 0.1016], dtype=np.float32))
+    opt = options["SwitchBurnerOn"].ground([robot, burner],
+                                           np.array([0.0413, 0.1016],
+                                                    dtype=np.float32))
     final = env.execute_option(opt, max_steps=200)
     assert final is not None
 
     # The bug surfaced as an ERROR log; assert it didn't reappear.
     collision_errors = [
-        rec for rec in caplog.records
-        if rec.levelno >= logging.ERROR
-        and "GOAL ROBOT collision" in rec.message
-        and "cup" in rec.message
+        rec for rec in caplog.records if rec.levelno >= logging.ERROR
+        and "GOAL ROBOT collision" in rec.message and "cup" in rec.message
     ]
     assert not collision_errors, (
         f"SwitchBurnerOn produced cup-collision errors: "
@@ -130,9 +130,8 @@ def test_switch_burner_on_after_place_at_attempt2_pose(caplog):
 
 def test_full_attempt2_sequence_refinement_vs_execution(caplog):
     """Run the entire Cycle 0 attempt-2 sequence (all 7 prior options +
-    SwitchBurnerOn) and verify option_model and env.step agree. This
-    matches the planning-sim's accumulated state at the original
-    failure point.
+    SwitchBurnerOn) and verify option_model and env.step agree. This matches
+    the planning-sim's accumulated state at the original failure point.
 
     Expected: both option_model and execution reach SwitchBurnerOn with
     similar post-Place state and produce the same outcome (succeed
@@ -196,13 +195,12 @@ def test_full_attempt2_sequence_refinement_vs_execution(caplog):
                 objs = [robot]
             else:
                 raise ValueError(name)
-            opt = options[name].ground(
-                objs, np.array(params, dtype=np.float32))
+            opt = options[name].ground(objs, np.array(params,
+                                                      dtype=np.float32))
             try:
                 if via_option_model:
-                    state, na = (
-                        option_model.get_next_state_and_num_actions(
-                            state, opt))
+                    state, na = (option_model.get_next_state_and_num_actions(
+                        state, opt))
                     if na == 0:
                         return i, option_model.last_execution_failure
                 else:
@@ -226,12 +224,14 @@ def test_full_attempt2_sequence_refinement_vs_execution(caplog):
 
 
 def test_option_model_and_execution_agree_on_failing_place_params(caplog):
-    """Refinement and execution should agree: if execution will fail with
-    a particular Place sample, the option-model rollout used by
-    refinement must also fail. The original bug: refinement said the
-    plan was feasible, but execution hit a cup collision. With
-    state-derived BiRRT seeds and post-BiRRT planning-sim restoration,
-    the two paths now share enough determinism that they should agree.
+    """Refinement and execution should agree: if execution will fail with a
+    particular Place sample, the option-model rollout used by refinement must
+    also fail.
+
+    The original bug: refinement said the plan was feasible, but
+    execution hit a cup collision. With state-derived BiRRT seeds and
+    post-BiRRT planning-sim restoration, the two paths now share enough
+    determinism that they should agree.
     """
     from predicators.option_model import _OracleOptionModel
 
@@ -271,17 +271,15 @@ def test_option_model_and_execution_agree_on_failing_place_params(caplog):
     # Run the same Pick → Place sequence via option_model (simulate path).
     state = env._current_observation
     state, na = option_model.get_next_state_and_num_actions(
-        state,
-        options["PickJug"].ground([robot, jug],
-                                   np.array([0.01], dtype=np.float32)))
-    assert na > 0, (
-        f"PickJug should succeed under option_model. "
-        f"failure={option_model.last_execution_failure}")
+        state, options["PickJug"].ground([robot, jug],
+                                         np.array([0.01], dtype=np.float32)))
+    assert na > 0, (f"PickJug should succeed under option_model. "
+                    f"failure={option_model.last_execution_failure}")
     state, na = option_model.get_next_state_and_num_actions(
         state,
         options["Place"].ground([robot],
-                                 np.array([0.5313, 1.2899, 0.5659, 2.5974],
-                                          dtype=np.float32)))
+                                np.array([0.5313, 1.2899, 0.5659, 2.5974],
+                                         dtype=np.float32)))
     assert na > 0, "Place should succeed under option_model"
 
     # Now ask option_model to roll out SwitchBurnerOn with the failing
@@ -289,10 +287,9 @@ def test_option_model_and_execution_agree_on_failing_place_params(caplog):
     # the same geometric collision → option_model returns 0 actions,
     # refinement would backtrack.
     _, na = option_model.get_next_state_and_num_actions(
-        state,
-        options["SwitchBurnerOn"].ground(
-            [robot, burner],
-            np.array([0.0413, 0.1016], dtype=np.float32)))
+        state, options["SwitchBurnerOn"].ground([robot, burner],
+                                                np.array([0.0413, 0.1016],
+                                                         dtype=np.float32)))
 
     fail_reason = option_model.last_execution_failure
     assert na == 0, (

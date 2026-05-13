@@ -99,7 +99,7 @@ def test_oracle_process_planning_solves_boil_task():
     assert policy is not None, "oracle_process_planning returned no policy"
 
     # Execute the policy and confirm the goal is reached within horizon.
-    state = env.reset("test", 0)
+    env.reset("test", 0)
     for step in range(CFG.horizon):
         if test_task.goal_holds(env._current_state):
             logger.info("Goal reached after %d env steps.", step)

@@ -1,5 +1,5 @@
-"""Refinement vs. real-execution alignment using the SYNTHESIZED
-simulator captured by run_20260512_210304.
+"""Refinement vs. real-execution alignment using the SYNTHESIZED simulator
+captured by run_20260512_210304.
 
 The original cup-collision happened with the agent's *learned* (not the
 oracle GT) simulator wired into option_model. This test loads that
@@ -41,15 +41,14 @@ from predicators.option_model import _OracleOptionModel
 logger = logging.getLogger(__name__)
 
 # The failing run's synthesized simulator snapshot.
-_SYNTH_PATH = os.path.join(
-    os.path.dirname(__file__), "..", "..", "logs",
-    "agent_sim_predicate_invention", "boil-agent_predicate_invention",
-    "seed0", "run_20260512_210304", "sandbox", "simulator.py")
+_SYNTH_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "logs",
+                           "agent_sim_predicate_invention",
+                           "boil-agent_predicate_invention", "seed0",
+                           "run_20260512_210304", "sandbox", "simulator.py")
 
 
-def _load_synth_simulator(path: str
-                         ) -> Tuple[List, Dict[str, float], Dict[str,
-                                                                  List[str]]]:
+def _load_synth_simulator(
+        path: str) -> Tuple[List, Dict[str, float], Dict[str, List[str]]]:
     """Execute simulator.py and return (rules, params, features)."""
     if not os.path.exists(path):
         pytest.skip(f"Synthesized simulator snapshot not present at {path}.")
@@ -124,8 +123,8 @@ def _run_via_env_step() -> Tuple[int, Optional[str]]:
 
 
 def test_synth_simulator_refinement_agrees_with_real_execution():
-    """Lock-in test: refinement using the synthesized simulator must
-    agree with real-env execution on the first-failure step.
+    """Lock-in test: refinement using the synthesized simulator must agree with
+    real-env execution on the first-failure step.
 
     Originally diverged because the real env spawned a physical liquid
     body inside the jug during Wait — a mass=0.01 body with collision

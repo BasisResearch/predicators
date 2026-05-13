@@ -790,11 +790,11 @@ class PyBulletBoilEnv(PyBulletEnv):
     def _update_liquid_positions(self, state: State) -> None:
         """Teleport each liquid body to follow its jug.
 
-        The liquid bodies are visual-only (collision filter mask=0,
-        see ``_create_liquid_for_jug``) so they don't get carried by
-        the jug's grasp constraint. Re-teleport them each step from
-        the jug's current pose so the visualization stays inside the
-        jug when the jug is picked up, placed, or rotated.
+        The liquid bodies are visual-only (collision filter mask=0, see
+        ``_create_liquid_for_jug``) so they don't get carried by the
+        jug's grasp constraint. Re-teleport them each step from the
+        jug's current pose so the visualization stays inside the jug
+        when the jug is picked up, placed, or rotated.
         """
         for jug_obj in state.get_objects(self._jug_type):
             water_id = self._jug_to_liquid_id.get(jug_obj)
@@ -809,7 +809,8 @@ class PyBulletBoilEnv(PyBulletEnv):
                 volume,
             )
             p.resetBasePositionAndOrientation(
-                water_id, (cx, cy, cz), orn,
+                water_id, (cx, cy, cz),
+                orn,
                 physicsClientId=self._physics_client_id)
 
     def _update_burner_colors(self, state: State) -> None:
@@ -1404,9 +1405,11 @@ class PyBulletBoilEnv(PyBulletEnv):
         jug_xy_z_rot: Tuple[float, float, float, float],
         water_volume: float,
     ) -> Tuple[float, float, float, Tuple[float, float, float, float]]:
-        """Compute the liquid body's world pose given the jug's pose
-        and current water_volume. Anchored to ``jug.z`` (not the table)
-        so the liquid stays inside the jug when the jug is lifted.
+        """Compute the liquid body's world pose given the jug's pose and
+        current water_volume.
+
+        Anchored to ``jug.z`` (not the table) so the liquid stays inside
+        the jug when the jug is lifted.
         """
         jx, jy, jz, jrot = jug_xy_z_rot
         liquid_height = water_volume / self.water_height_to_level_ratio
@@ -1446,10 +1449,11 @@ class PyBulletBoilEnv(PyBulletEnv):
         # several cm when the body is recreated/repositioned inside the
         # jug (e.g. fill ticks during Wait). Disable collisions so only
         # the visual remains; physics-side it's a ghost.
-        p.setCollisionFilterGroupMask(
-            liquid_id, -1, collisionFilterGroup=0,
-            collisionFilterMask=0,
-            physicsClientId=self._physics_client_id)
+        p.setCollisionFilterGroupMask(liquid_id,
+                                      -1,
+                                      collisionFilterGroup=0,
+                                      collisionFilterMask=0,
+                                      physicsClientId=self._physics_client_id)
         return liquid_id
 
 
