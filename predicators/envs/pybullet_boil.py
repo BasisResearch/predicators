@@ -650,6 +650,7 @@ class PyBulletBoilEnv(PyBulletEnv):
         self._handle_faucet_logic(state)
         self._handle_heating_logic(state)
         self._update_liquid_colors(state)
+        self._update_liquid_positions(state)
         self._update_burner_colors(state)
         self._update_human_happiness(state)
         self._update_prev_on_states(state)
@@ -785,6 +786,31 @@ class PyBulletBoilEnv(PyBulletEnv):
             update_object(water_id,
                           color=(r, g, b, alpha),
                           physics_client_id=self._physics_client_id)
+
+    def _update_liquid_positions(self, state: State) -> None:
+        """Teleport each liquid body to follow its jug.
+
+        The liquid bodies are visual-only (collision filter mask=0,
+        see ``_create_liquid_for_jug``) so they don't get carried by
+        the jug's grasp constraint. Re-teleport them each step from
+        the jug's current pose so the visualization stays inside the
+        jug when the jug is picked up, placed, or rotated.
+        """
+        for jug_obj in state.get_objects(self._jug_type):
+            water_id = self._jug_to_liquid_id.get(jug_obj)
+            if water_id is None or jug_obj.id is None:
+                continue
+            volume = state.get(jug_obj, "water_volume")
+            if volume <= 0:
+                continue
+            cx, cy, cz, orn = self._liquid_pose_for_jug(
+                (state.get(jug_obj, "x"), state.get(jug_obj, "y"),
+                 state.get(jug_obj, "z"), state.get(jug_obj, "rot")),
+                volume,
+            )
+            p.resetBasePositionAndOrientation(
+                water_id, (cx, cy, cz), orn,
+                physicsClientId=self._physics_client_id)
 
     def _update_burner_colors(self, state: State) -> None:
         """Update burner plate colors based on their on/off state."""
@@ -1365,6 +1391,29 @@ class PyBulletBoilEnv(PyBulletEnv):
                 return x, y
         raise RuntimeError("Failed to sample a collision-free (x, y).")
 
+    # Vertical offset of the jug's inner-bottom surface below jug.z.
+    # The jug-pixel URDF places its base box at z=-0.25 local, so with
+    # the default scale=0.2 the base bottom sits 0.06 m below the jug
+    # origin and the inner-bottom surface (top of the 0.1 m base box)
+    # sits 0.04 m below; add a small clearance so the liquid box
+    # doesn't z-fight the base.
+    _LIQUID_OFFSET_BELOW_JUG: ClassVar[float] = 0.04
+
+    def _liquid_pose_for_jug(
+        self,
+        jug_xy_z_rot: Tuple[float, float, float, float],
+        water_volume: float,
+    ) -> Tuple[float, float, float, Tuple[float, float, float, float]]:
+        """Compute the liquid body's world pose given the jug's pose
+        and current water_volume. Anchored to ``jug.z`` (not the table)
+        so the liquid stays inside the jug when the jug is lifted.
+        """
+        jx, jy, jz, jrot = jug_xy_z_rot
+        liquid_height = water_volume / self.water_height_to_level_ratio
+        cz = jz - self._LIQUID_OFFSET_BELOW_JUG + liquid_height / 2
+        orn = p.getQuaternionFromEuler([0.0, 0.0, jrot])
+        return jx, jy, cz, orn
+
     def _create_liquid_for_jug(
         self,
         jug: Object,
@@ -1376,23 +1425,32 @@ class PyBulletBoilEnv(PyBulletEnv):
         if current_liquid <= 0:
             return None
 
-        # Make a box that sits inside the jug
         liquid_height = current_liquid / self.water_height_to_level_ratio
         half_extents = (0.03, 0.03, liquid_height / 2)
-        cx = state.get(jug, "x")
-        cy = state.get(jug, "y")
-        cz = self.z_lb + liquid_height / 2 + 0.02  # sits on table
-        jug_rot = state.get(jug, "rot")
-        orientation = p.getQuaternionFromEuler([0.0, 0.0, jug_rot])
+        jug_xy_z_rot = (state.get(jug, "x"), state.get(jug, "y"),
+                        state.get(jug, "z"), state.get(jug, "rot"))
+        cx, cy, cz, orientation = self._liquid_pose_for_jug(
+            jug_xy_z_rot, current_liquid)
 
         color = self.water_color
-        return create_pybullet_block(color=color,
-                                     half_extents=half_extents,
-                                     mass=0.01,
-                                     friction=0.5,
-                                     position=(cx, cy, cz),
-                                     orientation=orientation,
-                                     physics_client_id=self._physics_client_id)
+        liquid_id = create_pybullet_block(
+            color=color,
+            half_extents=half_extents,
+            mass=0.01,
+            friction=0.5,
+            position=(cx, cy, cz),
+            orientation=orientation,
+            physics_client_id=self._physics_client_id)
+        # The liquid block is purely a visualization of the water level.
+        # Leaving its collision shape active causes the jug to drift
+        # several cm when the body is recreated/repositioned inside the
+        # jug (e.g. fill ticks during Wait). Disable collisions so only
+        # the visual remains; physics-side it's a ghost.
+        p.setCollisionFilterGroupMask(
+            liquid_id, -1, collisionFilterGroup=0,
+            collisionFilterMask=0,
+            physicsClientId=self._physics_client_id)
+        return liquid_id
 
 
 if __name__ == "__main__":
