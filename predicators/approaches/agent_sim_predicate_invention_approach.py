@@ -204,10 +204,10 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
 Important: this approach has stripped the env's symbolic predicates down \
 to the "## Available Predicates" allowlist above (just `Holding` by \
 default). You must invent everything else used as a subgoal in plan \
-sketches — placements (e.g. JugAtFaucet), device states (FaucetOn / \
-FaucetOff), and process completions (e.g. WaterBoiled) — by writing them \
-to `{path}` as `LEARNED_PREDICATES`. See the system prompt section \
-"Predicate Invention" for the file format.
+sketches — placements (object-at-target relations), device states \
+(on / off), and process completions (a rule-driven feature reaching a \
+target value) — by writing them to `{path}` as `LEARNED_PREDICATES`. \
+See the system prompt section "Predicate Invention" for the file format.
 
 {goal_block}\
 Goal achievement is checked externally — the env owns the goal \
@@ -391,18 +391,28 @@ LEARNED_PREDICATES: List[Predicate]
 ```
 
 The exec namespace pre-injects `Predicate` and a `<typename>_type` binding \
-for each env type (e.g. `jug_type`, `faucet_type`). Example:
+for each env type (e.g. `widget_type`, `fixture_type`). The names below \
+are illustrative — use whatever types, features, and parameter names the \
+inspect tools actually report for your task.
 
 ```python
 LEARNED_PREDICATES = [
-    Predicate("JugAtFaucet", [jug_type, faucet_type],
+    # Placement: object xy within a learned distance of a target xy.
+    # Caveat: `fixture.x, fixture.y` is the recorded pose origin (often
+    # the body's base), which may be offset from the functional contact
+    # point the predicate should fire at. If a fit only separates the
+    # buckets by a knife-edge gap, you are almost certainly measuring to
+    # the wrong reference point — render the scene and add the offset.
+    Predicate("WidgetAtFixture", [widget_type, fixture_type],
               lambda s, objs: ((s.get(objs[0], "x") - s.get(objs[1], "x"))**2
                                + (s.get(objs[0], "y") - s.get(objs[1], "y"))**2)
-                              < params["jug_at_faucet_dist"]**2),
-    Predicate("FaucetOn", [faucet_type],
+                              < params["widget_at_fixture_dist"]**2),
+    # Device state: a feature exceeding a fixed cutoff (no learned param).
+    Predicate("FixtureActive", [fixture_type],
               lambda s, objs: s.get(objs[0], "is_on") > 0.5),
-    Predicate("BoilingDone", [jug_type],
-              lambda s, objs: s.get(objs[0], "heat_level") >= params["boiled_threshold"]),
+    # Process completion: a rule-driven feature reaches a learned threshold.
+    Predicate("WidgetReady", [widget_type],
+              lambda s, objs: s.get(objs[0], "progress") >= params["ready_threshold"]),
 ]
 ```
 
@@ -430,14 +440,18 @@ look fine while evaluate_plan_refinement gets stuck on the Wait subgoal.
 Verifying classifiers against the scene and data (applies to all predicates):
 
 A classifier picks features and parameter values; both can be wrong. Do \
-not pick either from intuition — verify before committing.
+not pick either from intuition — verify before committing. CLAUDE.md \
+contains the full threshold-fitting protocol (bucket steps by downstream \
+effect, check for a knife-edge gap, visualize, then refit); follow it \
+whenever you fit a numeric cutoff. The two workbenches you'll lean on:
 
 - `visualize_state` / `annotate_scene` (available for any PyBullet env): \
 use whenever a predicate depends on geometry. A body's recorded pose \
-often doesn't coincide with the feature that matters (a faucet's spout, \
-a switch's handle, a burner's hot zone, the inside of a container); \
-render the scene, annotate candidate target points / regions, and \
-confirm what's actually where before encoding a threshold.
+often doesn't coincide with the feature that matters (a body center vs. \
+an outlet on its side, a joint base vs. an end-effector tip, a container \
+origin vs. its opening, a switch housing vs. its handle); render the \
+scene, annotate candidate target points / regions, and confirm what's \
+actually where before encoding a threshold.
 - `run_python` (numerical workbench): iterate trajectory states and \
 compute the candidate classifier (or its underlying numeric expression) \
 at each step. The right parameter values cleanly separate the steps \
@@ -445,7 +459,10 @@ where a downstream effect actually happens — the relevant rule feature \
 advances, the goal-relevant quantity changes — from the steps where it \
 doesn't. Sweep candidates against that signal and pick by separation. \
 This applies to every kind of predicate: placement thresholds, \
-process-completion cutoffs, on/off comparison points, etc.
+process-completion cutoffs, on/off comparison points, etc. If the two \
+buckets only separate by a knife-edge gap (~5% of the value range or \
+narrower), the candidate quantity is almost certainly measuring against \
+the wrong reference point — visualize before fitting.
 
 Validate with `evaluate_predicate_quality` (cheap; reports first-flip step, \
 monotonicity, coverage across all available trajectories). On goal-reaching \

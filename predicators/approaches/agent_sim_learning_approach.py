@@ -131,7 +131,8 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         ``ctx.extra_mcp_tools`` inside :meth:`_synthesize_with_agent`.
         The mixin asserts the attached instances and this list agree.
         """
-        return list(INSPECTION_TOOL_NAMES) + list(SYNTHESIS_TOOL_NAMES)
+        return ["inspect_types", "inspect_options", "inspect_trajectories"] +\
+            list(SYNTHESIS_TOOL_NAMES)
 
     # ── Subclass hooks ──────────────────────────────────────────
     # Default implementations are no-ops so subclasses can add
@@ -936,6 +937,23 @@ Rules see `state[t]`. They cannot see actions, the base sim's draft, or \
 only starts changing at `t+1`), that's an inherent 1-step lag in the \
 data — accept the single boundary residual or model the delay with an \
 extra parameter rather than chasing it with ever-stricter conditions.
+
+### Geometric gates
+
+If a rule's firing condition depends on the relative position of two \
+bodies (e.g. `dist(a, b) < threshold`), remember that `obj.x, obj.y` is \
+the recorded pose origin — often a body's base or frame center, which \
+may be offset from the functional point that actually drives the \
+physics (a contact surface, an outlet on the body's side, an \
+end-effector tip, a container opening, a handle). The same offset issue \
+hits any predicate the planner uses to gate the rule's subgoal, so if a \
+rule and its gating predicate share `params["..."]` they will agree with \
+each other even when both reference the wrong point. Symptoms: fit/no-fit \
+trajectory steps only separate by a knife-edge gap (~5% of the value \
+range or narrower), or SSE looks fine but plan refinement gets stuck on \
+the corresponding Wait subgoal. When that happens, call `visualize_state` \
+on representative states from each bucket and identify the correct \
+reference offset before refitting.
 
 ### ParamSpec
 
