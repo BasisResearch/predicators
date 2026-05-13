@@ -45,6 +45,7 @@ from PIL import Image
 
 from predicators import utils
 from predicators.envs import BaseEnv
+from predicators.pybullet_helpers import retry_pybullet_call
 from predicators.pybullet_helpers.camera import create_gui_connection
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
 from predicators.pybullet_helpers.joint import JointPositions
@@ -902,8 +903,10 @@ class PyBulletEnv(BaseEnv):
 
         # Physical object — query PyBullet for pose
         try:
-            (px, py, pz), orn = p.getBasePositionAndOrientation(
-                obj.id, physicsClientId=self._physics_client_id)
+            (px, py, pz), orn = retry_pybullet_call(
+                p.getBasePositionAndOrientation,
+                obj.id,
+                physicsClientId=self._physics_client_id)
         except Exception as e:
             raise RuntimeError(f"Failed to get pose for object {obj.name} "
                                f"(id={obj.id})") from e
@@ -929,8 +932,10 @@ class PyBulletEnv(BaseEnv):
             obj_dict["is_held"] = 1.0 if obj.id == self._held_obj_id else 0.0
 
         if {"r", "g", "b"} & set(obj_features):
-            visual_data = p.getVisualShapeData(
-                obj.id, physicsClientId=self._physics_client_id)[0]
+            visual_data = retry_pybullet_call(
+                p.getVisualShapeData,
+                obj.id,
+                physicsClientId=self._physics_client_id)[0]
             (r, g, b, _a) = visual_data[7]
             obj_dict["r"] = r
             obj_dict["g"] = g

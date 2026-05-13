@@ -10,6 +10,7 @@ import pybullet as p
 
 from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv
+from predicators.pybullet_helpers import retry_pybullet_call
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.objects import create_object, \
     create_pybullet_block, update_object
@@ -911,11 +912,16 @@ class PyBulletBoilEnv(PyBulletEnv):
                                   self._physics_client_id)
         if j_id < 0:
             return False
-        j_pos, _, _, _ = p.getJointState(
-            switch_id, j_id, physicsClientId=self._physics_client_id)
-        info = p.getJointInfo(switch_id,
-                              j_id,
-                              physicsClientId=self._physics_client_id)
+        j_pos, _, _, _ = retry_pybullet_call(
+            p.getJointState,
+            switch_id,
+            j_id,
+            physicsClientId=self._physics_client_id)
+        info = retry_pybullet_call(
+            p.getJointInfo,
+            switch_id,
+            j_id,
+            physicsClientId=self._physics_client_id)
         j_min, j_max = info[8], info[9]
         frac = (j_pos / self.switch_joint_scale - j_min) / (j_max - j_min)
         return bool(frac > self.switch_on_threshold)
@@ -942,9 +948,13 @@ class PyBulletBoilEnv(PyBulletEnv):
                       joint_name: str,
                       physics_client_id: int = 0) -> int:
         """Helper to find a joint by name in a URDF."""
-        num_joints = p.getNumJoints(obj_id, physicsClientId=physics_client_id)
+        num_joints = retry_pybullet_call(
+            p.getNumJoints, obj_id, physicsClientId=physics_client_id)
         for j in range(num_joints):
-            info = p.getJointInfo(obj_id, j, physicsClientId=physics_client_id)
+            info = retry_pybullet_call(p.getJointInfo,
+                                       obj_id,
+                                       j,
+                                       physicsClientId=physics_client_id)
             if info[1].decode("utf-8") == joint_name:
                 return j
         return -1
@@ -1476,8 +1486,8 @@ if __name__ == "__main__":
         env = PyBulletBoilEnv(use_gui=True)
         rng = np.random.default_rng(CFG.seed)
         tasks = env._make_tasks(1,
-                                possible_num_jugs=[2],
-                                possible_num_burners=[2],
+                                possible_num_jugs=[1],
+                                possible_num_burners=[1],
                                 rng=rng)
 
         env_options = get_gt_options(env.get_name())
