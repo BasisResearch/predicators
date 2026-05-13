@@ -482,6 +482,22 @@ def _generate_interaction_results(
             if not task_solvable:
                 solved = not planning_explorer_generated_a_plan
         task_solved_status.append(solved)
+
+        # Debug final state (mirrors _run_testing). Lets us inspect the real
+        # env state at the end of the rollout — e.g. whether SwitchBurnerOff
+        # actually flipped the burner — separately from what the agent's
+        # mental model believes happened.
+        # pylint: disable=protected-access
+        final_obs = env.get_observation()
+        logging.debug(f"Interaction goal:\n{env_task.task.goal}")
+        if hasattr(cogman._approach, "_get_current_predicates"):
+            abstract_state = utils.abstract(
+                final_obs, cogman._approach._get_current_predicates())
+            logging.debug(f"Interaction final abstract state:\n"
+                          f"{abstract_state}")
+        # pylint: enable=protected-access
+        logging.debug(f"Interaction final state (solved={solved}):\n"
+                      f"{final_obs.pretty_str()}")
         cogman.unset_override_policy()
         cogman.unset_termination_function()
         traj = cogman.get_current_history()
