@@ -347,10 +347,8 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
         #
         # (A) Train-driven (default; require online_learning_early_stopping
         #     to be True). Stop once this cycle's interaction requests cover
-        #     every train task and all of those attempts succeeded. The
-        #     i > 0 guard skips cycle 0 so we always run at least one
-        #     learning update before stopping. Sub-mode controlled by
-        #     online_learning_early_stopping_require_all_attempts:
+        #     every train task and all of those attempts succeeded. Sub-mode
+        #     controlled by online_learning_early_stopping_require_all_attempts:
         #       - False: only the first attempt per task must succeed
         #                (legacy behaviour).
         #       - True:  every attempt must succeed. Combined with multiple
@@ -364,7 +362,7 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
         #     Stop once test_solve_rate hits 1.0. Note: testing for cycle i
         #     happens AFTER this check (see _run_testing below), so the
         #     test_solve_rate we read here is from cycle i-1 (or 0.0 before
-        #     the first test run). This mode ignores the i > 0 guard and
+        #     the first test run). This mode ignores
         #     online_learning_early_stopping itself.
         early_stopping = False
         if CFG.online_learning_early_stopping_require_all_attempts:
@@ -385,7 +383,7 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
         train_driven_early_stop = (
             CFG.online_learning_early_stopping
             and not CFG.online_learning_early_stopping_by_test_solve_rate
-            and i > 0 and train_tasks_all_attempts_solved)
+            and train_tasks_all_attempts_solved)
         test_driven_early_stop = (
             CFG.online_learning_early_stopping_by_test_solve_rate
             and test_solve_rate == 1.0)
