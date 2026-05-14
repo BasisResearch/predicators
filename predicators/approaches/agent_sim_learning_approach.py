@@ -941,19 +941,62 @@ extra parameter rather than chasing it with ever-stricter conditions.
 ### Geometric gates
 
 If a rule's firing condition depends on the relative position of two \
-bodies (e.g. `dist(a, b) < threshold`), remember that `obj.x, obj.y` is \
-the recorded pose origin — often a body's base or frame center, which \
-may be offset from the functional point that actually drives the \
+bodies, do **not** gate on the raw distance between their recorded \
+poses. `obj.x, obj.y` is the recorded pose origin — usually a body's \
+base or frame center — while the point that actually drives the \
 physics (a contact surface, an outlet on the body's side, an \
-end-effector tip, a container opening, a handle). The same offset issue \
-hits any predicate the planner uses to gate the rule's subgoal, so if a \
-rule and its gating predicate share `params["..."]` they will agree with \
-each other even when both reference the wrong point. Symptoms: fit/no-fit \
-trajectory steps only separate by a knife-edge gap (~5% of the value \
-range or narrower), or SSE looks fine but plan refinement gets stuck on \
-the corresponding Wait subgoal. When that happens, call `visualize_state` \
-on representative states from each bucket and identify the correct \
-reference offset before refitting.
+end-effector tip, a container opening, a handle) is typically offset \
+from it. That offset lives in the body's **local frame**, so it \
+rotates with the body's `rot` feature; gating on raw origin distance \
+silently bakes in one task's orientation and breaks on any task where \
+the fixture is rotated differently.
+
+**Default to a learned, rotation-aware anchor offset.** Express every \
+two-body geometric gate as a distance to an *anchored* point — the \
+fixture origin plus a local-frame offset rotated into the world frame \
+by the fixture's `rot` — with the offset declared as learnable params:
+
+```python
+PARAM_SPECS = [
+    # Functional point offset, in the fixture's LOCAL frame:
+    ParamSpec("fixture_local_dx",       0.0,  lo=-0.3, hi=0.3),
+    ParamSpec("fixture_local_dy",       0.0,  lo=-0.3, hi=0.3),
+    ParamSpec("widget_at_fixture_dist", 0.10, lo=0.0,  hi=0.4),
+]
+
+# `fixture`, `widget`: the relevant object pair (bind as your rule needs).
+def process_rule(state, updates, params):
+    rot = state.get(fixture, "rot")
+    cos_r, sin_r = np.cos(rot), np.sin(rot)
+    rot_mat = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
+    local_offset = np.array([params["fixture_local_dx"],
+                             params["fixture_local_dy"]])
+    origin = np.array([state.get(fixture, "x"), state.get(fixture, "y")])
+    anchor = origin + rot_mat @ local_offset  # world-frame point
+    widget_xy = np.array([state.get(widget, "x"), state.get(widget, "y")])
+    if np.linalg.norm(widget_xy - anchor) < params["widget_at_fixture_dist"]:
+        ...  # fire
+```
+
+If the functional point really does coincide with the recorded origin, \
+the fit drives the offsets to ~0 — no harm done. A threshold-only gate \
+(no offset) is the exception: use one only after you have positively \
+confirmed the recorded origin *is* the functional point. Share the \
+offset and distance params with the gating predicate so the rule and \
+predicate anchor to the same point.
+
+**Required check before committing a geometric gate.** Bucket the \
+trajectory steps by whether the gated effect actually fired, compute \
+your gate quantity at each step, and confirm the two buckets separate \
+by a clear margin. If they overlap, or separate only by a knife-edge \
+gap (~5% of the value range or narrower), the gate references the \
+wrong point — a threshold flush against the data boundary is a \
+rejected fit, not a fit. Do **not** nudge the threshold to paper over \
+it: add or refit the anchor offset and re-bucket. To find the offset, \
+call `visualize_state` on a representative state from each bucket and \
+use `annotate_scene` to overlay, on one render, the recorded origin \
+and the positions where the effect did vs. did not fire; the gap \
+between the origin and the effect-firing cluster is the offset.
 
 ### ParamSpec
 

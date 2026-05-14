@@ -188,16 +188,26 @@ condition compares a recorded feature against a learned cutoff:
 1. Bucket trajectory steps by whether the downstream effect actually
    occurred (the rule-relevant feature advanced, the goal-relevant
    quantity changed, etc.). Compute your candidate quantity at each step.
-2. Inspect the two buckets' value ranges. If the gap between them is
-   narrower than roughly 5% of the value range, STOP. A knife-edge
-   separator is a symptom, not a fit — the candidate quantity is almost
-   certainly measuring against the wrong reference point.
-3. Before fitting any threshold, call `visualize_state` at one
-   representative state from each bucket and inspect the geometry to
-   identify the correct reference offset. Use `annotate_scene` to mark
-   candidate target points or regions on the rendered image.
-4. Re-derive the candidate quantity using the corrected reference and
-   refit. The buckets should now separate by a comfortable margin.
+2. Inspect the two buckets' value ranges. They must separate by a clear
+   margin. If they overlap, or the gap is narrower than roughly 5% of
+   the value range, STOP — a knife-edge separator is a symptom, not a
+   fit, and a threshold flush against the data boundary is rejected.
+   The candidate quantity is measuring against the wrong reference
+   point; do not widen the threshold to absorb the gap.
+3. For any two-body geometric gate, default to a learned anchor offset
+   in the fixture's LOCAL frame, rotated into the world frame by the
+   fixture's `rot` (origin + R(rot) @ (local_dx, local_dy)), with
+   local_dx/local_dy declared as ParamSpecs and shared between the rule
+   and its gating predicate — not a raw origin-distance threshold. To
+   find the offset, call `visualize_state` at one representative state
+   from each bucket and use `annotate_scene` to overlay, on one render,
+   the recorded object origin and the positions where the effect did
+   vs. did not fire. The gap between the origin and the effect-firing
+   cluster is the offset.
+4. Re-derive the candidate quantity using the anchored reference and
+   refit. Only commit once the buckets separate by a comfortable margin
+   (well past the 5% knife-edge). If the fit drives local_dx/local_dy to
+   ~0, the origin was the functional point after all — fine, keep them.
 
 **Other times to render the scene:**
 - A new predicate is proposed: render a state where it should be true

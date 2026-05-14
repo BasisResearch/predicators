@@ -390,23 +390,37 @@ Define them in `predicates.py` (path given in the first message):
 LEARNED_PREDICATES: List[Predicate]
 ```
 
-The exec namespace pre-injects `Predicate` and a `<typename>_type` binding \
-for each env type (e.g. `widget_type`, `fixture_type`). The names below \
-are illustrative — use whatever types, features, and parameter names the \
-inspect tools actually report for your task.
+The exec namespace pre-injects `Predicate`, `np`, and a `<typename>_type` \
+binding for each env type (e.g. `widget_type`, `fixture_type`). The names \
+below are illustrative — use whatever types, features, and parameter names \
+the inspect tools actually report for your task.
 
 ```python
+# Placement: object xy within a learned distance of the fixture's
+# *functional point* — NOT its recorded origin. `fixture.x, fixture.y`
+# is usually the body base; the point the predicate should fire at
+# (a contact surface, an outlet, an opening) is offset from it, and
+# that offset lives in the fixture's LOCAL frame, so it rotates with
+# the fixture's `rot`. Declare the local offset as ParamSpecs in
+# simulator.py and share them with the rule that gates the same
+# physics. A raw origin-distance gate only holds when the fixture's
+# rotation never varies across tasks.
+def _widget_at_fixture(s, objs):
+    widget, fixture = objs
+    rot = s.get(fixture, "rot")
+    cos_r, sin_r = np.cos(rot), np.sin(rot)
+    rot_mat = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
+    local_offset = np.array([params["fixture_local_dx"],
+                             params["fixture_local_dy"]])
+    origin = np.array([s.get(fixture, "x"), s.get(fixture, "y")])
+    anchor = origin + rot_mat @ local_offset  # world-frame point
+    widget_xy = np.array([s.get(widget, "x"), s.get(widget, "y")])
+    dist = np.linalg.norm(widget_xy - anchor)
+    return dist < params["widget_at_fixture_dist"]
+
 LEARNED_PREDICATES = [
-    # Placement: object xy within a learned distance of a target xy.
-    # Caveat: `fixture.x, fixture.y` is the recorded pose origin (often
-    # the body's base), which may be offset from the functional contact
-    # point the predicate should fire at. If a fit only separates the
-    # buckets by a knife-edge gap, you are almost certainly measuring to
-    # the wrong reference point — render the scene and add the offset.
     Predicate("WidgetAtFixture", [widget_type, fixture_type],
-              lambda s, objs: ((s.get(objs[0], "x") - s.get(objs[1], "x"))**2
-                               + (s.get(objs[0], "y") - s.get(objs[1], "y"))**2)
-                              < params["widget_at_fixture_dist"]**2),
+              _widget_at_fixture),
     # Device state: a feature exceeding a fixed cutoff (no learned param).
     Predicate("FixtureActive", [fixture_type],
               lambda s, objs: s.get(objs[0], "is_on") > 0.5),
@@ -419,11 +433,15 @@ LEARNED_PREDICATES = [
 A pre-injected `params` view is in scope; it always reads the **current \
 fitted values** of every `ParamSpec` declared in `simulator.py`. Whenever \
 MCMC re-fits, predicates picking up `params["name"]` see the new values \
-automatically. To share a threshold between a rule and a predicate, declare \
-it once in `PARAM_SPECS` and reference `params["name"]` from both — this \
-is the recommended pattern when a single physical threshold gates both \
-process dynamics (the rule's "fire" condition) and a control-relevant \
-predicate (the planner's "this subgoal is reached" check).
+automatically. To share parameters between a rule and a predicate — a \
+distance threshold, and the local-frame anchor offset (`*_local_dx`, \
+`*_local_dy`) it is measured from — declare them once in `PARAM_SPECS` \
+and reference `params["name"]` from both. This is the recommended \
+pattern whenever a single physical gate drives both process dynamics \
+(the rule's "fire" condition) and a control-relevant predicate (the \
+planner's "this subgoal is reached" check); it also gives the anchor \
+offset an SSE signal from the rule's step data, which a predicate-only \
+parameter would lack (see next caveat).
 
 Caveat: a parameter used only by predicates (not by any rule) has no SSE \
 signal — it stays at `init_value`. Pick good initial values for those.
@@ -449,8 +467,11 @@ whenever you fit a numeric cutoff. The two workbenches you'll lean on:
 use whenever a predicate depends on geometry. A body's recorded pose \
 often doesn't coincide with the feature that matters (a body center vs. \
 an outlet on its side, a joint base vs. an end-effector tip, a container \
-origin vs. its opening, a switch housing vs. its handle); render the \
-scene, annotate candidate target points / regions, and confirm what's \
+origin vs. its opening, a switch housing vs. its handle). On one \
+`annotate_scene` render, overlay the recorded object origin and the \
+positions where the gated effect did vs. did not fire — the gap between \
+the origin and the effect-firing cluster, expressed in the fixture's \
+local frame, is the anchor offset the predicate needs. Confirm what's \
 actually where before encoding a threshold.
 - `run_python` (numerical workbench): iterate trajectory states and \
 compute the candidate classifier (or its underlying numeric expression) \
@@ -459,10 +480,13 @@ where a downstream effect actually happens — the relevant rule feature \
 advances, the goal-relevant quantity changes — from the steps where it \
 doesn't. Sweep candidates against that signal and pick by separation. \
 This applies to every kind of predicate: placement thresholds, \
-process-completion cutoffs, on/off comparison points, etc. If the two \
-buckets only separate by a knife-edge gap (~5% of the value range or \
-narrower), the candidate quantity is almost certainly measuring against \
-the wrong reference point — visualize before fitting.
+process-completion cutoffs, on/off comparison points, etc. The two \
+buckets must separate by a clear margin; if they overlap or separate \
+only by a knife-edge gap (~5% of the value range or narrower), the \
+candidate quantity references the wrong point — a threshold flush \
+against the data boundary is a rejected fit. Do not widen the threshold \
+to absorb the gap: add a learned, rotation-aware anchor offset (shared \
+with the gating rule) and re-bucket. Visualize before fitting.
 
 Validate with `evaluate_predicate_quality` (cheap; reports first-flip step, \
 monotonicity, coverage across all available trajectories). On goal-reaching \
