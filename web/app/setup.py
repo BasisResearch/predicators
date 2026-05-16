@@ -98,11 +98,21 @@ class _Bridge:
 
         self.env = create_new_env(env_name, do_cache=False, use_gui=False)
         self.task = self.env.reset("test", 0)
+        env = self.env
         return {
             "task_idx": 0,
-            "num_objects": len(self.env._objects),  # noqa: SLF001
-            "action_dim": int(self.env.action_space.shape[0]),
+            "num_objects": len(env._objects),  # noqa: SLF001
+            "action_dim": int(env.action_space.shape[0]),
             "manifest": self.get_scene_manifest(),
+            # Env-author-defined camera (Three.js translates pybullet
+            # yaw/pitch/distance into a position).
+            "camera": {
+                "target": list(env._camera_target),  # noqa: SLF001
+                "distance": float(env._camera_distance),  # noqa: SLF001
+                "yaw": float(env._camera_yaw),  # noqa: SLF001
+                "pitch": float(env._camera_pitch),  # noqa: SLF001
+                "fov": float(env._camera_fov),  # noqa: SLF001
+            },
         }
 
     # -- Scene manifest + state ------------------------------------

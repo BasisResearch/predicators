@@ -86,14 +86,96 @@ sun.shadow.bias = -0.0005;
 scene.add(sun);
 
 function resize() {
-  const w = sceneHost.clientWidth;
-  const h = sceneHost.clientHeight;
+  const w = sceneHost.clientWidth || 1;
+  const h = sceneHost.clientHeight || 1;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 window.addEventListener("resize", resize);
+new ResizeObserver(resize).observe(sceneHost);
 resize();
+
+// Position the Three.js camera using the env's pybullet camera
+// params. PyBullet uses (yaw, pitch, distance) around a target with
+// Z-up, yaw measured from +X axis, pitch negative looking down.
+function applyEnvCamera(cam) {
+  const target = new THREE.Vector3(cam.target[0], cam.target[1], cam.target[2]);
+  const yawRad = THREE.MathUtils.degToRad(cam.yaw);
+  const pitchRad = THREE.MathUtils.degToRad(cam.pitch);
+  // PyBullet's `computeViewMatrixFromYawPitchRoll` constructs the
+  // forward vector (where the camera looks) as
+  //   forward = (-cos(p)sin(y), cos(p)cos(y), sin(p))
+  // and places the camera at `target - forward * distance`.
+  const cp = Math.cos(pitchRad), sp = Math.sin(pitchRad);
+  const cy = Math.cos(yawRad),   sy = Math.sin(yawRad);
+  const forward = new THREE.Vector3(-cp * sy, cp * cy, sp);
+  const offset = forward.clone().multiplyScalar(-cam.distance);
+  camera.position.copy(target).add(offset);
+  camera.fov = cam.fov;
+  camera.updateProjectionMatrix();
+  camera.lookAt(target);
+  controls.target.copy(target);
+  controls.update();
+  // Adjust shadow camera so it covers the workspace.
+  const m = Math.max(cam.distance * 1.5, 2.0);
+  sun.shadow.camera.left = -m; sun.shadow.camera.right = m;
+  sun.shadow.camera.top = m; sun.shadow.camera.bottom = -m;
+  sun.shadow.camera.far = cam.distance * 8;
+  sun.shadow.camera.updateProjectionMatrix();
+  // Reposition the sun relative to the target for nicer shadows.
+  sun.position.set(target.x + 2, target.y - 2, target.z + 3);
+  sun.target.position.copy(target);
+  sun.target.updateMatrixWorld();
+}
+
+// Fit the camera to the scene by computing a bounding box over all
+// rendered objects. Called after the manifest finishes loading.
+function fitCameraToScene() {
+  const box = new THREE.Box3();
+  let hasContents = false;
+  // Predicators stashes unused objects at world coords like (10,10).
+  // Skip anything more than 5 m from the workspace centroid; the
+  // 0.75/0.75 origin is roughly where the Fetch base + table sit.
+  const STASH_THRESHOLD = 5.0;
+  const tmp = new THREE.Vector3();
+  for (const [, b] of bodyMap) {
+    if (b.root.userData.isGround) continue;
+    b.root.updateMatrixWorld(true);
+    const objBox = new THREE.Box3().setFromObject(b.root);
+    if (objBox.isEmpty()) continue;
+    objBox.getCenter(tmp);
+    if (Math.abs(tmp.x) > STASH_THRESHOLD || Math.abs(tmp.y) > STASH_THRESHOLD
+        || Math.abs(tmp.z) > STASH_THRESHOLD) {
+      log(`  skipping body (stashed at ${tmp.x.toFixed(1)},${tmp.y.toFixed(1)},${tmp.z.toFixed(1)})`);
+      continue;
+    }
+    if (!hasContents) {
+      box.copy(objBox);
+      hasContents = true;
+    } else {
+      box.union(objBox);
+    }
+  }
+  if (!hasContents) { log("fitCameraToScene: no content bodies"); return; }
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const radius = Math.max(size.x, size.y, size.z) * 0.5;
+  log(`fitCameraToScene: center=(${center.x.toFixed(2)},${center.y.toFixed(2)},${center.z.toFixed(2)}) size=(${size.x.toFixed(2)},${size.y.toFixed(2)},${size.z.toFixed(2)}) bodies=${bodyMap.size}`);
+  // Place camera at a 45-deg azimuth angle, elevated, distance ~3x radius.
+  const distance = Math.max(radius * 3.0, 1.0);
+  const dir = new THREE.Vector3(1, -1, 0.9).normalize();
+  camera.position.copy(center).addScaledVector(dir, distance);
+  camera.lookAt(center);
+  controls.target.copy(center);
+  controls.update();
+  // Adjust shadow camera extents to cover the scene + a margin.
+  const m = Math.max(radius * 2.0, 2.0);
+  sun.shadow.camera.left = -m; sun.shadow.camera.right = m;
+  sun.shadow.camera.top = m; sun.shadow.camera.bottom = -m;
+  sun.shadow.camera.far = distance * 4;
+  sun.shadow.camera.updateProjectionMatrix();
+}
 
 // Per-body state: body_id -> { root: THREE.Object3D, joints: {name: URDFJoint or null} }
 let bodyMap = new Map();
@@ -130,8 +212,21 @@ urdfLoader.loadMeshCb = (path, manager, done) => {
       })));
     }, undefined, (err) => done(null, err));
   } else if (/\.dae$/i.test(path)) {
-    new ColladaLoader(manager).load(path, (dae) => done(dae.scene),
-      undefined, (err) => done(null, err));
+    new ColladaLoader(manager).load(path, (dae) => {
+      // URDF is Z-up; ColladaLoader unhelpfully rotates Z-up Collada
+      // assets to Y-up. Clear that so meshes stay aligned with their
+      // URDF link frames.
+      dae.scene.rotation.set(0, 0, 0);
+      // Blender-exported DAEs include leftover Camera/Lamp nodes at
+      // distant world positions; they're invisible but inflate any
+      // bbox computation. Drop them.
+      const stash = [];
+      dae.scene.traverse((o) => {
+        if (o.isCamera || o.isLight) stash.push(o);
+      });
+      for (const o of stash) o.parent?.remove(o);
+      done(dae.scene);
+    }, undefined, (err) => done(null, err));
   } else {
     console.warn(`URDFLoader: no loader for ${path}`);
     done(null, new Error(`no loader for ${path}`));
@@ -174,12 +269,15 @@ function makePlaceholder(entry) {
   let mesh;
   if (entry.name && entry.name.toLowerCase().includes("plane")) {
     // Real-looking ground plane — receives shadows, not pink.
-    const geom = new THREE.PlaneGeometry(20, 20);
+    // Kept modest size (5x5) so it doesn't blow up the scene bbox
+    // used by fitCameraToScene().
+    const geom = new THREE.PlaneGeometry(5, 5);
     const mat = new THREE.MeshStandardMaterial({
       color: 0xdde2eb, roughness: 0.95, metalness: 0.0,
     });
     mesh = new THREE.Mesh(geom, mat);
     mesh.receiveShadow = true;
+    root.userData.isGround = true;
   } else {
     mesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.1, 0.1, 0.1),
@@ -371,6 +469,11 @@ async function resetEnv() {
     const stateProxy = await pyodide.runPythonAsync(`bridge.get_all_body_states()`);
     applyFrame(stateProxy.toJs({ dict_converter: Object.fromEntries }));
     stateProxy.destroy();
+    if (info.camera) {
+      applyEnvCamera(info.camera);
+    } else {
+      fitCameraToScene();
+    }
 
     const optsProxy = await pyodide.runPythonAsync(`bridge.list_options()`);
     const objsProxy = await pyodide.runPythonAsync(`bridge.list_objects()`);
