@@ -12,10 +12,18 @@ files to the user's browser, where Pyodide loads it.
   wheel (with a tiny `gym.spaces.Box` shim).
 - Unpacking the `predicators/envs/assets/` tarball into Pyodide's
   emulated FS.
-- Constructing `PyBulletBlocksEnv`, rendering a 320×240 RGBA frame
-  through `p.ER_TINY_RENDERER`, and drawing it onto a `<canvas>`.
+- Constructing a PyBullet env (`pybullet_blocks` etc.), rendering a
+  320×240 RGBA frame through `p.ER_TINY_RENDERER`, and drawing it
+  onto a `<canvas>`.
+- **Option-level interaction:** after Reset, the option `<select>`
+  is populated from `get_gt_options(env_name)`; per-argument
+  selectors filter the env's objects by type; clicking Execute
+  grounds the option, runs its policy in the env until termination
+  (or 200 steps), and re-renders. Verified in headless Chromium with
+  `Pick(robby, block0)` — the robot arm visibly moves to the block.
 - Verified end-to-end in Node Pyodide via `web/app/node_smoke.mjs`
-  (~5 seconds cold).
+  and in headless Chromium via `web/app/browser_smoke.mjs`
+  (~10 seconds cold to Reset+Execute).
 
 ## Layout
 
@@ -64,18 +72,31 @@ RENDER RESULT: 320x240, 307200 bytes
 
 ## What's not done
 
-- Option-level (high-level skill) interaction UI — the `Reset`,
-  `Render`, and `Step (zero action)` buttons exist, but the
-  `human_option_control_approach` integration is the next phase.
-- Asset slimming — we ship all 32 MB of envs/assets/ packed. The
-  blocks env only needs a few MB; a targeted manifest would be faster
-  to boot.
-- `gymnasium` isn't installable in Pyodide right now (fails with a
-  WASM linker error when installed after pybullet). `RoboDiscoEnv`
-  raises a clear error if anyone tries to use it.
+- Per-step rendering during option execution — currently we only
+  render once when the option finishes. A loop with a yield/render
+  callback would let you watch the arm move frame-by-frame.
+- The `human_option_control_approach.py` interactive prompt-loop
+  isn't wired up directly — `setup.py`'s `execute_option` is a
+  simpler thing that takes the ground-truth option + object args
+  from JS instead of calling Python's `input()`.
+- Asset slimming — we ship all 32 MB of `envs/assets/` packed. The
+  blocks env only needs a few MB; a targeted manifest would be
+  faster to boot.
+- `gymnasium` and `imageio` aren't installable in Pyodide alongside
+  pybullet (both fail with `bad export type for 'gSharedMemoryKey'`
+  when installed after pybullet). `RoboDiscoEnv` raises a clear
+  error if anyone tries to use it; the `save_video` etc. helpers
+  live in the full `predicators.utils` and are never imported on
+  the env path. May be a pyodide-vs-pybullet linker conflict worth
+  reporting upstream.
 - The OpenGL camera backend is unavailable in WASM pybullet, so the
   bridge monkey-patches `env.render()` to use `p.ER_TINY_RENDERER`
   (CPU rasterizer). It's slower than the HW path but works in-browser.
+- The auto-discovery loader (`utils.import_submodules`) now skips
+  submodules whose optional deps are missing (`gym_sokoban`,
+  `gymnasium-robotics`, torch in `*/processes.py`, etc.). The flag
+  defaults to off; only `predicators/envs/__init__.py` and
+  `predicators/ground_truth_models/__init__.py` opt in.
 
 ## How the env import path is kept torch-free
 
