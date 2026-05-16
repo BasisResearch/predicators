@@ -82,13 +82,6 @@ RENDER RESULT: 320x240, 307200 bytes
 - Asset slimming — we ship all 32 MB of `envs/assets/` packed. The
   blocks env only needs a few MB; a targeted manifest would be
   faster to boot.
-- `gymnasium` and `imageio` aren't installable in Pyodide alongside
-  pybullet (both fail with `bad export type for 'gSharedMemoryKey'`
-  when installed after pybullet). `RoboDiscoEnv` raises a clear
-  error if anyone tries to use it; the `save_video` etc. helpers
-  live in the full `predicators.utils` and are never imported on
-  the env path. May be a pyodide-vs-pybullet linker conflict worth
-  reporting upstream.
 - The OpenGL camera backend is unavailable in WASM pybullet, so the
   bridge monkey-patches `env.render()` to use `p.ER_TINY_RENDERER`
   (CPU rasterizer). It's slower than the HW path but works in-browser.
@@ -97,6 +90,27 @@ RENDER RESULT: 320x240, 307200 bytes
   `gymnasium-robotics`, torch in `*/processes.py`, etc.). The flag
   defaults to off; only `predicators/envs/__init__.py` and
   `predicators/ground_truth_models/__init__.py` opt in.
+- A handful of upstream `assert not params` checks in
+  `ground_truth_models/*/options.py` raise under numpy 2.x ("truth
+  value of an empty array is ambiguous"). Only the one in
+  `blocks/options.py` is on the current demo path and has been
+  switched to `assert len(params) == 0`; the others will need the
+  same fix as we exercise more envs in the browser.
+
+## Pyodide / wheel versions
+
+Pyodide is pinned to 0.29.4 in both `main.js` (CDN) and
+`package.json` (Node smoke tests). The pybullet wheel is the
+`pybullet-3.2.7-cp313-cp313-pyemscripten_2025_0_wasm32` build from
+[BasisResearch/pybullet-pyodide](https://github.com/BasisResearch/pybullet-pyodide)
+— specifically the one built with `exports: pyinit`, which keeps
+the dyld from rejecting subsequent C-extension installs with `bad
+export type for 'gSharedMemoryKey': undefined`. The 0.27 wheel does
+not have that fix; installing imageio or gymnasium on top of it
+fails. If you bump pybullet again, keep the `exports: pyinit` flag.
+`gym` is still the 50-line shim (real `gym 0.26.2` has no
+pure-Python wheel — orthogonal to the pybullet fix); `gymnasium` is
+the real library installed from Pyodide's repodata.
 
 ## How the env import path is kept torch-free
 
