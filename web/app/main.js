@@ -436,14 +436,19 @@ async function boot() {
   setStatus("Installing wheels…");
   await pyodide.runPythonAsync(`
 import micropip
+# Pybullet + gym shim first; these are local emfs wheels that wouldn't
+# resolve from PyPI (no Pyodide-targeted pybullet on PyPI; gym 0.26.2
+# has no pure-Python wheel — see web/app/gym_shim_setup.py).
 await micropip.install("emfs:/tmp/${PYBULLET_WHEEL}")
 await micropip.install("emfs:/tmp/${GYM_SHIM_WHEEL}")
-for pkg in ["dill", "tabulate", "pyperplan", "colorlog", "imageio", "gymnasium"]:
-    try:
-        await micropip.install(pkg, deps=True, keep_going=True)
-    except Exception as e:
-        print(f"{pkg} FAILED: {e}")
-await micropip.install("emfs:/tmp/${PREDICATORS_WHEEL}", deps=False)
+# predicators' install_requires is now the env-runtime slim set
+# (matches the dep audit in setup.py). Let micropip pull each dep
+# transitively. keep_going=True so platform-specific dead-ends
+# (pybullet-arm64 on PyPI, version pins that conflict with the
+# Pyodide-shipped numpy/matplotlib/pillow) get skipped instead of
+# aborting the install.
+await micropip.install("emfs:/tmp/${PREDICATORS_WHEEL}",
+                       deps=True, keep_going=True)
 print("predicators installed")
 `);
 

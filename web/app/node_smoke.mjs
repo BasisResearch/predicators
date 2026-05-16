@@ -59,14 +59,12 @@ try:
     # Install our gym shim first so micropip doesn't try the real gym.
     await micropip.install("emfs:/tmp/${GYM_SHIM_WHEEL}")
     print("gym shim installed", flush=True)
-    for pkg in ["dill", "tabulate", "pyperplan", "colorlog", "imageio", "gymnasium"]:
-        try:
-            await micropip.install(pkg, deps=True, keep_going=True)
-            print(f"{pkg} installed", flush=True)
-        except Exception as e:
-            print(f"{pkg} FAILED: {type(e).__name__} {e}", flush=True)
-    print("deps installed (some maybe skipped)", flush=True)
-    await micropip.install("emfs:/tmp/${PREDICATORS_WHEEL}", deps=False)
+    # The predicators wheel's install_requires is now the env-runtime
+    # slim set, so let micropip do the resolution. keep_going=True
+    # skips platform-specific dead-ends (pybullet-arm64 on PyPI,
+    # numpy/matplotlib/pillow version pins vs. Pyodide-shipped).
+    await micropip.install("emfs:/tmp/${PREDICATORS_WHEEL}",
+                           deps=True, keep_going=True)
     print("predicators installed", flush=True)
 except Exception as e:
     print("INSTALL ERROR:", type(e).__name__, e, flush=True)
@@ -116,9 +114,9 @@ try {
 import traceback
 try:
     info = bridge.reset("pybullet_blocks")
-    print("RESET RESULT:", info, flush=True)
-    out = bridge.render()
-    print(f"RENDER RESULT: {out['width']}x{out['height']}, {len(out['pixels'])} bytes", flush=True)
+    print(f"RESET: {info['num_objects']} objects, {len(info['manifest'])} bodies", flush=True)
+    states = bridge.get_all_body_states()
+    print(f"STATES: {len(states)} body poses", flush=True)
 except Exception as e:
     print("BRIDGE ERROR:", type(e).__name__, e, flush=True)
     traceback.print_exc()

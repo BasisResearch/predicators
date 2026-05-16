@@ -51,18 +51,24 @@ setup(
     packages=find_packages(include=["predicators", "predicators.*"]),
     install_requires=[
         # PyBullet env-runtime — matches the dep set that boots the
-        # browser POC and the gymnasium_wrapper.
-        "numpy==1.23.5",
+        # browser POC and the gymnasium_wrapper. Pins on numpy /
+        # matplotlib / pillow / dill are relaxed to >= because Pyodide
+        # ships fixed versions (numpy 2.2.5, matplotlib 3.8.4, etc.)
+        # and the env code doesn't depend on the exact older pins.
+        "numpy>=1.23.5",
         "gym==0.26.2",
         "gymnasium>=0.28.0",
-        "matplotlib==3.6.2",
-        "pillow==10.3.0",
-        "pybullet-arm64>=3.2.8",
+        "matplotlib>=3.6.2",
+        "pillow>=10.3.0",
+        # On Pyodide (sys_platform == "emscripten") the pybullet wheel
+        # is loaded from a local emfs path by the browser bootstrap;
+        # PyPI has no Pyodide-targeted pybullet.
+        "pybullet-arm64>=3.2.8; sys_platform != 'emscripten'",
         "pyperplan",
-        "tabulate==0.9.0",
-        "dill==0.3.5.1",
+        "tabulate>=0.9.0",
+        "dill>=0.3.5.1",
         "colorlog",
-        "pyyaml==6.0",
+        "pyyaml>=6.0",
         "types-PyYAML",
         "graphlib-backport",
         # Test/lint tooling stays in base for now (CLAUDE.md docs the
