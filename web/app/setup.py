@@ -115,9 +115,13 @@ class _Bridge:
                 for o in sorted(self.env._objects, key=lambda o: o.name)]
 
     def execute_option(self, option_name, object_names,
-                        params=None, max_steps=200):
+                        params=None, max_steps=200, render_every=5):
         """Ground an option with the named objects and execute its policy
-        until termination (or max_steps). Returns the number of steps run."""
+        until termination (or max_steps).
+
+        Captures a frame every `render_every` sim steps (plus the initial
+        and final state). Returns {steps, width, height, frames: [bytes]}.
+        Set `render_every=0` to skip intermediate captures (final only)."""
         from predicators.ground_truth_models import get_gt_options
         options = {o.name: o for o in get_gt_options(self.env.get_name())}
         if option_name not in options:
@@ -150,14 +154,35 @@ class _Bridge:
                 f"{option_name}({','.join(object_names)}) "
                 "is not initiable in the current state.")
 
+        def _grab():
+            r = self.render()
+            return r["pixels"], r["width"], r["height"]
+
+        frames = []
+        px, w, h = _grab()
+        frames.append(px)
+
         steps = 0
         while steps < max_steps:
             act = ground_opt.policy(state)
             state = self.env.step(act)
             steps += 1
+            if render_every and steps % render_every == 0:
+                frames.append(_grab()[0])
             if ground_opt.terminal(state):
                 break
-        return steps
+
+        # Ensure we always have the final frame.
+        final_px = _grab()[0]
+        if not frames or frames[-1] is not final_px:
+            frames.append(final_px)
+
+        return {
+            "steps": steps,
+            "width": w,
+            "height": h,
+            "frames": frames,
+        }
 
 
 bridge = _Bridge()

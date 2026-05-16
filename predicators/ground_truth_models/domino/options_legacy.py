@@ -335,7 +335,7 @@ class _DominoLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, domino = objects
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
@@ -384,7 +384,7 @@ class _DominoLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, = objects
             domino = cls._find_start_block(state, domino_type)
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
@@ -425,7 +425,7 @@ class _DominoLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, domino = objects
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
@@ -465,7 +465,7 @@ class _DominoLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, domino_f, domino_b, tgt_pos, rotation = objects
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))

@@ -200,7 +200,7 @@ class PyBulletAntsGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, block = objects
             # Current
             current_position = (state.get(robot, "x"), state.get(robot, "y"),

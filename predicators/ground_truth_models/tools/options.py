@@ -128,7 +128,7 @@ class ToolsGroundTruthOptionFactory(GroundTruthOptionFactory):
         def policy(state: State, memory: Dict, objects: Sequence[Object],
                    params: Array) -> Action:
             del memory  # unused
-            assert not params
+            assert len(params) == 0
             _, item_or_tool = objects
             pose_x = state.get(item_or_tool, "pose_x")
             pose_y = state.get(item_or_tool, "pose_y")
@@ -153,7 +153,7 @@ class ToolsGroundTruthOptionFactory(GroundTruthOptionFactory):
         def policy(state: State, memory: Dict, objects: Sequence[Object],
                    params: Array) -> Action:
             del memory  # unused
-            assert not params
+            assert len(params) == 0
             if len(objects) == 3:
                 # Note that the FastenScrewByHand option has only 3 parameters,
                 # while all other Fasten options have 4 parameters.

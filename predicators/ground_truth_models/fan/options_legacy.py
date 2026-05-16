@@ -260,7 +260,7 @@ class _FanLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             if CFG.fan_known_controls_relation:
                 robot, fan = objects
                 switch = [switch for switch in state.get_objects(switch_type)

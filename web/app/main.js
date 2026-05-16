@@ -170,16 +170,30 @@ async function executeOption() {
   setStatus(`Executing ${name}(${args.join(", ")})…`);
   try {
     const argList = JSON.stringify(args);
-    const steps = await pyodide.runPythonAsync(`
-import json
-json.dumps(bridge.execute_option("${name}", ${argList}))
+    // Returns (steps, width, height, [frame_bytes, ...])
+    const out = await pyodide.runPythonAsync(`
+r = bridge.execute_option("${name}", ${argList})
+(r["steps"], r["width"], r["height"], r["frames"])
 `);
-    log(`Executed ${name}(${args.join(", ")}) -> ${steps} steps`);
+    const [steps, width, height, frames] = out.toJs({ create_proxies: false });
+    log(`Executed ${name}(${args.join(", ")}) -> ${steps} steps, ${frames.length} frames`);
+    setStatus(`${name} done in ${steps} steps. Playing ${frames.length} frames…`);
+    await playFrames(frames, width, height);
     setStatus(`${name} done in ${steps} steps.`);
-    await renderFrame();
   } catch (e) {
     setStatus("Execute failed — see log.");
     log("ERROR: " + e.message);
+  }
+}
+
+// Animate a list of RGBA frame buffers onto the canvas. Default ~30fps.
+async function playFrames(frames, width, height, intervalMs = 33) {
+  canvas.width = width;
+  canvas.height = height;
+  for (const px of frames) {
+    const imageData = new ImageData(new Uint8ClampedArray(px), width, height);
+    ctx.putImageData(imageData, 0, 0);
+    await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
 

@@ -142,7 +142,7 @@ class PyBulletFloatGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, block = objects
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
@@ -183,7 +183,7 @@ class PyBulletFloatGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, vessel = objects
             rx = state.get(robot, "x")
             ry = state.get(robot, "y")

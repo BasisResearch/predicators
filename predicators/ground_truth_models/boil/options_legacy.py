@@ -519,7 +519,7 @@ class _BoilLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             if len(objects) == 2:
                 robot, burner = objects
                 # Current
@@ -597,7 +597,7 @@ class _BoilLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, jug = objects
             # Current
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
@@ -645,7 +645,7 @@ class _BoilLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, obj = objects
             switch = next(
                 (
@@ -689,7 +689,7 @@ class _BoilLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot = objects[0]
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
