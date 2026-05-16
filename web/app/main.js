@@ -4,7 +4,7 @@
 // a tiny gym shim, unpacks the env asset tarball into the Pyodide FS,
 // then exposes Reset / Render / Step on env names like `pybullet_blocks`.
 
-import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.mjs";
+import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.29.4/full/pyodide.mjs";
 
 const statusEl = document.getElementById("status");
 const logEl = document.getElementById("log");
@@ -17,7 +17,7 @@ const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
 const WHEELS_BASE = "../wheels";
-const PYBULLET_WHEEL = "pybullet-3.2.7-cp312-cp312-emscripten_3_1_58_wasm32.whl";
+const PYBULLET_WHEEL = "pybullet-3.2.7-cp313-cp313-pyemscripten_2025_0_wasm32.whl";
 const PREDICATORS_WHEEL = "predicators-0.1.0-py3-none-any.whl";
 const GYM_SHIM_WHEEL = "gym-0.26.2-py3-none-any.whl";
 const ASSETS_TARBALL = "assets.tar.gz";
@@ -43,7 +43,7 @@ async function fetchBytes(path) {
 async function boot() {
   setStatus("Loading Pyodide runtime…");
   pyodide = await loadPyodide({
-    indexURL: "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/",
+    indexURL: "https://cdn.jsdelivr.net/pyodide/v0.29.4/full/",
     stdout: log,
     stderr: log,
   });
@@ -64,7 +64,7 @@ await micropip.install("emfs:/tmp/${PYBULLET_WHEEL}")
 print("pybullet installed")
 await micropip.install("emfs:/tmp/${GYM_SHIM_WHEEL}")
 print("gym shim installed")
-for pkg in ["dill", "tabulate", "pyperplan", "colorlog", "imageio"]:
+for pkg in ["dill", "tabulate", "pyperplan", "colorlog", "imageio", "gymnasium"]:
     try:
         await micropip.install(pkg, deps=True, keep_going=True)
         print(f"{pkg} installed")
@@ -78,9 +78,9 @@ print("predicators installed")
   const assetsBuf = await fetchBytes(`${WHEELS_BASE}/${ASSETS_TARBALL}`);
   // Tarball contains a top-level `assets/` dir; unpack inside the
   // installed package so the env code finds it at the expected path.
-  pyodide.FS.mkdirTree("/lib/python3.12/site-packages/predicators/envs");
+  pyodide.FS.mkdirTree("/lib/python3.13/site-packages/predicators/envs");
   await pyodide.runPythonAsync(
-    `import os; os.chdir("/lib/python3.12/site-packages/predicators/envs")`);
+    `import os; os.chdir("/lib/python3.13/site-packages/predicators/envs")`);
   pyodide.unpackArchive(assetsBuf, "tar.gz");
   log("Assets unpacked");
 

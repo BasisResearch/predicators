@@ -1,0 +1,9 @@
+{
+  "name": "predicators-web",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pyodide": "^0.29.4",
+    "puppeteer-core": "^24.0.0"
+  }
+}

@@ -30,7 +30,7 @@ function readWheel(name) {
 
 // Pyodide's micropip parses the wheel filename out of the URL, so we
 // must keep the canonical names rather than abbreviating.
-const PYBULLET_WHEEL = "pybullet-3.2.7-cp312-cp312-emscripten_3_1_58_wasm32.whl";
+const PYBULLET_WHEEL = "pybullet-3.2.7-cp313-cp313-pyemscripten_2025_0_wasm32.whl";
 const PREDICATORS_WHEEL = "predicators-0.1.0-py3-none-any.whl";
 const GYM_SHIM_WHEEL = "gym-0.26.2-py3-none-any.whl";
 pyodide.FS.writeFile(`/tmp/${PYBULLET_WHEEL}`, readWheel(PYBULLET_WHEEL));
@@ -59,14 +59,12 @@ try:
     # Install our gym shim first so micropip doesn't try the real gym.
     await micropip.install("emfs:/tmp/${GYM_SHIM_WHEEL}")
     print("gym shim installed", flush=True)
-    for pkg in ["dill", "tabulate", "pyperplan", "colorlog", "gymnasium"]:
+    for pkg in ["dill", "tabulate", "pyperplan", "colorlog", "imageio", "gymnasium"]:
         try:
             await micropip.install(pkg, deps=True, keep_going=True)
             print(f"{pkg} installed", flush=True)
         except Exception as e:
             print(f"{pkg} FAILED: {type(e).__name__} {e}", flush=True)
-    # imageio is only needed for the heavy utils path (video save),
-    # not for env construction/render. Skip it for now.
     print("deps installed (some maybe skipped)", flush=True)
     await micropip.install("emfs:/tmp/${PREDICATORS_WHEEL}", deps=False)
     print("predicators installed", flush=True)
@@ -85,7 +83,7 @@ log("Wheels installed");
 // `os.path.exists(envs/assets/urdf/plane.urdf)` etc. work without
 // baking 141 MB of meshes into the wheel.
 const ASSET_SRC = resolve(HERE, "../../predicators/envs/assets");
-const ASSET_DEST = "/lib/python3.12/site-packages/predicators/envs/assets";
+const ASSET_DEST = "/lib/python3.13/site-packages/predicators/envs/assets";
 try { pyodide.FS.rmdir(ASSET_DEST); } catch {}
 pyodide.FS.mkdirTree(ASSET_DEST);
 pyodide.FS.mount(pyodide.FS.filesystems.NODEFS, { root: ASSET_SRC }, ASSET_DEST);

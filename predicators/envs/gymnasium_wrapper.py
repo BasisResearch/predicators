@@ -16,29 +16,15 @@ Quick start::
     action = env.action_space.sample()
     obs, reward, terminated, truncated, info = env.step(action)
 """
-# `from __future__ import annotations` so module-level `def` signatures
-# that reference `gymnasium.Env` aren't evaluated when gymnasium isn't
-# installed (constrained runtimes like Pyodide).
-from __future__ import annotations
 
 import importlib
 from typing import Any, Dict, List, Optional, Set, Tuple
 from typing import Type as TypingType
 from typing import Union
 
-try:
-    import gymnasium
-    from gymnasium import spaces
-    _BASE_GYM_ENV: type = gymnasium.Env
-except ImportError:
-    # Constrained runtimes (e.g. Pyodide) may not ship gymnasium.
-    # The rest of the predicators env package still loads; RoboDiscoEnv
-    # falls back to a plain object subclass and methods that need
-    # gymnasium will raise a clear error at call time.
-    gymnasium = None  # type: ignore[assignment]
-    spaces = None  # type: ignore[assignment]
-    _BASE_GYM_ENV = object
+import gymnasium
 import numpy as np
+from gymnasium import spaces
 from numpy.typing import NDArray
 
 from predicators.envs.pybullet_env import PyBulletEnv
@@ -58,7 +44,8 @@ def _ensure_cfg_initialized() -> None:
     required fields like ``seed`` are missing and ``BaseEnv.__init__``
     would crash.
     """
-    from predicators import utils  # pylint: disable=import-outside-toplevel
+    from predicators import \
+        utils_lite as utils  # pylint: disable=import-outside-toplevel
     from predicators.settings import \
         CFG  # pylint: disable=import-outside-toplevel
     if not hasattr(CFG, "seed"):
@@ -76,7 +63,7 @@ def _resolve_cls(
     return env_cls
 
 
-class RoboDiscoEnv(_BASE_GYM_ENV):
+class RoboDiscoEnv(gymnasium.Env):
     """Wraps a predicators ``PyBulletEnv`` as a standard ``gymnasium.Env``.
 
     Observation: flattened object features as a ``Box`` space, with
@@ -102,7 +89,7 @@ class RoboDiscoEnv(_BASE_GYM_ENV):
         _ensure_cfg_initialized()
         if cfg_overrides:
             from predicators import \
-                utils  # pylint: disable=import-outside-toplevel
+                utils_lite as utils  # pylint: disable=import-outside-toplevel
             utils.update_config(cfg_overrides)
         resolved_cls = _resolve_cls(env_cls)
         self._env = resolved_cls(use_gui=use_gui, **env_kwargs)
