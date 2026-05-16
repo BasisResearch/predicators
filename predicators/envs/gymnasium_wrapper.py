@@ -16,6 +16,10 @@ Quick start::
     action = env.action_space.sample()
     obs, reward, terminated, truncated, info = env.step(action)
 """
+# `from __future__ import annotations` so module-level `def` signatures
+# that reference `gymnasium.Env` aren't evaluated when gymnasium isn't
+# installed (constrained runtimes like Pyodide).
+from __future__ import annotations
 
 import importlib
 from typing import Any, Dict, List, Optional, Set, Tuple
