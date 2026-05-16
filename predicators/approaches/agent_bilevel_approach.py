@@ -256,6 +256,20 @@ class AgentBilevelApproach(AgentPlannerApproach):
     # Forward validation
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def _fmt_state_features(state: State) -> str:
+        """Compact one-line dump of every object's features.
+
+        Used by ``_validate_plan_forward`` to trace how the continuous
+        rollout's state drifts step by step.
+        """
+        parts = []
+        for obj in sorted(state, key=lambda o: o.name):
+            feats = ", ".join(f"{f}={state.get(obj, f):.4f}"
+                              for f in obj.type.feature_names)
+            parts.append(f"{obj.name}[{feats}]")
+        return " ".join(parts)
+
     def _validate_plan_forward(
         self,
         task: Task,
@@ -272,13 +286,32 @@ class AgentBilevelApproach(AgentPlannerApproach):
         if n == 0:
             return task.goal_holds(task.init)
 
+        predicates = self._get_all_predicates()
+
         def sample_fn(i: int, _s: State, _r: np.random.Generator) -> _Option:
             return plan[i]
 
         def validate_fn(i: int, _s: State, _o: _Option, post: State,
                         _n: int) -> Tuple[bool, str]:
-            if i == n - 1 and not task.goal_holds(post):
-                return False, "goal not reached"
+            if i == n - 1:
+                goal_ok = task.goal_holds(post)
+                held = sorted(str(a) for a in task.goal if a.holds(post))
+                missing = sorted(
+                    str(a) for a in task.goal if not a.holds(post))
+                abstract_atoms = sorted(
+                    str(a) for a in utils.abstract(post, predicates))
+                logging.info(
+                    "[%s] Forward-validate FINAL state%s:\n"
+                    "  goal atoms held:    %s\n"
+                    "  goal atoms MISSING: %s\n"
+                    "  abstract state:     %s\n"
+                    "  full features:      %s\n"
+                    "  full state:\n%s", self._run_id,
+                    " (goal reached)" if goal_ok else " (GOAL NOT REACHED)",
+                    held or "(none)", missing or "(none)", abstract_atoms,
+                    self._fmt_state_features(post), post.pretty_str())
+                if not goal_ok:
+                    return False, "goal not reached"
             return True, ""
 
         _, success, _ = run_backtracking_refinement(

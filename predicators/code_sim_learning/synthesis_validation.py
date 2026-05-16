@@ -43,7 +43,9 @@ def run_refinement_for_synthesis(
     runs ``bilevel_sketch.refine_sketch`` on it. Always fits before
     refinement: the candidate's deployed behaviour is the *fitted*
     simulator, so refining against init_value params would test the
-    wrong model.
+    wrong model. The fit is published into ``approach._fitted_params``
+    in place so invented predicates (which read it through a
+    ``_ParamsView``) anchor to the same values as the simulator rules.
 
     ``timeout`` is wall-clock seconds for refinement only (MCMC
     fitting is not subject to it). When ``None``, it auto-scales with
@@ -72,6 +74,14 @@ def run_refinement_for_synthesis(
                                                    process_features)
     except Exception as e:  # pylint: disable=broad-except
         return f"Error: param fitting failed:\n{e}"
+
+    # Publish the fit into approach._fitted_params in place (clear +
+    # update, never replace) so the _ParamsView held by invented
+    # predicates picks up exactly the values the LearnedSimulator below
+    # runs at. Within one refinement run the gating rule and the gating
+    # predicate must anchor to the same parameter set.
+    approach._fitted_params.clear()
+    approach._fitted_params.update(params)
 
     learned = LearnedSimulator(
         step_fn=lambda s, _r=rules, _p=params:  # type: ignore[misc]

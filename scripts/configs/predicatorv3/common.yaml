@@ -30,5 +30,5 @@ FLAGS:
   timeout: 600
   log: 'logs/'
   no_repeated_arguments_in_grounding: True
-START_SEED: 0
+START_SEED: 3
 NUM_SEEDS: 1
