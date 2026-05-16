@@ -33,18 +33,31 @@
       max-height: 100%; margin: 0;
     }
     #status { font-size: 12px; color: #fa6; margin-bottom: 8px; }
-    #canvas {
-      width: 100%; max-width: 600px; height: auto;
-      image-rendering: pixelated; background: #000;
-      border: 1px solid #333;
+    #scene-host {
+      width: 100%; height: 100%;
+      background: linear-gradient(180deg, #2a3a4a 0%, #1a2030 100%);
+      border: 1px solid #333; border-radius: 6px;
+      position: relative;
     }
+    #scene-host canvas { display: block; width: 100%; height: 100%; }
     .row { margin-bottom: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     label { font-size: 12px; color: #888; }
   </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "../node_modules/three/build/three.module.js",
+      "three/addons/": "../node_modules/three/examples/jsm/",
+      "three/examples/jsm/": "../node_modules/three/examples/jsm/",
+      "urdf-loader": "../node_modules/urdf-loader/src/URDFLoader.js"
+    }
+  }
+  </script>
 </head>
 <body>
   <div class="panel">
-    <h1>predicators · pyodide · pybullet-wasm</h1>
+    <h1>predicators · pyodide · pybullet-wasm · three.js</h1>
     <div id="status">Booting Pyodide…</div>
 
     <div class="row">
@@ -64,8 +77,6 @@
         <option value="pybullet_magic_bin">pybullet_magic_bin (no options)</option>
       </select>
       <button id="boot-env" disabled>Reset</button>
-      <button id="render" disabled>Render</button>
-      <button id="step-zero" disabled>Step zero</button>
     </div>
 
     <div id="info" class="row" style="color:#7a7;font-size:11px"></div>
@@ -80,8 +91,8 @@
     <pre id="log"></pre>
   </div>
 
-  <div class="panel" style="display:flex;align-items:flex-start;justify-content:center;">
-    <canvas id="canvas" width="320" height="240"></canvas>
+  <div class="panel" style="display:flex;padding:6px;">
+    <div id="scene-host"></div>
   </div>
 
   <script type="module" src="./main.js"></script>

@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "puppeteer-core": "^24.0.0",
     "pyodide": "^0.29.4",
-    "puppeteer-core": "^24.0.0"
+    "three": "^0.184.0",
+    "urdf-loader": "^0.12.7"
   }
 }

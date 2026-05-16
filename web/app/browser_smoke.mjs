@@ -15,12 +15,19 @@ const CHROMIUM = process.env.CHROMIUM || "/usr/bin/chromium";
 const browser = await puppeteer.launch({
   executablePath: CHROMIUM,
   headless: "new",
-  args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
+  // Software WebGL via SwiftShader for headless Three.js rendering.
+  args: [
+    "--no-sandbox", "--disable-dev-shm-usage",
+    "--use-gl=swiftshader", "--enable-unsafe-swiftshader",
+    "--ignore-gpu-blocklist",
+  ],
 });
 
 const page = await browser.newPage();
 page.on("console", (msg) => console.log("[page]", msg.type(), msg.text()));
 page.on("pageerror", (err) => console.error("[pageerror]", err.message));
+
+const ENV = process.env.ENV || "pybullet_blocks";
 
 await page.goto(URL, { waitUntil: "load" });
 
@@ -30,7 +37,8 @@ await page.waitForFunction(
   { timeout: 180000 },
 );
 
-console.log("Bridge ready. Triggering Reset…");
+console.log(`Bridge ready. Selecting ${ENV} and triggering Reset…`);
+await page.select("#env-select", ENV);
 await page.click("#boot-env");
 await page.waitForFunction(
   () => document.getElementById("info").textContent.includes("action_dim="),
@@ -43,7 +51,7 @@ console.log("Info:", info);
 const status = await page.$eval("#status", (el) => el.textContent);
 console.log("Status:", status);
 
-const canvasSize = await page.$eval("#canvas", (el) => ({ w: el.width, h: el.height }));
+const canvasSize = await page.$eval("#scene-host canvas", (el) => ({ w: el.width, h: el.height }));
 console.log("Canvas:", canvasSize);
 
 // Inspect option picker state.

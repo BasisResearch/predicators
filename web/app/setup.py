@@ -1,13 +1,18 @@
 """Pyodide-side bridge for the predicators browser demo.
 
 Exposes a minimal `bridge` object that the JS layer can call:
-- bridge.reset(env_name) -> {task_idx, num_objects, action_dim}
-- bridge.render() -> {width, height, pixels}  # pixels is a numpy uint8 RGBA buffer
-- bridge.step_zero() -> None  # advances the sim by a zero action
+- bridge.reset(env_name) -> {task_idx, num_objects, action_dim, manifest}
+- bridge.list_options() / list_objects()
+- bridge.execute_option(name, object_names, ...) -> {steps, frames}
+    where each frame is a {body_id: {pos, orn, joints: {name: rad}}} snapshot
 
-Renders via p.ER_TINY_RENDERER because the WASM pybullet build doesn't
-have an OpenGL hardware backend.
+Rendering is done client-side by Three.js + urdf-loader. The bridge
+extracts (a) a scene manifest (URDF refs for URDF-loaded bodies +
+primitive descriptors for createMultiBody bodies) and (b) per-step
+body states so the JS side can drive a real WebGL scene.
 """
+
+import os
 
 import numpy as np
 import pybullet as p
@@ -16,112 +21,203 @@ from predicators import utils_lite as _utils
 from predicators.envs import create_new_env
 from predicators.settings import CFG
 
+# Pybullet GEOM_* constants:
+#   2 SPHERE, 3 BOX, 4 CYLINDER, 5 MESH, 6 PLANE, 7 CAPSULE
+_GEOM_NAMES = {2: "sphere", 3: "box", 4: "cylinder", 5: "mesh",
+               6: "plane", 7: "capsule"}
+
+# Pyodide FS prefix where the assets tarball is unpacked at boot. We
+# strip this so the JS side can fetch via the dev server's static
+# `./predicators_assets/` symlink.
+_ASSET_FS_PREFIX = "/lib/python3.13/site-packages/predicators/envs/assets/"
+_ASSET_URL_PREFIX = "../predicators_assets/"
+
+
+def _asset_url(path):
+    """Translate a Pyodide-FS asset path to a server-relative URL."""
+    if not path:
+        return None
+    s = path.decode() if isinstance(path, (bytes, bytearray)) else str(path)
+    if s.startswith(_ASSET_FS_PREFIX):
+        return _ASSET_URL_PREFIX + s[len(_ASSET_FS_PREFIX):]
+    # Some envs store mesh paths relative to a setAdditionalSearchPath
+    # call. If the path exists under assets/, anchor it there.
+    if not os.path.isabs(s):
+        return _ASSET_URL_PREFIX + s
+    return None  # off-tree path we can't serve
+
 
 def _ensure_cfg():
-    """Populate CFG with sane defaults so envs can construct."""
     _utils.reset_config({
         "env": "pybullet_blocks",
         "seed": 0,
         "num_train_tasks": 1,
         "num_test_tasks": 1,
         "approach": "oracle",
-        "pybullet_camera_height": 240,
-        "pybullet_camera_width": 320,
     })
 
 
 class _Bridge:
+
     def __init__(self):
         self.env = None
         self.task = None
+        # body_id -> URDF url (server-relative). Filled in by the
+        # loadURDF monkey-patch during env construction.
+        self._urdf_map = {}
 
     def reset(self, env_name):
-        # Refresh CFG for the selected env.
         _utils.reset_config({
             "env": env_name,
             "seed": 0,
             "num_train_tasks": 1,
             "num_test_tasks": 1,
             "approach": "oracle",
-            "pybullet_camera_height": 240,
-            "pybullet_camera_width": 320,
         })
 
+        self._urdf_map = {}
+        # Wrap pybullet.loadURDF so we capture which URDF backed each
+        # body that the env constructs. The patch is process-global but
+        # we reset _urdf_map every reset, so stale entries don't leak.
+        if not getattr(p.loadURDF, "_bridge_wrapped", False):
+            orig_load = p.loadURDF
+
+            def _tracked_load(*args, **kwargs):
+                bid = orig_load(*args, **kwargs)
+                # First positional arg is the URDF path.
+                url = _asset_url(args[0]) if args else None
+                if url is None and "fileName" in kwargs:
+                    url = _asset_url(kwargs["fileName"])
+                if url is not None and isinstance(bid, int) and bid >= 0:
+                    bridge._urdf_map[bid] = url
+                return bid
+
+            _tracked_load._bridge_wrapped = True  # noqa: SLF001
+            _tracked_load._orig = orig_load  # noqa: SLF001
+            p.loadURDF = _tracked_load
+
         self.env = create_new_env(env_name, do_cache=False, use_gui=False)
-        # Force the TINY renderer everywhere - WASM pybullet has no OpenGL HW.
-        self._patch_renderer()
         self.task = self.env.reset("test", 0)
         return {
             "task_idx": 0,
             "num_objects": len(self.env._objects),  # noqa: SLF001
             "action_dim": int(self.env.action_space.shape[0]),
+            "manifest": self.get_scene_manifest(),
         }
 
-    def _patch_renderer(self):
-        # Monkey-patch _get_camera_matrices' caller to swap the OpenGL flag
-        # for ER_TINY_RENDERER. Easier: wrap the render() method.
-        env = self.env
-        orig_render = env.render
+    # -- Scene manifest + state ------------------------------------
 
-        def render_tiny(action=None, caption=None):
-            del action, caption
-            view, proj, w, h = env._get_camera_matrices()  # noqa: SLF001
-            _, _, px, _, _ = p.getCameraImage(
-                width=w, height=h,
-                viewMatrix=view, projectionMatrix=proj,
-                renderer=p.ER_TINY_RENDERER,
-                physicsClientId=env._physics_client_id,  # noqa: SLF001
-            )
-            arr = np.array(px, dtype=np.uint8).reshape((h, w, 4))
-            return [arr]
+    def get_scene_manifest(self):
+        """Walk all bodies in the current physics client and describe
+        them as Three.js-buildable entries."""
+        cid = self.env._physics_client_id  # noqa: SLF001
+        n = p.getNumBodies(physicsClientId=cid)
+        entries = []
+        for body_id in range(n):
+            try:
+                info = p.getBodyInfo(body_id, physicsClientId=cid)
+            except p.error:
+                continue
+            base_name = info[0].decode() if info and info[0] else ""
+            body_name = info[1].decode() if info and len(info) > 1 else ""
 
-        env.render = render_tiny
+            entry = {
+                "body_id": body_id,
+                "name": body_name or base_name or f"body_{body_id}",
+            }
 
-    def render(self):
-        frames = self.env.render()
-        rgba = np.asarray(frames[0], dtype=np.uint8)
-        h, w, _ = rgba.shape
-        # Pyodide will hand the JS side a memoryview; flatten to bytes.
-        return {"width": w, "height": h, "pixels": rgba.tobytes()}
+            # Joints, for sync.
+            joint_names = []
+            num_joints = p.getNumJoints(body_id, physicsClientId=cid)
+            for j in range(num_joints):
+                jinfo = p.getJointInfo(body_id, j, physicsClientId=cid)
+                jname = jinfo[1].decode() if jinfo[1] else f"joint_{j}"
+                jtype = int(jinfo[2])
+                # Type 4 = FIXED, doesn't move; skip from sync list.
+                if jtype != 4:
+                    joint_names.append(jname)
+            entry["joint_names"] = joint_names
 
-    def step_zero(self):
-        zeros = np.zeros(self.env.action_space.shape, dtype=np.float32)
-        from predicators.structs import Action
-        self.env.step(Action(zeros))
+            if body_id in self._urdf_map:
+                entry["kind"] = "urdf"
+                entry["url"] = self._urdf_map[body_id]
+            else:
+                # Primitive: query visual shapes and reconstruct.
+                vis = p.getVisualShapeData(body_id, physicsClientId=cid)
+                shapes = []
+                for v in vis:
+                    # (uniqueId, linkIdx, geomType, dims, meshFile,
+                    #  localPos, localOrn, rgba, textureId)
+                    geom = _GEOM_NAMES.get(int(v[2]), "unknown")
+                    dims = list(v[3])
+                    mesh_url = _asset_url(v[4])
+                    rgba = list(v[7]) if v[7] is not None else [1, 1, 1, 1]
+                    local_pos = list(v[5])
+                    local_orn = list(v[6])
+                    shapes.append({
+                        "link": int(v[1]),
+                        "geom": geom,
+                        "dims": dims,
+                        "mesh_url": mesh_url,
+                        "local_pos": local_pos,
+                        "local_orn": local_orn,
+                        "rgba": rgba,
+                    })
+                entry["kind"] = "primitive"
+                entry["shapes"] = shapes
+            entries.append(entry)
+        return entries
+
+    def get_body_state(self, body_id):
+        """Return base pose + joint angles for a single body."""
+        cid = self.env._physics_client_id  # noqa: SLF001
+        pos, orn = p.getBasePositionAndOrientation(body_id,
+                                                    physicsClientId=cid)
+        joints = {}
+        nj = p.getNumJoints(body_id, physicsClientId=cid)
+        for j in range(nj):
+            jinfo = p.getJointInfo(body_id, j, physicsClientId=cid)
+            jname = jinfo[1].decode() if jinfo[1] else f"joint_{j}"
+            jtype = int(jinfo[2])
+            if jtype == 4:  # FIXED
+                continue
+            jstate = p.getJointState(body_id, j, physicsClientId=cid)
+            joints[jname] = float(jstate[0])
+        return {"pos": list(pos), "orn": list(orn), "joints": joints}
+
+    def get_all_body_states(self):
+        cid = self.env._physics_client_id  # noqa: SLF001
+        n = p.getNumBodies(physicsClientId=cid)
+        return {body_id: self.get_body_state(body_id) for body_id in range(n)}
 
     # -- Option-level introspection ---------------------------------
     def list_options(self):
-        """Return list of {name, type_names, params_dim} for ground-truth
-        options of the current env."""
         from predicators.ground_truth_models import get_gt_options
         if self.env is None:
             return []
         options = get_gt_options(self.env.get_name())
-        out = []
-        for opt in sorted(options, key=lambda o: o.name):
-            out.append({
+        return [
+            {
                 "name": opt.name,
                 "type_names": [t.name for t in opt.types],
                 "params_dim": int(opt.params_space.shape[0]),
-            })
-        return out
+            } for opt in sorted(options, key=lambda o: o.name)
+        ]
 
     def list_objects(self):
-        """Return list of {name, type_name} for objects currently in the env."""
         if self.env is None:
             return []
-        # noqa: SLF001
         return [{"name": o.name, "type_name": o.type.name}
-                for o in sorted(self.env._objects, key=lambda o: o.name)]
+                for o in sorted(self.env._objects,  # noqa: SLF001
+                                key=lambda o: o.name)]
 
     def execute_option(self, option_name, object_names,
-                        params=None, max_steps=200, render_every=5):
-        """Ground an option with the named objects and execute its policy
-        until termination (or max_steps).
+                        params=None, max_steps=200, record_every=2):
+        """Ground option, run policy, collect body-state snapshots every
+        `record_every` sim steps (plus initial + final).
 
-        Captures a frame every `render_every` sim steps (plus the initial
-        and final state). Returns {steps, width, height, frames: [bytes]}.
-        Set `render_every=0` to skip intermediate captures (final only)."""
+        Returns {steps, frames: [body_states_dict]}.
+        """
         from predicators.ground_truth_models import get_gt_options
         options = {o.name: o for o in get_gt_options(self.env.get_name())}
         if option_name not in options:
@@ -136,8 +232,6 @@ class _Bridge:
                 f"expected type {t.name} for option {opt.name}")
 
         if params is None:
-            # Sample params from the option's params_space (deterministic
-            # under the env seed).
             rng = np.random.default_rng(0)
             low = opt.params_space.low
             high = opt.params_space.high
@@ -148,41 +242,27 @@ class _Bridge:
         ground_opt = opt.ground(chosen, params_arr)
         state = self.env._current_observation  # noqa: SLF001
 
-        # Initiable check.
         if not ground_opt.initiable(state):
             raise RuntimeError(
                 f"{option_name}({','.join(object_names)}) "
                 "is not initiable in the current state.")
 
-        def _grab():
-            r = self.render()
-            return r["pixels"], r["width"], r["height"]
-
-        frames = []
-        px, w, h = _grab()
-        frames.append(px)
-
+        frames = [self.get_all_body_states()]
         steps = 0
         while steps < max_steps:
             act = ground_opt.policy(state)
             state = self.env.step(act)
             steps += 1
-            if render_every and steps % render_every == 0:
-                frames.append(_grab()[0])
+            if record_every and steps % record_every == 0:
+                frames.append(self.get_all_body_states())
             if ground_opt.terminal(state):
                 break
 
-        # Ensure we always have the final frame.
-        final_px = _grab()[0]
-        if not frames or frames[-1] is not final_px:
-            frames.append(final_px)
+        # Always include the final state.
+        if record_every == 0 or steps % record_every != 0:
+            frames.append(self.get_all_body_states())
 
-        return {
-            "steps": steps,
-            "width": w,
-            "height": h,
-            "frames": frames,
-        }
+        return {"steps": steps, "frames": frames}
 
 
 bridge = _Bridge()
