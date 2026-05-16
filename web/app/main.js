@@ -110,7 +110,10 @@ function applyEnvCamera(cam) {
   const cp = Math.cos(pitchRad), sp = Math.sin(pitchRad);
   const cy = Math.cos(yawRad),   sy = Math.sin(yawRad);
   const forward = new THREE.Vector3(-cp * sy, cp * cy, sp);
-  const offset = forward.clone().multiplyScalar(-cam.distance);
+  // Bump the camera back a bit. The env-author's distance is tuned
+  // for pybullet's 320x240 TinyRenderer view; in Three.js with our
+  // larger viewport we want more of the robot in frame.
+  const offset = forward.clone().multiplyScalar(-cam.distance * 1.7);
   camera.position.copy(target).add(offset);
   camera.fov = cam.fov;
   camera.updateProjectionMatrix();
@@ -233,9 +236,29 @@ urdfLoader.loadMeshCb = (path, manager, done) => {
   }
 };
 
+// Some predicators URDFs (fetch_description/robots/fetch.urdf) use
+// undefined XML namespace prefixes like `<sensor:camera>` inside
+// `<gazebo>` blocks. Chromium's DOMParser tolerates them; Firefox's
+// (and the spec-strict path) aborts and returns a <parsererror>. We
+// don't render gazebo plugins anyway, so just strip them. Returns
+// the cleaned URDF text.
+function sanitizeUrdf(text) {
+  return text.replace(/<gazebo[\s\S]*?<\/gazebo>/g, "");
+}
+
 function loadUrdfBody(entry) {
   return new Promise((resolve) => {
-    urdfLoader.load(entry.url, (robot) => {
+    // Fetch the URDF ourselves so we can preprocess it, then hand
+    // the cleaned text + a working path to urdf-loader's parse().
+    const workingPath = entry.url.substring(0, entry.url.lastIndexOf("/") + 1);
+    fetch(entry.url).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.text();
+    }).then((text) => {
+      const cleaned = sanitizeUrdf(text);
+      urdfLoader.workingPath = workingPath;
+      const robot = urdfLoader.parse(cleaned);
+      urdfLoader.workingPath = "";
       if (!robot) {
         log(`URDF returned null for ${entry.url} — using placeholder`);
         makePlaceholder(entry);
@@ -256,7 +279,7 @@ function loadUrdfBody(entry) {
       }
       bodyMap.set(entry.body_id, { root: robot, joints, kind: "urdf" });
       resolve();
-    }, undefined, (err) => {
+    }).catch((err) => {
       log(`URDF load failed (${entry.url}): ${err?.message || err}`);
       makePlaceholder(entry);
       resolve();
@@ -265,6 +288,7 @@ function loadUrdfBody(entry) {
 }
 
 function makePlaceholder(entry) {
+  log(`PLACEHOLDER for body ${entry.body_id} (${entry.name}, kind=${entry.kind}, url=${entry.url || '<none>'})`);
   const root = new THREE.Group();
   let mesh;
   if (entry.name && entry.name.toLowerCase().includes("plane")) {

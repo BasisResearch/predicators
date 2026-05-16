@@ -26,6 +26,9 @@ const browser = await puppeteer.launch({
 const page = await browser.newPage();
 page.on("console", (msg) => console.log("[page]", msg.type(), msg.text()));
 page.on("pageerror", (err) => console.error("[pageerror]", err.message));
+page.on("response", (r) => {
+  if (r.status() >= 400) console.error("[HTTP]", r.status(), r.url());
+});
 
 const ENV = process.env.ENV || "pybullet_blocks";
 
