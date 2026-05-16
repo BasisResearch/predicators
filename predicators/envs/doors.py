@@ -10,12 +10,12 @@ import numpy as np
 from gym.spaces import Box
 from numpy.typing import NDArray
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs import BaseEnv
 from predicators.settings import CFG
 from predicators.structs import Action, Array, EnvironmentTask, GroundAtom, \
     Object, Predicate, State, Type
-from predicators.utils import Rectangle, StateWithCache, _Geom2D
+from predicators.utils_lite import Rectangle, StateWithCache, _Geom2D
 
 
 class DoorsEnv(BaseEnv):

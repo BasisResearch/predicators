@@ -22,7 +22,7 @@ from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, Array, ConceptPredicate, \
     EnvironmentTask, GroundAtom, NSPredicate, Object, Predicate, State, Type
-from predicators.utils import VLMQuery
+from predicators.utils_lite import VLMQuery
 
 
 class PyBulletBalanceEnv(PyBulletEnv):

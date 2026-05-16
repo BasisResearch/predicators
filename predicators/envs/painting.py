@@ -20,7 +20,8 @@ from predicators.envs import BaseEnv
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
     Predicate, State, Type
-from predicators.utils import EnvironmentFailure, HumanDemonstrationFailure
+from predicators.utils_lite import EnvironmentFailure, \
+    HumanDemonstrationFailure
 
 
 class PaintingEnv(BaseEnv):

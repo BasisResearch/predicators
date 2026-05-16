@@ -4,7 +4,7 @@ from typing import Any, ClassVar, Dict, List, Sequence, Set, Tuple
 import numpy as np
 import pybullet as p
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.objects import create_object, \
     create_pybullet_block, sample_collision_free_2d_positions, update_object

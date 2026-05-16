@@ -15,19 +15,20 @@ from typing import TYPE_CHECKING, Any, Callable, Collection, DefaultDict, \
     cast
 
 if TYPE_CHECKING:
-    from predicators.utils import VLMQuery, VLMState
+    import torch
+    from torch import Tensor
+
+    import predicators.pretrained_model_interface
+    from predicators.utils_lite import VLMQuery, VLMState
 
 # pylint: disable=wrong-import-position
 import numpy as np
 import PIL.Image
-import torch
 from gym.spaces import Box
 from numpy.typing import NDArray
 from tabulate import tabulate
-from torch import Tensor
 
-import predicators.pretrained_model_interface
-import predicators.utils as utils  # pylint: disable=consider-using-from-import
+import predicators.utils_lite as utils  # pylint: disable=consider-using-from-import
 from predicators.settings import CFG
 
 # pylint: enable=wrong-import-position
@@ -1183,6 +1184,9 @@ class STRIPSOperator:
         process_rng: Optional[np.random.Generator] = None,
     ) -> EndogenousProcess:
         """Make a CausalProcess out of this STRIPSOperator object."""
+        # pylint: disable=import-outside-toplevel
+        import torch
+        from predicators.utils import DiscreteGaussianDelay
         assert option is not None and option_vars is not None and \
             sampler is not None
         if process_delay_params is None:
@@ -1202,7 +1206,7 @@ class STRIPSOperator:
             add_effects=self.add_effects if option.name != "Wait" else set(),
             delete_effects=self.delete_effects
             if option.name != "Wait" else set(),
-            delay_distribution=utils.DiscreteGaussianDelay(
+            delay_distribution=DiscreteGaussianDelay(
                 torch.tensor(process_delay_params[0]),
                 torch.tensor(process_delay_params[1])),
             strength=process_strength,  # type: ignore[arg-type]
@@ -1218,12 +1222,15 @@ class STRIPSOperator:
         _process_rng: Optional[np.random.Generator] = None
     ) -> ExogenousProcess:
         """Make an ExogenousProcess out of this STRIPSOperator object."""
+        # pylint: disable=import-outside-toplevel
+        import torch
+        from predicators.utils import DiscreteGaussianDelay
         if process_delay_params is None:
             process_delay_params = torch.tensor([1, 1
                                                  ])  # type: ignore[assignment]
         if process_strength is None:
             process_strength = torch.tensor(1.0)  # type: ignore[assignment]
-        dist = utils.DiscreteGaussianDelay(torch.tensor(1), torch.tensor(1))
+        dist = DiscreteGaussianDelay(torch.tensor(1), torch.tensor(1))
 
         proc = ExogenousProcess(
             self.name,

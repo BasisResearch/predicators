@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs import BaseEnv
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \

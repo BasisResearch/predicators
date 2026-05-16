@@ -7,7 +7,7 @@ import numpy as np
 import pybullet as p
 from numpy.typing import NDArray
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.link import get_link_state
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot

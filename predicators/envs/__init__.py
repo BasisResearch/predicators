@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.base_env import BaseEnv
 
 __all__ = ["BaseEnv"]

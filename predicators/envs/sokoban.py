@@ -2,12 +2,20 @@
 from typing import ClassVar, Dict, List, Optional, Sequence, Set
 
 import gym
-import gym_sokoban  # pylint:disable=unused-import
+try:
+    import gym_sokoban  # noqa: F401  # pylint:disable=unused-import
+except ImportError:
+    # gym_sokoban registers Sokoban gym envs as a side effect of import.
+    # It's an optional third-party dep (and pulls in pkg_resources, which
+    # is no longer bundled with setuptools on Python 3.13). If it's not
+    # installed, SokobanEnv won't work — gym.make("Sokoban-v0") will fail —
+    # but the rest of this package can still load.
+    pass
 import matplotlib
 import numpy as np
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs import BaseEnv
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, Image, Object, \

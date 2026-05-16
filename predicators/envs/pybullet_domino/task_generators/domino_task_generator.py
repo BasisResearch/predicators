@@ -4,7 +4,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent, PlacementResult
 from predicators.envs.pybullet_domino.task_generators.base_generator import \
