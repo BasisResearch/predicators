@@ -22,9 +22,19 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from typing import Type as TypingType
 from typing import Union
 
-import gymnasium
+try:
+    import gymnasium
+    from gymnasium import spaces
+    _BASE_GYM_ENV: type = gymnasium.Env
+except ImportError:
+    # Constrained runtimes (e.g. Pyodide) may not ship gymnasium.
+    # The rest of the predicators env package still loads; RoboDiscoEnv
+    # falls back to a plain object subclass and methods that need
+    # gymnasium will raise a clear error at call time.
+    gymnasium = None  # type: ignore[assignment]
+    spaces = None  # type: ignore[assignment]
+    _BASE_GYM_ENV = object
 import numpy as np
-from gymnasium import spaces
 from numpy.typing import NDArray
 
 from predicators.envs.pybullet_env import PyBulletEnv
@@ -62,7 +72,7 @@ def _resolve_cls(
     return env_cls
 
 
-class RoboDiscoEnv(gymnasium.Env):
+class RoboDiscoEnv(_BASE_GYM_ENV):
     """Wraps a predicators ``PyBulletEnv`` as a standard ``gymnasium.Env``.
 
     Observation: flattened object features as a ``Box`` space, with

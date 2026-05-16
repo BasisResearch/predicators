@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>predicators in the browser</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: #111; color: #ddd;
+      margin: 0; padding: 16px;
+      display: grid;
+      grid-template-columns: minmax(360px, 480px) 1fr;
+      gap: 16px;
+      height: 100vh; box-sizing: border-box;
+    }
+    .panel {
+      background: #1a1a1a; border: 1px solid #333; border-radius: 6px;
+      padding: 12px; overflow: auto;
+    }
+    h1 { margin-top: 0; font-size: 14px; color: #6cf; }
+    button {
+      background: #234; color: #cef; border: 1px solid #356;
+      padding: 6px 12px; cursor: pointer; font-family: inherit;
+      border-radius: 4px; margin-right: 6px;
+    }
+    button:hover { background: #345; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    select { background: #234; color: #cef; border: 1px solid #356; padding: 4px; font-family: inherit; }
+    pre {
+      white-space: pre-wrap; word-break: break-word;
+      font-size: 11px; line-height: 1.4; color: #aaa;
+      max-height: 100%; margin: 0;
+    }
+    #status { font-size: 12px; color: #fa6; margin-bottom: 8px; }
+    #canvas {
+      width: 100%; max-width: 600px; height: auto;
+      image-rendering: pixelated; background: #000;
+      border: 1px solid #333;
+    }
+    .row { margin-bottom: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    label { font-size: 12px; color: #888; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h1>predicators · pyodide · pybullet-wasm</h1>
+    <div id="status">Booting Pyodide…</div>
+
+    <div class="row">
+      <label for="env-select">Env:</label>
+      <select id="env-select" disabled>
+        <option value="pybullet_blocks">pybullet_blocks</option>
+        <option value="pybullet_cover">pybullet_cover</option>
+        <option value="pybullet_circuit">pybullet_circuit</option>
+      </select>
+      <button id="boot-env" disabled>Reset</button>
+      <button id="render" disabled>Render</button>
+      <button id="step-zero" disabled>Step (zero action)</button>
+    </div>
+
+    <div id="info" class="row" style="color:#7a7;font-size:11px"></div>
+
+    <pre id="log"></pre>
+  </div>
+
+  <div class="panel" style="display:flex;align-items:flex-start;justify-content:center;">
+    <canvas id="canvas" width="320" height="240"></canvas>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
