@@ -297,25 +297,27 @@ function makePrimitive(entry) {
   for (const s of entry.shapes) {
     let geom = null;
     const dims = s.dims;
+    // pybullet's getVisualShapeData returns FULL extents for BOX
+    // (not the halfExtents passed to createCollisionShape) — verified
+    // against pybullet_ants where food_half_extents=(0.03,0.03,0.03)
+    // gets reported as dims=(0.06,0.06,0.06). So no *2 here.
     switch (s.geom) {
       case "box":
-        geom = new THREE.BoxGeometry(dims[0]*2, dims[1]*2, dims[2]*2);
+        geom = new THREE.BoxGeometry(dims[0], dims[1], dims[2]);
         break;
       case "sphere":
         geom = new THREE.SphereGeometry(dims[0], 24, 16);
         break;
       case "cylinder":
-        // pybullet cylinder dims: [radius, ?, length] varies; assume
-        // [length, radius, _]
+        // pybullet cylinder dims: [length, radius, _].
         geom = new THREE.CylinderGeometry(dims[1], dims[1], dims[0], 24);
         break;
       case "plane":
         geom = new THREE.PlaneGeometry(5, 5);
         break;
       case "mesh":
-        // No mesh URL handling for primitives yet; draw a box stand-in
-        // sized to the reported dims.
-        geom = new THREE.BoxGeometry(dims[0]*2, dims[1]*2, dims[2]*2);
+        // No mesh URL handling for primitives yet; draw a box stand-in.
+        geom = new THREE.BoxGeometry(dims[0], dims[1], dims[2]);
         break;
       default:
         continue;
