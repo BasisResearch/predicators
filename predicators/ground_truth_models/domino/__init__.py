@@ -3,7 +3,10 @@
 from .nsrts import PyBulletDominoGroundTruthNSRTFactory
 from .options import PyBulletDominoGroundTruthOptionFactory
 from .predicates import PyBulletDominoGroundTruthPredicateFactory
-from .processes import PyBulletDominoGroundTruthProcessFactory
+try:
+    from .processes import PyBulletDominoGroundTruthProcessFactory
+except ImportError:
+    PyBulletDominoGroundTruthProcessFactory = None  # type: ignore[assignment,misc]
 from .types import PyBulletDominoGroundTruthTypeFactory
 
 __all__ = [

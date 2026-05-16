@@ -5,7 +5,7 @@ from typing import Dict, Sequence, Set
 import numpy as np
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.ball_and_cup_sticky_table import BallAndCupStickyTableEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.structs import Action, Array, Object, ParameterizedOption, \

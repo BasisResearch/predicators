@@ -8,7 +8,7 @@ import numpy as np
 import pybullet as p
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.envs.pybullet_laser import PyBulletLaserEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory

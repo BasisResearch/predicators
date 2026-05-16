@@ -46,6 +46,27 @@ console.log("Status:", status);
 const canvasSize = await page.$eval("#canvas", (el) => ({ w: el.width, h: el.height }));
 console.log("Canvas:", canvasSize);
 
+// Inspect option picker state.
+const options = await page.$$eval("#option-select option", (els) =>
+  els.map((e) => e.value));
+console.log(`Option picker (${options.length} entries):`, options.slice(0, 5),
+  options.length > 5 ? "…" : "");
+
+if (options.length) {
+  console.log("Triggering Execute on first option…");
+  await page.click("#execute-option");
+  try {
+    await page.waitForFunction(
+      () => document.getElementById("status").textContent.includes("done in"),
+      { timeout: 60000 });
+    const status = await page.$eval("#status", (el) => el.textContent);
+    console.log("Execute status:", status);
+  } catch (e) {
+    const status = await page.$eval("#status", (el) => el.textContent);
+    console.log("Execute timed out. Status:", status);
+  }
+}
+
 // Save a screenshot for inspection.
 await page.screenshot({ path: "/tmp/predicators_browser.png", fullPage: true });
 console.log("Screenshot -> /tmp/predicators_browser.png");

@@ -4185,18 +4185,34 @@ def get_path_to_predicators_root() -> str:
     return str(predicators_dir)
 
 
-def import_submodules(path: List[str], name: str) -> None:
+def import_submodules(path: List[str],
+                      name: str,
+                      tolerate_import_errors: bool = False) -> None:
     """Load all submodules on the given path.
 
     Useful for finding subclasses of an abstract base class
-    automatically.
+    automatically. With ``tolerate_import_errors=True``, any submodule
+    that fails with ``ModuleNotFoundError`` (e.g. an optional
+    third-party dep is unavailable) is skipped with a warning instead
+    of aborting the whole load. Use this in contexts where some
+    submodules are intentionally optional — e.g. predicators running
+    under Pyodide where heavy deps like torch / gym_sokoban /
+    gymnasium-robotics aren't installed, but most envs still work.
     """
     if not TYPE_CHECKING:
         for _, module_name, _ in pkgutil.walk_packages(path):
             if "__init__" not in module_name:
                 # Important! We use an absolute import here to avoid issues
                 # with isinstance checking when using relative imports.
-                importlib.import_module(f"{name}.{module_name}")
+                full_name = f"{name}.{module_name}"
+                try:
+                    importlib.import_module(full_name)
+                except ModuleNotFoundError as exc:
+                    if not tolerate_import_errors:
+                        raise
+                    logging.warning(
+                        "Skipping %s: missing optional dependency (%s)",
+                        full_name, exc.name)
 
 
 def update_config(args: Dict[str, Any]) -> None:

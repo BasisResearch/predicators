@@ -5,7 +5,7 @@ from typing import Dict, Sequence, Set
 
 import numpy as np
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.ground_truth_models import GroundTruthNSRTFactory
 from predicators.settings import CFG
 from predicators.structs import NSRT, Array, GroundAtom, LiftedAtom, Object, \

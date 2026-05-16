@@ -56,10 +56,17 @@
       </select>
       <button id="boot-env" disabled>Reset</button>
       <button id="render" disabled>Render</button>
-      <button id="step-zero" disabled>Step (zero action)</button>
+      <button id="step-zero" disabled>Step zero</button>
     </div>
 
     <div id="info" class="row" style="color:#7a7;font-size:11px"></div>
+
+    <div class="row" id="option-row" style="display:none">
+      <label for="option-select">Option:</label>
+      <select id="option-select"></select>
+      <span id="option-args"></span>
+      <button id="execute-option">Execute</button>
+    </div>
 
     <pre id="log"></pre>
   </div>

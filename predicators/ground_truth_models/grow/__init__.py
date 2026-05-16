@@ -2,7 +2,10 @@
 
 from .nsrts import PyBulletGrowGroundTruthNSRTFactory
 from .options import PyBulletGrowGroundTruthOptionFactory
-from .processes import PyBulletGrowGroundTruthProcessFactory
+try:
+    from .processes import PyBulletGrowGroundTruthProcessFactory
+except ImportError:
+    PyBulletGrowGroundTruthProcessFactory = None  # type: ignore[assignment,misc]
 
 __all__ = [
     "PyBulletGrowGroundTruthNSRTFactory",

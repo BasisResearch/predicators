@@ -64,7 +64,7 @@ await micropip.install("emfs:/tmp/${PYBULLET_WHEEL}")
 print("pybullet installed")
 await micropip.install("emfs:/tmp/${GYM_SHIM_WHEEL}")
 print("gym shim installed")
-for pkg in ["dill", "tabulate", "pyperplan", "colorlog"]:
+for pkg in ["dill", "tabulate", "pyperplan", "colorlog", "imageio"]:
     try:
         await micropip.install(pkg, deps=True, keep_going=True)
         print(f"{pkg} installed")
@@ -94,26 +94,96 @@ print("predicators installed")
   bootBtn.disabled = false;
 }
 
+const optionRow = document.getElementById("option-row");
+const optionSelect = document.getElementById("option-select");
+const optionArgs = document.getElementById("option-args");
+const executeBtn = document.getElementById("execute-option");
+
+let currentOptions = [];
+let currentObjects = [];
+
 async function resetEnv() {
   const envName = envSelect.value;
   setStatus(`Constructing ${envName}…`);
   try {
-    const py = await pyodide.runPythonAsync(`
+    const infoJson = await pyodide.runPythonAsync(`
 import json
 json.dumps(bridge.reset("${envName}"))
 `);
-    const info = JSON.parse(py);
+    const info = JSON.parse(infoJson);
     infoEl.textContent = `task=${info.task_idx} objects=${info.num_objects} action_dim=${info.action_dim}`;
-    log(`Reset ${envName} -> ${py}`);
-    setStatus("Env ready. Try Render or Step.");
+    log(`Reset ${envName} -> ${infoJson}`);
+
+    // Pull options + objects.
+    const optsJson = await pyodide.runPythonAsync("import json; json.dumps(bridge.list_options())");
+    const objsJson = await pyodide.runPythonAsync("import json; json.dumps(bridge.list_objects())");
+    currentOptions = JSON.parse(optsJson);
+    currentObjects = JSON.parse(objsJson);
+    populateOptionPicker();
+
+    setStatus("Env ready. Pick an option or hit Render.");
     renderBtn.disabled = false;
     stepBtn.disabled = false;
+    optionRow.style.display = "";
     await renderFrame();
   } catch (e) {
     setStatus("Reset failed — see log.");
     log("ERROR: " + e.message);
   }
 }
+
+function populateOptionPicker() {
+  optionSelect.innerHTML = "";
+  for (const opt of currentOptions) {
+    const o = document.createElement("option");
+    o.value = opt.name;
+    o.textContent = `${opt.name}(${opt.type_names.join(", ")})`;
+    optionSelect.appendChild(o);
+  }
+  optionSelect.addEventListener("change", renderOptionArgs);
+  renderOptionArgs();
+}
+
+function renderOptionArgs() {
+  optionArgs.innerHTML = "";
+  const opt = currentOptions.find((o) => o.name === optionSelect.value);
+  if (!opt) return;
+  // For each type, build a <select> of objects of that type.
+  for (const tname of opt.type_names) {
+    const sel = document.createElement("select");
+    sel.className = "opt-arg";
+    sel.dataset.typeName = tname;
+    for (const obj of currentObjects.filter((o) => o.type_name === tname)) {
+      const o = document.createElement("option");
+      o.value = obj.name;
+      o.textContent = obj.name;
+      sel.appendChild(o);
+    }
+    optionArgs.appendChild(sel);
+  }
+}
+
+async function executeOption() {
+  const name = optionSelect.value;
+  const args = Array.from(optionArgs.querySelectorAll("select.opt-arg"))
+    .map((s) => s.value);
+  setStatus(`Executing ${name}(${args.join(", ")})…`);
+  try {
+    const argList = JSON.stringify(args);
+    const steps = await pyodide.runPythonAsync(`
+import json
+json.dumps(bridge.execute_option("${name}", ${argList}))
+`);
+    log(`Executed ${name}(${args.join(", ")}) -> ${steps} steps`);
+    setStatus(`${name} done in ${steps} steps.`);
+    await renderFrame();
+  } catch (e) {
+    setStatus("Execute failed — see log.");
+    log("ERROR: " + e.message);
+  }
+}
+
+executeBtn.addEventListener("click", executeOption);
 
 async function renderFrame() {
   // Call render on the Python side, return a binary buffer + dims via

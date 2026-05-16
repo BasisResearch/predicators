@@ -5,7 +5,7 @@ from typing import ClassVar, Dict, List, Sequence, Set, Tuple
 import numpy as np
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.cover import CoverMultistepOptions
 from predicators.envs.pybullet_cover import PyBulletCoverEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
