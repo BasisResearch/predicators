@@ -62,14 +62,10 @@ class _Bridge:
     def __init__(self):
         self.env = None
         self.task = None
-        # body_id -> {url, scale}. Active capture target during a
-        # construction call; copied into _urdf_maps after.
+        # body_id -> {url, scale}. Filled in by the loadURDF
+        # monkey-patch during env construction; reset() rebuilds it
+        # for the freshly-constructed env.
         self._urdf_map = {}
-        # Per-env caches so switching back to a previously-visited env
-        # skips construction (~1-3 s on Pyodide) and just re-runs
-        # env.reset() to put bodies back at initial poses.
-        self._envs = {}  # env_name -> BaseEnv instance
-        self._urdf_maps = {}  # env_name -> body_id -> {url, scale}
 
     def reset(self, env_name):
         _utils.reset_config({
@@ -80,53 +76,49 @@ class _Bridge:
             "approach": "oracle",
         })
 
-        if env_name in self._envs:
-            # Cache hit: env construction + loadURDF tracking already
-            # done on a previous visit. Just re-init poses.
-            self.env = self._envs[env_name]
-            self._urdf_map = self._urdf_maps[env_name]
-            self.task = self.env.reset("test", 0)
-        else:
-            # First visit: wrap pybullet.loadURDF so we capture which
-            # URDF backed each body the env constructs, plus the
-            # globalScaling kwarg (predicators uses globalScaling to
-            # shrink kettle.urdf etc. — Three.js's urdf-loader
-            # otherwise loads meshes at native scale, which can be
-            # 10x+ off). Wrapper is process-global; _urdf_map is the
-            # active capture target.
-            self._urdf_map = {}
-            if not getattr(p.loadURDF, "_bridge_wrapped", False):
-                orig_load = p.loadURDF
+        # Disconnect any prior env's pybullet client so its state
+        # doesn't shadow the new env's queries. Several predicators
+        # envs (e.g. pybullet_circuit._get_joint_id) call
+        # p.getNumJoints without an explicit physicsClientId; with
+        # two clients alive at once pybullet picks one and the new
+        # env reads garbage.
+        if self.env is not None:
+            try:
+                p.disconnect(physicsClientId=self.env._physics_client_id)  # noqa: SLF001
+            except p.error:
+                pass
+            self.env = None
 
-                def _tracked_load(*args, **kwargs):
-                    bid = orig_load(*args, **kwargs)
-                    # loadURDF signature: (fileName, basePosition,
-                    # baseOrientation, useMaximalCoordinates,
-                    # useFixedBase, flags, globalScaling,
-                    # physicsClientId).
-                    url = _asset_url(args[0]) if args else None
-                    if url is None and "fileName" in kwargs:
-                        url = _asset_url(kwargs["fileName"])
-                    scale = kwargs.get("globalScaling", None)
-                    if scale is None and len(args) >= 7:
-                        scale = args[6]
-                    if url is not None and isinstance(bid, int) and bid >= 0:
-                        bridge._urdf_map[bid] = {
-                            "url": url,
-                            "scale":
-                                float(scale) if scale is not None else 1.0,
-                        }
-                    return bid
+        self._urdf_map = {}
+        if not getattr(p.loadURDF, "_bridge_wrapped", False):
+            orig_load = p.loadURDF
 
-                _tracked_load._bridge_wrapped = True  # noqa: SLF001
-                _tracked_load._orig = orig_load  # noqa: SLF001
-                p.loadURDF = _tracked_load
+            def _tracked_load(*args, **kwargs):
+                bid = orig_load(*args, **kwargs)
+                # loadURDF signature: (fileName, basePosition,
+                # baseOrientation, useMaximalCoordinates,
+                # useFixedBase, flags, globalScaling,
+                # physicsClientId).
+                url = _asset_url(args[0]) if args else None
+                if url is None and "fileName" in kwargs:
+                    url = _asset_url(kwargs["fileName"])
+                scale = kwargs.get("globalScaling", None)
+                if scale is None and len(args) >= 7:
+                    scale = args[6]
+                if url is not None and isinstance(bid, int) and bid >= 0:
+                    bridge._urdf_map[bid] = {
+                        "url": url,
+                        "scale":
+                            float(scale) if scale is not None else 1.0,
+                    }
+                return bid
 
-            self.env = create_new_env(env_name,
-                                       do_cache=False, use_gui=False)
-            self.task = self.env.reset("test", 0)
-            self._envs[env_name] = self.env
-            self._urdf_maps[env_name] = self._urdf_map
+            _tracked_load._bridge_wrapped = True  # noqa: SLF001
+            _tracked_load._orig = orig_load  # noqa: SLF001
+            p.loadURDF = _tracked_load
+
+        self.env = create_new_env(env_name, do_cache=False, use_gui=False)
+        self.task = self.env.reset("test", 0)
         env = self.env
         return {
             "task_idx": 0,
