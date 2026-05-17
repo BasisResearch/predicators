@@ -27,9 +27,9 @@ import pybullet
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.tools import INSPECTION_TOOL_NAMES, \
-    SYNTHESIS_TOOL_NAMES, _SnapshotTarget, create_synthesis_tools, \
-    finalize_versioned_snapshot, make_write_snapshot_hook
+from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
+    _SnapshotTarget, create_synthesis_tools, finalize_versioned_snapshot, \
+    make_write_snapshot_hook
 from predicators.approaches.agent_bilevel_approach import AgentBilevelApproach
 from predicators.code_sim_learning.training import ParamSpec, compute_sse, \
     fit_params, log_sse_breakdown
