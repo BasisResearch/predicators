@@ -99,7 +99,6 @@ SANDBOX_SETTINGS: Dict[str, Any] = {
 
 _BUILTIN_TOOLS_STR = ", ".join(BUILTIN_TOOLS)
 
-
 _CLAUDE_MD_HEADER = """\
 # Predicators Agent Sandbox
 

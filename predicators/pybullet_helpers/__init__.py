@@ -18,9 +18,10 @@ def retry_pybullet_call(fn: Callable[..., _T],
     """Call a PyBullet API with retries on transient shared-memory errors.
 
     Bullet's GUI server communicates with the client over shared memory
-    and occasionally drops a packet under load (especially on macOS Metal),
-    surfacing as ``pybullet.error`` ("Error receiving ...", "... failed.").
-    These are transient — an immediate retry typically succeeds.
+    and occasionally drops a packet under load (especially on macOS
+    Metal), surfacing as ``pybullet.error`` ("Error receiving ...", "...
+    failed."). These are transient — an immediate retry typically
+    succeeds.
     """
     last_err: BaseException = RuntimeError("unreachable")
     for _ in range(retries):

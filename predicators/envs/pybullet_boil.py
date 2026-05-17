@@ -917,11 +917,10 @@ class PyBulletBoilEnv(PyBulletEnv):
             switch_id,
             j_id,
             physicsClientId=self._physics_client_id)
-        info = retry_pybullet_call(
-            p.getJointInfo,
-            switch_id,
-            j_id,
-            physicsClientId=self._physics_client_id)
+        info = retry_pybullet_call(p.getJointInfo,
+                                   switch_id,
+                                   j_id,
+                                   physicsClientId=self._physics_client_id)
         j_min, j_max = info[8], info[9]
         frac = (j_pos / self.switch_joint_scale - j_min) / (j_max - j_min)
         return bool(frac > self.switch_on_threshold)
@@ -948,8 +947,9 @@ class PyBulletBoilEnv(PyBulletEnv):
                       joint_name: str,
                       physics_client_id: int = 0) -> int:
         """Helper to find a joint by name in a URDF."""
-        num_joints = retry_pybullet_call(
-            p.getNumJoints, obj_id, physicsClientId=physics_client_id)
+        num_joints = retry_pybullet_call(p.getNumJoints,
+                                         obj_id,
+                                         physicsClientId=physics_client_id)
         for j in range(num_joints):
             info = retry_pybullet_call(p.getJointInfo,
                                        obj_id,

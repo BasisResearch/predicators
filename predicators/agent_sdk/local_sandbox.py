@@ -344,8 +344,8 @@ class LocalSandboxSessionManager:
 
         On first use, scan ``_log_dir`` for prior log files matching
         ``NNN_<kind>_<ts>.md`` (or the legacy ``<kind>_NNN_<ts>.md``)
-        and pick up where the last session left off. Without this,
-        every fresh session would restart at 001.
+        and pick up where the last session left off. Without this, every
+        fresh session would restart at 001.
         """
         if self._query_count_seeded:
             return
