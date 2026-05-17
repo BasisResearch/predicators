@@ -186,13 +186,19 @@ let bodyMap = new Map();
 function clearScene() {
   for (const [, b] of bodyMap) {
     scene.remove(b.root);
-    b.root.traverse((o) => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material) {
-        const mats = Array.isArray(o.material) ? o.material : [o.material];
-        for (const m of mats) m.dispose();
-      }
-    });
+    // Dispose geometry/material ONLY for primitives we built locally.
+    // URDF bodies share geometries with the cached template (see
+    // urdfTemplateCache) and disposing here would break subsequent
+    // clones rendered in other envs.
+    if (b.kind === "primitive" || b.kind === "placeholder") {
+      b.root.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          for (const m of mats) m.dispose();
+        }
+      });
+    }
   }
   bodyMap.clear();
 }
@@ -246,24 +252,50 @@ function sanitizeUrdf(text) {
   return text.replace(/<gazebo[\s\S]*?<\/gazebo>/g, "");
 }
 
+// url -> Promise<URDFRobot>. The cached robot is never added to the
+// scene — it's a "template" we clone for every actual body. Sharing
+// geometry/material across clones is fine for rendering and is the
+// main reason switching to an already-visited env feels instant
+// (the Fetch URDF + ~20 collada meshes is otherwise the dominant
+// cost of every env switch).
+const urdfTemplateCache = new Map();
+
+async function fetchAndParseUrdf(url) {
+  const workingPath = url.substring(0, url.lastIndexOf("/") + 1);
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const text = await r.text();
+  const cleaned = sanitizeUrdf(text);
+  urdfLoader.workingPath = workingPath;
+  try {
+    return urdfLoader.parse(cleaned);
+  } finally {
+    urdfLoader.workingPath = "";
+  }
+}
+
+function getUrdfTemplate(url) {
+  let p = urdfTemplateCache.get(url);
+  if (!p) {
+    p = fetchAndParseUrdf(url);
+    urdfTemplateCache.set(url, p);
+  }
+  return p;
+}
+
 function loadUrdfBody(entry) {
   return new Promise((resolve) => {
-    // Fetch the URDF ourselves so we can preprocess it, then hand
-    // the cleaned text + a working path to urdf-loader's parse().
-    const workingPath = entry.url.substring(0, entry.url.lastIndexOf("/") + 1);
-    fetch(entry.url).then((r) => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.text();
-    }).then((text) => {
-      const cleaned = sanitizeUrdf(text);
-      urdfLoader.workingPath = workingPath;
-      const robot = urdfLoader.parse(cleaned);
-      urdfLoader.workingPath = "";
-      if (!robot) {
+    getUrdfTemplate(entry.url).then((template) => {
+      if (!template) {
         log(`URDF returned null for ${entry.url} — using placeholder`);
         makePlaceholder(entry);
         return resolve();
       }
+      // Clone the template so every actual body gets its own
+      // hierarchy / joint values. URDFRobot.copy() rebuilds the
+      // joints map by walking the cloned children, so robot.joints
+      // points at the cloned joint nodes (not the template's).
+      const robot = template.clone();
       robot.up.set(0, 0, 1);
       robot.rotation.order = "ZYX";
       // pybullet loadURDF supports a globalScaling kwarg (e.g.
@@ -508,16 +540,21 @@ async function resetEnv() {
   if (!envName) return;  // placeholder option selected
   bootBtn.disabled = false;
   setStatus(`Constructing ${envName}…`);
+  const t = (() => { const s = performance.now(); return () => ((performance.now() - s) / 1000).toFixed(2); });
   try {
+    const tBridge = t();
     const outProxy = await pyodide.runPythonAsync(
       `bridge.reset("${envName}")`);
+    const dtBridge = tBridge();
     const info = outProxy.toJs({ dict_converter: Object.fromEntries });
     outProxy.destroy();
     infoEl.textContent = `task=${info.task_idx} objects=${info.num_objects} action_dim=${info.action_dim} bodies=${info.manifest.length}`;
-    log(`Reset ${envName} -> ${info.manifest.length} bodies`);
+    log(`Reset ${envName} -> ${info.manifest.length} bodies (bridge.reset: ${dtBridge}s)`);
 
     setStatus("Building Three.js scene from manifest…");
+    const tScene = t();
     await buildSceneFromManifest(info.manifest);
+    log(`  buildSceneFromManifest: ${tScene()}s`);
     // Initial pose snapshot.
     const stateProxy = await pyodide.runPythonAsync(`bridge.get_all_body_states()`);
     applyFrame(stateProxy.toJs({ dict_converter: Object.fromEntries }));
