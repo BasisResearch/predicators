@@ -260,6 +260,26 @@ function sanitizeUrdf(text) {
 // cost of every env switch).
 const urdfTemplateCache = new Map();
 
+// urdf-loader's parse() returns the URDFRobot synchronously, but the
+// mesh loaders inside (ColladaLoader, STLLoader, OBJLoader) queue
+// each <mesh> through Three.js's shared LoadingManager and resolve
+// async. If we cache the just-returned robot and clone it
+// immediately, the clones snapshot an empty hierarchy and the
+// meshes later populate the cached template (not the clones). So
+// wait for the manager to drain before considering the template
+// ready.
+function waitForManagerIdle(manager) {
+  return new Promise((resolve) => {
+    if (manager.itemsLoaded === manager.itemsTotal) return resolve();
+    const prevOnLoad = manager.onLoad;
+    manager.onLoad = () => {
+      manager.onLoad = prevOnLoad;
+      if (prevOnLoad) prevOnLoad();
+      resolve();
+    };
+  });
+}
+
 async function fetchAndParseUrdf(url) {
   const workingPath = url.substring(0, url.lastIndexOf("/") + 1);
   const r = await fetch(url);
@@ -267,11 +287,10 @@ async function fetchAndParseUrdf(url) {
   const text = await r.text();
   const cleaned = sanitizeUrdf(text);
   urdfLoader.workingPath = workingPath;
-  try {
-    return urdfLoader.parse(cleaned);
-  } finally {
-    urdfLoader.workingPath = "";
-  }
+  const robot = urdfLoader.parse(cleaned);
+  urdfLoader.workingPath = "";
+  await waitForManagerIdle(urdfLoader.manager);
+  return robot;
 }
 
 function getUrdfTemplate(url) {
