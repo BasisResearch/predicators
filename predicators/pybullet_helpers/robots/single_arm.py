@@ -243,6 +243,7 @@ class SingleArmPyBulletRobot(abc.ABC):
         self,
         robot_state: Array,
         joint_positions: Optional[JointPositions] = None,
+        trust_joints: bool = False,
     ) -> None:
         """Reset the robot state to match the input state.
 
@@ -253,6 +254,15 @@ class SingleArmPyBulletRobot(abc.ABC):
         importantly wrist roll. Preserving exact joints is required for
         held-object grasps to round-trip through state save/restore
         without geometric drift.
+
+        ``trust_joints=True`` skips the EE-pose roundtrip check and uses
+        ``joint_positions`` as-is. Pass it only when the joints are
+        authoritative — e.g. they came from a previous ``_get_state``
+        call on this robot, surfaced via a PyBulletState's
+        ``simulator_state`` dict. The default (False) keeps the legacy
+        guardrail that falls back to IK when the supplied joints look
+        like a non-matching hint (see callers that attach nominal joints
+        to plain states).
         """
         rx, ry, rz, qx, qy, qz, qw, rf = robot_state
         p.resetBasePositionAndOrientation(
@@ -267,6 +277,8 @@ class SingleArmPyBulletRobot(abc.ABC):
             # restored both — skip the snapped-finger overwrite below
             # so continuous finger values round-trip cleanly.
             self.set_joints(list(joint_positions))
+            if trust_joints:
+                return
             # Some callers attach nominal joints to plain states as a reset
             # hint; preserve exact joints only when they really reconstruct
             # the requested EE pose, otherwise fall back to IK. Position

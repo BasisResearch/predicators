@@ -491,8 +491,18 @@ class PyBulletEnv(BaseEnv):
             # wrist roll, which corrupts the held-object offset that
             # _create_grasp_constraint records below.
             joint_positions = self._extract_robot_joint_positions(state)
+            # When simulator_state is a rich dict (produced exclusively by
+            # _get_state), the joint hint is authoritative — skip
+            # reset_state's roundtrip-vs-EE-pose guardrail, which can
+            # spuriously fail on Euler->Quat float noise at the 1e-2
+            # tolerance and force a lossy IK fallback. Raw-sequence and
+            # missing simulator_state still go through the guardrail.
+            sim_state = getattr(state, "simulator_state", None)
+            trust_joints = (isinstance(sim_state, dict)
+                            and "joint_positions" in sim_state)
             self._pybullet_robot.reset_state(self._extract_robot_state(state),
-                                             joint_positions=joint_positions)
+                                             joint_positions=joint_positions,
+                                             trust_joints=trust_joints)
             wrote_anything = True
 
         for obj in objects_to_reset:
