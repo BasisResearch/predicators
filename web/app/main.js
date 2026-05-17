@@ -182,23 +182,30 @@ function fitCameraToScene() {
 
 // Per-body state: body_id -> { root: THREE.Object3D, joints: {name: URDFJoint or null} }
 let bodyMap = new Map();
+// Expose for ad-hoc browser-console debugging: window.predBodies(), etc.
+window.predBodies = () => Array.from(bodyMap.entries()).map(([id, b]) => {
+  b.root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(b.root);
+  const c = box.getCenter(new THREE.Vector3());
+  const s = box.getSize(new THREE.Vector3());
+  let meshCount = 0;
+  b.root.traverse((o) => { if (o.isMesh) meshCount++; });
+  return { id, kind: b.kind, meshCount,
+           center: [c.x.toFixed(2), c.y.toFixed(2), c.z.toFixed(2)],
+           size: [s.x.toFixed(2), s.y.toFixed(2), s.z.toFixed(2)] };
+});
+window.predScene = scene;
 
 function clearScene() {
   for (const [, b] of bodyMap) {
     scene.remove(b.root);
-    // Dispose geometry/material ONLY for primitives we built locally.
-    // URDF bodies share geometries with the cached template (see
-    // urdfTemplateCache) and disposing here would break subsequent
-    // clones rendered in other envs.
-    if (b.kind === "primitive" || b.kind === "placeholder") {
-      b.root.traverse((o) => {
-        if (o.geometry) o.geometry.dispose();
-        if (o.material) {
-          const mats = Array.isArray(o.material) ? o.material : [o.material];
-          for (const m of mats) m.dispose();
-        }
-      });
-    }
+    b.root.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) m.dispose();
+      }
+    });
   }
   bodyMap.clear();
 }
@@ -252,69 +259,29 @@ function sanitizeUrdf(text) {
   return text.replace(/<gazebo[\s\S]*?<\/gazebo>/g, "");
 }
 
-// url -> Promise<URDFRobot>. The cached robot is never added to the
-// scene — it's a "template" we clone for every actual body. Sharing
-// geometry/material across clones is fine for rendering and is the
-// main reason switching to an already-visited env feels instant
-// (the Fetch URDF + ~20 collada meshes is otherwise the dominant
-// cost of every env switch).
-const urdfTemplateCache = new Map();
-
-// urdf-loader's parse() returns the URDFRobot synchronously, but the
-// mesh loaders inside (ColladaLoader, STLLoader, OBJLoader) queue
-// each <mesh> through Three.js's shared LoadingManager and resolve
-// async. If we cache the just-returned robot and clone it
-// immediately, the clones snapshot an empty hierarchy and the
-// meshes later populate the cached template (not the clones). So
-// wait for the manager to drain before considering the template
-// ready.
-function waitForManagerIdle(manager) {
-  return new Promise((resolve) => {
-    if (manager.itemsLoaded === manager.itemsTotal) return resolve();
-    const prevOnLoad = manager.onLoad;
-    manager.onLoad = () => {
-      manager.onLoad = prevOnLoad;
-      if (prevOnLoad) prevOnLoad();
-      resolve();
-    };
-  });
-}
-
-async function fetchAndParseUrdf(url) {
-  const workingPath = url.substring(0, url.lastIndexOf("/") + 1);
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const text = await r.text();
-  const cleaned = sanitizeUrdf(text);
-  urdfLoader.workingPath = workingPath;
-  const robot = urdfLoader.parse(cleaned);
-  urdfLoader.workingPath = "";
-  await waitForManagerIdle(urdfLoader.manager);
-  return robot;
-}
-
-function getUrdfTemplate(url) {
-  let p = urdfTemplateCache.get(url);
-  if (!p) {
-    p = fetchAndParseUrdf(url);
-    urdfTemplateCache.set(url, p);
-  }
-  return p;
-}
-
 function loadUrdfBody(entry) {
   return new Promise((resolve) => {
-    getUrdfTemplate(entry.url).then((template) => {
-      if (!template) {
+    // Fetch the URDF ourselves so we can sanitize before parsing,
+    // then hand the cleaned text to urdf-loader. No JS-side
+    // caching: clone + LoadingManager interactions made it too
+    // brittle (cloned-before-meshes-load, concurrent waiters
+    // racing on a single onLoad slot, etc). The browser still
+    // disk-caches the URDF + mesh fetches across env switches, so
+    // re-visits aren't full cold loads.
+    const workingPath = entry.url.substring(0, entry.url.lastIndexOf("/") + 1);
+    fetch(entry.url).then((r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.text();
+    }).then((text) => {
+      const cleaned = sanitizeUrdf(text);
+      urdfLoader.workingPath = workingPath;
+      const robot = urdfLoader.parse(cleaned);
+      urdfLoader.workingPath = "";
+      if (!robot) {
         log(`URDF returned null for ${entry.url} — using placeholder`);
         makePlaceholder(entry);
         return resolve();
       }
-      // Clone the template so every actual body gets its own
-      // hierarchy / joint values. URDFRobot.copy() rebuilds the
-      // joints map by walking the cloned children, so robot.joints
-      // points at the cloned joint nodes (not the template's).
-      const robot = template.clone();
       robot.up.set(0, 0, 1);
       robot.rotation.order = "ZYX";
       // pybullet loadURDF supports a globalScaling kwarg (e.g.
