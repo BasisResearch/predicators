@@ -77,19 +77,31 @@ class _Bridge:
 
         self._urdf_map = {}
         # Wrap pybullet.loadURDF so we capture which URDF backed each
-        # body that the env constructs. The patch is process-global but
-        # we reset _urdf_map every reset, so stale entries don't leak.
+        # body that the env constructs, plus the globalScaling kwarg
+        # (predicators uses globalScaling to shrink kettle.urdf and
+        # similar to env-appropriate sizes — Three.js's urdf-loader
+        # otherwise loads the meshes at native scale, which can be
+        # 10x+ off). Tracker is process-global; _urdf_map gets reset
+        # every reset() so stale entries don't leak.
         if not getattr(p.loadURDF, "_bridge_wrapped", False):
             orig_load = p.loadURDF
 
             def _tracked_load(*args, **kwargs):
                 bid = orig_load(*args, **kwargs)
-                # First positional arg is the URDF path.
+                # loadURDF signature: (fileName, basePosition,
+                # baseOrientation, useMaximalCoordinates, useFixedBase,
+                # flags, globalScaling, physicsClientId).
                 url = _asset_url(args[0]) if args else None
                 if url is None and "fileName" in kwargs:
                     url = _asset_url(kwargs["fileName"])
+                scale = kwargs.get("globalScaling", None)
+                if scale is None and len(args) >= 7:
+                    scale = args[6]
                 if url is not None and isinstance(bid, int) and bid >= 0:
-                    bridge._urdf_map[bid] = url
+                    bridge._urdf_map[bid] = {
+                        "url": url,
+                        "scale": float(scale) if scale is not None else 1.0,
+                    }
                 return bid
 
             _tracked_load._bridge_wrapped = True  # noqa: SLF001
@@ -150,7 +162,8 @@ class _Bridge:
 
             if body_id in self._urdf_map:
                 entry["kind"] = "urdf"
-                entry["url"] = self._urdf_map[body_id]
+                entry["url"] = self._urdf_map[body_id]["url"]
+                entry["scale"] = self._urdf_map[body_id]["scale"]
             else:
                 # Primitive: query visual shapes and reconstruct.
                 vis = p.getVisualShapeData(body_id, physicsClientId=cid)
@@ -259,20 +272,33 @@ class _Bridge:
 
         frames = [self.get_all_body_states()]
         steps = 0
-        while steps < max_steps:
-            act = ground_opt.policy(state)
-            state = self.env.step(act)
-            steps += 1
-            if record_every and steps % record_every == 0:
-                frames.append(self.get_all_body_states())
-            if ground_opt.terminal(state):
-                break
+        # OptionExecutionFailure (e.g. IK failed to converge for an
+        # unreachable target) is a normal predicators signal, not a
+        # bug — catch it Python-side and return a structured result so
+        # the JS log shows a one-liner instead of a Pyodide
+        # traceback.
+        error_msg = None
+        try:
+            while steps < max_steps:
+                act = ground_opt.policy(state)
+                state = self.env.step(act)
+                steps += 1
+                if record_every and steps % record_every == 0:
+                    frames.append(self.get_all_body_states())
+                if ground_opt.terminal(state):
+                    break
+        except _utils.OptionExecutionFailure as e:
+            # Match how human_option_control_approach surfaces this
+            # (predicators/approaches/human_option_control_approach.py
+            # line 104): use the bare reason, not the Python class
+            # name + repr.
+            error_msg = str(e.args[0]) if e.args else "Option failed."
 
         # Always include the final state.
         if record_every == 0 or steps % record_every != 0:
             frames.append(self.get_all_body_states())
 
-        return {"steps": steps, "frames": frames}
+        return {"steps": steps, "frames": frames, "error": error_msg}
 
 
 bridge = _Bridge()

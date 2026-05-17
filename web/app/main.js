@@ -266,6 +266,12 @@ function loadUrdfBody(entry) {
       }
       robot.up.set(0, 0, 1);
       robot.rotation.order = "ZYX";
+      // pybullet loadURDF supports a globalScaling kwarg (e.g.
+      // pybullet_coffee passes 0.09 for kettle.urdf). urdf-loader
+      // doesn't know about it, so apply it client-side.
+      if (entry.scale && entry.scale !== 1.0) {
+        robot.scale.setScalar(entry.scale);
+      }
       robot.traverse((o) => {
         if (o.isMesh) {
           o.castShadow = true;
@@ -452,8 +458,20 @@ await micropip.install("emfs:/tmp/${PREDICATORS_WHEEL}",
 print("predicators installed")
 `);
 
-  setStatus("Fetching + unpacking env assets (~30 MB)…");
-  const assetsBuf = await fetchBytes(`${WHEELS_BASE}/${ASSETS_TARBALL}`);
+  // Probe the tarball size up-front so the status reflects reality
+  // rather than a stale hard-coded number. Falls back gracefully if
+  // the server doesn't return Content-Length.
+  const assetsUrl = `${WHEELS_BASE}/${ASSETS_TARBALL}`;
+  let assetSizeLabel = "";
+  try {
+    const head = await fetch(assetsUrl, { method: "HEAD" });
+    const len = parseInt(head.headers.get("content-length") || "", 10);
+    if (Number.isFinite(len) && len > 0) {
+      assetSizeLabel = ` (${(len / 1024 / 1024).toFixed(1)} MB)`;
+    }
+  } catch { /* fall through, show no size */ }
+  setStatus(`Fetching + unpacking env assets${assetSizeLabel}…`);
+  const assetsBuf = await fetchBytes(assetsUrl);
   pyodide.FS.mkdirTree("/lib/python3.13/site-packages/predicators/envs");
   await pyodide.runPythonAsync(
     `import os; os.chdir("/lib/python3.13/site-packages/predicators/envs")`);
@@ -465,9 +483,11 @@ print("predicators installed")
   pyodide.FS.writeFile("/setup.py", setupSrc);
   await pyodide.runPythonAsync("exec(open('/setup.py').read(), globals())");
 
-  setStatus("Ready. Pick an env and hit Reset.");
+  setStatus("Ready. Pick an env from the dropdown.");
   envSelect.disabled = false;
-  bootBtn.disabled = false;
+  // Reset button stays disabled until the user picks an env, so it
+  // can't be ambiguous about "start" vs "reset".
+  bootBtn.disabled = true;
   startRenderLoop();
 }
 
@@ -485,6 +505,8 @@ let currentObjects = [];
 
 async function resetEnv() {
   const envName = envSelect.value;
+  if (!envName) return;  // placeholder option selected
+  bootBtn.disabled = false;
   setStatus(`Constructing ${envName}…`);
   try {
     const outProxy = await pyodide.runPythonAsync(
@@ -562,10 +584,19 @@ async function executeOption() {
       `bridge.execute_option("${name}", ${argList})`);
     const result = outProxy.toJs({ dict_converter: Object.fromEntries });
     outProxy.destroy();
-    log(`Executed ${name}(${args.join(", ")}) -> ${result.steps} steps, ${result.frames.length} frames`);
-    setStatus(`${name}: ${result.steps} steps. Playing ${result.frames.length} frames…`);
-    await playFrames(result.frames);
-    setStatus(`${name} done in ${result.steps} steps.`);
+    if (result.error) {
+      // Skill couldn't complete — normal predicators outcome, not a
+      // bug. Play whatever partial trajectory we captured and surface
+      // a short message instead of a Pyodide traceback.
+      log(`${name}(${args.join(", ")}) stopped after ${result.steps} steps: ${result.error}`);
+      setStatus(`${name}: ${result.error}`);
+      await playFrames(result.frames);
+    } else {
+      log(`Executed ${name}(${args.join(", ")}) -> ${result.steps} steps, ${result.frames.length} frames`);
+      setStatus(`${name}: ${result.steps} steps. Playing ${result.frames.length} frames…`);
+      await playFrames(result.frames);
+      setStatus(`${name} done in ${result.steps} steps.`);
+    }
   } catch (e) {
     setStatus("Execute failed — see log.");
     log("ERROR: " + (e.message || e));
@@ -581,6 +612,7 @@ async function playFrames(frames, intervalMs = 50) {
 
 executeBtn.addEventListener("click", executeOption);
 bootBtn.addEventListener("click", resetEnv);
+envSelect.addEventListener("change", resetEnv);
 
 boot().catch((e) => {
   setStatus("Boot failed — see log.");
