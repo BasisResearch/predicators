@@ -500,8 +500,8 @@ def validate_plan_forward(
 
     def _log_subgoal_divergence(i: int, post: State,
                                 step: SketchStep) -> Optional[str]:
-        """If ``step.subgoal_atoms`` aren't all in ``post``, log + return
-        a one-line summary of what's missing; else return None."""
+        """If ``step.subgoal_atoms`` aren't all in ``post``, log + return a
+        one-line summary of what's missing; else return None."""
         if step.subgoal_atoms is None or not step.subgoal_atoms:
             return None
         cur_atoms = utils.abstract(post, predicates)
@@ -509,7 +509,8 @@ def validate_plan_forward(
         if not missing:
             return None
         missing_strs = sorted(str(a) for a in missing)
-        opt_str = f"{plan[i].name}({', '.join(o.name for o in plan[i].objects)})"
+        objs_str = ", ".join(o.name for o in plan[i].objects)
+        opt_str = f"{plan[i].name}({objs_str})"
         logging.info(
             "[%s] Forward-validate subgoal divergence at step %d (%s):\n"
             "  expected:  %s\n"
@@ -535,8 +536,7 @@ def validate_plan_forward(
         if i == n - 1:
             goal_ok = task.goal_holds(post)
             held = sorted(str(a) for a in task.goal if a.holds(post))
-            missing = sorted(
-                str(a) for a in task.goal if not a.holds(post))
+            missing = sorted(str(a) for a in task.goal if not a.holds(post))
             abstract_atoms = sorted(
                 str(a) for a in utils.abstract(post, predicates))
             logging.info(
@@ -546,15 +546,14 @@ def validate_plan_forward(
                 "  abstract state:     %s\n"
                 "  full features:      %s\n"
                 "  full state:\n%s", run_id,
-                " (goal reached)" if goal_ok else " (GOAL NOT REACHED)",
-                held or "(none)", missing or "(none)", abstract_atoms,
+                " (goal reached)" if goal_ok else " (GOAL NOT REACHED)", held
+                or "(none)", missing or "(none)", abstract_atoms,
                 _fmt_state_features(post), post.pretty_str())
             if not goal_ok:
                 # Final-state goal failure wins over any earlier subgoal
                 # divergence as the headline reason.
-                diagnosis_holder[0] = (
-                    f"goal not reached at final step "
-                    f"(missing {missing or '(none)'})")
+                diagnosis_holder[0] = (f"goal not reached at final step "
+                                       f"(missing {missing or '(none)'})")
                 return False, "goal not reached"
         return True, ""
 
@@ -596,7 +595,7 @@ def validate_plan_forward(
                                f"{completed} ({opt_str}): "
                                f"{last_err or 'unknown reason'}")
         logging.info(
-            "[%s] Forward-validate option failure at step %d (%s): %s",
-            run_id, completed, opt_str, last_err or "unknown reason")
+            "[%s] Forward-validate option failure at step %d (%s): %s", run_id,
+            completed, opt_str, last_err or "unknown reason")
 
     return False, diagnosis_holder[0] or "validation failed"
