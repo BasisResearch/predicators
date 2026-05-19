@@ -183,6 +183,42 @@ def run_refinement_for_synthesis(
         if stuck.subgoal_atoms:
             atoms = ", ".join(str(a) for a in stuck.subgoal_atoms)
             lines.append(f"    subgoals: {atoms}")
+
+    # Forward validation: re-execute the refined plan continuously
+    # (state carries forward across all options, single shot per step).
+    # Refinement's per-step resets and resampling can mask test-time
+    # failures — running the same plan through validate_plan_forward
+    # under the same option model surfaces them here, *before* the
+    # agent declares synthesis done.
+    if success:
+        try:
+            fv_ok, fv_reason = bilevel_sketch.validate_plan_forward(
+                task,
+                plan,
+                candidate_om,
+                predicates=approach._get_all_predicates(),
+                sketch=sketch,
+                run_id=f"{getattr(approach, '_run_id', 'sim_learn')}_validate",
+            )
+        except Exception as e:  # pylint: disable=broad-except
+            fv_ok = False
+            fv_reason = f"forward validation raised: {e}"
+        if fv_ok:
+            lines.append("  Forward validation: SUCCESS")
+        else:
+            # Demote the headline verdict: refinement passed but the
+            # plan doesn't survive continuous execution, which is what
+            # test time will see.
+            lines[0] = (f"Task {task_idx}: FAILURE: "
+                        f"FORWARD_VALIDATION_FAILED")
+            lines.append(f"  Forward validation: FAIL — {fv_reason}")
+            lines.append(
+                "    (Refinement passed because it resets state between "
+                "options and resamples; forward validation runs the same "
+                "plan continuously. A divergence here usually means a "
+                "learned threshold or rule is more permissive than the "
+                "env's effective behavior — see the INFO log for the "
+                "step-by-step divergence.)")
     return "\n".join(lines)
 
 

@@ -23,7 +23,6 @@ from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.bilevel_sketch import SketchStep as _SketchStep
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_planner_approach import AgentPlannerApproach
-from predicators.planning import run_backtracking_refinement
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, _Option
@@ -149,10 +148,20 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 # continuous execution (no state resets between steps).
                 # Catches refinement/execution drift from option-model
                 # state-reset noise (see pybullet_env.py:506 warning).
-                if self._validate_plan_forward(task, plan):
+                # Pass the original sketch so per-step subgoal divergence
+                # is logged with the specific atom that went missing.
+                ok, reason = bilevel_sketch.validate_plan_forward(
+                    task,
+                    plan,
+                    self._option_model,
+                    predicates=self._get_all_predicates(),
+                    sketch=sketch,
+                    run_id=self._run_id,
+                )
+                if ok:
                     return self._plan_to_policy(plan)
                 logging.info(f"[{self._run_id}] Forward validation failed "
-                             f"(attempt {attempt}); retrying.")
+                             f"(attempt {attempt}): {reason}")
             logging.info(f"Refinement failed (attempt {attempt}), "
                          f"{len(sketch)} steps.")
 
@@ -251,80 +260,6 @@ class AgentBilevelApproach(AgentPlannerApproach):
         option_names = {o.name for o in self._get_all_options()}
         return bilevel_sketch.parse_subgoal_annotations(
             text, predicates, objects, option_names)
-
-    # ------------------------------------------------------------------ #
-    # Forward validation
-    # ------------------------------------------------------------------ #
-
-    @staticmethod
-    def _fmt_state_features(state: State) -> str:
-        """Compact one-line dump of every object's features.
-
-        Used by ``_validate_plan_forward`` to trace how the continuous
-        rollout's state drifts step by step.
-        """
-        parts = []
-        for obj in sorted(state, key=lambda o: o.name):
-            feats = ", ".join(f"{f}={state.get(obj, f):.4f}"
-                              for f in obj.type.feature_names)
-            parts.append(f"{obj.name}[{feats}]")
-        return " ".join(parts)
-
-    def _validate_plan_forward(
-        self,
-        task: Task,
-        plan: List[_Option],
-    ) -> bool:
-        """Re-execute the plan continuously in the option model.
-
-        Runs all options sequentially so that state carries forward
-        naturally — matching how the real env will execute.
-
-        Returns True if the plan reaches the goal, False otherwise.
-        """
-        n = len(plan)
-        if n == 0:
-            return task.goal_holds(task.init)
-
-        predicates = self._get_all_predicates()
-
-        def sample_fn(i: int, _s: State, _r: np.random.Generator) -> _Option:
-            return plan[i]
-
-        def validate_fn(i: int, _s: State, _o: _Option, post: State,
-                        _n: int) -> Tuple[bool, str]:
-            if i == n - 1:
-                goal_ok = task.goal_holds(post)
-                held = sorted(str(a) for a in task.goal if a.holds(post))
-                missing = sorted(
-                    str(a) for a in task.goal if not a.holds(post))
-                abstract_atoms = sorted(
-                    str(a) for a in utils.abstract(post, predicates))
-                logging.info(
-                    "[%s] Forward-validate FINAL state%s:\n"
-                    "  goal atoms held:    %s\n"
-                    "  goal atoms MISSING: %s\n"
-                    "  abstract state:     %s\n"
-                    "  full features:      %s\n"
-                    "  full state:\n%s", self._run_id,
-                    " (goal reached)" if goal_ok else " (GOAL NOT REACHED)",
-                    held or "(none)", missing or "(none)", abstract_atoms,
-                    self._fmt_state_features(post), post.pretty_str())
-                if not goal_ok:
-                    return False, "goal not reached"
-            return True, ""
-
-        _, success, _ = run_backtracking_refinement(
-            init_state=task.init,
-            option_model=self._option_model,
-            n_steps=n,
-            max_tries=[1] * n,
-            sample_fn=sample_fn,
-            validate_fn=validate_fn,
-            rng=np.random.default_rng(0),
-            timeout=float('inf'),
-        )
-        return success
 
     # ------------------------------------------------------------------ #
     # Helpers

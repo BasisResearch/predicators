@@ -1035,9 +1035,12 @@ max abs error, vs-baseline improvement (negative ⇒ rules are adding \
 error), worst-N example transitions. Diagnostic for *which* rule to fix.
 - `evaluate_plan_refinement(plan, task_idx)` — per-task planning \
 success: MCMC-fits, builds the combined simulator, runs backtracking \
-refinement against a plan **you propose** (see "Plan format" below). \
-Reports success or the step that got stuck. Slow; the gate before \
-declaring done.
+refinement against a plan **you propose** (see "Plan format" below), \
+**and then forward-validates that refined plan continuously** (state \
+carries forward across all options, single shot per step). Reports \
+both verdicts. A SUCCESS line followed by `Forward validation: FAIL` \
+counts as a failure — see "Refinement vs. forward validation" below. \
+Slow; the gate before declaring done.
 
 `evaluate_step_fit` and `evaluate_plan_refinement` test complementary \
 things — pointwise accuracy vs. goal reachability. A rule can have \
@@ -1045,6 +1048,43 @@ things — pointwise accuracy vs. goal reachability. A rule can have \
 wrong enough that refinement can't satisfy a subgoal. Use step-fit + \
 residuals as the fast inner loop and plan-refinement as the slow \
 goal-relevant gate.
+
+### Refinement vs. forward validation (read before tuning a threshold)
+
+`evaluate_plan_refinement` runs two checks under the same option model. \
+Refinement samples continuous params with up to 50 attempts per \
+parametric step and snapshots state at each backtrack — failures are \
+isolated per step. Forward validation runs the refined plan once, \
+continuously, with state carrying forward across all options — \
+matching how test time will execute it. Any divergence between the \
+two indicates the learned model is *more permissive* than the env's \
+effective behavior: refinement's looser gates accept a Place/Wait \
+that the env-driven rollout won't actually achieve.
+
+When you see `Forward validation: FAIL`, the failure mode is almost \
+always one of these:
+
+1. **A learned gate threshold is wider than the env's effective \
+threshold.** Example: env's heat rule only fires when jug-to-burner \
+distance < 0.05, but you set `jug_at_burner_dist = 0.063` for "safety \
+margin". Refinement accepts a Place at distance 0.05–0.063 (your \
+`JugAtBurner` predicate is true and your learned heat rule fires); \
+forward validation runs the same Place, the env's heat rule never \
+fires (distance > env threshold), and Wait runs to its step cap \
+without WaterBoiled holding. **Fix:** tighten the gate to match the \
+env's empirical boundary, do not widen for slack.
+2. **A wait-termination cutoff fires before the env-side feature \
+catches up.** Example: `WaterBoiled = heat_level >= 0.99` fires at \
+the learned simulator's step 34 (heat=0.9996), but the env's \
+goal-check requires `heat >= 1.0` — refinement's subgoal passes, but \
+the final-state goal check on env state fails. **Fix:** align the \
+predicate's cutoff with the env's effective cutoff, *and* confirm by \
+re-running plan refinement after the change.
+
+**Rule of thumb:** when in doubt, *tighten* learned thresholds toward \
+the env's empirical boundary, never loosen them. Widening hides \
+discrepancies during refinement and reveals them at test time as \
+0-solve regressions.
 __SYNTHESIS_PROMPT_EXTRA__
 ## Plan format for `evaluate_plan_refinement`
 
