@@ -15,7 +15,7 @@ FLAGS:
   online_learning_early_stopping_require_all_attempts: True
   online_nsrt_learning_requests_per_cycle: 2
   skill_phase_use_motion_planning: True
-  max_num_steps_interaction_request: 300
+  max_num_steps_interaction_request: 500
   pretrained_model_service_provider: "openrouter"
   llm_model_name: "google/gemini-2.5-pro"
   llm_openai_max_response_tokens: 1e6
@@ -30,5 +30,5 @@ FLAGS:
   timeout: 600
   log: 'logs/'
   no_repeated_arguments_in_grounding: True
-START_SEED: 3
-NUM_SEEDS: 1
+START_SEED: 0
+NUM_SEEDS: 5
