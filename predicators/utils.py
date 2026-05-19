@@ -83,6 +83,111 @@ if "CUDA_VISIBLE_DEVICES" in os.environ:  # pragma: no cover
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(cuda_visible_devices)
 
 
+def get_particles_from_rgbd_and_matrices(
+    rgb: NDArray,
+    depth: NDArray,
+    seg: NDArray,
+    view_matrix: Sequence[float],
+    proj_matrix: Sequence[float],
+) -> Dict[int, Tuple[NDArray, NDArray]]:
+    """Convert RGBD + Seg images to world-coordinate particles per object ID.
+
+    Returns a dict mapping object ID to (points, colors).
+    """
+    height, width = depth.shape
+
+    # Create meshgrid of pixel coordinates
+    u, v = np.meshgrid(np.arange(width), np.arange(height))
+
+    # Normalized Device Coordinates
+    x = 2.0 * u / width - 1.0
+    y = 2.0 * (height - v) / height - 1.0
+    z = 2.0 * depth - 1.0
+
+    # Reshape for matrix multiplication
+    pix_pos = np.stack([x, y, z, np.ones_like(z)], axis=-1).reshape(-1, 4)
+
+    # In PyBullet, matrices are returned as flat lists in column-major order.
+    # To use them with numpy, we reshape and transpose to get standard
+    # row-major.
+    vm = np.array(view_matrix).reshape(4, 4).T
+    pm = np.array(proj_matrix).reshape(4, 4).T
+
+    inv_view_proj_matrix = np.linalg.inv(pm @ vm)
+
+    # Back-project to world coordinates
+    world_pos = pix_pos @ inv_view_proj_matrix.T
+    world_pos /= world_pos[:, 3:]
+    points = world_pos[:, :3]
+
+    # Colors
+    colors = rgb.reshape(-1, 3) / 255.0
+
+    # Segmentation
+    seg_flat = seg.flatten()
+
+    unique_ids = np.unique(seg_flat)
+    particles = {}
+    for obj_id in unique_ids:
+        if obj_id < 0:  # Usually -1 is background or robot
+            continue
+        mask = (seg_flat == obj_id)
+        obj_points = points[mask]
+        obj_colors = colors[mask]
+        particles[obj_id] = (obj_points, obj_colors)
+
+    return particles
+
+
+def downsample_particles(
+    points: NDArray,
+    colors: NDArray,
+    max_particles: int = 100,
+) -> Tuple[NDArray, NDArray]:
+    """Downsample particles using voxel downsampling with Open3D.
+
+    The voxel size is automatically determined to yield approximately
+    max_particles.
+    """
+    import open3d as o3d
+    num_points = len(points)
+    if num_points <= max_particles:
+        return points, colors
+
+    # Determine the voxel size based on the bounding box and max_particles.
+    min_bounds = np.min(points, axis=0)
+    max_bounds = np.max(points, axis=0)
+    ranges = max_bounds - min_bounds
+    # Use only dimensions with non-zero range.
+    nonzero_ranges = ranges[ranges > 1e-6]
+    if len(nonzero_ranges) == 0:
+        # Fall back to random downsampling if all points are co-located.
+        indices = np.random.choice(num_points, max_particles, replace=False)
+        return points[indices], colors[indices]
+
+    # Voxel size estimation: (prod(nonzero_ranges) / max_particles)**(1/dim)
+    voxel_size = (np.prod(nonzero_ranges) /
+                  max_particles)**(1.0 / len(nonzero_ranges))
+
+    # Perform voxel downsampling using Open3D.
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points)
+    pcd.colors = o3d.utility.Vector3dVector(colors)
+    down_pcd = pcd.voxel_down_sample(voxel_size=voxel_size)
+
+    res_points = np.asarray(down_pcd.points)
+    res_colors = np.asarray(down_pcd.colors)
+
+    # If still too many points, randomly sample.
+    if len(res_points) > max_particles:
+        indices = np.random.choice(len(res_points),
+                                   max_particles,
+                                   replace=False)
+        return res_points[indices], res_colors[indices]
+
+    return res_points, res_colors
+
+
 def count_positives_for_ops(
     strips_ops: List[STRIPSOperator],
     option_specs: List[OptionSpec],

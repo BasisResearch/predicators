@@ -46,6 +46,7 @@ setup(
         "claude-agent-sdk",
         "nest_asyncio",
         "emcee",
+        "open3d",
     ],
     include_package_data=True,
     extras_require={

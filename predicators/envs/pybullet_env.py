@@ -138,6 +138,7 @@ class PyBulletEnv(BaseEnv):
         self._held_constraint_id: Optional[int] = None
         self._held_obj_to_base_link: Optional[Any] = None
         self._held_obj_id: Optional[int] = None
+        self._particle_debug_ids: List[int] = []
 
         # When True, _domain_specific_step() is skipped in step().
         # Used by sim-learning to create base-sim-only envs.
@@ -1149,6 +1150,73 @@ class PyBulletEnv(BaseEnv):
         for obj in self._objects:
             mask_dict[obj] = (seg_image == obj.id)
         return state_img, mask_dict
+
+    def extract_particles(self) -> Dict[Object, Tuple[Array, Array]]:
+        """Extract downsampled point clouds (particles) for each object."""
+        view_matrix, proj_matrix, width, height = self._get_camera_matrices()
+        (_, _, rgb, depth,
+         seg) = p.getCameraImage(width=width,
+                                height=height,
+                                viewMatrix=view_matrix,
+                                projectionMatrix=proj_matrix,
+                                renderer=p.ER_BULLET_HARDWARE_OPENGL,
+                                physicsClientId=self._physics_client_id)
+
+        rgb_arr = np.array(rgb, dtype=np.uint8).reshape(
+            (height, width, 4))[:, :, :3]
+        depth_arr = np.array(depth).reshape((height, width))
+        seg_arr = np.array(seg).reshape((height, width))
+
+        particles_by_id = utils.get_particles_from_rgbd_and_matrices(
+            rgb_arr, depth_arr, seg_arr, view_matrix, proj_matrix)
+
+        particles_by_obj = {}
+        for obj in self._objects:
+            if obj.id in particles_by_id:
+                points, colors = particles_by_id[obj.id]
+                # Downsample
+                points, colors = utils.downsample_particles(points, colors)
+                particles_by_obj[obj] = (points, colors)
+
+        return particles_by_obj
+
+    def display_particles(self,
+                          particles: Dict[Object, Tuple[Array, Array]],
+                          show_coordinate_frame: bool = True,
+                          point_size: float = 10.0,
+                          obj_color: bool = False,
+                          ) -> None:
+        """Visualize particles in PyBullet using debug points."""
+        for points, colors in particles.values():
+            item_id = p.addUserDebugPoints(points,
+                                           colors if obj_color else np.ones_like(colors),
+                                           pointSize=point_size,
+                                           physicsClientId=self._physics_client_id)
+            self._particle_debug_ids.append(item_id)
+        if show_coordinate_frame:
+            for start, end, color in [([0, 0, 0], [0.1, 0, 0], [1, 0, 0]),
+                                      ([0, 0, 0], [0, 0.1, 0], [0, 1, 0]),
+                                      ([0, 0, 0], [0, 0, 0.1], [0, 0, 1])]:
+                item_id = p.addUserDebugLine(start,
+                                             end,
+                                             color,
+                                             physicsClientId=self._physics_client_id)
+                self._particle_debug_ids.append(item_id)
+
+    def clear_particles(self) -> None:
+        """Clear all particle debug items added by display_particles."""
+        for item_id in self._particle_debug_ids:
+            p.removeUserDebugItem(item_id,
+                                  physicsClientId=self._physics_client_id)
+        self._particle_debug_ids = []
+
+    def hide_all_bodies(self) -> None:
+        """Hide all bodies in the current simulation by moving them away."""
+        for body_id in range(
+                p.getNumBodies(physicsClientId=self._physics_client_id)):
+            p.resetBasePositionAndOrientation(
+                body_id, [100, 100, 100], [0, 0, 0, 1],
+                physicsClientId=self._physics_client_id)
 
     def render_state_plt(
             self,

@@ -220,6 +220,7 @@ _ENV_REGISTRY: List[Tuple[str, str]] = [
      "predicators.envs.pybullet_magic_bin:PyBulletMagicBinEnv"),
     ("robodisco/Switch-v0",
      "predicators.envs.pybullet_switch:PyBulletSwitchEnv"),
+    ("robodisco/Airport-v0", "predicators.envs.pybullet_airport:PyBulletAirportEnv")
 ]
 
 _REGISTERED = False
