@@ -47,6 +47,7 @@ setup(
         "nest_asyncio",
         "emcee",
         "open3d",
+        "cotracker@git+https://github.com/facebookresearch/co-tracker.git",
     ],
     include_package_data=True,
     extras_require={
