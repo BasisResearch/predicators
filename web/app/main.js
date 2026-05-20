@@ -296,6 +296,25 @@ function loadUrdfBody(entry) {
           o.receiveShadow = true;
         }
       });
+      // Apply per-link RGBA from pybullet (overrides the URDF's
+      // parsed material colors — e.g. grow's cup/jug URDFs have no
+      // <material> blocks, so urdf-loader renders them white; the
+      // env tints them via p.changeVisualShape).
+      if (entry.link_colors && robot.links) {
+        for (const [linkName, rgba] of Object.entries(entry.link_colors)) {
+          const link = robot.links[linkName];
+          if (!link) continue;
+          link.traverse((o) => {
+            if (!o.isMesh || !o.material) return;
+            // Clone so we don't mutate a shared default material.
+            const mat = o.material.clone();
+            mat.color?.setRGB?.(rgba[0], rgba[1], rgba[2]);
+            mat.opacity = rgba[3];
+            mat.transparent = rgba[3] < 1;
+            o.material = mat;
+          });
+        }
+      }
       scene.add(robot);
       const joints = {};
       for (const jn of entry.joint_names) {
@@ -607,26 +626,101 @@ async function executeOption() {
       `bridge.execute_option("${name}", ${argList})`);
     const result = outProxy.toJs({ dict_converter: Object.fromEntries });
     outProxy.destroy();
+    const tag = result.error ? `: ${result.error}` : ` done in ${result.steps} steps.`;
     if (result.error) {
-      // Skill couldn't complete — normal predicators outcome, not a
-      // bug. Play whatever partial trajectory we captured and surface
-      // a short message instead of a Pyodide traceback.
       log(`${name}(${args.join(", ")}) stopped after ${result.steps} steps: ${result.error}`);
-      setStatus(`${name}: ${result.error}`);
-      await playFrames(result.frames);
     } else {
       log(`Executed ${name}(${args.join(", ")}) -> ${result.steps} steps, ${result.frames.length} frames`);
-      setStatus(`${name}: ${result.steps} steps. Playing ${result.frames.length} frames…`);
-      await playFrames(result.frames);
-      setStatus(`${name} done in ${result.steps} steps.`);
     }
+    setStatus(`${name}: ${result.steps} steps. Playing ${result.frames.length} frames…`);
+    await playFrames(result.frames);
+    // Reconcile dynamic bodies that the env created or removed during
+    // execution (e.g. grow spawns plant blocks as cups fill). Done
+    // after playback so plants pop in at end-of-pour rather than
+    // appearing pre-grown at frame 0.
+    await reconcileBodies(result.added_bodies || [],
+                          result.removed_body_ids || []);
+    // Apply the final frame so newly-spawned bodies pick up their
+    // current pose (playFrames skipped them — they weren't in
+    // bodyMap yet).
+    if (result.frames.length > 0) {
+      applyFrame(result.frames[result.frames.length - 1]);
+    }
+    // Repaint anything the env changeVisualShape'd mid-step (balance
+    // button → green when machine on, coffee plate, etc.).
+    applyColorUpdates(result.color_updates || {});
+    setStatus(`${name}${tag}`);
   } catch (e) {
     setStatus("Execute failed — see log.");
     log("ERROR: " + (e.message || e));
   }
 }
 
-async function playFrames(frames, intervalMs = 50) {
+function applyColorUpdates(updates) {
+  for (const [bidStr, linkMap] of Object.entries(updates)) {
+    const bid = Number(bidStr);
+    const b = bodyMap.get(bid);
+    if (!b) continue;
+    if (b.kind === "primitive") {
+      // Primitive bodies are a flat group: one child Mesh per shape,
+      // in the same order the manifest produced them. We don't track
+      // which mesh maps to which link, but our envs all repaint with
+      // a single uniform color per body. Push that color onto every
+      // child mesh.
+      const rgba = Object.values(linkMap)[0];
+      if (!rgba) continue;
+      b.root.traverse((o) => {
+        if (!o.isMesh || !o.material) return;
+        o.material.color?.setRGB?.(rgba[0], rgba[1], rgba[2]);
+        o.material.opacity = rgba[3];
+        o.material.transparent = rgba[3] < 1;
+        o.material.needsUpdate = true;
+      });
+    } else if (b.kind === "urdf") {
+      for (const [linkIdxStr, rgba] of Object.entries(linkMap)) {
+        // urdf-loader keys links by name, not index. linkIdx -1 is the
+        // base. We don't have a robust index→name map, so just paint
+        // every mesh in the body — matches the envs that recolor a
+        // whole URDF (e.g. grow's cup/jug tints).
+        void linkIdxStr;
+        b.root.traverse((o) => {
+          if (!o.isMesh || !o.material) return;
+          o.material.color?.setRGB?.(rgba[0], rgba[1], rgba[2]);
+          o.material.opacity = rgba[3];
+          o.material.transparent = rgba[3] < 1;
+          o.material.needsUpdate = true;
+        });
+      }
+    }
+  }
+}
+
+async function reconcileBodies(added, removedIds) {
+  for (const bid of removedIds) {
+    const b = bodyMap.get(bid);
+    if (!b) continue;
+    scene.remove(b.root);
+    bodyMap.delete(bid);
+  }
+  const urdfPromises = [];
+  for (const entry of added) {
+    if (entry.kind === "urdf") {
+      urdfPromises.push(loadUrdfBody(entry));
+    } else {
+      makePrimitive(entry);
+    }
+  }
+  await Promise.all(urdfPromises);
+}
+
+async function playFrames(frames, targetTotalMs = 1500) {
+  // Pace playback to roughly targetTotalMs total, clamped to a sane
+  // per-frame range. With record_every=1, short skills (~15 frames)
+  // play in ~1s; a 1000-step blocks pick plays in ~10s (capped at the
+  // 10ms floor).
+  if (frames.length === 0) return;
+  const intervalMs = Math.max(10, Math.min(80,
+    Math.round(targetTotalMs / frames.length)));
   for (const f of frames) {
     applyFrame(f);
     await new Promise((r) => setTimeout(r, intervalMs));

@@ -63,19 +63,74 @@ const options = await page.$$eval("#option-select option", (els) =>
 console.log(`Option picker (${options.length} entries):`, options.slice(0, 5),
   options.length > 5 ? "…" : "");
 
-if (options.length) {
-  console.log("Triggering Execute on first option…");
+async function execOpt(name, args) {
+  console.log(`Triggering Execute on ${name}(${args.join(",")})…`);
+  await page.select("#option-select", name);
+  // Set arg selects.
+  const argSelects = await page.$$("select.opt-arg");
+  for (let i = 0; i < argSelects.length && i < args.length; i++) {
+    await page.evaluate((el, v) => { el.value = v; el.dispatchEvent(new Event("change")); }, argSelects[i], args[i]);
+  }
   await page.click("#execute-option");
   try {
     await page.waitForFunction(
-      () => document.getElementById("status").textContent.includes("done in"),
+      () => {
+        const s = document.getElementById("status").textContent;
+        // "X done in N steps." is the final post-playback status.
+        // Errors surface as "X: <reason>" without "Playing".
+        if (/done in \d+ steps/.test(s)) return true;
+        if (/Playing \d+ frames/.test(s)) return false;
+        return /^[^:]+:/.test(s) && !s.startsWith("Executing");
+      },
       { timeout: 60000 });
     const status = await page.$eval("#status", (el) => el.textContent);
-    console.log("Execute status:", status);
+    console.log(`${name} status:`, status);
   } catch (e) {
     const status = await page.$eval("#status", (el) => el.textContent);
-    console.log("Execute timed out. Status:", status);
+    console.log(`${name} timed out. Status:`, status);
   }
+}
+
+if (options.length) {
+  if (ENV === "pybullet_grow") {
+    // jug1 / cup0 are both yellow in the default test task; jug0 is
+    // blue and has no matching cup so pouring it never grows anything.
+    await execOpt("PickJug", ["robot", "jug1"]);
+    await page.screenshot({ path: "/tmp/predicators_browser_pickjug.png", fullPage: true });
+    await execOpt("Pour", ["robot", "jug1", "cup0"]);
+    await page.screenshot({ path: "/tmp/predicators_browser_pour.png", fullPage: true });
+    await execOpt("Place", ["robot", "jug1"]);
+    await page.screenshot({ path: "/tmp/predicators_browser_place.png", fullPage: true });
+  } else if (ENV === "pybullet_balance") {
+    // Oracle plan for seed=0/num_test_tasks=1 (6 blocks split 1:5):
+    //   Pick(block5) -> Stack(block0) -> Pick(block4) -> Stack(block5)
+    //   -> TurnMachineOn(plate1, plate3)
+    // After both moves the count is 3:3 = balanced, and pressing the
+    // button while balanced flips the machine on.
+    const steps = [
+      ["Pick",          ["robby", "block5"]],
+      ["Stack",         ["robby", "block0"]],
+      ["Pick",          ["robby", "block4"]],
+      ["Stack",         ["robby", "block5"]],
+      ["TurnMachineOn", ["plate1", "plate3"]],
+    ];
+    for (const [i, [name, args]] of steps.entries()) {
+      await execOpt(name, args);
+      await page.screenshot({
+        path: `/tmp/predicators_browser_balance_${i+1}_${name}.png`,
+        fullPage: true,
+      });
+    }
+  } else {
+    await execOpt(options[0], []);
+  }
+}
+
+const bodies = await page.evaluate(() => window.predBodies());
+console.log("Bodies in scene:");
+for (const b of bodies) {
+  console.log(`  id=${b.id} kind=${b.kind} meshes=${b.meshCount} `
+    + `center=[${b.center}] size=[${b.size}]`);
 }
 
 // Save a screenshot for inspection.
