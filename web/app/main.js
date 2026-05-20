@@ -67,23 +67,42 @@ renderer.setPixelRatio(window.devicePixelRatio);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+// ACES filmic tone mapping makes PBR materials render with the
+// roll-off you'd expect in a game engine — without it, MeshStandard's
+// linear output looks washed-out/flat on solid-colored blocks.
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
 sceneHost.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0.75, 0.75, 0.5);
 controls.update();
 
-// Lights: soft sky-ish ambient + a directional "sun" that casts shadows.
-scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-const sun = new THREE.DirectionalLight(0xffffff, 1.05);
-sun.position.set(2, -2, 3);
+// Lighting rig (game-engine style):
+//  - HemisphereLight: cheap sky→ground gradient that gives every face
+//    *some* directional fill, so even untouched-by-sun faces aren't
+//    pure-ambient flat.
+//  - DirectionalLight ("sun"): key light + shadow caster, aimed at the
+//    workspace centroid. Initialize sun.target now so the light vector
+//    is sensible before applyEnvCamera (which retargets per-env) runs.
+//  - AmbientLight: small global lift so deep shadows don't crush.
+const WORKSPACE_CENTER = new THREE.Vector3(0.75, 0.75, 0.5);
+scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+scene.add(new THREE.HemisphereLight(0xb0c4d8, 0x4a4036, 0.55));
+const sun = new THREE.DirectionalLight(0xfff0d8, 1.5);
+sun.position.set(WORKSPACE_CENTER.x + 2,
+                  WORKSPACE_CENTER.y - 2,
+                  WORKSPACE_CENTER.z + 3);
+sun.target.position.copy(WORKSPACE_CENTER);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.left = -3; sun.shadow.camera.right = 3;
 sun.shadow.camera.top = 3; sun.shadow.camera.bottom = -3;
 sun.shadow.camera.near = 0.1; sun.shadow.camera.far = 10;
 sun.shadow.bias = -0.0005;
+sun.shadow.normalBias = 0.02;
 scene.add(sun);
+scene.add(sun.target);
 
 function resize() {
   const w = sceneHost.clientWidth || 1;
