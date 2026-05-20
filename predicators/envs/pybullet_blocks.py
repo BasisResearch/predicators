@@ -356,3 +356,22 @@ class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
                            lineWidth=5.0,
                            physicsClientId=physics_client_id)
         # Possibly more debug text...
+
+
+if __name__ == "__main__":
+    # Run a simple simulation to test the environment.
+    import time
+
+    CFG.seed = 0
+    CFG.env = "pybullet_blocks"
+    CFG.num_train_tasks = 1
+    env = PyBulletBlocksEnv(use_gui=True)
+    _task = env._generate_train_tasks()[0]  # pylint: disable=protected-access
+    env._set_state(_task.init)  # pylint: disable=protected-access
+
+    while True:
+        # Hold the robot's current joint positions so the arm doesn't swing
+        # toward URDF home and disturb the blocks.
+        _act = Action(np.array(env._pybullet_robot.get_joints()))  # pylint: disable=protected-access
+        env.step(_act)
+        time.sleep(0.01)

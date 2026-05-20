@@ -1,5 +1,25 @@
-"""A human-in-the-loop approach where the user manually selects processes via
-terminal prompts at each decision point."""
+"""A human-in-the-loop approach where the user manually selects options via
+terminal prompts at each decision point.
+
+This is the high-level (option/skill) counterpart to
+``human_low_level_control_approach``: that one prompts for raw actions,
+this one prompts for parameterized skills (e.g. ``SwitchOn``, ``Wait``)
+and their arguments. ``Wait`` runs until the abstract atoms change.
+
+Example (PyBullet Fan)::
+
+    python predicators/main.py --env pybullet_fan \\
+        --approach human_option_control --seed 0 \\
+        --pybullet_max_vel_norm 0.1 \\
+        --pybullet_sim_steps_per_action 5 --use_gui \\
+        --num_train_tasks 1 --num_test_tasks 1
+
+Swap ``--env`` for any other env that ships a Wait/process model
+(``pybullet_boil``, ``pybullet_coffee``, ``pybullet_grow``).  Set
+``--human_option_control_approach_use_scripted_option True`` together
+with ``--scripted_option_dir`` / ``--script_option_file_name`` to replay
+a pre-written option plan instead of prompting interactively.
+"""
 
 from typing import Callable, List, Optional, Sequence, Set, cast
 
@@ -17,7 +37,7 @@ from predicators.structs import NSRT, Action, CausalProcess, \
     State, Task, Type, _GroundEndogenousProcess, _Option
 
 
-class HumanInteractionApproach(BilevelProcessPlanningApproach):
+class HumanOptionControlApproach(BilevelProcessPlanningApproach):
     """A human-in-the-loop approach for process-based planning.
 
     At each decision point, displays applicable processes to the user
@@ -46,7 +66,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
 
     @classmethod
     def get_name(cls) -> str:
-        return "human_interaction"
+        return "human_option_control"
 
     @property
     def is_learning_based(self) -> bool:
@@ -65,7 +85,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
         del timeout  # Unused parameter
 
         # If scripted option is enabled, use the scripted plan
-        if CFG.human_interaction_approach_use_scripted_option:
+        if CFG.human_option_control_approach_use_scripted_option:
             try:
                 option_plan = self._load_scripted_option_plan(task)
             except Exception as e:
@@ -91,7 +111,10 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
             return option
 
         return utils.option_policy_to_policy(
-            _option_policy, max_option_steps=CFG.max_num_steps_option_rollout)
+            _option_policy,
+            max_option_steps=CFG.max_num_steps_option_rollout,
+            abstract_function=lambda s: utils.abstract(
+                s, self._get_current_predicates()))
 
     def _load_scripted_option_plan(self, task: Task) -> Sequence[_Option]:
         """Load and parse a scripted option plan from a file.
@@ -159,7 +182,7 @@ class HumanInteractionApproach(BilevelProcessPlanningApproach):
         for atom in sorted(current_atoms, key=str):
             print(f"  {atom}")
 
-        if CFG.human_interaction_approach_use_all_options:
+        if CFG.human_option_control_approach_use_all_options:
             return self._prompt_user_for_option_from_all(state, goal)
 
         return self._prompt_user_for_option_from_processes(
