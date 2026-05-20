@@ -68,19 +68,21 @@ def main():
         if step == 0:
             particles_by_id = utils.get_particles_from_rgbd_and_matrices(
                 rgb_arr, depth_arr, seg_arr, vm, pm)
-            pts_list, col_list = [], []
+            pts_list, col_list, obj_id_list = [], [], []
             for obj in pybullet_env._objects:
                 if obj.id in particles_by_id:
                     pts, cols = particles_by_id[obj.id]
                     pts, cols = utils.downsample_particles(pts, cols)
                     pts_list.append(pts)
                     col_list.append(cols)
+                    obj_id_list.append(np.full(len(pts), obj.id, dtype=np.int32))
             if not pts_list:
                 print("No particles found at frame 0; exiting.")
                 env.close()
                 return
             init_pts_3d = np.concatenate(pts_list, axis=0)   # (N, 3)
             init_colors = np.concatenate(col_list, axis=0)   # (N, 3) in [0,1]
+            particle_obj_ids = np.concatenate(obj_id_list, axis=0)   # (N,)
 
     N = len(init_pts_3d)
     T = num_steps
@@ -100,6 +102,14 @@ def main():
     # tracks_3d : (T, N, 3); pred_vis : (T, N)
 
     print(f"  → tracks_3d shape: {tracks_3d.shape}")
+
+    # ── Save tracked particles ────────────────────────────────────────────
+    save_path = "tracked_particles.npz"
+    np.savez(save_path,
+             tracks_3d=tracks_3d,            # (T, N, 3) float32
+             particle_obj_ids=particle_obj_ids,  # (N,)    int32
+             pred_vis=pred_vis)              # (T, N)  float32
+    print(f"  → saved particle tracks to {save_path}")
 
     # ── Phase 4: Save video with 2D trajectory overlay ────────────────────
     print("Phase 4: Rendering trajectory video …")
