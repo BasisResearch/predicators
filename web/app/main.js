@@ -621,35 +621,76 @@ async function executeOption() {
     .map((s) => s.value);
   setStatus(`Executing ${name}(${args.join(", ")})…`);
   try {
+    // Arm the option: bridge stashes the grounded option + initial
+    // state. Returns the initial-frame body states so JS can paint
+    // step 0 before any pybullet step has happened.
     const argList = JSON.stringify(args);
-    const outProxy = await pyodide.runPythonAsync(
-      `bridge.execute_option("${name}", ${argList})`);
-    const result = outProxy.toJs({ dict_converter: Object.fromEntries });
-    outProxy.destroy();
-    const tag = result.error ? `: ${result.error}` : ` done in ${result.steps} steps.`;
-    if (result.error) {
-      log(`${name}(${args.join(", ")}) stopped after ${result.steps} steps: ${result.error}`);
+    const initProxy = await pyodide.runPythonAsync(
+      `bridge.begin_option("${name}", ${argList})`);
+    const init = initProxy.toJs({ dict_converter: Object.fromEntries });
+    initProxy.destroy();
+    if (init.error) {
+      setStatus(`${name}: ${init.error}`);
+      log(`${name}: ${init.error}`);
+      return;
+    }
+    applyFrame(init.initial_frame);
+
+    // Drive the rollout via requestAnimationFrame: one pybullet step
+    // per rAF tick, so the renderer paints each frame at its natural
+    // pace (no batched "sim everything then play back" choppiness,
+    // and no UI freeze during sim).
+    let lastSteps = 0;
+    let finalError = null;
+    await new Promise((resolve) => {
+      const stepCall = `bridge.step_option()`;
+      function tick() {
+        let r;
+        try {
+          const proxy = pyodide.runPython(stepCall);
+          r = proxy.toJs({ dict_converter: Object.fromEntries });
+          proxy.destroy();
+        } catch (e) {
+          log("ERROR during step: " + (e.message || e));
+          resolve();
+          return;
+        }
+        // Reconcile mid-rollout bodies *before* applying the frame —
+        // otherwise applyFrame can't find the body in bodyMap yet.
+        if (r.added_bodies?.length || r.removed_body_ids?.length) {
+          // reconcileBodies is async (URDFs load); for primitives it's
+          // sync. Don't await — primitives mount synchronously and
+          // appear next frame anyway. URDFs will pop in a tick late,
+          // which is fine.
+          reconcileBodies(r.added_bodies || [],
+                          r.removed_body_ids || []);
+        }
+        applyFrame(r.frame);
+        lastSteps = r.steps;
+        if (r.done) {
+          if (r.color_updates) applyColorUpdates(r.color_updates);
+          finalError = r.error;
+          resolve();
+        } else {
+          // Update status periodically (cheap text DOM write) so the
+          // user sees progress. requestAnimationFrame yields to the
+          // event loop so clicks aren't blocked.
+          if (r.steps % 10 === 0) {
+            setStatus(`Executing ${name}(${args.join(", ")}) — step ${r.steps}`);
+          }
+          requestAnimationFrame(tick);
+        }
+      }
+      requestAnimationFrame(tick);
+    });
+
+    if (finalError) {
+      setStatus(`${name}: ${finalError}`);
+      log(`${name}(${args.join(", ")}) stopped after ${lastSteps} steps: ${finalError}`);
     } else {
-      log(`Executed ${name}(${args.join(", ")}) -> ${result.steps} steps, ${result.frames.length} frames`);
+      setStatus(`${name} done in ${lastSteps} steps.`);
+      log(`Executed ${name}(${args.join(", ")}) -> ${lastSteps} steps`);
     }
-    setStatus(`${name}: ${result.steps} steps. Playing ${result.frames.length} frames…`);
-    await playFrames(result.frames);
-    // Reconcile dynamic bodies that the env created or removed during
-    // execution (e.g. grow spawns plant blocks as cups fill). Done
-    // after playback so plants pop in at end-of-pour rather than
-    // appearing pre-grown at frame 0.
-    await reconcileBodies(result.added_bodies || [],
-                          result.removed_body_ids || []);
-    // Apply the final frame so newly-spawned bodies pick up their
-    // current pose (playFrames skipped them — they weren't in
-    // bodyMap yet).
-    if (result.frames.length > 0) {
-      applyFrame(result.frames[result.frames.length - 1]);
-    }
-    // Repaint anything the env changeVisualShape'd mid-step (balance
-    // button → green when machine on, coffee plate, etc.).
-    applyColorUpdates(result.color_updates || {});
-    setStatus(`${name}${tag}`);
   } catch (e) {
     setStatus("Execute failed — see log.");
     log("ERROR: " + (e.message || e));
@@ -711,20 +752,6 @@ async function reconcileBodies(added, removedIds) {
     }
   }
   await Promise.all(urdfPromises);
-}
-
-async function playFrames(frames, targetTotalMs = 1500) {
-  // Pace playback to roughly targetTotalMs total, clamped to a sane
-  // per-frame range. With record_every=1, short skills (~15 frames)
-  // play in ~1s; a 1000-step blocks pick plays in ~10s (capped at the
-  // 10ms floor).
-  if (frames.length === 0) return;
-  const intervalMs = Math.max(10, Math.min(80,
-    Math.round(targetTotalMs / frames.length)));
-  for (const f of frames) {
-    applyFrame(f);
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
 }
 
 executeBtn.addEventListener("click", executeOption);

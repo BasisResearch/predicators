@@ -3,8 +3,13 @@
 Exposes a minimal `bridge` object that the JS layer can call:
 - bridge.reset(env_name) -> {task_idx, num_objects, action_dim, manifest}
 - bridge.list_options() / list_objects()
-- bridge.execute_option(name, object_names, ...) -> {steps, frames}
-    where each frame is a {body_id: {pos, orn, joints: {name: rad}}} snapshot
+- bridge.begin_option(name, object_names, ...) -> {initial_frame, error}
+- bridge.step_option() -> {frame, steps, done, error,
+                          added_bodies, removed_body_ids, color_updates}
+    where each frame is a {body_id: {pos, orn, joints: {name: rad}}} snapshot.
+    JS drives step_option() inside a requestAnimationFrame loop until
+    done — one pybullet step per browser-frame so the renderer paints
+    each step instead of seeing the whole option batched at the end.
 
 Rendering is done client-side by Three.js + urdf-loader. The bridge
 extracts (a) a scene manifest (URDF refs for URDF-loaded bodies +
@@ -100,6 +105,12 @@ class _Bridge:
         # diffs against this set to surface additions/removals so JS
         # can mount/unmount the corresponding meshes.
         self._known_body_ids = set()
+        # Per-option rollout state. begin_option arms this; step_option
+        # advances it one pybullet step at a time and clears it on done.
+        # Splitting the rollout this way keeps the main JS thread alive
+        # between sim steps so the renderer can draw each frame instead
+        # of seeing the whole option as one batched update at the end.
+        self._active_option = None
         # body_id -> {link_idx (-1 for base): rgba}. Snapshotted on
         # reset and again after each execute_option so envs that
         # repaint via p.changeVisualShape (balance button, coffee
@@ -433,30 +444,32 @@ class _Bridge:
         params = rng.uniform(low, high).astype(np.float32)
         return opt.ground(chosen, params)
 
-    def execute_option(self, option_name, object_names,
-                        params=None, max_steps=1000, record_every=1):
-        """Ground option, run policy, collect body-state snapshots every
-        `record_every` sim steps (plus initial + final).
+    def begin_option(self, option_name, object_names,
+                      params=None, max_steps=1000):
+        """Ground an option and stash the rollout state so JS can drive
+        it one sim step at a time via :meth:`step_option`.
 
-        Default is one frame per step. Anything coarser makes the
-        playback jerky because each PhaseSkill step moves the EE by up
-        to ``max_vel_norm`` (~5cm) — at record_every=5 a 13-step PickJug
-        only yields 4 keyframes and the arm appears to teleport.
-
-        Returns {steps, frames: [body_states_dict]}.
+        Returns ``{initial_frame, error}``. On error (unknown option,
+        not initiable, etc.) the option is *not* armed and step_option
+        will be a no-op.
         """
         from predicators.ground_truth_models import get_gt_options
         options = {o.name: o for o in get_gt_options(self.env.get_name())}
         if option_name not in options:
-            raise ValueError(f"Unknown option: {option_name}")
+            return {"initial_frame": {}, "error": f"Unknown option: {option_name}"}
         opt = options[option_name]
 
         name_to_obj = {o.name: o for o in self.env._objects}  # noqa: SLF001
-        chosen = [name_to_obj[n] for n in object_names]
+        try:
+            chosen = [name_to_obj[n] for n in object_names]
+        except KeyError as e:
+            return {"initial_frame": {}, "error": f"Unknown object: {e.args[0]}"}
         for o, t in zip(chosen, opt.types):
-            assert o.is_instance(t), (
-                f"Object {o.name} of type {o.type.name} doesn't match "
-                f"expected type {t.name} for option {opt.name}")
+            if not o.is_instance(t):
+                return {"initial_frame": {},
+                        "error": (f"Object {o.name} of type {o.type.name} "
+                                  f"doesn't match expected type {t.name} "
+                                  f"for option {opt.name}")}
 
         state = self.env._current_observation  # noqa: SLF001
         if params is None:
@@ -467,77 +480,105 @@ class _Bridge:
             ground_opt = opt.ground(chosen, params_arr)
 
         if not ground_opt.initiable(state):
-            raise RuntimeError(
-                f"{option_name}({','.join(object_names)}) "
-                "is not initiable in the current state.")
+            return {"initial_frame": {},
+                    "error": (f"{option_name}({','.join(object_names)}) "
+                              "is not initiable in the current state.")}
 
-        frames = [self.get_all_body_states()]
-        steps = 0
-        # OptionExecutionFailure (e.g. IK failed to converge for an
-        # unreachable target) is a normal predicators signal, not a
-        # bug — catch it Python-side and return a structured result so
-        # the JS log shows a one-liner instead of a Pyodide
-        # traceback.
+        # Snapshot body IDs at option start so step_option can diff
+        # per-step additions/removals (e.g. grow's plant spawning
+        # mid-Pour). Colors are snapshotted lazily at end-of-option
+        # since envs only repaint on terminal predicates and the
+        # per-step pybullet calls aren't free.
+        cid = self.env._physics_client_id  # noqa: SLF001
+        prev_ids = set(self._current_body_ids(cid))
+        self._active_option = {
+            "ground_opt": ground_opt,
+            "state": state,
+            "steps": 0,
+            "max_steps": int(max_steps),
+            "prev_ids": prev_ids,
+            "name": option_name,
+            "args": list(object_names),
+        }
+        return {"initial_frame": self.get_all_body_states(), "error": None}
+
+    def step_option(self):
+        """Run one pybullet step of the currently-armed option.
+
+        Returns ``{frame, steps, done, error, added_bodies,
+        removed_body_ids, color_updates}``. Caller should loop
+        ``requestAnimationFrame`` over this until ``done`` is True.
+        ``color_updates`` is populated only on the terminal step.
+        """
+        ao = self._active_option
+        if ao is None:
+            return {"frame": {}, "steps": 0, "done": True,
+                    "error": "no option in flight",
+                    "added_bodies": [], "removed_body_ids": [],
+                    "color_updates": {}}
+
         error_msg = None
+        done = False
         try:
-            while steps < max_steps:
-                act = ground_opt.policy(state)
-                state = self.env.step(act)
-                steps += 1
-                if record_every and steps % record_every == 0:
-                    frames.append(self.get_all_body_states())
-                if ground_opt.terminal(state):
-                    break
+            act = ao["ground_opt"].policy(ao["state"])
+            ao["state"] = self.env.step(act)
+            ao["steps"] += 1
+            if ao["ground_opt"].terminal(ao["state"]):
+                done = True
         except _utils.OptionExecutionFailure as e:
-            # Match how human_option_control_approach surfaces this
-            # (predicators/approaches/human_option_control_approach.py
-            # line 104): use the bare reason, not the Python class
-            # name + repr.
+            # Same surface as human_option_control_approach
+            # (predicators/approaches/human_option_control_approach
+            # .py:104): bare reason, not class name + repr.
             error_msg = str(e.args[0]) if e.args else "Option failed."
+            done = True
+        if ao["steps"] >= ao["max_steps"]:
+            done = True
 
-        # Always include the final state.
-        if record_every == 0 or steps % record_every != 0:
-            frames.append(self.get_all_body_states())
-
-        # Compute body deltas so JS can spawn new meshes (e.g. growing
-        # plants in grow) and unmount removed ones. We diff against the
-        # set of body IDs JS already knows about.
         cid = self.env._physics_client_id  # noqa: SLF001
         current_ids = set(self._current_body_ids(cid))
-        added_ids = sorted(current_ids - self._known_body_ids)
-        removed_ids = sorted(self._known_body_ids - current_ids)
-        added = [e for e in (self._describe_body(bid, cid) for bid in added_ids)
-                 if e is not None]
-        self._known_body_ids = current_ids
+        added_ids = sorted(current_ids - ao["prev_ids"])
+        removed_ids = sorted(ao["prev_ids"] - current_ids)
+        added = [
+            e for e in (self._describe_body(bid, cid) for bid in added_ids)
+            if e is not None
+        ]
+        ao["prev_ids"] = current_ids
 
-        # Color deltas. Envs repaint via p.changeVisualShape during a
-        # step (balance flips the button green when machine turns on;
-        # coffee's button + dispense plate change with brew state). The
-        # initial manifest captured colors at boot; diff against the
-        # current visual shape RGBAs and surface only what's changed.
+        # Color diff is only computed at end-of-option — repainting via
+        # p.changeVisualShape almost always happens on a terminal
+        # predicate firing (balance button on Balance, coffee button on
+        # Brew), and per-step _snapshot_link_colors is ~50ms otherwise.
         color_updates = {}
-        for bid in current_ids:
-            if bid in added_ids:
-                continue  # already included in added_bodies
-            now = self._snapshot_link_colors(bid, cid)
-            prev = self._known_link_colors.get(bid, {})
-            changed = {
-                link_idx: rgba
-                for link_idx, rgba in now.items()
-                if prev.get(link_idx) != rgba
-            }
-            if changed:
-                color_updates[bid] = changed
-            self._known_link_colors[bid] = now
+        if done:
+            new_colors = {}
+            for bid in current_ids:
+                now = self._snapshot_link_colors(bid, cid)
+                new_colors[bid] = now
+                if bid in added_ids:
+                    continue  # mounted with current color already
+                prev = self._known_link_colors.get(bid, {})
+                changed = {
+                    link_idx: rgba
+                    for link_idx, rgba in now.items()
+                    if prev.get(link_idx) != rgba
+                }
+                if changed:
+                    color_updates[bid] = changed
+            self._known_link_colors = new_colors
 
-        return {
-            "steps": steps,
-            "frames": frames,
+        self._known_body_ids = current_ids
+        result = {
+            "frame": self.get_all_body_states(),
+            "steps": ao["steps"],
+            "done": done,
             "error": error_msg,
             "added_bodies": added,
             "removed_body_ids": removed_ids,
             "color_updates": color_updates,
         }
+        if done:
+            self._active_option = None
+        return result
 
 
 bridge = _Bridge()
