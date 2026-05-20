@@ -84,6 +84,11 @@ _ENV_CFG_OVERRIDES = {
         "grow_use_skill_factories": False,
         "grow_place_option_no_sampler": True,
     },
+    # Same pattern as grow: nsrts.py looks up specific option names
+    # (PlaceOnBurner, PlaceUnderFaucet, etc.) that only exist on the
+    # legacy code path. Default skill-factory path produces a single
+    # generic Place option, so nsrts construction KeyErrors.
+    "pybullet_boil": {"boil_use_skill_factories": False},
 }
 
 
