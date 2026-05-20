@@ -10,9 +10,8 @@ APPROACHES:
     FLAGS:
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
-      bilevel_plan_without_sim: True
-  # human_option_control:
-  #   NAME: "human_option_control"
+  # human_interaction:
+  #   NAME: "human_interaction"
   #   FLAGS:
   #     human_option_control_approach_use_scripted_option: True
   #     human_option_control_approach_use_all_options: True

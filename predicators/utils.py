@@ -2818,7 +2818,10 @@ def strip_task(task: Task, included_predicates: Set[Predicate]) -> Task:
         stripped_pred = strip_predicate(atom.predicate)
         stripped_atom = GroundAtom(stripped_pred, atom.objects)
         stripped_goal.add(stripped_atom)
-    return Task(task.init, stripped_goal, alt_goal=task.alt_goal)
+    return Task(task.init,
+                stripped_goal,
+                alt_goal=task.alt_goal,
+                goal_nl=task.goal_nl)
 
 
 def create_vlm_predicate(

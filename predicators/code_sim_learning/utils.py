@@ -10,19 +10,57 @@ Core primitives for process-dynamics simulation:
 * ``read_simulator_components`` — pull the ``PROCESS_RULES``,
   ``PARAM_SPECS``, ``PROCESS_FEATURES`` triple out of a namespace
   (oracle module globals or agent-synthesized exec namespace).
+* ``sigmoid`` / ``SOFT_EPS`` — building blocks for differentiable
+  soft gates in process rules.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, \
+    Optional, Sequence, Tuple
+
+import numpy as np
 
 from predicators.structs import Action, Object, State
 
 logger = logging.getLogger(__name__)
 
-# Type alias: {Object: {feature_name: new_value}}
+# ── Type aliases ──────────────────────────────────────────────────
+
+# {Object: {feature_name: new_value}} — the dict that rule functions
+# accumulate into.
 ProcessUpdate = Dict[Object, Dict[str, float]]
+
+# {param_name: value} — the params dict passed to rule functions.
+Params = Dict[str, float]
+
+# ── Soft-gate building blocks ─────────────────────────────────────
+
+# Default smoothing scale for parameter-dependent soft gates. Small
+# enough that gates are ~99% saturated when the operand is one
+# threshold-width into the active region, large enough to give MCMC a
+# usable gradient near the cliff. 0.02 is in the right ballpark for
+# both spatial thresholds (~0.05–0.15 m) and water-level thresholds
+# (~0.3–1.3). Override per call site as needed.
+SOFT_EPS = 0.02
+
+
+def sigmoid(z: float) -> float:
+    """Numerically-stable scalar sigmoid."""
+    if z >= 0:
+        return 1.0 / (1.0 + np.exp(-z))
+    ez = np.exp(z)
+    return ez / (1.0 + ez)
+
+
+def objs_by_type(state: State) -> Dict[str, List[Object]]:
+    """Group state objects by type name."""
+    groups: Dict[str, List[Object]] = {}
+    for o in state:
+        groups.setdefault(o.type.name, []).append(o)
+    return groups
+
 
 # ── Primitives ────────────────────────────────────────────────────
 
@@ -80,6 +118,35 @@ def simulate_step(
     if not updates:
         return base_state
     return merge_updates(base_state, updates)
+
+
+def iter_feature_residuals(
+    triples: Iterable[Tuple[State, State]],
+    feature_scope: Optional[Dict[str, List[str]]] = None,
+) -> Iterator[Tuple[int, Object, str, str, float, float]]:
+    """Yield ``(step_idx, obj, type_name, feat, pred_val, obs_val)``.
+
+    Walks each ``(s_pred, s_obs)`` pair and emits one tuple per
+    ``(object, feature)``. If ``feature_scope`` is provided, only
+    features listed under each type name are emitted; otherwise every
+    feature in the type's ``feature_names`` is emitted. Used by both the
+    residual-based feature-discovery scan and the per-feature residual
+    report so the two stay in sync.
+    """
+    for i, (s_pred, s_obs) in enumerate(triples):
+        for obj in s_pred:
+            tn = obj.type.name
+            feats: Sequence[str] = (feature_scope.get(tn, []) if feature_scope
+                                    is not None else obj.type.feature_names)
+            for feat in feats:
+                yield (
+                    i,
+                    obj,
+                    tn,
+                    feat,
+                    float(s_pred.get(obj, feat)),
+                    float(s_obs.get(obj, feat)),
+                )
 
 
 # ── Module-namespace loader ───────────────────────────────────────

@@ -27,12 +27,15 @@ import pybullet
 from gym.spaces import Box
 
 from predicators import utils
-from predicators.agent_sdk.tools import create_synthesis_tools
+from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
+    _SnapshotTarget, create_synthesis_tools, finalize_versioned_snapshot, \
+    make_write_snapshot_hook
 from predicators.approaches.agent_bilevel_approach import AgentBilevelApproach
 from predicators.code_sim_learning.training import ParamSpec, compute_sse, \
     fit_params, log_sse_breakdown
 from predicators.code_sim_learning.utils import LearnedSimulator, \
-    apply_rules, merge_updates, read_simulator_components
+    apply_rules, iter_feature_residuals, merge_updates, \
+    read_simulator_components
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
@@ -92,9 +95,19 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         # Loss-scope mask for parameter fitting (compute_sse).
         self._process_features: Dict[str, List[str]] = {}
         self._process_rules: Optional[List] = None
-        self._fitted_params: Optional[Dict[str, float]] = None
+        # Always the same dict object — fits update it in place via
+        # clear()+update() so _ParamsView (held by invented predicate
+        # classifiers) picks up new values without holding a reference
+        # to ``self``. Truthy iff a fit has populated it.
+        self._fitted_params: Dict[str, float] = {}
         self._fit_sse: float = float("inf")
         self._learning_mode: bool = False
+        # Snapshot tags of the most recent simulator / predicates files
+        # committed by the synthesis agent — used to stamp newly
+        # collected online trajectories with their source-version
+        # provenance (consumed in the next learn-phase prompt).
+        self._current_simulator_version: Optional[str] = None
+        self._current_predicates_version: Optional[str] = None
 
     @classmethod
     def get_name(cls) -> str:
@@ -107,16 +120,133 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             return self._build_synthesis_system_prompt()
         return super()._get_agent_system_prompt()
 
+    def _get_synthesis_tool_names(self) -> Optional[List[str]]:
+        """Complete tool surface for the synthesis agent.
+
+        Combines the static MCP tools the agent may call (the inspect
+        family — used to read off option/predicate/type signatures when
+        writing rules) with the names of the dynamic synthesis callables
+        (``run_python``, ``evaluate_step_fit``, ``report_residuals``,
+        ``evaluate_plan_refinement``) attached to
+        ``ctx.extra_mcp_tools`` inside :meth:`_synthesize_with_agent`.
+        The mixin asserts the attached instances and this list agree.
+        """
+        return ["inspect_types", "inspect_options", "inspect_trajectories"] +\
+            list(SYNTHESIS_TOOL_NAMES)
+
+    # ── Subclass hooks ──────────────────────────────────────────
+    # Default implementations are no-ops so subclasses can add
+    # predicate-invention (or other) extensions without copying
+    # _synthesize_with_agent.
+
+    def _learning_cycle_index(self) -> int:
+        """1-indexed cycle number used in versioned snapshot filenames.
+
+        Offline learning is cycle 1; ``_online_learning_cycle`` is
+        incremented before each online learn call, so adding 1 keeps the
+        offline pass and the first online pass on different indices.
+        """
+        return self._online_learning_cycle + 1
+
+    def _compute_extra_synthesis_paths(self, base: str) -> Dict[str, str]:
+        """Return extra path bindings for the synthesis sandbox."""
+        del base
+        return {}
+
+    def _extra_synthesis_tools(
+        self,
+        exec_ns: Dict[str, Any],
+        base_pred_triples: List[Tuple[State, Action, State]],
+        inferred_hint: Dict[str, List[str]],
+        extra_paths: Dict[str, str],
+    ) -> List[Any]:
+        """Return additional MCP tools to append to the synthesis tool list."""
+        del exec_ns, base_pred_triples, inferred_hint, extra_paths
+        return []
+
+    def _extra_synthesis_message(self, extra_paths: Dict[str, str]) -> str:
+        """Return text to append to the agent's first synthesis message."""
+        del extra_paths
+        return ""
+
+    def _extra_synthesis_system_prompt(self) -> str:
+        """Return text to append to the synthesis system prompt."""
+        return ""
+
+    def _post_synthesis_loading(
+        self,
+        extra_paths: Dict[str, str],
+        specs: List[ParamSpec],
+    ) -> None:
+        """Hook run after the simulator file is loaded post-session.
+
+        ``specs`` are the just-loaded ``PARAM_SPECS``; subclasses may
+        seed ``self._fitted_params`` from their ``init_value``s before
+        the proper fit runs (useful when loading other artifacts that
+        close over ``params``).
+        """
+        del extra_paths, specs
+
+    def _build_write_snapshot_targets(
+        self,
+        simulator_file: str,
+        versions_dir: str,
+        extra_paths: Dict[str, str],
+    ) -> List[_SnapshotTarget]:
+        """Files the PostToolUse snapshot hook should watch.
+
+        Defaults to just the simulator. Subclasses (e.g. predicate
+        invention) may append their own artifacts. ``extra_paths`` is
+        the same dict returned by ``_compute_extra_synthesis_paths``.
+        """
+        del extra_paths
+        return [
+            _SnapshotTarget(
+                live_file=simulator_file,
+                versions_dir=versions_dir,
+                artifact_name="simulator",
+                cycle_index_provider=self._learning_cycle_index,
+            ),
+        ]
+
+    @staticmethod
+    def _build_synthesis_session_hooks(
+        targets: List[_SnapshotTarget],
+        sandbox_dir: str,
+    ) -> Dict[str, list]:
+        """Wrap snapshot targets in a Claude Agent SDK ``HookMatcher``.
+
+        Returns the dict suitable for assignment to
+        ``ToolContext.extra_session_hooks``. Falls back to an empty dict
+        if the SDK ``HookMatcher`` isn't importable (so the approach
+        still works against older SDK versions).
+        """
+        if not targets:
+            return {}
+        try:
+            from claude_agent_sdk import \
+                HookMatcher  # pylint: disable=import-outside-toplevel
+        except ImportError:
+            logger.warning("claude_agent_sdk.HookMatcher unavailable; "
+                           "write-time snapshots disabled.")
+            return {}
+        hook = make_write_snapshot_hook(targets, sandbox_dir=sandbox_dir)
+        return {
+            "PostToolUse": [
+                HookMatcher(matcher="Write|Edit|MultiEdit", hooks=[hook]),
+            ],
+        }
+
     # ── Learning ────────────────────────────────────────────────
 
     def learn_from_offline_dataset(self, dataset: Dataset) -> None:
         super().learn_from_offline_dataset(dataset)
-        self._learn_simulator(dataset.trajectories)
+        self._learn_simulator(self._get_all_trajectories())
 
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
         super().learn_from_interaction_results(results)
-        self._learn_simulator(self._online_trajectories)
+        self._learn_simulator(self._get_all_trajectories())
 
     def _learn_simulator(self, trajectories: List[LowLevelTrajectory]) -> None:
         """Synthesize rules, fit parameters, and build the option model."""
@@ -146,7 +276,7 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         self._synthesize_with_agent(trajectories, obs_triples,
                                     base_pred_triples, inferred_hint)
 
-        if self._process_rules is not None and self._fitted_params is not None:
+        if self._process_rules is not None and self._fitted_params:
             rules, params = self._process_rules, self._fitted_params
             self._learned_simulator = LearnedSimulator(
                 step_fn=lambda s, _r=rules, _p=params:  # type: ignore[misc]
@@ -208,32 +338,94 @@ class AgentSimLearningApproach(AgentBilevelApproach):
                         "be non-negative.")
                 perturbed = []
                 for s in specs:
-                    val = s.init_value * (1.0 +
-                                          float(rng.normal(0, noise_scale)))
-                    if s.lo is not None:
-                        val = max(s.lo, val)
-                    if s.hi is not None:
-                        val = min(s.hi, val)
+                    val = float(
+                        np.clip(
+                            s.init_value * (1.0 + rng.normal(0, noise_scale)),
+                            s.lo, s.hi))
                     perturbed.append(ParamSpec(s.name, val, lo=s.lo, hi=s.hi))
                 specs = perturbed
             logger.info("Loaded oracle sim program (%d rules, %d params).",
                         len(rules), len(specs))
         else:
-            base = self._tool_context.sandbox_dir or self._get_log_dir()
-            save_dir = os.path.join(base, "simulator_code")
+            # Resolve sandbox_dir without depending on a live session
+            # manager. LocalSandboxSessionManager does set this on
+            # tool_context in __init__, but it isn't constructed until
+            # _ensure_agent_session() runs further below.
+            if CFG.agent_sdk_use_local_sandbox:
+                sandbox_dir: Optional[str] = os.path.abspath(
+                    os.path.join(self._get_log_dir(), "sandbox"))
+            else:
+                sandbox_dir = self._tool_context.sandbox_dir
+
+            base = sandbox_dir or self._get_log_dir()
+            simulator_file = os.path.join(base, "simulator.py")
+            versions_dir = os.path.join(base, "simulator_versions")
+            extra_paths = self._compute_extra_synthesis_paths(base)
+
+            # Path the agent sees: cwd-relative for local-sandbox (the
+            # validation hook resolves against cwd and rejects literal
+            # ``/sandbox/...`` paths), docker mount point for docker,
+            # absolute host path otherwise.
+            if CFG.agent_sdk_use_local_sandbox:
+                simulator_file_for_agent = "./simulator.py"
+                sandbox_dir_for_agent: Optional[str] = "."
+            elif sandbox_dir:
+                simulator_file_for_agent = "/sandbox/simulator.py"
+                sandbox_dir_for_agent = "/sandbox"
+            else:
+                simulator_file_for_agent = simulator_file
+                sandbox_dir_for_agent = None
 
             exec_ns: Dict[str, Any] = {
-                "trajectories": trajectories,
-                "np": np,
-                "ParamSpec": ParamSpec,
+                "trajectories":
+                trajectories,
+                "train_tasks":
+                self._train_tasks,
+                "is_goal_state":
+                lambda state, task_idx: self._train_tasks[task_idx].goal_holds(
+                    state),
+                "np":
+                np,
+                "ParamSpec":
+                ParamSpec,
             }
 
-            tools = create_synthesis_tools(exec_ns,
-                                           base_pred_triples,
-                                           inferred_hint,
-                                           save_dir=save_dir)
-            self._tool_context.extra_mcp_tools = tools
+            # Build dynamic synthesis tools and attach them to the
+            # tool context *before* opening the session. The attached
+            # set is filtered against ``_get_synthesis_tool_names`` so
+            # that method is the single source of truth for what the
+            # agent sees — anything a builder constructs but the names
+            # list omits is dropped here. The ``finally`` block below
+            # clears the attachment.
+            tools = create_synthesis_tools(
+                exec_ns,
+                base_pred_triples,
+                inferred_hint,
+                simulator_file=simulator_file,
+                versions_dir=versions_dir,
+                approach=self,
+                sandbox_dir=base,
+                sandbox_dir_for_agent=sandbox_dir_for_agent,
+                cycle_index_provider=self._learning_cycle_index,
+            )
+            tools.extend(
+                self._extra_synthesis_tools(exec_ns, base_pred_triples,
+                                            inferred_hint, extra_paths))
+            declared = set(self._get_synthesis_tool_names() or ())
+            self._tool_context.extra_mcp_tools = [
+                t for t in tools if getattr(t, "name", "") in declared
+            ]
             self._learning_mode = True
+
+            # PostToolUse hook: snapshot simulator.py / predicates.py on
+            # every successful Write/Edit/MultiEdit, so the version
+            # history covers everything the agent committed to file
+            # (not just states that happened to coincide with an eval
+            # call). Only active for this synthesis session.
+            snapshot_targets = self._build_write_snapshot_targets(
+                simulator_file, versions_dir, extra_paths)
+            self._tool_context.extra_session_hooks = (
+                self._build_synthesis_session_hooks(snapshot_targets, base))
 
             # Fresh session so the synthesis prompt + tools take effect.
             self._close_agent_session()
@@ -242,48 +434,101 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             structs_ref = self._write_structs_reference()
 
             n_trajs = len(trajectories)
+            n_demos = sum(1 for t in trajectories if t.is_demo)
+            n_interaction = n_trajs - n_demos
+            predicate_listing = self._format_predicate_signatures(
+                self._get_all_predicates())
+            trajectory_listing = self._format_trajectory_listing(trajectories)
+            prior_state_block = self._format_prior_state_block(base)
             message = f"""\
 Synthesize a process dynamics simulator for this environment. \
 There are {n_trajs} trajectories ({len(obs_triples)} step \
-transitions) available.
+transitions) available: {n_demos} oracle demonstration(s) (goal \
+reached by construction) and {n_interaction} interaction \
+trajectory/ies (collected during online learning; some may have \
+failed to reach the goal).
 
-Data-structure source code is at: {structs_ref}
+{trajectory_listing}
+Each trajectory carries a `train_task_idx`. You can query the \
+ground-truth goal-check (a black-box binary reward) by calling \
+`is_goal_state(state, task_idx)`. Equivalently \
+`train_tasks[task_idx].goal_holds(state)`. Use this to (1) confirm \
+which trajectories reached the goal and (2) treat failed \
+interaction trajectories as counterexamples — places where your \
+predicate or rule said "this should work" but the env disagreed.
+
+{prior_state_block}Data-structure source code is at: {structs_ref}
 
 A residual scan between the base simulator's prediction and the \
 observed next state suggests these features carry process dynamics \
 (starting hint, may include base-sim jitter — refine as you go):
 {inferred_hint}
 
+## Available Predicates (for subgoal annotations)
+{predicate_listing}
+
+Subgoal annotations in your plans for `evaluate_plan_refinement` \
+must reference these predicate names with matching arity and types. \
+Any threshold or condition you bake into a rule must be consistent \
+with what the predicate's classifier actually checks, or refinement \
+will reject parameter samples that look correct on paper.
+
 Read the data-structures file first, then explore the trajectory \
-data with `run_python` and define PROCESS_RULES, PARAM_SPECS, and \
-PROCESS_FEATURES."""
+data with `run_python` (variables: `trajectories`, `train_tasks`, \
+`is_goal_state`, `np`, `ParamSpec`). Write your simulator to \
+`{simulator_file_for_agent}` — define PROCESS_RULES, PARAM_SPECS, \
+and PROCESS_FEATURES there. Every successful Write/Edit of \
+`{simulator_file_for_agent}` is snapshotted to `simulator_versions/` as \
+`cycle_XXX_vers_YYY_simulator.py` (deduped by content); the synthesis \
+tools (evaluate_step_fit, report_residuals, evaluate_plan_refinement) \
+load that file fresh on every call and report the version tag \
+[cycle_XXX_vers_YYY] in their output. Iterate with `Edit` and re-run \
+the tools."""
+
+            extra_message = self._extra_synthesis_message(extra_paths)
+            if extra_message:
+                message = message + "\n\n" + extra_message
 
             try:
-                self._query_agent_sync(message)
+                self._query_agent_sync(message, kind="learn")
             finally:
+                self._tool_context.extra_session_hooks = {}
                 self._tool_context.extra_mcp_tools = []
                 self._learning_mode = False
                 self._close_agent_session()
 
-            rules, specs, declared = self._load_simulator_from_file(
-                save_dir, trajectories)
+            final_sim_tag = finalize_versioned_snapshot(
+                simulator_file,
+                versions_dir,
+                cycle_idx=self._learning_cycle_index(),
+                artifact_name="simulator",
+            )
+            if final_sim_tag is not None:
+                self._current_simulator_version = final_sim_tag
+                logger.info("Final simulator snapshot: %s", final_sim_tag)
+
+            rules, specs, declared_features = (
+                self._load_simulator_from_module_file(simulator_file,
+                                                      trajectories))
             if rules is None or specs is None:
                 return
-            assert declared is not None, (
+            assert declared_features is not None, (
                 "Agent did not declare PROCESS_FEATURES; "
                 "synthesis output is incomplete.")
-            process_features = declared
+            process_features = declared_features
             self._log_feature_set_diff(inferred_hint, process_features,
                                        "inferred", "declared")
             logger.info("Agent synthesized %d rules, %d params.", len(rules),
                         len(specs))
+            self._post_synthesis_loading(extra_paths, specs)
 
         self._process_rules = rules
         self._process_features = process_features
 
         _noise_sigma = 0.05  # matches fit_params default
         if CFG.agent_sim_learn_oracle_sim_params:
-            self._fitted_params = {s.name: s.init_value for s in specs}
+            self._fitted_params.clear()
+            self._fitted_params.update({s.name: s.init_value for s in specs})
             oracle_sim_fn = lambda s, a, p: apply_rules(  # noqa: E731
                 s, rules, p)
             self._fit_sse = compute_sse(oracle_sim_fn, base_pred_triples,
@@ -299,8 +544,10 @@ PROCESS_FEATURES."""
                               process_features,
                               label="oracle")
         else:
-            self._fitted_params, self._fit_sse = self._fit_parameters(
+            new_params, self._fit_sse = self._fit_parameters(
                 rules, specs, base_pred_triples, process_features)
+            self._fitted_params.clear()
+            self._fitted_params.update(new_params)
             if CFG.code_sim_learning_num_mcmc_steps == 0:
                 logger.info("Skipped MCMC; using %d initial params.",
                             len(specs))
@@ -393,16 +640,12 @@ PROCESS_FEATURES."""
         on at least ``min_hits`` triples. The ``min_hits`` floor keeps
         one-off PyBullet jitter from leaking base-handled features into the set.
         """
+        del obs_triples  # objects are identical across both triple lists
+        pairs = [(s_base, s_obs) for s_base, _, s_obs in base_pred_triples]
         hits: Dict[Tuple[str, str], int] = {}
-        for (s_t, _, _), (s_base, _, s_obs) in zip(obs_triples,
-                                                   base_pred_triples):
-            for obj in s_t:
-                for feat in obj.type.feature_names:
-                    pred = float(s_base.get(obj, feat))
-                    obs = float(s_obs.get(obj, feat))
-                    if abs(pred - obs) > rel_tol * abs(obs) + abs_tol:
-                        key = (obj.type.name, feat)
-                        hits[key] = hits.get(key, 0) + 1
+        for _, _, tn, feat, pred, obs in iter_feature_residuals(pairs):
+            if abs(pred - obs) > rel_tol * abs(obs) + abs_tol:
+                hits[(tn, feat)] = hits.get((tn, feat), 0) + 1
         out: Dict[str, List[str]] = {}
         for (t, f), n in hits.items():
             if n >= min_hits:
@@ -432,27 +675,96 @@ PROCESS_FEATURES."""
             logger.info("  only in %s: %s", b_label, only_b)
 
     @staticmethod
-    def _load_simulator_from_file(
-        save_dir: str,
+    def _format_predicate_signatures(predicates: Set[Predicate]) -> str:
+        """Pretty-print predicates as ``Name(type1, type2)`` lines.
+
+        Mirrors the ``## Available Predicates`` block in
+        ``bilevel_sketch.build_solve_prompt``.
+        """
+        lines = []
+        for pred in sorted(predicates, key=lambda p: p.name):
+            type_sig = ", ".join(t.name for t in pred.types)
+            lines.append(f"  {pred.name}({type_sig})")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_trajectory_listing(
+            trajectories: List[LowLevelTrajectory]) -> str:
+        """Render a per-trajectory listing with provenance tags.
+
+        Each interaction trajectory shows the simulator / predicates
+        snapshot used to generate the plan that collected it (if
+        tracked). Demo trajectories list as ``demo``. Listed in the same
+        order the agent sees them via the ``trajectories`` var.
+        """
+        if not trajectories:
+            return ""
+        lines = ["Trajectory roster (matches the `trajectories` list):"]
+        for idx, traj in enumerate(trajectories):
+            kind = "demo" if traj.is_demo else "interaction"
+            try:
+                task_str = f"task {traj.train_task_idx}"
+            except AssertionError:
+                task_str = "task ?"
+            provenance: List[str] = []
+            sim_v = traj.source_simulator_version
+            preds_v = traj.source_predicates_version
+            if sim_v:
+                provenance.append(f"sim {sim_v}")
+            if preds_v:
+                provenance.append(f"predicates {preds_v}")
+            tail = (f" — generated using {', '.join(provenance)}"
+                    if provenance else "")
+            lines.append(f"  [{idx}] {kind}, {task_str}{tail}")
+        return "\n".join(lines) + "\n"
+
+    def _format_prior_state_block(self, base: str) -> str:
+        """Tell the agent about any simulator/predicates left over from a
+        previous learning cycle.
+
+        Returns a paragraph the agent can act on (read the files first
+        and treat this cycle as incremental refinement) or an empty
+        string if no prior state exists. The base sandbox dir is scanned
+        for ``simulator.py`` / ``predicates.py``.
+        """
+        prior: List[str] = []
+        sim_path = os.path.join(base, "simulator.py")
+        preds_path = os.path.join(base, "predicates.py")
+        if os.path.isfile(sim_path):
+            prior.append("`./simulator.py`")
+        if os.path.isfile(preds_path):
+            prior.append("`./predicates.py`")
+        if not prior:
+            return ""
+        joined = " and ".join(prior)
+        return f"""\
+Prior cycle state: {joined} already exist in the sandbox from a previous \
+learning cycle. Read them first — they are the previous cycle's committed \
+result and a reasonable starting point for incremental refinement (though \
+a fresh rewrite is fine if the prior approach looks fundamentally wrong). \
+Earlier versions are in `./simulator_versions/` and \
+`./predicates_versions/` (named `cycle_XXX_vers_YYY_*.py`); \
+cross-reference the trajectory roster's provenance tags against those \
+files to see exactly which rules and predicates produced each failed plan.
+
+"""
+
+    @staticmethod
+    def _load_simulator_from_module_file(
+        path: str,
         trajectories: Optional[List[LowLevelTrajectory]] = None,
     ) -> Tuple[Optional[List], Optional[List[ParamSpec]], Optional[Dict[
             str, List[str]]]]:
-        """Load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from saved files.
+        """Load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from one file.
 
-        Execs all ``NNN_run_python.py`` files in ``save_dir`` in order
-        into one namespace. Returns ``(None, None, None)`` if rules or
-        specs are missing; ``features`` may be ``None`` independently,
-        in which case the caller asserts (PROCESS_FEATURES is required
-        from the agent).
+        Execs ``path`` once in a fresh namespace. Returns ``(None, None,
+        None)`` on missing file, exec failure, or if either
+        ``PROCESS_RULES`` or ``PARAM_SPECS`` is absent; ``features`` may
+        be ``None`` independently, in which case the caller asserts
+        (``PROCESS_FEATURES`` is required from the agent).
         """
-        if not os.path.isdir(save_dir):
-            logger.warning("No simulator code dir at %s.", save_dir)
-            return None, None, None
-
-        files = sorted(f for f in os.listdir(save_dir)
-                       if f.endswith(".py") and f[0].isdigit())
-        if not files:
-            logger.warning("No code files in %s.", save_dir)
+        if not os.path.isfile(path):
+            logger.warning("No simulator file at %s.", path)
             return None, None, None
 
         ns: Dict[str, Any] = {
@@ -460,27 +772,24 @@ PROCESS_FEATURES."""
             "ParamSpec": ParamSpec,
             "trajectories": trajectories or [],
         }
-        for fname in files:
-            fpath = os.path.join(save_dir, fname)
-            with open(fpath, "r", encoding="utf-8") as f:
-                code = f.read()
-            try:
-                exec(code, ns)  # pylint: disable=exec-used
-            except Exception:  # pylint: disable=broad-except
-                logger.warning("Failed to exec %s, skipping.",
-                               fpath,
-                               exc_info=True)
+        with open(path, "r", encoding="utf-8") as f:
+            code = f.read()
+        try:
+            exec(code, ns)  # pylint: disable=exec-used
+        except Exception:  # pylint: disable=broad-except
+            logger.warning("Failed to exec %s.", path, exc_info=True)
+            return None, None, None
 
         rules, specs, features = read_simulator_components(ns)
         if rules is None:
-            logger.warning("Saved code did not define PROCESS_RULES.")
+            logger.warning("Simulator file %s missing PROCESS_RULES.", path)
             return None, None, None
         if specs is None:
-            logger.warning("Saved code did not define PARAM_SPECS.")
+            logger.warning("Simulator file %s missing PARAM_SPECS.", path)
             return None, None, None
 
-        logger.info("Loaded %d rules, %d param specs from %d files in %s.",
-                    len(rules), len(specs), len(files), save_dir)
+        logger.info("Loaded %d rules, %d param specs from %s.", len(rules),
+                    len(specs), path)
         return rules, specs, features
 
     # ── Static helpers ───────────────────────────────────────────
@@ -506,7 +815,12 @@ PROCESS_FEATURES."""
         with open(ref_path, "w", encoding="utf-8") as f:
             f.write(source)
 
-        # Agent sees the sandbox-mounted path, not the host path.
+        # Path the agent sees: relative to its cwd in local-sandbox mode
+        # (the sandbox-validation hook resolves against cwd and rejects
+        # any literal ``/sandbox/...`` path), the docker mount point in
+        # docker mode, or the absolute host path otherwise.
+        if CFG.agent_sdk_use_local_sandbox:
+            return "./reference/structs.py"
         if self._tool_context.sandbox_dir:
             return "/sandbox/reference/structs.py"
         return ref_path
@@ -564,91 +878,260 @@ PROCESS_FEATURES."""
 
         return combined_simulate
 
-    @staticmethod
-    def _build_synthesis_system_prompt() -> str:
+    def _build_synthesis_system_prompt(self) -> str:
         """Build the system prompt for the synthesis agent."""
-        return """\
-You are synthesizing a parameterized process dynamics simulator for a \
+        base_prompt = """\
+You are synthesizing a parameterized process-dynamics simulator for a \
 robotic manipulation environment.
 
-A separate base physics engine (PyBullet) handles robot movement, grasping, \
-and rigid body physics. Your simulator handles **process dynamics**: features \
-that change due to ongoing physical or causal processes (e.g., water filling, \
-heat transfer) that the base sim doesn't model.
+A separate PyBullet base sim handles robot movement, grasping, and rigid- \
+body physics. Your simulator handles **process dynamics** — features \
+that change due to physical or causal processes (gradual level changes, \
+accumulation, propagation between contacting objects, sensor readouts \
+that lag actuators, etc.) that the base sim doesn't model.
 
-## Tools
+## What you produce
 
-- `run_python(code)` — execute Python in a persistent namespace. `print()` \
-output is returned. The namespace persists across calls.
-- `evaluate_simulator` — fit parameters using PROCESS_RULES and PARAM_SPECS \
-from the namespace. Reports SSE.
-- `test_simulator` — test predictions vs observations on step transitions. \
-Shows mismatches.
+One file `simulator.py` (path given in the first message) defining three \
+top-level names:
 
-### Pre-loaded variables
+```python
+PROCESS_RULES:    List[Callable]            # rule functions (see signature below)
+PARAM_SPECS:      List[ParamSpec]           # learnable parameters
+PROCESS_FEATURES: Dict[str, List[str]]      # {type_name: [feature_names]} your rules predict
+```
 
-- `trajectories`: List[LowLevelTrajectory] — the collected trajectory data
-- `np`, `ParamSpec` — standard imports
+`PROCESS_FEATURES` defines both the loss scope and the test-time overwrite \
+scope: only the listed `(type, feature)` pairs are scored against \
+observations, and only those are written on top of the base sim at test \
+time. Be honest — listing features your rules don't actually update \
+inflates the loss without giving MCMC anything to optimise.
 
-### Data structures
-
-The trajectory data uses classes from `predicators.structs` (Type, Object, \
-State, Action, LowLevelTrajectory). Their source code is provided as a \
-reference file — Read the path given in the first message.
-
-## Goal
-
-Define three variables in the `run_python` namespace:
-
-- `PROCESS_RULES`: list of rule functions
-- `PARAM_SPECS`: list of ParamSpec objects
-- `PROCESS_FEATURES`: `Dict[str, List[str]]` — for each object type, \
-the feature names your rules predict. This is treated as the truth: \
-the loss only penalises mismatches on these features, and at test \
-time the learned simulator only overwrites these features on top of \
-the base sim's prediction. Be honest — listing features your rules \
-don't actually update will inflate the loss without giving MCMC \
-anything to optimise.
-
-Parameters are fitted automatically after the session ends.
-
-### Process rule signature
+### Rule signature
 
 ```python
 def rule(state, updates, params):
-    \"\"\"Apply one process for a single simulation step.
-
-    Args:
-        state: Current env state.
-        updates: Dict[Object, Dict[str, value]] accumulated from prior rules.
-        params: Dict[str, float] of learned parameters.
-
-    Returns:
-        The (possibly modified) updates dict.
-    \"\"\"
+    # state:   the current env State
+    # updates: Dict[Object, Dict[str, float]] accumulated from prior rules
+    # params:  Dict[str, float], one entry per ParamSpec
+    #
+    # Accumulate, don't replace:
+    #     updates.setdefault(obj, {})[feat] = new_value
+    # Return the same dict.
+    ...
 ```
+
+### Timing
+
+Each rule fires once per step:
+
+```
+state[t] ──base_sim──▶ draft state[t+1] ──your rules──▶ final state[t+1]
+                                               ^^^^^^^
+                        (only PROCESS_FEATURES are overwritten)
+```
+
+Rules see `state[t]`. They cannot see actions, the base sim's draft, or \
+`state[t+2]`. If a feature changes one step *after* its gating event \
+(e.g. an action toggles a gating flag at `t`, but the feature it drives \
+only starts changing at `t+1`), that's an inherent 1-step lag in the \
+data — accept the single boundary residual or model the delay with an \
+extra parameter rather than chasing it with ever-stricter conditions.
+
+### Geometric gates
+
+If a rule's firing condition depends on the relative position of two \
+bodies, do **not** gate on the raw distance between their recorded \
+poses. `obj.x, obj.y` is the recorded pose origin — usually a body's \
+base or frame center — while the point that actually drives the \
+physics (a contact surface, an outlet on the body's side, an \
+end-effector tip, a container opening, a handle) is typically offset \
+from it. That offset lives in the body's **local frame**, so it \
+rotates with the body's `rot` feature; gating on raw origin distance \
+silently bakes in one task's orientation and breaks on any task where \
+the fixture is rotated differently.
+
+**Default to a learned, rotation-aware anchor offset.** Express every \
+two-body geometric gate as a distance to an *anchored* point — the \
+fixture origin plus a local-frame offset rotated into the world frame \
+by the fixture's `rot` — with the offset declared as learnable params:
+
+```python
+PARAM_SPECS = [
+    # Functional point offset, in the fixture's LOCAL frame:
+    ParamSpec("fixture_local_dx",       0.0,  lo=-0.3, hi=0.3),
+    ParamSpec("fixture_local_dy",       0.0,  lo=-0.3, hi=0.3),
+    ParamSpec("widget_at_fixture_dist", 0.10, lo=0.0,  hi=0.4),
+]
+
+# `fixture`, `widget`: the relevant object pair (bind as your rule needs).
+def process_rule(state, updates, params):
+    rot = state.get(fixture, "rot")
+    cos_r, sin_r = np.cos(rot), np.sin(rot)
+    rot_mat = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
+    local_offset = np.array([params["fixture_local_dx"],
+                             params["fixture_local_dy"]])
+    origin = np.array([state.get(fixture, "x"), state.get(fixture, "y")])
+    anchor = origin + rot_mat @ local_offset  # world-frame point
+    widget_xy = np.array([state.get(widget, "x"), state.get(widget, "y")])
+    if np.linalg.norm(widget_xy - anchor) < params["widget_at_fixture_dist"]:
+        ...  # fire
+```
+
+If the functional point really does coincide with the recorded origin, \
+the fit drives the offsets to ~0 — no harm done. A threshold-only gate \
+(no offset) is the exception: use one only after you have positively \
+confirmed the recorded origin *is* the functional point. Share the \
+offset and distance params with the gating predicate so the rule and \
+predicate anchor to the same point.
+
+**Required check before committing a geometric gate.** Bucket the \
+trajectory steps by whether the gated effect actually fired, compute \
+your gate quantity at each step, and confirm the two buckets separate \
+by a clear margin. If they overlap, or separate only by a knife-edge \
+gap (~5% of the value range or narrower), the gate references the \
+wrong point — a threshold flush against the data boundary is a \
+rejected fit, not a fit. Do **not** nudge the threshold to paper over \
+it: add or refit the anchor offset and re-bucket. To find the offset, \
+call `visualize_state` on a representative state from each bucket and \
+use `annotate_scene` to overlay, on one render, the recorded origin \
+and the positions where the effect did vs. did not fire; the gap \
+between the origin and the effect-firing cluster is the offset.
 
 ### ParamSpec
 
 ```python
-ParamSpec(name: str, init_value: float)
+ParamSpec(name: str, init_value: float,
+          lo: Optional[float] = None, hi: Optional[float] = None)
 ```
+
+Bounds shape both the MCMC prior and the warm-start clamp. Set `lo=0.0` \
+for non-negative rates, etc.
+
+### Pre-injected when `simulator.py` is exec'd
+
+`numpy as np`, `ParamSpec`. Import anything else at the top of the file. \
+The data classes (`State`, `Object`, `Action`, ...) come from \
+`predicators.structs`; source is in the reference file linked in the \
+first message.
+
+## Tools
+
+`Write` / `Edit` `simulator.py` is your normal coding loop. Every \
+successful write is snapshotted to \
+`simulator_versions/cycle_XXX_vers_YYY_simulator.py` (deduped by \
+content; ``XXX`` is the current cycle, ``YYY`` resets per cycle). The \
+synthesis tools below load the file fresh on every call and prefix \
+their output with `[cycle_XXX_vers_YYY]` so you and reviewers can diff \
+iterations.
+
+- `run_python(code)` — ad-hoc data exploration. `trajectories`, `np`, \
+`ParamSpec` in scope. **Does not** define rules.
+- `evaluate_step_fit` — per-step prediction accuracy: SSE on the step \
+transitions at `init_value` params, plus post-fit SSE and fitted \
+parameters from a parameter fit. Cheap; the inner-loop signal.
+- `report_residuals` — per-feature breakdown: mismatch counts, mean / \
+max abs error, vs-baseline improvement (negative ⇒ rules are adding \
+error), worst-N example transitions. Diagnostic for *which* rule to fix.
+- `evaluate_plan_refinement(plan, task_idx)` — per-task planning \
+success: MCMC-fits, builds the combined simulator, runs backtracking \
+refinement against a plan **you propose** (see "Plan format" below), \
+**and then forward-validates that refined plan continuously** (state \
+carries forward across all options, single shot per step). Reports \
+both verdicts. A SUCCESS line followed by `Forward validation: FAIL` \
+counts as a failure — see "Refinement vs. forward validation" below. \
+Slow; the gate before declaring done.
+
+`evaluate_step_fit` and `evaluate_plan_refinement` test complementary \
+things — pointwise accuracy vs. goal reachability. A rule can have \
+ε-small SSE and still get a saturation threshold or alignment cap *just* \
+wrong enough that refinement can't satisfy a subgoal. Use step-fit + \
+residuals as the fast inner loop and plan-refinement as the slow \
+goal-relevant gate.
+
+### Refinement vs. forward validation (read before tuning a threshold)
+
+`evaluate_plan_refinement` runs two checks under the same option model. \
+Refinement samples continuous params with up to 50 attempts per \
+parametric step and snapshots state at each backtrack — failures are \
+isolated per step. Forward validation runs the refined plan once, \
+continuously, with state carrying forward across all options — \
+matching how test time will execute it. Any divergence between the \
+two indicates the learned model is *more permissive* than the env's \
+effective behavior: refinement's looser gates accept a Place/Wait \
+that the env-driven rollout won't actually achieve.
+
+When you see `Forward validation: FAIL`, the failure mode is almost \
+always one of these:
+
+1. **A learned gate threshold is wider than the env's effective \
+threshold.** Example: env's heat rule only fires when jug-to-burner \
+distance < 0.05, but you set `jug_at_burner_dist = 0.063` for "safety \
+margin". Refinement accepts a Place at distance 0.05–0.063 (your \
+`JugAtBurner` predicate is true and your learned heat rule fires); \
+forward validation runs the same Place, the env's heat rule never \
+fires (distance > env threshold), and Wait runs to its step cap \
+without WaterBoiled holding. **Fix:** tighten the gate to match the \
+env's empirical boundary, do not widen for slack.
+2. **A wait-termination cutoff fires before the env-side feature \
+catches up.** Example: `WaterBoiled = heat_level >= 0.99` fires at \
+the learned simulator's step 34 (heat=0.9996), but the env's \
+goal-check requires `heat >= 1.0` — refinement's subgoal passes, but \
+the final-state goal check on env state fails. **Fix:** align the \
+predicate's cutoff with the env's effective cutoff, *and* confirm by \
+re-running plan refinement after the change.
+
+**Rule of thumb:** when in doubt, *tighten* learned thresholds toward \
+the env's empirical boundary, never loosen them. Widening hides \
+discrepancies during refinement and reveals them at test time as \
+0-solve regressions.
+__SYNTHESIS_PROMPT_EXTRA__
+## Plan format for `evaluate_plan_refinement`
+
+One option call per line, **with every option argument supplied and using \
+typed object references** (`obj:type`), matching exactly what the inspect \
+tools report. Use the inspect tools (or `run_python` over a trajectory) to \
+read off the right names and arities — the parser is strict and silently \
+omitting an argument will not be auto-filled. Example:
+
+```
+PickWidget(robot:robot, widget0:widget)
+Place(robot:robot) -> {WidgetAtFixture(widget0:widget, fixture0:fixture)}
+ActivateFixture(robot:robot, fixture0:fixture)
+Wait(robot:robot) -> {WidgetReady(widget0:widget)}
+...
+```
+
+(The names above are illustrative — use whatever options, types, and \
+predicates the inspect tools actually report for your task.) Insert a \
+`Wait` after any action that triggers a delayed process (gradual \
+accumulation, propagation, sensor catch-up) so your rules have steps to \
+fire on.
+
+**Subgoal annotations** (`-> {Atom(obj:type, ...)}` after a step) are \
+optional in general but **effectively required after open-ended skills \
+like `Place`**. Without one the backtracking search has no preference for \
+*where* to put the object, so a `Place; Wait` pair will refine cleanly \
+but skip past the relevant target location and your rules never fire — \
+the run looks like a rule bug but is actually a missing subgoal. For \
+`Wait`, the annotation also specifies when the wait should terminate; \
+prefix an atom with `NOT` if it should become false.
 
 ## Workflow
 
-1. Explore the trajectory data with `run_python`: types, features, \
-state changes over time
-2. Identify which features change due to process dynamics (not the base sim)
-3. Define `PROCESS_RULES` and `PARAM_SPECS` in the namespace via `run_python`
-4. Call `evaluate_simulator` to fit parameters and check SSE
-5. Call `test_simulator` to see prediction mismatches
-6. Iterate if needed
-
-## Tips
-
-- Each trajectory is a sequence of states from one episode. Compare \
-consecutive states to see per-step changes.
-- Group objects by type: \
-`groups = {}; for o in state: groups.setdefault(o.type.name, []).append(o)`
-- Accumulate updates: `updates.setdefault(obj, {})[feat] = new_value`
+1. Explore data with `run_python` — what features change per step, \
+which ones aren't explained by the base sim.
+2. `Write` `simulator.py`; `Edit` to iterate.
+3. Score with `evaluate_step_fit`, then `report_residuals` to find \
+diverging features. Negative `vs base` ⇒ a rule is actively hurting — \
+usually a wrong gate or sign.
+4. When SSE is plausible, propose an option-skeleton plan and call \
+`evaluate_plan_refinement(plan="...", task_idx=i)`. A stuck step means \
+the rules gating its subgoal atoms are too tight or too loose; fix and \
+re-validate.
 """
+        extra = self._extra_synthesis_system_prompt()
+        if extra:
+            return base_prompt.replace("__SYNTHESIS_PROMPT_EXTRA__",
+                                       "\n" + extra.rstrip() + "\n")
+        return base_prompt.replace("__SYNTHESIS_PROMPT_EXTRA__", "")

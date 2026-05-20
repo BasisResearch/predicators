@@ -96,7 +96,8 @@ class PyBulletBalanceEnv(PyBulletEnv):
             "block",
             ["x", "y", "z", "is_held", "color_r", "color_g", "color_b"
              ])  # + (bbox_features if CFG.env_include_bbox_features else []))
-        self._robot_type = Type("robot", ["x", "y", "z", "fingers"])  #+
+        self._robot_type = Type(
+            "robot", ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])  #+
         # (bbox_features if CFG.env_include_bbox_features else []))
         self._plate_type = Type("plate", ["z"])  #+
         # (bbox_features if CFG.env_include_bbox_features else []))
@@ -865,12 +866,16 @@ class PyBulletBalanceEnv(PyBulletEnv):
             else:
                 # [x, y, z, held, color_r, color_g, color_b]
                 data[block] = np.array([x, y, z, 0.0, r, g, b])
-        # [x, y, z, fingers]
+        # [x, y, z, fingers, roll, tilt, wrist]
         # Note: the robot poses are not used in this environment (they are
         # constant), but they change and get used in the PyBullet subclass.
         rx, ry, rz = self.robot_init_x, self.robot_init_y, self.robot_init_z
         rf = self.open_fingers  # fingers start out open
-        data[self._robot] = np.array([rx, ry, rz, rf], dtype=np.float32)
+        roll = self.robot_init_roll
+        tilt = self.robot_init_tilt
+        wrist = self.robot_init_wrist
+        data[self._robot] = np.array([rx, ry, rz, rf, roll, tilt, wrist],
+                                     dtype=np.float32)
         data[self._plate1] = np.array([self._plate1_pose[2]], dtype=np.float32)
         # data[self._table2] = np.array([], dtype=np.float32)
         data[self._plate3] = np.array([self._plate3_pose[2]], dtype=np.float32)

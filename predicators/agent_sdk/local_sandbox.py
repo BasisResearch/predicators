@@ -25,6 +25,7 @@ import datetime
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional
 
 from predicators.agent_sdk.log_formatter import format_conversation_markdown
@@ -38,12 +39,12 @@ from predicators.settings import CFG
 logger = logging.getLogger(__name__)
 
 # Build local-sandbox-specific prompts from shared templates.
-_LOCAL_CLAUDE_MD = build_claude_md(log_prefix="local_sandbox_query")
+# CLAUDE.md is built per-instance with the phase tag so the agent reads
+# phase-appropriate strategy guidance every turn (see build_claude_md).
 _LOCAL_SANDBOX_SYSTEM_PROMPT = build_sandbox_system_prompt(
     env_description="a local sandbox environment",
     workspace_description="the current directory",
     ref_path="./reference/",
-    log_prefix="local_sandbox_query",
 )
 
 
@@ -62,6 +63,7 @@ class LocalSandboxSessionManager:
         tool_context: ToolContext,
         tool_names: Optional[List[str]] = None,
         extra_reference_files: Optional[Dict[str, str]] = None,
+        phase: Optional[str] = None,
     ) -> None:
         self._system_prompt = system_prompt + _LOCAL_SANDBOX_SYSTEM_PROMPT
         self._log_dir = log_dir
@@ -70,17 +72,29 @@ class LocalSandboxSessionManager:
         self._tool_names = tool_names
         self._extra_reference_files = extra_reference_files or {}
         self._repo_root = str(find_repo_root())
+        self._phase = phase
 
         self._total_cost_usd: float = 0.0
         self._total_turns: int = 0
         self._query_count: int = 0
         self._session_id: Optional[str] = None
         self._conversation_log: List[Dict[str, Any]] = []
-        self._sandbox_dir: Optional[str] = None
+        # Sandbox path is deterministic from log_dir; expose it on the
+        # tool context eagerly so callers that build sandbox-relative
+        # paths before the first query() see the right value. Directory
+        # creation + file copying still happen lazily in
+        # ``_ensure_sandbox_dir`` on first query.
+        self._sandbox_dir: Optional[str] = os.path.abspath(
+            os.path.join(self._log_dir, "sandbox"))
+        self._tool_context.sandbox_dir = self._sandbox_dir
+        self._tool_context.image_save_dir = str(
+            os.path.join(self._sandbox_dir, "test_images"))
+        self._sandbox_populated = False
         self._client: Any = None
         self._started = False
         self._sandbox_log_path: Optional[str] = None
         self._current_log_meta: Dict[str, Any] = {}
+        self._query_count_seeded: bool = False
 
     # -- Properties matching session manager interface --
 
@@ -112,27 +126,28 @@ class LocalSandboxSessionManager:
     # -- Sandbox setup --
 
     def _ensure_sandbox_dir(self) -> None:
-        """Create and populate the sandbox directory if it doesn't exist."""
-        if self._sandbox_dir is not None:
-            return
+        """Create and populate the sandbox directory if it doesn't exist.
 
-        self._sandbox_dir = os.path.abspath(
-            os.path.join(self._log_dir, "sandbox"))
+        The path itself is set in ``__init__`` (so callers can use it
+        before the first query); this method handles dir creation and
+        seeding, which is idempotent across calls but only needs to run
+        once per session.
+        """
+        if self._sandbox_populated:
+            return
+        assert self._sandbox_dir is not None  # set in __init__
 
         setup_sandbox_directory(
             sandbox_dir=self._sandbox_dir,
             repo_root=self._repo_root,
             extra_reference_files=self._extra_reference_files,
-            claude_md_content=_LOCAL_CLAUDE_MD,
+            claude_md_content=build_claude_md(phase=self._phase),
             system_prompt=self._system_prompt,
             log_dir=self._log_dir,
             seed_scratchpad=CFG.agent_planner_use_scratchpad,
+            phase=self._phase,
         )
-
-        # Set sandbox paths on tool context
-        self._tool_context.image_save_dir = str(
-            os.path.join(self._sandbox_dir, "test_images"))
-        self._tool_context.sandbox_dir = self._sandbox_dir
+        self._sandbox_populated = True
 
     # -- Session lifecycle --
 
@@ -162,6 +177,7 @@ class LocalSandboxSessionManager:
         mcp_tool_list = get_allowed_tool_list(self._tool_names)
         allowed_tools = BUILTIN_TOOLS + mcp_tool_list
 
+        extra_hooks = dict(self._tool_context.extra_session_hooks or {})
         options = ClaudeAgentOptions(
             allowed_tools=allowed_tools,
             mcp_servers={"predicator_tools": mcp_server},
@@ -171,6 +187,8 @@ class LocalSandboxSessionManager:
             max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
             cwd=self._sandbox_dir,
             setting_sources=["project", "local"],
+            hooks=(extra_hooks
+                   if extra_hooks else None),  # type: ignore[arg-type]
         )
 
         self._client = ClaudeSDKClient(options=options)
@@ -179,8 +197,17 @@ class LocalSandboxSessionManager:
         logger.info("Local sandbox session started (cwd=%s)",
                     self._sandbox_dir)
 
-    async def query(self, message: str) -> List[Dict[str, Any]]:
-        """Send a message to the agent and collect all response messages."""
+    async def query(self,
+                    message: str,
+                    kind: str = "query") -> List[Dict[str, Any]]:
+        """Send a message to the agent and collect all response messages.
+
+        ``kind`` is a short tag (e.g. ``learn``, ``test``, ``explore``)
+        that becomes the prefix of the saved log filename.
+        """
+        # Continue numbering across sessions in the same run by seeding the
+        # counter from any existing log files in _log_dir on first use.
+        self._seed_query_count_from_log_dir()
         self._query_count += 1
         self._tool_context.turn_id = self._query_count
         collected: List[Dict[str, Any]] = []
@@ -191,7 +218,7 @@ class LocalSandboxSessionManager:
         # Create and commit the log file BEFORE starting the session so that
         # Claude Code's Glob (which indexes files at session startup) can
         # discover it.
-        log_path = self._init_incremental_log(message)
+        log_path = self._init_incremental_log(message, kind=kind)
 
         if not self._started:
             await self.start_session()
@@ -306,7 +333,38 @@ class LocalSandboxSessionManager:
 
     # -- Logging helpers --
 
-    def _init_incremental_log(self, query: str) -> Optional[str]:
+    # Matches both the new ``NNN_kind_ts.md`` layout and the legacy
+    # ``kind_NNN_ts.md`` layout so resuming across the migration is
+    # lossless. The counter is always captured in group 1 or 2.
+    _LOG_FILENAME_RE = re.compile(
+        r"^(?:(\d{3})_[a-z][a-z_]*|[a-z][a-z_]*_(\d{3}))_\d{8}_\d{6}\.md$")
+
+    def _seed_query_count_from_log_dir(self) -> None:
+        """Make the per-session counter continuous across the run.
+
+        On first use, scan ``_log_dir`` for prior log files matching
+        ``NNN_<kind>_<ts>.md`` (or the legacy ``<kind>_NNN_<ts>.md``)
+        and pick up where the last session left off. Without this, every
+        fresh session would restart at 001.
+        """
+        if self._query_count_seeded:
+            return
+        self._query_count_seeded = True
+        if not self._log_dir or not os.path.isdir(self._log_dir):
+            return
+        max_n = 0
+        for name in os.listdir(self._log_dir):
+            m = self._LOG_FILENAME_RE.match(name)
+            if m:
+                # Group 1 is the new layout, group 2 is the legacy
+                # layout; exactly one matches per file.
+                captured = m.group(1) or m.group(2)
+                max_n = max(max_n, int(captured))
+        self._query_count = max_n
+
+    def _init_incremental_log(self,
+                              query: str,
+                              kind: str = "query") -> Optional[str]:
         """Initialize log file for incremental writing.
 
         Writes to both the sandbox ``session_logs/`` dir (so the agent
@@ -316,8 +374,9 @@ class LocalSandboxSessionManager:
             return None
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = (f"local_sandbox_query_{self._query_count:03d}_"
-                    f"{timestamp}.md")
+        # Counter-first layout: alphabetical sort matches chronological
+        # order across mixed ``learn``/``test``/``explore`` phases.
+        filename = f"{self._query_count:03d}_{kind}_{timestamp}.md"
         # Primary: main log dir (host-visible)
         filepath = os.path.join(self._log_dir, filename)
         os.makedirs(self._log_dir, exist_ok=True)
@@ -331,6 +390,7 @@ class LocalSandboxSessionManager:
 
         self._current_log_meta = {
             "query_number": self._query_count,
+            "kind": kind,
             "timestamp": timestamp,
             "query": query,
             "session_id": self._session_id,

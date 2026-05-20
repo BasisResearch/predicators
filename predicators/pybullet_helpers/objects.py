@@ -5,6 +5,7 @@ import numpy as np
 import pybullet as p
 
 from predicators import utils
+from predicators.pybullet_helpers import retry_pybullet_call
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.utils import _Geom2D
 
@@ -64,8 +65,9 @@ def update_object(obj_id: int,
         # Change color of all visual shapes across all links.
         # A single link can have multiple visual shapes (e.g. box primitives
         # in a URDF), so we must iterate over shape indices explicitly.
-        visual_shapes = p.getVisualShapeData(obj_id,
-                                             physicsClientId=physics_client_id)
+        visual_shapes = retry_pybullet_call(p.getVisualShapeData,
+                                            obj_id,
+                                            physicsClientId=physics_client_id)
         for shape_idx, shape_data in enumerate(visual_shapes):
             link_id = shape_data[1]
             p.changeVisualShape(obj_id,

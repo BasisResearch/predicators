@@ -243,6 +243,7 @@ class SingleArmPyBulletRobot(abc.ABC):
         self,
         robot_state: Array,
         joint_positions: Optional[JointPositions] = None,
+        trust_joints: bool = False,
     ) -> None:
         """Reset the robot state to match the input state.
 
@@ -253,6 +254,15 @@ class SingleArmPyBulletRobot(abc.ABC):
         importantly wrist roll. Preserving exact joints is required for
         held-object grasps to round-trip through state save/restore
         without geometric drift.
+
+        ``trust_joints=True`` skips the EE-pose roundtrip check and uses
+        ``joint_positions`` as-is. Pass it only when the joints are
+        authoritative — e.g. they came from a previous ``_get_state``
+        call on this robot, surfaced via a PyBulletState's
+        ``simulator_state`` dict. The default (False) keeps the legacy
+        guardrail that falls back to IK when the supplied joints look
+        like a non-matching hint (see callers that attach nominal joints
+        to plain states).
         """
         rx, ry, rz, qx, qy, qz, qw, rf = robot_state
         p.resetBasePositionAndOrientation(
@@ -267,11 +277,22 @@ class SingleArmPyBulletRobot(abc.ABC):
             # restored both — skip the snapped-finger overwrite below
             # so continuous finger values round-trip cleanly.
             self.set_joints(list(joint_positions))
+            if trust_joints:
+                return
             # Some callers attach nominal joints to plain states as a reset
-            # hint. Preserve exact joints only when they really reconstruct the
-            # requested EE pose; otherwise fall back to IK, matching the legacy
-            # reset behavior.
-            if np.allclose(self.get_state()[:7], target[:7], atol=1e-3):
+            # hint; preserve exact joints only when they really reconstruct
+            # the requested EE pose, otherwise fall back to IK. Position
+            # tol matches State.allclose (1e-3) so a 4 mm hint mismatch
+            # forces IK. Orientation uses a looser 1e-2 because the
+            # Euler->Quat roundtrip in pybullet_env._extract_robot_state can
+            # add ~1e-3 noise; it also tries both signs because q and -q
+            # encode the same rotation and the roundtrip canonicalises sign.
+            live = self.get_state()
+            pos_match = np.allclose(live[:3], target[:3], atol=1e-3)
+            orn_match = (np.allclose(live[3:7], target[3:7], atol=1e-2)
+                         or np.allclose(live[3:7], -target[3:7], atol=1e-2))
+            finger_match = abs(float(live[7]) - float(target[7])) <= 1e-2
+            if pos_match and orn_match and finger_match:
                 return
 
         # First, reset the joint values to initial joint positions,

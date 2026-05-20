@@ -21,7 +21,7 @@ from predicators.pretrained_model_interface import VisionLanguageModel
 from predicators.settings import CFG
 from predicators.structs import NSRT, Action, DefaultState, DummyOption, \
     GroundAtom, LowLevelTrajectory, Object, ParameterizedOption, Predicate, \
-    Segment, State, STRIPSOperator, Type, Variable, VLMPredicate
+    Segment, State, STRIPSOperator, Task, Type, Variable, VLMPredicate
 from predicators.utils import GoalCountHeuristic, _PyperplanHeuristicWrapper, \
     _TaskPlanningHeuristic
 
@@ -1050,6 +1050,41 @@ def test_strip_task():
     with pytest.raises(Exception) as e:
         new_goal_atom2.holds(state)
     assert "Stripped classifier should never be called" in str(e)
+
+
+def test_strip_task_preserves_goal_nl():
+    """strip_task carries `goal_nl` through to the returned Task.
+
+    Regression: AgentSimPredicateInventionApproach hides env goal
+    predicates from the agent and exposes the natural-language goal
+    instead. ``strip_task`` is the bottleneck where that NL string has
+    to survive the goal-predicate strip pass — otherwise downstream
+    asserts that every train task carries `goal_nl` would fire.
+    """
+    utils.reset_config({"env": "cover"})
+    env = CoverEnv()
+    Covers, Holding = _get_predicates_by_names("cover", ["Covers", "Holding"])
+    base_task = env.get_train_tasks()[0].task
+    nl_goal = "cover all targets with the blocks"
+    task_with_nl = Task(base_task.init, base_task.goal, goal_nl=nl_goal)
+
+    # Strip nothing: goal_nl passes through.
+    out1 = utils.strip_task(task_with_nl, {Covers, Holding})
+    assert out1.goal_nl == nl_goal
+    # Strip the goal predicate: goal_nl still passes through.
+    out2 = utils.strip_task(task_with_nl, {Holding})
+    assert out2.goal_nl == nl_goal
+
+
+def test_strip_task_propagates_missing_goal_nl():
+    """Tasks that never set ``goal_nl`` come out with ``None``, not a
+    fabricated default — callers downstream rely on the missing-NL branch."""
+    utils.reset_config({"env": "cover"})
+    env = CoverEnv()
+    base_task = env.get_train_tasks()[0].task
+    assert base_task.goal_nl is None
+    out = utils.strip_task(base_task, set())
+    assert out.goal_nl is None
 
 
 def test_sample_subsets():

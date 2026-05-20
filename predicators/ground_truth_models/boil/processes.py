@@ -18,8 +18,8 @@ _BOIL_DROP_Z = 0.49  # table_height (0.4) + jug_handle_height (0.09)
 
 def _pick_sampler(state: State, goal: Set[GroundAtom],
                   rng: np.random.Generator, objs: Sequence[Object]) -> Array:
-    del state, goal, rng, objs
-    return np.array([0.0], dtype=np.float32)
+    del state, goal, objs
+    return np.array([rng.uniform(0.0, 0.02)], dtype=np.float32)
 
 
 def _push_sampler(state: State, goal: Set[GroundAtom],

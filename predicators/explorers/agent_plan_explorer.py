@@ -45,7 +45,9 @@ class AgentPlanExplorer(BaseExplorer):
         task = self._train_tasks[train_task_idx]
         try:
             prompt = self._build_exploration_prompt(train_task_idx)
-            responses = run_query_sync(self._agent_session, prompt)
+            responses = run_query_sync(self._agent_session,
+                                       prompt,
+                                       kind="explore")
             plan_text = self._extract_option_plan_text(responses)
             if plan_text:
                 option_plan = self._parse_and_ground_plan(plan_text, task)

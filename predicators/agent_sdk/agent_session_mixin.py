@@ -5,17 +5,20 @@ AgentSessionManager creation, async-to-sync bridging, and agent explorer
 creation from AgentPlannerApproach and AgentAbstractionLearningApproach.
 """
 import asyncio
+import logging
 import os
 from typing import Any, Dict, List, Optional, Set, Union
 
 from predicators.agent_sdk.session_manager import AgentSessionManager, \
     run_query_sync
-from predicators.agent_sdk.tools import ToolContext, create_mcp_tools, \
-    get_allowed_tool_list
+from predicators.agent_sdk.tools import ALL_TOOL_NAMES, ToolContext, \
+    create_mcp_tools, get_allowed_tool_list
 from predicators.explorers import create_explorer
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.settings import CFG
 from predicators.structs import ParameterizedOption, Predicate, Task, Type
+
+logger = logging.getLogger(__name__)
 
 
 class AgentSessionMixin:
@@ -25,7 +28,19 @@ class AgentSessionMixin:
       - _get_agent_system_prompt()
 
     And may optionally override:
-      - _get_agent_tool_names()  -- subset of ALL_TOOL_NAMES (None = all)
+      - _get_solve_tool_names()         -- complete tool surface for
+        solve / explore sessions. May mix static MCP tool names with
+        names of dynamic ``SdkMcpTool`` instances. ``None`` = all
+        static MCP tools, ``[]`` = none.
+      - _get_synthesis_tool_names()     -- complete tool surface for
+        synthesis sessions (``_learning_mode=True``). Same shape /
+        semantics as the solve hook, independent value.
+
+    Dynamic ``SdkMcpTool`` instances are supplied by the approach
+    directly: it assigns them to ``ctx.extra_mcp_tools`` before
+    opening a synthesis session and clears the field afterwards. The
+    mixin asserts the instance names line up with the names declared
+    in :meth:`_get_synthesis_tool_names`.
     """
 
     _log_subdir: str = "agent"  # fallback; _get_log_dir prefers get_name()
@@ -60,12 +75,27 @@ class AgentSessionMixin:
         """Return the system prompt for the agent session."""
         raise NotImplementedError
 
-    def _get_agent_tool_names(self) -> Optional[List[str]]:
-        """Return tool name filter.
+    def _get_solve_tool_names(self) -> Optional[List[str]]:
+        """Return the complete tool surface for solve / explore sessions.
 
-        None means all tools; override to subset.
+        May mix static MCP tool names with names of dynamic
+        ``SdkMcpTool`` instances. ``None`` means "all static MCP tools";
+        override to subset.
         """
         return None
+
+    def _get_synthesis_tool_names(self) -> Optional[List[str]]:
+        """Return the complete tool surface for the synthesis session.
+
+        Selected when ``_learning_mode`` is True. Independent of the
+        solve list — the two phases may share names or be disjoint. Each
+        name must back either a static MCP tool (member of
+        ``ALL_TOOL_NAMES``) or a dynamic ``SdkMcpTool`` instance the
+        approach attaches via ``ctx.extra_mcp_tools``. Default ``[]``
+        means no tools (approaches with no synthesis phase need not
+        override).
+        """
+        return []
 
     def _get_sandbox_reference_files(self) -> Dict[str, str]:
         """Return extra reference files for the docker sandbox.
@@ -92,7 +122,58 @@ class AgentSessionMixin:
         if self._agent_session is not None:
             return
 
-        tool_names = self._get_agent_tool_names()  # pylint: disable=assignment-from-none
+        # Pick the declared tool surface by phase. ``_learning_mode`` is
+        # the same signal the system-prompt branch reads, so tools and
+        # prompt stay in sync. Each approach declares its solve and
+        # synthesis tool sets independently — they may be disjoint.
+        # ``tool_names`` is the *complete* declared list (may mix static
+        # MCP names with names of dynamic SdkMcpTool instances).
+        if getattr(self, "_learning_mode", False):
+            tool_names = self._get_synthesis_tool_names()  # pylint: disable=assignment-from-none
+        else:
+            tool_names = self._get_solve_tool_names()  # pylint: disable=assignment-from-none
+
+        # Sanity: every dynamic name in the declared list must have a
+        # backing tool attached to ``ctx.extra_mcp_tools``. Static MCP
+        # names (``ALL_TOOL_NAMES``) are excluded — they're materialized
+        # downstream by ``create_mcp_tools``. Catches typos and missing
+        # builder hooks before the agent silently fails to invoke a
+        # declared-but-missing tool.
+        declared = set(tool_names or ())
+        dynamic_declared = declared - set(ALL_TOOL_NAMES)
+        if dynamic_declared:
+            attached = list(self._tool_context.extra_mcp_tools or ())
+            built = {getattr(t, "name", "") for t in attached}
+            missing = dynamic_declared - built
+            phase_for_msg = ("synthesis" if getattr(self, "_learning_mode",
+                                                    False) else "solve")
+            assert not missing, (
+                f"Dynamic tool name(s) {sorted(missing)} declared in "
+                f"_get_{phase_for_msg}_tool_names but no matching tool "
+                f"attached to ctx.extra_mcp_tools — add them to the "
+                f"builder or drop the names.")
+
+        phase = "synthesis" if getattr(self, "_learning_mode",
+                                       False) else "solve"
+        approach_name = getattr(type(self), "get_name",
+                                lambda: type(self).__name__)()
+        if tool_names is None:
+            logger.info(
+                "[%s] %s session tool surface: ALL static MCP tools "
+                "(no subset declared).", approach_name, phase)
+        else:
+            static = sorted(n for n in tool_names if n in set(ALL_TOOL_NAMES))
+            dynamic = sorted(n for n in tool_names
+                             if n not in set(ALL_TOOL_NAMES))
+            lines = [
+                f"[{approach_name}] {phase} session tool surface "
+                f"({len(tool_names)} total):"
+            ]
+            for n in static:
+                lines.append(f"  static   {n}")
+            for n in dynamic:
+                lines.append(f"  dynamic  {n}")
+            logger.info("\n".join(lines))
 
         if CFG.agent_sdk_use_docker_sandbox:
             from predicators.agent_sdk.docker_sandbox import \
@@ -105,6 +186,7 @@ class AgentSessionMixin:
                 tool_names=tool_names,
                 image=CFG.agent_sdk_docker_image,
                 extra_reference_files=self._get_sandbox_reference_files(),
+                phase=phase,
             )
         elif CFG.agent_sdk_use_local_sandbox:
             from predicators.agent_sdk.local_sandbox import \
@@ -116,6 +198,7 @@ class AgentSessionMixin:
                 tool_context=self._tool_context,
                 tool_names=tool_names,
                 extra_reference_files=self._get_sandbox_reference_files(),
+                phase=phase,
             )
         else:
             from claude_agent_sdk import \
@@ -128,18 +211,13 @@ class AgentSessionMixin:
                 tools=tools,
             )
 
-            extra_names = [
-                getattr(t, "name", "")
-                for t in self._tool_context.extra_mcp_tools
-            ]
             self._agent_session = AgentSessionManager(
                 system_prompt=self._get_agent_system_prompt(),
                 mcp_server=mcp_server,
                 log_dir=self._get_log_dir(),
                 model_name=CFG.agent_sdk_model_name,
-                allowed_tools=get_allowed_tool_list(tool_names,
-                                                    extra_names=extra_names
-                                                    or None),
+                allowed_tools=get_allowed_tool_list(tool_names),
+                tool_context=self._tool_context,
             )
 
         if self._agent_session_id is not None:
@@ -147,10 +225,12 @@ class AgentSessionMixin:
             sess.session_id = (  # type: ignore[attr-defined,union-attr]
                 self._agent_session_id)
 
-        # Save system prompt to log directory
+        # Save system prompt to log directory. Suffix with the phase tag
+        # so solve and synthesis prompts don't overwrite each other across
+        # phase switches.
         log_dir = self._get_log_dir()
         os.makedirs(log_dir, exist_ok=True)
-        prompt_path = os.path.join(log_dir, "system_prompt.txt")
+        prompt_path = os.path.join(log_dir, f"system_prompt_{phase}.md")
         with open(prompt_path, "w", encoding="utf-8") as f:
             f.write(self._get_agent_system_prompt())
 
@@ -182,11 +262,16 @@ class AgentSessionMixin:
         except Exception:  # pylint: disable=broad-except
             pass
 
-    def _query_agent_sync(self, message: str) -> List[Dict[str, Any]]:
-        """Synchronous wrapper for async agent query."""
+    def _query_agent_sync(self, message: str,
+                          **query_kwargs: Any) -> List[Dict[str, Any]]:
+        """Synchronous wrapper for async agent query.
+
+        Extra kwargs (e.g. ``kind="learn"``) are forwarded to the
+        session's ``query`` method for log-file tagging.
+        """
         self._ensure_agent_session()
         assert self._agent_session is not None
-        return run_query_sync(self._agent_session, message)
+        return run_query_sync(self._agent_session, message, **query_kwargs)
 
     def _create_agent_explorer(
         self,

@@ -839,6 +839,153 @@ class TestQueryAgentForPlanSketch:
 # ---------------------------------------------------------------------------
 
 
+class TestValidatePlanForward:
+    """Tests for ``bilevel_sketch.validate_plan_forward``.
+
+    Covers the test-time forward validator that's the entire reason the
+    synthesis tool can catch refinement-passes/validation-fails
+    regressions.
+    """
+
+    def _grounded(self, option, objects, params=None):
+        if params is None:
+            params = np.zeros(option.params_space.shape[0], dtype=np.float32)
+        return option.ground(list(objects), np.asarray(params,
+                                                       dtype=np.float32))
+
+    def test_goal_reached_returns_success(self):
+        """Plan that reaches the goal — validator passes, no diagnosis."""
+        from predicators.agent_sdk import bilevel_sketch
+        _, mock_om, task = _make_approach()
+        # Final post-state satisfies the goal (On(block0, block1)).
+        goal_state = _make_state({_block0: [0.55, 0.6, 0.0]})
+        mock_om.get_next_state_and_num_actions.return_value = (goal_state, 3)
+
+        plan = [self._grounded(_Pick, [_block0], [0.5])]
+        ok, reason = bilevel_sketch.validate_plan_forward(
+            task, plan, mock_om, predicates=_ALL_PREDICATES)
+        assert ok is True
+        assert reason == ""
+
+    def test_goal_not_reached_diagnosis_names_missing_atoms(self):
+        """Plan terminates but goal isn't satisfied — diagnosis names the
+        missing atom set, not a generic 'validation failed'."""
+        from predicators.agent_sdk import bilevel_sketch
+        _, mock_om, task = _make_approach()
+        # Post-state doesn't satisfy On(block0, block1).
+        bad_state = _make_state({_block0: [0.1, 0.2, 0.0]})
+        mock_om.get_next_state_and_num_actions.return_value = (bad_state, 3)
+
+        plan = [self._grounded(_Pick, [_block0], [0.5])]
+        ok, reason = bilevel_sketch.validate_plan_forward(
+            task, plan, mock_om, predicates=_ALL_PREDICATES)
+        assert ok is False
+        assert "goal not reached" in reason
+        assert "On(block0:block, block1:block)" in reason
+
+    def test_subgoal_divergence_logged_when_sketch_provided(self, caplog):
+        """When the sketch is passed in, per-step subgoal divergence is logged
+        with the missing atom — this is the diagnostic the synthesis agent
+        needs to see *which* step's predicate is spurious."""
+        import logging as _logging
+
+        from predicators.agent_sdk import bilevel_sketch
+        _, mock_om, task = _make_approach()
+        # Post-state never establishes Holding(block0). Goal is also
+        # missing — but the subgoal log should fire first.
+        bad_state = _make_state({_block0: [0.1, 0.2, 0.0]})
+        mock_om.get_next_state_and_num_actions.return_value = (bad_state, 3)
+
+        plan = [self._grounded(_Pick, [_block0], [0.5])]
+        sketch = [
+            _SketchStep(option=_Pick,
+                        objects=[_block0],
+                        subgoal_atoms={GroundAtom(_Holding, [_block0])})
+        ]
+        with caplog.at_level(_logging.INFO):
+            ok, _ = bilevel_sketch.validate_plan_forward(
+                task,
+                plan,
+                mock_om,
+                predicates=_ALL_PREDICATES,
+                sketch=sketch,
+                run_id="test_run",
+            )
+        assert ok is False
+        # Subgoal divergence log mentions the missing atom and the step.
+        assert any("subgoal divergence at step 0" in r.message
+                   and "Holding(block0:block)" in r.message
+                   for r in caplog.records)
+
+    def test_option_failure_diagnosis_names_step(self):
+        """When the option model returns 0 actions (option execution failed),
+        the diagnosis identifies the failing step and surfaces the option
+        model's last_execution_failure."""
+        from predicators.agent_sdk import bilevel_sketch
+        _, mock_om, task = _make_approach()
+        # Simulate option failure: 0 actions, with a diagnostic message
+        # recorded on the option model.
+        mock_om.get_next_state_and_num_actions.return_value = (_make_state(),
+                                                               0)
+        mock_om.last_execution_failure = "IK timed out at waypoint 3"
+
+        plan = [self._grounded(_Pick, [_block0], [0.5])]
+        ok, reason = bilevel_sketch.validate_plan_forward(
+            task, plan, mock_om, predicates=_ALL_PREDICATES)
+        assert ok is False
+        assert "option execution failed at step 0" in reason
+        assert "Pick(block0)" in reason
+        assert "IK timed out at waypoint 3" in reason
+
+    def test_empty_plan_with_goal_already_satisfied(self):
+        """Empty plan + init satisfies goal → success."""
+        from predicators.agent_sdk import bilevel_sketch
+
+        # Goal trivially holds when block0 is already on block1.
+        init = _make_state({_block0: [0.55, 0.6, 0.0]})
+        task = Task(init, {GroundAtom(_On, [_block0, _block1])})
+        mock_om = MagicMock()
+        ok, reason = bilevel_sketch.validate_plan_forward(
+            task, [], mock_om, predicates=_ALL_PREDICATES)
+        assert ok is True
+        assert reason == ""
+
+    def test_empty_plan_with_unmet_goal(self):
+        """Empty plan + init does NOT satisfy goal → failure with explanatory
+        diagnosis."""
+        from predicators.agent_sdk import bilevel_sketch
+        _, _, task = _make_approach()  # init does not satisfy goal
+        mock_om = MagicMock()
+        ok, reason = bilevel_sketch.validate_plan_forward(
+            task, [], mock_om, predicates=_ALL_PREDICATES)
+        assert ok is False
+        assert "init state does not satisfy goal" in reason
+
+    def test_sketch_length_mismatch_ignored_gracefully(self):
+        """Mismatched sketch length — validator should warn and fall back to
+        goal-only checking rather than crash."""
+        from predicators.agent_sdk import bilevel_sketch
+        _, mock_om, task = _make_approach()
+        goal_state = _make_state({_block0: [0.55, 0.6, 0.0]})
+        mock_om.get_next_state_and_num_actions.return_value = (goal_state, 3)
+
+        plan = [self._grounded(_Pick, [_block0], [0.5])]
+        # Sketch length 2, plan length 1.
+        sketch = [
+            _SketchStep(option=_Pick, objects=[_block0], subgoal_atoms=None),
+            _SketchStep(option=_Pick, objects=[_block0], subgoal_atoms=None),
+        ]
+        ok, _ = bilevel_sketch.validate_plan_forward(
+            task,
+            plan,
+            mock_om,
+            predicates=_ALL_PREDICATES,
+            sketch=sketch,
+        )
+        # Validation still runs to completion against the goal.
+        assert ok is True
+
+
 class TestSampleParams:
     """TestSampleParams class."""
 

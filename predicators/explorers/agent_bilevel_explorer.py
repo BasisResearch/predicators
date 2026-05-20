@@ -15,7 +15,6 @@ Parallels ``AgentPlanExplorer`` for session plumbing and
 import logging
 from typing import Any, Callable, Dict, List, Optional, Set
 
-import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
@@ -68,7 +67,9 @@ class AgentBilevelExplorer(BaseExplorer):
                 trajectory_summary=self._build_trajectory_summary(),
                 tool_names=self._agent_tool_names(),
             )
-            responses = run_query_sync(self._agent_session, prompt)
+            responses = run_query_sync(self._agent_session,
+                                       prompt,
+                                       kind="explore")
             plan_text = self._extract_option_plan_text(responses)
             if not plan_text:
                 raise ValueError("agent returned empty plan text")
@@ -106,7 +107,7 @@ class AgentBilevelExplorer(BaseExplorer):
                 option_model,
                 predicates=self._predicates,
                 timeout=float(timeout),
-                rng=np.random.default_rng(CFG.seed),
+                rng=self._rng,
                 max_samples_per_step=CFG.
                 agent_bilevel_explorer_max_samples_per_step,
                 check_subgoals=True,

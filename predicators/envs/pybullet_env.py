@@ -45,6 +45,7 @@ from PIL import Image
 
 from predicators import utils
 from predicators.envs import BaseEnv
+from predicators.pybullet_helpers import retry_pybullet_call
 from predicators.pybullet_helpers.camera import create_gui_connection
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
 from predicators.pybullet_helpers.joint import JointPositions
@@ -74,6 +75,12 @@ class PyBulletEnv(BaseEnv):
     robot_init_x: ClassVar[float]
     robot_init_y: ClassVar[float]
     robot_init_z: ClassVar[float]
+    # Default initial EE orientation (Euler). Subclasses may override.
+    # Used by per-env task-init dicts when populating the robot's
+    # roll/tilt/wrist features.
+    robot_init_roll: ClassVar[float] = 0.0
+    robot_init_tilt: ClassVar[float] = 0.0
+    robot_init_wrist: ClassVar[float] = 0.0
     y_lb: ClassVar[float]
     y_ub: ClassVar[float]
     robot_base_pos: ClassVar[Optional[Tuple[float, float, float]]] = None
@@ -115,6 +122,13 @@ class PyBulletEnv(BaseEnv):
     # entirely by _get_domain_specific_feature().
     _VIRTUAL_OBJECT_TYPES: ClassVar[frozenset] = frozenset(
         {"loc", "angle", "human", "side", "direction"})
+
+    # Features whose values are angles in radians; comparisons should
+    # treat them modulo 2π so a State that carries wrist=4.68 (out of
+    # the canonical range PyBullet reports) round-trips against
+    # _get_state's wrist=-1.60 without firing the reconstruction warning.
+    _ANGLE_FEATURES: ClassVar[frozenset] = frozenset(
+        {"rot", "yaw", "roll", "pitch", "tilt", "wrist"})
 
     # Camera parameters.
     _camera_distance: ClassVar[float] = 0.8
@@ -477,8 +491,18 @@ class PyBulletEnv(BaseEnv):
             # wrist roll, which corrupts the held-object offset that
             # _create_grasp_constraint records below.
             joint_positions = self._extract_robot_joint_positions(state)
+            # When simulator_state is a rich dict (produced exclusively by
+            # _get_state), the joint hint is authoritative — skip
+            # reset_state's roundtrip-vs-EE-pose guardrail, which can
+            # spuriously fail on Euler->Quat float noise at the 1e-2
+            # tolerance and force a lossy IK fallback. Raw-sequence and
+            # missing simulator_state still go through the guardrail.
+            sim_state = getattr(state, "simulator_state", None)
+            trust_joints = (isinstance(sim_state, dict)
+                            and "joint_positions" in sim_state)
             self._pybullet_robot.reset_state(self._extract_robot_state(state),
-                                             joint_positions=joint_positions)
+                                             joint_positions=joint_positions,
+                                             trust_joints=trust_joints)
             wrote_anything = True
 
         for obj in objects_to_reset:
@@ -500,11 +524,73 @@ class PyBulletEnv(BaseEnv):
         # _get_state().
         if wrote_anything:
             reconstructed = self._get_state()
-            if not reconstructed.allclose(state):
+            diff = self._reconstruction_diff(state, reconstructed)
+            if diff:
                 if type(self)._get_state is not PyBulletEnv._get_state:
-                    raise ValueError("Could not reconstruct state.")
+                    raise ValueError(
+                        f"Could not reconstruct state. Mismatched "
+                        f"features:\n{diff}")
                 logging.warning(
-                    "Could not reconstruct state exactly in reset.")
+                    "Could not reconstruct state exactly in reset. "
+                    "Mismatched features:\n%s", diff)
+
+    @classmethod
+    def _reconstruction_diff(cls,
+                             requested: State,
+                             reconstructed: State,
+                             atol: float = 1e-3,
+                             max_lines: int = 10) -> str:
+        """Format per-feature mismatches between two States for debugging.
+
+        Returns a human-readable summary of which (object, feature)
+        pairs differ by more than ``atol``, sorted by largest absolute
+        delta. Truncates to ``max_lines`` rows so the warning stays
+        scannable. Returns an empty string when no feature exceeds
+        ``atol`` and the object set matches.
+
+        Angle features (see ``_ANGLE_FEATURES``) are compared modulo 2π
+        so a wrist value of 4.68 matches a reconstructed -1.60 (same
+        physical orientation, different euler representation).
+        """
+        req_objs = set(requested.data)
+        rec_objs = set(reconstructed.data)
+        rows = []
+        only_in_req = req_objs - rec_objs
+        only_in_rec = rec_objs - req_objs
+        if only_in_req:
+            rows.append(f"  objects only in requested: "
+                        f"{sorted(o.name for o in only_in_req)}")
+        if only_in_rec:
+            rows.append(f"  objects only in reconstructed: "
+                        f"{sorted(o.name for o in only_in_rec)}")
+        feature_diffs: List[Tuple[float, str, str, float, float]] = []
+        for obj in req_objs & rec_objs:
+            req_vals = requested.data[obj]
+            rec_vals = reconstructed.data[obj]
+            if len(req_vals) != len(rec_vals):
+                rows.append(f"  {obj.name}: feature-count mismatch "
+                            f"requested={len(req_vals)} "
+                            f"reconstructed={len(rec_vals)}")
+                continue
+            for i, feat in enumerate(obj.type.feature_names):
+                req_v = float(req_vals[i])
+                rec_v = float(rec_vals[i])
+                if feat in cls._ANGLE_FEATURES:
+                    # Wrap the difference into [-π, π].
+                    delta = (rec_v - req_v + np.pi) % (2 * np.pi) - np.pi
+                else:
+                    delta = rec_v - req_v
+                if abs(delta) > atol:
+                    feature_diffs.append(
+                        (abs(delta), obj.name, feat, req_v, rec_v))
+        feature_diffs.sort(reverse=True)
+        for _absdelta, name, feat, req, rec in feature_diffs[:max_lines]:
+            rows.append(f"  {name}.{feat}: requested={req:.6f} "
+                        f"reconstructed={rec:.6f} (Δ={rec - req:+.6f})")
+        if len(feature_diffs) > max_lines:
+            rows.append(f"  ... and {len(feature_diffs) - max_lines} "
+                        f"more features over the {atol:g} tolerance")
+        return "\n".join(rows)
 
     def _robot_matches_state(self, state: State, atol: float = 1e-3) -> bool:
         """True if PyBullet's live robot pose already equals state's.
@@ -539,8 +625,16 @@ class PyBulletEnv(BaseEnv):
     def _object_pose_matches_state(self,
                                    obj: Object,
                                    state: State,
-                                   atol: float = 1e-2) -> bool:
-        """True if PyBullet's live pose for ``obj`` equals state[obj]."""
+                                   atol: float = 1e-3) -> bool:
+        """True if PyBullet's live pose for ``obj`` equals state[obj].
+
+        ``atol`` matches ``_reconstruction_diff``'s tolerance so an
+        object that the diff helper would complain about is also one the
+        matches-check rejects — without this alignment, an object whose
+        pose drifts within 1e-3..1e-2 sits stale in the planning sim
+        (skipped by this check) while the diff still flags it, and the
+        planning sim's plans get computed against the stale pose.
+        """
         if obj.id is None:
             return True
         try:
@@ -669,8 +763,12 @@ class PyBulletEnv(BaseEnv):
         rz = get_pos_feature(state, "z")
 
         # EE Orientation
-        _, default_tilt, default_wrist = p.getEulerFromQuaternion(
+        default_roll, default_tilt, default_wrist = p.getEulerFromQuaternion(
             self.get_robot_ee_home_orn())
+        if "roll" in self._robot.type.feature_names:
+            roll = state.get(self._robot, "roll")
+        else:
+            roll = default_roll
         if "tilt" in self._robot.type.feature_names:
             tilt = state.get(self._robot, "tilt")
         else:
@@ -679,7 +777,7 @@ class PyBulletEnv(BaseEnv):
             wrist = state.get(self._robot, "wrist")
         else:
             wrist = default_wrist
-        qx, qy, qz, qw = p.getQuaternionFromEuler([0.0, tilt, wrist])
+        qx, qy, qz, qw = p.getQuaternionFromEuler([roll, tilt, wrist])
 
         # Fingers
         f = state.get(self._robot, "fingers")
@@ -722,15 +820,21 @@ class PyBulletEnv(BaseEnv):
         """Map finger value in a State (e.g. open_fingers=0.04) to the
         corresponding PyBullet joint position.
 
+        Linearly interpolates between the State-domain endpoints
+        (cls.open_fingers / cls.closed_fingers) and the PyBullet-domain
+        endpoints (pybullet_robot.open_fingers / .closed_fingers) so
+        mid-transition finger values round-trip through _get_state /
+        _set_state without being snapped to an endpoint.
+
         Called by _extract_robot_state() when writing State -> PyBullet.
         """
-        # If open_fingers is undefined, use 1.0 as the default.
-        subs = {
-            cls.open_fingers: pybullet_robot.open_fingers,
-            cls.closed_fingers: pybullet_robot.closed_fingers,
-        }
-        match = min(subs, key=lambda k: abs(k - finger_state))
-        return subs[match]
+        s_open, s_closed = cls.open_fingers, cls.closed_fingers
+        r_open, r_closed = (pybullet_robot.open_fingers,
+                            pybullet_robot.closed_fingers)
+        if s_open == s_closed:
+            return r_open
+        t = (finger_state - s_closed) / (s_open - s_closed)
+        return r_closed + t * (r_open - r_closed)
 
     # ── State Read (PyBullet → State) ───────────────────────────
 
@@ -781,8 +885,10 @@ class PyBulletEnv(BaseEnv):
         """
         rx, ry, rz, qx, qy, qz, qw, rf = self._pybullet_robot.get_state()
         r_dict: Dict[str, float] = {"x": rx, "y": ry, "z": rz, "fingers": rf}
-        _, tilt, wrist = p.getEulerFromQuaternion([qx, qy, qz, qw])
+        roll, tilt, wrist = p.getEulerFromQuaternion([qx, qy, qz, qw])
         r_features = self._robot.type.feature_names
+        if "roll" in r_features:
+            r_dict["roll"] = roll
         if "tilt" in r_features:
             r_dict["tilt"] = tilt
         if "wrist" in r_features:
@@ -807,8 +913,10 @@ class PyBulletEnv(BaseEnv):
 
         # Physical object — query PyBullet for pose
         try:
-            (px, py, pz), orn = p.getBasePositionAndOrientation(
-                obj.id, physicsClientId=self._physics_client_id)
+            (px, py, pz), orn = retry_pybullet_call(
+                p.getBasePositionAndOrientation,
+                obj.id,
+                physicsClientId=self._physics_client_id)
         except Exception as e:
             raise RuntimeError(f"Failed to get pose for object {obj.name} "
                                f"(id={obj.id})") from e
@@ -834,8 +942,10 @@ class PyBulletEnv(BaseEnv):
             obj_dict["is_held"] = 1.0 if obj.id == self._held_obj_id else 0.0
 
         if {"r", "g", "b"} & set(obj_features):
-            visual_data = p.getVisualShapeData(
-                obj.id, physicsClientId=self._physics_client_id)[0]
+            visual_data = retry_pybullet_call(
+                p.getVisualShapeData,
+                obj.id,
+                physicsClientId=self._physics_client_id)[0]
             (r, g, b, _a) = visual_data[7]
             obj_dict["r"] = r
             obj_dict["g"] = g
@@ -866,15 +976,18 @@ class PyBulletEnv(BaseEnv):
                                 finger_joint: float) -> float:
         """Inverse of _fingers_state_to_joint().
 
+        Linear interpolation (see _fingers_state_to_joint for rationale).
+
         Called by _get_robot_state_dict() when reading PyBullet ->
         State.
         """
-        subs = {
-            pybullet_robot.open_fingers: cls.open_fingers,
-            pybullet_robot.closed_fingers: cls.closed_fingers,
-        }
-        match = min(subs, key=lambda k: abs(k - finger_joint))
-        return subs[match]
+        s_open, s_closed = cls.open_fingers, cls.closed_fingers
+        r_open, r_closed = (pybullet_robot.open_fingers,
+                            pybullet_robot.closed_fingers)
+        if r_open == r_closed:
+            return s_open
+        t = (finger_joint - r_closed) / (r_open - r_closed)
+        return s_closed + t * (s_open - s_closed)
 
     # ── Grasp Detection & Constraint Management ─────────────────
 

@@ -140,7 +140,7 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
 - When `test_option_plan` fails, check the "Object poses at failure"
   and "Missing goal atoms" in the output"""
 
-    def _get_agent_tool_names(self) -> Optional[List[str]]:
+    def _get_solve_tool_names(self) -> Optional[List[str]]:
         return [
             "inspect_types",
             "inspect_options",

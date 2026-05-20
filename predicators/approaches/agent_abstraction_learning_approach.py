@@ -251,7 +251,8 @@ class AgentAbstractionLearningApproach(
         self._last_context_message = message
 
         # Run async query via mixin helper
-        self._last_agent_responses = self._query_agent_sync(message)
+        self._last_agent_responses = self._query_agent_sync(message,
+                                                            kind="learn")
 
     def _integrate_proposals(self, proposals: ProposalBundle) -> None:
         """Integrate validated proposals into approach state."""

@@ -278,8 +278,13 @@ def test_option_plan_missing_goal_atoms(ctx: Any) -> None:
 
     # Three possible outcomes:
     if "Goal achieved: False" in text:
-        assert "Missing goal atoms:" in text
-        print("  PASS: test_option_plan (missing goal atoms shown)")
+        # Either the env exposes goal atoms (and we show "Missing goal
+        # atoms: ...") or it sets goal_nl (and we show that instead,
+        # to avoid leaking env predicate names to predicate-invention
+        # agents).
+        assert ("Missing goal atoms:" in text
+                or "Goal (natural language):" in text)
+        print("  PASS: test_option_plan (failure diagnostic shown)")
     elif "Goal achieved: True" in text:
         assert "Missing goal atoms:" not in text
         print("  PASS: test_option_plan (goal achieved, no missing atoms)")

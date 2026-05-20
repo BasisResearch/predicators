@@ -97,7 +97,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
     pos_gap: ClassVar[float] = 0.098  # domino_width * 1.4, computed value
 
     # Type definitions
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
     _out_of_view_xy: ClassVar[Sequence[float]] = [10.0, 10.0]
 
     def __init__(self,
@@ -365,6 +366,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             "y": self.robot_init_y,
             "z": self.robot_init_z,
             "fingers": self.open_fingers,
+            "roll": self.robot_init_roll,
             "tilt": self.robot_init_tilt,
             "wrist": self.robot_init_wrist,
         }

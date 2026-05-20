@@ -1723,6 +1723,8 @@ class LowLevelTrajectory:
     _actions: List[Action]
     _is_demo: bool = field(default=False)
     _train_task_idx: Optional[int] = field(default=None)
+    _source_simulator_version: Optional[str] = field(default=None)
+    _source_predicates_version: Optional[str] = field(default=None)
 
     def __post_init__(self) -> None:
         assert len(self._states) == len(self._actions) + 1
@@ -1750,6 +1752,20 @@ class LowLevelTrajectory:
         assert self._train_task_idx is not None, \
             "This trajectory doesn't contain a train task idx!"
         return self._train_task_idx
+
+    @property
+    def source_simulator_version(self) -> Optional[str]:
+        """Snapshot tag of the simulator that generated the plan that collected
+        this trajectory (e.g. ``cycle_002_vers_005``), or ``None`` for offline
+        demos / trajectories collected before the provenance tracking
+        existed."""
+        return self._source_simulator_version
+
+    @property
+    def source_predicates_version(self) -> Optional[str]:
+        """Snapshot tag of the predicates set used to generate the plan that
+        collected this trajectory, or ``None`` if not tracked."""
+        return self._source_predicates_version
 
 
 @dataclass(frozen=True, repr=False, eq=False)

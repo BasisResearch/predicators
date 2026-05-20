@@ -175,6 +175,12 @@ class Phase:
     terminal_fn: Optional[Callable[
         [State, Sequence[Object], Array, SkillConfig], bool]] = None
     finger_tol: Optional[float] = None
+    # For CHANGE_FINGERS: "open" or "close". When set, the terminal uses
+    # an asymmetric tolerance (must reach at least target − √tol when
+    # opening, at most target + √tol when closing) instead of the
+    # symmetric (target − current)² < tol — which can falsely accept a
+    # state where fingers haven't moved off the opposite endpoint.
+    finger_direction: Optional[str] = None
     use_motion_planning: bool = field(
         default_factory=lambda: CFG.skill_phase_use_motion_planning)
     expect_contact: bool = False
@@ -276,6 +282,11 @@ class PhaseSkill:
                                                       self._config)
             tol = phase.finger_tol if phase.finger_tol is not None \
                 else self._config.grasp_tol
+            tol_lin = float(np.sqrt(tol))
+            if phase.finger_direction == "open":
+                return bool(current_val >= target_val - tol_lin)
+            if phase.finger_direction == "close":
+                return bool(current_val <= target_val + tol_lin)
             return bool((target_val - current_val)**2 < tol)
 
         # MOVE_TO_POSE

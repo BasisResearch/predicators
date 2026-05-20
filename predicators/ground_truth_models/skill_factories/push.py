@@ -156,7 +156,7 @@ def create_push_skill(
         robot_obj = objects[0]
         current = cfg.fingers_state_to_joint(cfg.robot,
                                              state.get(robot_obj, "fingers"))
-        target = cfg.open_fingers_joint - 0.01
+        target = cfg.open_fingers_joint
         return current, target
 
     def _make_waypoint_position_fn(
@@ -183,7 +183,8 @@ def create_push_skill(
     phases.append(
         Phase(name="CloseFingers",
               action_type=PhaseAction.CHANGE_FINGERS,
-              target_fn=_close_fingers_target))
+              target_fn=_close_fingers_target,
+              finger_direction="close"))
 
     for i in range(4):
         # Waypoint_2 (push into target) and Waypoint_3 (retreat from target)
@@ -198,7 +199,8 @@ def create_push_skill(
     phases.append(
         Phase(name="OpenFingers",
               action_type=PhaseAction.CHANGE_FINGERS,
-              target_fn=_open_fingers_target))
+              target_fn=_open_fingers_target,
+              finger_direction="open"))
 
     return PhaseSkill(name,
                       types,

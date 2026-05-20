@@ -49,7 +49,7 @@ class AgentClosedLoopApproach(AgentPlannerApproach):
         def _option_policy(state: State) -> _Option:
             try:
                 prompt = self._build_step_prompt(state, task, step_history)
-                responses = self._query_agent_sync(prompt)
+                responses = self._query_agent_sync(prompt, kind="test")
                 text = self._extract_option_plan_text(responses)
                 option = self._parse_single_option(text, task)
                 step_history.append(option.simple_str())

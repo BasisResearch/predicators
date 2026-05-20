@@ -85,7 +85,8 @@ class PyBulletBarrierEnv(PyBulletEnv):
                                   float]] = (0.6, 0.3, 0.1, 1.0)  # brown
 
     # Types
-    _robot_type = Type("robot", ["x", "y", "z", "fingers", "tilt", "wrist"])
+    _robot_type = Type("robot",
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
     _switch_type = Type("switch", ["x", "y", "z", "rot", "is_on"],
                         sim_features=["id", "joint_id", "joint_scale"])
     _barrier_type = Type("barrier", ["x", "y", "rot", "height"],
@@ -394,6 +395,7 @@ class PyBulletBarrierEnv(PyBulletEnv):
                 "y": self.robot_init_y,
                 "z": self.robot_init_z,
                 "fingers": self.open_fingers,
+                "roll": self.robot_init_roll,
                 "tilt": self.robot_init_tilt,
                 "wrist": self.robot_init_wrist,
             }

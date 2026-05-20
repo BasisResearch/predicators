@@ -1,10 +1,11 @@
 """Custom MCP tool definitions for the agent SDK approach."""
+import hashlib
 import json
 import logging
 import os
 import traceback
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -71,23 +72,74 @@ ALL_TOOL_NAMES = (INSPECTION_TOOL_NAMES + PROPOSAL_TOOL_NAMES +
                   RETRACTION_TOOL_NAMES + TESTING_TOOL_NAMES +
                   PLANNING_TOOL_NAMES + SCENE_TOOL_NAMES)
 
+# Names of tools returned by ``create_synthesis_tools`` (sim-learning)
+# and ``create_predicate_synthesis_tools`` (predicate invention). These
+# tools are produced by ``AgentSessionMixin._build_synthesis_mcp_tools``
+# and joined to the static MCP set at session-open time; the constants
+# exist so callers / tests can refer to them without typing the strings
+# twice. ``tests/agent_sdk/test_tool_registry.py`` asserts that the
+# factory outputs match these tuples.
+SYNTHESIS_TOOL_NAMES = (
+    "run_python",
+    "report_residuals",
+    "evaluate_step_fit",
+    "evaluate_plan_refinement",
+)
+PREDICATE_SYNTHESIS_TOOL_NAMES = ("evaluate_predicate_quality", )
 
-def get_allowed_tool_list(
-    tool_names: Optional[List[str]] = None,
-    extra_names: Optional[List[str]] = None,
-) -> List[str]:
+
+def get_allowed_tool_list(tool_names: Optional[List[str]] = None) -> List[str]:
     """Compute the allowed_tools list for the agent SDK.
 
-    Args:
-        tool_names: If provided, only include these tool names.
-            If None, include all tools.
+    ``tool_names`` is the caller's declared tool surface; it may mix
+    static MCP names (in ``ALL_TOOL_NAMES``) with names of dynamic
+    ``SdkMcpTool`` instances supplied via ``ctx.extra_mcp_tools``. We do
+    not silently filter — typos surface as "unknown tool" errors from
+    the SDK rather than as missing-allowlist mysteries. Passing ``None``
+    keeps the legacy "all static MCP tools" default.
     """
     prefix = f"mcp__{MCP_SERVER_NAME}__"
-    names = ALL_TOOL_NAMES if tool_names is None else \
-        [n for n in tool_names if n in set(ALL_TOOL_NAMES)]
-    if extra_names:
-        names = list(names) + list(extra_names)
+    names = list(ALL_TOOL_NAMES) if tool_names is None else list(tool_names)
     return [f"{prefix}{n}" for n in names]
+
+
+def list_session_tool_names(
+    *,
+    mcp_filter: Optional[Sequence[str]] = None,
+    extra_mcp_tools: Sequence[Any] = (),
+    include_builtin: bool = True,
+) -> Dict[str, List[str]]:
+    """Return the tool names active in a session, grouped by source.
+
+    A convenience view of "what does this agent session see?" — useful
+    for logs and prompt-construction debugging. Names are bare (no
+    ``mcp__predicator_tools__`` prefix); use ``get_allowed_tool_list``
+    for the prefixed form Claude Agent SDK expects.
+
+    Args:
+        mcp_filter: Subset of ``ALL_TOOL_NAMES`` to keep. ``None`` (the
+            default) lists every MCP tool.
+        extra_mcp_tools: Synthesis tools supplied for the session
+            (e.g. by ``_build_synthesis_mcp_tools``). Their names are
+            read off each tool's ``name`` attribute.
+        include_builtin: Whether to include the Claude built-in tools
+            (``Bash``, ``Read``, ``Write``, …).
+
+    Returns ``{"builtin": [...], "mcp": [...], "extra": [...]}``.
+    """
+    valid = set(ALL_TOOL_NAMES)
+    if mcp_filter is None:
+        mcp_names = list(ALL_TOOL_NAMES)
+    else:
+        mcp_names = [n for n in mcp_filter if n in valid]
+    extra_names = [
+        getattr(t, "name", "") for t in extra_mcp_tools
+        if getattr(t, "name", "")
+    ]
+    out: Dict[str, List[str]] = {"mcp": mcp_names, "extra": extra_names}
+    if include_builtin:
+        out["builtin"] = list(BUILTIN_TOOLS)
+    return out
 
 
 @dataclass
@@ -119,7 +171,16 @@ class ToolContext:
     turn_id: int = 0  # current query/turn within the session
     test_call_id: int = 0  # incremented per test_option_plan call
     visualized_state: Optional[State] = None  # last state from visualize_state
-    extra_mcp_tools: list = field(default_factory=list)  # injected by subclass
+    # Managed by AgentSessionMixin: populated from
+    # `_build_synthesis_mcp_tools` at session-open, reset to [] for
+    # solve sessions. Approaches should not write to this directly —
+    # override the builder hook instead.
+    extra_mcp_tools: list = field(default_factory=list)
+    # Extra Claude Agent SDK ``HookMatcher`` instances applied to the
+    # next session that's started. Read once at session start, then
+    # frozen for the session's lifetime. Subclasses set this before
+    # opening a fresh session and clear it on close.
+    extra_session_hooks: Dict[str, list] = field(default_factory=dict)
     # Populated by AgentBilevelExplorer so learning approaches can diff
     # mental-model subgoals against real trajectories.
     # TODO(sim-learning): consume these in learn_from_interaction_results.
@@ -558,10 +619,20 @@ def create_mcp_tools(ctx: ToolContext,
                                  f"Available: 0-{len(all_trajs)-1}")
 
         traj = all_trajs[traj_idx]
-        lines = [
-            f"Trajectory {traj_idx}: {len(traj.states)} states, "
-            f"{len(traj.actions)} actions"
-        ]
+        provenance = "demo" if traj.is_demo else "interaction"
+        task_idx = traj._train_task_idx  # pylint: disable=protected-access
+        header = (f"Trajectory {traj_idx}: {len(traj.states)} states, "
+                  f"{len(traj.actions)} actions  "
+                  f"[provenance={provenance}, task={task_idx}")
+        if task_idx is not None and 0 <= task_idx < len(ctx.train_tasks):
+            task = ctx.train_tasks[task_idx]
+            reached = task.goal_holds(traj.states[-1])
+            goal_str = ", ".join(str(g) for g in sorted(task.goal))
+            header += f", reached_goal={reached}]"
+            lines = [header, f"Goal: {{{goal_str}}}"]
+        else:
+            header += "]"
+            lines = [header]
 
         for t_step, state in enumerate(traj.states[:max_timesteps]):
             lines.append(f"\n--- Timestep {t_step} ---")
@@ -625,14 +696,21 @@ def create_mcp_tools(ctx: ToolContext,
                 return _error_result(f"Invalid task_idx {task_idx}. "
                                      f"Available: 0-{len(ctx.train_tasks)-1}")
             task = ctx.train_tasks[task_idx]
-            goal_str = ", ".join(str(g) for g in sorted(task.goal))
+            if task.goal_nl:
+                goal_line = f"  Goal (natural language): {task.goal_nl}"
+            else:
+                goal_str = ", ".join(str(g) for g in sorted(task.goal))
+                goal_line = f"  Goal: {{{goal_str}}}"
             init_atoms = utils.abstract(task.init, ctx.predicates)
             atoms_str = ", ".join(str(a) for a in sorted(init_atoms))
             objects = sorted(task.init, key=str)
             obj_str = ", ".join(f"{o.name}:{o.type.name}" for o in objects)
             state_str = task.init.pretty_str()
             text = (f"Task {task_idx}:\n"
-                    f"  Goal: {{{goal_str}}}\n"
+                    f"{goal_line}\n"
+                    f"  Goal achievement: query "
+                    f"`is_goal_state(state, {task_idx})` or "
+                    f"`train_tasks[{task_idx}].goal_holds(state)`.\n"
                     f"  Initial atoms: {{{atoms_str}}}\n"
                     f"  Objects: [{obj_str}]\n\n"
                     f"Initial state details:\n{state_str}")
@@ -650,8 +728,11 @@ def create_mcp_tools(ctx: ToolContext,
 
         lines = [f"Total tasks: {len(ctx.train_tasks)}"]
         for i, task in enumerate(ctx.train_tasks[:10]):
-            goal_str = ", ".join(str(g) for g in sorted(task.goal))
-            lines.append(f"  Task {i}: goal={{{goal_str}}}")
+            if task.goal_nl:
+                lines.append(f"  Task {i}: {task.goal_nl}")
+            else:
+                goal_str = ", ".join(str(g) for g in sorted(task.goal))
+                lines.append(f"  Task {i}: goal={{{goal_str}}}")
         if len(ctx.train_tasks) > 10:
             lines.append(f"  ... ({len(ctx.train_tasks) - 10} more tasks)")
         return _text_result("\n".join(lines))
@@ -1406,13 +1487,18 @@ def create_mcp_tools(ctx: ToolContext,
             state = next_state
 
         final_atoms = utils.abstract(state, ctx.predicates)
-        goal_achieved = task.goal.issubset(final_atoms)
-        goal_str = ", ".join(str(g) for g in sorted(task.goal))
+        # Use the env's goal-check (its own classifiers); robust to
+        # invented predicates that don't reuse env names.
+        goal_achieved = task.goal_holds(state)
         final_atoms_str = ", ".join(str(a) for a in sorted(final_atoms))
         lines.append(f"\nFinal atoms: {{{final_atoms_str}}}")
-        lines.append(f"Goal: {{{goal_str}}}")
+        if task.goal_nl:
+            lines.append(f"Goal (natural language): {task.goal_nl}")
+        else:
+            goal_str = ", ".join(str(g) for g in sorted(task.goal))
+            lines.append(f"Goal: {{{goal_str}}}")
         lines.append(f"Goal achieved: {goal_achieved}")
-        if not goal_achieved:
+        if not goal_achieved and not task.goal_nl:
             missing = task.goal - final_atoms
             missing_str = ", ".join(str(a) for a in sorted(missing))
             lines.append(f"Missing goal atoms: {{{missing_str}}}")
@@ -1552,10 +1638,10 @@ def create_mcp_tools(ctx: ToolContext,
             else:
                 lines.append(f"Step {step_idx}: {option_line}")
 
-        # Check goal
+        # Check goal via env-side classifiers so the result is robust
+        # to invented predicates that don't reuse env names.
         if ctx.option_model is not None:
-            final_atoms = utils.abstract(state, all_preds)
-            goal_achieved = task.goal.issubset(final_atoms)
+            goal_achieved = task.goal_holds(state)
             lines.append(f"\nGoal achieved: {goal_achieved}")
 
         lines.append("\n## Option Plan (copy-paste format):")
@@ -1833,7 +1919,7 @@ def create_mcp_tools(ctx: ToolContext,
                         "properties": {
                             "object": {
                                 "type": "string",
-                                "description": "Object name (e.g. 'jug0')"
+                                "description": "Object name (e.g. 'widget0')"
                             },
                             "features": {
                                 "type":
@@ -1966,25 +2052,265 @@ def create_mcp_tools(ctx: ToolContext,
 # ── Sim-learning tools ───────────────────────────────────────────
 
 
+class _SnapshotTarget:  # pylint: disable=too-few-public-methods
+    """One file to watch for write-time snapshots."""
+
+    def __init__(
+        self,
+        live_file: str,
+        versions_dir: str,
+        artifact_name: str,
+        cycle_index_provider: Callable[[], int],
+    ) -> None:
+        self.live_file = os.path.realpath(live_file)
+        self.versions_dir = versions_dir
+        self.artifact_name = artifact_name
+        self.cycle_index_provider = cycle_index_provider
+
+
+def make_write_snapshot_hook(
+    targets: List[_SnapshotTarget],
+    sandbox_dir: str,
+) -> Callable[..., Any]:
+    """Build a PostToolUse hook that snapshots target files on Write/Edit.
+
+    The returned async callable matches the Claude Agent SDK's hook
+    signature ``(hook_input, tool_use_id, hook_context) -> dict``. It
+    fires after a successful Write / Edit / MultiEdit / NotebookEdit
+    and, if the tool's ``file_path`` (resolved against ``sandbox_dir``)
+    matches any target's ``live_file``, writes a new versioned snapshot
+    (via :func:`finalize_versioned_snapshot`).
+
+    Dedup-by-hash means a no-op Edit that produces identical content
+    leaves no new file. Failures are swallowed — a snapshot hook
+    failing should never break the agent's edit loop.
+    """
+    abs_sandbox = os.path.abspath(sandbox_dir)
+
+    def _resolve(path: str) -> str:
+        if os.path.isabs(path):
+            return os.path.realpath(path)
+        return os.path.realpath(os.path.join(abs_sandbox, path))
+
+    target_by_path: Dict[str,
+                         _SnapshotTarget] = {t.live_file: t
+                                             for t in targets}
+
+    async def _hook(hook_input: Any, _tool_use_id: Any,
+                    _context: Any) -> Dict[str, Any]:
+        try:
+            tool_name = getattr(hook_input, "tool_name", None)
+            if tool_name not in {"Write", "Edit", "MultiEdit"}:
+                return {}
+            tool_input = getattr(hook_input, "tool_input", None) or {}
+            raw_path = tool_input.get("file_path")
+            if not raw_path:
+                return {}
+            resolved = _resolve(raw_path)
+            target = target_by_path.get(resolved)
+            if target is None:
+                return {}
+            finalize_versioned_snapshot(
+                target.live_file,
+                target.versions_dir,
+                cycle_idx=int(target.cycle_index_provider()),
+                artifact_name=target.artifact_name,
+            )
+        except Exception:  # pylint: disable=broad-except
+            # Never let a snapshot failure break the agent's edit loop.
+            pass
+        return {}
+
+    return _hook
+
+
+def finalize_versioned_snapshot(
+    live_file: str,
+    versions_dir: str,
+    cycle_idx: int,
+    artifact_name: str,
+) -> Optional[str]:
+    """Take a final ``cycle_XXX_vers_(YYY+1)`` snapshot if needed.
+
+    Called from the approach after the agent session ends so that any
+    post-evaluation edits to ``live_file`` (which would otherwise be
+    lost — the synthesis tools only snapshot on eval calls) are
+    captured. If the live file's hash matches the highest existing
+    ``cycle_XXX_vers_YYY_<artifact_name>.py`` in ``versions_dir`` (this
+    cycle), the existing tag is returned and no new file is written.
+
+    Args:
+        live_file: Host path to the file (e.g. simulator.py).
+        versions_dir: Directory containing the per-call snapshots.
+        cycle_idx: Current cycle (1-indexed) — used to find the highest
+            existing ``vers_YYY`` for this cycle and to name the new
+            snapshot.
+        artifact_name: Stem used in the filename, e.g. ``"simulator"``
+            or ``"predicates"``.
+
+    Returns the final version tag (``cycle_XXX_vers_YYY``) or ``None``
+    if ``live_file`` does not exist.
+    """
+    if not os.path.isfile(live_file):
+        return None
+    with open(live_file, "rb") as f:
+        live_raw = f.read()
+    live_digest = hashlib.sha256(live_raw).hexdigest()
+
+    prefix = f"cycle_{cycle_idx:03d}_vers_"
+    suffix = f"_{artifact_name}.py"
+    highest_vers = 0
+    highest_path: Optional[str] = None
+    if os.path.isdir(versions_dir):
+        for name in os.listdir(versions_dir):
+            if not (name.startswith(prefix) and name.endswith(suffix)):
+                continue
+            vers_str = name[len(prefix):-len(suffix)]
+            try:
+                vers = int(vers_str)
+            except ValueError:
+                continue
+            if vers > highest_vers:
+                highest_vers = vers
+                highest_path = os.path.join(versions_dir, name)
+
+    if highest_path is not None:
+        with open(highest_path, "rb") as f:
+            existing_digest = hashlib.sha256(f.read()).hexdigest()
+        if existing_digest == live_digest:
+            return f"cycle_{cycle_idx:03d}_vers_{highest_vers:03d}"
+
+    os.makedirs(versions_dir, exist_ok=True)
+    new_vers = highest_vers + 1
+    snap_path = os.path.join(
+        versions_dir,
+        f"cycle_{cycle_idx:03d}_vers_{new_vers:03d}_{artifact_name}.py")
+    with open(snap_path, "wb") as f:
+        f.write(live_raw)
+    return f"cycle_{cycle_idx:03d}_vers_{new_vers:03d}"
+
+
+class _ArtifactSnapshotter:
+    """Per-call versioned snapshotting for one artifact file.
+
+    Used by the synthesis-tools factories to dedup snapshots by SHA256
+    and tag each load with ``cycle_XXX_vers_YYY``. ``YYY`` is per
+    instance and starts at 0 — it resets each time a new snapshotter is
+    created (typically once per factory call). ``XXX`` is read from
+    ``cycle_index_provider`` at each call so live cycle bumps are
+    reflected in subsequent tags.
+    """
+
+    def __init__(
+        self,
+        live_file: str,
+        versions_dir: str,
+        artifact_name: str,
+        cycle_index_provider: Optional[Callable[[], int]],
+        missing_file_hint: str = "",
+    ) -> None:
+        self._live_file = live_file
+        self._versions_dir = versions_dir
+        self._artifact_name = artifact_name
+        self._cycle_index_provider = cycle_index_provider
+        self._missing_file_hint = missing_file_hint
+        self._version_count = 0
+        self._last_digest: Optional[str] = None
+
+    def current_cycle(self) -> int:
+        """Return the active learning-cycle index, or 0 if unknown."""
+        if self._cycle_index_provider is None:
+            return 0
+        try:
+            return int(self._cycle_index_provider())
+        except Exception:  # pylint: disable=broad-except
+            return 0
+
+    def snapshot(
+        self,
+        path: Optional[str] = None,
+    ) -> Tuple[Optional[bytes], Optional[str], Optional[str]]:
+        """Read the live file and write a versioned snapshot on change.
+
+        Returns ``(raw_bytes, version_tag, error_msg)``. On a missing
+        file, ``raw_bytes`` and ``version_tag`` are ``None`` and
+        ``error_msg`` carries a user-facing message (suffixed with
+        ``missing_file_hint`` when configured).
+
+        ``path`` may override the configured ``live_file`` per call —
+        the snapshotter still writes into the configured
+        ``versions_dir`` under ``artifact_name``, sharing the version
+        counter and digest cache so dedup spans both files.
+        """
+        target = path or self._live_file
+        if not os.path.isfile(target):
+            msg = (f"{self._artifact_name.capitalize()} file not found: "
+                   f"{target}.")
+            if self._missing_file_hint:
+                msg = f"{msg} {self._missing_file_hint}"
+            return None, None, msg
+        with open(target, "rb") as f:
+            raw = f.read()
+        digest = hashlib.sha256(raw).hexdigest()
+        cycle_idx = self.current_cycle()
+        if digest != self._last_digest:
+            self._version_count += 1
+            os.makedirs(self._versions_dir, exist_ok=True)
+            snap_path = os.path.join(
+                self._versions_dir, f"cycle_{cycle_idx:03d}_vers_"
+                f"{self._version_count:03d}_{self._artifact_name}.py")
+            with open(snap_path, "wb") as f:
+                f.write(raw)
+            self._last_digest = digest
+        return raw, (f"cycle_{cycle_idx:03d}_vers_"
+                     f"{self._version_count:03d}"), None
+
+
 def create_synthesis_tools(
     exec_ns: Dict[str, Any],
     base_pred_triples: list,
     inferred_process_features: Dict[str, List[str]],
-    save_dir: Optional[str] = None,
+    simulator_file: str,
+    versions_dir: str,
+    approach: Optional[Any] = None,
+    sandbox_dir: Optional[str] = None,
+    sandbox_dir_for_agent: Optional[str] = None,
+    cycle_index_provider: Optional[Callable[[], int]] = None,
 ) -> list:
     """Create MCP tools for the sim-learning synthesis agent.
 
-    Returns ``[run_python, evaluate_simulator, test_simulator]``.
+    Returns ``[run_python, evaluate_step_fit, report_residuals,
+    evaluate_plan_refinement]``.
+
+    The agent's source-of-truth for the simulator is the file at
+    ``simulator_file`` (which it edits with ``Write`` / ``Edit``). The
+    three synthesis tools each ``exec`` that file fresh into an
+    isolated namespace per call and read ``PROCESS_RULES``,
+    ``PARAM_SPECS``, ``PROCESS_FEATURES`` from it — no namespace state
+    leaks across iterations. Before loading, every call also snapshots
+    the current contents into ``versions_dir`` as
+    ``cycle_XXX_vers_YYY_simulator.py`` (``XXX`` from
+    ``cycle_index_provider()``, ``YYY`` resetting per
+    ``create_synthesis_tools`` call) so the full history of evaluated
+    versions is preserved across cycles; identical-content calls reuse
+    the prior snapshot. Each tool's output is prefixed with the version
+    tag (``[cycle_XXX_vers_YYY]``).
 
     * ``run_python`` — executes arbitrary Python in a persistent
-      namespace pre-loaded with trajectory data.
-    * ``evaluate_simulator`` — fits parameters via MCMC on
-      ``PROCESS_RULES`` / ``PARAM_SPECS`` defined in the namespace.
-    * ``test_simulator`` — tests predictions vs observations.
-
-    Both eval/test read ``PROCESS_FEATURES`` from ``exec_ns`` on each
-    call, falling back to ``inferred_process_features`` if the agent
-    hasn't declared it yet.
+      namespace pre-loaded with trajectory data. Use this for ad-hoc
+      exploration of ``trajectories`` etc.; it does **not** define
+      rules — write ``simulator.py`` for that.
+    * ``evaluate_step_fit`` — SSE of the current ``PROCESS_RULES`` at
+      init_value params, plus post-fit SSE, percent improvement, and
+      fitted parameter values from a parameter fit.
+    * ``report_residuals`` — per-feature breakdown of where the
+      current rules disagree with observations: mismatch counts,
+      mean/max abs error, comparison to the no-rule baseline, and
+      worst-N example transitions per feature.
+    * ``evaluate_plan_refinement`` — builds the combined simulator
+      from current rules+params and runs backtracking refinement on a
+      training task, reporting where (if anywhere) the planner gets
+      stuck. Requires ``approach`` to be passed.
 
     Args:
         exec_ns: Persistent namespace for ``run_python``. Should
@@ -1993,34 +2319,135 @@ def create_synthesis_tools(
             with the base step already advanced — eval/test consume
             ``s_base`` directly so no live env is needed.
         inferred_process_features: Data-driven default scope used
-            until the agent defines ``PROCESS_FEATURES`` in exec_ns.
-        save_dir: Directory to save simulator source code to.
-            Each ``run_python`` call appends code to
-            ``save_dir/simulator_code.py``.
+            when the agent hasn't declared ``PROCESS_FEATURES`` in
+            ``simulator.py`` yet.
+        simulator_file: Host path to the canonical simulator file
+            the agent edits. Synthesis tools ``exec`` this file
+            fresh on every call.
+        versions_dir: Directory to write per-call snapshots into
+            (created on first use).
+        approach: ``AgentSimLearningApproach`` instance, used by
+            ``evaluate_plan_refinement`` to access training tasks,
+            build the combined simulator/option model, and run
+            refinement. If ``None``, that tool returns an error.
+        sandbox_dir: Host path to the agent's sandbox root.  When set,
+            ``run_python`` spills oversize output to
+            ``<sandbox_dir>/tool_outputs/run_python/`` instead of
+            letting the agent SDK truncate and dump it to
+            ``~/.claude/projects/.../tool-results/``.  When ``None``,
+            output is always returned inline.
+        sandbox_dir_for_agent: Path prefix the agent sees for
+            ``sandbox_dir`` (e.g. ``"."`` for local sandbox or
+            ``"/sandbox"`` for docker).  Used only when building the
+            human-readable path included in the spilled-output message.
+        cycle_index_provider: Callable returning the current online
+            learning cycle (1-indexed). Read at snapshot time so the
+            same tools instance reflects later cycle bumps. If ``None``,
+            cycle defaults to 0 (still valid; produces
+            ``cycle_000_vers_YYY``).
     """
-    import io  # pylint: disable=import-outside-toplevel
-    import sys  # pylint: disable=import-outside-toplevel
-    import traceback  # pylint: disable=import-outside-toplevel,redefined-outer-name,reimported
+    # pylint: disable=import-outside-toplevel
+    import io
+    import sys
+    import traceback  # pylint: disable=redefined-outer-name,reimported
+    from collections import defaultdict
 
-    from claude_agent_sdk import \
-        tool  # pylint: disable=import-outside-toplevel
+    from claude_agent_sdk import tool
 
     from predicators.approaches.agent_sim_learning_approach import \
-        AgentSimLearningApproach  # pylint: disable=import-outside-toplevel
+        AgentSimLearningApproach
+    from predicators.code_sim_learning.synthesis_validation import \
+        run_refinement_for_synthesis
+    from predicators.code_sim_learning.training import ParamSpec, compute_sse
+    from predicators.code_sim_learning.utils import apply_rules, \
+        iter_feature_residuals, merge_updates, read_simulator_components
 
-    _run_count = [0]  # mutable counter in closure
+    # pylint: enable=import-outside-toplevel
 
-    def _text(msg: str) -> Dict[str, Any]:
-        return {"type": "text", "text": msg}
+    _snapshotter = _ArtifactSnapshotter(
+        live_file=simulator_file,
+        versions_dir=versions_dir,
+        artifact_name="simulator",
+        cycle_index_provider=cycle_index_provider,
+        missing_file_hint=("Use Write to create it with PROCESS_RULES, "
+                           "PARAM_SPECS, PROCESS_FEATURES."),
+    )
+    _run_python_count = [0]
+
+    # Threshold above which run_python output is spilled to a file in the
+    # sandbox rather than returned inline. Kept well under the agent SDK's
+    # MCP tool-result token cap so the harness never has to truncate and
+    # dump to ``~/.claude/projects/.../tool-results/``.
+    _run_python_inline_char_limit = 30000
+    _run_python_preview_head_lines = 30
+    _run_python_preview_tail_lines = 30
+
+    # Where oversize ``run_python`` outputs are written. The agent reads
+    # these back via ``Read``/``Grep`` using ``sandbox_dir_for_agent`` as
+    # the path prefix (e.g. ``./tool_outputs/run_python/...`` for local
+    # sandbox, ``/sandbox/tool_outputs/run_python/...`` for docker, or an
+    # absolute host path otherwise).
+    _run_python_outputs_subdir = os.path.join("tool_outputs", "run_python")
+    _run_python_outputs_dir_host: Optional[str] = (os.path.join(
+        sandbox_dir, _run_python_outputs_subdir) if sandbox_dir else None)
+    if sandbox_dir_for_agent:
+        _run_python_outputs_dir_agent: Optional[str] = (
+            f"{sandbox_dir_for_agent.rstrip('/')}/"
+            f"{_run_python_outputs_subdir.replace(os.sep, '/')}")
+    elif _run_python_outputs_dir_host:
+        _run_python_outputs_dir_agent = _run_python_outputs_dir_host
+    else:
+        _run_python_outputs_dir_agent = None
+
+    _text = _text_result
+
+    def _snapshot_and_load(path: str) -> Tuple[Any, Any, Any, Any, Any]:
+        """Snapshot ``path`` then exec it into a fresh namespace.
+
+        Returns ``(rules, specs, features, version_tag, error_msg)``;
+        ``error_msg`` is ``None`` on success. Snapshots are deduped by
+        SHA256, so repeated calls on unchanged content reuse the prior
+        ``cycle_XXX_vers_YYY`` tag.
+        """
+        raw, version_tag, err = _snapshotter.snapshot(path)
+        if err is not None:
+            return None, None, None, None, err
+        assert raw is not None and version_tag is not None
+        ns: Dict[str, Any] = {"np": np, "ParamSpec": ParamSpec}
+        try:
+            exec(raw.decode("utf-8"), ns)  # pylint: disable=exec-used
+        except Exception:  # pylint: disable=broad-except
+            return None, None, None, version_tag, (
+                f"[{version_tag}] Error executing {path}:\n"
+                f"{traceback.format_exc()}")
+        rules, specs, features = read_simulator_components(ns)
+        if rules is None:
+            return None, None, None, version_tag, (
+                f"[{version_tag}] PROCESS_RULES missing or empty in {path}.")
+        if specs is None:
+            return None, None, None, version_tag, (
+                f"[{version_tag}] PARAM_SPECS missing or empty in {path}.")
+        return rules, specs, features, version_tag, None
 
     # ── run_python ──────────────────────────────────────────
 
     @tool(
         "run_python",
-        "Execute Python code with trajectory data in scope. "
-        "Available variables: trajectories (List[LowLevelTrajectory]),"
-        " np, ParamSpec. print() output is returned. "
-        "The namespace persists across calls.",
+        "Execute Python code for ad-hoc data exploration. Available "
+        "variables: trajectories (List[LowLevelTrajectory]; each has "
+        "`is_demo`, `train_task_idx`, `states`, `actions`), train_tasks "
+        "(List[Task]; each has `init`, `goal`, `goal_holds(state)`), "
+        "is_goal_state (callable: state, task_idx -> bool — a "
+        "ground-truth black-box reward), np, ParamSpec. print() output "
+        "is returned. The namespace persists across calls. If output "
+        "exceeds ~30k chars it is saved to "
+        "`tool_outputs/run_python/call_NNNN.txt` in the sandbox and only "
+        "a head/tail preview plus that path is returned — use Read/Grep "
+        "to inspect the full file. This does NOT define rules — write "
+        "`simulator.py` for that; the synthesis tools "
+        "(evaluate_step_fit, report_residuals, evaluate_plan_refinement) "
+        "load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from that "
+        "file.",
         {
             "type": "object",
             "properties": {
@@ -2044,144 +2471,754 @@ def create_synthesis_tools(
         finally:
             sys.stdout = old_stdout
 
-        # Save each successful run_python call as a versioned file;
-        # _load_simulator_from_file replays these in order.
-        if save_dir is not None:
-            _run_count[0] += 1
-            os.makedirs(save_dir, exist_ok=True)
-            filename = f"{_run_count[0]:03d}_run_python.py"
-            filepath = os.path.join(save_dir, filename)
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(code)
-
         output = captured.getvalue()
-        return _text(output or "(no output)")
+        if not output:
+            return _text("(no output)")
 
-    # ── evaluate_simulator ──────────────────────────────────
+        if (len(output) <= _run_python_inline_char_limit
+                or _run_python_outputs_dir_host is None):
+            return _text(output)
+
+        _run_python_count[0] += 1
+        os.makedirs(_run_python_outputs_dir_host, exist_ok=True)
+        filename = f"call_{_run_python_count[0]:04d}.txt"
+        host_path = os.path.join(_run_python_outputs_dir_host, filename)
+        with open(host_path, "w", encoding="utf-8") as f:
+            f.write(output)
+
+        lines = output.splitlines()
+        total_lines = len(lines)
+        head = lines[:_run_python_preview_head_lines]
+        tail = (lines[-_run_python_preview_tail_lines:] if total_lines >
+                (_run_python_preview_head_lines +
+                 _run_python_preview_tail_lines) else [])
+        agent_path = (f"{_run_python_outputs_dir_agent}/{filename}"
+                      if _run_python_outputs_dir_agent else host_path)
+        preview_parts = [
+            f"[run_python output too large to inline: "
+            f"{len(output):,} chars across {total_lines:,} lines; "
+            f"full output saved to {agent_path}. Use Read/Grep to "
+            f"inspect, or rerun with narrower print() to keep results "
+            f"inline.]",
+            "",
+            f"--- head ({len(head)} lines) ---",
+            *head,
+        ]
+        if tail:
+            omitted = total_lines - len(head) - len(tail)
+            preview_parts.extend([
+                "",
+                f"... [{omitted:,} lines omitted] ...",
+                "",
+                f"--- tail ({len(tail)} lines) ---",
+                *tail,
+            ])
+        return _text("\n".join(preview_parts))
+
+    # ── evaluate_step_fit ────────────────────────────────────────
 
     @tool(
-        "evaluate_simulator",
-        "Fit parameters using PROCESS_RULES and PARAM_SPECS "
-        "from the run_python namespace. Reports SSE and fitted "
-        "parameter values.",
+        "evaluate_step_fit",
+        "Score the current PROCESS_RULES (loaded fresh from "
+        "`simulator.py`) by SSE on the step transitions. Reports SSE "
+        "at init_value params from PARAM_SPECS, then fits parameters "
+        "and reports the post-fit SSE plus percent improvement and the "
+        "fitted parameter values with their delta from init. Each call "
+        "snapshots the simulator file into simulator_versions/; output "
+        "is tagged [cycle_XXX_vers_YYY].",
         {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "path": {
+                    "type":
+                    "string",
+                    "description":
+                    "Override simulator file path "
+                    "(defaults to the canonical simulator.py).",
+                },
+            },
         },
     )
-    async def evaluate_simulator(_args: Dict[str, Any]) -> Dict[str, Any]:
-        rules = exec_ns.get("PROCESS_RULES")
-        specs = exec_ns.get("PARAM_SPECS")
-        if not isinstance(rules, list) or not rules:
-            return _text("Error: PROCESS_RULES not defined. Use "
-                         "run_python to define it first.")
-        if not isinstance(specs, list) or not specs:
-            return _text("Error: PARAM_SPECS not defined. Use "
-                         "run_python to define it first.")
+    async def evaluate_step_fit(args: Dict[str, Any]) -> Dict[str, Any]:
+        path = args.get("path") or simulator_file
+        rules, specs, declared, version_tag, err = _snapshot_and_load(path)
+        if err:
+            return _text(err)
 
-        declared = exec_ns.get("PROCESS_FEATURES")
         process_features = (declared if isinstance(declared, dict) else
                             inferred_process_features)
-        scope_note = ("PROCESS_FEATURES" if isinstance(declared, dict) else
+        scope_note = ("declared" if isinstance(declared, dict) else
                       "inferred (PROCESS_FEATURES not declared)")
 
+        init_params = {s.name: s.init_value for s in specs}
+        sim_fn = lambda s, _a, p: apply_rules(s, rules, p)  # noqa: E731
         try:
-            fitted_params, sse = (
+            pre_sse = compute_sse(sim_fn, base_pred_triples, init_params,
+                                  process_features)
+        except Exception as e:  # pylint: disable=broad-except
+            return _text(
+                f"[{version_tag}] Error: SSE computation failed:\n{e}")
+
+        lines = [
+            f"[{version_tag}] Fit evaluation on {len(base_pred_triples)} "
+            f"step transitions (scope: {scope_note}).",
+            "",
+            f"At init_value params:  SSE = {pre_sse:.6f}",
+        ]
+
+        try:
+            fitted_params, post_sse = (
                 AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
                     rules, specs, base_pred_triples, process_features))
         except Exception as e:  # pylint: disable=broad-except
-            return _text(f"Error: fit_params failed:\n{e}")
-
-        lines = [
-            f"SSE: {sse:.6f} on "
-            f"{len(base_pred_triples)} step transitions "
-            f"(scope: {scope_note}).",
-            "",
-            "Fitted parameters:",
-        ]
-        for name, val in fitted_params.items():
-            lines.append(f"  {name}: {val:.6f}")
+            return _text(f"[{version_tag}] Error: fit_params failed:\n{e}")
+        if pre_sse > 0:
+            pct = (pre_sse - post_sse) / pre_sse * 100
+            pct_str = f"({pct:+.1f}% vs init)"
+        else:
+            pct_str = "(init SSE was 0)"
+        lines.append(f"After fit:             SSE = {post_sse:.6f}  "
+                     f"{pct_str}")
+        lines.append("")
+        lines.append("Fitted parameters:")
+        for name in sorted(fitted_params):
+            init_val = init_params[name]
+            fit_val = fitted_params[name]
+            delta = fit_val - init_val
+            ppct = ((delta / init_val *
+                     100) if init_val != 0 else float("nan"))
+            lines.append(f"  {name:<30} {init_val:.4f} -> "
+                         f"{fit_val:.4f}  (delta={delta:+.4f}, "
+                         f"{ppct:+.1f}%)")
 
         return _text("\n".join(lines))
 
-    # ── test_simulator ──────────────────────────────────────
+    # ── report_residuals ────────────────────────────────────
 
     @tool(
-        "test_simulator",
-        "Test PROCESS_RULES predictions vs observations on "
-        "step transitions. Shows mismatches.",
+        "report_residuals",
+        "Per-feature breakdown of where the current PROCESS_RULES "
+        "(loaded fresh from `simulator.py`) disagree with "
+        "observations on step transitions. For each feature in "
+        "PROCESS_FEATURES (or the inferred fallback) reports mismatch "
+        "count, mean abs error, max abs error, and the relative "
+        "improvement over the no-rule baseline (negative means rules "
+        "are worse than not running them at all). Also lists the "
+        "worst-N example transitions per feature so you can see what "
+        "edge cases break. Uses init_value from PARAM_SPECS by "
+        "default; pass fit_params=true to MCMC-fit first. Tolerance: "
+        "|pred - obs| > rel_tol * |obs| + abs_tol. Each call "
+        "snapshots the simulator file into simulator_versions/; "
+        "output is tagged [cycle_XXX_vers_YYY].",
         {
             "type": "object",
             "properties": {
                 "max_transitions": {
                     "type": "integer",
-                    "description": "Max transitions to test (default 100).",
+                    "description": "Max transitions to inspect "
+                    "(default 100).",
                 },
-                "tolerance": {
+                "abs_tol": {
+                    "type": "number",
+                    "description": "Absolute tolerance (default 1e-4).",
+                },
+                "rel_tol": {
+                    "type": "number",
+                    "description": "Relative tolerance (default 1e-3).",
+                },
+                "num_worst_examples": {
                     "type":
-                    "number",
+                    "integer",
                     "description":
-                    "Absolute tolerance for mismatch "
-                    "(default 1e-4).",
+                    "Worst-N mismatched transitions to "
+                    "list per feature (default 3, 0 to suppress).",
+                },
+                "fit_params": {
+                    "type":
+                    "boolean",
+                    "description":
+                    "If true, run MCMC fit before "
+                    "computing residuals; otherwise use init_value "
+                    "(default false).",
+                },
+                "path": {
+                    "type":
+                    "string",
+                    "description":
+                    "Override simulator file path "
+                    "(defaults to the canonical simulator.py).",
                 },
             },
         },
     )
-    async def test_simulator(args: Dict[str, Any]) -> Dict[str, Any]:
-        rules = exec_ns.get("PROCESS_RULES")
-        specs = exec_ns.get("PARAM_SPECS")
-        if not isinstance(rules, list) or not rules:
-            return _text("Error: PROCESS_RULES not defined.")
+    async def report_residuals(args: Dict[str, Any]) -> Dict[str, Any]:
+        path = args.get("path") or simulator_file
+        rules, specs, declared, version_tag, err = _snapshot_and_load(path)
+        if err:
+            return _text(err)
 
-        declared = exec_ns.get("PROCESS_FEATURES")
+        process_features = (declared if isinstance(declared, dict) else
+                            inferred_process_features)
+        scope_label = ("declared"
+                       if isinstance(declared, dict) else "inferred")
+
+        max_n = int(args.get("max_transitions", 100))
+        abs_tol = float(args.get("abs_tol", 1e-4))
+        rel_tol = float(args.get("rel_tol", 1e-3))
+        n_examples = int(args.get("num_worst_examples", 3))
+        do_fit = bool(args.get("fit_params", False))
+
+        pairs = base_pred_triples[:max_n]
+        if do_fit:
+            try:
+                t_params, _ = (
+                    AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
+                        rules, specs, base_pred_triples, process_features))
+                param_label = "fitted"
+            except Exception as e:  # pylint: disable=broad-except
+                return _text(
+                    f"[{version_tag}] Error: param fitting failed:\n{e}")
+        else:
+            t_params = {s.name: s.init_value for s in specs}
+            param_label = "init_value"
+
+        triples_rules: List = []
+        triples_base: List = []
+        for base_state, _action, s_next_obs in pairs:
+            updates = apply_rules(base_state, rules, t_params)
+            s_pred_rules = (merge_updates(base_state, updates)
+                            if updates else base_state)
+            triples_rules.append((s_pred_rules, s_next_obs))
+            triples_base.append((base_state, s_next_obs))
+
+        # Per-feature accumulators keyed by (type_name, feat_name).
+        rule_n_total: Dict = defaultdict(int)
+        rule_n_mismatch: Dict = defaultdict(int)
+        rule_sum_err: Dict = defaultdict(float)
+        rule_max_err: Dict = defaultdict(float)
+        base_n_total: Dict = defaultdict(int)
+        base_sum_err: Dict = defaultdict(float)
+        worst: Dict = defaultdict(list)
+        mismatched_steps: set = set()
+
+        for i, obj, tn, feat, pred, obs in iter_feature_residuals(
+                triples_rules, process_features):
+            key = (tn, feat)
+            err = abs(pred - obs)
+            thr = rel_tol * abs(obs) + abs_tol
+            rule_n_total[key] += 1
+            rule_sum_err[key] += err
+            if err > rule_max_err[key]:
+                rule_max_err[key] = err
+            if err > thr:
+                rule_n_mismatch[key] += 1
+                mismatched_steps.add(i)
+                worst[key].append((i, obj.name, pred, obs, err))
+
+        for _, _, tn, feat, pred, obs in iter_feature_residuals(
+                triples_base, process_features):
+            key = (tn, feat)
+            base_n_total[key] += 1
+            base_sum_err[key] += abs(pred - obs)
+
+        if not rule_n_total:
+            return _text(f"[{version_tag}] PROCESS_FEATURES is empty; "
+                         "nothing to report.")
+
+        n_steps = len(pairs)
+        perfect_steps = n_steps - len(mismatched_steps)
+        lines = [
+            f"[{version_tag}] Residual report — {n_steps} step transitions, "
+            f"scope: {scope_label} PROCESS_FEATURES, "
+            f"params: {param_label}, "
+            f"tol: {rel_tol:g}*|obs| + {abs_tol:g}.",
+            f"Steps with all in-scope features within tol: "
+            f"{perfect_steps}/{n_steps}.",
+            "",
+            f"{'feature':<35} {'misses/total':<14} {'mean_err':<10} "
+            f"{'max_err':<10} {'vs base':<14}",
+        ]
+        for key in sorted(rule_n_total):
+            tn, feat = key
+            n_tot = rule_n_total[key]
+            n_mm = rule_n_mismatch[key]
+            mean = rule_sum_err[key] / max(1, n_tot)
+            mx = rule_max_err[key]
+            bn = max(1, base_n_total[key])
+            base_mean = base_sum_err[key] / bn
+            if base_mean > 0:
+                improvement = (base_mean - mean) / base_mean * 100
+                vs_base = f"{improvement:+.0f}%"
+                if improvement < 0:
+                    vs_base += " (worse)"
+            elif mean == 0:
+                vs_base = "exact"
+            else:
+                vs_base = "rules add err"
+            lines.append(f"{tn + '.' + feat:<35} {f'{n_mm}/{n_tot}':<14} "
+                         f"{mean:<10.4f} {mx:<10.4f} {vs_base:<14}")
+
+        if n_examples > 0 and worst:
+            lines.append("")
+            lines.append(f"Worst {n_examples} mismatches per feature "
+                         f"(step N = trajectory transition state[N] -> "
+                         f"state[N+1]):")
+            for key in sorted(worst):
+                tn, feat = key
+                entries = sorted(worst[key], key=lambda x: x[4], reverse=True)
+                for step, oname, pred, obs, err in entries[:n_examples]:
+                    lines.append(f"  step {step:>4}  {oname}.{feat}: "
+                                 f"pred={pred:.6f} obs={obs:.6f} "
+                                 f"err={err:.6f}")
+
+        return _text("\n".join(lines))
+
+    # ── evaluate_plan_refinement ────────────────────────────
+
+    @tool(
+        "evaluate_plan_refinement",
+        "MCMC-fit PARAM_SPECS (loaded fresh from `simulator.py`), "
+        "build the combined simulator from current PROCESS_RULES + "
+        "the fitted params, then run **both** backtracking refinement "
+        "and continuous forward validation on a training task against "
+        "a plan you propose. Always fits first because refinement "
+        "needs to test the simulator at its deployed (fitted) params, "
+        "not at init_value. `plan` is required — pass the "
+        "option-skeleton you believe should solve the task, one "
+        "option call per line, with every option argument supplied "
+        "and typed object references (`obj:type`) matching what the "
+        "inspect tools report. The parser is strict and will not "
+        "auto-fill omitted arguments. Example shape (substitute the "
+        "options/types/predicates your task actually exposes): "
+        "`PickWidget(robot:robot, widget0:widget)\\nPlace(robot:robot) "
+        "-> {WidgetAtFixture(widget0:widget, fixture0:fixture)}\\n...`. "
+        "Subgoal annotations (`-> {Atom(obj:type, ...)}`) are "
+        "optional in general but effectively required after "
+        "open-ended skills like `Place`: without a subgoal the "
+        "search has no preference for *where* to put the object, so "
+        "a downstream `Wait` may get stuck and look like a rule bug. "
+        "For `Wait`, the annotation also specifies when the wait "
+        "should terminate; prefix an atom with `NOT` to require it "
+        "become false. The `timeout` argument auto-scales with "
+        "sketch length when omitted (see the `timeout` field "
+        "below). Reports the verdict for refinement (success, "
+        "TIMEOUT, SAMPLE_EXHAUSTED with stuck step) and — when "
+        "refinement passes — also the verdict for forward validation "
+        "(SUCCESS, or FORWARD_VALIDATION_FAILED with the first "
+        "subgoal/goal divergence). Refinement may pass while forward "
+        "validation fails: refinement resets state between options "
+        "and resamples up to 50× per step, while forward validation "
+        "runs the same plan once continuously. A refinement-pass "
+        "+ forward-validation-fail almost always means a learned "
+        "threshold/rule is more permissive than the env's effective "
+        "behavior, so refinement believes a subgoal holds when the "
+        "env-driven post-state actually doesn't. The agent must "
+        "treat forward-validation failure the same as refinement "
+        "failure — keep iterating, do not declare done. Each call "
+        "snapshots the simulator file into simulator_versions/; "
+        "output is tagged [cycle_XXX_vers_YYY]. Slow — use sparingly.",
+        {
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "type":
+                    "string",
+                    "description":
+                    "Option-skeleton plan text, one "
+                    "option call per line. Use typed object "
+                    "references (`obj:type`) and supply every "
+                    "option argument. Optional `-> {Atom(...)}` "
+                    "subgoal after each step; effectively required "
+                    "after open-ended skills like `Place`.",
+                },
+                "task_idx": {
+                    "type": "integer",
+                    "description": "Index into training tasks "
+                    "(default 0).",
+                },
+                "timeout": {
+                    "type":
+                    "number",
+                    "description":
+                    "Refinement timeout in seconds. Omit "
+                    "for an auto value that scales with the "
+                    "number of steps in the sketch; the actual "
+                    "value used is reported back. Override only "
+                    "if the previous report said TIMEOUT. MCMC "
+                    "fitting runs before refinement and is not "
+                    "subject to this timeout.",
+                },
+                "path": {
+                    "type":
+                    "string",
+                    "description":
+                    "Override simulator file path "
+                    "(defaults to the canonical simulator.py).",
+                },
+            },
+        },
+    )
+    async def evaluate_plan_refinement(args: Dict[str, Any]) -> Dict[str, Any]:
+        if approach is None:
+            return _text("Error: evaluate_plan_refinement is unavailable "
+                         "(no approach instance bound to the tool).")
+
+        path = args.get("path") or simulator_file
+        rules, specs, declared, version_tag, err = _snapshot_and_load(path)
+        if err:
+            return _text(err)
+
         process_features = (declared if isinstance(declared, dict) else
                             inferred_process_features)
 
-        max_n = args.get("max_transitions", 100)
-        tol = args.get("tolerance", 1e-4)
-        pairs = base_pred_triples[:max_n]
+        task_idx = int(args.get("task_idx", 0))
+        # Treat missing/None timeout as "auto-scale by sketch length"
+        # (computed inside run_refinement_for_synthesis from
+        # CFG.agent_bilevel_refinement_timeout_per_step / _min).
+        timeout_arg = args.get("timeout", None)
+        timeout = float(timeout_arg) if timeout_arg is not None else None
+        plan_text = args.get("plan", "") or ""
 
-        # Use init params if not yet fitted.
-        if specs:
-            t_params = {s.name: s.init_value for s in specs}
-        else:
-            t_params = {}
+        try:
+            report = run_refinement_for_synthesis(
+                approach,
+                rules=rules,
+                specs=specs,
+                process_features=process_features,
+                base_pred_triples=base_pred_triples,
+                task_idx=task_idx,
+                timeout=timeout,
+                plan_text=plan_text,
+            )
+        except Exception:  # pylint: disable=broad-except
+            tb = traceback.format_exc()
+            return _text(f"[{version_tag}] Error: validation failed:\n{tb}")
 
-        lines: list = []
-        n_tested = 0
-        n_mismatch = 0
+        return _text(f"[{version_tag}] {report}")
 
-        for base_state, _action, s_next_obs in pairs:
-            updates: Dict = {}
-            for rule in rules:
-                updates = rule(base_state, updates, t_params)
+    return [
+        report_residuals,
+        run_python,
+        evaluate_step_fit,
+        evaluate_plan_refinement,
+    ]
 
-            entry: list = []
-            for obj in base_state:
-                type_name = obj.type.name
-                for feat in process_features.get(type_name, []):
-                    if obj in updates and feat in updates[obj]:
-                        pred = updates[obj][feat]
-                        pred = (pred.item()
-                                if hasattr(pred, "item") else float(pred))
-                    else:
-                        pred = base_state.get(obj, feat)
-                    obs = s_next_obs.get(obj, feat)
-                    err = abs(pred - obs)
-                    if err > tol:
-                        entry.append(f"  {obj.name}.{feat}: "
-                                     f"pred={pred:.6f} obs={obs:.6f} "
-                                     f"err={err:.6f}")
 
-            n_tested += 1
-            if entry:
-                n_mismatch += 1
-                lines.append(f"Step {n_tested}:")
-                lines.extend(entry)
-                lines.append("")
+# ── Predicate-invention tools ─────────────────────────────────────
 
-        lines.append(f"Tested {n_tested} steps: {n_mismatch} mismatches, "
-                     f"{n_tested - n_mismatch} correct.")
+
+class _ParamsView:
+    """Read-through view onto a fitted-parameters dict.
+
+    Holds the dict directly (not the approach) so predicate classifiers
+    that close over this view do not transitively reference the
+    approach. The approach must mutate the same dict object in place on
+    each re-fit (clear + update) so the view picks up new values
+    automatically; replacing the dict would break the live link.
+    """
+
+    def __init__(self, params: Dict[str, float]) -> None:
+        self._params = params
+
+    def __getitem__(self, key: str) -> float:
+        if key not in self._params:
+            raise KeyError(
+                f"params[{key!r}] accessed before any parameter fit; "
+                "call evaluate_step_fit or evaluate_plan_refinement to "
+                "populate self._fitted_params first.")
+        return self._params[key]
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._params
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Dict-style fallback lookup; mirrors ``dict.get``."""
+        return self._params.get(key, default)
+
+    def __repr__(self) -> str:
+        return f"_ParamsView({self._params!r})"
+
+
+def create_predicate_synthesis_tools(
+    predicates_file: str,
+    predicates_versions_dir: str,
+    approach: Any,
+    trajectories: List[LowLevelTrajectory],
+    cycle_index_provider: Optional[Callable[[], int]] = None,
+) -> list:
+    """Create the predicate-invention synthesis tool.
+
+    Returns ``[evaluate_predicate_quality]``. The tool loads
+    ``predicates.py`` fresh on each call (snapshotting into
+    ``predicates_versions_dir`` as
+    ``cycle_XXX_vers_YYY_predicates.py``), validates each
+    ``Predicate``, mutates ``approach._learned_predicates`` so
+    subsequent refinement calls see the agent's draft, and reports
+    milestone behaviour over the demo trajectories.
+
+    Args:
+        predicates_file: Host path to the canonical ``predicates.py``
+            file the agent edits.
+        predicates_versions_dir: Directory for per-call snapshots
+            (created on first use).
+        approach: The ``AgentSimPredicateInventionApproach`` instance.
+            Must expose ``_types``, ``_kept_initial_predicates``,
+            ``_get_all_options()``, and ``_learned_predicates``.
+        trajectories: Demo trajectories used for milestone reporting.
+        cycle_index_provider: Callable returning the current cycle
+            (1-indexed) at snapshot time. Defaults to a constant 0.
+    """
+    # pylint: disable=import-outside-toplevel
+    import traceback  # pylint: disable=redefined-outer-name,reimported
+
+    from claude_agent_sdk import tool
+
+    from predicators.code_sim_learning.training import ParamSpec
+
+    # pylint: enable=import-outside-toplevel
+
+    _text = _text_result
+    _snapshotter = _ArtifactSnapshotter(
+        live_file=predicates_file,
+        versions_dir=predicates_versions_dir,
+        artifact_name="predicates",
+        cycle_index_provider=cycle_index_provider,
+        missing_file_hint=("Use Write to create it with "
+                           "LEARNED_PREDICATES = [...]."),
+    )
+
+    params_view = _ParamsView(approach._fitted_params)  # pylint: disable=protected-access
+
+    def _snapshot_and_load_predicates(
+        path: str,
+    ) -> Tuple[List[Predicate], Optional[str], Optional[str], List[str]]:
+        """Snapshot ``path`` then exec it into a fresh namespace.
+
+        Returns ``(predicates, version_tag, error_msg, warnings)``.
+        ``error_msg`` is ``None`` on success. Predicates that failed
+        validation are excluded; ``warnings`` describes them.
+        """
+        raw, version_tag, err = _snapshotter.snapshot(path)
+        if err is not None:
+            return [], None, err, []
+        assert raw is not None and version_tag is not None
+
+        ctx = build_exec_context(
+            types=approach._types,  # pylint: disable=protected-access
+            predicates=approach._kept_initial_predicates,  # pylint: disable=protected-access
+            options=approach._get_all_options(),  # pylint: disable=protected-access
+            extra_context={
+                "params": params_view,
+                "ParamSpec": ParamSpec,
+            })
+        result, err = exec_code_safely(raw.decode("utf-8"), ctx,
+                                       "LEARNED_PREDICATES")
+        if err is not None:
+            return [], version_tag, (f"[{version_tag}] Error executing "
+                                     f"{path}:\n{err}"), []
+        if not isinstance(result, list):
+            return [], version_tag, (
+                f"[{version_tag}] LEARNED_PREDICATES must be a list, "
+                f"got {type(result).__name__}."), []
+
+        kept_names = {
+            p.name
+            for p in approach._kept_initial_predicates  # pylint: disable=protected-access
+        }
+        example_state = (
+            approach._train_tasks[0].init  # pylint: disable=protected-access
+            if approach._train_tasks else None)  # pylint: disable=protected-access
+
+        valid: List[Predicate] = []
+        warnings: List[str] = []
+        seen_names = set()
+        for entry in result:
+            if not isinstance(entry, Predicate):
+                warnings.append(f"Skipped non-Predicate entry: {entry!r}")
+                continue
+            if entry.name in kept_names:
+                warnings.append(f"Skipped '{entry.name}' (collides "
+                                "with a kept env predicate).")
+                continue
+            if entry.name in seen_names:
+                warnings.append(f"Skipped duplicate '{entry.name}'.")
+                continue
+            if example_state is not None:
+                verr = validate_predicate(
+                    entry,
+                    approach._types,  # pylint: disable=protected-access
+                    example_state)
+                if verr is not None:
+                    warnings.append(
+                        f"Predicate '{entry.name}' failed validation: "
+                        f"{verr}")
+                    continue
+            valid.append(entry)
+            seen_names.add(entry.name)
+
+        # Mutate approach state so evaluate_plan_refinement sees draft.
+        approach._learned_predicates = set(valid)  # pylint: disable=protected-access
+        return valid, version_tag, None, warnings
+
+    def _enumerate_groundings(
+        state: State,
+        pred_types: Sequence[Type],
+        max_groundings: int,
+    ) -> List[Tuple[Any, ...]]:
+        """Distinct-object groundings of ``pred_types`` from ``state``.
+
+        Capped at ``max_groundings``; sufficient for milestone
+        reporting.
+        """
+        objs_by_type: Dict[str, List[Any]] = {}
+        for obj in state:
+            objs_by_type.setdefault(obj.type.name, []).append(obj)
+
+        out: List[Tuple[Any, ...]] = []
+
+        def rec(idx: int, picked: List[Any], used: set) -> None:
+            if len(out) >= max_groundings:
+                return
+            if idx == len(pred_types):
+                out.append(tuple(picked))
+                return
+            for c in objs_by_type.get(pred_types[idx].name, []):
+                if id(c) in used:
+                    continue
+                used.add(id(c))
+                picked.append(c)
+                rec(idx + 1, picked, used)
+                picked.pop()
+                used.remove(id(c))
+                if len(out) >= max_groundings:
+                    return
+
+        rec(0, [], set())
+        return out
+
+    @tool(
+        "evaluate_predicate_quality",
+        "Load LEARNED_PREDICATES (fresh from `predicates.py`) and "
+        "report milestone behaviour over demo trajectories. For each "
+        "predicate × each grounding, evaluates pred.holds(state) at "
+        "every step and reports: coverage (ever-true / ever-false), "
+        "transition counts, first-flip step, and monotonicity (ideal "
+        "milestone flips False->True exactly once and stays true). "
+        "After loading, the predicate set used by "
+        "evaluate_plan_refinement is updated — so call this tool any "
+        "time you edit predicates.py before re-running refinement. "
+        "Snapshots the predicates file into predicates_versions/; "
+        "output tagged [cycle_XXX_vers_YYY].",
+        {
+            "type": "object",
+            "properties": {
+                "max_trajectories": {
+                    "type": "integer",
+                    "description": "Max trajectories to scan "
+                    "(default 10).",
+                },
+                "max_groundings_per_predicate": {
+                    "type":
+                    "integer",
+                    "description":
+                    "Max object groundings to evaluate "
+                    "per predicate (default 4).",
+                },
+            },
+        },
+    )
+    async def evaluate_predicate_quality(
+            args: Dict[str, Any]) -> Dict[str, Any]:
+        max_trajs = int(args.get("max_trajectories", 10))
+        max_groundings = int(args.get("max_groundings_per_predicate", 4))
+
+        try:
+            preds, version_tag, err, warnings = (
+                _snapshot_and_load_predicates(predicates_file))
+        except Exception:  # pylint: disable=broad-except
+            return _text(
+                f"Error loading predicates.py:\n{traceback.format_exc()}")
+
+        if err is not None:
+            return _text(err)
+
+        prefix = f"[{version_tag}]"
+        scanned = trajectories[:max_trajs]
+        lines = [
+            f"{prefix} Predicate quality report — "
+            f"{len(preds)} predicate(s), {len(scanned)} trajector(ies), "
+            f"up to {max_groundings} grounding(s)/predicate.",
+        ]
+        if warnings:
+            lines.append("")
+            lines.append("Warnings (entries skipped during load):")
+            for w in warnings:
+                lines.append(f"  - {w}")
+
+        if not preds:
+            lines.append("")
+            lines.append("LEARNED_PREDICATES is empty — add "
+                         "Predicate(...) entries to predicates.py.")
+            return _text("\n".join(lines))
+
+        for pred in preds:
+            sig = ", ".join(t.name for t in pred.types)
+            lines.append("")
+            lines.append(f"{pred.name}({sig})")
+            ever_true = ever_false = False
+            flip_records: List[Tuple[int, Tuple[Any, ...], int, int,
+                                     bool]] = []
+            no_grounding_trajs = 0
+            error_lines: List[str] = []
+            for ti, traj in enumerate(scanned):
+                if not traj.states:
+                    continue
+                groundings = _enumerate_groundings(traj.states[0], pred.types,
+                                                   max_groundings)
+                if not groundings:
+                    no_grounding_trajs += 1
+                    continue
+                for gr in groundings:
+                    try:
+                        truth = [pred.holds(s, gr) for s in traj.states]
+                    except Exception:  # pylint: disable=broad-except
+                        last_line = traceback.format_exc().strip().splitlines(
+                        )[-1]
+                        error_lines.append(
+                            f"  traj {ti} ({', '.join(o.name for o in gr)})"
+                            f": classifier raised — {last_line}")
+                        continue
+                    if any(truth):
+                        ever_true = True
+                    if not all(truth):
+                        ever_false = True
+                    flips_up = sum(1 for i in range(1, len(truth))
+                                   if truth[i] and not truth[i - 1])
+                    flips_dn = sum(1 for i in range(1, len(truth))
+                                   if truth[i - 1] and not truth[i])
+                    flip_records.append(
+                        (ti, gr, flips_up, flips_dn, truth[-1]))
+
+            coverage = ("ever-T + ever-F" if ever_true and ever_false else (
+                "always-T (likely useless)" if ever_true else
+                ("always-F (likely useless)" if ever_false else "no-data")))
+            n_records = len(flip_records)
+            n_monotone = sum(1 for _, _, up, dn, _ in flip_records
+                             if up == 1 and dn == 0)
+            n_never_flipped = sum(1 for _, _, up, dn, _ in flip_records
+                                  if up == 0 and dn == 0)
+            lines.append(f"  coverage: {coverage}")
+            lines.append(f"  groundings scored: {n_records}, "
+                         f"monotone (1↑ 0↓): {n_monotone}, "
+                         f"never-flipped: {n_never_flipped}, "
+                         f"no-grounding trajs: {no_grounding_trajs}")
+            for ti, gr, up, dn, final in flip_records[:max_trajs]:
+                names = ", ".join(o.name for o in gr)
+                lines.append(f"  traj {ti} ({names}): ↑={up}, ↓={dn}, "
+                             f"final={'T' if final else 'F'}")
+            for el in error_lines[:max_trajs]:
+                lines.append(el)
+
         return _text("\n".join(lines))
 
-    return [run_python, evaluate_simulator, test_simulator]
+    return [evaluate_predicate_quality]

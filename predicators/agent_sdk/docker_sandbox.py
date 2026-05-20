@@ -53,12 +53,12 @@ from predicators.settings import CFG
 logger = logging.getLogger(__name__)
 
 # Build Docker-specific prompts from shared templates.
-_CLAUDE_MD_TEMPLATE = build_claude_md(log_prefix="docker_query")
+# CLAUDE.md is built per-instance with the phase tag so the agent reads
+# phase-appropriate strategy guidance every turn (see build_claude_md).
 _SANDBOX_SYSTEM_PROMPT = build_sandbox_system_prompt(
     env_description="an isolated Docker sandbox",
     workspace_description="/sandbox/",
     ref_path="/sandbox/reference/",
-    log_prefix="docker_query",
 )
 
 # ---------------------------------------------------------------------------
@@ -124,6 +124,7 @@ class DockerSessionManager:
         tool_names: Optional[List[str]] = None,
         image: str = "predicators-sandbox",
         extra_reference_files: Optional[Dict[str, str]] = None,
+        phase: Optional[str] = None,
     ) -> None:
         # Append sandbox instructions to the system prompt
         self._system_prompt = system_prompt + _SANDBOX_SYSTEM_PROMPT
@@ -134,12 +135,14 @@ class DockerSessionManager:
         self._image = image
         self._extra_reference_files = extra_reference_files or {}
         self._repo_root = str(find_repo_root())
+        self._phase = phase
 
         self._total_cost_usd: float = 0.0
         self._total_turns: int = 0
         self._query_count: int = 0
         self._session_id: Optional[str] = None
         self._conversation_log: List[Dict[str, Any]] = []
+        self._last_kind: str = "query"
 
         # Persistent sandbox directory (created lazily, cleaned up on close)
         self._sandbox_dir: Optional[str] = None
@@ -187,10 +190,11 @@ class DockerSessionManager:
             sandbox_dir=self._sandbox_dir,
             repo_root=self._repo_root,
             extra_reference_files=self._extra_reference_files,
-            claude_md_content=_CLAUDE_MD_TEMPLATE,
+            claude_md_content=build_claude_md(phase=self._phase),
             system_prompt=self._system_prompt,
             log_dir=self._log_dir,
             seed_scratchpad=CFG.agent_planner_use_scratchpad,
+            phase=self._phase,
         )
 
         # Set sandbox paths on tool context
@@ -205,7 +209,9 @@ class DockerSessionManager:
     async def start_session(self) -> None:
         """No-op: each query() is a fresh docker run."""
 
-    async def query(self, message: str) -> List[Dict[str, Any]]:
+    async def query(self,
+                    message: str,
+                    kind: str = "query") -> List[Dict[str, Any]]:
         """Run the agent in Docker and return collected response messages.
 
         Returns the same ``List[Dict[str, Any]]`` format as
@@ -213,6 +219,7 @@ class DockerSessionManager:
         """
         self._query_count += 1
         self._tool_context.turn_id = self._query_count
+        self._last_kind = kind
 
         # Ensure sandbox is set up (lazy init, persists across queries)
         self._ensure_sandbox_dir()
@@ -224,9 +231,10 @@ class DockerSessionManager:
 
         # Compute final log filename upfront so the container can write
         # directly to the log directory (incremental updates visible on host).
+        # Counter-first layout: alphabetical sort matches chronological
+        # order across mixed ``learn``/``test``/``explore`` phases.
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_filename = (f"docker_query_{self._query_count:03d}_"
-                        f"{timestamp}.md")
+        log_filename = f"{self._query_count:03d}_{kind}_{timestamp}.md"
         if self._log_dir:
             os.makedirs(self._log_dir, exist_ok=True)
             incremental_log_path = os.path.join(self._log_dir, log_filename)
@@ -531,8 +539,8 @@ class DockerSessionManager:
             return
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = (f"docker_query_{self._query_count:03d}_"
-                    f"{timestamp}.md")
+        kind = getattr(self, "_last_kind", "query")
+        filename = f"{self._query_count:03d}_{kind}_{timestamp}.md"
         filepath = os.path.join(self._log_dir, filename)
 
         lines = [

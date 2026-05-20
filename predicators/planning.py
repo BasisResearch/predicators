@@ -20,6 +20,7 @@ from typing import Any, Callable, Collection, Dict, FrozenSet, Iterator, \
     List, Optional, Sequence, Set, Tuple, Union, cast
 
 import numpy as np
+from tqdm.auto import tqdm  # type: ignore[import-untyped]
 
 from predicators import utils
 from predicators.option_model import _OptionModelBase
@@ -521,6 +522,10 @@ def run_backtracking_refinement(
                                     None]] = None,
     on_exhausted: Optional[Callable[[List[Optional[_Option]]], None]] = None,
     step_times: Optional[List[float]] = None,
+    step_samples_cumulative: Optional[List[int]] = None,
+    termination_reason: Optional[List[str]] = None,
+    elapsed_holder: Optional[List[float]] = None,
+    progress_bar: Optional[bool] = None,
 ) -> Tuple[List[Optional[_Option]], bool, int]:
     """Backtracking search over continuous parameters.
 
@@ -534,6 +539,14 @@ def run_backtracking_refinement(
 
     Callbacks ``on_env_failure``, ``on_step_fail``, and ``on_exhausted``
     may raise to abort the search (e.g. for failure propagation).
+
+    Optional mutable output containers (same pattern as ``step_times``):
+    ``step_samples_cumulative[i]`` accumulates every attempt at step i
+    across backtracks (the in-loop ``num_tries_arr`` resets on
+    backtrack, so it only reflects the live frontier).
+    ``termination_reason`` is set to ``"success"``, ``"timeout"`` or
+    ``"exhausted"`` on exit.  ``elapsed_holder[0]`` is set to total
+    wall-clock seconds.
     """
     start_time = time.perf_counter()
     cur_idx = 0
@@ -541,70 +554,124 @@ def run_backtracking_refinement(
     plan: List[Optional[_Option]] = [None] * n_steps
     traj: List[Optional[State]] = [init_state] + [None] * n_steps
     total_samples = 0
+    backtrack_count = 0
+    max_depth = 0
 
-    while cur_idx < n_steps:
-        if time.perf_counter() - start_time > timeout:
-            logging.debug(
-                "Backtracking refinement timed out at step "
-                "%d/%d.", cur_idx, n_steps)
-            return plan, False, total_samples
+    use_bar = (CFG.refinement_progress_bar
+               if progress_bar is None else progress_bar)
+    progress: Optional[tqdm] = None
+    prev_root_level: Optional[int] = None
+    if use_bar:
+        # Suppress refinement chatter on all handlers (terminal + log
+        # files) for the duration of the search; the progress bar replaces
+        # it. Raise above ERROR so warnings (state reconstruction drift,
+        # BiRRT fallbacks) and error-level lines (collision warnings that
+        # the search recovers from) are also hidden; CRITICAL still passes.
+        root_logger = logging.getLogger()
+        prev_root_level = root_logger.level
+        root_logger.setLevel(logging.CRITICAL)
+        progress = tqdm(total=n_steps,
+                        desc="Refinement",
+                        leave=False,
+                        dynamic_ncols=True)
 
-        attempt_start = time.perf_counter()
-        num_tries_arr[cur_idx] += 1
-        total_samples += 1
-        state = traj[cur_idx]
-        assert state is not None
+    def _update_bar() -> None:
+        if progress is None:
+            return
+        progress.n = max_depth
+        progress.set_postfix_str(
+            f"step={cur_idx}/{n_steps} samples={total_samples} "
+            f"backtracks={backtrack_count}",
+            refresh=False)
+        progress.refresh()
 
-        option = sample_fn(cur_idx, state, rng)
-        plan[cur_idx] = option
+    def _finish(reason: str) -> None:
+        if termination_reason is not None:
+            termination_reason.clear()
+            termination_reason.append(reason)
+        if elapsed_holder is not None:
+            elapsed_holder.clear()
+            elapsed_holder.append(time.perf_counter() - start_time)
 
-        can_continue = False
-        fail_reason = "not initiable"
-
-        if option.initiable(state):
-            try:
-                next_state, num_actions = \
-                    option_model.get_next_state_and_num_actions(
-                        state, option)
-            except EnvironmentFailure as e:
-                fail_reason = f"env failure: {e}"
-                if on_env_failure is not None:
-                    on_env_failure(cur_idx, option, e)
-            else:
-                if num_actions == 0:
-                    fail_reason = (getattr(option_model,
-                                           'last_execution_failure', None)
-                                   or "0 actions")
-                else:
-                    traj[cur_idx + 1] = next_state
-                    can_continue, fail_reason = validate_fn(
-                        cur_idx, state, option, next_state, num_actions)
-
-        if step_times is not None:
-            step_times[cur_idx] += time.perf_counter() - attempt_start
-
-        if can_continue:
-            cur_idx += 1
-        else:
-            logging.debug("  Step %d/%d FAIL (attempt %d/%d): %s", cur_idx,
-                          n_steps, num_tries_arr[cur_idx], max_tries[cur_idx],
-                          fail_reason)
-            if on_step_fail is not None:
-                on_step_fail(cur_idx, plan, fail_reason)
-            while num_tries_arr[cur_idx] >= max_tries[cur_idx]:
+    try:
+        while cur_idx < n_steps:
+            if time.perf_counter() - start_time > timeout:
                 logging.debug(
-                    "  Step %d/%d exhausted %d samples, "
-                    "backtracking", cur_idx, n_steps, max_tries[cur_idx])
-                num_tries_arr[cur_idx] = 0
-                plan[cur_idx] = None
-                traj[cur_idx + 1] = None
-                cur_idx -= 1
-                if cur_idx < 0:
-                    if on_exhausted is not None:
-                        on_exhausted(plan)
-                    return plan, False, total_samples
+                    "Backtracking refinement timed out at step "
+                    "%d/%d.", cur_idx, n_steps)
+                _finish("timeout")
+                return plan, False, total_samples
 
-    return plan, True, total_samples
+            attempt_start = time.perf_counter()
+            num_tries_arr[cur_idx] += 1
+            total_samples += 1
+            if step_samples_cumulative is not None:
+                step_samples_cumulative[cur_idx] += 1
+            state = traj[cur_idx]
+            assert state is not None
+
+            option = sample_fn(cur_idx, state, rng)
+            plan[cur_idx] = option
+
+            can_continue = False
+            fail_reason = "not initiable"
+
+            if option.initiable(state):
+                try:
+                    next_state, num_actions = \
+                        option_model.get_next_state_and_num_actions(
+                            state, option)
+                except EnvironmentFailure as e:
+                    fail_reason = f"env failure: {e}"
+                    if on_env_failure is not None:
+                        on_env_failure(cur_idx, option, e)
+                else:
+                    if num_actions == 0:
+                        fail_reason = (getattr(option_model,
+                                               'last_execution_failure', None)
+                                       or "0 actions")
+                    else:
+                        traj[cur_idx + 1] = next_state
+                        can_continue, fail_reason = validate_fn(
+                            cur_idx, state, option, next_state, num_actions)
+
+            if step_times is not None:
+                step_times[cur_idx] += time.perf_counter() - attempt_start
+
+            if can_continue:
+                cur_idx += 1
+                if cur_idx > max_depth:
+                    max_depth = cur_idx
+                _update_bar()
+            else:
+                logging.debug("  Step %d/%d FAIL (attempt %d/%d): %s", cur_idx,
+                              n_steps, num_tries_arr[cur_idx],
+                              max_tries[cur_idx], fail_reason)
+                if on_step_fail is not None:
+                    on_step_fail(cur_idx, plan, fail_reason)
+                while num_tries_arr[cur_idx] >= max_tries[cur_idx]:
+                    logging.debug(
+                        "  Step %d/%d exhausted %d samples, "
+                        "backtracking", cur_idx, n_steps, max_tries[cur_idx])
+                    num_tries_arr[cur_idx] = 0
+                    plan[cur_idx] = None
+                    traj[cur_idx + 1] = None
+                    cur_idx -= 1
+                    backtrack_count += 1
+                    if cur_idx < 0:
+                        if on_exhausted is not None:
+                            on_exhausted(plan)
+                        _finish("exhausted")
+                        return plan, False, total_samples
+                _update_bar()
+
+        _finish("success")
+        return plan, True, total_samples
+    finally:
+        if progress is not None:
+            progress.close()
+        if prev_root_level is not None:
+            logging.getLogger().setLevel(prev_root_level)
 
 
 def run_low_level_search(

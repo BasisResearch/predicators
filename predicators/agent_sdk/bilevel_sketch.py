@@ -77,7 +77,15 @@ def build_solve_prompt(
     for obj in sorted(objects, key=lambda o: o.name):
         obj_strs.append(f"  {obj.name}: {obj.type.name}")
 
-    goal_strs = [str(a) for a in sorted(task.goal, key=str)]
+    # Only expose goal atoms whose predicate is in the agent's current
+    # predicate set. Approaches that strip env predicates (e.g.
+    # agent_sim_predicate_invention) rely on goal_nl to communicate the
+    # goal; leaking unfiltered task.goal atoms would expose predicates the
+    # agent is supposed to invent for itself.
+    goal_strs = [
+        str(a) for a in sorted(task.goal, key=str)
+        if a.predicate in all_predicates
+    ]
 
     option_strs = []
     for opt in sorted(all_options, key=lambda o: o.name):
@@ -111,6 +119,10 @@ def build_solve_prompt(
     if task.goal_nl:
         goal_nl_section = f"\n## Goal Description\n{task.goal_nl}\n"
 
+    goal_atoms_section = ""
+    if goal_strs:
+        goal_atoms_section = (f"\n## Goal Atoms\n{chr(10).join(goal_strs)}\n")
+
     pred_strs = []
     for pred in sorted(all_predicates, key=lambda p: p.name):
         type_sig = ", ".join(t.name for t in pred.types)
@@ -118,10 +130,7 @@ def build_solve_prompt(
 
     prompt = f"""You are solving a task. \
 Generate a plan sketch to achieve the goal.
-{goal_nl_section}
-## Goal Atoms
-{chr(10).join(goal_strs)}
-
+{goal_nl_section}{goal_atoms_section}
 ## Initial State Atoms
 {chr(10).join(atom_strs)}
 
@@ -297,6 +306,9 @@ def refine_sketch(
     run_id: str = "bilevel",
     on_step_fail: Optional[Callable[[int, List[Optional[_Option]], str],
                                     None]] = None,
+    step_samples_cumulative: Optional[List[int]] = None,
+    termination_reason: Optional[List[str]] = None,
+    elapsed_holder: Optional[List[float]] = None,
 ) -> Tuple[List[_Option], bool, int]:
     """Backtracking search over continuous parameters for a plan sketch.
 
@@ -396,6 +408,9 @@ def refine_sketch(
         rng=rng,
         timeout=timeout,
         on_step_fail=wrapped_on_step_fail,
+        step_samples_cumulative=step_samples_cumulative,
+        termination_reason=termination_reason,
+        elapsed_holder=elapsed_holder,
     )
 
     logging.info(
@@ -415,3 +430,172 @@ def refine_sketch(
     if success:
         return cast(List[_Option], refined), True, total_samples
     return refined, False, total_samples
+
+
+def _fmt_state_features(state: State) -> str:
+    """Compact one-line dump of every object's features.
+
+    Used by ``validate_plan_forward`` to trace how the continuous
+    rollout's state drifts step by step.
+    """
+    parts = []
+    for obj in sorted(state, key=lambda o: o.name):
+        feats = ", ".join(f"{f}={state.get(obj, f):.4f}"
+                          for f in obj.type.feature_names)
+        parts.append(f"{obj.name}[{feats}]")
+    return " ".join(parts)
+
+
+def validate_plan_forward(
+    task: Task,
+    plan: List[_Option],
+    option_model: _OptionModelBase,
+    *,
+    predicates: Set[Predicate],
+    sketch: Optional[List[SketchStep]] = None,
+    run_id: str = "bilevel",
+) -> Tuple[bool, str]:
+    """Re-execute a refined plan continuously, checking goal at the end.
+
+    Runs all options sequentially with state carrying forward — matching
+    how the real env will execute, and exposing accumulated state drift
+    that refinement's per-step resets hide.
+
+    When ``sketch`` is provided, also checks each step's ``subgoal_atoms``
+    against the post-state and logs the first divergence with the missing
+    atoms. Without ``sketch``, only the final goal is checked.
+
+    Returns ``(success, diagnosis)``. ``diagnosis`` is a one-line summary
+    of why validation failed (or ``""`` on success), suitable for surface
+    in synthesis-tool output. The full failure context (state features,
+    missing atoms, last option model error) is logged at INFO level.
+
+    Differences from ``refine_sketch``:
+      * ``max_tries=[1]`` per step — single shot at each option, no
+        backtracking. Surfaces stochasticity-sensitive plans that
+        refinement's resampling hides.
+      * ``rng=np.random.default_rng(0)`` — sample_fn ignores it anyway
+        (returns ``plan[i]``).
+      * Per-step subgoal logging when ``sketch`` is given.
+      * Disables the refinement progress bar so per-step DEBUG logs from
+        ``run_backtracking_refinement`` remain visible.
+    """
+    n = len(plan)
+    if n == 0:
+        if task.goal_holds(task.init):
+            return True, ""
+        return False, "empty plan; init state does not satisfy goal"
+
+    if sketch is not None and len(sketch) != n:
+        logging.warning(
+            "[%s] validate_plan_forward: sketch length %d != plan length %d; "
+            "ignoring sketch (no per-step subgoal diagnostics).", run_id,
+            len(sketch), n)
+        sketch = None
+
+    diagnosis_holder: List[str] = [""]
+
+    def sample_fn(i: int, _s: State, _r: np.random.Generator) -> _Option:
+        return plan[i]
+
+    def _log_subgoal_divergence(i: int, post: State,
+                                step: SketchStep) -> Optional[str]:
+        """If ``step.subgoal_atoms`` aren't all in ``post``, log + return a
+        one-line summary of what's missing; else return None."""
+        if step.subgoal_atoms is None or not step.subgoal_atoms:
+            return None
+        cur_atoms = utils.abstract(post, predicates)
+        missing = step.subgoal_atoms - cur_atoms
+        if not missing:
+            return None
+        missing_strs = sorted(str(a) for a in missing)
+        objs_str = ", ".join(o.name for o in plan[i].objects)
+        opt_str = f"{plan[i].name}({objs_str})"
+        logging.info(
+            "[%s] Forward-validate subgoal divergence at step %d (%s):\n"
+            "  expected:  %s\n"
+            "  missing:   %s\n"
+            "  full features: %s", run_id, i, opt_str,
+            sorted(str(a) for a in step.subgoal_atoms), missing_strs,
+            _fmt_state_features(post))
+        return (f"step {i} ({opt_str}): subgoals not satisfied after "
+                f"option (missing {missing_strs})")
+
+    def validate_fn(i: int, _pre: State, _opt: _Option, post: State,
+                    _n: int) -> Tuple[bool, str]:
+        # Per-step subgoal divergence is a *signal*, not a hard failure
+        # (the refined plan may have established a subgoal earlier and
+        # had it temporarily violated then re-established). We capture
+        # the first divergence as the leading-edge diagnosis but keep
+        # going so we still get the final-state log.
+        if sketch is not None:
+            div = _log_subgoal_divergence(i, post, sketch[i])
+            if div is not None and not diagnosis_holder[0]:
+                diagnosis_holder[0] = div
+
+        if i == n - 1:
+            goal_ok = task.goal_holds(post)
+            held = sorted(str(a) for a in task.goal if a.holds(post))
+            missing = sorted(str(a) for a in task.goal if not a.holds(post))
+            abstract_atoms = sorted(
+                str(a) for a in utils.abstract(post, predicates))
+            logging.info(
+                "[%s] Forward-validate FINAL state%s:\n"
+                "  goal atoms held:    %s\n"
+                "  goal atoms MISSING: %s\n"
+                "  abstract state:     %s\n"
+                "  full features:      %s\n"
+                "  full state:\n%s", run_id,
+                " (goal reached)" if goal_ok else " (GOAL NOT REACHED)", held
+                or "(none)", missing or "(none)", abstract_atoms,
+                _fmt_state_features(post), post.pretty_str())
+            if not goal_ok:
+                # Final-state goal failure wins over any earlier subgoal
+                # divergence as the headline reason.
+                diagnosis_holder[0] = (f"goal not reached at final step "
+                                       f"(missing {missing or '(none)'})")
+                return False, "goal not reached"
+        return True, ""
+
+    # progress_bar=False keeps INFO/DEBUG logs from
+    # run_backtracking_refinement (the "Step X/N FAIL: <reason>" lines)
+    # visible — critical for diagnosing why an option's
+    # get_next_state_and_num_actions returned 0 actions.
+    plan_result, success, _ = run_backtracking_refinement(
+        init_state=task.init,
+        option_model=option_model,
+        n_steps=n,
+        max_tries=[1] * n,
+        sample_fn=sample_fn,
+        validate_fn=validate_fn,
+        rng=np.random.default_rng(0),
+        timeout=float('inf'),
+        progress_bar=False,
+    )
+
+    if success:
+        return True, ""
+
+    # Validation reached `success=False` for one of:
+    #   1. validate_fn returned False at the final step (goal not reached)
+    #   2. an earlier step's option failed (initiable=False, 0 actions,
+    #      or env failure) — run_backtracking_refinement backtracks until
+    #      cur_idx<0 with max_tries=1
+    # Identify which by checking how far the plan progressed.
+    completed = sum(1 for p in plan_result if p is not None)
+    if completed < n and not diagnosis_holder[0]:
+        # Failure happened during option execution at step `completed`.
+        # Pull whatever the option model recorded as the last failure
+        # reason so the caller knows it's an execution problem, not a
+        # subgoal-divergence one.
+        last_err = getattr(option_model, "last_execution_failure", None)
+        opt = plan[completed]
+        opt_str = f"{opt.name}({', '.join(o.name for o in opt.objects)})"
+        diagnosis_holder[0] = (f"option execution failed at step "
+                               f"{completed} ({opt_str}): "
+                               f"{last_err or 'unknown reason'}")
+        logging.info(
+            "[%s] Forward-validate option failure at step %d (%s): %s", run_id,
+            completed, opt_str, last_err or "unknown reason")
+
+    return False, diagnosis_holder[0] or "validation failed"

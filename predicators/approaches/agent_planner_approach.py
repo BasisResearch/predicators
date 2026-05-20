@@ -76,6 +76,18 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         self._init_agent_session_state(types, initial_predicates,
                                        initial_options, train_tasks)
 
+        # Capture the underlying env once, at construction time. The
+        # initial option model wraps ``env.simulate`` (a bound method),
+        # so ``__self__`` is the env. Later cycles may rebuild
+        # ``_option_model`` with a plain learned simulator that has no
+        # ``__self__``; pinning the env reference here ensures scene
+        # rendering tools (annotate_scene, visualize_state) keep working
+        # in every synthesis/solve cycle.
+        env_self = getattr(getattr(self._option_model, '_simulator', None),
+                           '__self__', None)
+        if env_self is not None:
+            self._tool_context.env = env_self
+
     @classmethod
     def get_name(cls) -> str:
         return "agent_planner"
@@ -303,7 +315,7 @@ scene, then annotate_scene overlays markers on it."""
             files["options.py"] = options_path
         return files
 
-    def _get_agent_tool_names(self) -> Optional[List[str]]:
+    def _get_solve_tool_names(self) -> Optional[List[str]]:
         tools = [
             "inspect_options", "inspect_trajectories", "inspect_train_tasks",
             "test_option_plan"
@@ -344,11 +356,27 @@ scene, then annotate_scene overlays markers on it."""
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
         assert self._requests_train_task_idxs is not None
+        # Subclasses (e.g. AgentSimLearningApproach) may track the
+        # snapshot tags of the simulator/predicates files in effect
+        # when the explorer generated these plans. Tag each new
+        # trajectory so the next learn-phase prompt can surface
+        # provenance. ``None`` for any approach that doesn't track
+        # versions.
+        sim_version: Optional[str] = getattr(self,
+                                             "_current_simulator_version",
+                                             None)
+        preds_version: Optional[str] = getattr(self,
+                                               "_current_predicates_version",
+                                               None)
         for i, result in enumerate(results):
             task_idx = self._requests_train_task_idxs[i]
-            traj = LowLevelTrajectory(result.states,
-                                      result.actions,
-                                      _train_task_idx=task_idx)
+            traj = LowLevelTrajectory(
+                result.states,
+                result.actions,
+                _train_task_idx=task_idx,
+                _source_simulator_version=sim_version,
+                _source_predicates_version=preds_version,
+            )
             self._online_trajectories.append(traj)
 
         # Update tool context
@@ -410,7 +438,7 @@ scene, then annotate_scene overlays markers on it."""
     def _query_agent_for_option_plan(self, task: Task) -> list:
         """Query the agent for an option plan and parse it."""
         prompt = self._build_solve_prompt(task)
-        responses = self._query_agent_sync(prompt)
+        responses = self._query_agent_sync(prompt, kind="test")
         plan_text = self._extract_option_plan_text(responses)
 
         if not plan_text:
@@ -477,7 +505,7 @@ scene, then annotate_scene overlays markers on it."""
         state_str = init_state.dict_str(indent=2)
 
         # Available tools
-        tool_names = self._get_agent_tool_names()
+        tool_names = self._get_solve_tool_names()
         tools_str = ""
         if tool_names:
             tool_list = "\n".join(f"  - {t}" for t in tool_names)
@@ -750,13 +778,18 @@ Output ONLY the option plan lines at the end, after any analysis."""
         if all_trajs:
             self._tool_context.example_state = all_trajs[0].states[0]
 
-        # Extract env from option model for scene rendering
+        # Refresh env from option model only if extraction succeeds.
+        # After sim learning, ``_simulator`` may be a plain lambda with
+        # no ``__self__``; don't clobber the env reference seeded in
+        # ``__init__`` in that case.
         if self._option_model is not None and \
                 hasattr(self._option_model, '_simulator'):
-            self._tool_context.env = getattr(
+            env_self = getattr(
                 self._option_model._simulator,  # pylint: disable=protected-access
                 '__self__',
                 None)
+            if env_self is not None:
+                self._tool_context.env = env_self
 
     # ------------------------------------------------------------------ #
     # Save / Load

@@ -6,7 +6,7 @@ Anything that varies between runs should be a command-line arg
 
 from collections import defaultdict
 from types import SimpleNamespace
-from typing import Any, Dict, Set
+from typing import Any, Dict, List, Set
 
 import numpy as np
 
@@ -24,6 +24,10 @@ class GlobalSettings:
     skip_test_until_last_ite_or_early_stopping = False
     # just for plotting
     online_learning_early_stopping_by_test_solve_rate = False
+    # When True, every interaction request in the cycle (not just the first
+    # per task) must succeed before early stopping is triggered. Catches
+    # "lucky single-sample" successes that mask a buggy learned model.
+    online_learning_early_stopping_require_all_attempts = False
     # Maximum number of training tasks to give a demonstration for, if the
     # offline_data_method is demo-based.
     max_initial_demos = float("inf")
@@ -631,6 +635,11 @@ class GlobalSettings:
     planning_filter_unreachable_nsrt = True
     planning_check_dr_reachable = True
     no_repeated_arguments_in_grounding = False
+    # If True, replace per-attempt backtracking and option-execution log
+    # output with a tqdm progress bar during run_backtracking_refinement.
+    # Suppresses DEBUG/INFO/WARNING/ERROR on all handlers (terminal + log
+    # files) for the duration of the search; only CRITICAL passes through.
+    refinement_progress_bar = True
 
     # evaluation parameters
     log_dir = "logs"
@@ -1011,11 +1020,19 @@ class GlobalSettings:
 
     # Agent bilevel approach settings
     agent_bilevel_max_samples_per_step = 50  # param samples per step
-    agent_bilevel_max_retries = 1  # re-query agent on refinement failure
+    agent_bilevel_max_retries = 3  # re-query agent (new skeleton) on failure
+    # reseed refinement on the same skeleton before re-querying the agent
+    agent_bilevel_max_refine_retries = 5
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
     # log state pretty_str before/after each step
     agent_bilevel_log_state = False
     agent_bilevel_plan_sketch_file = ""  # load sketch from file instead of LLM
+    # When evaluate_plan_refinement is called without an explicit timeout,
+    # the synthesis tool computes
+    #   max(_min, _per_step * len(sketch))
+    # so plans with more steps automatically get more wall-clock budget.
+    agent_bilevel_refinement_timeout_per_step = 30.0  # seconds per step
+    agent_bilevel_refinement_timeout_min = 30.0  # floor on auto-scaled timeout
     # Agent bilevel explorer settings. Separate from the solve-path budget
     # above because the explorer runs full backtracking while looking for
     # the deepest subgoal-failure to truncate at, and each exhausted
@@ -1040,6 +1057,12 @@ class GlobalSettings:
     agent_sim_learn_oracle_sim_param_noise_scale = 0.2
     # When True, use GT parameter values directly, skipping MCMC fitting.
     agent_sim_learn_oracle_sim_params = False
+
+    # Names of env predicates kept (not stripped) for the
+    # agent_sim_predicate_invention approach. Empty list defers to the
+    # subclass's KEPT_INITIAL_PREDICATE_NAMES class attribute (default
+    # {"Holding"}).
+    agent_sim_predicate_invention_kept_predicate_names: List[str] = []
 
     @classmethod
     def get_arg_specific_settings(cls, args: Dict[str, Any]) -> Dict[str, Any]:

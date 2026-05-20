@@ -23,7 +23,6 @@ from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.bilevel_sketch import SketchStep as _SketchStep
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_planner_approach import AgentPlannerApproach
-from predicators.planning import run_backtracking_refinement
 from predicators.settings import CFG
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, _Option
@@ -43,6 +42,14 @@ class AgentBilevelApproach(AgentPlannerApproach):
         return "agent_bilevel"
 
     # ------------------------------------------------------------------ #
+    # Agent session hooks
+    # ------------------------------------------------------------------ #
+
+    def _get_synthesis_tool_names(self) -> Optional[List[str]]:
+        """No synthesis phase in this approach — declare an empty set."""
+        return []
+
+    # ------------------------------------------------------------------ #
     # System prompt (simplified — no parameter tuning workflow)
     # ------------------------------------------------------------------ #
 
@@ -58,9 +65,10 @@ class AgentBilevelApproach(AgentPlannerApproach):
             "NOT need to specify continuous parameters — those will be found "
             "automatically by a search procedure.\n\n"
             "Some effects may not be immediate — if an action triggers a "
-            "delayed process (e.g. water filling, dominoes cascading, "
-            "heating), insert a Wait after it so the effect has time to "
-            "occur before the next action.\n\n"
+            "delayed process (e.g. gradual accumulation, propagation "
+            "through contacting objects, a sensor catching up to an "
+            "actuator), insert a Wait after it so the effect has time "
+            "to occur before the next action.\n\n"
             "## Subgoal Annotations\n"
             "After each step you can annotate which predicate atoms should "
             "hold after that step succeeds. This helps the search procedure "
@@ -71,8 +79,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
             "Subgoal annotations are optional but improve search efficiency.\n"
             "For Wait steps, the annotation also specifies exactly when the "
             "Wait should terminate. Use `NOT Pred(...)` for atoms that should "
-            "become false (e.g. `Wait(robot:Robot) -> "
-            "{Boiled(water:water_type)}`).")
+            "become false (e.g. `Wait(robot:robot) -> "
+            "{Ready(widget:widget)}`).")
 
     # ------------------------------------------------------------------ #
     # Solve prompt (no continuous params, subgoal format)
@@ -85,7 +93,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             all_predicates=self._get_all_predicates(),
             all_options=self._get_all_options(),
             trajectory_summary=self._build_trajectory_summary(),
-            tool_names=self._get_agent_tool_names(),
+            tool_names=self._get_solve_tool_names(),
         )
 
     # ------------------------------------------------------------------ #
@@ -93,20 +101,20 @@ class AgentBilevelApproach(AgentPlannerApproach):
     # ------------------------------------------------------------------ #
 
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
-        max_retries = CFG.agent_bilevel_max_retries
+        max_sketch_retries = CFG.agent_bilevel_max_retries
+        max_refine_retries = CFG.agent_bilevel_max_refine_retries
         self._sync_tool_context()
         self._tool_context.current_task = task
         start = time.perf_counter()
 
-        for attempt in range(max_retries):
-            remaining = timeout - (time.perf_counter() - start)
-            if remaining <= 0:
+        for sketch_attempt in range(max_sketch_retries):
+            if timeout - (time.perf_counter() - start) <= 0:
                 break
             try:
                 sketch = self._query_agent_for_plan_sketch(task)
             except Exception as e:  # pylint: disable=broad-except
                 logging.warning("Sketch query failed (attempt %d): %s",
-                                attempt, e)
+                                sketch_attempt, e)
                 continue
 
             sketch_lines = []
@@ -118,10 +126,32 @@ class AgentBilevelApproach(AgentPlannerApproach):
                     line += f" -> {{{atoms}}}"
                 sketch_lines.append(line)
             logging.info("[%s] Sketch (attempt %d):\n%s", self._run_id,
-                         attempt, "\n".join(sketch_lines))
+                         sketch_attempt, "\n".join(sketch_lines))
 
-            plan, success = self._refine_sketch(task, sketch, remaining)
-            if success:
+            # Resample continuous params with a fresh seed before paying
+            # for another agent query: a sketch that refines but fails
+            # forward validation is a continuous-params problem, not a
+            # wrong skeleton, and re-querying rarely changes the skeleton
+            # while always costing an LLM call.
+            for refine_attempt in range(max_refine_retries):
+                remaining = timeout - (time.perf_counter() - start)
+                if remaining <= 0:
+                    break
+                # Flatten the two loop indices so every (sketch, refine)
+                # pair draws a unique seed in _refine_sketch.
+                seed_offset = (sketch_attempt * max_refine_retries +
+                               refine_attempt)
+                plan, success = self._refine_sketch(task,
+                                                    sketch,
+                                                    remaining,
+                                                    attempt=seed_offset)
+                if not success:
+                    logging.info(
+                        f"Refinement failed (sketch "
+                        f"{sketch_attempt}, refine {refine_attempt}), "
+                        f"{len(sketch)} steps.")
+                    continue
+
                 plan_strs = []
                 for i, o in enumerate(plan):
                     obj_s = ", ".join(obj.name for obj in o.objects)
@@ -129,20 +159,33 @@ class AgentBilevelApproach(AgentPlannerApproach):
                     plan_strs.append(f"  {i}: {o.name}({obj_s})"
                                      f"[{par_s}]")
                 plan_str = "\n".join(plan_strs)
-                logging.info(
-                    f"[{self._run_id}] Refinement succeeded "
-                    f"(attempt {attempt}), {len(plan)} steps:\n{plan_str}")
+                logging.info(f"[{self._run_id}] Refinement succeeded (sketch "
+                             f"{sketch_attempt}, refine {refine_attempt}), "
+                             f"{len(plan)} steps:\n{plan_str}")
 
                 # Forward validation: verify the plan works in
                 # continuous execution (no state resets between steps).
-                # if self._validate_plan_forward(task, plan):
-                return self._plan_to_policy(plan)
-                # logging.info("Forward validation failed; retrying.")
-            logging.info(f"Refinement failed (attempt {attempt}), "
-                         f"{len(sketch)} steps.")
+                # Catches refinement/execution drift from option-model
+                # state-reset noise (see pybullet_env.py:506 warning).
+                # Pass the original sketch so per-step subgoal divergence
+                # is logged with the specific atom that went missing.
+                ok, reason = bilevel_sketch.validate_plan_forward(
+                    task,
+                    plan,
+                    self._option_model,
+                    predicates=self._get_all_predicates(),
+                    sketch=sketch,
+                    run_id=self._run_id,
+                )
+                if ok:
+                    return self._plan_to_policy(plan)
+                logging.info(f"[{self._run_id}] Forward validation failed "
+                             f"(sketch {sketch_attempt}, refine "
+                             f"{refine_attempt}): {reason}")
+                # Fall through to the next seed on the same sketch.
 
         raise ApproachFailure(
-            f"Bilevel solve failed after {max_retries} attempts.")
+            f"Bilevel solve failed after {max_sketch_retries} sketches.")
 
     # ------------------------------------------------------------------ #
     # Plan sketch extraction
@@ -157,7 +200,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             logging.info("Loaded plan sketch from file: %s", sketch_file)
         else:
             prompt = self._build_solve_prompt(task)
-            responses = self._query_agent_sync(prompt)
+            responses = self._query_agent_sync(prompt, kind="test")
             plan_text = self._extract_option_plan_text(responses)
 
         if not plan_text:
@@ -192,12 +235,18 @@ class AgentBilevelApproach(AgentPlannerApproach):
         task: Task,
         sketch: List[_SketchStep],
         timeout: float,
+        attempt: int = 0,
     ) -> Tuple[List[_Option], bool]:
         """Backtracking search over continuous parameters for a plan sketch.
 
         Returns ``(plan, success)``.  On success, ``plan`` is a list of
         grounded options that achieves the task goal.  On failure,
         ``plan`` is the longest partial refinement found.
+
+        ``attempt`` perturbs the RNG so retries explore different
+        samples — without it, refinement is deterministic in
+        ``CFG.seed`` and a forward-validation failure would loop on
+        the identical plan.
 
         Delegates to ``bilevel_sketch.refine_sketch``.
         """
@@ -207,7 +256,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             self._option_model,
             predicates=self._get_all_predicates(),
             timeout=timeout,
-            rng=np.random.default_rng(CFG.seed),
+            rng=np.random.default_rng(CFG.seed + attempt),
             max_samples_per_step=CFG.agent_bilevel_max_samples_per_step,
             check_subgoals=CFG.agent_bilevel_check_subgoals,
             log_state=CFG.agent_bilevel_log_state,
@@ -230,47 +279,6 @@ class AgentBilevelApproach(AgentPlannerApproach):
         option_names = {o.name for o in self._get_all_options()}
         return bilevel_sketch.parse_subgoal_annotations(
             text, predicates, objects, option_names)
-
-    # ------------------------------------------------------------------ #
-    # Forward validation
-    # ------------------------------------------------------------------ #
-
-    def _validate_plan_forward(
-        self,
-        task: Task,
-        plan: List[_Option],
-    ) -> bool:
-        """Re-execute the plan continuously in the option model.
-
-        Runs all options sequentially so that state carries forward
-        naturally — matching how the real env will execute.
-
-        Returns True if the plan reaches the goal, False otherwise.
-        """
-        n = len(plan)
-        if n == 0:
-            return task.goal_holds(task.init)
-
-        def sample_fn(i: int, _s: State, _r: np.random.Generator) -> _Option:
-            return plan[i]
-
-        def validate_fn(i: int, _s: State, _o: _Option, post: State,
-                        _n: int) -> Tuple[bool, str]:
-            if i == n - 1 and not task.goal_holds(post):
-                return False, "goal not reached"
-            return True, ""
-
-        _, success, _ = run_backtracking_refinement(
-            init_state=task.init,
-            option_model=self._option_model,
-            n_steps=n,
-            max_tries=[1] * n,
-            sample_fn=sample_fn,
-            validate_fn=validate_fn,
-            rng=np.random.default_rng(0),
-            timeout=float('inf'),
-        )
-        return success
 
     # ------------------------------------------------------------------ #
     # Helpers
