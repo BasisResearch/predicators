@@ -615,6 +615,61 @@ function renderOptionArgs() {
   }
 }
 
+// Sim-step consumption rate at the visual layer (steps per second of
+// wall-clock playback). Each pybullet step moves the EE by up to
+// pybullet_max_vel_norm (~5cm), so 12 steps/s ≈ a 0.6 m/s max EE
+// speed — close to a natural collaborative-robot pace. Decoupled
+// from pybullet's own sim_steps_per_action (which controls physics
+// integration); this just paces how fast we *render* completed
+// steps. Override via ?simRate=N.
+const SIM_RATE_HZ = (() => {
+  const q = new URLSearchParams(window.location.search).get("simRate");
+  const n = q ? Number(q) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 12;
+})();
+
+// Scratch quaternions reused across interpolated frames to avoid
+// allocating per-body per-rAF.
+const _qPrev = new THREE.Quaternion();
+const _qCurr = new THREE.Quaternion();
+
+function _lerp(a, b, t) { return a + (b - a) * t; }
+
+// Apply a body state interpolated between two pybullet-step snapshots.
+// `t` is in [0, 1]; t=0 is prev, t=1 is curr. Used by the rAF tick to
+// paint smooth motion between sim steps when SIM_RATE_HZ < rAF rate.
+function applyInterpolatedFrame(prev, curr, t) {
+  for (const [idStr, currState] of Object.entries(curr)) {
+    const id = Number(idStr);
+    const b = bodyMap.get(id);
+    if (!b) continue;
+    const prevState = prev?.[idStr];
+    if (!prevState) {
+      // New body this step — paint at curr without interpolation.
+      b.root.position.fromArray(currState.pos);
+      b.root.quaternion.fromArray(currState.orn);
+    } else {
+      b.root.position.set(
+        _lerp(prevState.pos[0], currState.pos[0], t),
+        _lerp(prevState.pos[1], currState.pos[1], t),
+        _lerp(prevState.pos[2], currState.pos[2], t),
+      );
+      _qPrev.fromArray(prevState.orn);
+      _qCurr.fromArray(currState.orn);
+      _qPrev.slerp(_qCurr, t);
+      b.root.quaternion.copy(_qPrev);
+    }
+    if (b.kind === "urdf") {
+      for (const [jname, currAngle] of Object.entries(currState.joints)) {
+        const j = b.joints[jname];
+        if (!j || typeof j.setJointValue !== "function") continue;
+        const prevAngle = prevState?.joints?.[jname] ?? currAngle;
+        j.setJointValue(_lerp(prevAngle, currAngle, t));
+      }
+    }
+  }
+}
+
 async function executeOption() {
   const name = optionSelect.value;
   const args = Array.from(optionArgs.querySelectorAll("select.opt-arg"))
@@ -636,48 +691,87 @@ async function executeOption() {
     }
     applyFrame(init.initial_frame);
 
-    // Drive the rollout via requestAnimationFrame: one pybullet step
-    // per rAF tick, so the renderer paints each frame at its natural
-    // pace (no batched "sim everything then play back" choppiness,
-    // and no UI freeze during sim).
+    // Fixed-sim-rate, variable-render-rate loop (the standard
+    // game-loop pattern): we advance a virtual `simCursor` at
+    // SIM_RATE_HZ per wall-clock second. Each rAF tick:
+    //   1) advance simCursor by dt * SIM_RATE_HZ
+    //   2) while simCursor has crossed an integer, pull next
+    //      pybullet step into `currFrame` (and shift the old curr
+    //      into `prevFrame`)
+    //   3) render the interpolated state between prevFrame and
+    //      currFrame at the fractional cursor position
+    //
+    // This keeps the render synced to the monitor (rAF) while the
+    // arm moves at SIM_RATE_HZ-per-second of sim steps regardless
+    // of how fast pybullet itself can step.
+    let prevFrame = init.initial_frame;
+    let currFrame = init.initial_frame;
+    let simCursor = 0;  // float, advances at SIM_RATE_HZ per second
+    let lastTimestamp = null;
     let lastSteps = 0;
+    let pythonDone = false;
     let finalError = null;
+    let finalColorUpdates = null;
+
+    const stepCall = `bridge.step_option()`;
+
+    function pullOneSimStep() {
+      let r;
+      try {
+        const proxy = pyodide.runPython(stepCall);
+        r = proxy.toJs({ dict_converter: Object.fromEntries });
+        proxy.destroy();
+      } catch (e) {
+        log("ERROR during step: " + (e.message || e));
+        pythonDone = true;
+        return;
+      }
+      if (r.added_bodies?.length || r.removed_body_ids?.length) {
+        reconcileBodies(r.added_bodies || [],
+                        r.removed_body_ids || []);
+      }
+      prevFrame = currFrame;
+      currFrame = r.frame;
+      lastSteps = r.steps;
+      if (r.done) {
+        pythonDone = true;
+        finalError = r.error;
+        finalColorUpdates = r.color_updates;
+      }
+    }
+
     await new Promise((resolve) => {
-      const stepCall = `bridge.step_option()`;
-      function tick() {
-        let r;
-        try {
-          const proxy = pyodide.runPython(stepCall);
-          r = proxy.toJs({ dict_converter: Object.fromEntries });
-          proxy.destroy();
-        } catch (e) {
-          log("ERROR during step: " + (e.message || e));
-          resolve();
-          return;
+      function tick(timestamp) {
+        if (lastTimestamp === null) lastTimestamp = timestamp;
+        const dt = Math.min(0.1, (timestamp - lastTimestamp) / 1000);
+        lastTimestamp = timestamp;
+        simCursor += dt * SIM_RATE_HZ;
+
+        // Consume integer sim steps while we have visual budget for
+        // them. Cap the while-loop so a long stall (tab backgrounded,
+        // etc.) doesn't blow through the whole option in one tick.
+        let pulled = 0;
+        while (simCursor >= 1 && !pythonDone && pulled < 4) {
+          pullOneSimStep();
+          simCursor -= 1;
+          pulled += 1;
         }
-        // Reconcile mid-rollout bodies *before* applying the frame —
-        // otherwise applyFrame can't find the body in bodyMap yet.
-        if (r.added_bodies?.length || r.removed_body_ids?.length) {
-          // reconcileBodies is async (URDFs load); for primitives it's
-          // sync. Don't await — primitives mount synchronously and
-          // appear next frame anyway. URDFs will pop in a tick late,
-          // which is fine.
-          reconcileBodies(r.added_bodies || [],
-                          r.removed_body_ids || []);
+        if (pythonDone && simCursor > 1) simCursor = 1;
+
+        // Render at the fractional cursor between prev and curr.
+        applyInterpolatedFrame(prevFrame, currFrame,
+                               Math.min(1, Math.max(0, simCursor)));
+
+        if (lastSteps && lastSteps % 30 === 0) {
+          setStatus(`Executing ${name}(${args.join(", ")}) — step ${lastSteps}`);
         }
-        applyFrame(r.frame);
-        lastSteps = r.steps;
-        if (r.done) {
-          if (r.color_updates) applyColorUpdates(r.color_updates);
-          finalError = r.error;
+
+        if (pythonDone && simCursor >= 1) {
+          // Land exactly on the last sim state, then finalize.
+          applyInterpolatedFrame(prevFrame, currFrame, 1);
+          if (finalColorUpdates) applyColorUpdates(finalColorUpdates);
           resolve();
         } else {
-          // Update status periodically (cheap text DOM write) so the
-          // user sees progress. requestAnimationFrame yields to the
-          // event loop so clicks aren't blocked.
-          if (r.steps % 10 === 0) {
-            setStatus(`Executing ${name}(${args.join(", ")}) — step ${r.steps}`);
-          }
           requestAnimationFrame(tick);
         }
       }
