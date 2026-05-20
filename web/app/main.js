@@ -79,16 +79,12 @@ controls.target.set(0.75, 0.75, 0.5);
 controls.update();
 
 // Lighting rig (game-engine style):
-//  - HemisphereLight: cheap sky→ground gradient that gives every face
-//    *some* directional fill, so even untouched-by-sun faces aren't
-//    pure-ambient flat.
 //  - DirectionalLight ("sun"): key light + shadow caster, aimed at the
 //    workspace centroid. Initialize sun.target now so the light vector
 //    is sensible before applyEnvCamera (which retargets per-env) runs.
 //  - AmbientLight: small global lift so deep shadows don't crush.
 const WORKSPACE_CENTER = new THREE.Vector3(0.75, 0.75, 0.5);
 scene.add(new THREE.AmbientLight(0xffffff, 0.25));
-scene.add(new THREE.HemisphereLight(0xb0c4d8, 0x4a4036, 0.55));
 const sun = new THREE.DirectionalLight(0xfff0d8, 1.5);
 sun.position.set(WORKSPACE_CENTER.x + 2,
                   WORKSPACE_CENTER.y - 2,
@@ -103,6 +99,37 @@ sun.shadow.bias = -0.0005;
 sun.shadow.normalBias = 0.02;
 scene.add(sun);
 scene.add(sun.target);
+
+// "Workbench lamp": warm orange SpotLight hanging above the table,
+// casting a soft pool on whatever's on the workspace. Distance-decay
+// keeps the orange localized so it doesn't tint the floor or robot.
+const lampPos = new THREE.Vector3(
+  WORKSPACE_CENTER.x, WORKSPACE_CENTER.y, WORKSPACE_CENTER.z + 0.9);
+const lamp = new THREE.SpotLight(0xff7a25, 8.0,
+  /* distance */ 1.6, /* angle */ Math.PI / 4.2,
+  /* penumbra */ 0.55, /* decay */ 1.8);
+lamp.position.copy(lampPos);
+lamp.target.position.copy(WORKSPACE_CENTER);
+lamp.castShadow = true;
+lamp.shadow.mapSize.set(1024, 1024);
+lamp.shadow.camera.near = 0.05;
+lamp.shadow.camera.far = 2.0;
+lamp.shadow.bias = -0.0005;
+scene.add(lamp);
+scene.add(lamp.target);
+
+// Visible "bulb": small emissive sphere at the lamp position so the
+// orange has a visual source. Doesn't itself cast light — purely
+// decorative.
+const bulb = new THREE.Mesh(
+  new THREE.SphereGeometry(0.035, 16, 16),
+  new THREE.MeshStandardMaterial({
+    color: 0xff7a25, emissive: 0xff7a25, emissiveIntensity: 2.0,
+    roughness: 0.4, metalness: 0.0,
+  }),
+);
+bulb.position.copy(lampPos);
+scene.add(bulb);
 
 function resize() {
   const w = sceneHost.clientWidth || 1;
