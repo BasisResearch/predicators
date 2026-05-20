@@ -142,7 +142,7 @@ def get_particles_from_rgbd_and_matrices(
 def downsample_particles(
     points: NDArray,
     colors: NDArray,
-    max_particles: int = 100,
+    max_particles: int = 20,
 ) -> Tuple[NDArray, NDArray]:
     """Downsample particles using voxel downsampling with Open3D.
 
