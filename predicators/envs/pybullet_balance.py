@@ -397,9 +397,20 @@ class PyBulletBalanceEnv(PyBulletEnv):
                             physicsClientId=self._physics_client_id)
 
     def _update_balance_beam(self, state: State) -> None:
-        """Shift the plates, beams, *and blocks on them* to simulate a balance,
-        ensuring rising sides move blocks first then plate, and dropping sides
-        move plate first then blocks."""
+        """Shift the plates, beams, *and blocks on them* to simulate a balance.
+
+        The signed offset for each side at imbalance ``diff = left -
+        right`` is ``-diff * shift_per_block`` for the left and
+        ``+diff * shift_per_block`` for the right (positive = up).
+
+        Plates and beams shift to ``base + cur_offset`` (absolute).
+        Blocks shift by ``cur_offset - prev_offset`` (delta). Previously
+        the block shift was relative-to-current with magnitude
+        ``abs(diff)``, which over-shifted whenever ``|diff|`` decreased
+        (e.g. moving a block from the heavy side back to balance) — the
+        plate snapped to base while blocks held their cumulative offset,
+        leaving them visually sunken or floating.
+        """
         left_count = self.count_num_blocks(state, self._plate1)
         right_count = self.count_num_blocks(state, self._plate3)
         diff = left_count - right_count
@@ -410,13 +421,18 @@ class PyBulletBalanceEnv(PyBulletEnv):
             return
 
         shift_per_block = 0.007
-        shift_amount = abs(diff) * shift_per_block
+        cur_left = -diff * shift_per_block
+        cur_right = diff * shift_per_block
+        prev_left = -self._prev_diff * shift_per_block
+        prev_right = self._prev_diff * shift_per_block
+        delta_left = cur_left - prev_left
+        delta_right = cur_right - prev_right
         block_objs = state.get_objects(self._block_type)
-        left_dropping = diff > 0
 
-        def shift_blocks(is_left: bool, dropping: bool) -> None:
-            """Shift blocks for one side, dropping or rising."""
-            sign = -1 if dropping else 1
+        def shift_blocks(is_left: bool) -> None:
+            delta = delta_left if is_left else delta_right
+            if delta == 0:
+                return
             midpoint_y = self._table2_y
             for block_obj in block_objs:
                 # Skip out-of-view or held
@@ -426,20 +442,18 @@ class PyBulletBalanceEnv(PyBulletEnv):
                 by = state.get(block_obj, "y")
                 belongs_to_side = (by < midpoint_y) if is_left else (
                     by > midpoint_y)
-                if belongs_to_side:
-                    old_z = state.get(block_obj, "z")
-                    padding = 0
-                    new_z = old_z + (sign * shift_amount) + (sign * padding)
-                    block_pos, block_orn = p.getBasePositionAndOrientation(
-                        block_obj.id, physicsClientId=self._physics_client_id)
-                    p.resetBasePositionAndOrientation(
-                        block_obj.id, [block_pos[0], block_pos[1], new_z],
-                        block_orn,
-                        physicsClientId=self._physics_client_id)
+                if not belongs_to_side:
+                    continue
+                block_pos, block_orn = p.getBasePositionAndOrientation(
+                    block_obj.id, physicsClientId=self._physics_client_id)
+                new_z = block_pos[2] + delta
+                p.resetBasePositionAndOrientation(
+                    block_obj.id, [block_pos[0], block_pos[1], new_z],
+                    block_orn,
+                    physicsClientId=self._physics_client_id)
 
-        def shift_plate(is_left: bool, dropping: bool) -> None:
-            """Shift plate & beam, dropping or rising."""
-            sign = -1 if dropping else 1
+        def shift_plate(is_left: bool) -> None:
+            offset = cur_left if is_left else cur_right
             if is_left:
                 plate_id, beam_id = self._plate1.id, self._beam_ids[0]
                 base_plate_z, base_beam_z = self._plate1_pose[
@@ -449,8 +463,8 @@ class PyBulletBalanceEnv(PyBulletEnv):
                 base_plate_z, base_beam_z = self._plate3_pose[
                     2], self._beam2_pose[2]
 
-            new_plate_z = base_plate_z + (sign * shift_amount)
-            new_beam_z = base_beam_z + (sign * shift_amount)
+            new_plate_z = base_plate_z + offset
+            new_beam_z = base_beam_z + offset
 
             plate_pos, plate_orn = p.getBasePositionAndOrientation(
                 plate_id, physicsClientId=self._physics_client_id)
@@ -466,25 +480,22 @@ class PyBulletBalanceEnv(PyBulletEnv):
                 beam_orn,
                 physicsClientId=self._physics_client_id)
 
-        # Left side update
-        if left_dropping:
-            # Drop left plate
-            shift_plate(is_left=True, dropping=True)
-            # Drop left blocks
-            shift_blocks(is_left=True, dropping=True)
-            # Rise right blocks
-            shift_blocks(is_left=False, dropping=False)
-            # Rise right plate
-            shift_plate(is_left=False, dropping=False)
+        # Order: on a side that's dropping move the plate first then
+        # blocks (so blocks don't fall through); on a rising side move
+        # blocks first then plate. Since each block shift is a delta
+        # tracking the plate's net offset, the visual relationship is
+        # preserved regardless of order, but this preserves the prior
+        # author's intent.
+        if diff > 0:  # left heavier → left drops, right rises
+            shift_plate(is_left=True)
+            shift_blocks(is_left=True)
+            shift_blocks(is_left=False)
+            shift_plate(is_left=False)
         else:
-            # Rise left blocks
-            shift_blocks(is_left=True, dropping=False)
-            # Rise left plate
-            shift_plate(is_left=True, dropping=False)
-            # Drop right plate
-            shift_plate(is_left=False, dropping=True)
-            # Drop right blocks
-            shift_blocks(is_left=False, dropping=True)
+            shift_blocks(is_left=True)
+            shift_plate(is_left=True)
+            shift_plate(is_left=False)
+            shift_blocks(is_left=False)
 
         self._prev_diff = diff
 
