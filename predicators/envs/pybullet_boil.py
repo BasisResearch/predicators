@@ -1471,9 +1471,9 @@ if __name__ == "__main__":
 
     def _main() -> None:  # pylint: disable=too-many-locals
         """Run a simple simulation to test the environment."""
-        # pylint: disable=protected-access
-        from predicators.ground_truth_models import \
-            get_gt_options  # pylint: disable=import-outside-toplevel
+        # # pylint: disable=protected-access
+        # from predicators.ground_truth_models import \
+        #     get_gt_options  # pylint: disable=import-outside-toplevel
         CFG.seed = 0
         CFG.env = "pybullet_boil"
         CFG.pybullet_sim_steps_per_action = 1
@@ -1490,28 +1490,28 @@ if __name__ == "__main__":
                                 possible_num_burners=[1],
                                 rng=rng)
 
-        env_options = get_gt_options(env.get_name())
-        pick = utils.get_parameterized_option_by_name(env_options, "PickJug")
-        place_on_burner = utils.get_parameterized_option_by_name(
-            env_options, "PlaceOnBurner")
-        place_under_faucet = utils.get_parameterized_option_by_name(
-            env_options, "PlaceUnderFaucet")
-        switch_faucet_on = utils.get_parameterized_option_by_name(
-            env_options, "SwitchFaucetOn")
-        switch_faucet_off = utils.get_parameterized_option_by_name(
-            env_options, "SwitchFaucetOff")
-        switch_burner_on = utils.get_parameterized_option_by_name(
-            env_options, "SwitchBurnerOn")
-        wait_opt = utils.get_parameterized_option_by_name(env_options, "Wait")
-        robot = env._robot
-        jug1 = env._jugs[0]
-        burner1 = env._burners[0]
-        faucet = env._faucet
+        # env_options = get_gt_options(env.get_name())
+        # pick = utils.get_parameterized_option_by_name(env_options, "PickJug")
+        # place_on_burner = utils.get_parameterized_option_by_name(
+        #     env_options, "PlaceOnBurner")
+        # place_under_faucet = utils.get_parameterized_option_by_name(
+        #     env_options, "PlaceUnderFaucet")
+        # switch_faucet_on = utils.get_parameterized_option_by_name(
+        #     env_options, "SwitchFaucetOn")
+        # switch_faucet_off = utils.get_parameterized_option_by_name(
+        #     env_options, "SwitchFaucetOff")
+        # switch_burner_on = utils.get_parameterized_option_by_name(
+        #     env_options, "SwitchBurnerOn")
+        # wait_opt = utils.get_parameterized_option_by_name(env_options, "Wait")
+        # robot = env._robot
+        # jug1 = env._jugs[0]
+        # burner1 = env._burners[0]
+        # faucet = env._faucet
 
-        # Keep references to suppress unused-variable warnings
-        _ = (pick, place_on_burner, place_under_faucet, switch_faucet_on,
-             switch_faucet_off, switch_burner_on, wait_opt, robot, jug1,
-             burner1, faucet)
+        # # Keep references to suppress unused-variable warnings
+        # _ = (pick, place_on_burner, place_under_faucet, switch_faucet_on,
+        #      switch_faucet_off, switch_burner_on, wait_opt, robot, jug1,
+        #      burner1, faucet)
 
         for task in tasks:
             env._set_state(task.init)
