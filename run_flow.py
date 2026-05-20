@@ -11,6 +11,7 @@ Workflow:
 import time
 import numpy as np
 import pybullet as p
+import argparse
 
 from predicators import utils
 from predicators.envs import gymnasium_wrapper as robodisco
@@ -33,11 +34,16 @@ def capture_frame(pybullet_env):
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
-
-def run_flow():
+def main():
+    # take arguments human
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--human", action="store_true")
+    args = parser.parse_args()
+    
     utils.reset_config({"num_train_tasks": 1, "num_test_tasks": 1})
     robodisco.register_all_environments()
-    env = robodisco.make("robodisco/Airport-v0", render_mode="human")
+    render_mode = "human" if args.human else "rgb_array"
+    env = robodisco.make("robodisco/Airport-v0", render_mode=render_mode)
     pybullet_env   = env.unwrapped._env
     physics_client = pybullet_env._physics_client_id
 
@@ -154,4 +160,4 @@ def run_flow():
 
 
 if __name__ == "__main__":
-    run_flow()
+    main()
