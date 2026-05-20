@@ -101,20 +101,20 @@ class AgentBilevelApproach(AgentPlannerApproach):
     # ------------------------------------------------------------------ #
 
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
-        max_retries = CFG.agent_bilevel_max_retries
+        max_sketch_retries = CFG.agent_bilevel_max_retries
+        max_refine_retries = CFG.agent_bilevel_max_refine_retries
         self._sync_tool_context()
         self._tool_context.current_task = task
         start = time.perf_counter()
 
-        for attempt in range(max_retries):
-            remaining = timeout - (time.perf_counter() - start)
-            if remaining <= 0:
+        for sketch_attempt in range(max_sketch_retries):
+            if timeout - (time.perf_counter() - start) <= 0:
                 break
             try:
                 sketch = self._query_agent_for_plan_sketch(task)
             except Exception as e:  # pylint: disable=broad-except
                 logging.warning("Sketch query failed (attempt %d): %s",
-                                attempt, e)
+                                sketch_attempt, e)
                 continue
 
             sketch_lines = []
@@ -126,13 +126,32 @@ class AgentBilevelApproach(AgentPlannerApproach):
                     line += f" -> {{{atoms}}}"
                 sketch_lines.append(line)
             logging.info("[%s] Sketch (attempt %d):\n%s", self._run_id,
-                         attempt, "\n".join(sketch_lines))
+                         sketch_attempt, "\n".join(sketch_lines))
 
-            plan, success = self._refine_sketch(task,
-                                                sketch,
-                                                remaining,
-                                                attempt=attempt)
-            if success:
+            # Resample continuous params with a fresh seed before paying
+            # for another agent query: a sketch that refines but fails
+            # forward validation is a continuous-params problem, not a
+            # wrong skeleton, and re-querying rarely changes the skeleton
+            # while always costing an LLM call.
+            for refine_attempt in range(max_refine_retries):
+                remaining = timeout - (time.perf_counter() - start)
+                if remaining <= 0:
+                    break
+                # Flatten the two loop indices so every (sketch, refine)
+                # pair draws a unique seed in _refine_sketch.
+                seed_offset = (sketch_attempt * max_refine_retries +
+                               refine_attempt)
+                plan, success = self._refine_sketch(task,
+                                                    sketch,
+                                                    remaining,
+                                                    attempt=seed_offset)
+                if not success:
+                    logging.info(
+                        f"Refinement failed (sketch "
+                        f"{sketch_attempt}, refine {refine_attempt}), "
+                        f"{len(sketch)} steps.")
+                    continue
+
                 plan_strs = []
                 for i, o in enumerate(plan):
                     obj_s = ", ".join(obj.name for obj in o.objects)
@@ -140,9 +159,9 @@ class AgentBilevelApproach(AgentPlannerApproach):
                     plan_strs.append(f"  {i}: {o.name}({obj_s})"
                                      f"[{par_s}]")
                 plan_str = "\n".join(plan_strs)
-                logging.info(
-                    f"[{self._run_id}] Refinement succeeded "
-                    f"(attempt {attempt}), {len(plan)} steps:\n{plan_str}")
+                logging.info(f"[{self._run_id}] Refinement succeeded (sketch "
+                             f"{sketch_attempt}, refine {refine_attempt}), "
+                             f"{len(plan)} steps:\n{plan_str}")
 
                 # Forward validation: verify the plan works in
                 # continuous execution (no state resets between steps).
@@ -161,12 +180,12 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 if ok:
                     return self._plan_to_policy(plan)
                 logging.info(f"[{self._run_id}] Forward validation failed "
-                             f"(attempt {attempt}): {reason}")
-            logging.info(f"Refinement failed (attempt {attempt}), "
-                         f"{len(sketch)} steps.")
+                             f"(sketch {sketch_attempt}, refine "
+                             f"{refine_attempt}): {reason}")
+                # Fall through to the next seed on the same sketch.
 
         raise ApproachFailure(
-            f"Bilevel solve failed after {max_retries} attempts.")
+            f"Bilevel solve failed after {max_sketch_retries} sketches.")
 
     # ------------------------------------------------------------------ #
     # Plan sketch extraction
