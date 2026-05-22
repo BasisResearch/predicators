@@ -6,7 +6,6 @@ Core primitives for process-dynamics simulation:
   feature updates (``ProcessUpdate``).
 * ``merge_updates`` — overwrite features in a ``State`` with values
   from a ``ProcessUpdate``.
-* ``simulate_step`` — full pipeline: base → rules → merge.
 * ``read_simulator_components`` — pull the ``PROCESS_RULES``,
   ``PARAM_SPECS``, ``PROCESS_FEATURES`` triple out of a namespace
   (oracle module globals or agent-synthesized exec namespace).
@@ -22,7 +21,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, \
 
 import numpy as np
 
-from predicators.structs import Action, Object, State
+from predicators.structs import Object, State
 
 logger = logging.getLogger(__name__)
 
@@ -103,21 +102,6 @@ def merge_updates(
     merged = base_state.copy()
     merged.data = new_data
     return merged
-
-
-def simulate_step(
-    state: State,
-    action: Action,
-    base_env: Any,
-    rules: List,
-    params: Dict[str, float],
-) -> State:
-    """Full simulation pipeline: base → rules → merge."""
-    base_state = base_env.simulate(state, action)
-    updates = apply_rules(base_state, rules, params)
-    if not updates:
-        return base_state
-    return merge_updates(base_state, updates)
 
 
 def iter_feature_residuals(
