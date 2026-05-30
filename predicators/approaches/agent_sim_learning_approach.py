@@ -326,6 +326,16 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         """
 
         if CFG.agent_sim_learn_oracle_sim_program:
+            # The ground-truth code simulator reads/writes latent features
+            # (e.g. pybullet_boil's heat_level) as observable State
+            # features, which do not exist in partially-observable mode.
+            # Loading it on a PO observation would crash; a PO-aware
+            # rewrite of the GT simulator is a separate follow-up.
+            assert not CFG.partially_observable, (
+                "agent_sim_learn_oracle_sim_program is incompatible with "
+                "partially_observable (the GT code simulator reads hidden "
+                "features as State features); the PO GT-simulator rewrite is "
+                "a separate follow-up.")
             rules, specs, process_features = get_gt_simulator(CFG.env)
             self._log_feature_set_diff(inferred_hint, process_features,
                                        "inferred", "oracle")
@@ -507,7 +517,7 @@ the tools."""
                 self._current_simulator_version = final_sim_tag
                 logger.info("Final simulator snapshot: %s", final_sim_tag)
 
-            rules, specs, declared_features = (
+            rules, specs, declared_features, _ = (
                 self._load_simulator_from_module_file(simulator_file,
                                                       trajectories))
             if rules is None or specs is None:
@@ -754,18 +764,22 @@ files to see exactly which rules and predicates produced each failed plan.
         path: str,
         trajectories: Optional[List[LowLevelTrajectory]] = None,
     ) -> Tuple[Optional[List], Optional[List[ParamSpec]], Optional[Dict[
-            str, List[str]]]]:
+            str, List[str]]], Optional[Dict[str, Any]]]:
         """Load PROCESS_RULES, PARAM_SPECS, PROCESS_FEATURES from one file.
 
-        Execs ``path`` once in a fresh namespace. Returns ``(None, None,
-        None)`` on missing file, exec failure, or if either
-        ``PROCESS_RULES`` or ``PARAM_SPECS`` is absent; ``features`` may
-        be ``None`` independently, in which case the caller asserts
-        (``PROCESS_FEATURES`` is required from the agent).
+        Execs ``path`` once in a fresh namespace and returns ``(rules,
+        specs, features, ns)``, where ``ns`` is that exec namespace so
+        callers/subclasses can read extra exports (e.g. ``LATENT_INIT``)
+        without re-execing. ``ns`` is ``None`` only when no exec happened
+        (missing file or exec failure). ``rules``/``specs`` are ``None``
+        when ``PROCESS_RULES``/``PARAM_SPECS`` is absent (the caller
+        treats that as failure); ``features`` may be ``None``
+        independently (``PROCESS_FEATURES`` is then asserted by the
+        caller).
         """
         if not os.path.isfile(path):
             logger.warning("No simulator file at %s.", path)
-            return None, None, None
+            return None, None, None, None
 
         ns: Dict[str, Any] = {
             "np": np,
@@ -778,19 +792,19 @@ files to see exactly which rules and predicates produced each failed plan.
             exec(code, ns)  # pylint: disable=exec-used
         except Exception:  # pylint: disable=broad-except
             logger.warning("Failed to exec %s.", path, exc_info=True)
-            return None, None, None
+            return None, None, None, None
 
         rules, specs, features = read_simulator_components(ns)
         if rules is None:
             logger.warning("Simulator file %s missing PROCESS_RULES.", path)
-            return None, None, None
+            return None, None, None, ns
         if specs is None:
             logger.warning("Simulator file %s missing PARAM_SPECS.", path)
-            return None, None, None
+            return None, None, None, ns
 
         logger.info("Loaded %d rules, %d param specs from %s.", len(rules),
                     len(specs), path)
-        return rules, specs, features
+        return rules, specs, features, ns
 
     # ── Static helpers ───────────────────────────────────────────
 
