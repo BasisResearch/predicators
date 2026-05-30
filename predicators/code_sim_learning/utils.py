@@ -15,13 +15,15 @@ Core primitives for process-dynamics simulation:
 
 from __future__ import annotations
 
+import inspect
 import logging
+from functools import lru_cache
 from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, \
     Optional, Sequence, Tuple
 
 import numpy as np
 
-from predicators.structs import Object, State
+from predicators.structs import Action, Object, State
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +82,105 @@ def apply_rules(state: State, rules: List,
               for feat, val in feat_dict.items()}
         for obj, feat_dict in updates.items()
     }
+
+
+# ── Recurrent rule support (latent + history) ─────────────────────
+
+# Read-only history prefix handed to recurrent rules:
+# [(state_0, action_0), (state_1, action_1), ..., (state_t, action_t)]
+# Most recent last. The first entry's action is ``None``. Typed as
+# ``Sequence`` (covariant) so callers can pass a stricter
+# ``List[Tuple[State, Action]]`` without an invariance complaint —
+# rules treat history as read-only.
+History = Sequence[Tuple[State, Optional[Action]]]
+
+
+@lru_cache(maxsize=None)
+def _rule_accepts_latent(rule: Callable) -> bool:
+    """Return True iff ``rule`` declares a `latent` parameter or **kwargs.
+
+    Used by :func:`apply_rules_with_latent` to thread the sample's
+    `latent` state-feature block / `history` only into rules that opted
+    in. Cached because rule callables are reused across many simulator
+    invocations and ``inspect.signature`` isn't free.
+    """
+    try:
+        params = inspect.signature(rule).parameters
+    except (TypeError, ValueError):
+        return False
+    if "latent" in params:
+        return True
+    return any(p.kind == inspect.Parameter.VAR_KEYWORD
+               for p in params.values())
+
+
+def apply_rules_with_latent(
+    state: State,
+    latent: Dict[str, Any],
+    history: History,
+    rules: List,
+    params: Dict[str, float],
+) -> ProcessUpdate:
+    """Apply rules with a ``latent`` state-feature block and read-only
+    ``history``.
+
+    Each rule is either:
+
+    * **Legacy 3-arg**: ``rule(state, updates, params) -> updates``.
+      Called without latent/history; latent and history are ignored.
+    * **Recurrent 5-arg**: ``rule(state, latent, history, updates,
+      params) -> updates``. ``latent`` is mutated in place — the
+      same dict object passed in by the caller is threaded across
+      steps.
+
+    Signature is inspected once per rule (cached). Values are
+    normalised to plain floats. The returned update dict has the
+    same shape as ``apply_rules``'s output.
+    """
+    updates: ProcessUpdate = {}
+    for rule in rules:
+        if _rule_accepts_latent(rule):
+            updates = rule(state, latent, history, updates, params)
+        else:
+            updates = rule(state, updates, params)
+    return {
+        obj: {feat: float(val)
+              for feat, val in feat_dict.items()}
+        for obj, feat_dict in updates.items()
+    }
+
+
+def init_latent(
+    latent_init: Optional[Dict[str, Any]],
+    params: Dict[str, float],
+) -> Dict[str, Any]:
+    """Build the initial latent state-feature block for a fresh rollout.
+
+    ``latent_init`` follows the same convention as ``PARAM_SPECS``: it
+    may be ``None`` (empty block), a plain ``Dict[str, Any]``, or a
+    zero-arg callable returning such a dict. Values may be
+    :class:`~predicators.code_sim_learning.training.ParamSpec`
+    instances, in which case the corresponding entry from
+    ``params[name]`` is used (falling back to ``init_value`` if the
+    param hasn't been fit yet) — this lets MCMC fit the initial
+    latent value alongside rate parameters.
+    """
+    if latent_init is None:
+        return {}
+    if callable(latent_init):
+        latent_init = latent_init()
+    if not isinstance(latent_init, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    for k, v in latent_init.items():
+        # Late import to avoid a circular dependency.
+        # pylint: disable=import-outside-toplevel
+        from predicators.code_sim_learning.training import ParamSpec
+        if isinstance(v, ParamSpec):
+            out[k] = params.get(v.name, v.init_value)
+        else:
+            out[k] = v
+    return out
 
 
 def merge_updates(
@@ -153,6 +254,11 @@ def read_simulator_components(
 
     Returns ``(rules, specs, features)`` with ``None`` for any
     missing-or-malformed component; callers decide how to react.
+
+    The optional fourth component ``LATENT_INIT`` (used by the
+    recurrent partial-observability approach) is read separately via
+    :func:`read_latent_init` so existing callers don't have to grow
+    a fourth tuple element.
     """
     rules = ns.get("PROCESS_RULES")
     if not isinstance(rules, list) or not rules:
@@ -169,6 +275,28 @@ def read_simulator_components(
         features = None
 
     return rules, specs, features
+
+
+def read_latent_init(ns: Mapping[str, Any]) -> Optional[Any]:
+    """Pull ``LATENT_INIT`` (optional) from a simulator namespace.
+
+    ``LATENT_INIT`` declares the initial values for the latent
+    state-feature block used by the partial-observability approach.
+    Returns ``None`` if not present or malformed; in that case the
+    caller should default to an empty block.
+
+    Accepted shapes:
+
+    * ``Dict[str, Any]`` — literal initial values.
+    * ``Callable[[], Dict[str, Any]]`` — zero-arg factory, called at
+      consumption time. Mirrors the callable-``PARAM_SPECS`` pattern.
+    """
+    latent_init = ns.get("LATENT_INIT")
+    if latent_init is None:
+        return None
+    if not (callable(latent_init) or isinstance(latent_init, dict)):
+        return None
+    return latent_init
 
 
 # ── LearnedSimulator ──────────────────────────────────────────────
