@@ -1079,7 +1079,14 @@ class PyBulletState(State):
         state_dict_copy = copied.data
         # simulator_state_copy = list(self.joint_positions)
         simulator_state_copy = copied.simulator_state
-        return PyBulletState(state_dict_copy, simulator_state_copy)
+        # Forward the hidden blocks `super().copy()` deep-copied: `latent`
+        # (agent belief) and `privileged` (env-hidden ground truth). Both
+        # are dropped if not passed explicitly, since this rebuilds the
+        # PyBulletState rather than returning `copied`.
+        return PyBulletState(state_dict_copy,
+                             simulator_state_copy,
+                             latent=copied.latent,
+                             privileged=copied.privileged)
 
     def get_obj_mask(self, obj: Object) -> Mask:
         """Return the mask for the object."""
@@ -1276,10 +1283,22 @@ class VLMState(PyBulletState):
         option_history_copy = copy.copy(self.option_history)
         bbox_features_copy = copy.deepcopy(self.bbox_features)
         prev_state_copy = self.prev_state.copy() if self.prev_state else None
-        return VLMState(pybullet_state_copy.data,
-                        pybullet_state_copy.simulator_state, state_image_copy,
-                        obj_mask_copy, labeled_image_copy, option_history_copy,
-                        bbox_features_copy, prev_state_copy)
+        # Use kwargs for the VLM-specific fields so positional shifts in
+        # the base `State` dataclass (e.g. the `latent` block added for
+        # the recurrent partial-observability approach) don't reorder
+        # this call.
+        return VLMState(
+            data=pybullet_state_copy.data,
+            simulator_state=pybullet_state_copy.simulator_state,
+            latent=pybullet_state_copy.latent,
+            privileged=pybullet_state_copy.privileged,
+            state_image=state_image_copy,
+            obj_mask_dict=obj_mask_copy,
+            labeled_image=labeled_image_copy,
+            option_history=option_history_copy,
+            bbox_features=bbox_features_copy,
+            prev_state=prev_state_copy,
+        )
 
     def get_obj_mask(self, obj: Object) -> Mask:
         """Return the mask for the object."""
@@ -1365,8 +1384,13 @@ class StateWithCache(State):
         return State(self.data).allclose(State(other.data))
 
     def copy(self) -> State:
-        state_dict_copy = super().copy().data
-        return StateWithCache(state_dict_copy, self.cache)
+        copied = super().copy()
+        # The cache (simulator_state) is deliberately shared, not copied;
+        # forward the hidden latent/privileged blocks so they survive.
+        return StateWithCache(copied.data,
+                              self.cache,
+                              latent=copied.latent,
+                              privileged=copied.privileged)
 
 
 class LoggingMonitor(abc.ABC):
@@ -3137,7 +3161,10 @@ def abstract(state: State,
     """Get the atomic representation of the given state (i.e., a set of ground
     atoms), using the given set of predicates.
 
-    Duplicate arguments in predicates are allowed.
+    Duplicate arguments in predicates are allowed. Latent-aware
+    classifiers (`agent_sim_recurrent_predicate_invention`) read their
+    latent from `state.latent` via `Predicate.holds` — abstract itself
+    does nothing extra to support them.
     """
     # Start by pulling out all VLM predicates.
     vlm_preds = set(pred for pred in preds if isinstance(pred, VLMPredicate))
