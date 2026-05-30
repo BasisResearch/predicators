@@ -114,6 +114,20 @@ def _rule_accepts_latent(rule: Callable) -> bool:
                for p in params.values())
 
 
+def has_latent_rules(rules: Iterable[Callable]) -> bool:
+    """True iff any rule declares a `latent` param (recurrent 5-arg).
+
+    The dispatch signal that distinguishes a partially-observable
+    simulator (carries a latent block) from a fully-observable one: it
+    keys off the rule *signatures*, so it is correct on both the oracle
+    path (where ``LATENT_INIT`` may not have been loaded) and the agent-
+    synthesis path. Empty / all-legacy rule lists return False, so
+    fully-observable approaches take their existing non-latent paths
+    unchanged.
+    """
+    return any(_rule_accepts_latent(r) for r in rules)
+
+
 def apply_rules_with_latent(
     state: State,
     latent: Dict[str, Any],

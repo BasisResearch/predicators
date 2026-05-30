@@ -32,9 +32,11 @@ from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
     make_write_snapshot_hook
 from predicators.approaches.agent_bilevel_approach import AgentBilevelApproach
 from predicators.code_sim_learning.training import ParamSpec, compute_sse, \
-    fit_params, log_sse_breakdown
+    compute_sse_recurrent, fit_params, fit_params_recurrent, \
+    log_sse_breakdown
 from predicators.code_sim_learning.utils import LearnedSimulator, \
-    apply_rules, iter_feature_residuals, merge_updates, \
+    apply_rules, apply_rules_with_latent, has_latent_rules, init_latent, \
+    iter_feature_residuals, merge_updates, read_latent_init, \
     read_simulator_components
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
@@ -108,6 +110,18 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         # provenance (consumed in the next learn-phase prompt).
         self._current_simulator_version: Optional[str] = None
         self._current_predicates_version: Optional[str] = None
+        # Partial-observability latent block: loaded from a simulator's
+        # LATENT_INIT export (None ⇒ no latent state). When the loaded
+        # rules use the recurrent 5-arg signature, fitting, the combined
+        # simulator, and the SSE diagnostics thread this latent across
+        # steps; legacy 3-arg rules ignore it entirely (fully-observable
+        # behavior is unchanged). Dispatch keys off the rule signatures
+        # via ``has_latent_rules``, not this field.
+        self._latent_init: Any = None
+        # Cached per learn cycle so recurrent fitting can regroup the flat
+        # base_pred_triples back into per-trajectory chunks (latent
+        # threads within a trajectory, not across).
+        self._fit_trajectories: List[LowLevelTrajectory] = []
 
     @classmethod
     def get_name(cls) -> str:
@@ -250,6 +264,11 @@ class AgentSimLearningApproach(AgentBilevelApproach):
 
     def _learn_simulator(self, trajectories: List[LowLevelTrajectory]) -> None:
         """Synthesize rules, fit parameters, and build the option model."""
+        # Cache for recurrent fitting: lets _group_triples_by_trajectory
+        # slice the flat base_pred_triples back into per-trajectory chunks
+        # (latent threads within a trajectory, not across). Harmless for
+        # fully-observable (legacy) simulators, which never regroup.
+        self._fit_trajectories = list(trajectories)
         # Two parallel triple lists drive the rest of this method:
         # * obs_triples       — raw (s_t, a, s_{t+1}) from the data.
         # * base_pred_triples — same triples but s_t replaced by the
@@ -326,16 +345,15 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         """
 
         if CFG.agent_sim_learn_oracle_sim_program:
-            # The ground-truth code simulator reads/writes latent features
-            # (e.g. pybullet_boil's heat_level) as observable State
-            # features, which do not exist in partially-observable mode.
-            # Loading it on a PO observation would crash; a PO-aware
-            # rewrite of the GT simulator is a separate follow-up.
-            assert not CFG.partially_observable, (
-                "agent_sim_learn_oracle_sim_program is incompatible with "
-                "partially_observable (the GT code simulator reads hidden "
-                "features as State features); the PO GT-simulator rewrite is "
-                "a separate follow-up.")
+            # get_gt_simulator dispatches by observability: in
+            # partially-observable mode it returns the PO GT simulator
+            # (gt_simulator_po.py — latent heat threaded across steps,
+            # surfaced as the observable bubbling_level), which predicts
+            # only observable features; otherwise it returns the
+            # fully-observable gt_simulator.py (which reads/writes
+            # heat_level as a State feature). The two factories gate on
+            # CFG.partially_observable so the env-name dispatch resolves to
+            # exactly one module per run.
             rules, specs, process_features = get_gt_simulator(CFG.env)
             self._log_feature_set_diff(inferred_hint, process_features,
                                        "inferred", "oracle")
@@ -517,9 +535,14 @@ the tools."""
                 self._current_simulator_version = final_sim_tag
                 logger.info("Final simulator snapshot: %s", final_sim_tag)
 
-            rules, specs, declared_features, _ = (
+            rules, specs, declared_features, sim_ns = (
                 self._load_simulator_from_module_file(simulator_file,
                                                       trajectories))
+            # Pick up the optional LATENT_INIT export (partial
+            # observability). None for fully-observable simulators, which
+            # leaves every latent path dormant.
+            self._latent_init = (read_latent_init(sim_ns) if isinstance(
+                sim_ns, dict) else None)
             if rules is None or specs is None:
                 return
             assert declared_features is not None, (
@@ -539,23 +562,16 @@ the tools."""
         if CFG.agent_sim_learn_oracle_sim_params:
             self._fitted_params.clear()
             self._fitted_params.update({s.name: s.init_value for s in specs})
-            oracle_sim_fn = lambda s, a, p: apply_rules(  # noqa: E731
-                s, rules, p)
-            self._fit_sse = compute_sse(oracle_sim_fn, base_pred_triples,
-                                        self._fitted_params, process_features)
-            fit_ll = -0.5 * self._fit_sse / (_noise_sigma**2)
-            logger.info("Oracle params — SSE: %.6f  log-likelihood: %.2f",
-                        self._fit_sse, fit_ll)
-            for name, val in sorted(self._fitted_params.items()):
-                logger.info("  %-30s  %.4f", name, val)
-            log_sse_breakdown(oracle_sim_fn,
-                              base_pred_triples,
-                              self._fitted_params,
-                              process_features,
-                              label="oracle")
+            self._fit_sse = self._oracle_param_sse(rules, base_pred_triples,
+                                                   process_features,
+                                                   _noise_sigma)
         else:
-            new_params, self._fit_sse = self._fit_parameters(
-                rules, specs, base_pred_triples, process_features)
+            if has_latent_rules(rules):
+                new_params, self._fit_sse = self._fit_parameters_recurrent(
+                    rules, specs, base_pred_triples, process_features)
+            else:
+                new_params, self._fit_sse = self._fit_parameters(
+                    rules, specs, base_pred_triples, process_features)
             self._fitted_params.clear()
             self._fitted_params.update(new_params)
             if CFG.code_sim_learning_num_mcmc_steps == 0:
@@ -565,6 +581,42 @@ the tools."""
                 logger.info("Fitted %d params.", len(specs))
 
     # ── Parameter fitting ────────────────────────────────────────
+
+    def _oracle_param_sse(
+        self,
+        rules: List,
+        base_pred_triples: List[Tuple[State, Action, State]],
+        process_features: Dict[str, List[str]],
+        noise_sigma: float,
+    ) -> float:
+        """Compute and log the SSE for oracle params (no fitting).
+
+        ``self._fitted_params`` is assumed already populated with the
+        oracle values. Returns the SSE. Recurrent (5-arg) rules cannot
+        run per-transition, so when the loaded rules carry a latent
+        block this dispatches to :meth:`_oracle_param_sse_recurrent`;
+        otherwise it rolls each transition independently through the
+        legacy 3-arg ``apply_rules``.
+        """
+        if has_latent_rules(rules):
+            return self._oracle_param_sse_recurrent(rules, base_pred_triples,
+                                                    process_features,
+                                                    noise_sigma)
+        oracle_sim_fn = lambda s, a, p: apply_rules(  # noqa: E731
+            s, rules, p)
+        sse = compute_sse(oracle_sim_fn, base_pred_triples,
+                          self._fitted_params, process_features)
+        fit_ll = -0.5 * sse / (noise_sigma**2)
+        logger.info("Oracle params — SSE: %.6f  log-likelihood: %.2f", sse,
+                    fit_ll)
+        for name, val in sorted(self._fitted_params.items()):
+            logger.info("  %-30s  %.4f", name, val)
+        log_sse_breakdown(oracle_sim_fn,
+                          base_pred_triples,
+                          self._fitted_params,
+                          process_features,
+                          label="oracle")
+        return sse
 
     @staticmethod
     def _fit_parameters(
@@ -624,6 +676,211 @@ the tools."""
                         init_val, fit_val, delta, pct)
 
         return fitted_params, post_sse
+
+    # ── Partial-observability (latent) support ───────────────────
+    # Reached only when the loaded rules use the recurrent 5-arg
+    # signature (``has_latent_rules``). Legacy 3-arg simulators never
+    # enter these paths, so fully-observable behavior is unchanged.
+
+    def _group_triples_by_trajectory(
+        self,
+        triples: List[Tuple[State, Action, State]],
+    ) -> List[List[Tuple[State, Action, State]]]:
+        """Slice the flat triples list back into per-trajectory groups."""
+        if not self._fit_trajectories:
+            return []
+        lengths = [len(t.actions) for t in self._fit_trajectories]
+        if sum(lengths) != len(triples):
+            logger.warning(
+                "Trajectory-length mismatch (sum=%d vs triples=%d); "
+                "skipping grouping.", sum(lengths), len(triples))
+            return []
+        groups: List[List[Tuple[State, Action, State]]] = []
+        idx = 0
+        for n in lengths:
+            groups.append(triples[idx:idx + n])
+            idx += n
+        return groups
+
+    def _fit_parameters_recurrent(
+        self,
+        rules: List,
+        specs: List[ParamSpec],
+        base_pred_triples: List[Tuple[State, Action, State]],
+        process_features: Dict[str, List[str]],
+    ) -> Tuple[Dict[str, float], float]:
+        """MCMC over the recurrent (per-trajectory) SSE.
+
+        Counterpart to :meth:`_fit_parameters` for rules that carry a
+        latent block. Re-groups the flat ``base_pred_triples`` into per-
+        trajectory chunks (latent threads within a trajectory, not
+        across) via the lengths cached in ``self._fit_trajectories``;
+        falls back to a single trajectory if no grouping info exists.
+        """
+        groups = self._group_triples_by_trajectory(base_pred_triples)
+        if not groups:
+            logger.warning("No trajectory groups for recurrent fitting; "
+                           "falling back to single-trajectory rollout.")
+            groups = [base_pred_triples]
+
+        latent_init = self._latent_init
+        init_params = {s.name: s.init_value for s in specs}
+        pre_sse = compute_sse_recurrent(rules, groups, init_params,
+                                        latent_init, process_features)
+        logger.info("Recurrent fit — pre-SSE: %.6f", pre_sse)
+
+        result = fit_params_recurrent(
+            rules=rules,
+            trajectories=groups,
+            param_specs=specs,
+            latent_init=latent_init,
+            process_features=process_features,
+        )
+        fitted_params = result.point_estimate
+        post_sse = compute_sse_recurrent(rules, groups, fitted_params,
+                                         latent_init, process_features)
+        logger.info("Recurrent fit — post-SSE: %.6f", post_sse)
+        for name in sorted(fitted_params):
+            init_val = init_params[name]
+            fit_val = fitted_params[name]
+            delta = fit_val - init_val
+            pct = (delta / init_val * 100) if init_val != 0 else float("nan")
+            logger.info("  %-30s  %.4f -> %.4f  (Δ=%.4f, %+.1f%%)", name,
+                        init_val, fit_val, delta, pct)
+        return fitted_params, post_sse
+
+    def _oracle_param_sse_recurrent(
+        self,
+        rules: List,
+        base_pred_triples: List[Tuple[State, Action, State]],
+        process_features: Dict[str, List[str]],
+        noise_sigma: float,
+    ) -> float:
+        """Oracle-param SSE via the recurrent (latent-threaded) rollout.
+
+        Latent counterpart to :meth:`_oracle_param_sse`'s per-transition
+        body. The per-feature ``log_sse_breakdown`` is per-transition
+        and so omitted — the recurrent rollout already reports its SSE.
+        """
+        groups = self._group_triples_by_trajectory(base_pred_triples)
+        if not groups:
+            logger.warning("No trajectory groups for recurrent oracle SSE; "
+                           "falling back to single-trajectory rollout.")
+            groups = [base_pred_triples]
+        sse = compute_sse_recurrent(rules, groups, self._fitted_params,
+                                    self._latent_init, process_features)
+        fit_ll = -0.5 * sse / (noise_sigma**2)
+        logger.info(
+            "Oracle params (recurrent) — SSE: %.6f  log-likelihood: %.2f", sse,
+            fit_ll)
+        for name, val in sorted(self._fitted_params.items()):
+            logger.info("  %-30s  %.4f", name, val)
+        return sse
+
+    def _attach_initial_latent(self, task: Task) -> Task:
+        """Seed ``task.init.latent`` with the initial latent block.
+
+        Refinement starts at ``task.init`` (the planner's ``traj[0]``), so
+        the combined simulator must find a well-formed latent there. If no
+        ``LATENT_INIT`` was loaded (or the resulting block is empty), leave
+        the task alone so downstream code keeps the legacy
+        ``state.latent is None`` behaviour. Overrides the no-op default in
+        :class:`AgentBilevelApproach`.
+        """
+        if self._latent_init is None:
+            return task
+        initial_latent = init_latent(self._latent_init, self._fitted_params
+                                     or {})
+        if not initial_latent:
+            return task
+        init_state = task.init.copy()
+        init_state.latent = initial_latent
+        return Task(init=init_state,
+                    goal=task.goal,
+                    alt_goal=task.alt_goal,
+                    goal_nl=task.goal_nl)
+
+    def materialise_latent(
+        self,
+        traj: LowLevelTrajectory,
+    ) -> List[Optional[Dict[str, Any]]]:
+        """Roll a trajectory through the rules; return per-step latent.
+
+        Used by :func:`evaluate_predicate_quality` so latent-aware
+        predicates can be scored against meaningful latent values.
+        Returned list aligns with ``traj.states``; entry ``i`` is the
+        latent *before* predicates are evaluated at state ``i``. If no
+        rules are loaded, every entry is ``None`` so latent-aware
+        classifiers fall back to their default branch.
+        """
+        if not self._process_rules:
+            return [None] * len(traj.states)
+        rules = self._process_rules
+        params = self._fitted_params
+        latent = init_latent(self._latent_init, params)
+        out: List[Optional[Dict[str, Any]]] = [dict(latent)]
+        history: List[Tuple[State, Optional[Action]]] = []
+        for i in range(len(traj.actions)):
+            state = traj.states[i]
+            action = traj.actions[i]
+            history.append((state, action))
+            try:
+                apply_rules_with_latent(state, latent, history, rules, params)
+            except Exception:  # pylint: disable=broad-except
+                # If a rule crashes, fall back to None for the remaining
+                # steps so predicate evaluation continues.
+                out.extend([None] * (len(traj.states) - len(out)))
+                return out
+            out.append(dict(latent))
+        return out
+
+    def _build_latent_combined_simulator(
+            self) -> Callable[[State, Action], State]:
+        """Compose base env + recurrent rules; carry latent on state.latent.
+
+        The latent block rides on the opaque ``State.latent`` field, so
+        backtracking restores it per search node. The simulator reads
+        ``state.latent`` on entry, threads it through the rules, and
+        attaches the updated latent to the returned state. If
+        ``state.latent`` is None (e.g. the very first state), falls back to
+        ``init_latent``. The latent-free ``learned_simulator`` used by
+        :meth:`_build_combined_simulator` is bypassed.
+        """
+        assert self._process_rules is not None, (
+            "_build_latent_combined_simulator called before rules loaded")
+        rules: List = self._process_rules
+        latent_init = self._latent_init
+        # Reference the dict (not its values) so MCMC param updates are
+        # picked up by the closure live.
+        params = self._fitted_params
+
+        def combined_simulate(state: State, action: Action) -> State:
+            # `state` is one sample of the augmented state: observable
+            # features in `.data` + inferred latent dims in `.latent`.
+            # Copy the incoming latent so sibling branches at the same
+            # parent don't share a dict.
+            latent = (dict(state.latent) if state.latent is not None else
+                      init_latent(latent_init, params))
+            try:
+                base_state = self._base_env.simulate(state, action)
+            except pybullet.error as e:
+                logging.warning(
+                    "PyBullet error in recurrent combined_simulate (%s); "
+                    "recreating base env and retrying.", e)
+                self._recreate_base_env()
+                base_state = self._base_env.simulate(state, action)
+            # Single-step history window; rules needing longer context
+            # must accumulate it in ``latent``.
+            history: List[Tuple[State,
+                                Optional[Action]]] = [(base_state, action)]
+            updates = apply_rules_with_latent(base_state, latent, history,
+                                              rules, params)
+            next_state = (merge_updates(base_state, updates)
+                          if updates else base_state)
+            next_state.latent = latent
+            return next_state
+
+        return combined_simulate
 
     # ── Process-feature inference ────────────────────────────────
 
@@ -770,10 +1027,10 @@ files to see exactly which rules and predicates produced each failed plan.
         Execs ``path`` once in a fresh namespace and returns ``(rules,
         specs, features, ns)``, where ``ns`` is that exec namespace so
         callers/subclasses can read extra exports (e.g. ``LATENT_INIT``)
-        without re-execing. ``ns`` is ``None`` only when no exec happened
-        (missing file or exec failure). ``rules``/``specs`` are ``None``
-        when ``PROCESS_RULES``/``PARAM_SPECS`` is absent (the caller
-        treats that as failure); ``features`` may be ``None``
+        without re-execing. ``ns`` is ``None`` only when no exec
+        happened (missing file or exec failure). ``rules``/``specs`` are
+        ``None`` when ``PROCESS_RULES``/``PARAM_SPECS`` is absent (the
+        caller treats that as failure); ``features`` may be ``None``
         independently (``PROCESS_FEATURES`` is then asserted by the
         caller).
         """
@@ -874,7 +1131,14 @@ files to see exactly which rules and predicates produced each failed plan.
 
         Captures ``self`` so the closure can recreate ``_base_env`` and
         retry once on a PyBullet crash (common on macOS Metal + GUI).
+        When the loaded rules carry a latent block (partial
+        observability), delegates to
+        :meth:`_build_latent_combined_simulator`, which threads
+        ``state.latent`` through the recurrent rules instead of the
+        latent-free ``learned_simulator``.
         """
+        if has_latent_rules(self._process_rules or []):
+            return self._build_latent_combined_simulator()
 
         def combined_simulate(state: State, action: Action) -> State:
             try:
