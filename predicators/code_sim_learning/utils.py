@@ -248,35 +248,6 @@ def iter_feature_residuals(
                 )
 
 
-def iter_feature_residuals(
-    triples: Iterable[Tuple[State, State]],
-    feature_scope: Optional[Dict[str, List[str]]] = None,
-) -> Iterator[Tuple[int, Object, str, str, float, float]]:
-    """Yield ``(step_idx, obj, type_name, feat, pred_val, obs_val)``.
-
-    Walks each ``(s_pred, s_obs)`` pair and emits one tuple per
-    ``(object, feature)``. If ``feature_scope`` is provided, only
-    features listed under each type name are emitted; otherwise every
-    feature in the type's ``feature_names`` is emitted. Used by both the
-    residual-based feature-discovery scan and the per-feature residual
-    report so the two stay in sync.
-    """
-    for i, (s_pred, s_obs) in enumerate(triples):
-        for obj in s_pred:
-            tn = obj.type.name
-            feats: Sequence[str] = (feature_scope.get(tn, []) if feature_scope
-                                    is not None else obj.type.feature_names)
-            for feat in feats:
-                yield (
-                    i,
-                    obj,
-                    tn,
-                    feat,
-                    float(s_pred.get(obj, feat)),
-                    float(s_obs.get(obj, feat)),
-                )
-
-
 # ── Module-namespace loader ───────────────────────────────────────
 
 
