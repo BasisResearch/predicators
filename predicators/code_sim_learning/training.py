@@ -130,6 +130,7 @@ def compute_sse_recurrent(
     # pylint: disable=import-outside-toplevel
     from predicators.code_sim_learning.utils import apply_rules_with_latent, \
         init_latent
+
     # pylint: enable=import-outside-toplevel
 
     total_se = 0.0

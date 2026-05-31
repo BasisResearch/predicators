@@ -639,7 +639,7 @@ class DerivedPredicate(Predicate):
                 return False
         return True
 
-    def holds(  # type: ignore[override]
+    def holds(  # type: ignore[override]  # pylint: disable=arguments-differ
             self, state: Set[GroundAtom], objects: Sequence[Object]) -> bool:
         """Public method for calling the classifier.
 
@@ -774,7 +774,7 @@ class ConceptPredicate(Predicate):
     def __hash__(self) -> int:
         return self._hash
 
-    def holds(  # type: ignore[override]
+    def holds(  # type: ignore[override]  # pylint: disable=arguments-differ
             self, state: Set[GroundAtom], objects: Sequence[Object]) -> bool:
         """Public method for calling the classifier.
 

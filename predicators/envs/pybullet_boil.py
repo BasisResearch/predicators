@@ -596,10 +596,11 @@ class PyBulletBoilEnv(PyBulletEnv):
                 if not CFG.partially_observable:
                     return 0.0
                 h = obj.heat_level
-                if h != h:  # NaN guard
+                if np.isnan(h):  # NaN guard
                     return 0.0
                 return float(
-                    max(0.0,
+                    max(
+                        0.0,
                         min(1.0, (h - self.BUBBLING_THRESHOLD) *
                             self.BUBBLING_RAMP)))
 
@@ -1454,9 +1455,10 @@ class PyBulletBoilEnv(PyBulletEnv):
                 # hidden heat without leaking it into the observation.
                 init_state.privileged = {
                     j.name: {
-                        "heat_level": init_dict[j]["heat_level"]
+                        "heat_level": feats["heat_level"]
                     }
-                    for j in init_dict if j.type == self._jug_type
+                    for j, feats in init_dict.items()
+                    if j.type == self._jug_type
                 }
 
             # Example goal: Water boiled, no water spilled, etc.
