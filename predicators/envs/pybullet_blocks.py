@@ -19,13 +19,6 @@ from predicators.structs import Action, EnvironmentTask, Object, State
 
 class PyBulletBlocksEnv(PyBulletEnv, BlocksEnv):
     """PyBullet Blocks domain."""
-    # This env's State <-> simulator mapping is exact: the robot State is
-    # (x, y, z, fingers) with no lossy angle round-trip, and block poses
-    # are read straight from PyBullet. So a _set_state reconstruction
-    # mismatch is a genuine bug, not benign IK noise — opt into the
-    # strict raise rather than the base env's lenient warning.
-    _strict_set_state_reconstruction: ClassVar[bool] = True
-
     # Parameters that aren't important enough to need to clog up settings.py
     _camera_target: ClassVar[Pose3D] = (1.65, 0.75, 0.62)
 

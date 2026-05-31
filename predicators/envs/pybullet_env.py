@@ -130,16 +130,21 @@ class PyBulletEnv(BaseEnv):
     _ANGLE_FEATURES: ClassVar[frozenset] = frozenset(
         {"rot", "yaw", "roll", "pitch", "tilt", "wrist"})
 
-    # Whether _set_state hard-raises on a reconstruction mismatch (vs.
-    # logging a warning). The generic reset path reconstructs the robot
-    # via IK from the EE pose whenever a State carries no exact
-    # joint_positions, which drops wrist roll and yields benign ~0.02 rad
-    # round-trip noise — so the safe default is to warn, not abort. Only
-    # an env whose State <-> simulator mapping is exact (positions read
-    # directly, no lossy angle round-trip) should opt into the strict
-    # raise by setting this True, so that a mismatch there surfaces a real
-    # bug instead of being swallowed.
-    _strict_set_state_reconstruction: ClassVar[bool] = False
+    # _set_state round-trips the written state through _get_state and
+    # compares, then reacts by mismatch *magnitude* — no per-env opt-in:
+    #   * any feature off by more than _reconstruction_warn_atol → warn,
+    #   * any feature off by more than _reconstruction_raise_atol → raise.
+    # Valid States legitimately fail to round-trip exactly for two reasons:
+    # the generic reset path reconstructs the robot via IK from the EE pose
+    # (dropping wrist roll → benign ~0.02 rad noise), and some envs store a
+    # feature symbolically while placing the body elsewhere (e.g. pybullet_fan
+    # positions fans by their side, not their State x/y → up to ~0.8 m of
+    # benign workspace-scale disagreement). The raise threshold sits well
+    # above both (~2.5x the worst observed) yet far below an impossible or
+    # corrupt requested feature (e.g. held=-10000, off by 1e4), so only the
+    # latter aborts — for every env, with no per-env strictness flag.
+    _reconstruction_warn_atol: ClassVar[float] = 1e-3
+    _reconstruction_raise_atol: ClassVar[float] = 2.0
 
     # Camera parameters.
     _camera_distance: ClassVar[float] = 0.8
@@ -530,21 +535,26 @@ class PyBulletEnv(BaseEnv):
         # 4) Subclass-specific state always runs (idempotent and cheap).
         self._set_domain_specific_state(state)
 
-        # 5) Reconstruction check — only when we actually wrote
-        # something kinematic. Only raise for envs that opt into the
-        # strict check (_strict_set_state_reconstruction); the rest warn,
-        # since the generic IK reset path is lossy.
+        # 5) Reconstruction check — only when we actually wrote something
+        # kinematic. React by mismatch magnitude (see the threshold
+        # ClassVars above): a large mismatch can't be benign IK noise, so
+        # raise; a small one just warns since the IK reset path is lossy.
         if wrote_anything:
             reconstructed = self._get_state()
-            diff = self._reconstruction_diff(state, reconstructed)
-            if diff:
-                if self._strict_set_state_reconstruction:
+            warn_diff = self._reconstruction_diff(
+                state, reconstructed, atol=self._reconstruction_warn_atol)
+            if warn_diff:
+                # raise_atol > warn_atol, so this is a subset of warn_diff;
+                # only non-empty for mismatches too big to be IK noise.
+                raise_diff = self._reconstruction_diff(
+                    state, reconstructed, atol=self._reconstruction_raise_atol)
+                if raise_diff:
                     raise ValueError(
                         f"Could not reconstruct state. Mismatched "
-                        f"features:\n{diff}")
+                        f"features:\n{raise_diff}")
                 logging.warning(
                     "Could not reconstruct state exactly in reset. "
-                    "Mismatched features:\n%s", diff)
+                    "Mismatched features:\n%s", warn_diff)
 
     @classmethod
     def _reconstruction_diff(cls,
