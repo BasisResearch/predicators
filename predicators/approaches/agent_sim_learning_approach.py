@@ -17,6 +17,7 @@ Example command::
         --num_online_learning_cycles 5 --explorer agent_plan
 """
 
+import copy
 import inspect
 import logging
 import os
@@ -857,10 +858,12 @@ the tools."""
         def combined_simulate(state: State, action: Action) -> State:
             # `state` is one sample of the augmented state: observable
             # features in `.data` + inferred latent dims in `.latent`.
-            # Copy the incoming latent so sibling branches at the same
-            # parent don't share a dict.
-            latent = (dict(state.latent) if state.latent is not None else
-                      init_latent(latent_init, params))
+            # Deep-copy the incoming latent so this call can't mutate the
+            # caller's state and sibling branches at the same parent stay
+            # independent. The latent nests a per-jug dict, so a shallow
+            # ``dict(...)`` would still alias (and clobber) it.
+            latent = (copy.deepcopy(state.latent) if state.latent is not None
+                      else init_latent(latent_init, params))
             try:
                 base_state = self._base_env.simulate(state, action)
             except pybullet.error as e:
