@@ -35,7 +35,8 @@ Required overrides in subclasses:
 
 import abc
 import logging
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, cast
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple, \
+    cast
 
 import matplotlib
 import numpy as np
@@ -129,6 +130,21 @@ class PyBulletEnv(BaseEnv):
     # _get_state's wrist=-1.60 without firing the reconstruction warning.
     _ANGLE_FEATURES: ClassVar[frozenset] = frozenset(
         {"rot", "yaw", "roll", "pitch", "tilt", "wrist"})
+
+    # Euler-angle features that jointly encode one full 3D orientation must
+    # be compared as a *rotation*, not axis-by-axis. At gimbal lock (e.g. the
+    # EE pointing straight down, tilt=±π/2) the individual angles are
+    # numerically degenerate — only the rotation they jointly encode is
+    # meaningful — so an axis-by-axis compare reports up to π of spurious
+    # error on the *same* physical orientation (a different but equivalent
+    # gimbal-lock branch). (roll, tilt, wrist) is the robot EE orientation,
+    # built by _extract_robot_state via getQuaternionFromEuler([roll, tilt,
+    # wrist]); it is the only free-SO(3) triple here (only the robot carries
+    # tilt/wrist). _reconstruction_diff groups these and compares the
+    # geodesic angle between the two rotations instead of each axis.
+    _ORIENTATION_EULER_TRIPLES: ClassVar[Tuple[Tuple[str, str, str],
+                                               ...]] = (("roll", "tilt",
+                                                         "wrist"), )
 
     # _set_state round-trips the written state through _get_state and
     # compares, then reacts by mismatch *magnitude* — no per-env opt-in:
@@ -570,9 +586,14 @@ class PyBulletEnv(BaseEnv):
         scannable. Returns an empty string when no feature exceeds
         ``atol`` and the object set matches.
 
-        Angle features (see ``_ANGLE_FEATURES``) are compared modulo 2π
-        so a wrist value of 4.68 matches a reconstructed -1.60 (same
-        physical orientation, different euler representation).
+        Single angle features (see ``_ANGLE_FEATURES``) are compared modulo
+        2π so a wrist value of 4.68 matches a reconstructed -1.60 (same
+        physical orientation, different euler representation). Features that
+        jointly form a full orientation (see ``_ORIENTATION_EULER_TRIPLES``)
+        are instead compared as a rotation — the geodesic angle between the
+        two — which is gimbal-lock safe: at tilt=±π/2 the per-axis split of
+        roll/wrist is degenerate, so an axis-by-axis compare would report up
+        to π of spurious error on the same physical orientation.
         """
         req_objs = set(requested.data)
         rec_objs = set(reconstructed.data)
@@ -585,7 +606,9 @@ class PyBulletEnv(BaseEnv):
         if only_in_rec:
             rows.append(f"  objects only in reconstructed: "
                         f"{sorted(o.name for o in only_in_rec)}")
-        feature_diffs: List[Tuple[float, str, str, float, float]] = []
+        # (sort_key, formatted_row); orientation-triple and per-feature diffs
+        # share one sorted, truncated list so the worst mismatch leads.
+        feature_diffs: List[Tuple[float, str]] = []
         for obj in req_objs & rec_objs:
             req_vals = requested.data[obj]
             rec_vals = reconstructed.data[obj]
@@ -594,7 +617,29 @@ class PyBulletEnv(BaseEnv):
                             f"requested={len(req_vals)} "
                             f"reconstructed={len(rec_vals)}")
                 continue
-            for i, feat in enumerate(obj.type.feature_names):
+            features = obj.type.feature_names
+            # Compare any full Euler orientation triple as one rotation
+            # (gimbal-lock safe); its constituent angles are then excluded
+            # from the axis-by-axis pass below.
+            handled: Set[str] = set()
+            for triple in cls._ORIENTATION_EULER_TRIPLES:
+                if not set(triple).issubset(features):
+                    continue
+                idx = [features.index(f) for f in triple]
+                req_eul = [float(req_vals[j]) for j in idx]
+                rec_eul = [float(rec_vals[j]) for j in idx]
+                angle = cls._euler_orientation_angle(req_eul, rec_eul)
+                handled.update(triple)
+                if angle > atol:
+                    axes = ", ".join(
+                        f"{f}={r:.6f}->{c:.6f}"
+                        for f, r, c in zip(triple, req_eul, rec_eul))
+                    feature_diffs.append(
+                        (angle, f"  {obj.name}.<orientation>: "
+                         f"Δangle={angle:.6f} rad ({axes})"))
+            for i, feat in enumerate(features):
+                if feat in handled:
+                    continue
                 req_v = float(req_vals[i])
                 rec_v = float(rec_vals[i])
                 if feat in cls._ANGLE_FEATURES:
@@ -603,16 +648,34 @@ class PyBulletEnv(BaseEnv):
                 else:
                     delta = rec_v - req_v
                 if abs(delta) > atol:
-                    feature_diffs.append(
-                        (abs(delta), obj.name, feat, req_v, rec_v))
-        feature_diffs.sort(reverse=True)
-        for _absdelta, name, feat, req, rec in feature_diffs[:max_lines]:
-            rows.append(f"  {name}.{feat}: requested={req:.6f} "
-                        f"reconstructed={rec:.6f} (Δ={rec - req:+.6f})")
+                    feature_diffs.append((abs(delta), f"  {obj.name}.{feat}: "
+                                          f"requested={req_v:.6f} "
+                                          f"reconstructed={rec_v:.6f} "
+                                          f"(Δ={rec_v - req_v:+.6f})"))
+        feature_diffs.sort(key=lambda d: d[0], reverse=True)
+        for _key, row in feature_diffs[:max_lines]:
+            rows.append(row)
         if len(feature_diffs) > max_lines:
             rows.append(f"  ... and {len(feature_diffs) - max_lines} "
                         f"more features over the {atol:g} tolerance")
         return "\n".join(rows)
+
+    @staticmethod
+    def _euler_orientation_angle(euler_a: Sequence[float],
+                                 euler_b: Sequence[float]) -> float:
+        """Geodesic angle in radians (``[0, π]``) between the two rotations
+        given as extrinsic-XYZ euler triples.
+
+        Representation-invariant: two euler triples encoding the same
+        rotation — including different gimbal-lock branches, e.g.
+        (roll=2.42, tilt=π/2, wrist=-0.71) vs (roll=0, tilt=π/2,
+        wrist=-3.13) — return ~0. Computed as the angle between the unit
+        quaternions, taking the smaller of q and -q (double cover).
+        """
+        q_a = np.array(p.getQuaternionFromEuler(list(euler_a)))
+        q_b = np.array(p.getQuaternionFromEuler(list(euler_b)))
+        dot = float(np.clip(abs(float(np.dot(q_a, q_b))), 0.0, 1.0))
+        return float(2.0 * np.arccos(dot))
 
     def _robot_matches_state(self, state: State, atol: float = 1e-3) -> bool:
         """True if PyBullet's live robot pose already equals state's.
