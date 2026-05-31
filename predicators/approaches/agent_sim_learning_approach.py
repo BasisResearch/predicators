@@ -1395,6 +1395,118 @@ the run looks like a rule bug but is actually a missing subgoal. For \
 `Wait`, the annotation also specifies when the wait should terminate; \
 prefix an atom with `NOT` if it should become false.
 
+Bounds shape both the MCMC prior and the warm-start clamp. Set `lo=0.0` \
+for non-negative rates, etc.
+
+### Pre-injected when `simulator.py` is exec'd
+
+`numpy as np`, `ParamSpec`. Import anything else at the top of the file. \
+The data classes (`State`, `Object`, `Action`, ...) come from \
+`predicators.structs`; source is in the reference file linked in the \
+first message.
+
+## Tools
+
+`Write` / `Edit` `simulator.py` is your normal coding loop. Every \
+successful write is snapshotted to \
+`simulator_versions/cycle_XXX_vers_YYY_simulator.py` (deduped by \
+content; ``XXX`` is the current cycle, ``YYY`` resets per cycle). The \
+synthesis tools below load the file fresh on every call and prefix \
+their output with `[cycle_XXX_vers_YYY]` so you and reviewers can diff \
+iterations.
+
+- `run_python(code)` — ad-hoc data exploration. `trajectories`, `np`, \
+`ParamSpec` in scope. **Does not** define rules.
+- `evaluate_step_fit` — per-step prediction accuracy: SSE on the step \
+transitions at `init_value` params, plus post-fit SSE and fitted \
+parameters from a parameter fit. Cheap; the inner-loop signal.
+- `report_residuals` — per-feature breakdown: mismatch counts, mean / \
+max abs error, vs-baseline improvement (negative ⇒ rules are adding \
+error), worst-N example transitions. Diagnostic for *which* rule to fix.
+- `evaluate_plan_refinement(plan, task_idx)` — per-task planning \
+success: MCMC-fits, builds the combined simulator, runs backtracking \
+refinement against a plan **you propose** (see "Plan format" below), \
+**and then forward-validates that refined plan continuously** (state \
+carries forward across all options, single shot per step). Reports \
+both verdicts. A SUCCESS line followed by `Forward validation: FAIL` \
+counts as a failure — see "Refinement vs. forward validation" below. \
+Slow; the gate before declaring done.
+
+`evaluate_step_fit` and `evaluate_plan_refinement` test complementary \
+things — pointwise accuracy vs. goal reachability. A rule can have \
+ε-small SSE and still get a saturation threshold or alignment cap *just* \
+wrong enough that refinement can't satisfy a subgoal. Use step-fit + \
+residuals as the fast inner loop and plan-refinement as the slow \
+goal-relevant gate.
+
+### Refinement vs. forward validation (read before tuning a threshold)
+
+`evaluate_plan_refinement` runs two checks under the same option model. \
+Refinement samples continuous params with up to 50 attempts per \
+parametric step and snapshots state at each backtrack — failures are \
+isolated per step. Forward validation runs the refined plan once, \
+continuously, with state carrying forward across all options — \
+matching how test time will execute it. Any divergence between the \
+two indicates the learned model is *more permissive* than the env's \
+effective behavior: refinement's looser gates accept a Place/Wait \
+that the env-driven rollout won't actually achieve.
+
+When you see `Forward validation: FAIL`, the failure mode is almost \
+always one of these:
+
+1. **A learned gate threshold is wider than the env's effective \
+threshold.** Example: env's heat rule only fires when jug-to-burner \
+distance < 0.05, but you set `jug_at_burner_dist = 0.063` for "safety \
+margin". Refinement accepts a Place at distance 0.05–0.063 (your \
+`JugAtBurner` predicate is true and your learned heat rule fires); \
+forward validation runs the same Place, the env's heat rule never \
+fires (distance > env threshold), and Wait runs to its step cap \
+without WaterBoiled holding. **Fix:** tighten the gate to match the \
+env's empirical boundary, do not widen for slack.
+2. **A wait-termination cutoff fires before the env-side feature \
+catches up.** Example: `WaterBoiled = heat_level >= 0.99` fires at \
+the learned simulator's step 34 (heat=0.9996), but the env's \
+goal-check requires `heat >= 1.0` — refinement's subgoal passes, but \
+the final-state goal check on env state fails. **Fix:** align the \
+predicate's cutoff with the env's effective cutoff, *and* confirm by \
+re-running plan refinement after the change.
+
+**Rule of thumb:** when in doubt, *tighten* learned thresholds toward \
+the env's empirical boundary, never loosen them. Widening hides \
+discrepancies during refinement and reveals them at test time as \
+0-solve regressions.
+__SYNTHESIS_PROMPT_EXTRA__
+## Plan format for `evaluate_plan_refinement`
+
+One option call per line, **with every option argument supplied and using \
+typed object references** (`obj:type`), matching exactly what the inspect \
+tools report. Use the inspect tools (or `run_python` over a trajectory) to \
+read off the right names and arities — the parser is strict and silently \
+omitting an argument will not be auto-filled. Example:
+
+```
+PickWidget(robot:robot, widget0:widget)
+Place(robot:robot) -> {WidgetAtFixture(widget0:widget, fixture0:fixture)}
+ActivateFixture(robot:robot, fixture0:fixture)
+Wait(robot:robot) -> {WidgetReady(widget0:widget)}
+...
+```
+
+(The names above are illustrative — use whatever options, types, and \
+predicates the inspect tools actually report for your task.) Insert a \
+`Wait` after any action that triggers a delayed process (gradual \
+accumulation, propagation, sensor catch-up) so your rules have steps to \
+fire on.
+
+**Subgoal annotations** (`-> {Atom(obj:type, ...)}` after a step) are \
+optional in general but **effectively required after open-ended skills \
+like `Place`**. Without one the backtracking search has no preference for \
+*where* to put the object, so a `Place; Wait` pair will refine cleanly \
+but skip past the relevant target location and your rules never fire — \
+the run looks like a rule bug but is actually a missing subgoal. For \
+`Wait`, the annotation also specifies when the wait should terminate; \
+prefix an atom with `NOT` if it should become false.
+
 ## Workflow
 
 1. Explore data with `run_python` — what features change per step, \
