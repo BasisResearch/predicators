@@ -103,7 +103,7 @@ APPROACHES:
   #     agent_sim_learn_oracle_sim_params: True
   #     num_online_learning_cycles: 0
   agent_po_predicate_invention:
-    NAME: "agent_sim_recurrent_predicate_invention"
+    NAME: "agent_po_sim_predicate_invention"
     FLAGS:
       demonstrator: "oracle_process_planning"
       explorer: "agent_bilevel"

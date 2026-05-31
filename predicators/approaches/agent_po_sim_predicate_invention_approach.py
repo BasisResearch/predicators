@@ -1,5 +1,4 @@
-"""Recurrent (partial-observability) sim-learning + predicate-invention
-approach.
+"""Partial-observability (PO) sim-learning + predicate-invention approach.
 
 Extends ``AgentSimPredicateInventionApproach`` to handle envs where
 some causally-important features are hidden in the agent-visible
@@ -48,7 +47,7 @@ is passed, so the same classifier is correct during
 Example command::
 
     python predicators/main.py --env pybullet_boil \
-        --approach agent_sim_recurrent_predicate_invention --seed 0 \
+        --approach agent_po_sim_predicate_invention --seed 0 \
         --num_train_tasks 10 --num_test_tasks 5 \
         --partially_observable True \
         --num_online_learning_cycles 2 --explorer agent_plan
@@ -60,8 +59,7 @@ from predicators.approaches.agent_sim_predicate_invention_approach import \
     AgentSimPredicateInventionApproach
 
 
-class AgentSimRecurrentPredicateInventionApproach(
-        AgentSimPredicateInventionApproach):
+class AgentPOSimPredicateInventionApproach(AgentSimPredicateInventionApproach):
     """Partial-observability variant: rules carry a `latent` block across
     steps.
 
@@ -76,7 +74,7 @@ class AgentSimRecurrentPredicateInventionApproach(
 
     @classmethod
     def get_name(cls) -> str:
-        return "agent_sim_recurrent_predicate_invention"
+        return "agent_po_sim_predicate_invention"
 
     # ── Prompt overrides ─────────────────────────────────────────
 

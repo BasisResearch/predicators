@@ -3162,7 +3162,7 @@ def abstract(state: State,
     atoms), using the given set of predicates.
 
     Duplicate arguments in predicates are allowed. Latent-aware
-    classifiers (`agent_sim_recurrent_predicate_invention`) read their
+    classifiers (`agent_po_sim_predicate_invention`) read their
     latent from `state.latent` via `Predicate.holds` — abstract itself
     does nothing extra to support them.
     """

@@ -273,7 +273,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
         """Hook for partial-observability approaches to seed the latent.
 
         Subclasses that thread a ``latent`` state block through the
-        simulator (e.g. ``AgentSimRecurrentPredicateInventionApproach``)
+        simulator (e.g. ``AgentPOSimPredicateInventionApproach``)
         override this to attach an initial latent to
         ``task.init.latent`` before refinement begins. The default
         returns ``task`` unchanged — fully-observable approaches need do

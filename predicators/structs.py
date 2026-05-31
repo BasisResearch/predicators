@@ -501,7 +501,7 @@ class Predicate:
         Performs type checking first. `latent` is the sample's latent
         state-feature block, threaded by approaches that learn over
         partially-observable envs (see
-        `agent_sim_recurrent_predicate_invention`). When the caller does
+        `agent_po_sim_predicate_invention`). When the caller does
         not pass `latent` explicitly, the block attached to
         `state.latent` is used (so callers like `utils.abstract` do not
         need to know about the recurrent extension). Classifiers that
