@@ -78,6 +78,17 @@ class AgentPOSimPredicateInventionApproach(AgentSimPredicateInventionApproach):
 
     # ── Prompt overrides ─────────────────────────────────────────
 
+    def _rule_signature_section(self) -> str:
+        # Present only the recurrent 5-arg signature as canonical, so the
+        # PO prompt never advertises the 3-arg form the recurrent engine
+        # rejects. Full latent modelling guidance is in the appended
+        # "## Recurrent rules (partial observability)" section.
+        return _PO_RULE_SIGNATURE_SECTION
+
+    def _process_rule_signature(self) -> str:
+        # Keep the geometric-gate worked example on the same 5-arg shape.
+        return "def process_rule(state, latent, history, updates, params):"
+
     def _extra_synthesis_system_prompt(self) -> str:
         base = super()._extra_synthesis_system_prompt()
         return base + "\n\n" + _RECURRENT_PROMPT_SECTION
@@ -86,6 +97,34 @@ class AgentPOSimPredicateInventionApproach(AgentSimPredicateInventionApproach):
         base = super()._extra_synthesis_message(extra_paths)
         return base + "\n\n" + _RECURRENT_MESSAGE_SECTION
 
+
+_PO_RULE_SIGNATURE_SECTION = '''\
+### Rule signature
+
+This is a **partial-observability** task. Write every rule with the
+recurrent 5-arg signature below — the 2nd parameter MUST be named
+`latent` (the engine inspects each rule's signature and threads the
+latent block / read-only history only into rules that declare it):
+
+```python
+def rule(state, latent, history, updates, params):
+    # state:   the current env State (observable features only)
+    # latent:  Dict[str, Any], mutated in place — the hidden dims you
+    #          infer, threaded across steps (see "Recurrent rules" below)
+    # history: List[Tuple[State, Optional[Action]]], read-only; newest last
+    # updates: Dict[Object, Dict[str, float]] accumulated from prior rules
+    # params:  Dict[str, float], one entry per ParamSpec
+    #
+    # Accumulate, don't replace:
+    #     updates.setdefault(obj, {})[feat] = new_value
+    # Return the same dict.
+    ...
+```
+
+A rule that needs no hidden state can ignore its `latent`/`history`
+args, but keep the 5-arg shape so the tools and the fitting engine call
+every rule the same way. See "## Recurrent rules (partial observability)"
+below for `LATENT_INIT` and the two latent-modelling patterns.'''
 
 _RECURRENT_PROMPT_SECTION = """\
 ## Recurrent rules (partial observability)
@@ -99,9 +138,10 @@ features evolve. Inspect the trajectories first to judge how many
 latents (if any) you need: a feature that drifts or ramps with no
 visible observed driver is likely downstream of an accumulating
 latent; if every observable is already explained by other observed
-quantities, you need no latent at all (write ordinary 3-arg rules).
-One common case: a hidden continuous quantity surfaced only through a
-derived observable that ramps once the latent crosses a threshold.
+quantities, you need no latent at all — keep the 5-arg signature and
+simply leave `latent` untouched. One common case: a hidden continuous
+quantity surfaced only through a derived observable that ramps once the
+latent crosses a threshold.
 
 Model the hidden state explicitly: each ``State`` you predict is one
 sample of an *augmented* state — observable features in ``state.data``
@@ -132,8 +172,9 @@ LATENT_INIT = {"level": 0.0, "count": 0}
 # Use ParamSpec("name", ...) values to make an init value learnable.
 ```
 
-Legacy 3-arg `rule(state, updates, params)` rules still work — the
-engine inspects each rule's signature. Mix both styles freely.
+Every rule uses this 5-arg signature, so the tools and the fitting
+engine call them all the same way. A rule that needs no hidden state
+simply ignores its `latent`/`history` arguments.
 
 The type, feature, latent, and parameter names in the examples below
 (`widget`, `fixture`, `progress`, `level`, ...) are illustrative — use

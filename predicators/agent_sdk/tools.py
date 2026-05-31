@@ -2358,9 +2358,11 @@ def create_synthesis_tools(
         AgentSimLearningApproach
     from predicators.code_sim_learning.synthesis_validation import \
         run_refinement_for_synthesis
-    from predicators.code_sim_learning.training import ParamSpec, compute_sse
+    from predicators.code_sim_learning.training import ParamSpec, \
+        compute_sse, compute_sse_recurrent
     from predicators.code_sim_learning.utils import apply_rules, \
-        iter_feature_residuals, merge_updates, read_simulator_components
+        has_latent_rules, iter_feature_residuals, read_latent_init, \
+        read_simulator_components, rollout_predictions
 
     # pylint: enable=import-outside-toplevel
 
@@ -2401,33 +2403,55 @@ def create_synthesis_tools(
 
     _text = _text_result
 
-    def _snapshot_and_load(path: str) -> Tuple[Any, Any, Any, Any, Any]:
+    def _snapshot_and_load(path: str) -> Tuple[Any, Any, Any, Any, Any, Any]:
         """Snapshot ``path`` then exec it into a fresh namespace.
 
-        Returns ``(rules, specs, features, version_tag, error_msg)``;
-        ``error_msg`` is ``None`` on success. Snapshots are deduped by
-        SHA256, so repeated calls on unchanged content reuse the prior
-        ``cycle_XXX_vers_YYY`` tag.
+        Returns ``(rules, specs, features, latent_init, version_tag,
+        error_msg)``; ``error_msg`` is ``None`` on success.
+        ``latent_init`` is the optional ``LATENT_INIT`` export (``None``
+        for fully- observable simulators) — the synthesis tools need it
+        to score recurrent (5-arg) rules through the latent-threaded
+        path. Snapshots are deduped by SHA256, so repeated calls on
+        unchanged content reuse the prior ``cycle_XXX_vers_YYY`` tag.
         """
         raw, version_tag, err = _snapshotter.snapshot(path)
         if err is not None:
-            return None, None, None, None, err
+            return None, None, None, None, None, err
         assert raw is not None and version_tag is not None
         ns: Dict[str, Any] = {"np": np, "ParamSpec": ParamSpec}
         try:
             exec(raw.decode("utf-8"), ns)  # pylint: disable=exec-used
         except Exception:  # pylint: disable=broad-except
-            return None, None, None, version_tag, (
+            return None, None, None, None, version_tag, (
                 f"[{version_tag}] Error executing {path}:\n"
                 f"{traceback.format_exc()}")
         rules, specs, features = read_simulator_components(ns)
+        latent_init = read_latent_init(ns)
         if rules is None:
-            return None, None, None, version_tag, (
+            return None, None, None, None, version_tag, (
                 f"[{version_tag}] PROCESS_RULES missing or empty in {path}.")
         if specs is None:
-            return None, None, None, version_tag, (
+            return None, None, None, None, version_tag, (
                 f"[{version_tag}] PARAM_SPECS missing or empty in {path}.")
-        return rules, specs, features, version_tag, None
+        return rules, specs, features, latent_init, version_tag, None
+
+    def _groups_for(triples: list) -> List[List[Tuple[Any, Any, Any]]]:
+        """Slice flat base-pred triples into per-trajectory groups.
+
+        Recurrent rules thread their latent block within a trajectory,
+        so scoring/residuals must regroup the flat triples the same way
+        the engine does. Reuses the bound approach's grouping (keyed off
+        the same ``_fit_trajectories`` cache the engine uses); falls
+        back to a single group when no approach is bound or the lengths
+        don't line up — correct for the common single-demo case.
+        """
+        if approach is not None and hasattr(approach,
+                                            "_group_triples_by_trajectory"):
+            grouped = approach._group_triples_by_trajectory(  # pylint: disable=protected-access
+                triples)
+            if grouped:
+                return grouped
+        return [triples]
 
     # ── run_python ──────────────────────────────────────────
 
@@ -2541,7 +2565,8 @@ def create_synthesis_tools(
     )
     async def evaluate_step_fit(args: Dict[str, Any]) -> Dict[str, Any]:
         path = args.get("path") or simulator_file
-        rules, specs, declared, version_tag, err = _snapshot_and_load(path)
+        rules, specs, declared, latent_init, version_tag, err = \
+            _snapshot_and_load(path)
         if err:
             return _text(err)
 
@@ -2550,26 +2575,44 @@ def create_synthesis_tools(
         scope_note = ("declared" if isinstance(declared, dict) else
                       "inferred (PROCESS_FEATURES not declared)")
 
+        # Dispatch on the rule signature exactly as the fitting engine
+        # does: recurrent (5-arg, latent-declaring) rules are scored with
+        # the latent block threaded per trajectory, never through the
+        # legacy per-transition path (which would call them with 3 args).
+        latent_mode = has_latent_rules(rules)
         init_params = {s.name: s.init_value for s in specs}
-        sim_fn = lambda s, _a, p: apply_rules(s, rules, p)  # noqa: E731
         try:
-            pre_sse = compute_sse(sim_fn, base_pred_triples, init_params,
-                                  process_features)
+            if latent_mode:
+                groups = _groups_for(base_pred_triples)
+                pre_sse = compute_sse_recurrent(rules, groups, init_params,
+                                                latent_init, process_features)
+            else:
+                sim_fn = lambda s, _a, p: apply_rules(  # noqa: E731
+                    s, rules, p)
+                pre_sse = compute_sse(sim_fn, base_pred_triples, init_params,
+                                      process_features)
         except Exception as e:  # pylint: disable=broad-except
             return _text(
                 f"[{version_tag}] Error: SSE computation failed:\n{e}")
 
+        sig_note = ("recurrent (latent threaded per trajectory)"
+                    if latent_mode else "per-transition")
         lines = [
             f"[{version_tag}] Fit evaluation on {len(base_pred_triples)} "
-            f"step transitions (scope: {scope_note}).",
+            f"step transitions (scope: {scope_note}; rules: {sig_note}).",
             "",
             f"At init_value params:  SSE = {pre_sse:.6f}",
         ]
 
         try:
-            fitted_params, post_sse = (
-                AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
-                    rules, specs, base_pred_triples, process_features))
+            if latent_mode:
+                fitted_params, post_sse = (
+                    AgentSimLearningApproach._fit_parameters_latent(  # pylint: disable=protected-access
+                        rules, specs, groups, latent_init, process_features))
+            else:
+                fitted_params, post_sse = (
+                    AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
+                        rules, specs, base_pred_triples, process_features))
         except Exception as e:  # pylint: disable=broad-except
             return _text(f"[{version_tag}] Error: fit_params failed:\n{e}")
         if pre_sse > 0:
@@ -2653,7 +2696,8 @@ def create_synthesis_tools(
     )
     async def report_residuals(args: Dict[str, Any]) -> Dict[str, Any]:
         path = args.get("path") or simulator_file
-        rules, specs, declared, version_tag, err = _snapshot_and_load(path)
+        rules, specs, declared, latent_init, version_tag, err = \
+            _snapshot_and_load(path)
         if err:
             return _text(err)
 
@@ -2668,12 +2712,22 @@ def create_synthesis_tools(
         n_examples = int(args.get("num_worst_examples", 3))
         do_fit = bool(args.get("fit_params", False))
 
-        pairs = base_pred_triples[:max_n]
+        # Same engine-matching dispatch as evaluate_step_fit: recurrent
+        # rules are fit and rolled out with the latent threaded per
+        # trajectory, never called per-transition with 3 args.
+        latent_mode = has_latent_rules(rules)
+        groups = _groups_for(base_pred_triples)
         if do_fit:
             try:
-                t_params, _ = (
-                    AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
-                        rules, specs, base_pred_triples, process_features))
+                if latent_mode:
+                    t_params, _ = (
+                        AgentSimLearningApproach._fit_parameters_latent(  # pylint: disable=protected-access
+                            rules, specs, groups, latent_init,
+                            process_features))
+                else:
+                    t_params, _ = (
+                        AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
+                            rules, specs, base_pred_triples, process_features))
                 param_label = "fitted"
             except Exception as e:  # pylint: disable=broad-except
                 return _text(
@@ -2682,14 +2736,18 @@ def create_synthesis_tools(
             t_params = {s.name: s.init_value for s in specs}
             param_label = "init_value"
 
-        triples_rules: List = []
-        triples_base: List = []
-        for base_state, _action, s_next_obs in pairs:
-            updates = apply_rules(base_state, rules, t_params)
-            s_pred_rules = (merge_updates(base_state, updates)
-                            if updates else base_state)
-            triples_rules.append((s_pred_rules, s_next_obs))
-            triples_base.append((base_state, s_next_obs))
+        # Predicted next states, latent threaded per trajectory for
+        # recurrent rules (legacy rules roll each transition independently).
+        # Roll out all groups in flat order, then truncate to max_n so the
+        # reported step indices line up with the flat triples slice below.
+        try:
+            all_preds = rollout_predictions(rules, t_params, groups,
+                                            latent_init)
+        except Exception as e:  # pylint: disable=broad-except
+            return _text(f"[{version_tag}] Error: rule rollout failed:\n{e}")
+        triples_rules: List = all_preds[:max_n]
+        triples_base: List = [(bs, sn)
+                              for bs, _a, sn in base_pred_triples[:max_n]]
 
         # Per-feature accumulators keyed by (type_name, feat_name).
         rule_n_total: Dict = defaultdict(int)
@@ -2725,7 +2783,7 @@ def create_synthesis_tools(
             return _text(f"[{version_tag}] PROCESS_FEATURES is empty; "
                          "nothing to report.")
 
-        n_steps = len(pairs)
+        n_steps = len(triples_rules)
         perfect_steps = n_steps - len(mismatched_steps)
         lines = [
             f"[{version_tag}] Residual report — {n_steps} step transitions, "
@@ -2864,7 +2922,8 @@ def create_synthesis_tools(
                          "(no approach instance bound to the tool).")
 
         path = args.get("path") or simulator_file
-        rules, specs, declared, version_tag, err = _snapshot_and_load(path)
+        rules, specs, declared, _latent_init, version_tag, err = \
+            _snapshot_and_load(path)
         if err:
             return _text(err)
 
