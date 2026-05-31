@@ -226,4 +226,11 @@ class PyBulletBoilGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
 
     @classmethod
     def get_env_names(cls) -> set:
+        # In partially-observable mode the jug's heat_level is not a State
+        # feature, so this fully-observable simulator (which reads/writes
+        # heat_level) does not apply; the sibling gt_simulator_po.py claims
+        # pybullet_boil instead, keeping get_gt_simulator's env-name
+        # dispatch unambiguous.
+        if CFG.partially_observable:
+            return set()
         return {"pybullet_boil"}

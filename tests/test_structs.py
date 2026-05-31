@@ -198,6 +198,64 @@ obj9                11       12       13
     return state
 
 
+def test_state_latent():
+    """Tests for State.latent — the latent state-feature block used by
+    agent_sim_recurrent_predicate_invention."""
+    t = Type("t", ["x"])
+    o = t("o")
+    s = State({o: np.array([1.0])})
+    # Defaults to None — fully-observed code never touches it.
+    assert s.latent is None
+    # Mutating the dict is the standard pattern for recurrent rules.
+    s.latent = {"heat": 0.5, "streak": 3}
+    assert s.latent == {"heat": 0.5, "streak": 3}
+    # copy() deep-copies the latent so siblings can mutate independently.
+    s_copy = s.copy()
+    assert s_copy.latent == {"heat": 0.5, "streak": 3}
+    s_copy.latent["heat"] = 0.9
+    s_copy.latent["streak"] = 10
+    assert s.latent == {"heat": 0.5, "streak": 3}
+    # The latent is *not* part of hash or allclose — two states identical
+    # in observable features but with different latents still hash-equal
+    # and compare-equal (search-node identity for fully-observed code is
+    # preserved). Backtracking restores the latent via `traj[cur_idx]`
+    # which is the same state object, not via hash equality.
+    s_a = State({o: np.array([1.0])})
+    s_a.latent = {"completely": "different"}
+    s_b = State({o: np.array([1.0])})
+    s_b.latent = {"heat": 0.5}
+    assert hash(s_a) == hash(s_b)
+    assert s_a.allclose(s_b)
+
+
+def test_predicate_holds_latent_autoread():
+    """Tests for Predicate.holds auto-routing state.latent to classifiers."""
+    t = Type("t", ["x"])
+    o = t("o")
+    s = State({o: np.array([1.0])})
+    # Classifier opted in to the latent via the kwarg.
+    pred = Predicate(
+        "LatentPred",
+        [t],
+        lambda state, objs, latent=None: (latent or {}).get("on", False),
+    )
+    # No latent attached → classifier sees None → default branch.
+    assert not pred.holds(s, [o])
+    # Attach a latent to the state → no kwarg → auto-read.
+    s.latent = {"on": True}
+    assert pred.holds(s, [o])
+    # Explicit kwarg overrides state.latent.
+    assert not pred.holds(s, [o], latent={"on": False})
+    # Legacy 2-arg classifier ignores the latent entirely.
+    legacy_pred = Predicate(
+        "LegacyPred",
+        [t],
+        lambda state, objs: state.get(objs[0], "x") > 0.5,
+    )
+    s.latent = {"anything": 42}  # should be ignored by the legacy form
+    assert legacy_pred.holds(s, [o])
+
+
 def test_predicate_and_atom():
     """Tests for Predicate, LiftedAtom, GroundAtom classes."""
     # Predicates

@@ -64,6 +64,14 @@ class GlobalSettings:
     allow_state_allclose_comparison_despite_simulator_state = False
 
     env_include_bbox_features = False
+
+    # Cross-cutting partial-observability flag. When True, envs that
+    # support it hide selected latent features in `get_observation()`
+    # (e.g. pybullet_boil hides `heat_level` and exposes a derived
+    # `bubbling_level` instead). Used by approaches such as
+    # agent_sim_recurrent_predicate_invention. Each env decides which
+    # of its features count as latent.
+    partially_observable = False
     # cover_multistep_options env parameters
     cover_multistep_action_limits = [-np.inf, np.inf]
     cover_multistep_degenerate_oracle_samplers = False

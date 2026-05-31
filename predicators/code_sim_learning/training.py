@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -18,6 +18,12 @@ logger = logging.getLogger(__name__)
 
 # Step-level simulator: (State, Action, params_dict) -> {Object: {feat: val}}
 StepSimulatorFn = Callable[[State, Action, Dict[str, float]], Dict]
+
+# Per-trajectory list of (base_state, action, next_obs) triples.
+# `base_state` is the base sim applied to the previous *real* observation,
+# matching the shape used by `compute_sse` but grouped by trajectory so
+# the latent block can be threaded across steps within each one.
+TrajectoryTriples = List[Tuple[State, Action, State]]
 
 
 @dataclass
@@ -88,6 +94,152 @@ def compute_sse(
                 total_se += (pred_val - obs_val)**2
 
     return total_se
+
+
+def compute_sse_recurrent(
+    rules: List,
+    trajectories: List[TrajectoryTriples],
+    params: Dict[str, float],
+    latent_init: Any,
+    process_features: Dict[str, List[str]],
+) -> float:
+    """SSE on observables, with the ``latent`` block threaded per trajectory.
+
+    Counterpart to :func:`compute_sse` for the recurrent
+    (partially-observable) approach. Each input trajectory is a list
+    of ``(base_state, action, next_obs)`` triples — the same shape
+    individual transitions take in :func:`compute_sse`, but grouped
+    so the latent block can carry across steps within a trajectory.
+
+    For each trajectory:
+
+    * Build an initial ``latent`` dict from ``latent_init`` (constants
+      and any ``ParamSpec``-valued entries resolve from ``params``).
+    * Roll forward step-by-step: call
+      :func:`apply_rules_with_latent` with the running latent and the
+      history prefix; merge the predicted observable feature updates;
+      compare to the real next-step observation.
+    * The "filter" step is implicit — ``base_state`` is the base sim
+      applied to the *real* previous observation, so we re-ground
+      observables each step automatically. Only ``latent`` propagates
+      across step boundaries within a trajectory.
+
+    Returns the total un-normalised SSE so the Gaussian log-likelihood
+    ``-0.5 * SSE / noise_sigma**2`` is the correct iid form.
+    """
+    # pylint: disable=import-outside-toplevel
+    from predicators.code_sim_learning.utils import apply_rules_with_latent, \
+        init_latent
+
+    # pylint: enable=import-outside-toplevel
+
+    total_se = 0.0
+    for traj in trajectories:
+        latent: Dict[str, Any] = init_latent(latent_init, params)
+        history: List[Tuple[State, Optional[Action]]] = []
+        for state_base, action, state_obs in traj:
+            history.append((state_base, action))
+            updates = apply_rules_with_latent(state_base, latent, history,
+                                              rules, params)
+
+            for obj, feat_dict in updates.items():
+                type_name = obj.type.name
+                allowed_feats = process_features.get(type_name, [])
+                for feat_name, pred_val in feat_dict.items():
+                    if feat_name not in allowed_feats:
+                        continue
+                    v = pred_val.item() if hasattr(pred_val,
+                                                   'item') else pred_val
+                    obs_val = float(state_obs.get(obj, feat_name))
+                    total_se += (v - obs_val)**2
+
+            # Penalize unpredicted features (model predicts no change).
+            for obj in state_base:
+                type_name = obj.type.name
+                for feat_name in process_features.get(type_name, []):
+                    if obj in updates and feat_name in updates[obj]:
+                        continue
+                    pred_val = float(state_base.get(obj, feat_name))
+                    obs_val = float(state_obs.get(obj, feat_name))
+                    total_se += (pred_val - obs_val)**2
+
+    return total_se
+
+
+def fit_params_recurrent(
+    rules: List,
+    trajectories: List[TrajectoryTriples],
+    param_specs: List[ParamSpec],
+    latent_init: Any,
+    process_features: Dict[str, List[str]],
+    num_walkers: int = 32,
+    num_steps: Optional[int] = None,
+    burn_in: int = 200,
+    noise_sigma: float = 0.05,
+    prior_sigma_scale: float = 1.0,
+) -> FitResult:
+    """Fit recurrent-sim parameters via emcee MCMC.
+
+    Mirror of :func:`fit_params` for the recurrent (latent-threaded)
+    rollout used by the partial-observability approach. Differences
+    from :func:`fit_params`:
+
+    * Likelihood = :func:`compute_sse_recurrent` (per-trajectory
+      rollout with latent carry) instead of per-transition
+      :func:`compute_sse`.
+    * Skips the LM warm-start / Hessian diagnostics (those rely on
+      :func:`compute_residuals`, which is per-transition). MCMC alone
+      is fine; if warm-starting becomes useful, lift the LM path here.
+    """
+    names = [s.name for s in param_specs]
+    init_values = np.array([s.init_value for s in param_specs])
+    if num_steps is None:
+        num_steps = CFG.code_sim_learning_num_mcmc_steps
+    if num_steps < 0:
+        raise ValueError("code_sim_learning_num_mcmc_steps must be "
+                         "non-negative.")
+    prior_sigma = init_values * prior_sigma_scale
+
+    if num_steps == 0:
+        logger.info("Skipping emcee; using initial parameter values.")
+        return FitResult(names, init_values[None, :], np.zeros(1))
+
+    import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
+
+    ndim = len(param_specs)
+    num_walkers = max(num_walkers, 2 * ndim + 2)
+    burn_in = min(burn_in, max(num_steps - 1, 0))
+
+    def log_posterior(theta: np.ndarray) -> float:
+        if np.any(theta <= 0):
+            return -np.inf
+        params = {n: float(theta[i]) for i, n in enumerate(names)}
+        log_prior = -0.5 * np.sum(((theta - init_values) / prior_sigma)**2)
+        sse = compute_sse_recurrent(rules, trajectories, params, latent_init,
+                                    process_features)
+        return log_prior + (-0.5 * sse / (noise_sigma**2))
+
+    p0 = init_values + 0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
+    p0 = np.clip(p0, 1e-6, None)
+    sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
+    logger.info("Running emcee (recurrent): %d walkers, %d steps, %d burn-in.",
+                num_walkers, num_steps, burn_in)
+    report_interval = 100
+    for i, _result in enumerate(sampler.sample(p0, iterations=num_steps),
+                                start=1):
+        if i % report_interval == 0 or i == num_steps:
+            best_lp = sampler.get_log_prob()[:i].max()
+            logger.info("  emcee step %d/%d  (best log-prob: %.2f)", i,
+                        num_steps, best_lp)
+            for h in logger.handlers + logging.getLogger().handlers:
+                h.flush()
+    samples = sampler.get_chain(discard=burn_in, flat=True)
+    log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
+    result = FitResult(names=names, samples=samples, log_probs=log_probs)
+    logger.info("emcee (recurrent) done. Posterior mean: %s",
+                {k: f"{v:.4f}"
+                 for k, v in result.point_estimate.items()})
+    return result
 
 
 def compute_residuals(

@@ -3161,6 +3161,25 @@ def create_predicate_synthesis_tools(
                          "Predicate(...) entries to predicates.py.")
             return _text("\n".join(lines))
 
+        # Pre-materialise per-step `latent` per trajectory. For
+        # recurrent approaches this rolls the trajectory through the
+        # agent's simulator and produces `[lat_0, lat_1, ...]` so
+        # latent-aware predicates can evaluate against a meaningful
+        # latent; for non-recurrent approaches it returns a list of
+        # ``None``s and latent-aware classifiers see `latent=None`.
+        materialise_latent_fn = getattr(approach, "materialise_latent", None)
+        latent_per_traj: Dict[int, List[Optional[Dict[str, Any]]]] = {}
+        for ti, traj in enumerate(scanned):
+            if materialise_latent_fn is not None and traj.states:
+                try:
+                    latent_per_traj[ti] = materialise_latent_fn(traj)
+                except Exception:  # pylint: disable=broad-except
+                    # Approach-side materialisation crashed — fall back
+                    # to None so observation-only predicates still work.
+                    latent_per_traj[ti] = [None] * len(traj.states)
+            else:
+                latent_per_traj[ti] = [None] * len(traj.states)
+
         for pred in preds:
             sig = ", ".join(t.name for t in pred.types)
             lines.append("")
@@ -3178,9 +3197,13 @@ def create_predicate_synthesis_tools(
                 if not groundings:
                     no_grounding_trajs += 1
                     continue
+                lats = latent_per_traj[ti]
                 for gr in groundings:
                     try:
-                        truth = [pred.holds(s, gr) for s in traj.states]
+                        truth = [
+                            pred.holds(s, gr, latent=lats[si])
+                            for si, s in enumerate(traj.states)
+                        ]
                     except Exception:  # pylint: disable=broad-except
                         last_line = traceback.format_exc().strip().splitlines(
                         )[-1]

@@ -9,7 +9,7 @@ import random
 import textwrap
 from dataclasses import dataclass, field, replace
 from functools import cached_property, lru_cache
-from inspect import getsource
+from inspect import Parameter, getsource, signature
 from typing import TYPE_CHECKING, Any, Callable, Collection, DefaultDict, \
     Dict, Iterator, List, Optional, Sequence, Set, Tuple, TypeVar, Union, \
     cast
@@ -212,11 +212,36 @@ class Variable(_TypedEntity):
 
 @dataclass
 class State:
-    """Struct defining the low-level state of the world."""
+    """Low-level world state.
+
+    Separates the agent's observation (`data`) from two optional hidden
+    blocks — the agent's belief (`latent`) and the environment's ground
+    truth (`privileged`) — plus opaque simulator bookkeeping
+    (`simulator_state`). Only `data` defines state identity (`__hash__`
+    and `allclose` ignore the other three).
+    """
+    # Object-centric *observable* features = the agent's observation.
+    # Fully observable: the complete world state. Partially observable:
+    # only the exposed features (hidden ones are omitted — e.g.
+    # pybullet_boil drops `heat_level`). The only field that defines
+    # state identity (`__hash__`, `allclose`).
     data: Dict[Object, Array]
-    # Some environments will need to store additional simulator state, so
-    # this field is provided.
+    # Opaque per-environment simulator bookkeeping (e.g. PyBullet joint
+    # positions); env-internal, not agent-facing.
     simulator_state: Optional[Any] = None
+    # The agent's *inferred estimate* of the hidden state (its belief),
+    # threaded by partially-observable / recurrent approaches; None under
+    # full observability. Deep-copied by `copy()`. See
+    # `predicators.code_sim_learning.utils.init_latent` for the canonical
+    # initial value.
+    latent: Optional[Dict[str, Any]] = None
+    # The environment's *true* hidden state that the partially-observable
+    # observation omits (e.g. boil's `heat_level`); None under full
+    # observability, where those features live in `data` instead. The
+    # truth to `latent`'s belief — env-only, never surfaced through any
+    # `data`/`feature_names` channel (inspect tools, dict_str,
+    # abstraction). Deep-copied by `copy()`.
+    privileged: Optional[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
         # Check feature vector dimensions.
@@ -277,7 +302,9 @@ class State:
         for obj in self:
             new_data[obj] = self._copy_state_value(self.data[obj])
         return State(new_data,
-                     simulator_state=copy.deepcopy(self.simulator_state))
+                     simulator_state=copy.deepcopy(self.simulator_state),
+                     latent=copy.deepcopy(self.latent),
+                     privileged=copy.deepcopy(self.privileged))
 
     def _copy_state_value(self, val: Any) -> Any:
         if val is None or isinstance(val, (float, bool, int, str)):
@@ -393,6 +420,26 @@ class State:
 DefaultState = State({})
 
 
+@lru_cache(maxsize=None)
+def _classifier_accepts_latent(classifier: Callable) -> bool:
+    """Return True iff `classifier` declares a `latent` parameter or **kwargs.
+
+    Used by `Predicate.holds` to thread the sample's latent state-
+    feature block only into classifiers that opted in. Cached because
+    predicate classifiers are typically reused across many `.holds()`
+    calls and introspecting `inspect.signature` is not free.
+    """
+    try:
+        params = signature(classifier).parameters
+    except (TypeError, ValueError):
+        # Built-ins, C-extensions, or anything whose signature we can't
+        # introspect: assume legacy 2-arg form.
+        return False
+    if "latent" in params:
+        return True
+    return any(p.kind == Parameter.VAR_KEYWORD for p in params.values())
+
+
 @dataclass(frozen=True, order=False, repr=False)
 class Predicate:
     """Struct defining a predicate (a lifted classifier over states)."""
@@ -445,15 +492,31 @@ class Predicate:
         """The arity of this predicate (number of arguments)."""
         return len(self.types)
 
-    def holds(self, state: State, objects: Sequence[Object]) -> bool:
+    def holds(self,
+              state: State,
+              objects: Sequence[Object],
+              latent: Optional[Dict[str, Any]] = None) -> bool:
         """Public method for calling the classifier.
 
-        Performs type checking first.
+        Performs type checking first. `latent` is the sample's latent
+        state-feature block, threaded by approaches that learn over
+        partially-observable envs (see
+        `agent_sim_recurrent_predicate_invention`). When the caller does
+        not pass `latent` explicitly, the block attached to
+        `state.latent` is used (so callers like `utils.abstract` do not
+        need to know about the recurrent extension). Classifiers that
+        don't accept a `latent` kwarg are called with the legacy
+        `(state, objects)` signature for backwards compatibility.
         """
         assert len(objects) == self.arity
         for obj, pred_type in zip(objects, self.types):
             assert isinstance(obj, Object)
             assert obj.is_instance(pred_type)
+        if _classifier_accepts_latent(self._classifier):
+            effective_latent = latent if latent is not None else state.latent
+            return self._classifier(
+                state, objects,
+                latent=effective_latent)  # type: ignore[call-arg]
         return self._classifier(state, objects)
 
     def __str__(self) -> str:
@@ -576,7 +639,7 @@ class DerivedPredicate(Predicate):
                 return False
         return True
 
-    def holds(  # type: ignore[override]
+    def holds(  # type: ignore[override]  # pylint: disable=arguments-differ
             self, state: Set[GroundAtom], objects: Sequence[Object]) -> bool:
         """Public method for calling the classifier.
 
@@ -711,7 +774,7 @@ class ConceptPredicate(Predicate):
     def __hash__(self) -> int:
         return self._hash
 
-    def holds(  # type: ignore[override]
+    def holds(  # type: ignore[override]  # pylint: disable=arguments-differ
             self, state: Set[GroundAtom], objects: Sequence[Object]) -> bool:
         """Public method for calling the classifier.
 
@@ -846,9 +909,15 @@ class GroundAtom(_Atom):
         assert set(self.objects).issubset(set(sub.keys()))
         return LiftedAtom(self.predicate, [sub[o] for o in self.objects])
 
-    def holds(self, state: State) -> bool:
-        """Check whether this ground atom holds in the given state."""
-        return self.predicate.holds(state, self.objects)
+    def holds(self,
+              state: State,
+              latent: Optional[Dict[str, Any]] = None) -> bool:
+        """Check whether this ground atom holds in the given state.
+
+        `latent` is forwarded to predicate classifiers that opted in to
+        the latent-aware signature; ignored otherwise.
+        """
+        return self.predicate.holds(state, self.objects, latent=latent)
 
     def get_vlm_query_str(self) -> str:
         """If this GroundAtom is associated with a VLMPredicate, then get the

@@ -124,6 +124,18 @@ class PyBulletBoilEnv(PyBulletEnv):
         float] = 0.03  # how fast the jug's "heat_level" goes up per step
     happy_speed: ClassVar[float] = 0.05
 
+    # Partial-observability projection: bubbling_level = clip(
+    #   (heat_level - BUBBLING_THRESHOLD) * BUBBLING_RAMP, 0, 1).
+    BUBBLING_THRESHOLD: ClassVar[float] = 0.85
+    BUBBLING_RAMP: ClassVar[float] = 1.0 / (1.0 - BUBBLING_THRESHOLD)  # ≈6.67
+    # Goal threshold on the observable bubbling_level, used by
+    # WaterBoiled in partial-observability mode (where heat_level is
+    # not observable). bubbling_level reaches 1.0 exactly when
+    # heat_level reaches the fully-observable boil point (1.0), so 0.99
+    # fires at essentially the same instant while staying robust to
+    # float rounding in the ramp.
+    BUBBLING_BOIL_THRESHOLD: ClassVar[float] = 0.99
+
     # Colors for switches and faucet
     burner_switch_color: ClassVar[Tuple[float, float, float,
                                         float]] = (1.0, 0.5, 0.0, 1.0
@@ -159,11 +171,29 @@ class PyBulletBoilEnv(PyBulletEnv):
     _robot_type = Type("robot",
                        ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
 
+    # `bubbling_level` is a derived observable: ramp from 0 to 1 as
+    # internal heat crosses BUBBLING_THRESHOLD. Present in the State
+    # schema in both fully- and partially-observable modes.
+    #
+    # Two jug types: the fully-observable `_jug_type` carries
+    # `heat_level` as an observable feature, while the partially-
+    # observable `_jug_type_po` drops it entirely so the agent never
+    # sees a feature named `heat_level` (it must infer the hidden
+    # heating process from the derived `bubbling_level`). In both,
+    # `heat_level` stays a `sim_feature` so the `jug.heat_level` Python
+    # attribute — the internal source of truth for the heating
+    # dynamics — keeps working. `__init__` swaps `self._jug_type` to
+    # the PO variant when `CFG.partially_observable` is set.
     _jug_type = Type("jug", [
-        "x", "y", "z", "rot", "is_held", "water_volume", "heat_level", "r",
-        "g", "b"
+        "x", "y", "z", "rot", "is_held", "water_volume", "heat_level",
+        "bubbling_level", "r", "g", "b"
     ],
                      sim_features=["id", "heat_level", "water_id"])
+    _jug_type_po = Type("jug", [
+        "x", "y", "z", "rot", "is_held", "water_volume", "bubbling_level", "r",
+        "g", "b"
+    ],
+                        sim_features=["id", "heat_level", "water_id"])
     _burner_type = Type("burner", ["x", "y", "z", "is_on"],
                         sim_features=["id", "switch_id", "prev_on"])
     _switch_type = Type("switch", ["x", "y", "z", "rot", "is_on"])
@@ -177,6 +207,14 @@ class PyBulletBoilEnv(PyBulletEnv):
                        sim_features=["id", "happiness_level"])
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
+        # In partial-observability mode, swap the jug type to the
+        # variant without `heat_level` *before* any jugs/predicates are
+        # built off `self._jug_type`, so the reduced type propagates to
+        # the objects, every jug predicate, the `types` property, and
+        # thus the agent-facing inspect tools.
+        if CFG.partially_observable:
+            self._jug_type = self._jug_type_po
+
         # Create the robot as an Object
         self._robot = Object("robot", self._robot_type)
 
@@ -549,6 +587,22 @@ class PyBulletBoilEnv(PyBulletEnv):
                 return 0.0
             if feature == "heat_level":
                 return obj.heat_level
+            if feature == "bubbling_level":
+                # Derived observable only meaningful in PO mode. In
+                # fully-observable mode it stays at 0 so existing
+                # approaches don't see a phantom observable; in PO
+                # mode it ramps from 0 to 1 once internal heat
+                # crosses BUBBLING_THRESHOLD.
+                if not CFG.partially_observable:
+                    return 0.0
+                h = obj.heat_level
+                if np.isnan(h):  # NaN guard
+                    return 0.0
+                return float(
+                    max(
+                        0.0,
+                        min(1.0, (h - self.BUBBLING_THRESHOLD) *
+                            self.BUBBLING_RAMP)))
 
         elif obj.type == self._human_type:
             if feature == "happiness_level":
@@ -556,6 +610,29 @@ class PyBulletBoilEnv(PyBulletEnv):
 
         # Otherwise, rely on defaults (like the base PyBulletEnv) for x,y,z,...
         raise ValueError(f"Unknown feature {feature} for object {obj}.")
+
+    def _get_state(self, _render_obs: bool = False) -> State:
+        """PyBullet -> State, plus the privileged (hidden) heat block.
+
+        In partially-observable mode `heat_level` is not an observable
+        feature, so snapshot each jug's true internal heat into
+        ``state.privileged`` — the env-only channel the agent never sees
+        (it is excluded from ``feature_names``/``__hash__``/``allclose``
+        and from every data-based inspect tool). This keeps the env's
+        ground-truth state self-contained per State, so backtracking
+        restores each search node's own heat, without exposing it in the
+        observation. Fully-observable mode leaves ``privileged`` as None
+        (heat is an ordinary observable feature there).
+        """
+        state = super()._get_state(_render_obs)
+        if CFG.partially_observable:
+            state.privileged = {
+                jug.name: {
+                    "heat_level": float(jug.heat_level or 0.0)
+                }
+                for jug in state.get_objects(self._jug_type)
+            }
+        return state
 
     def _set_domain_specific_state(self, state: State) -> None:
         """Called in _set_state to do any environment-specific resetting.
@@ -583,7 +660,22 @@ class PyBulletBoilEnv(PyBulletEnv):
         # Recreate the liquid bodies as needed
         jugs = state.get_objects(self._jug_type)
         for jug in jugs:
-            jug.heat_level = state.get(jug, "heat_level")
+            if "heat_level" in jug.type.feature_names:
+                # Fully observable: heat_level is an observable feature,
+                # so restore the internal attribute directly from it.
+                jug.heat_level = state.get(jug, "heat_level")
+            else:
+                # Partially observable: heat_level is hidden from the
+                # observation, so restore the env's true heat from the
+                # State's privileged block (an env-only channel the agent
+                # never sees). task.init carries each jug's initial heat
+                # there, and states from _get_state snapshot the running
+                # value, so backtracking restores each node's own heat.
+                # Defaults to 0.0 when absent (e.g. a State built without
+                # a privileged block).
+                priv = state.privileged or {}
+                jug.heat_level = float(
+                    priv.get(jug.name, {}).get("heat_level", 0.0))
             liquid_id = self._create_liquid_for_jug(jug, state)
             self._jug_to_liquid_id[jug] = liquid_id
 
@@ -757,8 +849,12 @@ class PyBulletBoilEnv(PyBulletEnv):
                 jug_y = state.get(jug_obj, "y")
                 dist = np.hypot(bx - jug_x, by - jug_y)
                 if dist < self.burner_align_threshold:
-                    # Jug is on top of an active burner => increase heat
-                    old_heat = state.get(jug_obj, "heat_level")
+                    # Jug is on top of an active burner => increase heat.
+                    # Read the `jug.heat_level` attribute (the internal
+                    # source of truth) rather than the State array: in PO
+                    # mode `heat_level` is not an observable feature, and
+                    # in FO mode the array merely mirrors this attribute.
+                    old_heat = jug_obj.heat_level
                     if CFG.boil_require_jug_full_to_heatup:
                         required_vol = self.water_filled_height
                     else:
@@ -1038,9 +1134,16 @@ class PyBulletBoilEnv(PyBulletEnv):
                               objects: Sequence[Object]) -> bool:
         return not self._WaterSpilled_holds(state, objects)
 
-    @staticmethod
-    def _WaterBoiled_holds(state: State, objects: Sequence[Object]) -> bool:
+    @classmethod
+    def _WaterBoiled_holds(cls, state: State,
+                           objects: Sequence[Object]) -> bool:
         (jug, ) = objects
+        if CFG.partially_observable:
+            # heat_level is not observable in PO mode; read the derived
+            # observable bubbling_level instead (it reaches 1.0 exactly
+            # when heat_level hits the boil point).
+            bubbling = state.get(jug, "bubbling_level")
+            return bubbling >= cls.BUBBLING_BOIL_THRESHOLD
         return state.get(jug, "heat_level") >= 1.0
 
     @staticmethod
@@ -1289,6 +1392,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                     "is_held": 0.0,
                     "water_volume": 0.0,
                     "heat_level": 0.0,
+                    "bubbling_level": 0.0,
                     "r": r_col,
                     "g": g_col,
                     "b": b_col,
@@ -1343,6 +1447,19 @@ class PyBulletBoilEnv(PyBulletEnv):
                     init_dict[human_obj] = {"happiness_level": 0.0}
 
             init_state = utils.create_state_from_dict(init_dict)
+            if CFG.partially_observable:
+                # heat_level is hidden from the observation; carry each
+                # jug's initial heat in the privileged block so reset can
+                # restore the env's true starting heat (the agent never
+                # sees it). This is what lets tasks start with a non-zero
+                # hidden heat without leaking it into the observation.
+                init_state.privileged = {
+                    j.name: {
+                        "heat_level": feats["heat_level"]
+                    }
+                    for j, feats in init_dict.items()
+                    if j.type == self._jug_type
+                }
 
             # Example goal: Water boiled, no water spilled, etc.
             goal_atoms = set()
@@ -1471,9 +1588,9 @@ if __name__ == "__main__":
 
     def _main() -> None:  # pylint: disable=too-many-locals
         """Run a simple simulation to test the environment."""
-        # pylint: disable=protected-access
-        from predicators.ground_truth_models import \
-            get_gt_options  # pylint: disable=import-outside-toplevel
+        # # pylint: disable=protected-access
+        # from predicators.ground_truth_models import \
+        #     get_gt_options  # pylint: disable=import-outside-toplevel
         CFG.seed = 0
         CFG.env = "pybullet_boil"
         CFG.pybullet_sim_steps_per_action = 1
@@ -1490,28 +1607,28 @@ if __name__ == "__main__":
                                 possible_num_burners=[1],
                                 rng=rng)
 
-        env_options = get_gt_options(env.get_name())
-        pick = utils.get_parameterized_option_by_name(env_options, "PickJug")
-        place_on_burner = utils.get_parameterized_option_by_name(
-            env_options, "PlaceOnBurner")
-        place_under_faucet = utils.get_parameterized_option_by_name(
-            env_options, "PlaceUnderFaucet")
-        switch_faucet_on = utils.get_parameterized_option_by_name(
-            env_options, "SwitchFaucetOn")
-        switch_faucet_off = utils.get_parameterized_option_by_name(
-            env_options, "SwitchFaucetOff")
-        switch_burner_on = utils.get_parameterized_option_by_name(
-            env_options, "SwitchBurnerOn")
-        wait_opt = utils.get_parameterized_option_by_name(env_options, "Wait")
-        robot = env._robot
-        jug1 = env._jugs[0]
-        burner1 = env._burners[0]
-        faucet = env._faucet
+        # env_options = get_gt_options(env.get_name())
+        # pick = utils.get_parameterized_option_by_name(env_options, "PickJug")
+        # place_on_burner = utils.get_parameterized_option_by_name(
+        #     env_options, "PlaceOnBurner")
+        # place_under_faucet = utils.get_parameterized_option_by_name(
+        #     env_options, "PlaceUnderFaucet")
+        # switch_faucet_on = utils.get_parameterized_option_by_name(
+        #     env_options, "SwitchFaucetOn")
+        # switch_faucet_off = utils.get_parameterized_option_by_name(
+        #     env_options, "SwitchFaucetOff")
+        # switch_burner_on = utils.get_parameterized_option_by_name(
+        #     env_options, "SwitchBurnerOn")
+        # wait_opt = utils.get_parameterized_option_by_name(env_options, "Wait")
+        # robot = env._robot
+        # jug1 = env._jugs[0]
+        # burner1 = env._burners[0]
+        # faucet = env._faucet
 
-        # Keep references to suppress unused-variable warnings
-        _ = (pick, place_on_burner, place_under_faucet, switch_faucet_on,
-             switch_faucet_off, switch_burner_on, wait_opt, robot, jug1,
-             burner1, faucet)
+        # # Keep references to suppress unused-variable warnings
+        # _ = (pick, place_on_burner, place_under_faucet, switch_faucet_on,
+        #      switch_faucet_off, switch_burner_on, wait_opt, robot, jug1,
+        #      burner1, faucet)
 
         for task in tasks:
             env._set_state(task.init)

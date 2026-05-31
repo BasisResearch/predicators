@@ -248,8 +248,13 @@ class AgentBilevelApproach(AgentPlannerApproach):
         ``CFG.seed`` and a forward-validation failure would loop on
         the identical plan.
 
-        Delegates to ``bilevel_sketch.refine_sketch``.
+        Delegates to ``bilevel_sketch.refine_sketch``. The task is
+        first passed through :meth:`_attach_initial_latent` so that
+        partially-observable approaches can seed
+        ``task.init.latent`` with the initial latent block; the default
+        implementation returns ``task`` unchanged.
         """
+        task = self._attach_initial_latent(task)
         plan, success, _ = bilevel_sketch.refine_sketch(
             task,
             sketch,
@@ -263,6 +268,18 @@ class AgentBilevelApproach(AgentPlannerApproach):
             run_id=self._run_id,
         )
         return plan, success
+
+    def _attach_initial_latent(self, task: Task) -> Task:
+        """Hook for partial-observability approaches to seed the latent.
+
+        Subclasses that thread a ``latent`` state block through the
+        simulator (e.g. ``AgentSimRecurrentPredicateInventionApproach``)
+        override this to attach an initial latent to
+        ``task.init.latent`` before refinement begins. The default
+        returns ``task`` unchanged — fully-observable approaches need do
+        nothing.
+        """
+        return task
 
     def _sample_params(self, option: ParameterizedOption, _state: State,
                        rng: np.random.Generator) -> np.ndarray:
