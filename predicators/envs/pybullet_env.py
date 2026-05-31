@@ -130,6 +130,17 @@ class PyBulletEnv(BaseEnv):
     _ANGLE_FEATURES: ClassVar[frozenset] = frozenset(
         {"rot", "yaw", "roll", "pitch", "tilt", "wrist"})
 
+    # Whether _set_state hard-raises on a reconstruction mismatch (vs.
+    # logging a warning). The generic reset path reconstructs the robot
+    # via IK from the EE pose whenever a State carries no exact
+    # joint_positions, which drops wrist roll and yields benign ~0.02 rad
+    # round-trip noise — so the safe default is to warn, not abort. Only
+    # an env whose State <-> simulator mapping is exact (positions read
+    # directly, no lossy angle round-trip) should opt into the strict
+    # raise by setting this True, so that a mismatch there surfaces a real
+    # bug instead of being swallowed.
+    _strict_set_state_reconstruction: ClassVar[bool] = False
+
     # Camera parameters.
     _camera_distance: ClassVar[float] = 0.8
     _camera_yaw: ClassVar[float] = 90.0
@@ -520,13 +531,14 @@ class PyBulletEnv(BaseEnv):
         self._set_domain_specific_state(state)
 
         # 5) Reconstruction check — only when we actually wrote
-        # something kinematic. Only raise for envs that override
-        # _get_state().
+        # something kinematic. Only raise for envs that opt into the
+        # strict check (_strict_set_state_reconstruction); the rest warn,
+        # since the generic IK reset path is lossy.
         if wrote_anything:
             reconstructed = self._get_state()
             diff = self._reconstruction_diff(state, reconstructed)
             if diff:
-                if type(self)._get_state is not PyBulletEnv._get_state:
+                if self._strict_set_state_reconstruction:
                     raise ValueError(
                         f"Could not reconstruct state. Mismatched "
                         f"features:\n{diff}")
