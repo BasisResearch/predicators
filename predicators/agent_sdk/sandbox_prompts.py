@@ -41,50 +41,93 @@ def find_repo_root() -> Path:
 # since they go through the Python interpreter, not Claude's built-in tools.
 # ---------------------------------------------------------------------------
 
-VALIDATE_SANDBOX_SCRIPT = """\
-#!/usr/bin/env python3
+# NOTE: raw string so the embedded regex backslashes (\\s, \\.) survive
+# verbatim. The screening logic for Bash mirrors
+# ``tools._screen_text_for_sandbox_escape`` (which guards ``run_python``);
+# keep the two in sync.
+VALIDATE_SANDBOX_SCRIPT = r'''#!/usr/bin/env python3
+"""Sandbox PreToolUse guard.
+
+Blocks built-in file tools (Read/Write/Edit/Glob/Grep) whose target path
+resolves outside the sandbox, and heuristically screens Bash commands for
+out-of-sandbox reads / predicators-source introspection. Best effort: a
+determined script can still escape (env vars, subprocess, computed paths);
+OS-level isolation is the hard boundary. Kept dependency-free so it stays
+cheap to run on every tool call.
+"""
 import json
 import os
+import re
 import sys
+
+SYSTEM_ROOTS = (
+    "/Users", "/home", "/root", "/etc", "/usr", "/opt", "/var", "/private",
+    "/tmp", "/bin", "/sbin", "/lib", "/sys", "/proc", "/dev", "/mnt", "/srv",
+)
+INTROSPECTION = ("getsource", "inspect.getfile", "site-packages")
+PATH_RE = re.compile(r"""(?:^|(?<=[\s'"`(=]))((?:/|\.\.)[^\s'"`)<>|;:,]*)""")
 
 data = json.load(sys.stdin)
 tool_name = data.get("tool_name", "")
 tool_input = data.get("tool_input", {})
-
-# Determine the file/directory path based on tool type.
-if tool_name in ("Read", "Write", "Edit"):
-    file_path = tool_input.get("file_path", "")
-elif tool_name in ("Glob", "Grep"):
-    file_path = tool_input.get("path", "")
-else:
-    sys.exit(0)
-
-if not file_path:
-    # No path specified — defaults to cwd (sandbox), allow.
-    sys.exit(0)
-
 sandbox = os.path.realpath(os.getcwd())
-resolved = os.path.realpath(file_path)
 
-if resolved == sandbox or resolved.startswith(sandbox + os.sep):
+
+def within(path):
+    resolved = os.path.realpath(
+        path if os.path.isabs(path) else os.path.join(sandbox, path))
+    return resolved == sandbox or resolved.startswith(sandbox + os.sep)
+
+
+def deny(reason):
+    json.dump({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }, sys.stdout)
     sys.exit(0)
 
-json.dump({
-    "hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": (
-            f"Blocked: {file_path} resolves outside the sandbox directory"
-        ),
-    }
-}, sys.stdout)
-"""
+
+# File-path tools: validate the single target path (empty -> cwd, allow).
+if tool_name in ("Read", "Write", "Edit", "Glob", "Grep"):
+    key = "file_path" if tool_name in ("Read", "Write", "Edit") else "path"
+    file_path = tool_input.get(key, "")
+    if file_path and not within(file_path):
+        deny("Blocked: " + file_path +
+             " resolves outside the sandbox directory")
+    sys.exit(0)
+
+# Bash: heuristically screen the command string for escapes.
+if tool_name == "Bash":
+    command = tool_input.get("command", "")
+    for needle in INTROSPECTION:
+        if needle in command:
+            deny("Blocked: '" + needle + "' may read predicators source "
+                 "outside the sandbox; use ./reference/ and the MCP tools")
+    for match in PATH_RE.finditer(command):
+        token = match.group(1)
+        if within(token):
+            continue
+        if token.startswith("/") and not any(
+                token == r or token.startswith(r + "/")
+                for r in SYSTEM_ROOTS):
+            # Absolute but not a real filesystem path (printed data) — skip.
+            continue
+        deny("Blocked: path '" + token +
+             "' in the command resolves outside the sandbox directory")
+    sys.exit(0)
+
+# Anything else: allow.
+sys.exit(0)
+'''
 
 SANDBOX_SETTINGS: Dict[str, Any] = {
     "hooks": {
         "PreToolUse": [{
             "matcher":
-            "Read|Write|Edit|Glob|Grep",
+            "Read|Write|Edit|Glob|Grep|Bash",
             "hooks": [{
                 "type": "command",
                 "command": "python3 .claude/validate_sandbox.py",
@@ -147,7 +190,10 @@ saved via `inspect_options` uses the option name (e.g. `Pick.py`):
 _CLAUDE_MD_RULES = """\
 
 ## Rules
-- Do NOT attempt to read or browse files outside the sandbox directory
+- Do NOT attempt to read or browse files outside the sandbox directory.
+  This is enforced for the file tools AND for Bash / run_python: commands
+  or code containing absolute or `../` paths that leave the sandbox (or
+  source introspection) are blocked. Use relative paths inside the sandbox.
 - Do NOT modify files in ./reference/ — they are for reading only
 - Write all your code, experiments, and tests in the sandbox
 - Do NOT inspect predicators source code (e.g. via `inspect.getsource()`,

@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
@@ -196,6 +197,145 @@ def _text_result(text: str) -> Dict[str, Any]:
 def _error_result(text: str) -> Dict[str, Any]:
     """Helper to format an error result."""
     return {"content": [{"type": "text", "text": text}], "is_error": True}
+
+
+def _make_spilling_text_result(
+    sandbox_dir: Optional[str],
+    *,
+    subdir: str = "tool_outputs",
+    agent_prefix: Optional[str] = None,
+    char_limit: int = 30000,
+    head_lines: int = 30,
+    tail_lines: int = 30,
+) -> Callable[[str], Dict[str, Any]]:
+    """Build a ``_text_result``-style helper that spills oversize output.
+
+    A tool result returned inline that exceeds the agent SDK's MCP
+    tool-result token cap is truncated by the SDK and dumped to
+    ``~/.claude/projects/.../tool-results/`` — *outside* the sandbox.
+    The agent is then instructed to read that host path, which both
+    defeats the sandbox boundary and is the only legitimate reason the
+    agent ever needs to touch a path outside its sandbox.
+
+    To remove that need, when ``sandbox_dir`` is set and ``text`` exceeds
+    ``char_limit`` (kept well under the SDK cap), this writes the full
+    text to ``<sandbox_dir>/<subdir>/result_NNNN.txt`` and returns a
+    head/tail preview plus the in-sandbox path for the agent to
+    ``Read``/``Grep``. Small results, or the no-sandbox case, are
+    returned inline unchanged.
+
+    ``agent_prefix`` is the path prefix the agent sees (``"."`` for the
+    local sandbox, ``"/sandbox"`` for docker); when ``None`` a relative
+    ``./<subdir>`` path is used, which resolves correctly because the
+    agent's cwd is always the sandbox root.
+    """
+    counter = [0]
+    host_dir = os.path.join(sandbox_dir, subdir) if sandbox_dir else None
+    prefix = agent_prefix.rstrip("/") if agent_prefix else "."
+    agent_dir = f"{prefix}/{subdir.replace(os.sep, '/')}"
+
+    def _text(text: str) -> Dict[str, Any]:
+        if host_dir is None or len(text) <= char_limit:
+            return _text_result(text)
+        counter[0] += 1
+        os.makedirs(host_dir, exist_ok=True)
+        filename = f"result_{counter[0]:04d}.txt"
+        with open(os.path.join(host_dir, filename), "w",
+                  encoding="utf-8") as f:
+            f.write(text)
+        lines = text.splitlines()
+        total = len(lines)
+        head = lines[:head_lines]
+        tail = (lines[-tail_lines:] if total > head_lines + tail_lines else [])
+        parts = [
+            f"[output too large to inline: {len(text):,} chars across "
+            f"{total:,} lines; full output saved to "
+            f"{agent_dir}/{filename}. Use Read/Grep to inspect it.]",
+            "",
+            f"--- head ({len(head)} lines) ---",
+            *head,
+        ]
+        if tail:
+            omitted = total - len(head) - len(tail)
+            parts.extend([
+                "",
+                f"... [{omitted:,} lines omitted] ...",
+                "",
+                f"--- tail ({len(tail)} lines) ---",
+                *tail,
+            ])
+        return _text_result("\n".join(parts))
+
+    return _text
+
+
+# Filesystem roots that, when they prefix an absolute path outside the
+# sandbox, mark it as a real escape (vs. data like "/done" printed by code).
+_SANDBOX_SYSTEM_ROOTS = (
+    "/Users",
+    "/home",
+    "/root",
+    "/etc",
+    "/usr",
+    "/opt",
+    "/var",
+    "/private",
+    "/tmp",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/sys",
+    "/proc",
+    "/dev",
+    "/mnt",
+    "/srv",
+)
+# Predicators-source introspection that reaches outside the sandbox. The
+# bare ``getsource`` substring also covers ``getsourcefile`` /
+# ``getsourcelines``; ``inspect.getfile`` is matched explicitly so the
+# generic ``getfilesystemencoding`` etc. don't false-positive.
+_SANDBOX_INTROSPECTION = ("getsource", "inspect.getfile", "site-packages")
+# Path-like tokens: absolute (``/foo``) or parent-traversal (``..``/``../foo``),
+# anchored at a boundary (start, whitespace, quote, ``(`` or ``=``) so we skip
+# ``/`` inside URLs (preceded by ``:``), division, and ``./relative`` paths
+# (which stay inside the sandbox).
+_SANDBOX_PATH_RE = re.compile(
+    r"""(?:^|(?<=[\s'"`(=]))((?:/|\.\.)[^\s'"`)<>|;:,]*)""")
+
+
+def _screen_text_for_sandbox_escape(text: str,
+                                    sandbox_dir: str) -> Optional[str]:
+    """Best-effort screen of a Bash command / ``run_python`` code string.
+
+    Returns a short deny reason if ``text`` looks like it reads outside
+    ``sandbox_dir`` — an absolute or ``..`` path resolving out of the
+    sandbox, or predicators-source introspection — else ``None``.
+
+    This is a heuristic: a determined script can still escape (env vars,
+    ``subprocess``, computed paths), so OS-level isolation (the docker
+    sandbox) remains the only hard boundary. The equivalent self-contained
+    logic for Bash lives in ``sandbox_prompts.VALIDATE_SANDBOX_SCRIPT``;
+    keep the two in sync.
+    """
+    for needle in _SANDBOX_INTROSPECTION:
+        if needle in text:
+            return (f"'{needle}' may read predicators source outside the "
+                    "sandbox; use the MCP tools and ./reference/ files")
+    sandbox = os.path.realpath(sandbox_dir)
+    for match in _SANDBOX_PATH_RE.finditer(text):
+        token = match.group(1)
+        resolved = os.path.realpath(
+            token if os.path.isabs(token) else os.path.join(sandbox, token))
+        if resolved == sandbox or resolved.startswith(sandbox + os.sep):
+            continue
+        if token.startswith("/") and not any(
+                token == root or token.startswith(root + "/")
+                for root in _SANDBOX_SYSTEM_ROOTS):
+            # Absolute but not a real filesystem path (e.g. printed data
+            # like "/done") — don't flag.
+            continue
+        return f"path '{token}' resolves outside the sandbox directory"
+    return None
 
 
 def _render_scene_image(ctx: ToolContext,
@@ -411,6 +551,14 @@ def create_mcp_tools(ctx: ToolContext,
     """
     from claude_agent_sdk import \
         tool  # pylint: disable=import-outside-toplevel
+
+    # Spill oversize tool output into the sandbox (``./tool_outputs/``)
+    # instead of returning it inline, where the agent SDK would truncate it
+    # and dump the full text to ``~/.claude/projects/.../tool-results/`` —
+    # outside the sandbox. Shadowing the module-level ``_text_result`` here
+    # routes every nested tool's ``_text_result(...)`` call (e.g.
+    # ``inspect_trajectories``) through the spiller, with no call-site edits.
+    _text_result = _make_spilling_text_result(ctx.sandbox_dir)
 
     _propose_count = [0]  # mutable counter in closure
 
@@ -2401,7 +2549,12 @@ def create_synthesis_tools(
     else:
         _run_python_outputs_dir_agent = None
 
-    _text = _text_result
+    # Spill oversize output from the synthesis tools into the sandbox too,
+    # so nothing is dumped to ``~/.claude/projects/.../tool-results/``.
+    # ``run_python`` keeps its own bespoke spill below (with a tailored
+    # "narrow your print()" hint); this covers the remaining tools.
+    _text = _make_spilling_text_result(sandbox_dir,
+                                       agent_prefix=sandbox_dir_for_agent)
 
     def _snapshot_and_load(path: str) -> Tuple[Any, Any, Any, Any, Any, Any]:
         """Snapshot ``path`` then exec it into a fresh namespace.
@@ -2485,6 +2638,18 @@ def create_synthesis_tools(
     )
     async def run_python(args: Dict[str, Any]) -> Dict[str, Any]:
         code = args["code"]
+        # run_python execs in-process with full filesystem access, and the
+        # sandbox's PreToolUse file-path hook does not cover MCP tools, so
+        # screen the code here for out-of-sandbox reads / source
+        # introspection before executing (best-effort; see
+        # _screen_text_for_sandbox_escape).
+        if sandbox_dir is not None:
+            reason = _screen_text_for_sandbox_escape(code, sandbox_dir)
+            if reason is not None:
+                return _text(
+                    f"Error: sandbox guard blocked this code — {reason}. "
+                    "Read files with Read/Grep and use the MCP tools and "
+                    "./reference/ files instead.")
         old_stdout = sys.stdout
         sys.stdout = captured = io.StringIO()
         try:
@@ -3035,8 +3200,10 @@ def create_predicate_synthesis_tools(
     from predicators.code_sim_learning.training import ParamSpec
 
     # pylint: enable=import-outside-toplevel
-
-    _text = _text_result
+    # ``predicates_file`` lives at ``<sandbox>/predicates.py``, so its
+    # parent is the sandbox root — spill oversize output there rather than
+    # letting the agent SDK dump it outside the sandbox.
+    _text = _make_spilling_text_result(os.path.dirname(predicates_file))
     _snapshotter = _ArtifactSnapshotter(
         live_file=predicates_file,
         versions_dir=predicates_versions_dir,
