@@ -1377,21 +1377,22 @@ When you see `Forward validation: FAIL`, the failure mode is almost \
 always one of these:
 
 1. **A learned gate threshold is wider than the env's effective \
-threshold.** Example: env's heat rule only fires when jug-to-burner \
-distance < 0.05, but you set `jug_at_burner_dist = 0.063` for "safety \
-margin". Refinement accepts a Place at distance 0.05–0.063 (your \
-`JugAtBurner` predicate is true and your learned heat rule fires); \
-forward validation runs the same Place, the env's heat rule never \
-fires (distance > env threshold), and Wait runs to its step cap \
-without WaterBoiled holding. **Fix:** tighten the gate to match the \
-env's empirical boundary, do not widen for slack.
+threshold.** Example: the env's process rule only fires when the \
+widget-to-fixture distance < 0.05, but you set \
+`widget_at_fixture_dist = 0.063` for "safety margin". Refinement \
+accepts a Place at distance 0.05–0.063 (your `WidgetAtFixture` \
+predicate is true and your learned rule fires); forward validation \
+runs the same Place, the env's rule never fires (distance > env \
+threshold), and Wait runs to its step cap without `WidgetReady` \
+holding. **Fix:** tighten the gate to match the env's empirical \
+boundary, do not widen for slack.
 2. **A wait-termination cutoff fires before the env-side feature \
-catches up.** Example: `WaterBoiled = heat_level >= 0.99` fires at \
-the learned simulator's step 34 (heat=0.9996), but the env's \
-goal-check requires `heat >= 1.0` — refinement's subgoal passes, but \
-the final-state goal check on env state fails. **Fix:** align the \
-predicate's cutoff with the env's effective cutoff, *and* confirm by \
-re-running plan refinement after the change.
+catches up.** Example: `WidgetReady = process_value >= 0.99` fires at \
+the learned simulator's step 34 (process_value=0.9996), but the env's \
+goal-check requires the underlying feature to reach 1.0 — refinement's \
+subgoal passes, but the final-state goal check on env state fails. \
+**Fix:** align the predicate's cutoff with the env's effective \
+cutoff, *and* confirm by re-running plan refinement after the change.
 
 **Rule of thumb:** when in doubt, *tighten* learned thresholds toward \
 the env's empirical boundary, never loosen them. Widening hides \
