@@ -232,6 +232,21 @@ tools:
 - Mixing is fine: different rules / different latents can use
   different patterns within the same simulator.
 
+### Keep carried state in `latent`, not in your emitted observables
+
+Anything your rule must remember across steps — a counter, an accumulated
+level, an irreversible "done" flag — belongs in `latent`. Treat the
+observables you write to `updates` as **outputs only**: recompute them
+from `latent` (and base-owned inputs) each step; never read one of your
+own emitted features back in as state. The planner resets and replays
+states during refinement, and only `latent` is guaranteed to be threaded
+across those jumps — an emitted observable may not survive a reset, so a
+rule that latches on its own output can pass a step-by-step rollout yet
+break at refinement time. Patterns A and B above already follow this: the
+observable is a fresh readout of `latent`. (Reading features the base sim
+owns — positions, `is_on`, `is_held` — is fine; those are restored
+faithfully.)
+
 ### Predicate signature
 
 Classifiers may stay observation-only or take an optional ``latent``
