@@ -479,6 +479,13 @@ def _generate_interaction_results(
             task_solvable = env.is_task_solvable(env_task)
             if not task_solvable:
                 solved = not planning_explorer_generated_a_plan
+        # A planning explorer may report that its mental model could NOT
+        # reach the goal during refinement (it then ran the plan as an
+        # experiment). Don't certify such a task as solved for early
+        # stopping even if real-env execution happened to reach the goal —
+        # the learned model still can't be planned with. None ⇒ no verdict.
+        if request.mental_model_solved is False:
+            solved = False
         task_solved_status.append(solved)
 
         # Debug final state (mirrors _run_testing). Lets us inspect the real

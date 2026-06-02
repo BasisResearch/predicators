@@ -187,6 +187,10 @@ class ToolContext:
     # TODO(sim-learning): consume these in learn_from_interaction_results.
     last_sketch_subgoals: Optional[Any] = None
     last_sketch_options: Optional[Any] = None
+    # Set by AgentBilevelExplorer per request: did the mental model reach
+    # the task goal during refinement? Read by get_interaction_requests to
+    # stamp InteractionRequest.mental_model_solved (None ⇒ no verdict).
+    last_mental_model_solved: Optional[bool] = None
 
 
 def _text_result(text: str) -> Dict[str, Any]:

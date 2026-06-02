@@ -2262,6 +2262,14 @@ class InteractionRequest:
     act_policy: Callable[[State], Action]
     query_policy: Callable[[State], Optional[Query]]  # query can be None
     termination_function: Callable[[State], bool]
+    # Optional verdict from a planning explorer: did the *mental model*
+    # (the learned simulator) reach the task goal when refining this
+    # request's plan? ``None`` means "no verdict" (e.g. non-planning
+    # explorers); online learning treats ``False`` as not-solved for
+    # early stopping even if real-env execution happens to reach the
+    # goal, so a model that executes-but-mispredicts isn't certified as
+    # trained. See AgentBilevelExplorer / main._generate_interaction_results.
+    mental_model_solved: Optional[bool] = None
 
 
 @dataclass(frozen=True, eq=False, repr=False)

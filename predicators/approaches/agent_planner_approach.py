@@ -343,12 +343,17 @@ scene, then annotate_scene overlays markers on it."""
         self._requests_train_task_idxs = []
         for _ in range(CFG.online_nsrt_learning_requests_per_cycle):
             task_idx = self._rng.choice(len(self._train_tasks))
+            # Clear so a planning explorer's verdict is read fresh per
+            # request; non-planning explorers leave it None (no verdict).
+            self._tool_context.last_mental_model_solved = None
             policy, termination_function = explorer.get_exploration_strategy(
                 task_idx, CFG.timeout)
             req = InteractionRequest(train_task_idx=task_idx,
                                      act_policy=policy,
                                      query_policy=lambda s: None,
-                                     termination_function=termination_function)
+                                     termination_function=termination_function,
+                                     mental_model_solved=self._tool_context.
+                                     last_mental_model_solved)
             requests.append(req)
             self._requests_train_task_idxs.append(task_idx)
         return requests
