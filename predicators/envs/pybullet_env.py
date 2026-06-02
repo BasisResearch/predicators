@@ -198,6 +198,15 @@ class PyBulletEnv(BaseEnv):
         # _set_state(), and render_segmented_obj() for iteration.
         self._objects: List[Object] = []
 
+        # Populated by _set_state(): (object, feature) pairs whose value the
+        # reset could not reproduce — e.g. an observable derived from a
+        # hidden sim-feature (bubbling_level from heat_level), which a State
+        # carrying only observables cannot round-trip. Combined simulators
+        # read this to restore the carried value after a backtracking reset,
+        # so a learned rule that reads its own emitted feature still sees the
+        # right input. Empty on sequential rollouts (no reset → nothing lost).
+        self._last_unreconstructible_features: List[Tuple[Object, str]] = []
+
     # ── Setup & Initialization ──────────────────────────────────
 
     @classmethod
@@ -364,6 +373,10 @@ class PyBulletEnv(BaseEnv):
         if self._current_observation is None or \
             not state.allclose(self._current_state):
             self._set_state(state)
+        else:
+            # Sequential rollout: PyBullet already holds this state, so no
+            # reset happens and no feature is lost to reconstruction.
+            self._last_unreconstructible_features = []
         return self.step(action)
 
     def step(self, action: Action, render_obs: bool = False) -> Observation:
@@ -470,6 +483,10 @@ class PyBulletEnv(BaseEnv):
         self._current_observation = state
         self._objects = list(state.data)
 
+        # Reset per-call; the reconstruction check below repopulates it with
+        # any features this reset could not round-trip.
+        self._last_unreconstructible_features = []
+
         wrote_anything = False
 
         # 1) Robot pose diff. Skipping this branch when the live joints
@@ -571,6 +588,50 @@ class PyBulletEnv(BaseEnv):
                 logging.warning(
                     "Could not reconstruct state exactly in reset. "
                     "Mismatched features:\n%s", warn_diff)
+                # Structured view of the same mismatch, for combined
+                # simulators to repair the carried value (see
+                # _last_unreconstructible_features).
+                self._last_unreconstructible_features = \
+                    self._reconstruction_mismatch_features(
+                        state, reconstructed,
+                        atol=self._reconstruction_warn_atol)
+
+    @classmethod
+    def _reconstruction_mismatch_features(
+            cls,
+            requested: State,
+            reconstructed: State,
+            atol: float = 1e-3) -> List[Tuple[Object, str]]:
+        """Structured counterpart of ``_reconstruction_diff``.
+
+        Returns the ``(object, feature)`` pairs whose reconstructed
+        value differs from the requested value by more than ``atol``.
+        Combined simulators intersect this with their declared process
+        features to repair exactly the learned-owned observables that a
+        reset cannot round-trip (e.g. ``bubbling_level`` derived from a
+        hidden ``heat_level``), leaving base-reconstructible features
+        (kinematic ``x, y`` a robot can move) untouched. Angle features
+        are compared modulo 2π; the orientation-triple geodesic handling
+        in ``_reconstruction_diff`` is unnecessary here because
+        orientation features are kinematic — never process features — so
+        they are filtered out by the caller's intersection regardless.
+        """
+        out: List[Tuple[Object, str]] = []
+        for obj in set(requested.data) & set(reconstructed.data):
+            req_vals = requested.data[obj]
+            rec_vals = reconstructed.data[obj]
+            if len(req_vals) != len(rec_vals):
+                continue
+            for i, feat in enumerate(obj.type.feature_names):
+                req_v = float(req_vals[i])
+                rec_v = float(rec_vals[i])
+                if feat in cls._ANGLE_FEATURES:
+                    delta = (rec_v - req_v + np.pi) % (2 * np.pi) - np.pi
+                else:
+                    delta = rec_v - req_v
+                if abs(delta) > atol:
+                    out.append((obj, feat))
+        return out
 
     @classmethod
     def _reconstruction_diff(cls,

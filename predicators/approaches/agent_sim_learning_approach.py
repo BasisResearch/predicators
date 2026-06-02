@@ -915,6 +915,11 @@ the tools."""
                     "recreating base env and retrying.", e)
                 self._recreate_base_env()
                 base_state = self._base_env.simulate(state, action)
+            # Repair features the backtracking reset couldn't round-trip
+            # (e.g. bubbling_level derived from a hidden heat_level): the
+            # base env's value is meaningless there, so restore the carried
+            # value before the rules read it.
+            self._restore_unreconstructible_process_features(base_state, state)
             # Single-step history window; rules needing longer context
             # must accumulate it in ``latent``.
             history: List[Tuple[State,
@@ -1169,6 +1174,35 @@ files to see exactly which rules and predicates produced each failed plan.
                                         use_gui=CFG.option_model_use_gui,
                                         skip_process_dynamics=True)
 
+    def _restore_unreconstructible_process_features(self, base_state: State,
+                                                    prev_state: State) -> None:
+        """Restore process features the base env's reset couldn't round-trip.
+
+        When the option model backtracks (jumps to a non-current node), the
+        base PyBullet env reconstructs the State from observables only, so a
+        feature derived from a hidden sim-feature — e.g. ``bubbling_level``,
+        projected from a hidden ``heat_level`` — comes back at its default
+        (0) instead of its carried value. The learned model *owns* those
+        features, so the base value is meaningless; overwrite ``base_state``
+        with the value carried in ``prev_state`` before the rules read it.
+
+        Scoping is the key to not breaking co-owned features: we restore only
+        the intersection of (a) the env's reported unreconstructible set for
+        this step and (b) the declared ``PROCESS_FEATURES``. A kinematic,
+        base-reconstructible feature that a robot legitimately moves (e.g. a
+        wind-blown ball's ``x, y`` in the fans env) round-trips through the
+        reset, so it never enters the env's set and is left to the base sim.
+        On sequential rollouts the env's set is empty, so this is a no-op.
+        """
+        lossy = getattr(self._base_env, "_last_unreconstructible_features",
+                        None)
+        if not lossy or not self._process_features:
+            return
+        for obj, feat in lossy:
+            if feat in self._process_features.get(obj.type.name, []) \
+                    and obj in prev_state.data:
+                base_state.set(obj, feat, prev_state.get(obj, feat))
+
     def _build_combined_simulator(
         self,
         learned_simulator: LearnedSimulator,
@@ -1195,6 +1229,7 @@ files to see exactly which rules and predicates produced each failed plan.
                     "recreating base env and retrying.", e)
                 self._recreate_base_env()
                 base_state = self._base_env.simulate(state, action)
+            self._restore_unreconstructible_process_features(base_state, state)
             updates = learned_simulator.predict_step(base_state)
             if not updates:
                 return base_state
