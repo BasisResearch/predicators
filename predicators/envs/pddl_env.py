@@ -19,7 +19,7 @@ from pyperplan.pddl.parser import TraversePDDLDomain, TraversePDDLProblem, \
 from pyperplan.pddl.pddl import Domain as PyperplanDomain
 from pyperplan.pddl.pddl import Type as PyperplanType
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs import BaseEnv
 from predicators.envs.pddl_procedural_generation import \
     create_blocks_pddl_generator, create_delivery_pddl_generator, \

@@ -10,7 +10,7 @@ import numpy as np
 import pybullet as p
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.pybullet_domino import PyBulletDominoEnv
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent

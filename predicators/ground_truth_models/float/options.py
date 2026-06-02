@@ -7,7 +7,7 @@ from typing import Type as TypingType
 import pybullet as p
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.envs.pybullet_float import PyBulletFloatEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory

@@ -15,7 +15,7 @@ from typing import Type as TypingType
 import numpy as np
 import pybullet as p
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.pybullet_domino.components.base_component import \
     DominoEnvComponent
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion

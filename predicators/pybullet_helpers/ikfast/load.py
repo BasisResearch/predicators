@@ -10,7 +10,7 @@ from importlib.abc import Loader
 from types import ModuleType
 
 from predicators.pybullet_helpers.ikfast import IKFastInfo
-from predicators.utils import get_third_party_path
+from predicators.utils_lite import get_third_party_path
 
 
 def install_ikfast_module(ikfast_dir: str) -> None:

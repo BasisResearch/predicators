@@ -19,7 +19,7 @@ from typing import Dict, Optional, Sequence, Tuple, cast
 import numpy as np
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.ground_truth_models.skill_factories.base import SkillConfig
 from predicators.structs import Action, Array, Object, ParameterizedOption, \
     State, Type

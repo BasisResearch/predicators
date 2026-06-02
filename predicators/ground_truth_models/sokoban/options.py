@@ -6,7 +6,7 @@ import numpy as np
 from gym.spaces import Box
 from gym_sokoban.envs.sokoban_env import ACTION_LOOKUP as SOKOBAN_ACTION_LOOKUP
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.structs import Action, Array, Object, ParameterizedOption, \
     ParameterizedPolicy, Predicate, State, Type

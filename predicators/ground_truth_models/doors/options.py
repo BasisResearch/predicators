@@ -5,14 +5,14 @@ from typing import Dict, Iterator, Sequence, Set, Tuple
 import numpy as np
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.doors import DoorKnobsEnv, DoorsEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.settings import CFG
 from predicators.structs import Action, Array, Object, \
     ParameterizedInitiable, ParameterizedOption, ParameterizedPolicy, \
     Predicate, State, Type
-from predicators.utils import Rectangle, SingletonParameterizedOption, \
+from predicators.utils_lite import Rectangle, SingletonParameterizedOption, \
     StateWithCache
 
 

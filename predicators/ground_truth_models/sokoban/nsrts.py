@@ -5,7 +5,7 @@ from typing import Dict, List, Set
 from predicators.ground_truth_models import GroundTruthNSRTFactory
 from predicators.structs import NSRT, LiftedAtom, ParameterizedOption, \
     Predicate, Type, Variable
-from predicators.utils import null_sampler
+from predicators.utils_lite import null_sampler
 
 
 class SokobanGroundTruthNSRTFactory(GroundTruthNSRTFactory):

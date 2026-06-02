@@ -17,7 +17,7 @@ try:
     _MJKITCHEN_IMPORTED = True
 except (ImportError, RuntimeError):
     _MJKITCHEN_IMPORTED = False
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs import BaseEnv
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, Image, Object, \

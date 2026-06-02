@@ -1,6 +1,6 @@
 """Handle creation of execution monitors."""
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.execution_monitoring.base_execution_monitor import \
     BaseExecutionMonitor
 

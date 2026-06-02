@@ -12,7 +12,7 @@ from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 import pybullet as p
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion

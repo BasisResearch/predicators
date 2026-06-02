@@ -3,14 +3,15 @@
 import logging
 from typing import Any
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.base_env import BaseEnv
 
 __all__ = ["BaseEnv"]
 _MOST_RECENT_ENV_INSTANCE = {}
 
-# Find the subclasses.
-utils.import_submodules(__path__, __name__)
+# Find the subclasses. Tolerate missing optional deps so constrained
+# runtimes (e.g. Pyodide) can still load the envs that don't need them.
+utils.import_submodules(__path__, __name__, tolerate_import_errors=True)
 
 
 def create_new_env(name: str,

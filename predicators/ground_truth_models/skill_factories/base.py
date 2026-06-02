@@ -16,7 +16,7 @@ import numpy as np
 import pybullet as p
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.pybullet_helpers.controllers import \
     get_change_fingers_action, get_move_end_effector_to_pose_action
 from predicators.pybullet_helpers.geometry import Pose
