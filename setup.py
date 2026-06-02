@@ -52,17 +52,18 @@ setup(
     packages=find_packages(include=["predicators", "predicators.*"]),
     install_requires=[
         # PyBullet env-runtime. Mirrors master's pins on the deps that
-        # are still in the base install (numpy / matplotlib / pillow /
-        # tabulate / dill / pyyaml) so CPython CI stays predictable.
-        # Pyodide can't satisfy these exact pins (it ships fixed,
-        # newer versions) but micropip's `keep_going=True` in the
-        # browser bootstrap skips the conflicting requirements and
-        # falls back to whatever Pyodide already has loaded.
-        "numpy==1.23.5",
+        # are still in the base install so CPython CI stays
+        # predictable. Pyodide already ships newer versions of
+        # numpy / matplotlib / pillow / pyyaml that conflict with
+        # these exact pins, so qualify those with
+        # `sys_platform != 'emscripten'` — under Pyodide micropip
+        # then just keeps the already-loaded copy.
+        "numpy==1.23.5; sys_platform != 'emscripten'",
+        "matplotlib==3.6.2; sys_platform != 'emscripten'",
+        "pillow==10.3.0; sys_platform != 'emscripten'",
+        "pyyaml==6.0; sys_platform != 'emscripten'",
         "gym==0.26.2",
         "gymnasium>=0.28.0",
-        "matplotlib==3.6.2",
-        "pillow==10.3.0",
         # On Pyodide (sys_platform == "emscripten") the pybullet wheel
         # is loaded from a local emfs path by the browser bootstrap;
         # PyPI has no Pyodide-targeted pybullet.
@@ -71,7 +72,6 @@ setup(
         "tabulate==0.9.0",
         "dill==0.3.5.1",
         "colorlog",
-        "pyyaml==6.0",
         "types-PyYAML",
         "graphlib-backport",
         # Test/lint tooling stays in base for now (CLAUDE.md docs the
