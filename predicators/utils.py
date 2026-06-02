@@ -38,10 +38,12 @@ from predicators.utils_lite import *  # noqa: F401, F403
 # Python's defaults. Surface the private utils symbols that external
 # callers (planning.py, planning_with_processes.py, tests/test_utils.py)
 # rely on explicitly.
+# pylint: disable=unused-import
 from predicators.utils_lite import (  # noqa: F401
     _abstract_with_derived_predicates, _Geom2D, _PyperplanHeuristicWrapper,
     _TaskPlanningHeuristic,
 )
+# pylint: enable=unused-import
 
 from predicators.pretrained_model_interface import GoogleGeminiLLM, \
     GoogleGeminiVLM, LargeLanguageModel, OpenAILLM, OpenAIVLM, \

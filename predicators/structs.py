@@ -38,7 +38,7 @@ from tabulate import tabulate
 # utils_lite directly here breaks the cycle, and CPython callers still
 # see every `utils.X` symbol via the full `utils` module's wildcard
 # re-export of utils_lite.
-import predicators.utils_lite as utils  # pylint: disable=consider-using-from-import
+import predicators.utils_lite as utils  # pylint: disable=consider-using-from-import,ungrouped-imports
 from predicators.settings import CFG
 
 # pylint: enable=wrong-import-position

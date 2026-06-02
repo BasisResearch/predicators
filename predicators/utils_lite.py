@@ -32,9 +32,7 @@ import sys
 import time
 from argparse import ArgumentParser
 from collections import defaultdict, namedtuple
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Collection, Dict, \
     FrozenSet, Generator, Generic, Hashable, Iterable, Iterator, List, \
@@ -60,12 +58,11 @@ from predicators.args import create_arg_parser
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.settings import CFG, GlobalSettings
 from predicators.structs import NSRT, Action, Array, AtomOptionTrajectory, \
-    CausalProcess, DelayDistribution, DerivedPredicate, DummyOption, \
-    EntToEntSub, GroundAtom, GroundAtomTrajectory, \
-    GroundNSRTOrSTRIPSOperator, Image, LDLRule, LiftedAtom, \
-    LiftedDecisionList, LiftedOrGroundAtom, LowLevelTrajectory, Mask, \
-    Metrics, NSRTOrSTRIPSOperator, Object, ObjectOrVariable, Observation, \
-    OptionSpec, ParameterizedOption, Predicate, Segment, State, \
+    CausalProcess, DerivedPredicate, DummyOption, EntToEntSub, GroundAtom, \
+    GroundAtomTrajectory, GroundNSRTOrSTRIPSOperator, Image, LDLRule, \
+    LiftedAtom, LiftedDecisionList, LiftedOrGroundAtom, LowLevelTrajectory, \
+    Mask, Metrics, NSRTOrSTRIPSOperator, Object, ObjectOrVariable, \
+    Observation, OptionSpec, ParameterizedOption, Predicate, Segment, State, \
     STRIPSOperator, Task, Type, Variable, VarToObjSub, Video, VLMPredicate, \
     _GroundEndogenousProcess, _GroundLDLRule, _GroundNSRT, \
     _GroundSTRIPSOperator, _Option, _TypedEntity
@@ -1108,7 +1105,8 @@ class PyBulletState(State):
         # Lazy import: image_patch_wrapper pulls in torch/torchvision
         # which aren't available in Pyodide. CPython callers see it via
         # the deferred import here.
-        from predicators.image_patch_wrapper import ImagePatch  # noqa: PLC0415
+        from predicators.image_patch_wrapper import \
+            ImagePatch  # noqa: PLC0415  # pylint: disable=import-outside-toplevel
         state_ip = ImagePatch(self)
         obj_mask_dict = self.obj_mask_dict
         assert obj_mask_dict is not None
@@ -1283,7 +1281,8 @@ class VLMState(PyBulletState):
         return self.simulator_state == other.simulator_state
 
     def label_all_objects(self) -> None:
-        from predicators.image_patch_wrapper import ImagePatch  # noqa: PLC0415
+        from predicators.image_patch_wrapper import \
+            ImagePatch  # noqa: PLC0415  # pylint: disable=import-outside-toplevel
         state_ip = ImagePatch(self)
         state_ip.label_all_objects(self.obj_mask_dict)
         self.labeled_image = state_ip.cropped_image_in_PIL
@@ -2504,7 +2503,7 @@ def run_hill_climbing(
                 # Parallelize the expensive part (heuristic computation).
                 # pathos is lazy-imported because it isn't available under
                 # Pyodide; the browser POC never sets parallelize=True.
-                import pathos.multiprocessing as mp  # noqa: PLC0415
+                import pathos.multiprocessing as mp  # noqa: PLC0415  # pylint: disable=import-outside-toplevel
                 num_cpus = mp.cpu_count()
                 fn = lambda n: (heuristic(n.state), n)
                 with mp.Pool(processes=num_cpus) as p:
@@ -3118,7 +3117,8 @@ def query_vlm_for_atom_vals(
         # (heavy pretrained-model deps), not utils_lite. CPython callers
         # see it via `from predicators import utils`; Pyodide callers
         # never hit this path (no VLM available).
-        from predicators.utils import create_vlm_by_name  # noqa: PLC0415
+        from predicators.utils import \
+            create_vlm_by_name  # noqa: PLC0415  # pylint: disable=import-outside-toplevel
         vlm = create_vlm_by_name(CFG.vlm_model_name)  # pragma: no cover.
     if CFG.env in ["pybullet_coffee"]:
         vlm_input_imgs = list(imgs)  # type: ignore
