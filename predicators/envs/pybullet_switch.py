@@ -19,7 +19,8 @@ import pybullet as p
 from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object
+from predicators.pybullet_helpers.objects import cap_switch_joint_travel, \
+    create_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
@@ -210,11 +211,19 @@ class PyBulletSwitchEnv(PyBulletEnv):
         self._power_switch.joint_id = self._get_joint_id(
             self._power_switch.id, "joint_0")
         self._power_switch.joint_scale = 0.1
+        cap_switch_joint_travel(self._power_switch.id,
+                                self._power_switch.joint_id,
+                                self._power_switch.joint_scale,
+                                self._physics_client_id)
 
         self._color_switch.id = pybullet_bodies["color_switch_id"]
         self._color_switch.joint_id = self._get_joint_id(
             self._color_switch.id, "joint_0")
         self._color_switch.joint_scale = 0.1
+        cap_switch_joint_travel(self._color_switch.id,
+                                self._color_switch.joint_id,
+                                self._color_switch.joint_scale,
+                                self._physics_client_id)
         self._color_switch.color_count = 0  # Will be set in reset
 
         self._light.id = pybullet_bodies["light_id"]

@@ -18,8 +18,8 @@ import pybullet as p
 from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, \
-    create_pybullet_block
+from predicators.pybullet_helpers.objects import cap_switch_joint_travel, \
+    create_object, create_pybullet_block
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
@@ -227,6 +227,9 @@ class PyBulletMagicBinEnv(PyBulletEnv):
         self._switch.joint_id = self._get_joint_id(self._switch.id, "joint_0",
                                                    self._physics_client_id)
         self._switch.joint_scale = 0.1
+        cap_switch_joint_travel(self._switch.id, self._switch.joint_id,
+                                self._switch.joint_scale,
+                                self._physics_client_id)
 
         # Store bin ID
         self._bin.id = pybullet_bodies["bin_id"]

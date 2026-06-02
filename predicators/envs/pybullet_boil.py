@@ -12,8 +12,8 @@ from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers import retry_pybullet_call
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, \
-    create_pybullet_block, update_object
+from predicators.pybullet_helpers.objects import cap_switch_joint_travel, \
+    create_object, create_pybullet_block, update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, DerivedPredicate, EnvironmentTask, \
@@ -458,6 +458,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                                 -1,
                                 rgbaColor=cls.burner_switch_color,
                                 physicsClientId=physics_client_id)
+            cls._cap_switch_joint_travel(switch_id, physics_client_id)
             burner_switch_ids.append(switch_id)
         bodies["burner_switch_ids"] = burner_switch_ids
 
@@ -479,6 +480,7 @@ class PyBulletBoilEnv(PyBulletEnv):
                             -1,
                             rgbaColor=cls.faucet_switch_color,
                             physicsClientId=physics_client_id)
+        cls._cap_switch_joint_travel(faucet_switch_id, physics_client_id)
         bodies["faucet_switch_id"] = faucet_switch_id
 
         return physics_client_id, pybullet_robot, bodies
@@ -1054,6 +1056,18 @@ class PyBulletBoilEnv(PyBulletEnv):
             if info[1].decode("utf-8") == joint_name:
                 return j
         return -1
+
+    @classmethod
+    def _cap_switch_joint_travel(cls, switch_id: int,
+                                 physics_client_id: int) -> None:
+        """Cap this env's switch so a push can't over-extend it past "on".
+
+        Resolves ``joint_0`` and delegates to the shared
+        :func:`cap_switch_joint_travel` (see its docstring for the why).
+        """
+        j_id = cls._get_joint_id(switch_id, "joint_0", physics_client_id)
+        cap_switch_joint_travel(switch_id, j_id, cls.switch_joint_scale,
+                                physics_client_id)
 
     def _draw_sampling_boundary_debug_lines(self) -> None:
         """Draw debug lines showing the boundaries where objects can be sampled
