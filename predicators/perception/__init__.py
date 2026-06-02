@@ -1,6 +1,6 @@
 """Handle creation of perceivers."""
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.perception.base_perceiver import BasePerceiver
 
 __all__ = ["BasePerceiver"]

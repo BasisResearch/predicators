@@ -10,8 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from gym.spaces import Box
 
-from predicators import utils
-from predicators.pretrained_model_interface import OpenAILLM
+from predicators import utils_lite as utils
 from predicators.settings import CFG
 from predicators.structs import Action, DefaultEnvironmentTask, \
     EnvironmentTask, GroundAtom, Object, Observation, Predicate, State, Task, \
@@ -319,6 +318,8 @@ class BaseEnv(abc.ABC):
         object_names = set(id_to_obj)
         prompt_prefix = self._get_language_goal_prompt_prefix(object_names)
         prompt = prompt_prefix + f"\n# {language_goal}"
+        from predicators.pretrained_model_interface import \
+            OpenAILLM  # pylint: disable=import-outside-toplevel
         llm = OpenAILLM(CFG.llm_model_name)
         responses = llm.sample_completions(prompt,
                                            None,

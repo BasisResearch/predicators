@@ -10,7 +10,7 @@ from predicators.envs.pybullet_domino.composed_env import \
     PyBulletDominoComposedEnv
 from predicators.ground_truth_models import GroundTruthTypeFactory
 from predicators.structs import Object, Task, Type
-from predicators.utils import PyBulletState
+from predicators.utils_lite import PyBulletState
 
 
 class PyBulletDominoGroundTruthTypeFactory(GroundTruthTypeFactory):

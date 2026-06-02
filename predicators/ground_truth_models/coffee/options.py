@@ -8,7 +8,7 @@ from typing import Type as TypingType
 import numpy as np
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.coffee import CoffeeEnv
 from predicators.envs.pybullet_coffee import PyBulletCoffeeEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory

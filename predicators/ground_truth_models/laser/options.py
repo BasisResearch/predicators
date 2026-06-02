@@ -8,7 +8,7 @@ import numpy as np
 import pybullet as p
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.envs.pybullet_laser import PyBulletLaserEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
@@ -171,7 +171,7 @@ class PyBulletLaserGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, switch = objects
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
@@ -217,7 +217,7 @@ class PyBulletLaserGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, mirror = objects
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))
@@ -260,7 +260,7 @@ class PyBulletLaserGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, = objects
             rx = state.get(robot, "x")
             ry = state.get(robot, "y")

@@ -5,7 +5,7 @@ from typing import Dict, Iterator, Optional, Sequence, Set, Tuple
 import numpy as np
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.burger import BurgerEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.structs import Action, Array, Object, ParameterizedOption, \

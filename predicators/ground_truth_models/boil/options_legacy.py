@@ -9,7 +9,7 @@ import numpy as np
 import pybullet as p
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.pybullet_boil import PyBulletBoilEnv
 from predicators.pybullet_helpers.controllers import \
     create_change_fingers_option, create_move_end_effector_to_pose_option
@@ -519,7 +519,7 @@ class _BoilLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             if len(objects) == 2:
                 robot, burner = objects
                 # Current
@@ -597,7 +597,7 @@ class _BoilLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, jug = objects
             # Current
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
@@ -645,7 +645,7 @@ class _BoilLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, obj = objects
             switch = next(
                 (
@@ -689,7 +689,7 @@ class _BoilLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot = objects[0]
             current_position = (state.get(robot, "x"), state.get(robot, "y"),
                                 state.get(robot, "z"))

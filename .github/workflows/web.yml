@@ -1,0 +1,61 @@
+name: web
+
+on: [push]
+
+jobs:
+  import-check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.10.14
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10.14"
+
+    - name: Cache pip packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: pip-3.10.14-${{ hashFiles('setup.py') }}
+        restore-keys: |
+          pip-3.10.14-
+
+    - name: Set up Node 24
+      uses: actions/setup-node@v4
+      with:
+        node-version: "24"
+
+    - name: Install predicators + build tools
+      run: |
+        pip install -e .
+        pip install build
+
+    - name: Build predicators + gym shim wheels
+      run: |
+        PYTHON=$(which python) ./web/app/bundle.sh
+
+    # Pre-built pybullet WASM wheel from BasisResearch/pybullet-pyodide.
+    # That repo's CI builds the wheel as a release asset; we just
+    # download it. Override `PYBULLET_WASM_WHEEL_URL` via a repo
+    # variable to bump the version without editing this file.
+    - name: Download pybullet WASM wheel
+      env:
+        WHEEL_URL: ${{ vars.PYBULLET_WASM_WHEEL_URL || 'https://github.com/BasisResearch/pybullet-pyodide/releases/latest/download/pybullet-3.2.7-cp313-cp313-pyemscripten_2025_0_wasm32.whl' }}
+      run: |
+        curl -L --fail -o web/wheels/pybullet-3.2.7-cp313-cp313-pyemscripten_2025_0_wasm32.whl \
+          "$WHEEL_URL"
+        ls -lh web/wheels/
+
+    - name: Install Node deps (pyodide + puppeteer-core)
+      working-directory: web
+      run: |
+        npm ci
+
+    # The cheap gate: boot Pyodide in Node, install the three wheels,
+    # and verify every env named in the dropdown shows up as a
+    # registered BaseEnv subclass. No Chromium, no env construction,
+    # no asset extraction. ~30 s wall, vs. ~12 min for per-env smoke.
+    - name: Pyodide import check
+      run: |
+        node web/app/import_check.mjs

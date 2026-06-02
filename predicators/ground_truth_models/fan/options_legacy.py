@@ -8,7 +8,7 @@ import numpy as np
 import pybullet as p
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.pybullet_fan import PyBulletFanEnv
 from predicators.pybullet_helpers.controllers import \
     create_change_fingers_option, create_move_end_effector_to_pose_option
@@ -260,7 +260,7 @@ class _FanLegacyOptionsMixin:
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object], params: Array) -> \
                 Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             if CFG.fan_known_controls_relation:
                 robot, fan = objects
                 switch = [switch for switch in state.get_objects(switch_type)

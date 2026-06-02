@@ -4,7 +4,7 @@ from typing import Dict, Sequence, Set
 
 import numpy as np
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.ground_truth_models import GroundTruthPredicateFactory
 from predicators.structs import DerivedPredicate, GroundAtom, Object, \
     Predicate, State, Type

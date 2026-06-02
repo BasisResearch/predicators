@@ -9,7 +9,7 @@ from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 import pybullet as p
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.pybullet_domino.components.ball_component import \
     BallComponent
 from predicators.envs.pybullet_domino.components.base_component import \

@@ -5,7 +5,7 @@ import numpy as np
 import pybullet as p
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.inverse_kinematics import \
     InverseKinematicsError

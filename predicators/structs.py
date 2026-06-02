@@ -15,22 +15,47 @@ from typing import TYPE_CHECKING, Any, Callable, Collection, DefaultDict, \
     cast
 
 if TYPE_CHECKING:
-    from predicators.utils import VLMQuery, VLMState
+    # `torch` and `predicators.pretrained_model_interface` are heavy
+    # modules unavailable under Pyodide. Type annotations referencing
+    # them are deferred to strings via `from __future__ import
+    # annotations`; the few runtime call sites use lazy local imports.
+    import torch  # pylint: disable=import-outside-toplevel
+    from torch import Tensor  # pylint: disable=import-outside-toplevel
+
+    import predicators.pretrained_model_interface
+    from predicators.utils_lite import VLMQuery, VLMState
 
 # pylint: disable=wrong-import-position
 import numpy as np
 import PIL.Image
-import torch
 from gym.spaces import Box
 from numpy.typing import NDArray
 from tabulate import tabulate
-from torch import Tensor
 
-import predicators.pretrained_model_interface
-import predicators.utils as utils  # pylint: disable=consider-using-from-import
+# structs is a foundational module imported during utils_lite's own
+# load. Going through utils (the heavy variant) would create a cycle:
+# utils_lite -> structs -> utils -> utils_lite (incomplete). Importing
+# utils_lite directly here breaks the cycle, and CPython callers still
+# see every `utils.X` symbol via the full `utils` module's wildcard
+# re-export of utils_lite.
+import predicators.utils_lite as utils  # pylint: disable=consider-using-from-import,ungrouped-imports
 from predicators.settings import CFG
 
 # pylint: enable=wrong-import-position
+
+
+def _torch_and_delay() -> Tuple[Any, Any]:
+    """Lazy-load torch and DiscreteGaussianDelay for the two process-
+    construction methods below.
+
+    Both are heavy and unsafe to import under Pyodide.
+    """
+    import torch  # pylint: disable=import-outside-toplevel
+
+    from predicators.utils import DiscreteGaussianDelay \
+        # pylint: disable=import-outside-toplevel
+
+    return torch, DiscreteGaussianDelay
 
 
 @dataclass(frozen=True, order=True)
@@ -1252,6 +1277,7 @@ class STRIPSOperator:
         process_rng: Optional[np.random.Generator] = None,
     ) -> EndogenousProcess:
         """Make a CausalProcess out of this STRIPSOperator object."""
+        torch, DiscreteGaussianDelay = _torch_and_delay()
         assert option is not None and option_vars is not None and \
             sampler is not None
         if process_delay_params is None:
@@ -1271,7 +1297,7 @@ class STRIPSOperator:
             add_effects=self.add_effects if option.name != "Wait" else set(),
             delete_effects=self.delete_effects
             if option.name != "Wait" else set(),
-            delay_distribution=utils.DiscreteGaussianDelay(
+            delay_distribution=DiscreteGaussianDelay(
                 torch.tensor(process_delay_params[0]),
                 torch.tensor(process_delay_params[1])),
             strength=process_strength,  # type: ignore[arg-type]
@@ -1287,12 +1313,13 @@ class STRIPSOperator:
         _process_rng: Optional[np.random.Generator] = None
     ) -> ExogenousProcess:
         """Make an ExogenousProcess out of this STRIPSOperator object."""
+        torch, DiscreteGaussianDelay = _torch_and_delay()
         if process_delay_params is None:
             process_delay_params = torch.tensor([1, 1
                                                  ])  # type: ignore[assignment]
         if process_strength is None:
             process_strength = torch.tensor(1.0)  # type: ignore[assignment]
-        dist = utils.DiscreteGaussianDelay(torch.tensor(1), torch.tensor(1))
+        dist = DiscreteGaussianDelay(torch.tensor(1), torch.tensor(1))
 
         proc = ExogenousProcess(
             self.name,

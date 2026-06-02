@@ -4,7 +4,7 @@ from typing import Dict, Tuple
 
 import numpy as np
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.sokoban import SokobanEnv
 from predicators.perception.base_perceiver import BasePerceiver
 from predicators.structs import EnvironmentTask, GroundAtom, Object, \
