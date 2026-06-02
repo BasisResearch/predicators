@@ -729,9 +729,13 @@ async function executeOption() {
     // Arm the option: bridge stashes the grounded option + initial
     // state. Returns the initial-frame body states so JS can paint
     // step 0 before any pybullet step has happened.
+    // JSON.stringify(name) yields a Python-safe string literal too
+    // (Python and JSON share the "..." escape syntax for common
+    // payloads), so an option name with " or \ doesn't break the
+    // injected Python source.
     const argList = JSON.stringify(args);
     const initProxy = await pyodide.runPythonAsync(
-      `bridge.begin_option("${name}", ${argList})`);
+      `bridge.begin_option(${JSON.stringify(name)}, ${argList})`);
     const init = initProxy.toJs({ dict_converter: Object.fromEntries });
     initProxy.destroy();
     if (init.error) {

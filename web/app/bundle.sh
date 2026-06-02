@@ -28,7 +28,16 @@ echo "[2/3] Building gym shim…"
 
 echo "[3/3] Packing envs/assets/ tarball (~30 MB)…"
 cd "$REPO_ROOT/predicators/envs"
-tar czf "$WHEELS_DIR/assets.tar.gz" assets
+TARBALL="$WHEELS_DIR/assets.tar.gz"
+# Skip the tar if the existing tarball is newer than every asset file —
+# rebuilding 30 MB of mostly-static URDFs/meshes on every iteration cycle
+# is wasteful.
+if [ -f "$TARBALL" ] \
+   && [ -z "$(find assets -type f -newer "$TARBALL" -print -quit)" ]; then
+  echo "  (assets unchanged, reusing existing $TARBALL)"
+else
+  tar czf "$TARBALL" assets
+fi
 
 echo
 echo "Done. web/wheels/ now contains:"

@@ -486,12 +486,22 @@ class _Bridge:
                                   f"for option {opt.name}")}
 
         state = self.env._current_observation  # noqa: SLF001
-        if params is None:
-            rng = np.random.default_rng(0)
-            ground_opt = self._sample_ground_option(opt, chosen, state, rng)
-        else:
-            params_arr = np.asarray(params, dtype=np.float32)
-            ground_opt = opt.ground(chosen, params_arr)
+        try:
+            if params is None:
+                rng = np.random.default_rng(0)
+                ground_opt = self._sample_ground_option(opt, chosen, state,
+                                                        rng)
+            else:
+                params_arr = np.asarray(params, dtype=np.float32)
+                ground_opt = opt.ground(chosen, params_arr)
+        except Exception as e:  # pylint: disable=broad-except
+            # NSRT samplers and option grounding can raise a variety of
+            # errors (KeyError from a missing object, ValueError from a
+            # params_space mismatch, AssertionError from a sampler
+            # precondition). Convert to the JSON error shape rather
+            # than crashing across the Pyodide → JS boundary.
+            return {"initial_frame": {},
+                    "error": f"Grounding failed: {type(e).__name__}: {e}"}
 
         if not ground_opt.initiable(state):
             return {"initial_frame": {},
@@ -544,6 +554,15 @@ class _Bridge:
             # (predicators/approaches/human_option_control_approach
             # .py:104): bare reason, not class name + repr.
             error_msg = str(e.args[0]) if e.args else "Option failed."
+            done = True
+        except Exception as e:  # pylint: disable=broad-except
+            # Any other exception from policy/step/terminal needs to
+            # land on the JS side as a clean done+error rather than
+            # crashing the bridge mid-rollout (leaving _active_option
+            # armed for the next step_option). Common offenders:
+            # IndexError from a sampler-produced bad state, ValueError
+            # from numpy shape mismatches.
+            error_msg = f"{type(e).__name__}: {e}"
             done = True
         if ao["steps"] >= ao["max_steps"]:
             done = True

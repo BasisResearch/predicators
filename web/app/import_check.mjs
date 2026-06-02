@@ -61,11 +61,11 @@ names = sorted(
 )
 json.dumps(names)
 `);
-log(`predicators.envs loaded, ${JSON.parse(found).length} envs registered`);
-
-const registered = new Set(JSON.parse(found));
+const registeredArr = JSON.parse(found);
+log(`predicators.envs loaded, ${registeredArr.length} envs registered`);
+const registered = new Set(registeredArr);
 const missing = EXPECTED_ENVS.filter((e) => !registered.has(e));
-const extra = [...registered].filter((e) => !EXPECTED_ENVS.includes(e));
+const extra = registeredArr.filter((e) => !EXPECTED_ENVS.includes(e));
 if (extra.length) {
   log(`note: ${extra.length} envs registered but not in the dropdown:`, extra);
 }

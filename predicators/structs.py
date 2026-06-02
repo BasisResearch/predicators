@@ -42,6 +42,16 @@ from predicators.settings import CFG
 # pylint: enable=wrong-import-position
 
 
+def _torch_and_delay():
+    """Lazy-load torch and DiscreteGaussianDelay (both heavy + Pyodide-
+    unsafe) for the two process-construction methods below."""
+    import torch  # pylint: disable=import-outside-toplevel
+    from predicators.utils import (  # pylint: disable=import-outside-toplevel
+        DiscreteGaussianDelay,
+    )
+    return torch, DiscreteGaussianDelay
+
+
 @dataclass(frozen=True, order=True)
 class Type:
     """Struct defining a type.
@@ -1261,9 +1271,7 @@ class STRIPSOperator:
         process_rng: Optional[np.random.Generator] = None,
     ) -> EndogenousProcess:
         """Make a CausalProcess out of this STRIPSOperator object."""
-        # pylint: disable=import-outside-toplevel
-        import torch
-        from predicators.utils import DiscreteGaussianDelay
+        torch, DiscreteGaussianDelay = _torch_and_delay()
         assert option is not None and option_vars is not None and \
             sampler is not None
         if process_delay_params is None:
@@ -1299,9 +1307,7 @@ class STRIPSOperator:
         _process_rng: Optional[np.random.Generator] = None
     ) -> ExogenousProcess:
         """Make an ExogenousProcess out of this STRIPSOperator object."""
-        # pylint: disable=import-outside-toplevel
-        import torch
-        from predicators.utils import DiscreteGaussianDelay
+        torch, DiscreteGaussianDelay = _torch_and_delay()
         if process_delay_params is None:
             process_delay_params = torch.tensor([1, 1
                                                  ])  # type: ignore[assignment]

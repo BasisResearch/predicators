@@ -4249,12 +4249,18 @@ def import_submodules(path: List[str],
                 full_name = f"{name}.{module_name}"
                 try:
                     importlib.import_module(full_name)
-                except ModuleNotFoundError as exc:
+                except ImportError as exc:
                     if not tolerate_import_errors:
                         raise
+                    # `cannot import name X from Y` is raised as plain
+                    # ImportError (not ModuleNotFoundError) and is
+                    # exactly the shape that fires under Pyodide when a
+                    # submodule's top-level pulls a heavy symbol from
+                    # the full utils. Skip both, not just MNFE.
+                    name = getattr(exc, "name", None) or str(exc)
                     logging.warning(
                         "Skipping %s: missing optional dependency (%s)",
-                        full_name, exc.name)
+                        full_name, name)
 
 
 def update_config(args: Dict[str, Any]) -> None:
