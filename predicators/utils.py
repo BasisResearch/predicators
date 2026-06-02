@@ -39,9 +39,7 @@ from predicators.utils_lite import *  # noqa: F401, F403
 # callers (planning.py, planning_with_processes.py, tests/test_utils.py)
 # rely on explicitly.
 from predicators.utils_lite import (  # noqa: F401
-    _abstract_with_derived_predicates,
-    _Geom2D,
-    _PyperplanHeuristicWrapper,
+    _abstract_with_derived_predicates, _Geom2D, _PyperplanHeuristicWrapper,
     _TaskPlanningHeuristic,
 )
 
@@ -51,6 +49,7 @@ from predicators.pretrained_model_interface import GoogleGeminiLLM, \
 from predicators.settings import CFG
 from predicators.structs import DelayDistribution, Video
 # isort: on
+
 
 def create_llm_by_name(
         model_name: str) -> LargeLanguageModel:  # pragma: no cover
@@ -76,6 +75,7 @@ def create_vlm_by_name(
         return OpenRouterVLM(model_name)
     raise ValueError(f"Unknown pretrained model service provider: "
                      f"{CFG.pretrained_model_service_provider}")
+
 
 def save_video(outfile: str, video: Video) -> None:
     """Save the video to video_dir/outfile."""
@@ -112,6 +112,7 @@ def save_images_parallel(outfile_prefix: str, video: Video) -> None:
 def save_images(outfile_prefix: str, video: Video) -> None:
     """Save the video as individual images to image_dir."""
     return save_images_parallel(outfile_prefix, video)
+
 
 class ConstantDelay(DelayDistribution):
     """ConstantDelay class."""

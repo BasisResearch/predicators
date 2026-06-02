@@ -44,7 +44,8 @@ def _ensure_cfg_initialized() -> None:
     required fields like ``seed`` are missing and ``BaseEnv.__init__``
     would crash.
     """
-    from predicators import utils_lite as utils  # pylint: disable=import-outside-toplevel
+    from predicators import \
+        utils_lite as utils  # pylint: disable=import-outside-toplevel
     from predicators.settings import \
         CFG  # pylint: disable=import-outside-toplevel
     if not hasattr(CFG, "seed"):
@@ -87,8 +88,8 @@ class RoboDiscoEnv(gymnasium.Env):
 
         _ensure_cfg_initialized()
         if cfg_overrides:
-            from predicators import utils_lite as \
-                utils  # pylint: disable=import-outside-toplevel
+            from predicators import \
+                utils_lite as utils  # pylint: disable=import-outside-toplevel
             utils.update_config(cfg_overrides)
         resolved_cls = _resolve_cls(env_cls)
         self._env = resolved_cls(use_gui=use_gui, **env_kwargs)

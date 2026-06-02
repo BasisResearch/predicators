@@ -1103,9 +1103,7 @@ class PyBulletState(State):
         # Lazy import: image_patch_wrapper pulls in torch/torchvision
         # which aren't available in Pyodide. CPython callers see it via
         # the deferred import here.
-        from predicators.image_patch_wrapper import (  # noqa: PLC0415
-            ImagePatch,
-        )
+        from predicators.image_patch_wrapper import ImagePatch  # noqa: PLC0415
         state_ip = ImagePatch(self)
         obj_mask_dict = self.obj_mask_dict
         assert obj_mask_dict is not None
@@ -1280,9 +1278,7 @@ class VLMState(PyBulletState):
         return self.simulator_state == other.simulator_state
 
     def label_all_objects(self) -> None:
-        from predicators.image_patch_wrapper import (  # noqa: PLC0415
-            ImagePatch,
-        )
+        from predicators.image_patch_wrapper import ImagePatch  # noqa: PLC0415
         state_ip = ImagePatch(self)
         state_ip.label_all_objects(self.obj_mask_dict)
         self.labeled_image = state_ip.cropped_image_in_PIL
@@ -3117,9 +3113,7 @@ def query_vlm_for_atom_vals(
         # (heavy pretrained-model deps), not utils_lite. CPython callers
         # see it via `from predicators import utils`; Pyodide callers
         # never hit this path (no VLM available).
-        from predicators.utils import (  # noqa: PLC0415
-            create_vlm_by_name,
-        )
+        from predicators.utils import create_vlm_by_name  # noqa: PLC0415
         vlm = create_vlm_by_name(CFG.vlm_model_name)  # pragma: no cover.
     if CFG.env in ["pybullet_coffee"]:
         vlm_input_imgs = list(imgs)  # type: ignore
@@ -4234,12 +4228,12 @@ def import_submodules(path: List[str],
 
     Useful for finding subclasses of an abstract base class
     automatically. With ``tolerate_import_errors=True``, any submodule
-    that fails with ``ModuleNotFoundError`` (e.g. an optional
-    third-party dep is unavailable) is skipped with a warning instead
-    of aborting the whole load. Use this in contexts where some
-    submodules are intentionally optional — e.g. predicators running
-    under Pyodide where heavy deps like torch / gym_sokoban /
-    gymnasium-robotics aren't installed, but most envs still work.
+    that fails with ``ModuleNotFoundError`` (e.g. an optional third-
+    party dep is unavailable) is skipped with a warning instead of
+    aborting the whole load. Use this in contexts where some submodules
+    are intentionally optional — e.g. predicators running under Pyodide
+    where heavy deps like torch / gym_sokoban / gymnasium-robotics
+    aren't installed, but most envs still work.
     """
     if not TYPE_CHECKING:
         for _, module_name, _ in pkgutil.walk_packages(path):

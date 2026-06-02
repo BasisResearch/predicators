@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     # annotations`; the few runtime call sites use lazy local imports.
     import torch  # pylint: disable=import-outside-toplevel
     from torch import Tensor  # pylint: disable=import-outside-toplevel
+
     import predicators.pretrained_model_interface
     from predicators.utils_lite import VLMQuery, VLMState
 
@@ -30,6 +31,7 @@ import PIL.Image
 from gym.spaces import Box
 from numpy.typing import NDArray
 from tabulate import tabulate
+
 # structs is a foundational module imported during utils_lite's own
 # load. Going through utils (the heavy variant) would create a cycle:
 # utils_lite -> structs -> utils -> utils_lite (incomplete). Importing
@@ -43,12 +45,16 @@ from predicators.settings import CFG
 
 
 def _torch_and_delay():
-    """Lazy-load torch and DiscreteGaussianDelay (both heavy + Pyodide-
-    unsafe) for the two process-construction methods below."""
+    """Lazy-load torch and DiscreteGaussianDelay for the two process-
+    construction methods below.
+
+    Both are heavy and unsafe to import under Pyodide.
+    """
     import torch  # pylint: disable=import-outside-toplevel
-    from predicators.utils import (  # pylint: disable=import-outside-toplevel
-        DiscreteGaussianDelay,
-    )
+
+    from predicators.utils import DiscreteGaussianDelay \
+        # pylint: disable=import-outside-toplevel
+
     return torch, DiscreteGaussianDelay
 
 

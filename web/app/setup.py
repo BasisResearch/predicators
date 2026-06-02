@@ -28,8 +28,14 @@ from predicators.settings import CFG
 
 # Pybullet GEOM_* constants:
 #   2 SPHERE, 3 BOX, 4 CYLINDER, 5 MESH, 6 PLANE, 7 CAPSULE
-_GEOM_NAMES = {2: "sphere", 3: "box", 4: "cylinder", 5: "mesh",
-               6: "plane", 7: "capsule"}
+_GEOM_NAMES = {
+    2: "sphere",
+    3: "box",
+    4: "cylinder",
+    5: "mesh",
+    6: "plane",
+    7: "capsule"
+}
 
 # Pyodide FS prefix where the assets tarball is unpacked at boot. We
 # strip this so the JS side can fetch via the dev server's static
@@ -67,7 +73,9 @@ def _ensure_cfg():
 # only exists when has_plug=True; with the predicators default the
 # powercord, plug, and socket aren't created at all.
 _ENV_CFG_OVERRIDES = {
-    "pybullet_coffee": {"coffee_machine_has_plug": True},
+    "pybullet_coffee": {
+        "coffee_machine_has_plug": True
+    },
     # Grow's default `grow_use_skill_factories=True` selects a
     # half-finished skill-factory Pour (terminal triggers as soon as
     # the EE reaches the tilt pose, before any growth happens) and a
@@ -88,7 +96,9 @@ _ENV_CFG_OVERRIDES = {
     # (PlaceOnBurner, PlaceUnderFaucet, etc.) that only exist on the
     # legacy code path. Default skill-factory path produces a single
     # generic Place option, so nsrts construction KeyErrors.
-    "pybullet_boil": {"boil_use_skill_factories": False},
+    "pybullet_boil": {
+        "boil_use_skill_factories": False
+    },
 }
 
 
@@ -141,7 +151,8 @@ class _Bridge:
         # env reads garbage.
         if self.env is not None:
             try:
-                p.disconnect(physicsClientId=self.env._physics_client_id)  # noqa: SLF001
+                p.disconnect(physicsClientId=self.env._physics_client_id
+                             )  # noqa: SLF001
             except p.error:
                 pass
             self.env = None
@@ -181,8 +192,7 @@ class _Bridge:
                 if url is not None and isinstance(bid, int) and bid >= 0:
                     bridge._urdf_map[bid] = {
                         "url": url,
-                        "scale":
-                            float(scale) if scale is not None else 1.0,
+                        "scale": float(scale) if scale is not None else 1.0,
                     }
                 return bid
 
@@ -197,8 +207,8 @@ class _Bridge:
         # Cache GT NSRTs so execute_option can call gnsrt.sample_option
         # (state-aware sampler) instead of uniformly sampling the
         # params box. Mirrors the default human_option_control path.
-        from predicators.ground_truth_models import (get_gt_nsrts,
-                                                     get_gt_options)
+        from predicators.ground_truth_models import get_gt_nsrts, \
+            get_gt_options
         try:
             env_options = get_gt_options(env_name)
         except NotImplementedError:
@@ -284,8 +294,7 @@ class _Bridge:
                 visual_orn = list(v[6])
                 link_idx = int(v[1])
                 if link_idx not in link_pose_in_base_cache:
-                    ls = p.getLinkState(body_id, link_idx,
-                                         physicsClientId=cid)
+                    ls = p.getLinkState(body_id, link_idx, physicsClientId=cid)
                     # worldLinkFramePosition (4) / Orientation (5) is
                     # the URDF link frame pose in world. Convert to
                     # base frame.
@@ -325,18 +334,21 @@ class _Bridge:
         return out
 
     def _current_body_ids(self, cid):
-        """Return the list of live body IDs. Uses ``getBodyUniqueId``
-        rather than ``range(getNumBodies)`` because pybullet may not
-        reuse IDs after ``removeBody`` — grow recreates the liquid
-        block every pour tick, so the live ID set drifts upward."""
+        """Return the list of live body IDs.
+
+        Uses ``getBodyUniqueId`` rather than ``range(getNumBodies)``
+        because pybullet may not reuse IDs after ``removeBody`` — grow
+        recreates the liquid block every pour tick, so the live ID set
+        drifts upward.
+        """
         return [
             p.getBodyUniqueId(i, physicsClientId=cid)
             for i in range(p.getNumBodies(physicsClientId=cid))
         ]
 
     def get_scene_manifest(self):
-        """Walk all bodies in the current physics client and describe
-        them as Three.js-buildable entries."""
+        """Walk all bodies in the current physics client and describe them as
+        Three.js-buildable entries."""
         cid = self.env._physics_client_id  # noqa: SLF001
         entries = []
         for body_id in self._current_body_ids(cid):
@@ -349,16 +361,16 @@ class _Bridge:
         """Return {link_name: [r,g,b,a]} for one URDF body.
 
         Link -1 is pybullet's base-link convention; its name is the
-        URDF's root <link> name (returned by p.getBodyInfo). Child
-        links (linkIdx >= 0) are named in jointInfo[12]. We keep just
-        one RGBA per link — multi-visual links in our envs all get
-        tinted to the same color via create_object.
+        URDF's root <link> name (returned by p.getBodyInfo). Child links
+        (linkIdx >= 0) are named in jointInfo[12]. We keep just one RGBA
+        per link — multi-visual links in our envs all get tinted to the
+        same color via create_object.
         """
         link_idx_to_name = {-1: base_link_name}
         for j in range(p.getNumJoints(body_id, physicsClientId=cid)):
             jinfo = p.getJointInfo(body_id, j, physicsClientId=cid)
-            link_idx_to_name[j] = (jinfo[12].decode() if jinfo[12]
-                                    else f"link_{j}")
+            link_idx_to_name[j] = (jinfo[12].decode()
+                                   if jinfo[12] else f"link_{j}")
         out = {}
         for v in p.getVisualShapeData(body_id, physicsClientId=cid):
             link_idx = int(v[1])
@@ -372,7 +384,7 @@ class _Bridge:
         """Return base pose + joint angles for a single body."""
         cid = self.env._physics_client_id  # noqa: SLF001
         pos, orn = p.getBasePositionAndOrientation(body_id,
-                                                    physicsClientId=cid)
+                                                   physicsClientId=cid)
         joints = {}
         nj = p.getNumJoints(body_id, physicsClientId=cid)
         for j in range(nj):
@@ -387,8 +399,10 @@ class _Bridge:
 
     def get_all_body_states(self):
         cid = self.env._physics_client_id  # noqa: SLF001
-        return {body_id: self.get_body_state(body_id)
-                for body_id in self._current_body_ids(cid)}
+        return {
+            body_id: self.get_body_state(body_id)
+            for body_id in self._current_body_ids(cid)
+        }
 
     # -- Option-level introspection ---------------------------------
     def list_options(self):
@@ -399,25 +413,29 @@ class _Bridge:
             options = get_gt_options(self.env.get_name())
         except NotImplementedError:
             return []
-        return [
-            {
-                "name": opt.name,
-                "type_names": [t.name for t in opt.types],
-                "params_dim": int(opt.params_space.shape[0]),
-            } for opt in sorted(options, key=lambda o: o.name)
-        ]
+        return [{
+            "name": opt.name,
+            "type_names": [t.name for t in opt.types],
+            "params_dim": int(opt.params_space.shape[0]),
+        } for opt in sorted(options, key=lambda o: o.name)]
 
     def list_objects(self):
         if self.env is None:
             return []
-        return [{"name": o.name, "type_name": o.type.name}
-                for o in sorted(self.env._objects,  # noqa: SLF001
-                                key=lambda o: o.name)]
+        return [
+            {
+                "name": o.name,
+                "type_name": o.type.name
+            } for o in sorted(
+                self.env._objects,  # noqa: SLF001
+                key=lambda o: o.name)
+        ]
 
     def _sample_ground_option(self, opt, chosen, state, rng):
-        """Ground `opt(chosen)` using the matching NSRT's state-aware
-        sampler. Falls back to a uniform sample if no NSRT matches
-        (e.g. envs without a process/NSRT factory).
+        """Ground `opt(chosen)` using the matching NSRT's state-aware sampler.
+
+        Falls back to a uniform sample if no NSRT matches (e.g. envs
+        without a process/NSRT factory).
         """
         goal = self.env._current_task.goal  # noqa: SLF001
         objects = set(self.env._objects)  # noqa: SLF001
@@ -440,14 +458,16 @@ class _Bridge:
                 # When the dim doesn't match, fall back to the low
                 # bound (params_space[0] for the skill-factory options
                 # is the "natural default", e.g. grasp_z_offset=0.0).
-                params = gnsrt._sampler(state, goal, rng,  # noqa: SLF001
-                                        gnsrt.objects)
+                params = gnsrt._sampler(
+                    state,
+                    goal,
+                    rng,  # noqa: SLF001
+                    gnsrt.objects)
                 if len(params) != param_dim:
-                    params = np.asarray(opt.params_space.low,
-                                         dtype=np.float32)
+                    params = np.asarray(opt.params_space.low, dtype=np.float32)
                 else:
                     params = np.clip(params, opt.params_space.low,
-                                      opt.params_space.high)
+                                     opt.params_space.high)
                 return opt.ground(chosen, params)
             break
         low = opt.params_space.low
@@ -455,10 +475,13 @@ class _Bridge:
         params = rng.uniform(low, high).astype(np.float32)
         return opt.ground(chosen, params)
 
-    def begin_option(self, option_name, object_names,
-                      params=None, max_steps=1000):
-        """Ground an option and stash the rollout state so JS can drive
-        it one sim step at a time via :meth:`step_option`.
+    def begin_option(self,
+                     option_name,
+                     object_names,
+                     params=None,
+                     max_steps=1000):
+        """Ground an option and stash the rollout state so JS can drive it one
+        sim step at a time via :meth:`step_option`.
 
         Returns ``{initial_frame, error}``. On error (unknown option,
         not initiable, etc.) the option is *not* armed and step_option
@@ -470,27 +493,35 @@ class _Bridge:
         except NotImplementedError:
             options = {}
         if option_name not in options:
-            return {"initial_frame": {}, "error": f"Unknown option: {option_name}"}
+            return {
+                "initial_frame": {},
+                "error": f"Unknown option: {option_name}"
+            }
         opt = options[option_name]
 
         name_to_obj = {o.name: o for o in self.env._objects}  # noqa: SLF001
         try:
             chosen = [name_to_obj[n] for n in object_names]
         except KeyError as e:
-            return {"initial_frame": {}, "error": f"Unknown object: {e.args[0]}"}
+            return {
+                "initial_frame": {},
+                "error": f"Unknown object: {e.args[0]}"
+            }
         for o, t in zip(chosen, opt.types):
             if not o.is_instance(t):
-                return {"initial_frame": {},
-                        "error": (f"Object {o.name} of type {o.type.name} "
-                                  f"doesn't match expected type {t.name} "
-                                  f"for option {opt.name}")}
+                return {
+                    "initial_frame": {},
+                    "error": (f"Object {o.name} of type {o.type.name} "
+                              f"doesn't match expected type {t.name} "
+                              f"for option {opt.name}")
+                }
 
         state = self.env._current_observation  # noqa: SLF001
         try:
             if params is None:
                 rng = np.random.default_rng(0)
-                ground_opt = self._sample_ground_option(opt, chosen, state,
-                                                        rng)
+                ground_opt = self._sample_ground_option(
+                    opt, chosen, state, rng)
             else:
                 params_arr = np.asarray(params, dtype=np.float32)
                 ground_opt = opt.ground(chosen, params_arr)
@@ -500,13 +531,17 @@ class _Bridge:
             # params_space mismatch, AssertionError from a sampler
             # precondition). Convert to the JSON error shape rather
             # than crashing across the Pyodide → JS boundary.
-            return {"initial_frame": {},
-                    "error": f"Grounding failed: {type(e).__name__}: {e}"}
+            return {
+                "initial_frame": {},
+                "error": f"Grounding failed: {type(e).__name__}: {e}"
+            }
 
         if not ground_opt.initiable(state):
-            return {"initial_frame": {},
-                    "error": (f"{option_name}({','.join(object_names)}) "
-                              "is not initiable in the current state.")}
+            return {
+                "initial_frame": {},
+                "error": (f"{option_name}({','.join(object_names)}) "
+                          "is not initiable in the current state.")
+            }
 
         # Snapshot body IDs at option start so step_option can diff
         # per-step additions/removals (e.g. grow's plant spawning
@@ -536,10 +571,15 @@ class _Bridge:
         """
         ao = self._active_option
         if ao is None:
-            return {"frame": {}, "steps": 0, "done": True,
-                    "error": "no option in flight",
-                    "added_bodies": [], "removed_body_ids": [],
-                    "color_updates": {}}
+            return {
+                "frame": {},
+                "steps": 0,
+                "done": True,
+                "error": "no option in flight",
+                "added_bodies": [],
+                "removed_body_ids": [],
+                "color_updates": {}
+            }
 
         error_msg = None
         done = False

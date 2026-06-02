@@ -7,9 +7,9 @@ on Pyodide. A 50-line shim is enough to satisfy the imports envs need.
 Generates `gym_shim-0.0.1-py3-none-any.whl` next to this file.
 """
 
-from pathlib import Path
-import zipfile
 import textwrap
+import zipfile
+from pathlib import Path
 
 HERE = Path(__file__).parent
 
@@ -80,6 +80,7 @@ RECORD_LINES = [
     "gym-0.26.2.dist-info/WHEEL",
     "gym-0.26.2.dist-info/RECORD",
 ]
+
 
 def _record() -> str:
     # Pyodide does not verify hashes, leave them blank.
