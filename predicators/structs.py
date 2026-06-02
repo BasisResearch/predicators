@@ -44,7 +44,7 @@ from predicators.settings import CFG
 # pylint: enable=wrong-import-position
 
 
-def _torch_and_delay():
+def _torch_and_delay() -> Tuple[Any, Any]:
     """Lazy-load torch and DiscreteGaussianDelay for the two process-
     construction methods below.
 

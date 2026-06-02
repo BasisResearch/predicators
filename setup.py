@@ -19,11 +19,12 @@ ML_DEPS = [
     "openai==1.19.0",
     "google-generativeai",
     "tenacity",
-    "httpx==0.27.0",
-    "claude-agent-sdk",
+    "httpx==0.28.1",
+    "claude-agent-sdk>=0.1.73",
     "nest_asyncio",
     "ImageHash",
     "pathos",
+    "psutil",
     "slack_bolt",
     "emcee",
     "lisdf",
@@ -50,25 +51,27 @@ setup(
     version="0.1.0",
     packages=find_packages(include=["predicators", "predicators.*"]),
     install_requires=[
-        # PyBullet env-runtime — matches the dep set that boots the
-        # browser POC and the gymnasium_wrapper. Pins on numpy /
-        # matplotlib / pillow / dill are relaxed to >= because Pyodide
-        # ships fixed versions (numpy 2.2.5, matplotlib 3.8.4, etc.)
-        # and the env code doesn't depend on the exact older pins.
-        "numpy>=1.23.5",
+        # PyBullet env-runtime. Mirrors master's pins on the deps that
+        # are still in the base install (numpy / matplotlib / pillow /
+        # tabulate / dill / pyyaml) so CPython CI stays predictable.
+        # Pyodide can't satisfy these exact pins (it ships fixed,
+        # newer versions) but micropip's `keep_going=True` in the
+        # browser bootstrap skips the conflicting requirements and
+        # falls back to whatever Pyodide already has loaded.
+        "numpy==1.23.5",
         "gym==0.26.2",
         "gymnasium>=0.28.0",
-        "matplotlib>=3.6.2",
-        "pillow>=10.3.0",
+        "matplotlib==3.6.2",
+        "pillow==10.3.0",
         # On Pyodide (sys_platform == "emscripten") the pybullet wheel
         # is loaded from a local emfs path by the browser bootstrap;
         # PyPI has no Pyodide-targeted pybullet.
         "pybullet-arm64>=3.2.8; sys_platform != 'emscripten'",
         "pyperplan",
-        "tabulate>=0.9.0",
-        "dill>=0.3.5.1",
+        "tabulate==0.9.0",
+        "dill==0.3.5.1",
         "colorlog",
-        "pyyaml>=6.0",
+        "pyyaml==6.0",
         "types-PyYAML",
         "graphlib-backport",
         # Test/lint tooling stays in base for now (CLAUDE.md docs the

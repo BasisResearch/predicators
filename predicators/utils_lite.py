@@ -74,6 +74,11 @@ from predicators.third_party.fast_downward_translator.translate import \
 
 if TYPE_CHECKING:
     from predicators.envs import BaseEnv
+    # Used only in type annotations on query_vlm_for_atom_vals / abstract;
+    # `from __future__ import annotations` keeps the runtime import out
+    # of the Pyodide load path. The lazy runtime use of
+    # create_vlm_by_name lives inside query_vlm_for_atom_vals below.
+    from predicators.pretrained_model_interface import VisionLanguageModel
 
 matplotlib.use("Agg")
 
