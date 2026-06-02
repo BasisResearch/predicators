@@ -222,9 +222,9 @@ class State:
     """
     # Object-centric *observable* features = the agent's observation.
     # Fully observable: the complete world state. Partially observable:
-    # only the exposed features (hidden ones are omitted — e.g.
-    # pybullet_boil drops `heat_level`). The only field that defines
-    # state identity (`__hash__`, `allclose`).
+    # only the exposed features (some causally-relevant features are
+    # omitted). The only field that defines state identity (`__hash__`,
+    # `allclose`).
     data: Dict[Object, Array]
     # Opaque per-environment simulator bookkeeping (e.g. PyBullet joint
     # positions); env-internal, not agent-facing.
@@ -236,11 +236,10 @@ class State:
     # initial value.
     latent: Optional[Dict[str, Any]] = None
     # The environment's *true* hidden state that the partially-observable
-    # observation omits (e.g. boil's `heat_level`); None under full
-    # observability, where those features live in `data` instead. The
-    # truth to `latent`'s belief — env-only, never surfaced through any
-    # `data`/`feature_names` channel (inspect tools, dict_str,
-    # abstraction). Deep-copied by `copy()`.
+    # observation omits; None under full observability, where those
+    # features live in `data` instead. The truth to `latent`'s belief —
+    # env-only, never surfaced through any `data`/`feature_names` channel
+    # (inspect tools, dict_str, abstraction). Deep-copied by `copy()`.
     privileged: Optional[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
