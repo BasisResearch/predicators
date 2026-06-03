@@ -46,8 +46,7 @@ from PIL import Image
 
 from predicators import utils
 from predicators.envs import BaseEnv
-from predicators.pybullet_helpers import retry_pybullet_call
-from predicators.pybullet_helpers.camera import create_gui_connection
+from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.link import get_link_state
@@ -170,6 +169,53 @@ class PyBulletEnv(BaseEnv):
     _camera_fov: ClassVar[float] = 60
     _debug_text_position: ClassVar[Pose3D] = (1.65, 0.25, 0.75)
 
+    # Offscreen-render lighting (used by render()). Shadows plus a directional
+    # key light give saved frames depth instead of flat ambient shading.
+    _render_shadow: ClassVar[int] = 1
+    # Key-light direction. When None it is derived from the camera (a front
+    # key from the camera's side, elevated) so it lights camera-facing
+    # surfaces for any env; set a Pose3D to override.
+    _render_light_direction: ClassVar[Optional[Pose3D]] = None
+    _render_light_ambient: ClassVar[float] = 0.55
+    _render_light_diffuse: ClassVar[float] = 0.6
+    _render_light_specular: ClassVar[float] = 0.05
+
+    # Studio visuals: shared cosmetic scene dressing applied automatically by
+    # the base initialize_pybullet (neutral GUI background + key light +
+    # shadows, recolored floor, backdrop walls; see the studio_visuals helper).
+    # Visual-only -- walls carry no collision and none of this enters the
+    # symbolic state. Set _use_studio_visuals = False on an env to opt out.
+    _use_studio_visuals: ClassVar[bool] = True
+    # Muted neutral floor (recolors the ground plane).
+    floor_rgba: ClassVar[Optional[Tuple[float, float, float, float]]] = \
+        (0.50, 0.51, 0.53, 1.0)
+    # Light maple table texture, forwarded to create_object(texture_path=...)
+    # by envs that texture their table (currently the domino envs).
+    table_texture_path: ClassVar[Optional[str]] = "urdf/table.png"
+    # Backdrop walls: wall_texture_path (warm matte paint) takes precedence
+    # over wall_rgba. _wall_bounds (world frame) sets the enclosure; when None
+    # it is derived from the camera so the room centers on the view with the
+    # camera inside. Four walls, no ceiling (overhead views still see in).
+    wall_rgba: ClassVar[Tuple[float, float, float, float]] = \
+        (0.85, 0.83, 0.79, 1.0)
+    wall_texture_path: ClassVar[Optional[str]] = "urdf/textures/wall.png"
+    _wall_bounds: ClassVar[Optional[Dict[str, float]]] = None
+    # Camera-derived room (used when _wall_bounds is None): half-extent and
+    # height as multiples of the camera distance, plus wall thickness.
+    _studio_room_half_factor: ClassVar[float] = 1.85
+    _studio_room_height_factor: ClassVar[float] = 1.75
+    _studio_room_thickness: ClassVar[float] = 0.05
+    # Elevation (world z) of the camera-derived key-light direction.
+    _studio_light_elevation: ClassVar[float] = 1.8
+    # GUI window appearance (forwarded to create_gui_connection). A neutral
+    # background reads far more like a real scene than PyBullet's lavender;
+    # _gui_light_position is derived from the camera when None.
+    _gui_background_rgb: ClassVar[Optional[Tuple[float, float, float]]] = \
+        (0.82, 0.83, 0.85)
+    _gui_light_position: ClassVar[Optional[Tuple[float, float, float]]] = None
+    _gui_shadow_map_resolution: ClassVar[Optional[int]] = 8192
+    _gui_shadow_map_world_size: ClassVar[Optional[int]] = 6
+
     def __init__(self,
                  use_gui: bool = False,
                  skip_process_dynamics: bool = False) -> None:
@@ -193,6 +239,11 @@ class PyBulletEnv(BaseEnv):
         self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
             self.initialize_pybullet(self.using_gui)
         self._store_pybullet_bodies(pybullet_bodies)
+        # Texture any table(s) the env registered (every env uses the
+        # "table_id"/"table_id2" convention) with the studio wood texture.
+        studio_visuals.apply_table_textures(type(self),
+                                            self._physics_client_id,
+                                            pybullet_bodies)
 
         # Populated by reset() / _set_state(); used by _get_state(),
         # _set_state(), and render_segmented_obj() for iteration.
@@ -253,27 +304,27 @@ class PyBulletEnv(BaseEnv):
         # Skip test coverage because GUI is too expensive to use in unit tests
         # and cannot be used in headless mode.
         if using_gui:  # pragma: no cover
-            physics_client_id = create_gui_connection(
-                camera_distance=cls._camera_distance,
-                camera_yaw=cls._camera_yaw,
-                camera_pitch=cls._camera_pitch,
-                camera_target=cls._camera_target,
-            )
+            physics_client_id = studio_visuals.make_gui_connection(cls)
         else:
             physics_client_id = p.connect(p.DIRECT)
 
         p.resetSimulation(physicsClientId=physics_client_id)
 
-        # Load plane.
-        p.loadURDF(utils.get_env_asset_path("urdf/plane.urdf"), [0, 0, 0],
-                   useFixedBase=True,
-                   physicsClientId=physics_client_id)
+        # Load plane and apply the studio floor recolor.
+        plane_id = p.loadURDF(utils.get_env_asset_path("urdf/plane.urdf"),
+                              [0, 0, 0],
+                              useFixedBase=True,
+                              physicsClientId=physics_client_id)
+        studio_visuals.apply_floor(cls, plane_id, physics_client_id)
 
         # Load robot.
         pybullet_robot = cls._create_pybullet_robot(physics_client_id)
 
         # Set gravity.
         p.setGravity(0., 0., -10., physicsClientId=physics_client_id)
+
+        # Backdrop walls (visual only) to ground the scene like a room.
+        studio_visuals.create_walls(cls, physics_client_id)
 
         return physics_client_id, pybullet_robot, {}
 
@@ -1369,13 +1420,18 @@ class PyBulletEnv(BaseEnv):
         # and cannot be used in headless mode.
         del action, caption  # unused
         view_matrix, proj_matrix, width, height = self._get_camera_matrices()
-        (_, _, px, _,
-         _) = p.getCameraImage(width=width,
-                               height=height,
-                               viewMatrix=view_matrix,
-                               projectionMatrix=proj_matrix,
-                               renderer=p.ER_BULLET_HARDWARE_OPENGL,
-                               physicsClientId=self._physics_client_id)
+        (_, _, px, _, _) = p.getCameraImage(
+            width=width,
+            height=height,
+            viewMatrix=view_matrix,
+            projectionMatrix=proj_matrix,
+            shadow=self._render_shadow,
+            lightDirection=studio_visuals.light_direction(type(self)),
+            lightAmbientCoeff=self._render_light_ambient,
+            lightDiffuseCoeff=self._render_light_diffuse,
+            lightSpecularCoeff=self._render_light_specular,
+            renderer=p.ER_BULLET_HARDWARE_OPENGL,
+            physicsClientId=self._physics_client_id)
         rgb_array = np.array(px).reshape((height, width, 4))
         rgb_array = rgb_array[:, :, :3]
         return [rgb_array]
