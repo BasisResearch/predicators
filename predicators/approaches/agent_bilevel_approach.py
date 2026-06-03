@@ -169,6 +169,9 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 # state-reset noise (see pybullet_env.py:506 warning).
                 # Pass the original sketch so per-step subgoal divergence
                 # is logged with the specific atom that went missing.
+                assert self._option_model is not None, \
+                    "agent_bilevel requires a simulator " \
+                    "(agent_planner_use_simulator=True)."
                 ok, reason = bilevel_sketch.validate_plan_forward(
                     task,
                     plan,
@@ -255,6 +258,9 @@ class AgentBilevelApproach(AgentPlannerApproach):
         implementation returns ``task`` unchanged.
         """
         task = self._attach_initial_latent(task)
+        assert self._option_model is not None, \
+            "agent_bilevel requires a simulator " \
+            "(agent_planner_use_simulator=True)."
         plan, success, _ = bilevel_sketch.refine_sketch(
             task,
             sketch,
