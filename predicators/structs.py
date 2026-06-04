@@ -500,12 +500,12 @@ class Predicate:
         Performs type checking first. `latent` is the sample's latent
         state-feature block, threaded by approaches that learn over
         partially-observable envs (see
-        `agent_po_sim_predicate_invention`). When the caller does
-        not pass `latent` explicitly, the block attached to
-        `state.latent` is used (so callers like `utils.abstract` do not
-        need to know about the recurrent extension). Classifiers that
-        don't accept a `latent` kwarg are called with the legacy
-        `(state, objects)` signature for backwards compatibility.
+        `agent_po_sim_predicate_invention`). When the caller does not
+        pass `latent` explicitly, the block attached to `state.latent`
+        is used (so callers like `utils.abstract` do not need to know
+        about the recurrent extension). Classifiers that don't accept a
+        `latent` kwarg are called with the legacy `(state, objects)`
+        signature for backwards compatibility.
         """
         assert len(objects) == self.arity
         for obj, pred_type in zip(objects, self.types):

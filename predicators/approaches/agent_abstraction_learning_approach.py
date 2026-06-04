@@ -29,7 +29,7 @@ from predicators.structs import Action, CausalProcess, Dataset, \
     ParameterizedOption, Predicate, State, Task, Type
 
 
-class AgentAbstractionLearningApproach(
+class AgentAbstractionLearningApproach(  # type: ignore[misc]
         AgentPlannerApproach, PredicateInventionProcessPlanningApproach,
         OnlineProcessLearningAndPlanningApproach):
     """Abstraction-learning planning approach using Claude Agent SDK.
