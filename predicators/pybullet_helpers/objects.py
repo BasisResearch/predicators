@@ -50,6 +50,45 @@ def create_object(asset_path: str,
     return obj_id
 
 
+def cap_switch_joint_travel(body_id: int, joint_id: int, joint_scale: float,
+                            physics_client_id: int) -> None:
+    """Cap a toggle switch's prismatic joint so it can't be pushed past "on".
+
+    The PyBullet switch envs (boil, laser, magic_bin, switch, barrier, fan)
+    all define the "fully on" joint position as ``joint_scale *
+    jointUpperLimit`` -- i.e. only ``joint_scale`` (typically 10%) of the
+    joint's URDF travel -- and read on/off from a normalized
+    ``frac = (j_pos / joint_scale) / (j_max - j_min)`` with a 0.5 threshold.
+    The switch joint is free (no motor), so a gripper push can shove the
+    slider into the remaining travel (up to ``frac = 1 / joint_scale``);
+    from that over-extended state the reverse push can no longer drag it
+    back across the threshold (e.g. an on-push jams the switch so the later
+    off-push fails to turn it off).
+
+    Adding a hard upper limit at the "fully on" position
+    (``joint_scale * j_max``) makes "on" coincide with the joint's physical
+    stop, so the slider can't over-extend. ``changeDynamics`` enforces this
+    under contact but does NOT alter what ``getJointInfo`` reports, and the
+    envs' ``frac`` readout derives from getJointInfo's (unchanged) limits --
+    so all on/off semantics are preserved; only the unreachable
+    over-extension headroom is removed. This is a no-op for switches that are
+    only toggled programmatically (the joint never leaves
+    ``[j_min, joint_scale * j_max]`` anyway).
+    """
+    if joint_id < 0:
+        return
+    info = retry_pybullet_call(p.getJointInfo,
+                               body_id,
+                               joint_id,
+                               physicsClientId=physics_client_id)
+    j_min, j_max = info[8], info[9]
+    p.changeDynamics(body_id,
+                     joint_id,
+                     jointLowerLimit=j_min,
+                     jointUpperLimit=joint_scale * j_max,
+                     physicsClientId=physics_client_id)
+
+
 def update_object(obj_id: int,
                   position: Optional[Pose3D] = None,
                   orientation: Quaternion = default_orn,

@@ -321,12 +321,17 @@ def refine_sketch(
     ``truncate_on_subgoal_fail`` (explorer mode) lets backtracking run
     to exhaustion with subgoal checks enabled, then — if the search
     fails — returns the consistent plan prefix captured at the deepest
-    subgoal failure seen during backtracking (inclusive of the failing
-    step). Use this to build *experiment* plans that probe a single
-    mental-model disagreement: upstream steps get their standard
-    backtracking retries, but once the deepest unresolvable subgoal is
-    identified, subsequent sketch steps are dropped (they would be
-    built on a false mental-model state).
+    validation failure seen during backtracking (inclusive of the
+    failing step). "Validation failure" covers both an unmet subgoal
+    atom and, when ``check_final_goal`` is on, an unreached task goal at
+    the final step; the latter captures the *whole* plan as the
+    experiment (run it in reality and observe — a goal the mental model
+    predicts won't hold is exactly the disagreement worth collecting).
+    Use this to build *experiment* plans that probe a mental-model
+    disagreement: upstream steps get their standard backtracking
+    retries, but once the deepest unresolvable step is identified,
+    subsequent sketch steps are dropped (they would be built on a false
+    mental-model state).
 
     Wait steps inject ``wait_target_atoms`` / ``wait_target_neg_atoms``
     from the sketch's subgoal annotations into ``grounded.memory`` so
@@ -341,15 +346,16 @@ def refine_sketch(
         max_samples_per_step if step.option.params_space.shape[0] > 0 else 1
         for step in sketch
     ]
-    # Snapshot of the deepest subgoal failure seen during backtracking.
-    # Tracks (idx, plan_prefix_snapshot). Updated whenever on_step_fail
-    # reports a subgoal failure at a strictly deeper index than before.
-    # The snapshot is taken at the moment of failure, so it is a
-    # *consistent* trajectory: run_backtracking_refinement has already
-    # written plan[idx] for that attempt and the prefix plan[:idx+1]
-    # reflects the exact grounded options that led to this failure.
-    deepest_subgoal_fail_idx: List[int] = [-1]
-    deepest_subgoal_fail_prefix: List[List[Optional[_Option]]] = [[]]
+    # Snapshot of the deepest validation failure seen during backtracking
+    # (an unmet subgoal atom, or — with check_final_goal — an unreached
+    # task goal at the final step). Tracks (idx, plan_prefix_snapshot),
+    # updated whenever on_step_fail reports such a failure at a strictly
+    # deeper index than before. The snapshot is taken at the moment of
+    # failure, so it is a *consistent* trajectory: run_backtracking_refinement
+    # has already written plan[idx] for that attempt and the prefix
+    # plan[:idx+1] reflects the exact grounded options that led to it.
+    deepest_fail_idx: List[int] = [-1]
+    deepest_fail_prefix: List[List[Optional[_Option]]] = [[]]
 
     def sample_fn(idx: int, state: State,
                   rng_: np.random.Generator) -> _Option:
@@ -388,13 +394,17 @@ def refine_sketch(
         # run_backtracking_refinement calls this BEFORE clearing
         # plan[idx] (planning.py lines 592-599), so cur_plan[0..idx] is
         # still populated with the grounded options that produced this
-        # exact failure trajectory. Record the deepest subgoal failure
-        # seen so far along with a consistent snapshot of the prefix.
+        # exact failure trajectory. Record the deepest validation failure
+        # (unmet subgoal, or unreached task goal at the final step) seen so
+        # far along with a consistent snapshot of the prefix. A final-goal
+        # failure is at idx==n-1, so its snapshot is the full plan — the
+        # experiment we want to execute in reality.
         if (truncate_on_subgoal_fail
-                and fail_reason.startswith("subgoal missing")
-                and idx > deepest_subgoal_fail_idx[0]):
-            deepest_subgoal_fail_idx[0] = idx
-            deepest_subgoal_fail_prefix[0] = list(cur_plan[:idx + 1])
+                and (fail_reason.startswith("subgoal missing")
+                     or fail_reason == "goal not reached")
+                and idx > deepest_fail_idx[0]):
+            deepest_fail_idx[0] = idx
+            deepest_fail_prefix[0] = list(cur_plan[:idx + 1])
         if on_step_fail is not None:
             on_step_fail(idx, cur_plan, fail_reason)
 
@@ -417,12 +427,11 @@ def refine_sketch(
         f"[{run_id}] Refinement {'succeeded' if success else 'failed'}: "
         f"{total_samples} samples for {n} steps.")
 
-    if (truncate_on_subgoal_fail and not success
-            and deepest_subgoal_fail_idx[0] >= 0):
-        snapshot = deepest_subgoal_fail_prefix[0]
+    if (truncate_on_subgoal_fail and not success and deepest_fail_idx[0] >= 0):
+        snapshot = deepest_fail_prefix[0]
         refined = [p for p in snapshot if p is not None]
-        logging.info(f"[{run_id}] Truncating at deepest subgoal failure "
-                     f"(step {deepest_subgoal_fail_idx[0]}): "
+        logging.info(f"[{run_id}] Truncating at deepest validation failure "
+                     f"(step {deepest_fail_idx[0]}): "
                      f"{len(refined)}/{n} steps in experiment plan.")
         return cast(List[_Option], refined), False, total_samples
 

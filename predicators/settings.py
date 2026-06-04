@@ -69,7 +69,7 @@ class GlobalSettings:
     # support it hide selected latent features in `get_observation()`
     # (e.g. pybullet_boil hides `heat_level` and exposes a derived
     # `bubbling_level` instead). Used by approaches such as
-    # agent_sim_recurrent_predicate_invention. Each env decides which
+    # agent_po_sim_predicate_invention. Each env decides which
     # of its features count as latent.
     partially_observable = False
     # cover_multistep_options env parameters
@@ -1025,6 +1025,18 @@ class GlobalSettings:
     agent_planner_use_scratchpad = False  # include notes.md scratchpad
     agent_planner_use_visualize_state = False  # include visualize_state tool
     agent_planner_use_annotate_scene = False  # include annotate_scene tool
+    # Whether the planner is given a simulator to test candidate plans with
+    # (the test_option_plan tool / option-model rollouts). When False, the
+    # agent must plan open-loop from trajectory data and LLM reasoning alone
+    # -- the genuinely model-free baseline.
+    agent_planner_use_simulator = True
+    # When a simulator IS given, whether to wrap the *base* env
+    # (skip_process_dynamics=True -- delayed _domain_specific_step effects
+    # such as boiling/heating are disabled) instead of the real env. Lets the
+    # model-free planner be denied the ground-truth delayed dynamics that a
+    # world-model learner has to reconstruct. No effect when
+    # agent_planner_use_simulator is False.
+    agent_planner_use_base_simulator = False
 
     # Agent bilevel approach settings
     agent_bilevel_max_samples_per_step = 50  # param samples per step

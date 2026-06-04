@@ -48,6 +48,27 @@ from predicators.structs import Action, Dataset, InteractionResult, \
 
 logger = logging.getLogger(__name__)
 
+# Canonical "### Rule signature" block for the synthesis system prompt
+# (fully-observable / legacy 3-arg). Spliced in at the
+# ``__RULE_SIGNATURE_SECTION__`` placeholder by
+# ``_build_synthesis_system_prompt``; the partial-observability subclass
+# overrides ``_rule_signature_section`` to swap in the recurrent 5-arg
+# form so its prompt never shows the 3-arg signature as canonical.
+_FO_RULE_SIGNATURE_SECTION = '''\
+### Rule signature
+
+```python
+def rule(state, updates, params):
+    # state:   the current env State
+    # updates: Dict[Object, Dict[str, float]] accumulated from prior rules
+    # params:  Dict[str, float], one entry per ParamSpec
+    #
+    # Accumulate, don't replace:
+    #     updates.setdefault(obj, {})[feat] = new_value
+    # Return the same dict.
+    ...
+```'''
+
 # ── Approach ─────────────────────────────────────────────────────
 
 
@@ -717,14 +738,36 @@ the tools."""
         trajectory chunks (latent threads within a trajectory, not
         across) via the lengths cached in ``self._fit_trajectories``;
         falls back to a single trajectory if no grouping info exists.
+        Delegates the actual fit/log to :meth:`_fit_parameters_latent`
+        so the agent's ``evaluate_step_fit`` tool scores latent rules
+        through the exact same path.
         """
         groups = self._group_triples_by_trajectory(base_pred_triples)
         if not groups:
             logger.warning("No trajectory groups for recurrent fitting; "
                            "falling back to single-trajectory rollout.")
             groups = [base_pred_triples]
+        return self._fit_parameters_latent(rules, specs, groups,
+                                           self._latent_init, process_features)
 
-        latent_init = self._latent_init
+    @staticmethod
+    def _fit_parameters_latent(
+        rules: List,
+        specs: List[ParamSpec],
+        groups: List[List[Tuple[State, Action, State]]],
+        latent_init: Any,
+        process_features: Dict[str, List[str]],
+    ) -> Tuple[Dict[str, float], float]:
+        """Recurrent MCMC fit over pre-grouped trajectories.
+
+        Shared source of truth for the recurrent (latent-threaded) fit:
+        the instance method :meth:`_fit_parameters_recurrent` calls it
+        with groups derived from ``self._fit_trajectories`` and
+        ``self._latent_init``; the synthesis tools call it with groups
+        they regroup and ``LATENT_INIT`` read fresh from
+        ``simulator.py``. Both therefore score latent rules identically
+        — no tool/engine drift in the rule call convention.
+        """
         init_params = {s.name: s.init_value for s in specs}
         pre_sse = compute_sse_recurrent(rules, groups, init_params,
                                         latent_init, process_features)
@@ -872,6 +915,11 @@ the tools."""
                     "recreating base env and retrying.", e)
                 self._recreate_base_env()
                 base_state = self._base_env.simulate(state, action)
+            # Repair features the backtracking reset couldn't round-trip
+            # (e.g. bubbling_level derived from a hidden heat_level): the
+            # base env's value is meaningless there, so restore the carried
+            # value before the rules read it.
+            self._restore_unreconstructible_process_features(base_state, state)
             # Single-step history window; rules needing longer context
             # must accumulate it in ``latent``.
             history: List[Tuple[State,
@@ -1126,6 +1174,35 @@ files to see exactly which rules and predicates produced each failed plan.
                                         use_gui=CFG.option_model_use_gui,
                                         skip_process_dynamics=True)
 
+    def _restore_unreconstructible_process_features(self, base_state: State,
+                                                    prev_state: State) -> None:
+        """Restore process features the base env's reset couldn't round-trip.
+
+        When the option model backtracks (jumps to a non-current node), the
+        base PyBullet env reconstructs the State from observables only, so a
+        feature derived from a hidden sim-feature — e.g. ``bubbling_level``,
+        projected from a hidden ``heat_level`` — comes back at its default
+        (0) instead of its carried value. The learned model *owns* those
+        features, so the base value is meaningless; overwrite ``base_state``
+        with the value carried in ``prev_state`` before the rules read it.
+
+        Scoping is the key to not breaking co-owned features: we restore only
+        the intersection of (a) the env's reported unreconstructible set for
+        this step and (b) the declared ``PROCESS_FEATURES``. A kinematic,
+        base-reconstructible feature that a robot legitimately moves (e.g. a
+        wind-blown ball's ``x, y`` in the fans env) round-trips through the
+        reset, so it never enters the env's set and is left to the base sim.
+        On sequential rollouts the env's set is empty, so this is a no-op.
+        """
+        lossy = getattr(self._base_env, "_last_unreconstructible_features",
+                        None)
+        if not lossy or not self._process_features:
+            return
+        for obj, feat in lossy:
+            if feat in self._process_features.get(obj.type.name, []) \
+                    and obj in prev_state.data:
+                base_state.set(obj, feat, prev_state.get(obj, feat))
+
     def _build_combined_simulator(
         self,
         learned_simulator: LearnedSimulator,
@@ -1152,6 +1229,7 @@ files to see exactly which rules and predicates produced each failed plan.
                     "recreating base env and retrying.", e)
                 self._recreate_base_env()
                 base_state = self._base_env.simulate(state, action)
+            self._restore_unreconstructible_process_features(base_state, state)
             updates = learned_simulator.predict_step(base_state)
             if not updates:
                 return base_state
@@ -1188,19 +1266,7 @@ observations, and only those are written on top of the base sim at test \
 time. Be honest — listing features your rules don't actually update \
 inflates the loss without giving MCMC anything to optimise.
 
-### Rule signature
-
-```python
-def rule(state, updates, params):
-    # state:   the current env State
-    # updates: Dict[Object, Dict[str, float]] accumulated from prior rules
-    # params:  Dict[str, float], one entry per ParamSpec
-    #
-    # Accumulate, don't replace:
-    #     updates.setdefault(obj, {})[feat] = new_value
-    # Return the same dict.
-    ...
-```
+__RULE_SIGNATURE_SECTION__
 
 ### Timing
 
@@ -1246,7 +1312,7 @@ PARAM_SPECS = [
 ]
 
 # `fixture`, `widget`: the relevant object pair (bind as your rule needs).
-def process_rule(state, updates, params):
+__PROCESS_RULE_SIGNATURE__
     rot = state.get(fixture, "rot")
     cos_r, sin_r = np.cos(rot), np.sin(rot)
     rot_mat = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
@@ -1346,133 +1412,22 @@ When you see `Forward validation: FAIL`, the failure mode is almost \
 always one of these:
 
 1. **A learned gate threshold is wider than the env's effective \
-threshold.** Example: env's heat rule only fires when jug-to-burner \
-distance < 0.05, but you set `jug_at_burner_dist = 0.063` for "safety \
-margin". Refinement accepts a Place at distance 0.05–0.063 (your \
-`JugAtBurner` predicate is true and your learned heat rule fires); \
-forward validation runs the same Place, the env's heat rule never \
-fires (distance > env threshold), and Wait runs to its step cap \
-without WaterBoiled holding. **Fix:** tighten the gate to match the \
-env's empirical boundary, do not widen for slack.
+threshold.** Example: the env's process rule only fires when the \
+widget-to-fixture distance < 0.05, but you set \
+`widget_at_fixture_dist = 0.063` for "safety margin". Refinement \
+accepts a Place at distance 0.05–0.063 (your `WidgetAtFixture` \
+predicate is true and your learned rule fires); forward validation \
+runs the same Place, the env's rule never fires (distance > env \
+threshold), and Wait runs to its step cap without `WidgetReady` \
+holding. **Fix:** tighten the gate to match the env's empirical \
+boundary, do not widen for slack.
 2. **A wait-termination cutoff fires before the env-side feature \
-catches up.** Example: `WaterBoiled = heat_level >= 0.99` fires at \
-the learned simulator's step 34 (heat=0.9996), but the env's \
-goal-check requires `heat >= 1.0` — refinement's subgoal passes, but \
-the final-state goal check on env state fails. **Fix:** align the \
-predicate's cutoff with the env's effective cutoff, *and* confirm by \
-re-running plan refinement after the change.
-
-**Rule of thumb:** when in doubt, *tighten* learned thresholds toward \
-the env's empirical boundary, never loosen them. Widening hides \
-discrepancies during refinement and reveals them at test time as \
-0-solve regressions.
-__SYNTHESIS_PROMPT_EXTRA__
-## Plan format for `evaluate_plan_refinement`
-
-One option call per line, **with every option argument supplied and using \
-typed object references** (`obj:type`), matching exactly what the inspect \
-tools report. Use the inspect tools (or `run_python` over a trajectory) to \
-read off the right names and arities — the parser is strict and silently \
-omitting an argument will not be auto-filled. Example:
-
-```
-PickWidget(robot:robot, widget0:widget)
-Place(robot:robot) -> {WidgetAtFixture(widget0:widget, fixture0:fixture)}
-ActivateFixture(robot:robot, fixture0:fixture)
-Wait(robot:robot) -> {WidgetReady(widget0:widget)}
-...
-```
-
-(The names above are illustrative — use whatever options, types, and \
-predicates the inspect tools actually report for your task.) Insert a \
-`Wait` after any action that triggers a delayed process (gradual \
-accumulation, propagation, sensor catch-up) so your rules have steps to \
-fire on.
-
-**Subgoal annotations** (`-> {Atom(obj:type, ...)}` after a step) are \
-optional in general but **effectively required after open-ended skills \
-like `Place`**. Without one the backtracking search has no preference for \
-*where* to put the object, so a `Place; Wait` pair will refine cleanly \
-but skip past the relevant target location and your rules never fire — \
-the run looks like a rule bug but is actually a missing subgoal. For \
-`Wait`, the annotation also specifies when the wait should terminate; \
-prefix an atom with `NOT` if it should become false.
-
-Bounds shape both the MCMC prior and the warm-start clamp. Set `lo=0.0` \
-for non-negative rates, etc.
-
-### Pre-injected when `simulator.py` is exec'd
-
-`numpy as np`, `ParamSpec`. Import anything else at the top of the file. \
-The data classes (`State`, `Object`, `Action`, ...) come from \
-`predicators.structs`; source is in the reference file linked in the \
-first message.
-
-## Tools
-
-`Write` / `Edit` `simulator.py` is your normal coding loop. Every \
-successful write is snapshotted to \
-`simulator_versions/cycle_XXX_vers_YYY_simulator.py` (deduped by \
-content; ``XXX`` is the current cycle, ``YYY`` resets per cycle). The \
-synthesis tools below load the file fresh on every call and prefix \
-their output with `[cycle_XXX_vers_YYY]` so you and reviewers can diff \
-iterations.
-
-- `run_python(code)` — ad-hoc data exploration. `trajectories`, `np`, \
-`ParamSpec` in scope. **Does not** define rules.
-- `evaluate_step_fit` — per-step prediction accuracy: SSE on the step \
-transitions at `init_value` params, plus post-fit SSE and fitted \
-parameters from a parameter fit. Cheap; the inner-loop signal.
-- `report_residuals` — per-feature breakdown: mismatch counts, mean / \
-max abs error, vs-baseline improvement (negative ⇒ rules are adding \
-error), worst-N example transitions. Diagnostic for *which* rule to fix.
-- `evaluate_plan_refinement(plan, task_idx)` — per-task planning \
-success: MCMC-fits, builds the combined simulator, runs backtracking \
-refinement against a plan **you propose** (see "Plan format" below), \
-**and then forward-validates that refined plan continuously** (state \
-carries forward across all options, single shot per step). Reports \
-both verdicts. A SUCCESS line followed by `Forward validation: FAIL` \
-counts as a failure — see "Refinement vs. forward validation" below. \
-Slow; the gate before declaring done.
-
-`evaluate_step_fit` and `evaluate_plan_refinement` test complementary \
-things — pointwise accuracy vs. goal reachability. A rule can have \
-ε-small SSE and still get a saturation threshold or alignment cap *just* \
-wrong enough that refinement can't satisfy a subgoal. Use step-fit + \
-residuals as the fast inner loop and plan-refinement as the slow \
-goal-relevant gate.
-
-### Refinement vs. forward validation (read before tuning a threshold)
-
-`evaluate_plan_refinement` runs two checks under the same option model. \
-Refinement samples continuous params with up to 50 attempts per \
-parametric step and snapshots state at each backtrack — failures are \
-isolated per step. Forward validation runs the refined plan once, \
-continuously, with state carrying forward across all options — \
-matching how test time will execute it. Any divergence between the \
-two indicates the learned model is *more permissive* than the env's \
-effective behavior: refinement's looser gates accept a Place/Wait \
-that the env-driven rollout won't actually achieve.
-
-When you see `Forward validation: FAIL`, the failure mode is almost \
-always one of these:
-
-1. **A learned gate threshold is wider than the env's effective \
-threshold.** Example: env's heat rule only fires when jug-to-burner \
-distance < 0.05, but you set `jug_at_burner_dist = 0.063` for "safety \
-margin". Refinement accepts a Place at distance 0.05–0.063 (your \
-`JugAtBurner` predicate is true and your learned heat rule fires); \
-forward validation runs the same Place, the env's heat rule never \
-fires (distance > env threshold), and Wait runs to its step cap \
-without WaterBoiled holding. **Fix:** tighten the gate to match the \
-env's empirical boundary, do not widen for slack.
-2. **A wait-termination cutoff fires before the env-side feature \
-catches up.** Example: `WaterBoiled = heat_level >= 0.99` fires at \
-the learned simulator's step 34 (heat=0.9996), but the env's \
-goal-check requires `heat >= 1.0` — refinement's subgoal passes, but \
-the final-state goal check on env state fails. **Fix:** align the \
-predicate's cutoff with the env's effective cutoff, *and* confirm by \
-re-running plan refinement after the change.
+catches up.** Example: `WidgetReady = process_value >= 0.99` fires at \
+the learned simulator's step 34 (process_value=0.9996), but the env's \
+goal-check requires the underlying feature to reach 1.0 — refinement's \
+subgoal passes, but the final-state goal check on env state fails. \
+**Fix:** align the predicate's cutoff with the env's effective \
+cutoff, *and* confirm by re-running plan refinement after the change.
 
 **Rule of thumb:** when in doubt, *tighten* learned thresholds toward \
 the env's empirical boundary, never loosen them. Widening hides \
@@ -1523,8 +1478,37 @@ usually a wrong gate or sign.
 the rules gating its subgoal atoms are too tight or too loose; fix and \
 re-validate.
 """
+        # Swap in the canonical rule-signature block / geometric-gate def
+        # line. Fully-observable (default) keeps the 3-arg signature; the
+        # partial-observability subclass overrides these so the PO prompt
+        # presents only the recurrent 5-arg signature as canonical (never
+        # the 3-arg form, which previously sat beside the PO guidance and
+        # led the agent to write a 3-arg rule the recurrent engine rejects).
+        base_prompt = base_prompt.replace("__RULE_SIGNATURE_SECTION__",
+                                          self._rule_signature_section())
+        base_prompt = base_prompt.replace("__PROCESS_RULE_SIGNATURE__",
+                                          self._process_rule_signature())
         extra = self._extra_synthesis_system_prompt()
         if extra:
             return base_prompt.replace("__SYNTHESIS_PROMPT_EXTRA__",
                                        "\n" + extra.rstrip() + "\n")
         return base_prompt.replace("__SYNTHESIS_PROMPT_EXTRA__", "")
+
+    def _rule_signature_section(self) -> str:
+        """Markdown for the '### Rule signature' block.
+
+        Fully-observable default: the legacy 3-arg signature. The
+        partial-observability subclass overrides this with the recurrent
+        5-arg signature so its prompt never advertises the 3-arg form as
+        canonical.
+        """
+        return _FO_RULE_SIGNATURE_SECTION
+
+    def _process_rule_signature(self) -> str:
+        """The ``def`` line used in the geometric-gate example.
+
+        Matches the signature advertised by
+        :meth:`_rule_signature_section` so the worked example doesn't
+        contradict the canonical signature.
+        """
+        return "def process_rule(state, updates, params):"

@@ -35,7 +35,8 @@ Required overrides in subclasses:
 
 import abc
 import logging
-from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, cast
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple, \
+    cast
 
 import matplotlib
 import numpy as np
@@ -45,8 +46,7 @@ from PIL import Image
 
 from predicators import utils
 from predicators.envs import BaseEnv
-from predicators.pybullet_helpers import retry_pybullet_call
-from predicators.pybullet_helpers.camera import create_gui_connection
+from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
 from predicators.pybullet_helpers.joint import JointPositions
 from predicators.pybullet_helpers.link import get_link_state
@@ -130,6 +130,21 @@ class PyBulletEnv(BaseEnv):
     _ANGLE_FEATURES: ClassVar[frozenset] = frozenset(
         {"rot", "yaw", "roll", "pitch", "tilt", "wrist"})
 
+    # Euler-angle features that jointly encode one full 3D orientation must
+    # be compared as a *rotation*, not axis-by-axis. At gimbal lock (e.g. the
+    # EE pointing straight down, tilt=±π/2) the individual angles are
+    # numerically degenerate — only the rotation they jointly encode is
+    # meaningful — so an axis-by-axis compare reports up to π of spurious
+    # error on the *same* physical orientation (a different but equivalent
+    # gimbal-lock branch). (roll, tilt, wrist) is the robot EE orientation,
+    # built by _extract_robot_state via getQuaternionFromEuler([roll, tilt,
+    # wrist]); it is the only free-SO(3) triple here (only the robot carries
+    # tilt/wrist). _reconstruction_diff groups these and compares the
+    # geodesic angle between the two rotations instead of each axis.
+    _ORIENTATION_EULER_TRIPLES: ClassVar[Tuple[Tuple[str, str, str],
+                                               ...]] = (("roll", "tilt",
+                                                         "wrist"), )
+
     # _set_state round-trips the written state through _get_state and
     # compares, then reacts by mismatch *magnitude* — no per-env opt-in:
     #   * any feature off by more than _reconstruction_warn_atol → warn,
@@ -154,6 +169,53 @@ class PyBulletEnv(BaseEnv):
     _camera_fov: ClassVar[float] = 60
     _debug_text_position: ClassVar[Pose3D] = (1.65, 0.25, 0.75)
 
+    # Offscreen-render lighting (used by render()). Shadows plus a directional
+    # key light give saved frames depth instead of flat ambient shading.
+    _render_shadow: ClassVar[int] = 1
+    # Key-light direction. When None it is derived from the camera (a front
+    # key from the camera's side, elevated) so it lights camera-facing
+    # surfaces for any env; set a Pose3D to override.
+    _render_light_direction: ClassVar[Optional[Pose3D]] = None
+    _render_light_ambient: ClassVar[float] = 0.55
+    _render_light_diffuse: ClassVar[float] = 0.6
+    _render_light_specular: ClassVar[float] = 0.05
+
+    # Studio visuals: shared cosmetic scene dressing applied automatically by
+    # the base initialize_pybullet (neutral GUI background + key light +
+    # shadows, recolored floor, backdrop walls; see the studio_visuals helper).
+    # Visual-only -- walls carry no collision and none of this enters the
+    # symbolic state. Set _use_studio_visuals = False on an env to opt out.
+    _use_studio_visuals: ClassVar[bool] = True
+    # Muted neutral floor (recolors the ground plane).
+    floor_rgba: ClassVar[Optional[Tuple[float, float, float, float]]] = \
+        (0.50, 0.51, 0.53, 1.0)
+    # Light maple table texture, forwarded to create_object(texture_path=...)
+    # by envs that texture their table (currently the domino envs).
+    table_texture_path: ClassVar[Optional[str]] = "urdf/table.png"
+    # Backdrop walls: wall_texture_path (warm matte paint) takes precedence
+    # over wall_rgba. _wall_bounds (world frame) sets the enclosure; when None
+    # it is derived from the camera so the room centers on the view with the
+    # camera inside. Four walls, no ceiling (overhead views still see in).
+    wall_rgba: ClassVar[Tuple[float, float, float, float]] = \
+        (0.85, 0.83, 0.79, 1.0)
+    wall_texture_path: ClassVar[Optional[str]] = "urdf/textures/wall.png"
+    _wall_bounds: ClassVar[Optional[Dict[str, float]]] = None
+    # Camera-derived room (used when _wall_bounds is None): half-extent and
+    # height as multiples of the camera distance, plus wall thickness.
+    _studio_room_half_factor: ClassVar[float] = 1.85
+    _studio_room_height_factor: ClassVar[float] = 1.75
+    _studio_room_thickness: ClassVar[float] = 0.05
+    # Elevation (world z) of the camera-derived key-light direction.
+    _studio_light_elevation: ClassVar[float] = 1.8
+    # GUI window appearance (forwarded to create_gui_connection). A neutral
+    # background reads far more like a real scene than PyBullet's lavender;
+    # _gui_light_position is derived from the camera when None.
+    _gui_background_rgb: ClassVar[Optional[Tuple[float, float, float]]] = \
+        (0.82, 0.83, 0.85)
+    _gui_light_position: ClassVar[Optional[Tuple[float, float, float]]] = None
+    _gui_shadow_map_resolution: ClassVar[Optional[int]] = 8192
+    _gui_shadow_map_world_size: ClassVar[Optional[int]] = 6
+
     def __init__(self,
                  use_gui: bool = False,
                  skip_process_dynamics: bool = False) -> None:
@@ -177,10 +239,24 @@ class PyBulletEnv(BaseEnv):
         self._physics_client_id, self._pybullet_robot, pybullet_bodies = \
             self.initialize_pybullet(self.using_gui)
         self._store_pybullet_bodies(pybullet_bodies)
+        # Texture any table(s) the env registered (every env uses the
+        # "table_id"/"table_id2" convention) with the studio wood texture.
+        studio_visuals.apply_table_textures(type(self),
+                                            self._physics_client_id,
+                                            pybullet_bodies)
 
         # Populated by reset() / _set_state(); used by _get_state(),
         # _set_state(), and render_segmented_obj() for iteration.
         self._objects: List[Object] = []
+
+        # Populated by _set_state(): (object, feature) pairs whose value the
+        # reset could not reproduce — e.g. an observable derived from a
+        # hidden sim-feature (bubbling_level from heat_level), which a State
+        # carrying only observables cannot round-trip. Combined simulators
+        # read this to restore the carried value after a backtracking reset,
+        # so a learned rule that reads its own emitted feature still sees the
+        # right input. Empty on sequential rollouts (no reset → nothing lost).
+        self._last_unreconstructible_features: List[Tuple[Object, str]] = []
 
     # ── Setup & Initialization ──────────────────────────────────
 
@@ -228,27 +304,27 @@ class PyBulletEnv(BaseEnv):
         # Skip test coverage because GUI is too expensive to use in unit tests
         # and cannot be used in headless mode.
         if using_gui:  # pragma: no cover
-            physics_client_id = create_gui_connection(
-                camera_distance=cls._camera_distance,
-                camera_yaw=cls._camera_yaw,
-                camera_pitch=cls._camera_pitch,
-                camera_target=cls._camera_target,
-            )
+            physics_client_id = studio_visuals.make_gui_connection(cls)
         else:
             physics_client_id = p.connect(p.DIRECT)
 
         p.resetSimulation(physicsClientId=physics_client_id)
 
-        # Load plane.
-        p.loadURDF(utils.get_env_asset_path("urdf/plane.urdf"), [0, 0, 0],
-                   useFixedBase=True,
-                   physicsClientId=physics_client_id)
+        # Load plane and apply the studio floor recolor.
+        plane_id = p.loadURDF(utils.get_env_asset_path("urdf/plane.urdf"),
+                              [0, 0, 0],
+                              useFixedBase=True,
+                              physicsClientId=physics_client_id)
+        studio_visuals.apply_floor(cls, plane_id, physics_client_id)
 
         # Load robot.
         pybullet_robot = cls._create_pybullet_robot(physics_client_id)
 
         # Set gravity.
         p.setGravity(0., 0., -10., physicsClientId=physics_client_id)
+
+        # Backdrop walls (visual only) to ground the scene like a room.
+        studio_visuals.create_walls(cls, physics_client_id)
 
         return physics_client_id, pybullet_robot, {}
 
@@ -348,6 +424,10 @@ class PyBulletEnv(BaseEnv):
         if self._current_observation is None or \
             not state.allclose(self._current_state):
             self._set_state(state)
+        else:
+            # Sequential rollout: PyBullet already holds this state, so no
+            # reset happens and no feature is lost to reconstruction.
+            self._last_unreconstructible_features = []
         return self.step(action)
 
     def step(self, action: Action, render_obs: bool = False) -> Observation:
@@ -454,6 +534,10 @@ class PyBulletEnv(BaseEnv):
         self._current_observation = state
         self._objects = list(state.data)
 
+        # Reset per-call; the reconstruction check below repopulates it with
+        # any features this reset could not round-trip.
+        self._last_unreconstructible_features = []
+
         wrote_anything = False
 
         # 1) Robot pose diff. Skipping this branch when the live joints
@@ -555,6 +639,50 @@ class PyBulletEnv(BaseEnv):
                 logging.warning(
                     "Could not reconstruct state exactly in reset. "
                     "Mismatched features:\n%s", warn_diff)
+                # Structured view of the same mismatch, for combined
+                # simulators to repair the carried value (see
+                # _last_unreconstructible_features).
+                self._last_unreconstructible_features = \
+                    self._reconstruction_mismatch_features(
+                        state, reconstructed,
+                        atol=self._reconstruction_warn_atol)
+
+    @classmethod
+    def _reconstruction_mismatch_features(
+            cls,
+            requested: State,
+            reconstructed: State,
+            atol: float = 1e-3) -> List[Tuple[Object, str]]:
+        """Structured counterpart of ``_reconstruction_diff``.
+
+        Returns the ``(object, feature)`` pairs whose reconstructed
+        value differs from the requested value by more than ``atol``.
+        Combined simulators intersect this with their declared process
+        features to repair exactly the learned-owned observables that a
+        reset cannot round-trip (e.g. ``bubbling_level`` derived from a
+        hidden ``heat_level``), leaving base-reconstructible features
+        (kinematic ``x, y`` a robot can move) untouched. Angle features
+        are compared modulo 2π; the orientation-triple geodesic handling
+        in ``_reconstruction_diff`` is unnecessary here because
+        orientation features are kinematic — never process features — so
+        they are filtered out by the caller's intersection regardless.
+        """
+        out: List[Tuple[Object, str]] = []
+        for obj in set(requested.data) & set(reconstructed.data):
+            req_vals = requested.data[obj]
+            rec_vals = reconstructed.data[obj]
+            if len(req_vals) != len(rec_vals):
+                continue
+            for i, feat in enumerate(obj.type.feature_names):
+                req_v = float(req_vals[i])
+                rec_v = float(rec_vals[i])
+                if feat in cls._ANGLE_FEATURES:
+                    delta = (rec_v - req_v + np.pi) % (2 * np.pi) - np.pi
+                else:
+                    delta = rec_v - req_v
+                if abs(delta) > atol:
+                    out.append((obj, feat))
+        return out
 
     @classmethod
     def _reconstruction_diff(cls,
@@ -570,9 +698,14 @@ class PyBulletEnv(BaseEnv):
         scannable. Returns an empty string when no feature exceeds
         ``atol`` and the object set matches.
 
-        Angle features (see ``_ANGLE_FEATURES``) are compared modulo 2π
-        so a wrist value of 4.68 matches a reconstructed -1.60 (same
-        physical orientation, different euler representation).
+        Single angle features (see ``_ANGLE_FEATURES``) are compared modulo
+        2π so a wrist value of 4.68 matches a reconstructed -1.60 (same
+        physical orientation, different euler representation). Features that
+        jointly form a full orientation (see ``_ORIENTATION_EULER_TRIPLES``)
+        are instead compared as a rotation — the geodesic angle between the
+        two — which is gimbal-lock safe: at tilt=±π/2 the per-axis split of
+        roll/wrist is degenerate, so an axis-by-axis compare would report up
+        to π of spurious error on the same physical orientation.
         """
         req_objs = set(requested.data)
         rec_objs = set(reconstructed.data)
@@ -585,7 +718,9 @@ class PyBulletEnv(BaseEnv):
         if only_in_rec:
             rows.append(f"  objects only in reconstructed: "
                         f"{sorted(o.name for o in only_in_rec)}")
-        feature_diffs: List[Tuple[float, str, str, float, float]] = []
+        # (sort_key, formatted_row); orientation-triple and per-feature diffs
+        # share one sorted, truncated list so the worst mismatch leads.
+        feature_diffs: List[Tuple[float, str]] = []
         for obj in req_objs & rec_objs:
             req_vals = requested.data[obj]
             rec_vals = reconstructed.data[obj]
@@ -594,7 +729,29 @@ class PyBulletEnv(BaseEnv):
                             f"requested={len(req_vals)} "
                             f"reconstructed={len(rec_vals)}")
                 continue
-            for i, feat in enumerate(obj.type.feature_names):
+            features = obj.type.feature_names
+            # Compare any full Euler orientation triple as one rotation
+            # (gimbal-lock safe); its constituent angles are then excluded
+            # from the axis-by-axis pass below.
+            handled: Set[str] = set()
+            for triple in cls._ORIENTATION_EULER_TRIPLES:
+                if not set(triple).issubset(features):
+                    continue
+                idx = [features.index(f) for f in triple]
+                req_eul = [float(req_vals[j]) for j in idx]
+                rec_eul = [float(rec_vals[j]) for j in idx]
+                angle = cls._euler_orientation_angle(req_eul, rec_eul)
+                handled.update(triple)
+                if angle > atol:
+                    axes = ", ".join(
+                        f"{f}={r:.6f}->{c:.6f}"
+                        for f, r, c in zip(triple, req_eul, rec_eul))
+                    feature_diffs.append(
+                        (angle, f"  {obj.name}.<orientation>: "
+                         f"Δangle={angle:.6f} rad ({axes})"))
+            for i, feat in enumerate(features):
+                if feat in handled:
+                    continue
                 req_v = float(req_vals[i])
                 rec_v = float(rec_vals[i])
                 if feat in cls._ANGLE_FEATURES:
@@ -603,16 +760,34 @@ class PyBulletEnv(BaseEnv):
                 else:
                     delta = rec_v - req_v
                 if abs(delta) > atol:
-                    feature_diffs.append(
-                        (abs(delta), obj.name, feat, req_v, rec_v))
-        feature_diffs.sort(reverse=True)
-        for _absdelta, name, feat, req, rec in feature_diffs[:max_lines]:
-            rows.append(f"  {name}.{feat}: requested={req:.6f} "
-                        f"reconstructed={rec:.6f} (Δ={rec - req:+.6f})")
+                    feature_diffs.append((abs(delta), f"  {obj.name}.{feat}: "
+                                          f"requested={req_v:.6f} "
+                                          f"reconstructed={rec_v:.6f} "
+                                          f"(Δ={rec_v - req_v:+.6f})"))
+        feature_diffs.sort(key=lambda d: d[0], reverse=True)
+        for _key, row in feature_diffs[:max_lines]:
+            rows.append(row)
         if len(feature_diffs) > max_lines:
             rows.append(f"  ... and {len(feature_diffs) - max_lines} "
                         f"more features over the {atol:g} tolerance")
         return "\n".join(rows)
+
+    @staticmethod
+    def _euler_orientation_angle(euler_a: Sequence[float],
+                                 euler_b: Sequence[float]) -> float:
+        """Geodesic angle in radians (``[0, π]``) between the two rotations
+        given as extrinsic-XYZ euler triples.
+
+        Representation-invariant: two euler triples encoding the same
+        rotation — including different gimbal-lock branches, e.g.
+        (roll=2.42, tilt=π/2, wrist=-0.71) vs (roll=0, tilt=π/2,
+        wrist=-3.13) — return ~0. Computed as the angle between the unit
+        quaternions, taking the smaller of q and -q (double cover).
+        """
+        q_a = np.array(p.getQuaternionFromEuler(list(euler_a)))
+        q_b = np.array(p.getQuaternionFromEuler(list(euler_b)))
+        dot = float(np.clip(abs(float(np.dot(q_a, q_b))), 0.0, 1.0))
+        return float(2.0 * np.arccos(dot))
 
     def _robot_matches_state(self, state: State, atol: float = 1e-3) -> bool:
         """True if PyBullet's live robot pose already equals state's.
@@ -1245,13 +1420,18 @@ class PyBulletEnv(BaseEnv):
         # and cannot be used in headless mode.
         del action, caption  # unused
         view_matrix, proj_matrix, width, height = self._get_camera_matrices()
-        (_, _, px, _,
-         _) = p.getCameraImage(width=width,
-                               height=height,
-                               viewMatrix=view_matrix,
-                               projectionMatrix=proj_matrix,
-                               renderer=p.ER_BULLET_HARDWARE_OPENGL,
-                               physicsClientId=self._physics_client_id)
+        (_, _, px, _, _) = p.getCameraImage(
+            width=width,
+            height=height,
+            viewMatrix=view_matrix,
+            projectionMatrix=proj_matrix,
+            shadow=self._render_shadow,
+            lightDirection=studio_visuals.light_direction(type(self)),
+            lightAmbientCoeff=self._render_light_ambient,
+            lightDiffuseCoeff=self._render_light_diffuse,
+            lightSpecularCoeff=self._render_light_specular,
+            renderer=p.ER_BULLET_HARDWARE_OPENGL,
+            physicsClientId=self._physics_client_id)
         rgb_array = np.array(px).reshape((height, width, 4))
         rgb_array = rgb_array[:, :, :3]
         return [rgb_array]

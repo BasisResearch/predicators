@@ -222,9 +222,9 @@ class State:
     """
     # Object-centric *observable* features = the agent's observation.
     # Fully observable: the complete world state. Partially observable:
-    # only the exposed features (hidden ones are omitted — e.g.
-    # pybullet_boil drops `heat_level`). The only field that defines
-    # state identity (`__hash__`, `allclose`).
+    # only the exposed features (some causally-relevant features are
+    # omitted). The only field that defines state identity (`__hash__`,
+    # `allclose`).
     data: Dict[Object, Array]
     # Opaque per-environment simulator bookkeeping (e.g. PyBullet joint
     # positions); env-internal, not agent-facing.
@@ -236,11 +236,10 @@ class State:
     # initial value.
     latent: Optional[Dict[str, Any]] = None
     # The environment's *true* hidden state that the partially-observable
-    # observation omits (e.g. boil's `heat_level`); None under full
-    # observability, where those features live in `data` instead. The
-    # truth to `latent`'s belief — env-only, never surfaced through any
-    # `data`/`feature_names` channel (inspect tools, dict_str,
-    # abstraction). Deep-copied by `copy()`.
+    # observation omits; None under full observability, where those
+    # features live in `data` instead. The truth to `latent`'s belief —
+    # env-only, never surfaced through any `data`/`feature_names` channel
+    # (inspect tools, dict_str, abstraction). Deep-copied by `copy()`.
     privileged: Optional[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
@@ -501,12 +500,12 @@ class Predicate:
         Performs type checking first. `latent` is the sample's latent
         state-feature block, threaded by approaches that learn over
         partially-observable envs (see
-        `agent_sim_recurrent_predicate_invention`). When the caller does
-        not pass `latent` explicitly, the block attached to
-        `state.latent` is used (so callers like `utils.abstract` do not
-        need to know about the recurrent extension). Classifiers that
-        don't accept a `latent` kwarg are called with the legacy
-        `(state, objects)` signature for backwards compatibility.
+        `agent_po_sim_predicate_invention`). When the caller does not
+        pass `latent` explicitly, the block attached to `state.latent`
+        is used (so callers like `utils.abstract` do not need to know
+        about the recurrent extension). Classifiers that don't accept a
+        `latent` kwarg are called with the legacy `(state, objects)`
+        signature for backwards compatibility.
         """
         assert len(objects) == self.arity
         for obj, pred_type in zip(objects, self.types):
@@ -2262,6 +2261,14 @@ class InteractionRequest:
     act_policy: Callable[[State], Action]
     query_policy: Callable[[State], Optional[Query]]  # query can be None
     termination_function: Callable[[State], bool]
+    # Optional verdict from a planning explorer: did the *mental model*
+    # (the learned simulator) reach the task goal when refining this
+    # request's plan? ``None`` means "no verdict" (e.g. non-planning
+    # explorers); online learning treats ``False`` as not-solved for
+    # early stopping even if real-env execution happens to reach the
+    # goal, so a model that executes-but-mispredicts isn't certified as
+    # trained. See AgentBilevelExplorer / main._generate_interaction_results.
+    mental_model_solved: Optional[bool] = None
 
 
 @dataclass(frozen=True, eq=False, repr=False)

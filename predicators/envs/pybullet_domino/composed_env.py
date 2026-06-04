@@ -9,7 +9,6 @@ from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 import pybullet as p
 
-from predicators import utils
 from predicators.envs.pybullet_domino.components.ball_component import \
     BallComponent
 from predicators.envs.pybullet_domino.components.base_component import \
@@ -26,11 +25,9 @@ from predicators.envs.pybullet_domino.components.stairs_component import \
 from predicators.envs.pybullet_domino.task_generators.domino_task_generator import \
     DominoTaskGenerator
 from predicators.envs.pybullet_env import PyBulletEnv
-from predicators.pybullet_helpers.camera import create_gui_connection
-from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
+from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.objects import create_object
-from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot, \
-    create_single_arm_pybullet_robot
+from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, Object, Predicate, \
     State, Type
@@ -200,48 +197,20 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         Note: Component initialization happens in instance method since
         components are instance-specific.
         """
-        if using_gui:
-            physics_client_id = create_gui_connection(
-                camera_distance=cls._camera_distance,
-                camera_yaw=cls._camera_yaw,
-                camera_pitch=cls._camera_pitch,
-                camera_target=cls._camera_target,
-            )
-        else:
-            physics_client_id = p.connect(p.DIRECT)
+        # Reuse the base setup (connection, plane + studio floor, robot,
+        # gravity, backdrop walls), then add this env's two tables. The tables
+        # are textured centrally by _apply_studio_table_textures.
+        physics_client_id, pybullet_robot, bodies = super(
+        ).initialize_pybullet(using_gui)
 
-        p.resetSimulation(physicsClientId=physics_client_id)
-
-        # Load plane
-        p.loadURDF(utils.get_env_asset_path("urdf/plane.urdf"), [0, 0, 0],
-                   useFixedBase=True,
-                   physicsClientId=physics_client_id)
-
-        # Load robot
-        robot_ee_orn = cls.get_robot_ee_home_orn()
-        ee_home = Pose((cls.robot_init_x, cls.robot_init_y, cls.robot_init_z),
-                       robot_ee_orn)
-        if cls.robot_base_pos is not None and cls.robot_base_orn is not None:
-            base_pose: Optional[Pose] = Pose(cls.robot_base_pos,
-                                             cls.robot_base_orn)
-        else:
-            base_pose = None
-        pybullet_robot = create_single_arm_pybullet_robot(
-            CFG.pybullet_robot, physics_client_id, ee_home, base_pose)
-
-        # Set gravity
-        p.setGravity(0., 0., -10., physicsClientId=physics_client_id)
-
-        # Create table
-        table_id = create_object(asset_path="urdf/table.urdf",
-                                 position=cls.table_pos,
-                                 orientation=cls.table_orn,
-                                 scale=1.0,
-                                 use_fixed_base=True,
-                                 physics_client_id=physics_client_id)
-
-        # Add second table for more space
-        table_id2 = create_object(
+        # Two tables side by side for extra workspace.
+        bodies["table_id"] = create_object(asset_path="urdf/table.urdf",
+                                           position=cls.table_pos,
+                                           orientation=cls.table_orn,
+                                           scale=1.0,
+                                           use_fixed_base=True,
+                                           physics_client_id=physics_client_id)
+        bodies["table_id2"] = create_object(
             asset_path="urdf/table.urdf",
             position=(cls.table_pos[0], cls.table_pos[1] + cls.table_width / 2,
                       cls.table_pos[2]),
@@ -249,8 +218,6 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             scale=1.0,
             use_fixed_base=True,
             physics_client_id=physics_client_id)
-
-        bodies = {"table_id": table_id, "table_id2": table_id2}
         return physics_client_id, pybullet_robot, bodies
 
     def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:

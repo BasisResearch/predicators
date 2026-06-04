@@ -8,8 +8,9 @@ import pybullet as p
 from predicators import utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, \
-    create_pybullet_block, create_pybullet_sphere, update_object
+from predicators.pybullet_helpers.objects import cap_switch_joint_travel, \
+    create_object, create_pybullet_block, create_pybullet_sphere, \
+    update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
@@ -598,6 +599,9 @@ class PyBulletFanEnv(PyBulletEnv):
             switch_obj.id = pybullet_bodies["switch_ids"][i]
             switch_obj.joint_id = self._get_joint_id(switch_obj.id, "joint_0",
                                                      self._physics_client_id)
+            cap_switch_joint_travel(switch_obj.id, switch_obj.joint_id,
+                                    self.switch_joint_scale,
+                                    self._physics_client_id)
             switch_obj.side_idx = i  # 0=left,1=right,2=back,3=front
 
         # Sides (no PyBullet bodies, just assign IDs for consistency)

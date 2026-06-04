@@ -35,6 +35,25 @@ def _state(robot_type: Type, wrist: float, x: float) -> State:
     return State({obj: np.array([wrist, x], dtype=np.float64)})
 
 
+@pytest.fixture(name="ee_type")
+def _ee_type():
+    """Type carrying the full robot EE orientation triple plus a position.
+
+    ``(roll, tilt, wrist)`` is a free SO(3) orientation, so the diff
+    must compare it as a rotation rather than axis-by-axis.
+    """
+    return Type("robot", ["roll", "tilt", "wrist", "x"])
+
+
+def _ee_state(ee_type: Type,
+              roll: float,
+              tilt: float,
+              wrist: float,
+              x: float = 0.5) -> State:
+    obj = Object("robot0", ee_type)
+    return State({obj: np.array([roll, tilt, wrist, x], dtype=np.float64)})
+
+
 def test_reconstruction_diff_angle_wraps_modulo_2pi(robot_type):
     """Values that differ by an exact multiple of 2π represent the same
     physical orientation and must not appear in the diff."""
@@ -86,3 +105,74 @@ def test_reconstruction_diff_object_set_mismatch(robot_type):
     diff = PyBulletEnv._reconstruction_diff(requested, reconstructed)
     assert "only in requested" in diff
     assert "only in reconstructed" in diff
+
+
+# ---------------------------------------------------------------------------
+# Gimbal-lock orientation handling.
+#
+# Regression coverage for the boil run that crashed in _set_state with a
+# ~2.42 rad per-axis roll/wrist "mismatch" while the EE pointed straight
+# down (tilt=π/2). At gimbal lock the roll/wrist split is degenerate — only
+# the rotation is meaningful — so the triple must be compared as a rotation.
+# The two euler triples below encode the SAME physical orientation (geodesic
+# angle ~0.004 rad), yet differ by ~2.42 rad on each of roll and wrist.
+# ---------------------------------------------------------------------------
+
+_GIMBAL_REQ = (2.419305, math.pi / 2, -0.709600)
+_GIMBAL_REC = (0.0, math.pi / 2, -3.132968)
+
+
+def test_reconstruction_diff_gimbal_lock_does_not_raise(ee_type):
+    """The crash values must clear the raise threshold: same orientation, so
+    the rotation angle is ~0 and the diff is empty at raise_atol."""
+    requested = _ee_state(ee_type, *_GIMBAL_REQ)
+    reconstructed = _ee_state(ee_type, *_GIMBAL_REC)
+    diff = PyBulletEnv._reconstruction_diff(
+        requested, reconstructed, atol=PyBulletEnv._reconstruction_raise_atol)
+    assert diff == "", diff
+
+
+def test_reconstruction_diff_gimbal_lock_reports_rotation_not_per_axis(
+        ee_type):
+    """Below atol the residual surfaces as one small <orientation> angle, never
+    as the misleading ~2.42 rad per-axis roll/wrist rows."""
+    requested = _ee_state(ee_type, *_GIMBAL_REQ)
+    reconstructed = _ee_state(ee_type, *_GIMBAL_REC)
+    diff = PyBulletEnv._reconstruction_diff(requested, reconstructed)
+    assert "robot0.<orientation>" in diff
+    # The per-axis rows (format "robot0.roll: requested=...") must be gone —
+    # they are what tripped the spurious raise.
+    assert "robot0.roll:" not in diff
+    assert "robot0.wrist:" not in diff
+    # The reported rotation angle is the true tiny residual, not ~2.42.
+    assert "Δangle=0.00" in diff
+
+
+def test_reconstruction_diff_orientation_genuine_mismatch_reported(ee_type):
+    """A real rotation difference (here 1.0 rad about Z at tilt=0, away from
+    gimbal lock) is reported accurately as the rotation angle."""
+    requested = _ee_state(ee_type, 0.0, 0.0, 0.0)
+    reconstructed = _ee_state(ee_type, 0.0, 0.0, 1.0)
+    diff = PyBulletEnv._reconstruction_diff(requested, reconstructed)
+    assert "robot0.<orientation>" in diff
+    assert "Δangle=1.00" in diff
+
+
+def test_reconstruction_diff_orientation_large_mismatch_would_raise(ee_type):
+    """A genuinely corrupt orientation (2.5 rad) still exceeds raise_atol so
+    the guard keeps catching real reconstruction failures."""
+    requested = _ee_state(ee_type, 0.0, 0.0, 0.0)
+    reconstructed = _ee_state(ee_type, 0.0, 0.0, 2.5)
+    diff = PyBulletEnv._reconstruction_diff(
+        requested, reconstructed, atol=PyBulletEnv._reconstruction_raise_atol)
+    assert "robot0.<orientation>" in diff
+
+
+def test_reconstruction_diff_orientation_position_still_per_feature(ee_type):
+    """Non-orientation features on an EE-typed object (here ``x``) keep the
+    plain per-feature path even though roll/tilt/wrist are grouped."""
+    requested = _ee_state(ee_type, 0.0, 0.0, 0.0, x=0.0)
+    reconstructed = _ee_state(ee_type, 0.0, 0.0, 0.0, x=1.0)
+    diff = PyBulletEnv._reconstruction_diff(requested, reconstructed)
+    assert "robot0.x" in diff
+    assert "<orientation>" not in diff
