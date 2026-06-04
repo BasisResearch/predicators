@@ -55,15 +55,15 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
                          action_space, train_tasks, *args, **kwargs)
         self._offline_dataset = Dataset([])
         self._online_trajectories: List[LowLevelTrajectory] = []
-        if option_model is not None:
-            self._option_model = option_model
-        else:
-            self._option_model = create_option_model(CFG.option_model_name)
+        self._option_model: Optional[_OptionModelBase] = (
+            option_model if option_model is not None else
+            self._create_planner_option_model())
         # Let the option model terminate Wait on atom change using the
         # approach's predicates (which may include invented ones). Looked
         # up lazily so the lambda picks up predicates invented after
         # __init__.
-        if CFG.wait_option_terminate_on_atom_change:
+        if self._option_model is not None and \
+                CFG.wait_option_terminate_on_atom_change:
             cast(  # pylint: disable=protected-access
                 Any, self._option_model)._abstract_function = (
                     lambda s: utils.abstract(s, self._get_all_predicates()))
@@ -118,6 +118,27 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
     def _get_all_trajectories(self) -> List[LowLevelTrajectory]:
         """Return all trajectories (offline + online)."""
         return self._offline_dataset.trajectories + self._online_trajectories
+
+    def _create_planner_option_model(self) -> Optional[_OptionModelBase]:
+        """Build the option model the planner tests plans against.
+
+        Honors two CFG knobs:
+
+        * ``agent_planner_use_simulator`` -- when False, returns ``None``
+          so the agent gets no ``test_option_plan`` rollouts and must
+          plan open-loop from data + LLM reasoning (the model-free
+          baseline).
+        * ``agent_planner_use_base_simulator`` -- when True (and a
+          simulator is used), wraps the *base* env
+          (``skip_process_dynamics=True``) so the planner is denied the
+          delayed ``_domain_specific_step`` dynamics; otherwise wraps the
+          real env.
+        """
+        if not CFG.agent_planner_use_simulator:
+            return None
+        return create_option_model(
+            CFG.option_model_name,
+            skip_process_dynamics=CFG.agent_planner_use_base_simulator)
 
     # ------------------------------------------------------------------ #
     # AgentSessionMixin hooks
@@ -217,8 +238,12 @@ scene, then annotate_scene overlays markers on it."""
 
     def _get_agent_system_prompt(self) -> str:
         use_scratchpad = CFG.agent_planner_use_scratchpad
-        use_visualize = CFG.agent_planner_use_visualize_state
-        use_annotate = CFG.agent_planner_use_annotate_scene
+        # visualize_state / annotate_scene render a live env, so they are
+        # only available when the planner has a simulator.
+        use_visualize = (CFG.agent_planner_use_simulator
+                         and CFG.agent_planner_use_visualize_state)
+        use_annotate = (CFG.agent_planner_use_simulator
+                        and CFG.agent_planner_use_annotate_scene)
 
         sections = [self._SYSTEM_PROMPT_BASE]
 
@@ -317,13 +342,18 @@ scene, then annotate_scene overlays markers on it."""
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
         tools = [
-            "inspect_options", "inspect_trajectories", "inspect_train_tasks",
-            "test_option_plan"
+            "inspect_options", "inspect_trajectories", "inspect_train_tasks"
         ]
-        if CFG.agent_planner_use_annotate_scene:
-            tools.append("annotate_scene")
-        if CFG.agent_planner_use_visualize_state:
-            tools.append("visualize_state")
+        # The remaining tools all require a simulator / live env:
+        # test_option_plan rolls plans out through the option model, and
+        # visualize_state / annotate_scene render env states. None are
+        # offered when the planner has no simulator.
+        if CFG.agent_planner_use_simulator:
+            tools.append("test_option_plan")
+            if CFG.agent_planner_use_annotate_scene:
+                tools.append("annotate_scene")
+            if CFG.agent_planner_use_visualize_state:
+                tools.append("visualize_state")
         return tools
 
     # ------------------------------------------------------------------ #
@@ -343,12 +373,17 @@ scene, then annotate_scene overlays markers on it."""
         self._requests_train_task_idxs = []
         for _ in range(CFG.online_nsrt_learning_requests_per_cycle):
             task_idx = self._rng.choice(len(self._train_tasks))
+            # Clear so a planning explorer's verdict is read fresh per
+            # request; non-planning explorers leave it None (no verdict).
+            self._tool_context.last_mental_model_solved = None
             policy, termination_function = explorer.get_exploration_strategy(
                 task_idx, CFG.timeout)
             req = InteractionRequest(train_task_idx=task_idx,
                                      act_policy=policy,
                                      query_policy=lambda s: None,
-                                     termination_function=termination_function)
+                                     termination_function=termination_function,
+                                     mental_model_solved=self._tool_context.
+                                     last_mental_model_solved)
             requests.append(req)
             self._requests_train_task_idxs.append(task_idx)
         return requests
@@ -519,6 +554,16 @@ scene, then annotate_scene overlays markers on it."""
 {task.goal_nl}
 """
 
+        if CFG.agent_planner_use_simulator:
+            instructions_intro = (
+                "Use your available tools to inspect the environment and "
+                "test your plan before committing to it.")
+        else:
+            instructions_intro = (
+                "You do NOT have a simulator to test plans against. Inspect "
+                "the trajectory data and reason carefully about the dynamics, "
+                "then commit to your best open-loop plan.")
+
         prompt = f"""You are solving a task. \
 Generate an option plan to achieve the goal.
 {goal_nl_section}
@@ -538,7 +583,7 @@ Generate an option plan to achieve the goal.
 {chr(10).join(option_strs)}
 {traj_summary}{tools_str}
 ## Instructions
-Use your available tools to inspect the environment and test your plan before committing to it.
+{instructions_intro}
 
 Based on the task information and any past trajectory data, output an option plan to achieve the goal.
 

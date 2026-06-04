@@ -17,8 +17,8 @@ import pybullet as p
 from predicators import utils_lite as utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, \
-    create_pybullet_block
+from predicators.pybullet_helpers.objects import cap_switch_joint_travel, \
+    create_object, create_pybullet_block
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
@@ -204,6 +204,9 @@ class PyBulletBarrierEnv(PyBulletEnv):
             switch.joint_id = self._get_joint_id(switch.id, "joint_0",
                                                  self._physics_client_id)
             switch.joint_scale = 0.1
+            cap_switch_joint_travel(switch.id, switch.joint_id,
+                                    switch.joint_scale,
+                                    self._physics_client_id)
 
         for i, barrier in enumerate(self._barriers):
             barrier.id = pybullet_bodies[f"barrier{i}_id"]

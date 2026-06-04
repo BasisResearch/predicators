@@ -161,3 +161,69 @@ def test_goal_nl_block_multiple_distinct_goals():
     assert "Goals across train tasks (natural language):" in out
     assert "  - boil the water" in out
     assert "  - stack the cups" in out
+
+
+# ── _build_synthesis_system_prompt (FO vs PO rule signature) ────────
+# These render the whole synthesis system prompt. The method only touches
+# ``self`` through pure no-state helpers (``_rule_signature_section``,
+# ``_process_rule_signature``, ``_extra_synthesis_system_prompt``), so a
+# bare instance via ``object.__new__`` is enough to render it.
+
+
+def _render_prompt(cls):
+    from predicators.approaches.agent_sim_learning_approach import \
+        AgentSimLearningApproach
+    return AgentSimLearningApproach._build_synthesis_system_prompt(
+        object.__new__(cls))
+
+
+def test_synthesis_prompt_no_leftover_placeholders(approach_cls):
+    """Every templated placeholder is substituted in the rendered prompt."""
+    prompt = _render_prompt(approach_cls)
+    for placeholder in ("__RULE_SIGNATURE_SECTION__",
+                        "__PROCESS_RULE_SIGNATURE__",
+                        "__SYNTHESIS_PROMPT_EXTRA__"):
+        assert placeholder not in prompt
+
+
+def test_synthesis_prompt_sections_not_duplicated(approach_cls):
+    """The system prompt has exactly one of each major section.
+
+    Guards against the bad-merge artifact that duplicated the Tools /
+    Refinement / Plan-format blocks (and double-injected the extra).
+    """
+    prompt = _render_prompt(approach_cls)
+    for header in ("### Rule signature", "## Tools", "## Plan format",
+                   "### Refinement vs. forward validation"):
+        assert prompt.count(header) == 1, (header, prompt.count(header))
+
+
+def test_fo_prompt_uses_three_arg_signature(approach_cls):
+    """The fully-observable prompt advertises only the legacy 3-arg rule."""
+    prompt = _render_prompt(approach_cls)
+    assert "def rule(state, updates, params):" in prompt
+    assert "def process_rule(state, updates, params):" in prompt
+    assert "def rule(state, latent, history, updates, params):" not in prompt
+
+
+def test_po_prompt_uses_five_arg_signature_only():
+    """The PO prompt advertises only the recurrent 5-arg signature.
+
+    The 3-arg form sitting beside the PO guidance is exactly what led
+    the agent to write a 3-arg rule the recurrent engine rejects, so the
+    PO prompt must not show it as canonical.
+    """
+    from predicators.approaches import \
+        agent_po_sim_predicate_invention_approach as po_mod
+    prompt = _render_prompt(po_mod.AgentPOSimPredicateInventionApproach)
+    assert "def rule(state, latent, history, updates, params):" in prompt
+    assert ("def process_rule(state, latent, history, updates, params):"
+            in prompt)
+    # The 3-arg canonical forms must be gone.
+    assert "def rule(state, updates, params):" not in prompt
+    assert "def process_rule(state, updates, params):" not in prompt
+    # Recurrent guidance is injected exactly once (single extra marker).
+    import re
+    headers = re.findall(r"(?m)^## Recurrent rules \(partial observability\)$",
+                         prompt)
+    assert len(headers) == 1

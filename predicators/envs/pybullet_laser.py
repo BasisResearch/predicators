@@ -22,7 +22,8 @@ import pybullet as p
 from predicators import utils_lite as utils
 from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.pybullet_helpers.objects import create_object, update_object
+from predicators.pybullet_helpers.objects import cap_switch_joint_travel, \
+    create_object, update_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
@@ -270,6 +271,9 @@ class PyBulletLaserEnv(PyBulletEnv):
         self._station.id = pybullet_bodies["station_id"]
         self._station.joint_id = self._get_joint_id(self._station.id,
                                                     "joint_0")
+        cap_switch_joint_travel(self._station.id, self._station.joint_id,
+                                self.station_joint_scale,
+                                self._physics_client_id)
         for mirror, mirror_id in zip(self._normal_mirrors,
                                      pybullet_bodies["normal_mirror_ids"]):
             mirror.id = mirror_id

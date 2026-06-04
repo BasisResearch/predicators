@@ -59,6 +59,11 @@ class AgentBilevelExplorer(BaseExplorer):
         assert option_model is not None, \
             "agent_bilevel explorer needs a synced option_model"
 
+        # Reset the per-request mental-model verdict so a stale value from
+        # the previous request can't leak if refinement below throws or
+        # falls back to random before producing one.
+        self._tool_context.last_mental_model_solved = None
+
         try:
             prompt = bilevel_sketch.build_solve_prompt(
                 task,
@@ -91,16 +96,21 @@ class AgentBilevelExplorer(BaseExplorer):
                 (s.option.name, [o.name for o in s.objects]) for s in sketch
             ]
 
-            # Explorer mode: keep subgoal validation ON so the mental
-            # model can tell us which step it can't predict, but when
-            # that happens, truncate the plan at that step (inclusive)
-            # instead of backtracking. Steps beyond the first
-            # disagreement are built on a false mental-model state, so
-            # executing them in the real env adds noise rather than
-            # signal. The truncated plan — Pick → ... → first failing
-            # step — is the experiment we want to run. Final-goal check
-            # is also off: the explorer isn't trying to solve the task
-            # in the mental model.
+            # Explorer mode: keep BOTH subgoal and final-goal validation
+            # ON so the mental model reports the deepest step it cannot
+            # predict — a per-step subgoal it can't establish, or (at the
+            # final step) the task goal it predicts won't hold. When that
+            # happens, truncate the plan at the deepest failing step
+            # (inclusive) instead of backtracking past it: steps beyond the
+            # disagreement are built on a false mental-model state. A
+            # final-goal failure captures the *whole* plan as the
+            # experiment — running it in reality and observing whether the
+            # goal actually holds is exactly the disagreement we want to
+            # collect (e.g. a model that predicts WaterBoiled drops after
+            # SwitchBurnerOff, when reality keeps it). `success` now
+            # honestly reflects whether the mental model could reach the
+            # goal, so a model that merely executes-but-mispredicts is no
+            # longer indistinguishable from one that truly solves the task.
             plan, success, _ = bilevel_sketch.refine_sketch(
                 task,
                 sketch,
@@ -111,15 +121,21 @@ class AgentBilevelExplorer(BaseExplorer):
                 max_samples_per_step=CFG.
                 agent_bilevel_explorer_max_samples_per_step,
                 check_subgoals=True,
-                check_final_goal=False,
+                check_final_goal=True,
                 truncate_on_subgoal_fail=True,
                 log_state=CFG.agent_bilevel_log_state,
                 run_id="agent_bilevel_explorer",
             )
+            # Record the honest verdict so get_interaction_requests can
+            # stamp it onto this request: early stopping should not treat a
+            # task as solved when the mental model couldn't reach its goal,
+            # even if real-env execution of the experiment happens to.
+            self._tool_context.last_mental_model_solved = success
+            mm_status = ("solved the goal" if success else
+                         "did NOT reach the goal — running as experiment")
             logging.info(
                 f"agent_bilevel explorer: sketch has {len(sketch)} steps, "
-                f"refined {len(plan)} "
-                f"({'success' if success else 'partial'}).")
+                f"refined {len(plan)} (mental model {mm_status}).")
             if plan:
                 plan_strs = []
                 for i, opt in enumerate(plan):

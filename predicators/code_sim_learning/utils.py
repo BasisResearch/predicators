@@ -219,6 +219,51 @@ def merge_updates(
     return merged
 
 
+def rollout_predictions(
+    rules: List,
+    params: Dict[str, float],
+    groups: Sequence[Sequence[Tuple[State, Action, State]]],
+    latent_init: Any = None,
+) -> List[Tuple[State, State]]:
+    """Per-transition ``(predicted_next_state, observed_next_state)`` pairs.
+
+    Mirrors exactly how the fitting engine runs the rules, so a tool that
+    builds residuals from this can never disagree with the engine on the
+    rule call convention:
+
+    * **Recurrent (5-arg) rules** — when any rule declares a ``latent``
+      param (:func:`has_latent_rules`), the ``latent`` block is built once
+      per trajectory group via :func:`init_latent` and threaded across that
+      group's steps, with a growing read-only ``history`` prefix. This is
+      the same threading :func:`compute_sse_recurrent` does.
+    * **Legacy (3-arg) rules** — each transition's base state is rolled
+      independently through :func:`apply_rules`; ``latent``/``history`` are
+      ignored and ``groups`` only controls iteration order.
+
+    ``groups`` is a list of per-trajectory triple lists, each
+    ``[(base_state, action, next_obs), ...]`` (the latent threads within a
+    trajectory, not across). Output is flattened in group-then-step order,
+    so passing ``[base_pred_triples]`` reproduces the flat input order.
+    """
+    latent_mode = has_latent_rules(rules)
+    out: List[Tuple[State, State]] = []
+    for group in groups:
+        latent: Dict[str, Any] = (init_latent(latent_init, params)
+                                  if latent_mode else {})
+        history: List[Tuple[State, Optional[Action]]] = []
+        for base_state, action, s_next_obs in group:
+            if latent_mode:
+                history.append((base_state, action))
+                updates = apply_rules_with_latent(base_state, latent, history,
+                                                  rules, params)
+            else:
+                updates = apply_rules(base_state, rules, params)
+            s_pred = (merge_updates(base_state, updates)
+                      if updates else base_state)
+            out.append((s_pred, s_next_obs))
+    return out
+
+
 def iter_feature_residuals(
     triples: Iterable[Tuple[State, State]],
     feature_scope: Optional[Dict[str, List[str]]] = None,
