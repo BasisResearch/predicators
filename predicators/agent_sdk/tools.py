@@ -3091,7 +3091,7 @@ def create_synthesis_tools(
                          "(no approach instance bound to the tool).")
 
         path = args.get("path") or simulator_file
-        rules, specs, declared, _latent_init, version_tag, err = \
+        rules, specs, declared, latent_init, version_tag, err = \
             _snapshot_and_load(path)
         if err:
             return _text(err)
@@ -3117,6 +3117,7 @@ def create_synthesis_tools(
                 task_idx=task_idx,
                 timeout=timeout,
                 plan_text=plan_text,
+                latent_init=latent_init,
             )
         except Exception:  # pylint: disable=broad-except
             tb = traceback.format_exc()
