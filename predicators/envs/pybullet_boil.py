@@ -79,6 +79,18 @@ class PyBulletBoilEnv(PyBulletEnv):
     faucet_x: ClassVar[float] = x_mid + 6 * small_gap
     faucet_y: ClassVar[float] = y_mid + 5 * small_gap
     faucet_x_len: ClassVar[float] = 0.15
+    # Faucet water outlet, expressed as a 2-D offset in the faucet's local
+    # frame and mapped to the world by the standard rotation matrix R(rot):
+    #     outlet = (faucet_x, faucet_y) + R(rot) @ (local_dx, local_dy)
+    # This is the general rotation-matrix parameterization the learned
+    # simulators use (their `_faucet_anchor_dist`), rather than the previous
+    # single-distance-along-(cos, -sin) special case. The spout points along
+    # the faucet's local -x axis, so the along-spout offset is -faucet_x_len;
+    # the outlet sits on the spout centerline, so the lateral (local-y) offset
+    # is 0. With the faucet's fixed rot = pi/2 this reproduces the original
+    # outlet (faucet_x, faucet_y - faucet_x_len).
+    faucet_outlet_local_dx: ClassVar[float] = -faucet_x_len
+    faucet_outlet_local_dy: ClassVar[float] = 0.0
     switch_y: ClassVar[float] = y_lb + small_gap
 
     # -------------------------------------------------------------------------
@@ -972,19 +984,32 @@ class PyBulletBoilEnv(PyBulletEnv):
         faucet_on = self._is_switch_on(self._faucet_switch.id)
         self._faucet.prev_on = float(faucet_on)
 
+    def _faucet_outlet_xy(self, state: State,
+                          faucet: Object) -> Tuple[float, float]:
+        """World (x, y) of the faucet's water outlet.
+
+        General form shared by the fill check and the spill block:
+            outlet = (faucet_x, faucet_y) + R(rot) @ (local_dx, local_dy)
+        with R(rot) the standard rotation matrix. Mirrors the learned
+        simulators' `_faucet_anchor_dist`.
+        """
+        faucet_x = state.get(faucet, "x")
+        faucet_y = state.get(faucet, "y")
+        faucet_rot = state.get(faucet, "rot")
+        cos_r, sin_r = np.cos(faucet_rot), np.sin(faucet_rot)
+        dx, dy = self.faucet_outlet_local_dx, self.faucet_outlet_local_dy
+        output_x = faucet_x + cos_r * dx - sin_r * dy
+        output_y = faucet_y + sin_r * dx + cos_r * dy
+        return output_x, output_y
+
     def _create_spilled_water_block(self, spilled_size: float,
                                     state: State) -> int:
         """Create a very short block on the table to represent spilled water.
 
         The side length is 'spilled_size'.
         """
-        faucet_x = state.get(self._faucet, "x")
-        faucet_y = state.get(self._faucet, "y")
-        faucet_rot = state.get(self._faucet, "rot")
-        # Center the spill where the faucet output is
-        output_distance = self.faucet_x_len
-        output_x = faucet_x + output_distance * np.cos(faucet_rot)
-        output_y = faucet_y - output_distance * np.sin(faucet_rot)
+        # Center the spill where the faucet output is.
+        output_x, output_y = self._faucet_outlet_xy(state, self._faucet)
 
         half_len = spilled_size / 2.0
         # Keep it very thin in Z
@@ -1194,12 +1219,7 @@ class PyBulletBoilEnv(PyBulletEnv):
             return False
         jug_x = state.get(jug, "x")
         jug_y = state.get(jug, "y")
-        faucet_x = state.get(faucet, "x")
-        faucet_y = state.get(faucet, "y")
-        faucet_rot = state.get(faucet, "rot")
-        output_distance = self.faucet_x_len
-        output_x = faucet_x + output_distance * np.cos(faucet_rot)
-        output_y = faucet_y - output_distance * np.sin(faucet_rot)
+        output_x, output_y = self._faucet_outlet_xy(state, faucet)
         dist = np.hypot(jug_x - output_x, jug_y - output_y)
         return dist < self.faucet_align_threshold
 
