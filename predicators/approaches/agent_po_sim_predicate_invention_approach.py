@@ -176,6 +176,47 @@ Every rule uses this 5-arg signature, so the tools and the fitting
 engine call them all the same way. A rule that needs no hidden state
 simply ignores its `latent`/`history` arguments.
 
+### Structure the latent like the state (per-object)
+
+The augmented state is the observable features in ``state.data`` *plus*
+the latent dims you infer: a jug's hidden ``heat`` is just another
+feature of that jug that happens to be unobserved. So **shape the latent
+like ``data`` — object first, then feature**: ``latent[jug.name]["heat"]``
+should read in parallel with ``state.get(jug, "water_volume")``. The
+hidden quantities almost always belong to *individual* objects (each jug
+its own heat, each faucet its own spill buffer), and with several
+same-type objects a flat ``{"heat": 0.0}`` collapses them into one shared
+accumulator, which is wrong — exactly as your rules must loop over every
+object rather than indexing ``[0]``.
+
+```python
+LATENT_INIT = {}          # {jug_name: {"heat": value}}, filled lazily
+
+def heat_rule(state, latent, history, updates, params):
+    jugs = [o for o in state.data if o.type.name == "jug"]
+    for jug in jugs:
+        jl = latent.setdefault(jug.name, {})    # this jug's hidden dims
+        h = jl.get("heat", 0.0)
+        if on_active_burner(state, jug, params):
+            h += 1.0
+        jl["heat"] = h
+        updates.setdefault(jug, {})["bubbling_level"] = readout(h, params)
+    return updates
+```
+
+Two deliberate differences from ``data``, though — the latent is **not**
+a typed feature array, and must not be made into one: (1) key by the
+stable string ``obj.name``, not the live ``Object`` (``data`` keys by
+``Object``, but the latent is deep-copied / reconstructed at every search
+node, so a live key risks identity mismatch); (2) keep it a free-form
+JSON-like nest of dicts / numbers with no registered schema — the agent
+invents these dims, and the engine threads and deep-copies whatever
+structure you put here. A genuinely global hidden quantity (a world
+clock, ambient temperature) stays a top-level scalar rather than being
+forced under an object. (Top-level scalar latent entries may be
+``ParamSpec``s to make their initial value learnable; seed each
+per-object slot lazily from such a shared init.)
+
 The type, feature, latent, and parameter names in the examples below
 (`widget`, `fixture`, `progress`, `level`, ...) are illustrative — use
 whatever the inspect tools actually report for your task.

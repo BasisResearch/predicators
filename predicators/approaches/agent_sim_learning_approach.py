@@ -1268,6 +1268,34 @@ inflates the loss without giving MCMC anything to optimise.
 
 __RULE_SIGNATURE_SECTION__
 
+### Multiple objects of the same type
+
+A task may contain **several objects of the same type** — two widgets, \
+three fixtures, or one of each — and the count varies from task to task. \
+Your rules run once per step over the entire `State`, so they must act on \
+*whatever objects are present*, never a hard-coded slot. Code like \
+`widgets[0]` silently ignores every other instance and breaks the moment \
+a task has more (or fewer) objects than the trajectory you calibrated on.
+
+Gather the relevant objects by type and loop over the binding(s) the rule \
+acts on, emitting updates keyed by the specific object the effect applies \
+to:
+
+```python
+widgets  = [o for o in state.data if o.type.name == "widget"]
+fixtures = [o for o in state.data if o.type.name == "fixture"]
+for widget in widgets:
+    for fixture in fixtures:           # all pairs, or pair each widget
+        if at_fixture(state, widget, fixture, params):   # to its nearest
+            wv = state.get(widget, "progress")
+            updates.setdefault(widget, {})["progress"] = wv + params["rate"]
+```
+
+The same `params` apply to every object of a type: you are learning the \
+shared physics of "a widget", not per-instance constants. If a rule \
+genuinely needs exactly one object (a single global clock, say), assert \
+that rather than silently indexing `[0]`.
+
 ### Timing
 
 Each rule fires once per step:
