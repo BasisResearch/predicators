@@ -54,6 +54,37 @@ class FitResult:
         }
 
 
+def _param_bounds(
+        param_specs: List[ParamSpec]) -> Tuple[np.ndarray, np.ndarray]:
+    """Per-parameter (lo, hi) box from the ParamSpecs.
+
+    An unspecified bound defaults to a small positive floor (lo) or +inf
+    (hi). A parameter that declares a negative ``lo`` -- e.g. a signed
+    local offset whose true value is negative -- is therefore fit over its
+    real range, while a parameter that declares no bounds keeps the
+    historical positivity assumption. Shared by the LM and emcee paths so
+    they constrain to the same box.
+    """
+    lo = np.array([s.lo if s.lo is not None else 1e-6 for s in param_specs])
+    hi = np.array([s.hi if s.hi is not None else np.inf for s in param_specs])
+    return lo, hi
+
+
+def _prior_widths(init_values: np.ndarray, lo: np.ndarray, hi: np.ndarray,
+                  scale: float) -> np.ndarray:
+    """Positive Gaussian-prior width (sigma) per parameter.
+
+    Scales by ``|init|`` so a signed (negative-init) parameter gets a
+    positive width, and falls back to half the (finite) bound range when
+    ``init`` is ~0 so a zero-centred parameter still gets a finite prior
+    and walker spread instead of a degenerate zero-width one.
+    """
+    sigma = np.abs(init_values) * scale
+    finite = np.isfinite(lo) & np.isfinite(hi)
+    fallback = np.where(finite, 0.5 * (hi - lo), 1.0)
+    return np.where(sigma > 1e-9, sigma, fallback)
+
+
 def compute_sse(
     simulator_fn: StepSimulatorFn,
     transitions: List[Tuple[State, Action, State]],
@@ -187,9 +218,10 @@ def fit_params_recurrent(
     * Likelihood = :func:`compute_sse_recurrent` (per-trajectory
       rollout with latent carry) instead of per-transition
       :func:`compute_sse`.
-    * Skips the LM warm-start / Hessian diagnostics (those rely on
-      :func:`compute_residuals`, which is per-transition). MCMC alone
-      is fine; if warm-starting becomes useful, lift the LM path here.
+    * Uses a recurrent LM warm-start / Hessian diagnostic
+      (:func:`fit_map_lm_recurrent`, built on the rollout residual vector
+      :func:`compute_residuals_recurrent`) under the same CFG flags as
+      the FO path, in place of the per-transition :func:`fit_map_lm`.
     """
     names = [s.name for s in param_specs]
     init_values = np.array([s.init_value for s in param_specs])
@@ -198,11 +230,40 @@ def fit_params_recurrent(
     if num_steps < 0:
         raise ValueError("code_sim_learning_num_mcmc_steps must be "
                          "non-negative.")
-    prior_sigma = init_values * prior_sigma_scale
+    lo, hi = _param_bounds(param_specs)
+    prior_sigma = _prior_widths(init_values, lo, hi, prior_sigma_scale)
+
+    # Optional one-shot recurrent LM fit, mirroring fit_params. Two uses:
+    #   * Hessian diagnostic -- eigendecompose J^T J at the MAP to flag
+    #     flat (unidentifiable) directions, e.g. a hard-gated offset.
+    #   * Warm start -- center MCMC walkers on theta_map (and short-circuit
+    #     to it directly when num_steps == 0). Gated on the same CFG flags
+    #     as the FO path so FO and PO behave consistently.
+    walker_center = init_values
+    if (CFG.code_sim_learning_log_hessian_identifiability
+            or CFG.code_sim_learning_warm_start_with_lm):
+        theta_map, jac = fit_map_lm_recurrent(rules, trajectories, param_specs,
+                                              latent_init, process_features)
+        if (CFG.code_sim_learning_log_hessian_identifiability
+                and jac is not None and jac.size > 0):
+            log_hessian_identifiability(jac, names, noise_sigma, prior_sigma)
+        if CFG.code_sim_learning_warm_start_with_lm:
+            walker_center = np.asarray(theta_map, dtype=float)
+            logger.info("Warm-starting recurrent MCMC from LM MAP estimate.")
+            lm_params = {
+                n: float(walker_center[i])
+                for i, n in enumerate(names)
+            }
+            lm_sse = compute_sse_recurrent(rules, trajectories, lm_params,
+                                           latent_init, process_features)
+            logger.info("After recurrent LM warm start — SSE: %.6f", lm_sse)
 
     if num_steps == 0:
-        logger.info("Skipping emcee; using initial parameter values.")
-        return FitResult(names, init_values[None, :], np.zeros(1))
+        if CFG.code_sim_learning_warm_start_with_lm:
+            logger.info("Skipping emcee; using LM warm-start parameters.")
+        else:
+            logger.info("Skipping emcee; using initial parameter values.")
+        return FitResult(names, walker_center[None, :], np.zeros(1))
 
     import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
 
@@ -211,7 +272,7 @@ def fit_params_recurrent(
     burn_in = min(burn_in, max(num_steps - 1, 0))
 
     def log_posterior(theta: np.ndarray) -> float:
-        if np.any(theta <= 0):
+        if np.any(theta < lo) or np.any(theta > hi):
             return -np.inf
         params = {n: float(theta[i]) for i, n in enumerate(names)}
         log_prior = -0.5 * np.sum(((theta - init_values) / prior_sigma)**2)
@@ -219,8 +280,8 @@ def fit_params_recurrent(
                                     process_features)
         return log_prior + (-0.5 * sse / (noise_sigma**2))
 
-    p0 = init_values + 0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
-    p0 = np.clip(p0, 1e-6, None)
+    p0 = walker_center + 0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
+    p0 = np.clip(p0, lo, hi)
     sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
     logger.info("Running emcee (recurrent): %d walkers, %d steps, %d burn-in.",
                 num_walkers, num_steps, burn_in)
@@ -268,6 +329,52 @@ def compute_residuals(
                     pred = float(s_t.get(obj, feat_name))
                 obs = float(s_next_obs.get(obj, feat_name))
                 residuals.append(pred - obs)
+    return np.asarray(residuals, dtype=float)
+
+
+def compute_residuals_recurrent(
+    rules: List,
+    trajectories: List[TrajectoryTriples],
+    params: Dict[str, float],
+    latent_init: Any,
+    process_features: Dict[str, List[str]],
+) -> np.ndarray:
+    """Per-feature residuals (predicted - observed) for the recurrent rollout.
+
+    Vector counterpart to :func:`compute_sse_recurrent`, written in the
+    object x feature iteration order of :func:`compute_residuals` (not the
+    predicted-then-unpredicted order of the SSE) so the flat vector keeps a
+    fixed length and position across theta perturbations even when a hard
+    gate flips which rule fires -- required for the finite-difference
+    Jacobian LM builds. By construction
+    ``sum(compute_residuals_recurrent(...)**2)`` equals
+    ``compute_sse_recurrent(...)``.
+    """
+    # pylint: disable=import-outside-toplevel
+    from predicators.code_sim_learning.utils import apply_rules_with_latent, \
+        init_latent
+
+    # pylint: enable=import-outside-toplevel
+
+    residuals: List[float] = []
+    for traj in trajectories:
+        latent: Dict[str, Any] = init_latent(latent_init, params)
+        history: List[Tuple[State, Optional[Action]]] = []
+        for state_base, action, state_obs in traj:
+            history.append((state_base, action))
+            updates = apply_rules_with_latent(state_base, latent, history,
+                                              rules, params)
+            for obj in state_base:
+                type_name = obj.type.name
+                for feat_name in process_features.get(type_name, []):
+                    if obj in updates and feat_name in updates[obj]:
+                        raw = updates[obj][feat_name]
+                        pred = raw.item() if hasattr(raw,
+                                                     'item') else float(raw)
+                    else:
+                        pred = float(state_base.get(obj, feat_name))
+                    obs = float(state_obs.get(obj, feat_name))
+                    residuals.append(pred - obs)
     return np.asarray(residuals, dtype=float)
 
 
@@ -398,8 +505,7 @@ def fit_map_lm(
 
     names = [s.name for s in param_specs]
     init = np.array([s.init_value for s in param_specs], dtype=float)
-    lo = np.array([s.lo if s.lo is not None else 1e-6 for s in param_specs])
-    hi = np.array([s.hi if s.hi is not None else np.inf for s in param_specs])
+    lo, hi = _param_bounds(param_specs)
     # Nudge init strictly into the interior so trf doesn't reject it.
     init = np.maximum(init, lo + 1e-9)
     safe_hi = np.where(np.isfinite(hi), hi - 1e-9, np.inf)
@@ -435,6 +541,80 @@ def fit_map_lm(
         sse_init, sse_lm, result.nfev, result.status,
         "converged" if result.success else "max-evals")
     logger.info("LM theta_map - init: %s",
+                {k: f"{v:+.4f}"
+                 for k, v in delta.items()})
+
+    jac = np.asarray(result.jac, dtype=float)
+    if jac.size == 0:
+        return np.asarray(result.x, dtype=float), None
+    return np.asarray(result.x, dtype=float), jac
+
+
+def fit_map_lm_recurrent(
+    rules: List,
+    trajectories: List[TrajectoryTriples],
+    param_specs: List[ParamSpec],
+    latent_init: Any,
+    process_features: Dict[str, List[str]],
+    max_nfev: int = 200,
+) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    """Levenberg-Marquardt MAP fit for the recurrent (latent-threaded) sim.
+
+    Recurrent counterpart to :func:`fit_map_lm`. Minimises
+    ``0.5 * ||r(theta)||^2`` with ``r`` from
+    :func:`compute_residuals_recurrent` (a full latent rollout per
+    evaluation) under the ParamSpec ``[lo, hi]`` box, and returns
+    ``(theta_map, jacobian-at-optimum)``.
+
+    Same caveat as the FO path: the finite-difference Jacobian is only
+    informative where the likelihood is smooth. A hard-gated parameter
+    with no boundary-crossing data (e.g. a fill offset whose value never
+    flips a fill/no-fill outcome in the data) has a near-zero column in J,
+    so LM leaves it at init -- but the Hessian diagnostic then surfaces it
+    as a flat (unidentifiable) direction rather than a confident wrong
+    value.
+    """
+    from scipy.optimize import \
+        least_squares  # pylint: disable=import-outside-toplevel
+
+    names = [s.name for s in param_specs]
+    init = np.array([s.init_value for s in param_specs], dtype=float)
+    lo, hi = _param_bounds(param_specs)
+    # Nudge init strictly into the interior so trf doesn't reject it.
+    init = np.maximum(init, lo + 1e-9)
+    safe_hi = np.where(np.isfinite(hi), hi - 1e-9, np.inf)
+    init = np.minimum(init, safe_hi)
+
+    def residuals_fn(theta: np.ndarray) -> np.ndarray:
+        params = {n: float(theta[i]) for i, n in enumerate(names)}
+        return compute_residuals_recurrent(rules, trajectories, params,
+                                           latent_init, process_features)
+
+    init_residuals = residuals_fn(init)
+    if init_residuals.size == 0:
+        logger.warning("No residuals to fit (empty process_features); "
+                       "skipping recurrent LM.")
+        return init, None
+
+    sse_init = float(np.sum(init_residuals**2))
+
+    try:
+        result = least_squares(residuals_fn,
+                               init,
+                               method='trf',
+                               bounds=(lo, hi),
+                               max_nfev=max_nfev)
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Recurrent LM raised %s; skipping.", exc)
+        return init, None
+
+    sse_lm = float(2.0 * result.cost)
+    delta = {names[i]: float(result.x[i] - init[i]) for i in range(len(names))}
+    logger.info(
+        "Recurrent LM fit: SSE %.4f -> %.4f in %d fn-evals (status=%d, %s).",
+        sse_init, sse_lm, result.nfev, result.status,
+        "converged" if result.success else "max-evals")
+    logger.info("Recurrent LM theta_map - init: %s",
                 {k: f"{v:+.4f}"
                  for k, v in delta.items()})
 
@@ -545,7 +725,8 @@ def fit_params(
     if num_steps < 0:
         raise ValueError("code_sim_learning_num_mcmc_steps must be "
                          "non-negative.")
-    prior_sigma = init_values * prior_sigma_scale
+    lo, hi = _param_bounds(param_specs)
+    prior_sigma = _prior_widths(init_values, lo, hi, prior_sigma_scale)
 
     # Optional one-shot LM fit. Two independent uses:
     #   * Hessian diagnostic — eigendecompose J^T J at the MAP.
@@ -592,8 +773,8 @@ def fit_params(
     burn_in = min(burn_in, max(num_steps - 1, 0))
 
     def log_posterior(theta: np.ndarray) -> float:
-        # Reject negative values
-        if np.any(theta <= 0):
+        # Reject samples outside the per-parameter [lo, hi] box.
+        if np.any(theta < lo) or np.any(theta > hi):
             return -np.inf
         params = {n: float(theta[i]) for i, n in enumerate(names)}
         # Broad Gaussian prior centered on init values
@@ -607,7 +788,7 @@ def fit_params(
     # of the likelihood (e.g., when threshold-based rules don't fire),
     # because emcee stretch moves scale with the swarm's spread.
     p0 = walker_center + 0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
-    p0 = np.clip(p0, 1e-6, None)
+    p0 = np.clip(p0, lo, hi)
 
     sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
 
