@@ -156,6 +156,13 @@ class ToolContext:
     online_trajectories: List[LowLevelTrajectory] = field(default_factory=list)
     example_state: Optional[State] = None
     option_model: Optional[_OptionModelBase] = None
+    # Active-experiment info-gain scorer, synced from the learning
+    # approach when info-seeking exploration is on:
+    # ``(state, atoms) -> disagreement``. The agent_bilevel explorer
+    # passes it into refinement so continuous-parameter search prefers
+    # candidates that straddle the learned model's decision boundaries.
+    # None ⇒ plain feasibility search (default).
+    atom_disagreement_fn: Optional[Callable[[State, Any], float]] = None
     current_task: Optional[Task] = None
     iteration_proposals: ProposalBundle = field(default_factory=ProposalBundle)
     planning_results: Dict[str, Any] = field(default_factory=dict)

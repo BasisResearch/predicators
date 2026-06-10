@@ -71,6 +71,7 @@ class AgentBilevelExplorer(BaseExplorer):
                 all_options=self._options,
                 trajectory_summary=self._build_trajectory_summary(),
                 tool_names=self._agent_tool_names(),
+                experiment_guidance=self._build_experiment_guidance(),
             )
             responses = run_query_sync(self._agent_session,
                                        prompt,
@@ -96,6 +97,23 @@ class AgentBilevelExplorer(BaseExplorer):
                 (s.option.name, [o.name for o in s.objects]) for s in sketch
             ]
 
+            # Log the sketch + subgoal annotations the learner will refine
+            # (mirrors the solver's sketch log) so the explorer's steps are
+            # visible. Subgoal-annotated steps are the ones info-seeking can
+            # turn into boundary probes.
+            sketch_lines = []
+            for i, s in enumerate(sketch):
+                objs = ", ".join(o.name for o in s.objects)
+                line = f"  {i}: {s.option.name}({objs})"
+                if s.subgoal_atoms:
+                    atoms = ", ".join(str(a) for a in s.subgoal_atoms)
+                    line += f" -> {{{atoms}}}"
+                sketch_lines.append(line)
+            logging.info(
+                "agent_bilevel explorer: refining sketch for train task %d "
+                "(%d steps):\n%s", train_task_idx, len(sketch),
+                "\n".join(sketch_lines))
+
             # Explorer mode: keep BOTH subgoal and final-goal validation
             # ON so the mental model reports the deepest step it cannot
             # predict — a per-step subgoal it can't establish, or (at the
@@ -111,6 +129,37 @@ class AgentBilevelExplorer(BaseExplorer):
             # honestly reflects whether the mental model could reach the
             # goal, so a model that merely executes-but-mispredicts is no
             # longer indistinguishable from one that truly solves the task.
+            # Active-experiment design: when info-seeking is on, hand
+            # refinement the ensemble-disagreement scorer so it picks the
+            # most *informative* feasible continuous parameters (those that
+            # straddle the learned model's decision boundaries) instead of
+            # the first feasible sample. Sampling pools feasible candidates
+            # within the step's per-node rollout budget
+            # (max_samples_per_step) and proposes them best-first across
+            # backtracking retries (the ranked remainder is replayed with
+            # no new rollouts), so hard-to-satisfy subgoals yield a real
+            # argmax without multiplying the budget. Off ⇒ info_scorer is
+            # None and refinement behaves exactly as before.
+            info_scorer = None
+            info_n_feasible_target = 1
+            if CFG.agent_explorer_info_seeking:
+                info_scorer = self._tool_context.atom_disagreement_fn
+                info_n_feasible_target = \
+                    CFG.agent_explorer_info_n_feasible_target
+                n_annotated = sum(1 for s in sketch
+                                  if s.subgoal_atoms is not None)
+                logging.info(
+                    "agent_bilevel explorer: info-seeking ON "
+                    "(pool %d feasible candidates/step within the "
+                    "%d-rollout step budget, ensemble size %d) — %d/%d "
+                    "steps are subgoal-annotated and eligible for boundary "
+                    "probing.%s", info_n_feasible_target,
+                    CFG.agent_bilevel_explorer_max_samples_per_step,
+                    CFG.agent_explorer_info_ensemble_size, n_annotated,
+                    len(sketch), "" if info_scorer is not None else
+                    " WARNING: no ensemble scorer wired (atom_disagreement_fn "
+                    "is None) — probing disabled.")
+
             plan, success, _ = bilevel_sketch.refine_sketch(
                 task,
                 sketch,
@@ -125,6 +174,8 @@ class AgentBilevelExplorer(BaseExplorer):
                 truncate_on_subgoal_fail=True,
                 log_state=CFG.agent_bilevel_log_state,
                 run_id="agent_bilevel_explorer",
+                info_scorer=info_scorer,
+                info_n_feasible_target=info_n_feasible_target,
             )
             # Record the honest verdict so get_interaction_requests can
             # stamp it onto this request: early stopping should not treat a
@@ -200,6 +251,81 @@ class AgentBilevelExplorer(BaseExplorer):
     def _agent_tool_names(self) -> Optional[List[str]]:
         """Return tool names exposed by the current session, if any."""
         return getattr(self._agent_session, "tool_names", None)
+
+    def _build_experiment_guidance(self) -> str:
+        """LLM-proposal half of active-experiment design.
+
+        When info-seeking is on, tell the agent that refinement will
+        turn each annotated step into a boundary-probing experiment, and
+        — when an ensemble scorer is wired — point it at the predicates
+        the learned model is currently most internally uncertain about.
+        Empty string when info-seeking is off, so the prompt is
+        unchanged.
+        """
+        if not CFG.agent_explorer_info_seeking:
+            return ""
+        base = (
+            "Refinement will actively choose continuous parameters that "
+            "straddle the learned model's decision boundaries, so each "
+            "annotated step doubles as an experiment that reveals where the "
+            "model is wrong. Prefer a sketch whose subgoal annotations "
+            "exercise the geometry/timing you are least sure the learned "
+            "model has right.")
+        disagreement = self._build_disagreement_summary()
+        return base + (f"\n\n{disagreement}" if disagreement else "")
+
+    def _build_disagreement_summary(self) -> str:
+        """Name the predicates the ensemble disagrees most about.
+
+        Scans a bounded sample of recent-trajectory states, scoring each
+        abstract atom's ensemble disagreement via the wired scorer, and
+        reports the predicates with the highest disagreement. Grounded
+        in the actual ensemble, so it points the agent at genuinely-
+        uncertain dynamics rather than guesses. Empty when no
+        scorer/trajectories.
+        """
+        fn = self._tool_context.atom_disagreement_fn
+        if fn is None:
+            return ""
+        all_trajs = (self._tool_context.offline_trajectories +
+                     self._tool_context.online_trajectories)
+        if not all_trajs:
+            return ""
+        recent = all_trajs[-CFG.agent_sdk_max_trajectories_in_context:]
+        states: List[State] = []
+        for traj in recent:
+            n = len(traj.states)
+            if n == 0:
+                continue
+            stride = max(1, n // 6)  # <= ~6 states/trajectory to bound cost
+            states.extend(traj.states[::stride])
+        best: Dict[str, float] = {}
+        for s in states:
+            for atom in utils.abstract(s, self._predicates):
+                try:
+                    d = float(fn(s, {atom}))
+                except Exception:  # pylint: disable=broad-except
+                    continue
+                name = atom.predicate.name
+                if d > best.get(name, 0.0):
+                    best[name] = d
+        # One log line with the full ranking (scope note: abstract() yields
+        # true atoms only, so a predicate absent here was never measured,
+        # not necessarily agreed-upon). All values <= 0.05 ⇒ no guidance —
+        # the ensemble is internally confident (or too tight) everywhere.
+        all_ranked = sorted(((v, k) for k, v in best.items()), reverse=True)
+        logging.info(
+            "agent_bilevel explorer: per-predicate max ensemble disagreement "
+            "over %d states — %s.", len(states),
+            ", ".join(f"{k}={v:.4f}" for v, k in all_ranked) or "(none)")
+        ranked = [(v, k) for v, k in all_ranked if v > 0.05][:4]
+        if not ranked:
+            return ""
+        named = ", ".join(f"{k} (disagreement {v:.2f})" for v, k in ranked)
+        return ("Across recent trajectories, the learned model is most "
+                f"internally uncertain about: {named}. A sketch that puts "
+                "these predicates on the critical path will be most "
+                "informative.")
 
     def _build_trajectory_summary(self) -> str:
         """Summarize trajectory data for the agent."""
