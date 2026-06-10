@@ -2775,13 +2775,14 @@ def create_synthesis_tools(
 
         try:
             if latent_mode:
-                fitted_params, post_sse = (
+                fit_result, post_sse = (
                     AgentSimLearningApproach._fit_parameters_latent(  # pylint: disable=protected-access
                         rules, specs, groups, latent_init, process_features))
             else:
-                fitted_params, post_sse = (
+                fit_result, post_sse = (
                     AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
                         rules, specs, base_pred_triples, process_features))
+            fitted_params = fit_result.point_estimate
         except Exception as e:  # pylint: disable=broad-except
             return _text(f"[{version_tag}] Error: fit_params failed:\n{e}")
         if pre_sse > 0:
@@ -2889,14 +2890,15 @@ def create_synthesis_tools(
         if do_fit:
             try:
                 if latent_mode:
-                    t_params, _ = (
+                    fit_result, _ = (
                         AgentSimLearningApproach._fit_parameters_latent(  # pylint: disable=protected-access
                             rules, specs, groups, latent_init,
                             process_features))
                 else:
-                    t_params, _ = (
+                    fit_result, _ = (
                         AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
                             rules, specs, base_pred_triples, process_features))
+                t_params = fit_result.point_estimate
                 param_label = "fitted"
             except Exception as e:  # pylint: disable=broad-except
                 return _text(

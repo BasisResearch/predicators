@@ -38,11 +38,25 @@ class ParamSpec:
 
 @dataclass
 class FitResult:
-    """Result of parameter fitting."""
+    """Result of parameter fitting.
+
+    The optional ``jacobian``/``noise_sigma``/``prior_sigma`` fields are a
+    Laplace bundle, attached by both :func:`fit_params` and
+    :func:`fit_params_recurrent` whenever their Levenberg-Marquardt fit
+    ran (info-seeking exploration or the Hessian/warm-start flags). They
+    let a caller build a calibrated posterior covariance
+    ``(J^T J / sigma^2 + diag(1/prior^2))^-1`` around the MAP without
+    re-deriving it. They stay ``None`` when LM was skipped or failed —
+    e.g. MCMC-only runs, where ``samples`` already carries the posterior.
+    """
 
     names: List[str]
     samples: np.ndarray  # (num_samples, num_params)
     log_probs: np.ndarray  # (num_samples,)
+    jacobian: Optional[np.ndarray] = None  # (num_residuals, num_params) at MAP
+    noise_sigma: Optional[float] = None  # observation-noise sigma used in fit
+    prior_sigma: Optional[
+        np.ndarray] = None  # (num_params,) Gaussian-prior std
 
     @property
     def point_estimate(self) -> Dict[str, float]:
@@ -60,10 +74,10 @@ def _param_bounds(
 
     An unspecified bound defaults to a small positive floor (lo) or +inf
     (hi). A parameter that declares a negative ``lo`` -- e.g. a signed
-    local offset whose true value is negative -- is therefore fit over its
-    real range, while a parameter that declares no bounds keeps the
-    historical positivity assumption. Shared by the LM and emcee paths so
-    they constrain to the same box.
+    local offset whose true value is negative -- is therefore fit over
+    its real range, while a parameter that declares no bounds keeps the
+    historical positivity assumption. Shared by the LM and emcee paths
+    so they constrain to the same box.
     """
     lo = np.array([s.lo if s.lo is not None else 1e-6 for s in param_specs])
     hi = np.array([s.hi if s.hi is not None else np.inf for s in param_specs])
@@ -83,6 +97,101 @@ def _prior_widths(init_values: np.ndarray, lo: np.ndarray, hi: np.ndarray,
     finite = np.isfinite(lo) & np.isfinite(hi)
     fallback = np.where(finite, 0.5 * (hi - lo), 1.0)
     return np.where(sigma > 1e-9, sigma, fallback)
+
+
+def _lm_prefit(
+    lm_fit_fn: Callable[[], Tuple[np.ndarray, Optional[np.ndarray]]],
+    sse_fn: Callable[[Dict[str, float]], float],
+    names: List[str],
+    init_values: np.ndarray,
+    noise_sigma: float,
+    prior_sigma: np.ndarray,
+    label: str,
+    warm_start_breakdown_fn: Optional[Callable[[Dict[str, float]],
+                                               None]] = None,
+) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
+    """Optional one-shot LM fit shared by both MCMC entry points.
+
+    Three independent uses, each behind its own CFG flag (the fit runs
+    once if any is set):
+
+      * Hessian diagnostic — eigendecompose J^T J at the MAP
+        (``code_sim_learning_log_hessian_identifiability``).
+      * Warm start — center the MCMC walkers on theta_map
+        (``code_sim_learning_warm_start_with_lm``).
+      * Laplace ensemble — info-seeking exploration reuses J at the MAP
+        for a calibrated posterior covariance, attached to the
+        ``FitResult`` (``agent_explorer_info_seeking``).
+
+    Returns ``(walker_center, lm_theta, lm_jac)``: the MCMC walker
+    center (the LM MAP when warm-starting, else ``init_values``), the
+    LM MAP itself, and the Jacobian at the MAP (the latter two ``None``
+    when LM didn't run or failed). ``lm_fit_fn`` and ``sse_fn`` carry
+    the per-transition vs recurrent specifics; the optional
+    ``warm_start_breakdown_fn`` lets the per-transition caller add its
+    ``log_sse_breakdown`` to the warm-start log.
+    """
+    walker_center = init_values
+    lm_theta: Optional[np.ndarray] = None
+    lm_jac: Optional[np.ndarray] = None
+    if not (CFG.code_sim_learning_log_hessian_identifiability
+            or CFG.code_sim_learning_warm_start_with_lm
+            or CFG.agent_explorer_info_seeking):
+        return walker_center, lm_theta, lm_jac
+    theta_map, jac = lm_fit_fn()
+    lm_theta = np.asarray(theta_map, dtype=float)
+    if jac is not None and jac.size > 0:
+        lm_jac = np.asarray(jac, dtype=float)
+        if CFG.code_sim_learning_log_hessian_identifiability:
+            log_hessian_identifiability(jac, names, noise_sigma, prior_sigma)
+    if CFG.code_sim_learning_warm_start_with_lm:
+        walker_center = lm_theta
+        logger.info("Warm-starting %s MCMC walkers from LM MAP estimate.",
+                    label)
+        lm_params = {n: float(lm_theta[i]) for i, n in enumerate(names)}
+        lm_sse = sse_fn(lm_params)
+        logger.info(
+            "After %s LM warm start — SSE: %.6f  log-likelihood: "
+            "%.2f", label, lm_sse, -0.5 * lm_sse / (noise_sigma**2))
+        if warm_start_breakdown_fn is not None:
+            warm_start_breakdown_fn(lm_params)
+    return walker_center, lm_theta, lm_jac
+
+
+def _lm_point_fit_result(
+    walker_center: np.ndarray,
+    lm_theta: Optional[np.ndarray],
+    lm_jac: Optional[np.ndarray],
+    names: List[str],
+    noise_sigma: float,
+    prior_sigma: np.ndarray,
+    label: str,
+) -> FitResult:
+    """Single-point ``FitResult`` for the ``num_steps == 0`` short-circuit.
+
+    Picks the point estimate the skipped-emcee run reports: the LM MAP
+    when one is available and either warm-start or info-seeking asked
+    for it (so the Laplace covariance is anchored where the data places
+    it, not at init), else the initial parameter values. Carries the
+    Laplace bundle through.
+    """
+    point = walker_center
+    if (not CFG.code_sim_learning_warm_start_with_lm
+            and CFG.agent_explorer_info_seeking and lm_theta is not None):
+        point = lm_theta
+        logger.info("Skipping emcee; using %s LM MAP for Laplace ensemble.",
+                    label)
+    elif CFG.code_sim_learning_warm_start_with_lm and lm_theta is not None:
+        logger.info("Skipping emcee; using %s LM warm-start parameters.",
+                    label)
+    else:
+        logger.info("Skipping emcee; using initial parameter values.")
+    return FitResult(names,
+                     point[None, :],
+                     np.zeros(1),
+                     jacobian=lm_jac,
+                     noise_sigma=noise_sigma,
+                     prior_sigma=prior_sigma)
 
 
 def compute_sse(
@@ -218,10 +327,13 @@ def fit_params_recurrent(
     * Likelihood = :func:`compute_sse_recurrent` (per-trajectory
       rollout with latent carry) instead of per-transition
       :func:`compute_sse`.
-    * Uses a recurrent LM warm-start / Hessian diagnostic
-      (:func:`fit_map_lm_recurrent`, built on the rollout residual vector
-      :func:`compute_residuals_recurrent`) under the same CFG flags as
-      the FO path, in place of the per-transition :func:`fit_map_lm`.
+    * Uses a recurrent LM warm-start / Hessian diagnostic / Laplace
+      bundle (:func:`fit_map_lm_recurrent`, built on the rollout residual
+      vector :func:`compute_residuals_recurrent`) under the same CFG flags
+      as the FO path, in place of the per-transition :func:`fit_map_lm`.
+      The Jacobian at the MAP is attached to the returned ``FitResult`` so
+      callers can build the Laplace ensemble (see
+      ``active_experiment.laplace_ensemble``).
     """
     names = [s.name for s in param_specs]
     init_values = np.array([s.init_value for s in param_specs])
@@ -233,37 +345,19 @@ def fit_params_recurrent(
     lo, hi = _param_bounds(param_specs)
     prior_sigma = _prior_widths(init_values, lo, hi, prior_sigma_scale)
 
-    # Optional one-shot recurrent LM fit, mirroring fit_params. Two uses:
-    #   * Hessian diagnostic -- eigendecompose J^T J at the MAP to flag
-    #     flat (unidentifiable) directions, e.g. a hard-gated offset.
-    #   * Warm start -- center MCMC walkers on theta_map (and short-circuit
-    #     to it directly when num_steps == 0). Gated on the same CFG flags
-    #     as the FO path so FO and PO behave consistently.
-    walker_center = init_values
-    if (CFG.code_sim_learning_log_hessian_identifiability
-            or CFG.code_sim_learning_warm_start_with_lm):
-        theta_map, jac = fit_map_lm_recurrent(rules, trajectories, param_specs,
-                                              latent_init, process_features)
-        if (CFG.code_sim_learning_log_hessian_identifiability
-                and jac is not None and jac.size > 0):
-            log_hessian_identifiability(jac, names, noise_sigma, prior_sigma)
-        if CFG.code_sim_learning_warm_start_with_lm:
-            walker_center = np.asarray(theta_map, dtype=float)
-            logger.info("Warm-starting recurrent MCMC from LM MAP estimate.")
-            lm_params = {
-                n: float(walker_center[i])
-                for i, n in enumerate(names)
-            }
-            lm_sse = compute_sse_recurrent(rules, trajectories, lm_params,
-                                           latent_init, process_features)
-            logger.info("After recurrent LM warm start — SSE: %.6f", lm_sse)
+    # Optional one-shot recurrent LM fit (see _lm_prefit for its three
+    # uses). Each residual eval here is a full set of per-trajectory
+    # rollouts, so it is only paid when one of the gating flags is set.
+    walker_center, lm_theta, lm_jac = _lm_prefit(
+        lambda: fit_map_lm_recurrent(rules, trajectories, param_specs,
+                                     latent_init, process_features),
+        lambda p: compute_sse_recurrent(rules, trajectories, p, latent_init,
+                                        process_features), names, init_values,
+        noise_sigma, prior_sigma, "recurrent")
 
     if num_steps == 0:
-        if CFG.code_sim_learning_warm_start_with_lm:
-            logger.info("Skipping emcee; using LM warm-start parameters.")
-        else:
-            logger.info("Skipping emcee; using initial parameter values.")
-        return FitResult(names, walker_center[None, :], np.zeros(1))
+        return _lm_point_fit_result(walker_center, lm_theta, lm_jac, names,
+                                    noise_sigma, prior_sigma, "recurrent")
 
     import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
 
@@ -296,7 +390,12 @@ def fit_params_recurrent(
                 h.flush()
     samples = sampler.get_chain(discard=burn_in, flat=True)
     log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
-    result = FitResult(names=names, samples=samples, log_probs=log_probs)
+    result = FitResult(names=names,
+                       samples=samples,
+                       log_probs=log_probs,
+                       jacobian=lm_jac,
+                       noise_sigma=noise_sigma,
+                       prior_sigma=prior_sigma)
     logger.info("emcee (recurrent) done. Posterior mean: %s",
                 {k: f"{v:.4f}"
                  for k, v in result.point_estimate.items()})
@@ -348,7 +447,12 @@ def compute_residuals_recurrent(
     gate flips which rule fires -- required for the finite-difference
     Jacobian LM builds. By construction
     ``sum(compute_residuals_recurrent(...)**2)`` equals
-    ``compute_sse_recurrent(...)``.
+    ``compute_sse_recurrent(...)``, so minimizing ``0.5 * ||r||^2`` with LM
+    targets the same MAP the recurrent MCMC samples around, and yields the
+    Jacobian for the Hessian diagnostic and the Laplace ensemble.
+
+    Each call is a full set of per-trajectory rollouts, so an LM
+    finite-difference Jacobian costs ``O(num_params)`` of these.
     """
     # pylint: disable=import-outside-toplevel
     from predicators.code_sim_learning.utils import apply_rules_with_latent, \
@@ -495,10 +599,39 @@ def fit_map_lm(
         ``log_hessian_identifiability`` eigendecomposes to flag flat
         directions.
 
-    Two callers (see ``fit_simulator_params``):
+    Three callers (see ``fit_simulator_params``):
       * Hessian identifiability diagnostic — eigendecompose J^T J.
       * MCMC warm start — center emcee walkers on theta_map (and short-
         circuit to it directly when ``num_mcmc_steps == 0``).
+      * Laplace ensemble — reuse J at the MAP for a calibrated posterior
+        covariance (see ``active_experiment.laplace_ensemble``).
+    """
+    names = [s.name for s in param_specs]
+
+    def residuals_fn(theta: np.ndarray) -> np.ndarray:
+        params = {n: float(theta[i]) for i, n in enumerate(names)}
+        return compute_residuals(simulator_fn, transitions, params,
+                                 process_features)
+
+    return _solve_lm(residuals_fn, param_specs, max_nfev, "per-transition")
+
+
+def _solve_lm(
+    residuals_fn: Callable[[np.ndarray], np.ndarray],
+    param_specs: List[ParamSpec],
+    max_nfev: int,
+    label: str,
+) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+    """Shared Levenberg-Marquardt core for the per-transition and recurrent MAP
+    fits.
+
+    Solves ``min_theta 0.5 * ||residuals_fn(theta)||^2`` with
+    ``scipy.optimize.least_squares(method='trf')`` under the
+    ``param_specs`` box, and returns ``(theta_map, jacobian_at_optimum)``.
+    The Jacobian is ``None`` when the residual vector is empty or LM
+    raises. ``label`` only tags the log lines (e.g. ``per-transition`` vs
+    ``recurrent``). The single residual-vector seam is what lets the
+    recurrent fit reuse this unchanged.
     """
     from scipy.optimize import \
         least_squares  # pylint: disable=import-outside-toplevel
@@ -511,15 +644,11 @@ def fit_map_lm(
     safe_hi = np.where(np.isfinite(hi), hi - 1e-9, np.inf)
     init = np.minimum(init, safe_hi)
 
-    def residuals_fn(theta: np.ndarray) -> np.ndarray:
-        params = {n: float(theta[i]) for i, n in enumerate(names)}
-        return compute_residuals(simulator_fn, transitions, params,
-                                 process_features)
-
     init_residuals = residuals_fn(init)
     if init_residuals.size == 0:
-        logger.warning("No residuals to fit (empty process_features); "
-                       "skipping LM diagnostic.")
+        logger.warning(
+            "No residuals to fit (empty process_features); "
+            "skipping %s LM fit.", label)
         return init, None
 
     sse_init = float(np.sum(init_residuals**2))
@@ -531,16 +660,15 @@ def fit_map_lm(
                                bounds=(lo, hi),
                                max_nfev=max_nfev)
     except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("LM diagnostic raised %s; skipping Hessian log.", exc)
+        logger.warning("%s LM fit raised %s; skipping.", label, exc)
         return init, None
 
     sse_lm = float(2.0 * result.cost)
     delta = {names[i]: float(result.x[i] - init[i]) for i in range(len(names))}
-    logger.info(
-        "LM diagnostic fit: SSE %.4f -> %.4f in %d fn-evals (status=%d, %s).",
-        sse_init, sse_lm, result.nfev, result.status,
-        "converged" if result.success else "max-evals")
-    logger.info("LM theta_map - init: %s",
+    logger.info("%s LM fit: SSE %.4f -> %.4f in %d fn-evals (status=%d, %s).",
+                label, sse_init, sse_lm, result.nfev, result.status,
+                "converged" if result.success else "max-evals")
+    logger.info("%s LM theta_map - init: %s", label,
                 {k: f"{v:+.4f}"
                  for k, v in delta.items()})
 
@@ -560,68 +688,36 @@ def fit_map_lm_recurrent(
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Levenberg-Marquardt MAP fit for the recurrent (latent-threaded) sim.
 
-    Recurrent counterpart to :func:`fit_map_lm`. Minimises
-    ``0.5 * ||r(theta)||^2`` with ``r`` from
-    :func:`compute_residuals_recurrent` (a full latent rollout per
-    evaluation) under the ParamSpec ``[lo, hi]`` box, and returns
-    ``(theta_map, jacobian-at-optimum)``.
+    Recurrent counterpart to :func:`fit_map_lm`, sharing the same
+    :func:`_solve_lm` core; only the residual vector differs — here it
+    comes from :func:`compute_residuals_recurrent` (a full latent rollout
+    per evaluation) rather than the per-transition residuals. Returns
+    ``(theta_map, jacobian-at-optimum)`` under the ParamSpec ``[lo, hi]``
+    box; the Jacobian is ``None`` when residuals are empty or LM raises.
 
-    Same caveat as the FO path: the finite-difference Jacobian is only
-    informative where the likelihood is smooth. A hard-gated parameter
-    with no boundary-crossing data (e.g. a fill offset whose value never
-    flips a fill/no-fill outcome in the data) has a near-zero column in J,
+    Same smoothness caveat as the FO path: the finite-difference Jacobian
+    is only informative where the likelihood is smooth. A hard-gated
+    parameter with no boundary-crossing data has a near-zero column in J,
     so LM leaves it at init -- but the Hessian diagnostic then surfaces it
     as a flat (unidentifiable) direction rather than a confident wrong
     value.
-    """
-    from scipy.optimize import \
-        least_squares  # pylint: disable=import-outside-toplevel
 
+    Cost note: every residual evaluation is a full set of per-trajectory
+    rollouts, so the finite-difference Jacobian costs ``O(num_params)``
+    rollouts per LM iteration; for large param sets prefer MCMC. And
+    because latent threading correlates residuals across steps, ``J^T J``
+    ignores that coupling, making the recurrent Laplace covariance a
+    slightly looser approximation than the per-transition one (MCMC at
+    ``num_mcmc_steps > 0`` remains the gold path).
+    """
     names = [s.name for s in param_specs]
-    init = np.array([s.init_value for s in param_specs], dtype=float)
-    lo, hi = _param_bounds(param_specs)
-    # Nudge init strictly into the interior so trf doesn't reject it.
-    init = np.maximum(init, lo + 1e-9)
-    safe_hi = np.where(np.isfinite(hi), hi - 1e-9, np.inf)
-    init = np.minimum(init, safe_hi)
 
     def residuals_fn(theta: np.ndarray) -> np.ndarray:
         params = {n: float(theta[i]) for i, n in enumerate(names)}
         return compute_residuals_recurrent(rules, trajectories, params,
                                            latent_init, process_features)
 
-    init_residuals = residuals_fn(init)
-    if init_residuals.size == 0:
-        logger.warning("No residuals to fit (empty process_features); "
-                       "skipping recurrent LM.")
-        return init, None
-
-    sse_init = float(np.sum(init_residuals**2))
-
-    try:
-        result = least_squares(residuals_fn,
-                               init,
-                               method='trf',
-                               bounds=(lo, hi),
-                               max_nfev=max_nfev)
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("Recurrent LM raised %s; skipping.", exc)
-        return init, None
-
-    sse_lm = float(2.0 * result.cost)
-    delta = {names[i]: float(result.x[i] - init[i]) for i in range(len(names))}
-    logger.info(
-        "Recurrent LM fit: SSE %.4f -> %.4f in %d fn-evals (status=%d, %s).",
-        sse_init, sse_lm, result.nfev, result.status,
-        "converged" if result.success else "max-evals")
-    logger.info("Recurrent LM theta_map - init: %s",
-                {k: f"{v:+.4f}"
-                 for k, v in delta.items()})
-
-    jac = np.asarray(result.jac, dtype=float)
-    if jac.size == 0:
-        return np.asarray(result.x, dtype=float), None
-    return np.asarray(result.x, dtype=float), jac
+    return _solve_lm(residuals_fn, param_specs, max_nfev, "recurrent")
 
 
 def log_hessian_identifiability(
@@ -728,43 +824,26 @@ def fit_params(
     lo, hi = _param_bounds(param_specs)
     prior_sigma = _prior_widths(init_values, lo, hi, prior_sigma_scale)
 
-    # Optional one-shot LM fit. Two independent uses:
-    #   * Hessian diagnostic — eigendecompose J^T J at the MAP.
-    #   * Warm start — center MCMC walkers on theta_map (and short-circuit
-    #     to it directly when num_steps == 0).
-    walker_center = init_values
-    if (CFG.code_sim_learning_log_hessian_identifiability
-            or CFG.code_sim_learning_warm_start_with_lm):
-        theta_map, jac = fit_map_lm(simulator_fn, transitions, param_specs,
-                                    process_features)
-        if (CFG.code_sim_learning_log_hessian_identifiability
-                and jac is not None and jac.size > 0):
-            log_hessian_identifiability(jac, names, noise_sigma, prior_sigma)
-        if CFG.code_sim_learning_warm_start_with_lm:
-            walker_center = np.asarray(theta_map, dtype=float)
-            logger.info("Warm-starting MCMC walkers from LM MAP estimate.")
-            lm_params = {
-                n: float(walker_center[i])
-                for i, n in enumerate(names)
-            }
-            lm_sse = compute_sse(simulator_fn, transitions, lm_params,
-                                 process_features)
-            lm_ll = -0.5 * lm_sse / (noise_sigma**2)
-            logger.info(
-                "After LM warm start — SSE: %.6f  log-likelihood: %.2f",
-                lm_sse, lm_ll)
-            log_sse_breakdown(simulator_fn,
-                              transitions,
-                              lm_params,
-                              process_features,
-                              label="lm-warm-start")
+    # Optional one-shot LM fit (see _lm_prefit for its three uses).
+    walker_center, lm_theta, lm_jac = _lm_prefit(
+        lambda: fit_map_lm(simulator_fn, transitions, param_specs,
+                           process_features),
+        lambda p: compute_sse(simulator_fn, transitions, p, process_features),
+        names,
+        init_values,
+        noise_sigma,
+        prior_sigma,
+        "per-transition",
+        warm_start_breakdown_fn=lambda p: log_sse_breakdown(simulator_fn,
+                                                            transitions,
+                                                            p,
+                                                            process_features,
+                                                            label=
+                                                            "lm-warm-start"))
 
     if num_steps == 0:
-        if CFG.code_sim_learning_warm_start_with_lm:
-            logger.info("Skipping emcee; using LM warm-start parameters.")
-        else:
-            logger.info("Skipping emcee; using initial parameter values.")
-        return FitResult(names, walker_center[None, :], np.zeros(1))
+        return _lm_point_fit_result(walker_center, lm_theta, lm_jac, names,
+                                    noise_sigma, prior_sigma, "per-transition")
 
     import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
 
@@ -811,7 +890,12 @@ def fit_params(
     samples = sampler.get_chain(discard=burn_in, flat=True)
     log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
 
-    result = FitResult(names=names, samples=samples, log_probs=log_probs)
+    result = FitResult(names=names,
+                       samples=samples,
+                       log_probs=log_probs,
+                       jacobian=lm_jac,
+                       noise_sigma=noise_sigma,
+                       prior_sigma=prior_sigma)
 
     logger.info("emcee done. Posterior mean: %s",
                 {k: f"{v:.4f}"

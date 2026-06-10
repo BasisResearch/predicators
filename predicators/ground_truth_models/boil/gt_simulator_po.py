@@ -25,10 +25,15 @@ Differences from the fully-observable ``gt_simulator.py``:
   spill/happiness chain is dropped here, keeping the reference focused on
   the partially-observable signal.
 * Gates are *hard* (no sigmoid smoothing). The recurrent fit
-  (``fit_params_recurrent``) is gradient-free MCMC and skips the LM
-  Jacobian / Hessian diagnostics that motivated soft gates in the FO
-  module; the identifiable parameters (the rates) are recoverable from
-  the smooth bubbling ramp regardless of gate sharpness.
+  (``fit_params_recurrent``) now has an optional LM path
+  (``fit_map_lm_recurrent``) feeding the Hessian diagnostic and the
+  Laplace ensemble, but a hard gate makes a threshold param's residual
+  flat-with-a-cliff: LM's finite-difference Jacobian column for it is
+  ~0, so Laplace reports it as wide-open (prior-driven) rather than
+  pinning the boundary. The *rates* are still recovered cleanly from the
+  smooth bubbling ramp. For calibrated uncertainty on the hard-gated
+  thresholds, run with ``num_mcmc_steps > 0`` (the posterior-subsample
+  ensemble) or soft-gate them as the FO module does.
 """
 
 from __future__ import annotations

@@ -101,12 +101,12 @@ def run_refinement_for_synthesis(
     # report_residuals and the approach's own post-session fitting.
     try:
         if latent:
-            params, fit_sse = approach._fit_parameters_recurrent(
+            fit_result, fit_sse = approach._fit_parameters_recurrent(
                 rules, specs, base_pred_triples, process_features)
         else:
-            params, fit_sse = approach._fit_parameters(rules, specs,
-                                                       base_pred_triples,
-                                                       process_features)
+            fit_result, fit_sse = approach._fit_parameters(
+                rules, specs, base_pred_triples, process_features)
+        params = fit_result.point_estimate
     except Exception as e:  # pylint: disable=broad-except
         return f"Error: param fitting failed:\n{e}"
 

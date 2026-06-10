@@ -1055,9 +1055,42 @@ class GlobalSettings:
     agent_bilevel_refinement_timeout_min = 30.0  # floor on auto-scaled timeout
     # Agent bilevel explorer settings. Separate from the solve-path budget
     # above because the explorer runs full backtracking while looking for
-    # the deepest subgoal-failure to truncate at, and each exhausted
-    # upstream step multiplies the cost.
+    # the deepest subgoal-failure to truncate at. Denominated in
+    # option-model rollouts per search node: plain steps spend one per
+    # backtracking attempt (classic semantics); info-seeking steps spend
+    # the same budget pooling candidates (see refine_sketch).
     agent_bilevel_explorer_max_samples_per_step = 50
+
+    # Active-experiment-design exploration: refinement picks the feasible
+    # continuous parameters the learned model is most *uncertain* about
+    # (ensemble disagreement on the step's subgoal atoms) instead of the
+    # first feasible sample, pushing probes toward learned decision
+    # boundaries. Off ⇒ identical to plain feasibility search.
+    agent_explorer_info_seeking = False
+    # Feasible candidates pooled per step before proposing the most
+    # informative; the pool doubles as the node's ranked retry stock and
+    # attempt cap (see bilevel_sketch.refine_sketch). 1 disables.
+    agent_explorer_info_n_feasible_target = 8
+    # Ensemble size used to estimate disagreement. 1 disables scoring
+    # (every candidate scores 0) and reduces to first-feasible.
+    agent_explorer_info_ensemble_size = 6
+    # Per-parameter jitter as a fraction of the ParamSpec box width, for
+    # the uniform-fallback ensemble only (see calibrated flag below).
+    agent_explorer_info_perturb_frac = 0.15
+    # Prefer a *calibrated* ensemble when the fit provides one: posterior
+    # subsample when MCMC ran, else a Laplace draw from the LM Jacobian
+    # (per-transition or recurrent); uniform jitter only when neither is
+    # available (e.g. oracle params, where no fit runs).
+    agent_explorer_info_calibrated_ensemble = True
+    # Extra MCMC budget for the once-per-cycle active-experiment posterior
+    # fit. The solver/test-time fit still follows
+    # code_sim_learning_num_mcmc_steps; this budget is used only when it
+    # exceeds the global solver budget, and only to calibrate the
+    # info-seeking ensemble. Keep >= ~250: emcee burn-in (200) eats the
+    # budget first. See _exploration_fit_num_steps for the rationale
+    # (posterior subsampling covers gate/threshold params that a Laplace
+    # approximation cannot).
+    agent_explorer_info_mcmc_steps = 300
 
     # Code sim-learning parameter fitting settings.
     # Set to 0 to skip MCMC and use initial parameter values directly.
