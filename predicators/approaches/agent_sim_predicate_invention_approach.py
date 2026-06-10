@@ -217,7 +217,10 @@ the black-box reward `is_goal_state(state, task_idx)` (equivalently \
 `train_tasks[task_idx].goal_holds(state)`). Refinement uses the same \
 env-side check, so your invented predicates are free to use any names \
 you like and only need to support plan-sketch subgoals (gating Wait, \
-Place, etc.).
+Place, etc.). Aim for coverage: every option you will use in a sketch \
+should have a predicate that expresses its post-condition, so each \
+sketch step can be subgoal-annotated (annotations drive refinement \
+validation, execution monitoring, and replanning).
 
 Failure trajectories are signal: when an interaction trajectory has \
 `reached_goal=False`, look for points where your predicate was true but \
@@ -454,6 +457,13 @@ option like Place — refinement needs these or it picks an arbitrary location.
 Wait steps know when to terminate. Keep classifier thresholds consistent \
 with rule saturation values; an inconsistency causes evaluate_step_fit to \
 look fine while evaluate_plan_refinement gets stuck on the Wait subgoal.
+- Coverage rule of thumb: every option you expect to use in a sketch \
+should have predicates that can express its post-condition, so every \
+sketch step can carry a subgoal annotation. Annotations are checked \
+against the real state during execution to detect and replan diverged \
+steps; a step with no annotatable effect is unmonitored. While drafting \
+sketches, a step you cannot annotate with any invented predicate is a \
+missing predicate — invent it.
 
 Verifying classifiers against the scene and data (applies to all predicates):
 

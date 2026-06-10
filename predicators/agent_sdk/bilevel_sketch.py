@@ -48,10 +48,10 @@ class _FeasiblePool:
     step exhausts and an upstream step re-chooses). ``pre_state`` is the
     exact ``State`` object the pool was drawn from; holding the
     reference keeps the object alive, so ``is``-identity in
-    ``_sample_info_seeking`` detects precisely when an upstream
-    re-choice rewrote ``traj[idx]`` (new node ⇒ stale stock, fresh
-    budget). ``spent`` counts pool rollouts charged against the node's
-    budget; ``ranked`` holds the not-yet-proposed feasible candidates as
+    ``_sample_info_seeking`` detects precisely when an upstream re-
+    choice rewrote ``traj[idx]`` (new node ⇒ stale stock, fresh budget).
+    ``spent`` counts pool rollouts charged against the node's budget;
+    ``ranked`` holds the not-yet-proposed feasible candidates as
     ``(info_score, option)``, most informative first.
     """
     pre_state: State
@@ -195,8 +195,13 @@ Generate a plan SKETCH — the sequence of options with object arguments, but \
 WITHOUT continuous parameters. Continuous parameters will be found \
 automatically by a backtracking search procedure.
 
-Optionally annotate subgoal atoms that should hold after each step. This \
-helps the search verify progress. Use `-> {{atoms}}` after each step.
+Annotate subgoal atoms after EVERY step whose effect your predicates can \
+express, using `-> {{atoms}}`. Prefer atoms that NEWLY hold (or stop \
+holding) because of the step — atoms that were already true beforehand \
+reveal nothing. Annotations are load-bearing: the search validates each \
+annotated step, and during execution they are checked against the real \
+state so a diverged step triggers replanning instead of silently dooming \
+the rest of the plan.
 
 After any action whose desired subgoal depends on a delayed process (e.g. \
 water filling, dominoes cascading, heating), insert a Wait action. For Wait \
@@ -211,8 +216,9 @@ Output the plan sketch with one option per line in this format:
   Wait(robot:Robot) -> {{NOT Touching(a:block, b:block)}}
 
 Always use typed references (obj:type) in both option arguments AND subgoal \
-atoms. The `-> {{atoms}}` part is optional. If you omit it, the search will \
-only check that the option executed successfully (non-zero actions).
+atoms. If you omit `-> {{atoms}}` on a step, the search only checks that the \
+option executed (non-zero actions) and execution monitoring is blind there — \
+omit it only when no available predicate can express the step's effect.
 
 Output ONLY the plan sketch lines at the end, after any analysis."""
 
@@ -329,6 +335,15 @@ def parse_sketch_from_text(
         else:
             sketch.append(
                 SketchStep(option=option, objects=objs, subgoal_atoms=None))
+    # Coverage diagnostic: unannotated steps are invisible to per-step
+    # refinement validation, execution monitoring, and suffix replanning.
+    unannotated = [
+        f"{i}: {s.option.name}" for i, s in enumerate(sketch)
+        if s.subgoal_atoms is None and s.subgoal_neg_atoms is None
+    ]
+    if unannotated:
+        logging.info("Sketch subgoal coverage: %d/%d steps unannotated (%s).",
+                     len(unannotated), len(sketch), ", ".join(unannotated))
     return sketch
 
 
@@ -463,8 +478,8 @@ def refine_sketch(
 
     def _sample_info_seeking(step: SketchStep, state: State,
                              rng_: np.random.Generator, idx: int) -> _Option:
-        """Propose the most informative not-yet-tried feasible candidate
-        for the step's current search node.
+        """Propose the most informative not-yet-tried feasible candidate for
+        the step's current search node.
 
         The first attempt at a node draws candidates — each rolled
         forward through the same option_model the backtracking loop uses
