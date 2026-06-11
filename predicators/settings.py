@@ -1044,6 +1044,18 @@ class GlobalSettings:
     # reseed refinement on the same skeleton before re-querying the agent
     agent_bilevel_max_refine_retries = 5
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
+    # Test-time closed-loop recovery. After each option in the refined plan
+    # finishes, the subgoal_annotations execution monitor checks the
+    # sketch's subgoal annotation for that step against the REAL state; on
+    # divergence (execution left the option-model rollout — e.g. a place
+    # that settled off-target), CogMan re-invokes solve(), which resumes a
+    # re-refined suffix of the executed sketch from the current state,
+    # falling back to a fresh agent sketch, instead of running the rest of
+    # the stale plan open-loop. Value = recoveries per test episode, shared
+    # across chained replans; 0 disables (legacy open-loop execution).
+    # Requires --execution_monitor subgoal_annotations (enforced at
+    # approach construction).
+    agent_bilevel_max_execution_replans = 0
     # log state pretty_str before/after each step
     agent_bilevel_log_state = False
     agent_bilevel_plan_sketch_file = ""  # load sketch from file instead of LLM

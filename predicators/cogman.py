@@ -49,6 +49,7 @@ class CogMan:
         """Start a new episode of environment interaction."""
         logging.info("[CogMan] Reset called.")
         self._episode_num += 1
+        self._approach.reset_for_new_episode()
         task = self._perceiver.reset(env_task)
         self._current_env_task = env_task
         self._current_goal = task.goal

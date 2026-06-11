@@ -124,6 +124,12 @@ APPROACHES:
       agent_sim_predicate_invention_kept_predicate_names: ["Holding"]
       partially_observable: True
       agent_explorer_info_seeking: True
+      # Closed-loop test execution: replan when a finished step's subgoal
+      # annotation fails in the real state (chaotic place landings were
+      # costing 2-4 test tasks per run; see boil-…_al seed0/seed1 logs).
+      # The monitor detects divergence; the budget caps recoveries.
+      execution_monitor: "subgoal_annotations"
+      agent_bilevel_max_execution_replans: 2
   # agent_option_learning:
   #   NAME: "agent_option_learning"
   #   FLAGS:
