@@ -258,7 +258,10 @@ def test_exploration_mcmc_does_not_replace_solver_params(monkeypatch):
     )
     calls = []
 
-    def _fake_fit(rules, specs, base_pred_triples, process_features,
+    def _fake_fit(rules,
+                  specs,
+                  base_pred_triples,
+                  process_features,
                   num_steps=None):
         del rules, specs, base_pred_triples, process_features
         calls.append(num_steps)
@@ -283,8 +286,8 @@ def test_exploration_mcmc_does_not_replace_solver_params(monkeypatch):
     assert approach._fit_sse == 10.0
     assert approach._last_fit_result is exploration_result
     assert approach._param_ensemble[0] == {"a": 4.0}
-    assert {m["a"] for m in approach._param_ensemble[1:]}.issubset(
-        {2.0, 3.0, 4.0})
+    assert {m["a"]
+            for m in approach._param_ensemble[1:]}.issubset({2.0, 3.0, 4.0})
 
 
 def test_fit_parameters_num_steps_override_runs_mcmc():

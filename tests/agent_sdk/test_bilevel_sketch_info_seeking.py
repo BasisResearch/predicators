@@ -306,8 +306,8 @@ def test_step_budget_caps_pooling():
 
 
 def test_budget_shared_across_attempts_fails_fast():
-    """An unsatisfiable subgoal costs ~budget rollouts per node, not
-    budget x attempts.
+    """An unsatisfiable subgoal costs ~budget rollouts per node, not budget x
+    attempts.
 
     Attempt 1 spends the whole node budget pooling (0 feasible) and
     falls back to an infeasible sample that fails validation; the
