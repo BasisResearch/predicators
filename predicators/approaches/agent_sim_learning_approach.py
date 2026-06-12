@@ -21,7 +21,8 @@ import copy
 import inspect
 import logging
 import os
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Collection, Dict, List, Optional, Sequence, \
+    Set, Tuple
 
 import numpy as np
 import pybullet
@@ -32,8 +33,11 @@ from predicators.agent_sdk.tools import SYNTHESIS_TOOL_NAMES, \
     _SnapshotTarget, create_synthesis_tools, finalize_versioned_snapshot, \
     make_write_snapshot_hook
 from predicators.approaches.agent_bilevel_approach import AgentBilevelApproach
-from predicators.code_sim_learning.training import ParamSpec, compute_sse, \
-    compute_sse_recurrent, fit_params, fit_params_recurrent, \
+from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
+    mean_bernoulli_entropy, perturbation_ensemble, \
+    posterior_subsample_ensemble
+from predicators.code_sim_learning.training import FitResult, ParamSpec, \
+    compute_sse, compute_sse_recurrent, fit_params, fit_params_recurrent, \
     log_sse_breakdown
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, apply_rules_with_latent, has_latent_rules, init_latent, \
@@ -43,8 +47,9 @@ from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.settings import CFG
-from predicators.structs import Action, Dataset, InteractionResult, \
-    LowLevelTrajectory, ParameterizedOption, Predicate, State, Task, Type
+from predicators.structs import Action, Dataset, GroundAtom, \
+    InteractionResult, LowLevelTrajectory, ParameterizedOption, Predicate, \
+    State, Task, Type
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +129,20 @@ class AgentSimLearningApproach(AgentBilevelApproach):
         # classifiers) picks up new values without holding a reference
         # to ``self``. Truthy iff a fit has populated it.
         self._fitted_params: Dict[str, float] = {}
+        # ParamSpecs of the most recently fitted simulator (names + bounds);
+        # kept so the active-experiment ensemble can perturb each param
+        # within its declared box. Parallel to ``_fitted_params``.
+        self._param_specs: List[ParamSpec] = []
+        # Small ensemble of plausible parameter vectors, rebuilt after
+        # every fit when active-experiment exploration is on. When a
+        # posterior fit exists, member 0 is that fit's MAP; otherwise it
+        # falls back to ``_fitted_params``. Empty when info-seeking is
+        # disabled or no fit has run yet.
+        self._param_ensemble: List[Dict[str, float]] = []
+        # Full result used for ensemble calibration. Usually this is the
+        # solver fit; when info-seeking runs extra MCMC, it is the
+        # exploration-only posterior. ``None`` after an oracle-param run.
+        self._last_fit_result: Optional[FitResult] = None
         self._fit_sse: float = float("inf")
         self._learning_mode: bool = False
         # Snapshot tags of the most recent simulator / predicates files
@@ -346,6 +365,146 @@ class AgentSimLearningApproach(AgentBilevelApproach):
             model._abstract_function = (  # pylint: disable=protected-access
                 lambda s: utils.abstract(s, self._get_all_predicates()))
         return model
+
+    # ── Active-experiment ensemble (info-seeking exploration) ────
+
+    @staticmethod
+    def _exploration_fit_num_steps() -> Optional[int]:
+        """MCMC budget for the active-experiment posterior fit.
+
+        The synthesis tools (``evaluate_step_fit``, ``report_residuals``)
+        share the fit statics and run repeatedly inside the agent loop,
+        so they always use the global
+        ``CFG.code_sim_learning_num_mcmc_steps`` (typically 0 — LM +
+        Laplace only). The solver/test-time fit also uses that global
+        setting. The exploration posterior fit is different: it runs
+        once per learning cycle, only when it needs more MCMC than the
+        solver fit already ran, and its posterior feeds only the
+        info-seeking ensemble. With real posterior samples,
+        ``_select_param_ensemble`` upgrades from the Laplace draw to a
+        posterior subsample — calibrating ensemble spread for
+        gate/threshold params whose flat likelihood has a near-zero
+        Jacobian column at the MAP (invisible to Laplace).
+
+        Returns ``None`` (no override; ``fit_params`` falls back to the
+        global setting) when info-seeking is off, else the max of the
+        global and exploration budgets so the override never *reduces*
+        an explicitly configured global MCMC run.
+        """
+        if not CFG.agent_explorer_info_seeking:
+            return None
+        return max(CFG.code_sim_learning_num_mcmc_steps,
+                   CFG.agent_explorer_info_mcmc_steps)
+
+    @staticmethod
+    def _separate_exploration_fit_num_steps() -> Optional[int]:
+        """Return an exploration-only MCMC budget, if one is needed."""
+        fit_num_steps = AgentSimLearningApproach._exploration_fit_num_steps()
+        if fit_num_steps is None:
+            return None
+        if fit_num_steps <= CFG.code_sim_learning_num_mcmc_steps:
+            return None
+        return fit_num_steps
+
+    def _rebuild_param_ensemble(self) -> None:
+        """Rebuild the active-experiment parameter ensemble.
+
+        No-op (clears the ensemble) unless info-seeking exploration is
+        enabled and a fit has populated ``_fitted_params``. The ensemble
+        can use an exploration-only posterior even when solver params
+        remain at the global-budget point estimate.
+
+        Picks the most *calibrated* ensemble the fit affords, preferring
+        spreads that reflect real posterior uncertainty over uniform
+        jitter (see :meth:`_select_param_ensemble`).
+        """
+        if (not CFG.agent_explorer_info_seeking or not self._fitted_params):
+            self._param_ensemble = []
+            return
+        num_members = CFG.agent_explorer_info_ensemble_size
+        self._param_ensemble, method = self._select_param_ensemble(num_members)
+        logger.info(
+            "Built active-experiment ensemble: %d members via %s over "
+            "%d params.", len(self._param_ensemble), method,
+            len(self._param_specs))
+
+    def _select_param_ensemble(
+            self, num_members: int) -> Tuple[List[Dict[str, float]], str]:
+        """Choose and build the ensemble, returning (members, method-label).
+
+        Dispatch, most- to least-calibrated:
+
+        * ``posterior`` — when MCMC ran (``num_mcmc_steps > 0``), subsample
+          the real posterior ``samples`` (works for both per-transition and
+          recurrent fits).
+        * ``laplace`` — else, when the fit attached an LM Jacobian
+          (``num_mcmc_steps == 0``, per-transition or recurrent), draw
+          from the Laplace covariance at the MAP.
+        * ``uniform`` — otherwise (oracle params, LM skipped/failed, or
+          calibration disabled), fall back to box-relative jitter.
+        """
+        fit = self._last_fit_result
+        calibrated = CFG.agent_explorer_info_calibrated_ensemble
+        if calibrated and fit is not None:
+            samples = np.asarray(fit.samples, dtype=float)
+            if samples.ndim == 2 and samples.shape[0] > 1:
+                return posterior_subsample_ensemble(
+                    fit.point_estimate,
+                    fit.names,
+                    samples,
+                    num_members=num_members,
+                    rng=self._rng,
+                ), "posterior-subsample"
+            if (fit.jacobian is not None and fit.noise_sigma is not None
+                    and fit.prior_sigma is not None):
+                return laplace_ensemble(
+                    self._fitted_params,
+                    fit.names,
+                    self._param_specs,
+                    fit.jacobian,
+                    fit.noise_sigma,
+                    fit.prior_sigma,
+                    num_members=num_members,
+                    rng=self._rng,
+                ), "laplace"
+        return perturbation_ensemble(
+            self._fitted_params,
+            self._param_specs,
+            num_members=num_members,
+            perturb_frac=CFG.agent_explorer_info_perturb_frac,
+            rng=self._rng,
+        ), "uniform-perturb"
+
+    def score_atom_disagreement(self, state: State,
+                                atoms: Collection[GroundAtom]) -> float:
+        """Ensemble disagreement (mean Bernoulli entropy) over ``atoms``.
+
+        Evaluates each atom's truth in ``state`` under every ensemble
+        member by swapping ``_fitted_params`` (which the learned
+        predicate classifiers read through ``_ParamsView``) to each
+        member in turn, then restoring it. High disagreement marks a
+        state that straddles a learned predicate's decision boundary —
+        i.e. an informative experiment. Returns 0.0 when the ensemble is
+        trivial (<=1 member) or no atoms are given.
+
+        This is intended to be wired into refinement as the info-scorer
+        for the agent_bilevel explorer; it is a read-only query and
+        leaves ``_fitted_params`` unchanged on return.
+        """
+        atom_list = list(atoms)
+        if len(self._param_ensemble) <= 1 or not atom_list:
+            return 0.0
+        saved = dict(self._fitted_params)
+        try:
+            rows: List[List[bool]] = []
+            for member in self._param_ensemble:
+                self._fitted_params.clear()
+                self._fitted_params.update(member)
+                rows.append([bool(a.holds(state)) for a in atom_list])
+        finally:
+            self._fitted_params.clear()
+            self._fitted_params.update(saved)
+        return mean_bernoulli_entropy(np.asarray(rows, dtype=bool))
 
     # ── Agent-based synthesis ────────────────────────────────────
 
@@ -579,28 +738,76 @@ the tools."""
 
         self._process_rules = rules
         self._process_features = process_features
+        self._fit_params_after_synthesis(rules, specs, base_pred_triples,
+                                         process_features)
 
-        _noise_sigma = 0.05  # matches fit_params default
+    def _fit_params_after_synthesis(
+        self,
+        rules: List,
+        specs: List[ParamSpec],
+        base_pred_triples: List[Tuple[State, Action, State]],
+        process_features: Dict[str, List[str]],
+    ) -> None:
+        """Fit/store solver params and, separately, explorer posterior."""
+        noise_sigma = 0.05  # matches fit_params default
         if CFG.agent_sim_learn_oracle_sim_params:
             self._fitted_params.clear()
             self._fitted_params.update({s.name: s.init_value for s in specs})
+            # No fit ran — the ensemble falls back to uniform perturbation.
+            self._last_fit_result = None
             self._fit_sse = self._oracle_param_sse(rules, base_pred_triples,
                                                    process_features,
-                                                   _noise_sigma)
+                                                   noise_sigma)
         else:
+            # This is the solver/test-time fit. It deliberately follows
+            # CFG.code_sim_learning_num_mcmc_steps; any extra
+            # info-seeking MCMC is run below and is not published into
+            # _fitted_params.
             if has_latent_rules(rules):
-                new_params, self._fit_sse = self._fit_parameters_recurrent(
+                fit_result, self._fit_sse = self._fit_parameters_recurrent(
                     rules, specs, base_pred_triples, process_features)
             else:
-                new_params, self._fit_sse = self._fit_parameters(
+                fit_result, self._fit_sse = self._fit_parameters(
                     rules, specs, base_pred_triples, process_features)
+            self._last_fit_result = fit_result
             self._fitted_params.clear()
-            self._fitted_params.update(new_params)
+            self._fitted_params.update(fit_result.point_estimate)
             if CFG.code_sim_learning_num_mcmc_steps == 0:
-                logger.info("Skipped MCMC; using %d initial params.",
+                logger.info("Skipped solver MCMC; using %d fitted params.",
                             len(specs))
             else:
-                logger.info("Fitted %d params.", len(specs))
+                logger.info("Fitted %d solver params.", len(specs))
+
+            exploration_fit_num_steps = (
+                self._separate_exploration_fit_num_steps())
+            if exploration_fit_num_steps is not None:
+                if has_latent_rules(rules):
+                    exploration_fit_result, exploration_sse = (
+                        self._fit_parameters_recurrent(
+                            rules,
+                            specs,
+                            base_pred_triples,
+                            process_features,
+                            num_steps=exploration_fit_num_steps))
+                else:
+                    exploration_fit_result, exploration_sse = (
+                        self._fit_parameters(
+                            rules,
+                            specs,
+                            base_pred_triples,
+                            process_features,
+                            num_steps=exploration_fit_num_steps))
+                self._last_fit_result = exploration_fit_result
+                logger.info(
+                    "Fitted active-experiment posterior with %d MCMC steps "
+                    "for exploration planning only (SSE: %.6f).",
+                    exploration_fit_num_steps, exploration_sse)
+
+        # Remember the specs (names + bounds) and rebuild the active-
+        # experiment ensemble. Cheap and only consumed when info-seeking
+        # exploration is enabled.
+        self._param_specs = list(specs)
+        self._rebuild_param_ensemble()
 
     # ── Parameter fitting ────────────────────────────────────────
 
@@ -646,11 +853,20 @@ the tools."""
         specs: List[ParamSpec],
         base_pred_triples: List[Tuple[State, Action, State]],
         process_features: Dict[str, List[str]],
-    ) -> Tuple[Dict[str, float], float]:
+        num_steps: Optional[int] = None,
+    ) -> Tuple[FitResult, float]:
         """Fit parameters for the synthesized rules via MCMC.
 
         ``base_pred_triples`` must already have the base step applied;
         precomputing avoids re-running it inside the MCMC inner loop.
+
+        ``num_steps`` overrides the global MCMC budget for this fit
+        (``None`` falls back to ``CFG.code_sim_learning_num_mcmc_steps``)
+        — see :meth:`_exploration_fit_num_steps`.
+
+        Returns the full :class:`FitResult` (so callers can reach the
+        posterior ``samples`` / Laplace ``jacobian`` for ensemble
+        construction) alongside the post-fit SSE.
         """
 
         def sim_fn(state: State, _action: Action, params: Dict[str,
@@ -675,6 +891,7 @@ the tools."""
             transitions=base_pred_triples,
             param_specs=specs,
             process_features=process_features,
+            num_steps=num_steps,
         )
 
         fitted_params = result.point_estimate
@@ -697,7 +914,7 @@ the tools."""
             logger.info("  %-30s  %.4f -> %.4f  (Δ=%.4f, %+.1f%%)", name,
                         init_val, fit_val, delta, pct)
 
-        return fitted_params, post_sse
+        return result, post_sse
 
     # ── Partial-observability (latent) support ───────────────────
     # Reached only when the loaded rules use the recurrent 5-arg
@@ -730,7 +947,8 @@ the tools."""
         specs: List[ParamSpec],
         base_pred_triples: List[Tuple[State, Action, State]],
         process_features: Dict[str, List[str]],
-    ) -> Tuple[Dict[str, float], float]:
+        num_steps: Optional[int] = None,
+    ) -> Tuple[FitResult, float]:
         """MCMC over the recurrent (per-trajectory) SSE.
 
         Counterpart to :meth:`_fit_parameters` for rules that carry a
@@ -747,8 +965,12 @@ the tools."""
             logger.warning("No trajectory groups for recurrent fitting; "
                            "falling back to single-trajectory rollout.")
             groups = [base_pred_triples]
-        return self._fit_parameters_latent(rules, specs, groups,
-                                           self._latent_init, process_features)
+        return self._fit_parameters_latent(rules,
+                                           specs,
+                                           groups,
+                                           self._latent_init,
+                                           process_features,
+                                           num_steps=num_steps)
 
     @staticmethod
     def _fit_parameters_latent(
@@ -757,7 +979,8 @@ the tools."""
         groups: List[List[Tuple[State, Action, State]]],
         latent_init: Any,
         process_features: Dict[str, List[str]],
-    ) -> Tuple[Dict[str, float], float]:
+        num_steps: Optional[int] = None,
+    ) -> Tuple[FitResult, float]:
         """Recurrent MCMC fit over pre-grouped trajectories.
 
         Shared source of truth for the recurrent (latent-threaded) fit:
@@ -767,6 +990,11 @@ the tools."""
         they regroup and ``LATENT_INIT`` read fresh from
         ``simulator.py``. Both therefore score latent rules identically
         — no tool/engine drift in the rule call convention.
+
+        ``num_steps`` overrides the global MCMC budget (``None`` falls
+        back to ``CFG.code_sim_learning_num_mcmc_steps``). The tools
+        never pass it, so repeated tool calls stay at the fast global
+        setting while the post-synthesis fit can run real MCMC.
         """
         init_params = {s.name: s.init_value for s in specs}
         pre_sse = compute_sse_recurrent(rules, groups, init_params,
@@ -779,6 +1007,7 @@ the tools."""
             param_specs=specs,
             latent_init=latent_init,
             process_features=process_features,
+            num_steps=num_steps,
         )
         fitted_params = result.point_estimate
         post_sse = compute_sse_recurrent(rules, groups, fitted_params,
@@ -791,7 +1020,7 @@ the tools."""
             pct = (delta / init_val * 100) if init_val != 0 else float("nan")
             logger.info("  %-30s  %.4f -> %.4f  (Δ=%.4f, %+.1f%%)", name,
                         init_val, fit_val, delta, pct)
-        return fitted_params, post_sse
+        return result, post_sse
 
     def _oracle_param_sse_recurrent(
         self,
@@ -1267,6 +1496,34 @@ time. Be honest — listing features your rules don't actually update \
 inflates the loss without giving MCMC anything to optimise.
 
 __RULE_SIGNATURE_SECTION__
+
+### Multiple objects of the same type
+
+A task may contain **several objects of the same type** — two widgets, \
+three fixtures, or one of each — and the count varies from task to task. \
+Your rules run once per step over the entire `State`, so they must act on \
+*whatever objects are present*, never a hard-coded slot. Code like \
+`widgets[0]` silently ignores every other instance and breaks the moment \
+a task has more (or fewer) objects than the trajectory you calibrated on.
+
+Gather the relevant objects by type and loop over the binding(s) the rule \
+acts on, emitting updates keyed by the specific object the effect applies \
+to:
+
+```python
+widgets  = [o for o in state.data if o.type.name == "widget"]
+fixtures = [o for o in state.data if o.type.name == "fixture"]
+for widget in widgets:
+    for fixture in fixtures:           # all pairs, or pair each widget
+        if at_fixture(state, widget, fixture, params):   # to its nearest
+            wv = state.get(widget, "progress")
+            updates.setdefault(widget, {})["progress"] = wv + params["rate"]
+```
+
+The same `params` apply to every object of a type: you are learning the \
+shared physics of "a widget", not per-instance constants. If a rule \
+genuinely needs exactly one object (a single global clock, say), assert \
+that rather than silently indexing `[0]`.
 
 ### Timing
 

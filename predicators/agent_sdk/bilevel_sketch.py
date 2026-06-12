@@ -12,7 +12,8 @@ neither approaches nor explorers need to subclass one another.
 import dataclasses
 import logging
 import re
-from typing import Callable, List, Optional, Sequence, Set, Tuple, cast
+from typing import Callable, Collection, List, Optional, Sequence, Set, \
+    Tuple, cast
 
 import numpy as np
 
@@ -21,6 +22,41 @@ from predicators.option_model import _OptionModelBase
 from predicators.planning import run_backtracking_refinement
 from predicators.structs import GroundAtom, Object, ParameterizedOption, \
     Predicate, State, Task, Type, _Option
+
+# Signature of an info-gain scorer: given a candidate post-state and the
+# atoms whose truth the step is meant to establish, return a scalar where
+# larger means more informative about the learned model (e.g. ensemble
+# disagreement on those atoms). Used to turn refinement from
+# feasibility-seeking into information-seeking.
+InfoScorer = Callable[[State, Collection[GroundAtom]], float]
+
+
+def _fmt_params(opt: _Option) -> str:
+    """Compact one-line dump of a grounded option's parameters."""
+    return np.array2string(np.asarray(opt.params, dtype=float),
+                           precision=4,
+                           separator=", ")
+
+
+@dataclasses.dataclass
+class _FeasiblePool:
+    """Ranked stock of feasible candidates at one search node.
+
+    A search node is a step under a fixed prefix of upstream choices —
+    equivalently one attempt cycle of ``run_backtracking_refinement``
+    (the step's try counter and its pre-state both change only when the
+    step exhausts and an upstream step re-chooses). ``pre_state`` is the
+    exact ``State`` object the pool was drawn from; holding the
+    reference keeps the object alive, so ``is``-identity in
+    ``_sample_info_seeking`` detects precisely when an upstream re-
+    choice rewrote ``traj[idx]`` (new node ⇒ stale stock, fresh budget).
+    ``spent`` counts pool rollouts charged against the node's budget;
+    ``ranked`` holds the not-yet-proposed feasible candidates as
+    ``(info_score, option)``, most informative first.
+    """
+    pre_state: State
+    spent: int
+    ranked: List[Tuple[float, _Option]]
 
 
 @dataclasses.dataclass
@@ -64,6 +100,7 @@ def build_solve_prompt(
     all_options: Set[ParameterizedOption],
     trajectory_summary: str = "",
     tool_names: Optional[Sequence[str]] = None,
+    experiment_guidance: str = "",
 ) -> str:
     """Build the bilevel solve/explore prompt asking for a plan sketch.
 
@@ -115,6 +152,11 @@ def build_solve_prompt(
         tool_list = "\n".join(f"  - {t}" for t in tool_names)
         tools_str = f"\n## Available Tools\n{tool_list}\n"
 
+    experiment_section = ""
+    if experiment_guidance:
+        experiment_section = (f"\n## Experiment Guidance\n"
+                              f"{experiment_guidance}\n")
+
     goal_nl_section = ""
     if task.goal_nl:
         goal_nl_section = f"\n## Goal Description\n{task.goal_nl}\n"
@@ -130,7 +172,7 @@ def build_solve_prompt(
 
     prompt = f"""You are solving a task. \
 Generate a plan sketch to achieve the goal.
-{goal_nl_section}{goal_atoms_section}
+{goal_nl_section}{goal_atoms_section}{experiment_section}
 ## Initial State Atoms
 {chr(10).join(atom_strs)}
 
@@ -153,8 +195,13 @@ Generate a plan SKETCH — the sequence of options with object arguments, but \
 WITHOUT continuous parameters. Continuous parameters will be found \
 automatically by a backtracking search procedure.
 
-Optionally annotate subgoal atoms that should hold after each step. This \
-helps the search verify progress. Use `-> {{atoms}}` after each step.
+Annotate subgoal atoms after EVERY step whose effect your predicates can \
+express, using `-> {{atoms}}`. Prefer atoms that NEWLY hold (or stop \
+holding) because of the step — atoms that were already true beforehand \
+reveal nothing. Annotations are load-bearing: the search validates each \
+annotated step, and during execution they are checked against the real \
+state so a diverged step triggers replanning instead of silently dooming \
+the rest of the plan.
 
 After any action whose desired subgoal depends on a delayed process (e.g. \
 water filling, dominoes cascading, heating), insert a Wait action. For Wait \
@@ -169,8 +216,9 @@ Output the plan sketch with one option per line in this format:
   Wait(robot:Robot) -> {{NOT Touching(a:block, b:block)}}
 
 Always use typed references (obj:type) in both option arguments AND subgoal \
-atoms. The `-> {{atoms}}` part is optional. If you omit it, the search will \
-only check that the option executed successfully (non-zero actions).
+atoms. If you omit `-> {{atoms}}` on a step, the search only checks that the \
+option executed (non-zero actions) and execution monitoring is blind there — \
+omit it only when no available predicate can express the step's effect.
 
 Output ONLY the plan sketch lines at the end, after any analysis."""
 
@@ -287,6 +335,15 @@ def parse_sketch_from_text(
         else:
             sketch.append(
                 SketchStep(option=option, objects=objs, subgoal_atoms=None))
+    # Coverage diagnostic: unannotated steps are invisible to per-step
+    # refinement validation, execution monitoring, and suffix replanning.
+    unannotated = [
+        f"{i}: {s.option.name}" for i, s in enumerate(sketch)
+        if s.subgoal_atoms is None and s.subgoal_neg_atoms is None
+    ]
+    if unannotated:
+        logging.info("Sketch subgoal coverage: %d/%d steps unannotated (%s).",
+                     len(unannotated), len(sketch), ", ".join(unannotated))
     return sketch
 
 
@@ -309,6 +366,8 @@ def refine_sketch(
     step_samples_cumulative: Optional[List[int]] = None,
     termination_reason: Optional[List[str]] = None,
     elapsed_holder: Optional[List[float]] = None,
+    info_scorer: Optional[InfoScorer] = None,
+    info_n_feasible_target: int = 1,
 ) -> Tuple[List[_Option], bool, int]:
     """Backtracking search over continuous parameters for a plan sketch.
 
@@ -333,6 +392,25 @@ def refine_sketch(
     subsequent sketch steps are dropped (they would be built on a false
     mental-model state).
 
+    ``max_samples_per_step`` is a per-step rollout budget per *search
+    node* (the step under a fixed prefix of upstream choices;
+    backtracking past the step and re-descending with a new upstream
+    choice starts a new node). Plain steps spend it the classic way, one
+    sampled rollout per attempt. Info-seeking steps spend it pooling
+    candidates at the node, and the pooled feasible candidates double as
+    a ranked retry stock — the budget is spent once, never multiplied.
+
+    With ``info_scorer`` set and ``info_n_feasible_target > 1``,
+    parameter sampling at subgoal-annotated steps with continuous
+    parameters becomes information-seeking: candidates are drawn until
+    ``info_n_feasible_target`` feasible ones are pooled (bounded by the
+    node's rollout budget) and proposed most-informative-first, one per
+    attempt, with no re-drawing while the stock lasts (a retry after a
+    downstream collapse or a final-goal miss pops the next-best for
+    free). The step's attempt cap equals ``info_n_feasible_target``, so
+    it exhausts exactly when every pooled candidate has been tried. See
+    ``_sample_info_seeking``.
+
     Wait steps inject ``wait_target_atoms`` / ``wait_target_neg_atoms``
     from the sketch's subgoal annotations into ``grounded.memory`` so
     that ``WaitOption`` terminates on the intended atom change rather
@@ -342,10 +420,6 @@ def refine_sketch(
         return [], False, 0
 
     n = len(sketch)
-    max_tries = [
-        max_samples_per_step if step.option.params_space.shape[0] > 0 else 1
-        for step in sketch
-    ]
     # Snapshot of the deepest validation failure seen during backtracking
     # (an unmet subgoal atom, or — with check_final_goal — an unreached
     # task goal at the final step). Tracks (idx, plan_prefix_snapshot),
@@ -357,15 +431,7 @@ def refine_sketch(
     deepest_fail_idx: List[int] = [-1]
     deepest_fail_prefix: List[List[Optional[_Option]]] = [[]]
 
-    def sample_fn(idx: int, state: State,
-                  rng_: np.random.Generator) -> _Option:
-        step = sketch[idx]
-        if log_state:
-            step_name = (f"{step.option.name}"
-                         f"({', '.join(o.name for o in step.objects)})")
-            logging.debug(f"[{run_id}]  State before {step_name}:\n"
-                          f"{state.pretty_str()}")
-        params = sample_params(step.option, rng_)
+    def _ground(step: SketchStep, params: np.ndarray) -> _Option:
         grounded = step.option.ground(list(step.objects), params)
         if grounded.name == "Wait":
             if step.subgoal_atoms is not None:
@@ -374,6 +440,177 @@ def refine_sketch(
                 grounded.memory["wait_target_neg_atoms"] = \
                     step.subgoal_neg_atoms
         return grounded
+
+    def _info_seeking_applies(step: SketchStep) -> bool:
+        # Pooled selection only helps when there are continuous params to
+        # choose among AND subgoal atoms whose truth the ensemble can
+        # disagree about. Parameter-free steps (e.g. Wait) and unannotated
+        # steps fall through to the plain single-sample path unchanged.
+        return (info_scorer is not None and info_n_feasible_target > 1
+                and step.option.params_space.shape[0] > 0
+                and step.subgoal_atoms is not None)
+
+    # Per-step attempt caps. Plain steps spend their whole budget as
+    # attempts: one sampled rollout per attempt, max_samples_per_step
+    # attempts (unchanged semantics). Info-seeking steps get exactly
+    # info_n_feasible_target attempts: the pooled feasible candidates
+    # double as the node's retry stock, one proposed per attempt, so the
+    # step exhausts precisely when every pooled candidate has been tried
+    # (with 1-draw fillers for attempts left over when the pool came up
+    # short of the target).
+    max_tries = []
+    for _step in sketch:
+        if _step.option.params_space.shape[0] == 0:
+            max_tries.append(1)
+        elif _info_seeking_applies(_step):
+            max_tries.append(info_n_feasible_target)
+        else:
+            max_tries.append(max_samples_per_step)
+
+    # Node-scoped pools for info-seeking steps: step_pools[idx] holds
+    # the ranked feasible stock and rollout spend for the step's current
+    # search node (see _FeasiblePool for the node-identity mechanism).
+    # total_pool_rollouts accumulates across the whole search for the
+    # completion log, since run_backtracking_refinement's total_samples
+    # only counts attempts.
+    step_pools: List[Optional[_FeasiblePool]] = [None] * n
+    total_pool_rollouts = [0]
+
+    def _sample_info_seeking(step: SketchStep, state: State,
+                             rng_: np.random.Generator, idx: int) -> _Option:
+        """Propose the most informative not-yet-tried feasible candidate for
+        the step's current search node.
+
+        The first attempt at a node draws candidates — each rolled
+        forward through the same option_model the backtracking loop uses
+        — until ``info_n_feasible_target`` feasible ones are pooled or
+        the node's rollout budget (``max_samples_per_step``) is spent,
+        then proposes the max-disagreement one and banks the rest as a
+        ranked stock. Later attempts at the same node (the loop retries
+        after a final-goal miss or after downstream steps collapse back
+        onto this one) pop the next-best from the stock with NO new
+        rollouts: the candidates were already rolled out and
+        subgoal-checked, and the pre-state is fixed within a node, so
+        for a deterministic learned model they stay valid. (With a
+        stochastic model a popped candidate may still fail the loop's
+        re-execution — it just consumes an attempt, like any failure.)
+
+        Candidates that aren't initiable, produce no actions, or fail
+        to establish the subgoal consume budget but never enter the
+        stock. If a draw round finds nothing feasible, the first sample
+        is returned so the loop records the validation failure
+        (explorer-mode truncation relies on it); an attempt arriving
+        with both stock and budget exhausted gets a 1-draw minimum so
+        it can fail fast until the attempt cap
+        (= ``info_n_feasible_target``) exhausts the step.
+
+        Node identity: ``traj[idx]`` is rewritten only when an upstream
+        step re-executes, which can only happen after this step
+        exhausts, so comparing the pre-state *object* (``is``) flips
+        exactly at node boundaries — stale stock is dropped and the
+        budget refreshed.
+        """
+        assert info_scorer is not None and step.subgoal_atoms is not None
+        objs = ", ".join(o.name for o in step.objects)
+        pool = step_pools[idx]
+        if pool is None or pool.pre_state is not state:
+            pool = _FeasiblePool(pre_state=state, spent=0, ranked=[])
+            step_pools[idx] = pool
+        if pool.ranked:
+            score, grounded = pool.ranked.pop(0)
+            logging.info(
+                "[%s] info-seeking %s(%s): proposing next-ranked stock "
+                "candidate params %s (disagreement %.4f, %d left in "
+                "stock) — no new rollouts.", run_id, step.option.name, objs,
+                _fmt_params(grounded), score, len(pool.ranked))
+            return grounded
+        # Stock empty: first attempt at this node, or every pooled
+        # candidate has been proposed. Draw from the node's remaining
+        # budget (>=1 so the attempt can still fail fast when spent).
+        draw_cap = max(max_samples_per_step - pool.spent, 1)
+        best_score = -float("inf")
+        best_nxt: Optional[State] = None
+        scored: List[Tuple[float, _Option]] = []
+        # Score of the first feasible draw — what plain (non-info-seeking)
+        # backtracking would have accepted; logged as the baseline so a run
+        # shows what boundary-probing bought over greedy first-feasible.
+        first_feasible_score: Optional[float] = None
+        first_candidate: Optional[_Option] = None
+        n_draws = 0
+        while len(scored) < info_n_feasible_target and n_draws < draw_cap:
+            grounded = _ground(step, sample_params(step.option, rng_))
+            n_draws += 1
+            if first_candidate is None:
+                first_candidate = grounded
+            if not grounded.initiable(state):
+                continue
+            try:
+                nxt, num_actions = \
+                    option_model.get_next_state_and_num_actions(
+                        state, grounded)
+            except Exception:  # pylint: disable=broad-except
+                # Scoring rollout is best-effort; a model failure on this
+                # candidate just removes it from contention.
+                continue
+            if num_actions == 0:
+                continue
+            post_atoms = utils.abstract(nxt, predicates)
+            if not step.subgoal_atoms.issubset(post_atoms):
+                continue  # infeasible: subgoal not established
+            score = info_scorer(nxt, step.subgoal_atoms)
+            scored.append((score, grounded))
+            if first_feasible_score is None:
+                first_feasible_score = score
+            if score > best_score:
+                best_score = score
+                best_nxt = nxt
+        pool.spent += n_draws
+        total_pool_rollouts[0] += n_draws
+        # Log every pick at INFO (not gated on log_state) — active-learning
+        # visibility into where boundary-probing engaged and what it found.
+        # All-zero scores ⇒ ensemble agrees here (uninformative).
+        if not scored:
+            assert first_candidate is not None
+            logging.info(
+                "[%s] info-seeking %s(%s): 0 feasible candidates after "
+                "%d draws (%d/%d node budget spent; target %d); falling "
+                "back to first sample (no boundary probe).", run_id,
+                step.option.name, objs, n_draws, pool.spent,
+                max_samples_per_step, info_n_feasible_target)
+            return first_candidate
+        # Stable sort: ties keep draw order, so among equally informative
+        # candidates the first-drawn (what plain backtracking would have
+        # taken) is proposed first.
+        scored.sort(key=lambda t: t[0], reverse=True)
+        _, best = scored[0]
+        pool.ranked = scored[1:]
+        # Per-atom disagreement of the chosen candidate, so the log shows
+        # which subgoal atoms carry the uncertainty rather than only the
+        # aggregate (mean) the selection maximized.
+        assert best_nxt is not None
+        assert first_feasible_score is not None
+        per_atom = ", ".join(f"{a}={info_scorer(best_nxt, {a}):.4f}"
+                             for a in sorted(step.subgoal_atoms, key=str))
+        logging.info(
+            "[%s] info-seeking %s(%s): picked params %s with disagreement "
+            "%.4f vs first-feasible %.4f (%d/%d feasible in %d draws, "
+            "%d banked, %d/%d node budget; per-atom: %s).", run_id,
+            step.option.name, objs, _fmt_params(best), best_score,
+            first_feasible_score, len(scored), info_n_feasible_target, n_draws,
+            len(pool.ranked), pool.spent, max_samples_per_step, per_atom)
+        return best
+
+    def sample_fn(idx: int, state: State,
+                  rng_: np.random.Generator) -> _Option:
+        step = sketch[idx]
+        if log_state:
+            step_name = (f"{step.option.name}"
+                         f"({', '.join(o.name for o in step.objects)})")
+            logging.debug(f"[{run_id}]  State before {step_name}:\n"
+                          f"{state.pretty_str()}")
+        if _info_seeking_applies(step):
+            return _sample_info_seeking(step, state, rng_, idx)
+        return _ground(step, sample_params(step.option, rng_))
 
     def validate_fn(idx: int, _pre_state: State, _option: _Option,
                     post_state: State, _num_actions: int) -> Tuple[bool, str]:
@@ -408,6 +645,18 @@ def refine_sketch(
         if on_step_fail is not None:
             on_step_fail(idx, cur_plan, fail_reason)
 
+    # One-line eligibility summary: if info-seeking is requested but no
+    # step qualifies (a step needs continuous params + a subgoal
+    # annotation), the per-step probe silently never fires — say so.
+    if info_scorer is not None and info_n_feasible_target > 1:
+        eligible = [
+            i for i, s in enumerate(sketch) if _info_seeking_applies(s)
+        ]
+        logging.info(
+            "[%s] info-seeking eligible steps: %s of %d (target %d, "
+            "node budget %d).", run_id, eligible or "none", n,
+            info_n_feasible_target, max_samples_per_step)
+
     plan, success, total_samples = run_backtracking_refinement(
         init_state=task.init,
         option_model=option_model,
@@ -423,9 +672,13 @@ def refine_sketch(
         elapsed_holder=elapsed_holder,
     )
 
+    # total_samples counts attempts only; pool rollouts are the real
+    # model-call cost of info-seeking steps, so surface them alongside.
+    pool_note = (f" (+{total_pool_rollouts[0]} info-seeking pool rollouts)"
+                 if total_pool_rollouts[0] else "")
     logging.info(
         f"[{run_id}] Refinement {'succeeded' if success else 'failed'}: "
-        f"{total_samples} samples for {n} steps.")
+        f"{total_samples} samples for {n} steps{pool_note}.")
 
     if (truncate_on_subgoal_fail and not success and deepest_fail_idx[0] >= 0):
         snapshot = deepest_fail_prefix[0]

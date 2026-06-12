@@ -818,6 +818,15 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
         self._tool_context.log_dir = self._get_log_dir()
         self._tool_context.option_model = self._option_model
+        # Wire the active-experiment info-gain scorer when a learning
+        # subclass exposes one and info-seeking exploration is on. Syncing
+        # the bound method (not a snapshot) keeps it pointed at the latest
+        # fit/ensemble. getattr guard: non-learning approaches lack it.
+        if CFG.agent_explorer_info_seeking:
+            self._tool_context.atom_disagreement_fn = getattr(
+                self, "score_atom_disagreement", None)
+        else:
+            self._tool_context.atom_disagreement_fn = None
         all_trajs = (self._offline_dataset.trajectories +
                      self._online_trajectories)
         if all_trajs:

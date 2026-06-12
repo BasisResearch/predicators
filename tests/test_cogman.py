@@ -124,6 +124,9 @@ def test_run_episode_and_get_observations():
             """Just return empty list."""
             return []
 
+        def reset_for_new_episode(self) -> None:
+            """No per-episode state."""
+
     class _CountingMonitor(utils.LoggingMonitor):
 
         def __init__(self):

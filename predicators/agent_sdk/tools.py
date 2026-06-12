@@ -156,6 +156,13 @@ class ToolContext:
     online_trajectories: List[LowLevelTrajectory] = field(default_factory=list)
     example_state: Optional[State] = None
     option_model: Optional[_OptionModelBase] = None
+    # Active-experiment info-gain scorer, synced from the learning
+    # approach when info-seeking exploration is on:
+    # ``(state, atoms) -> disagreement``. The agent_bilevel explorer
+    # passes it into refinement so continuous-parameter search prefers
+    # candidates that straddle the learned model's decision boundaries.
+    # None ⇒ plain feasibility search (default).
+    atom_disagreement_fn: Optional[Callable[[State, Any], float]] = None
     current_task: Optional[Task] = None
     iteration_proposals: ProposalBundle = field(default_factory=ProposalBundle)
     planning_results: Dict[str, Any] = field(default_factory=dict)
@@ -2775,13 +2782,14 @@ def create_synthesis_tools(
 
         try:
             if latent_mode:
-                fitted_params, post_sse = (
+                fit_result, post_sse = (
                     AgentSimLearningApproach._fit_parameters_latent(  # pylint: disable=protected-access
                         rules, specs, groups, latent_init, process_features))
             else:
-                fitted_params, post_sse = (
+                fit_result, post_sse = (
                     AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
                         rules, specs, base_pred_triples, process_features))
+            fitted_params = fit_result.point_estimate
         except Exception as e:  # pylint: disable=broad-except
             return _text(f"[{version_tag}] Error: fit_params failed:\n{e}")
         if pre_sse > 0:
@@ -2889,14 +2897,15 @@ def create_synthesis_tools(
         if do_fit:
             try:
                 if latent_mode:
-                    t_params, _ = (
+                    fit_result, _ = (
                         AgentSimLearningApproach._fit_parameters_latent(  # pylint: disable=protected-access
                             rules, specs, groups, latent_init,
                             process_features))
                 else:
-                    t_params, _ = (
+                    fit_result, _ = (
                         AgentSimLearningApproach._fit_parameters(  # pylint: disable=protected-access
                             rules, specs, base_pred_triples, process_features))
+                t_params = fit_result.point_estimate
                 param_label = "fitted"
             except Exception as e:  # pylint: disable=broad-except
                 return _text(
@@ -3091,7 +3100,7 @@ def create_synthesis_tools(
                          "(no approach instance bound to the tool).")
 
         path = args.get("path") or simulator_file
-        rules, specs, declared, _latent_init, version_tag, err = \
+        rules, specs, declared, latent_init, version_tag, err = \
             _snapshot_and_load(path)
         if err:
             return _text(err)
@@ -3117,6 +3126,7 @@ def create_synthesis_tools(
                 task_idx=task_idx,
                 timeout=timeout,
                 plan_text=plan_text,
+                latent_init=latent_init,
             )
         except Exception:  # pylint: disable=broad-except
             tb = traceback.format_exc()

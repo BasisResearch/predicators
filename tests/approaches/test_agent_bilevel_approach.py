@@ -1017,3 +1017,267 @@ class TestSampleParams:
 def test_get_name():
     """Test get name."""
     assert AgentBilevelApproach.get_name() == "agent_bilevel"
+
+
+# ---------------------------------------------------------------------------
+# Tests: closed-loop execution replanning (subgoal_annotations monitor +
+# _maybe_replan_from_divergence / _replan_suffix)
+# ---------------------------------------------------------------------------
+
+_PickDone = ParameterizedOption(
+    "Pick",
+    types=[_block_type],
+    params_space=Box(low=np.array([0.0], dtype=np.float32),
+                     high=np.array([1.0], dtype=np.float32)),
+    policy=_noop_policy,
+    initiable=_always_true,
+    terminal=_always_true,
+)
+
+_PlaceDone = ParameterizedOption(
+    "Place",
+    types=[_block_type, _block_type],
+    params_space=Box(low=np.array([0.0, 0.0], dtype=np.float32),
+                     high=np.array([1.0, 1.0], dtype=np.float32)),
+    policy=_noop_policy,
+    initiable=_always_true,
+    terminal=_always_true,
+)
+
+
+def _make_two_step_plan(first_subgoals):
+    """Plan [Pick, Place] whose first step is annotated with first_subgoals."""
+    plan = [
+        _PickDone.ground([_block0], np.array([0.5], dtype=np.float32)),
+        _PlaceDone.ground([_block0, _block1],
+                          np.array([0.5, 0.5], dtype=np.float32)),
+    ]
+    sketch = [
+        _SketchStep(_PickDone, [_block0], first_subgoals),
+        _SketchStep(_PlaceDone, [_block0, _block1], None),
+    ]
+    return plan, sketch
+
+
+def _enable_replanning(approach, budget):
+    """Turn on closed-loop execution and start a fresh episode."""
+    utils.update_config({
+        "agent_bilevel_max_execution_replans": budget,
+        "execution_monitor": "subgoal_annotations",
+    })
+    approach.reset_for_new_episode()
+
+
+def _make_monitor(approach):
+    """Create the monitor and sync it with the approach, CogMan-style."""
+    from predicators.execution_monitoring import create_execution_monitor
+    monitor = create_execution_monitor("subgoal_annotations")
+    monitor.update_approach_info(approach.get_execution_monitoring_info())
+    return monitor
+
+
+def _sync(monitor, approach):
+    """Mimic CogMan pushing fresh approach info to the monitor."""
+    monitor.update_approach_info(approach.get_execution_monitoring_info())
+
+
+class TestExecutionReplanning:
+    """Tests for closed-loop execution through the cogman monitor flow."""
+
+    def test_open_loop_when_disabled(self):
+        """With the flag at 0 (default), no monitoring info is exported and
+        divergence is never flagged."""
+        approach, _, _ = _make_approach()
+        holding = {GroundAtom(_Holding, [_block0])}
+        plan, sketch = _make_two_step_plan(holding)
+        policy = approach._plan_to_policy(plan, sketch=sketch)
+        assert not approach.get_execution_monitoring_info()
+        state = _make_state()  # block0 not held: subgoal would fail
+        monitor = _make_monitor(approach)
+        assert not monitor.step(state)
+        policy(state)  # starts Pick
+        policy(state)  # Pick terminal -> starts Place without any check
+
+    def test_monitor_silent_when_subgoals_hold(self):
+        """Subgoals satisfied at the boundary: no replan is suggested."""
+        approach, _, _ = _make_approach()
+        _enable_replanning(approach, 2)
+        holding = {GroundAtom(_Holding, [_block0])}
+        plan, sketch = _make_two_step_plan(holding)
+        policy = approach._plan_to_policy(plan, sketch=sketch)
+        state = _make_state({_block0: [0.1, 0.2, 1.0]})  # held: subgoal ok
+        monitor = _make_monitor(approach)
+        # Before any option is initiated (e.g. right after a replan,
+        # cogman asserts the monitor does not immediately re-fire).
+        assert not monitor.step(state)
+        policy(state)  # starts Pick
+        _sync(monitor, approach)
+        assert not monitor.step(state)  # boundary, but annotation holds
+        policy(state)  # advances to Place
+
+    def test_monitor_silent_mid_option(self):
+        """A failing annotation is only checked at the option boundary."""
+        approach, _, _ = _make_approach()
+        _enable_replanning(approach, 2)
+        holding = {GroundAtom(_Holding, [_block0])}
+        # _Pick never terminates, so execution stays mid-option.
+        plan = [_Pick.ground([_block0], np.array([0.5], dtype=np.float32))]
+        sketch = [_SketchStep(_Pick, [_block0], holding)]
+        policy = approach._plan_to_policy(plan, sketch=sketch)
+        state = _make_state()  # block0 not held: subgoal fails
+        policy(state)
+        monitor = _make_monitor(approach)
+        assert not monitor.step(state)
+
+    def test_monitor_detects_divergence_at_boundary(self):
+        """An unsatisfied annotation at the boundary suggests a replan."""
+        approach, _, _ = _make_approach()
+        _enable_replanning(approach, 2)
+        holding = {GroundAtom(_Holding, [_block0])}
+        plan, sketch = _make_two_step_plan(holding)
+        policy = approach._plan_to_policy(plan, sketch=sketch)
+        state = _make_state()  # block0 not held: subgoal diverges
+        policy(state)  # starts Pick (terminal at every state)
+        monitor = _make_monitor(approach)
+        assert monitor.step(state)
+
+    def test_suffix_replan_preferred_on_divergence(self):
+        """The monitor-triggered re-solve resumes via the suffix path; no agent
+        re-query."""
+        approach, _, task = _make_approach()
+        _enable_replanning(approach, 2)
+        holding = {GroundAtom(_Holding, [_block0])}
+        plan, sketch = _make_two_step_plan(holding)
+        policy = approach._plan_to_policy(plan, sketch=sketch)
+        state = _make_state()
+        policy(state)
+        monitor = _make_monitor(approach)
+        assert monitor.step(state)
+
+        # CogMan now re-invokes solve() on the current state.
+        def sentinel_policy(s):
+            del s  # unused
+            return Action(np.full(1, 0.25, dtype=np.float32))
+
+        approach._replan_suffix = MagicMock(return_value=sentinel_policy)
+        approach._query_agent_for_plan_sketch = MagicMock()
+        new_policy = approach._solve(Task(state, task.goal), timeout=10)
+        assert new_policy is sentinel_policy
+        approach._query_agent_for_plan_sketch.assert_not_called()
+        approach._replan_suffix.assert_called_once()
+        args = approach._replan_suffix.call_args.args
+        assert args[0] is state  # replans from the real current state
+        assert args[3] == 0  # the failed step is the annotated first step
+
+    def test_full_resolve_when_no_suffix_validates(self):
+        """Suffix path exhausted: falls through to a fresh agent sketch."""
+        from predicators.approaches import ApproachFailure
+        approach, _, task = _make_approach()
+        _enable_replanning(approach, 2)
+        holding = {GroundAtom(_Holding, [_block0])}
+        plan, sketch = _make_two_step_plan(holding)
+        policy = approach._plan_to_policy(plan, sketch=sketch)
+        state = _make_state()
+        policy(state)
+        approach._replan_suffix = MagicMock(return_value=None)
+        # agent_bilevel_max_retries=0, so reaching the fresh-sketch body
+        # raises its distinctive failure — proof we fell through.
+        with pytest.raises(ApproachFailure, match="Bilevel solve failed"):
+            approach._solve(Task(state, task.goal), timeout=10)
+        approach._replan_suffix.assert_called_once()
+
+    def test_budget_shared_across_chained_replans(self):
+        """Chained replans share one per-episode budget and fail fast once it
+        is exhausted."""
+        from predicators.approaches import ApproachFailure
+        approach, _, task = _make_approach()
+        _enable_replanning(approach, 1)
+        holding = {GroundAtom(_Holding, [_block0])}
+        plan, sketch = _make_two_step_plan(holding)
+
+        def _suffix_replan(s, tsk, steps, k, t):
+            del s, tsk, steps, k, t  # unused
+            new_plan, new_sketch = _make_two_step_plan(holding)
+            return approach._plan_to_policy(new_plan, sketch=new_sketch)
+
+        approach._replan_suffix = MagicMock(side_effect=_suffix_replan)
+        approach._query_agent_for_plan_sketch = MagicMock()
+        policy = approach._plan_to_policy(plan, sketch=sketch)
+        state = _make_state()
+        policy(state)
+        monitor = _make_monitor(approach)
+        assert monitor.step(state)
+        # First divergence: budget 1 -> 0, replanned policy starts.
+        new_policy = approach._solve(Task(state, task.goal), timeout=10)
+        new_policy(state)
+        _sync(monitor, approach)
+        assert monitor.step(state)
+        # Second divergence: no budget left.
+        with pytest.raises(ApproachFailure, match="No execution replans"):
+            approach._solve(Task(state, task.goal), timeout=10)
+        approach._query_agent_for_plan_sketch.assert_not_called()
+
+    def test_reset_for_new_episode_clears_state(self):
+        """A new episode refreshes the budget and clears the live status."""
+        approach, _, _ = _make_approach()
+        _enable_replanning(approach, 2)
+        assert approach._exec_replans_left == 2
+        holding = {GroundAtom(_Holding, [_block0])}
+        plan, sketch = _make_two_step_plan(holding)
+        approach._plan_to_policy(plan, sketch=sketch)
+        assert approach.get_execution_monitoring_info()
+        approach._exec_replans_left = 0
+        approach.reset_for_new_episode()
+        assert not approach.get_execution_monitoring_info()
+        assert approach._exec_replans_left == 2
+
+    def test_init_requires_subgoal_annotations_monitor(self):
+        """Enabling the budget without the monitor is a config error."""
+        _, _, task = _make_approach()
+        utils.update_config({"agent_bilevel_max_execution_replans": 2})
+        kwargs = dict(
+            initial_predicates=_ALL_PREDICATES,
+            initial_options=_ALL_OPTIONS,
+            types={_block_type, _robot_type},
+            action_space=Box(low=-1, high=1, shape=(1, )),
+            train_tasks=[task],
+            option_model=MagicMock(),
+        )
+        with pytest.raises(ValueError, match="subgoal_annotations"):
+            AgentBilevelApproach(**kwargs)
+        utils.update_config({"execution_monitor": "subgoal_annotations"})
+        AgentBilevelApproach(**kwargs)
+
+    def test_replan_suffix_walkback_and_validation(self):
+        """_replan_suffix tries the failed step first, walks back only to the
+        latest holding annotation, and forward-validates."""
+        from predicators.agent_sdk import bilevel_sketch as bs
+        approach, _, task = _make_approach()
+        on_atom = {GroundAtom(_On, [_block0, _block1])}
+        holding = {GroundAtom(_Holding, [_block0])}
+        sketch = [
+            _SketchStep(_PickDone, [_block0], on_atom),  # holds (x close)
+            _SketchStep(_PickDone, [_block0], holding),  # does not hold
+            _SketchStep(_PlaceDone, [_block0, _block1], holding),  # failed
+        ]
+        # block0.x=0.5 == block1.x=0.5 so On holds; held=0 so Holding fails.
+        state = _make_state({_block0: [0.5, 0.2, 0.0]})
+        tried = []
+
+        def _fake_refine(tsk, suffix, remaining, attempt=0):
+            del tsk, remaining, attempt  # unused
+            tried.append(len(suffix))
+            # Succeed only for the 2-step suffix (resume at step 1).
+            if len(suffix) == 2:
+                new_plan, _ = _make_two_step_plan(holding)
+                return new_plan, True
+            return [], False
+
+        approach._refine_sketch = MagicMock(side_effect=_fake_refine)
+        with patch.object(bs, "validate_plan_forward",
+                          return_value=(True, "")):
+            policy = approach._replan_suffix(state, task, sketch, 2, 10)
+        assert policy is not None
+        # Tried failed step (suffix len 1) first, then one step back
+        # (len 2); never walked past the holding annotation at step 0.
+        assert tried == [1, 2]

@@ -18,7 +18,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from predicators.code_sim_learning.training import ParamSpec
-from predicators.code_sim_learning.utils import LearnedSimulator, apply_rules
+from predicators.code_sim_learning.utils import LearnedSimulator, \
+    apply_rules, has_latent_rules
 from predicators.settings import CFG
 from predicators.structs import Action, State, Task
 
@@ -34,6 +35,7 @@ def run_refinement_for_synthesis(
     task_idx: int,
     timeout: Optional[float] = None,
     plan_text: str = "",
+    latent_init: Any = None,
 ) -> str:
     """Validate that the candidate simulator supports plan refinement.
 
@@ -46,6 +48,17 @@ def run_refinement_for_synthesis(
     wrong model. The fit is published into ``approach._fitted_params``
     in place so invented predicates (which read it through a
     ``_ParamsView``) anchor to the same values as the simulator rules.
+
+    Recurrent (latent-declaring, 5-arg) candidate rules are fit *and*
+    simulated with the latent threaded per trajectory; fully-observable
+    rules take the legacy per-transition (3-arg) path. The dispatch keys
+    off the candidate rule signatures (:func:`has_latent_rules`), exactly
+    as the fitting engine and the other synthesis tools do — so a latent
+    rule is never called with 3 args here. The candidate ``rules`` and
+    ``latent_init`` are also published onto the approach, because the
+    recurrent combined simulator is built from instance state
+    (``_process_rules`` / ``_latent_init`` / ``_fitted_params``) rather
+    than the ``learned`` object below.
 
     ``timeout`` is wall-clock seconds for refinement only (MCMC
     fitting is not subject to it). When ``None``, it auto-scales with
@@ -68,21 +81,46 @@ def run_refinement_for_synthesis(
         return (f"Error: task_idx {task_idx} out of range "
                 f"[0, {len(approach._train_tasks)}).")
 
+    latent = has_latent_rules(rules)
+
+    # Publish the candidate rules / latent_init onto the approach *before*
+    # building the combined simulator: the recurrent combined sim reads
+    # self._process_rules / self._latent_init / self._fitted_params (it is
+    # built from instance state, not the `learned` object below), so
+    # without this it would validate a stale cycle's rules — or, with
+    # _process_rules still None, mis-dispatch a latent candidate onto the
+    # 3-arg path. Per-cycle state; overwritten when synthesis finalises.
+    approach._process_rules = rules
+    if latent:
+        approach._latent_init = latent_init
+
+    # Fit with the convention the rules declare. Recurrent (5-arg,
+    # latent-declaring) rules thread the latent per trajectory and must
+    # never be rolled through the legacy per-transition path (which would
+    # call them with 3 args); this mirrors evaluate_step_fit /
+    # report_residuals and the approach's own post-session fitting.
     try:
-        params, fit_sse = approach._fit_parameters(rules, specs,
-                                                   base_pred_triples,
-                                                   process_features)
+        if latent:
+            fit_result, fit_sse = approach._fit_parameters_recurrent(
+                rules, specs, base_pred_triples, process_features)
+        else:
+            fit_result, fit_sse = approach._fit_parameters(
+                rules, specs, base_pred_triples, process_features)
+        params = fit_result.point_estimate
     except Exception as e:  # pylint: disable=broad-except
         return f"Error: param fitting failed:\n{e}"
 
     # Publish the fit into approach._fitted_params in place (clear +
     # update, never replace) so the _ParamsView held by invented
-    # predicates picks up exactly the values the LearnedSimulator below
-    # runs at. Within one refinement run the gating rule and the gating
-    # predicate must anchor to the same parameter set.
+    # predicates picks up exactly the values the simulator below runs at.
+    # Within one refinement run the gating rule and the gating predicate
+    # must anchor to the same parameter set.
     approach._fitted_params.clear()
     approach._fitted_params.update(params)
 
+    # Fully-observable rules run through this 3-arg `learned` object; for
+    # recurrent rules _build_combined_simulator bypasses it and threads
+    # state.latent through the candidate rules published above.
     learned = LearnedSimulator(
         step_fn=lambda s, _r=rules, _p=params:  # type: ignore[misc]
         apply_rules(s, _r, _p),

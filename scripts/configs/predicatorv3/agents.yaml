@@ -102,7 +102,7 @@ APPROACHES:
   #     agent_sim_learn_oracle_sim_program: True
   #     agent_sim_learn_oracle_sim_params: True
   #     num_online_learning_cycles: 0
-  agent_po_predicate_invention:
+  agent_po_predicate_invention_al:
     NAME: "agent_po_sim_predicate_invention"
     FLAGS:
       demonstrator: "oracle_process_planning"
@@ -123,6 +123,13 @@ APPROACHES:
       code_sim_learning_warm_start_with_lm: True
       agent_sim_predicate_invention_kept_predicate_names: ["Holding"]
       partially_observable: True
+      agent_explorer_info_seeking: True
+      # Closed-loop test execution: replan when a finished step's subgoal
+      # annotation fails in the real state (chaotic place landings were
+      # costing 2-4 test tasks per run; see boil-…_al seed0/seed1 logs).
+      # The monitor detects divergence; the budget caps recoveries.
+      execution_monitor: "subgoal_annotations"
+      agent_bilevel_max_execution_replans: 2
   # agent_option_learning:
   #   NAME: "agent_option_learning"
   #   FLAGS:
