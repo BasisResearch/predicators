@@ -1,6 +1,6 @@
 """Fetch Robotics Mobile Manipulator (Fetch)."""
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot
 

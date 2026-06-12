@@ -6,7 +6,7 @@ from typing import Dict, List, Sequence, Set
 
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs import BaseEnv, get_or_create_env
 from predicators.settings import CFG
 from predicators.structs import NSRT, CausalProcess, EndogenousProcess, \
@@ -401,5 +401,6 @@ def _get_options_by_names(env_name: str,
     return [name_to_option[name] for name in names]
 
 
-# Find the factories.
-utils.import_submodules(__path__, __name__)
+# Find the factories. Tolerate missing optional deps (e.g. torch under
+# Pyodide) — factories whose import fails are skipped with a warning.
+utils.import_submodules(__path__, __name__, tolerate_import_errors=True)

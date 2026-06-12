@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+node_modules
+.venv
+predicators_assets
+wheels/
+predicators-min.tar.gz
+envs/

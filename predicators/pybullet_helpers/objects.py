@@ -4,10 +4,10 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 import pybullet as p
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.pybullet_helpers import retry_pybullet_call
 from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
-from predicators.utils import _Geom2D
+from predicators.utils_lite import _Geom2D
 
 # import numpy as np
 default_orn: Quaternion = (0.0, 0.0, 0.0, 1.0)
@@ -152,7 +152,7 @@ def sample_collision_free_2d_positions(
         List[Tuple[float, float]]: A list of (x, y) positions for the shapes,
         guaranteed to be collision-free.
     """
-    from predicators.utils import Circle, Rectangle \
+    from predicators.utils_lite import Circle, Rectangle \
         # pylint: disable=import-outside-toplevel
 
     def create_geom(px: float, py: float) -> _Geom2D:

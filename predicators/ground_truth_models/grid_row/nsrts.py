@@ -7,7 +7,7 @@ import numpy as np
 from predicators.ground_truth_models import GroundTruthNSRTFactory
 from predicators.structs import NSRT, Array, GroundAtom, LiftedAtom, Object, \
     ParameterizedOption, Predicate, State, Type, Variable
-from predicators.utils import null_sampler
+from predicators.utils_lite import null_sampler
 
 
 class GridRowGroundTruthNSRTFactory(GroundTruthNSRTFactory):

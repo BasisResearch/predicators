@@ -5,7 +5,7 @@ from typing import Dict, Sequence, Set, Tuple
 import numpy as np
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.stick_button import StickButtonEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.settings import CFG

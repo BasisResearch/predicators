@@ -6,7 +6,7 @@ from typing import Dict, Iterator, Sequence, Set
 import numpy as np
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.narrow_passage import NarrowPassageEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.settings import CFG

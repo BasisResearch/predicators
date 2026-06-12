@@ -1,7 +1,7 @@
 """Franka Emika Panda robot."""
 from typing import Optional
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.pybullet_helpers.ikfast import IKFastInfo
 from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot

@@ -44,7 +44,7 @@ import pybullet as p
 from gym.spaces import Box
 from PIL import Image
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs import BaseEnv
 from predicators.pybullet_helpers import retry_pybullet_call, studio_visuals
 from predicators.pybullet_helpers.geometry import Pose, Pose3D, Quaternion
@@ -56,7 +56,7 @@ from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot, \
 from predicators.settings import CFG
 from predicators.structs import Action, Array, EnvironmentTask, Mask, Object, \
     Observation, State, Video
-from predicators.utils import PyBulletState
+from predicators.utils_lite import PyBulletState
 
 
 class PyBulletEnv(BaseEnv):

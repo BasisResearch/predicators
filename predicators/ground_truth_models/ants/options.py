@@ -6,7 +6,7 @@ from typing import Type as TypingType
 import pybullet as p
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs.pybullet_ants import PyBulletAntsEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.pybullet_helpers.controllers import \
@@ -200,7 +200,7 @@ class PyBulletAntsGroundTruthOptionFactory(GroundTruthOptionFactory):
         def _get_current_and_target_pose_and_finger_status(
                 state: State, objects: Sequence[Object],
                 params: Array) -> Tuple[Pose, Pose, str]:
-            assert not params
+            assert len(params) == 0
             robot, block = objects
             # Current
             current_position = (state.get(robot, "x"), state.get(robot, "y"),

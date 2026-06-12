@@ -3,7 +3,7 @@ suggest replanning when the expected atoms check is not met."""
 
 import logging
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.execution_monitoring.base_execution_monitor import \
     BaseExecutionMonitor
 from predicators.settings import CFG

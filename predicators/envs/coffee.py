@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from gym.spaces import Box
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs import BaseEnv
 from predicators.pybullet_helpers.objects import \
     sample_collision_free_2d_positions

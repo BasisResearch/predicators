@@ -2,12 +2,12 @@
 
 from typing import Dict, Set
 
-from predicators import utils
+from predicators import utils_lite as utils
 from predicators.envs import get_or_create_env
 from predicators.envs.pddl_env import _PDDLEnv
 from predicators.ground_truth_models import GroundTruthNSRTFactory
 from predicators.structs import NSRT, ParameterizedOption, Predicate, Type
-from predicators.utils import null_sampler
+from predicators.utils_lite import null_sampler
 
 
 class PDDLEnvGroundTruthNSRTFactory(GroundTruthNSRTFactory):
