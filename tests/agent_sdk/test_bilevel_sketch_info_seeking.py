@@ -17,6 +17,8 @@ attempt cap equals ``info_n_feasible_target`` so it exhausts exactly
 when every pooled candidate has been tried.
 """
 
+# pylint: disable=unused-import
+
 import numpy as np
 from gym.spaces import Box
 
@@ -83,6 +85,7 @@ class _FakeOptionModel:
         self.num_calls = 0
 
     def get_next_state_and_num_actions(self, state, option):
+        """Roll the option forward one step, counting the call."""
         self.num_calls += 1
         nxt = state.copy()
         if len(option.params):

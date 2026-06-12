@@ -11,6 +11,8 @@ once-per-cycle posterior fit used only for the active-experiment
 ensemble.
 """
 
+# pylint: disable=protected-access,import-outside-toplevel,unused-import
+
 import numpy as np
 
 from predicators import utils  # noqa: F401  (settles import order)
@@ -45,6 +47,7 @@ def _state(x):
 
 
 def test_disagreement_high_at_boundary():
+    """Disagreement high at boundary."""
     ens = [{"thresh": t} for t in (0.5, 0.3, 0.4, 0.6, 0.7)]
     approach = _bare_approach(ens, {"thresh": 0.5})
     atom = _at_target_atom(approach)
@@ -53,6 +56,7 @@ def test_disagreement_high_at_boundary():
 
 
 def test_disagreement_zero_far_from_boundary():
+    """Disagreement zero far from boundary."""
     ens = [{"thresh": t} for t in (0.5, 0.3, 0.4, 0.6, 0.7)]
     approach = _bare_approach(ens, {"thresh": 0.5})
     atom = _at_target_atom(approach)
@@ -63,6 +67,7 @@ def test_disagreement_zero_far_from_boundary():
 
 
 def test_fitted_params_restored_after_scoring():
+    """Fitted params restored after scoring."""
     ens = [{"thresh": t} for t in (0.3, 0.7)]
     approach = _bare_approach(ens, {"thresh": 0.5})
     atom = _at_target_atom(approach)
@@ -72,18 +77,21 @@ def test_fitted_params_restored_after_scoring():
 
 
 def test_singleton_ensemble_scores_zero():
+    """Singleton ensemble scores zero."""
     approach = _bare_approach([{"thresh": 0.5}], {"thresh": 0.5})
     atom = _at_target_atom(approach)
     assert approach.score_atom_disagreement(_state(0.5), {atom}) == 0.0
 
 
 def test_empty_atoms_scores_zero():
+    """Empty atoms scores zero."""
     ens = [{"thresh": t} for t in (0.3, 0.7)]
     approach = _bare_approach(ens, {"thresh": 0.5})
     assert approach.score_atom_disagreement(_state(0.5), set()) == 0.0
 
 
 def test_rebuild_param_ensemble_respects_flag():
+    """Rebuild param ensemble respects flag."""
     approach = object.__new__(AgentSimLearningApproach)
     approach._fitted_params = {"a": 1.0}
     approach._param_specs = []
@@ -120,6 +128,7 @@ def _selector_approach(fit_result):
 
 
 def test_select_ensemble_prefers_posterior_when_samples_present():
+    """Select ensemble prefers posterior when samples present."""
     from predicators.code_sim_learning.training import FitResult
 
     # MCMC ran: multi-row samples -> posterior subsample wins.
@@ -140,6 +149,7 @@ def test_select_ensemble_prefers_posterior_when_samples_present():
 
 
 def test_select_ensemble_uses_laplace_when_only_jacobian():
+    """Select ensemble uses laplace when only jacobian."""
     from predicators.code_sim_learning.training import FitResult
 
     # No MCMC (single-row samples) but the Laplace bundle is present.
@@ -162,6 +172,7 @@ def test_select_ensemble_uses_laplace_when_only_jacobian():
 
 
 def test_select_ensemble_falls_back_to_uniform_without_calibration():
+    """Select ensemble falls back to uniform without calibration."""
     from predicators.code_sim_learning.training import FitResult
 
     # Single-row samples and no Jacobian (LM skipped/failed) -> uniform.
@@ -180,6 +191,7 @@ def test_select_ensemble_falls_back_to_uniform_without_calibration():
 
 
 def test_select_ensemble_uniform_when_calibration_disabled():
+    """Select ensemble uniform when calibration disabled."""
     from predicators.code_sim_learning.training import FitResult
 
     # Posterior samples exist, but the calibration flag is off -> uniform.
