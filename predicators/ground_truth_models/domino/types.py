@@ -6,7 +6,7 @@ import numpy as np
 
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
-from predicators.envs.pybullet_domino.composed_env import \
+from predicators.envs.pybullet_domino.env import \
     PyBulletDominoComposedEnv
 from predicators.ground_truth_models import GroundTruthTypeFactory
 from predicators.structs import Object, Task, Type

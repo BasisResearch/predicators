@@ -25,7 +25,7 @@ from predicators.settings import CFG
 from predicators.structs import Object, Predicate, State, Type
 
 if TYPE_CHECKING:
-    from predicators.envs.pybullet_domino.composed_env import \
+    from predicators.envs.pybullet_domino.env import \
         PyBulletDominoComposedEnv
 
 
@@ -87,7 +87,7 @@ class DominoComponent(DominoEnvComponent):
     @staticmethod
     def _get_env_class() -> TypingType["PyBulletDominoComposedEnv"]:
         """Get PyBulletDominoComposedEnv class to access shared config."""
-        from predicators.envs.pybullet_domino.composed_env import \
+        from predicators.envs.pybullet_domino.env import \
             PyBulletDominoComposedEnv  # pylint: disable=import-outside-toplevel
         return PyBulletDominoComposedEnv
 

@@ -186,7 +186,7 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
                 return False
 
             # Import pos_gap for spatial calculations
-            from predicators.envs.pybullet_domino.composed_env import \
+            from predicators.envs.pybullet_domino.env import \
                 PyBulletDominoComposedEnv  # pylint: disable=import-outside-toplevel
             pos_gap = PyBulletDominoComposedEnv.pos_gap
 
@@ -359,7 +359,7 @@ class PyBulletDominoGroundTruthPredicateFactory(GroundTruthPredicateFactory):
             return result
 
         # Import pos_gap for spatial calculations
-        from predicators.envs.pybullet_domino.composed_env import \
+        from predicators.envs.pybullet_domino.env import \
             PyBulletDominoComposedEnv  # pylint: disable=import-outside-toplevel
         pos_gap = PyBulletDominoComposedEnv.pos_gap
 

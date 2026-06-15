@@ -13,7 +13,7 @@ Example usage:
     env = PyBulletDominoFanEnv(use_gui=True)
 """
 
-from predicators.envs.pybullet_domino.composed_env import \
+from predicators.envs.pybullet_domino.env import \
     PyBulletDominoEnv, PyBulletDominoFanEnv
 
 __all__ = [
