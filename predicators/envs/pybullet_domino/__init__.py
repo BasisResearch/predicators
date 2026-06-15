@@ -14,11 +14,7 @@ Example usage:
 """
 
 from predicators.envs.pybullet_domino.composed_env import \
-    PyBulletDominoEnvNew, PyBulletDominoFanEnvNew
-
-# Backward-compatible aliases
-PyBulletDominoEnv = PyBulletDominoEnvNew
-PyBulletDominoFanEnv = PyBulletDominoFanEnvNew
+    PyBulletDominoEnv, PyBulletDominoFanEnv
 
 __all__ = [
     "PyBulletDominoEnv",

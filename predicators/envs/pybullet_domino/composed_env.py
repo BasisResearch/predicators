@@ -174,6 +174,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             all_preds.add(self._Holding)
         for comp in self._components:
             all_preds |= comp.get_predicates()
+        if self._ball_component is not None:
+            all_preds.add(self._ball_component.BallAtTarget)
         return all_preds
 
     @property
@@ -182,6 +184,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         goal_preds: Set[Predicate] = set()
         for comp in self._components:
             goal_preds |= comp.get_goal_predicates()
+        if self._ball_component is not None:
+            goal_preds.add(self._ball_component.BallAtTarget)
         return goal_preds
 
     # =========================================================================
@@ -295,6 +299,37 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         return state.get(domino, "is_held") > 0.5
 
     # =========================================================================
+    # COMPONENT CONSTRUCTION HELPERS
+    # =========================================================================
+
+    @classmethod
+    def _default_workspace_bounds(cls) -> Dict[str, float]:
+        """Workspace bounds shared by all concrete domino environments."""
+        return {
+            "x_lb": cls.x_lb,
+            "x_ub": cls.x_ub,
+            "y_lb": cls.y_lb,
+            "y_ub": cls.y_ub,
+            "z_lb": cls.z_lb,
+            "z_ub": cls.z_ub,
+        }
+
+    @classmethod
+    def _make_domino_component(
+            cls, workspace_bounds: Dict[str, float]) -> DominoComponent:
+        """Build a domino component sized to the configured task ranges."""
+        max_dominos = max(max(CFG.domino_train_num_dominos),
+                          max(CFG.domino_test_num_dominos))
+        max_targets = max(max(CFG.domino_train_num_targets),
+                          max(CFG.domino_test_num_targets))
+        max_pivots = max(max(CFG.domino_train_num_pivots),
+                         max(CFG.domino_test_num_pivots))
+        return DominoComponent(num_dominos_max=max_dominos,
+                               num_targets_max=max_targets,
+                               num_pivots_max=max_pivots,
+                               workspace_bounds=workspace_bounds)
+
+    # =========================================================================
     # TASK GENERATION
     # =========================================================================
 
@@ -371,31 +406,12 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
 # =============================================================================
 
 
-class PyBulletDominoEnvNew(PyBulletDominoComposedEnv):
+class PyBulletDominoEnv(PyBulletDominoComposedEnv):
     """Backward-compatible domino environment class."""
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
-        workspace_bounds = {
-            "x_lb": self.x_lb,
-            "x_ub": self.x_ub,
-            "y_lb": self.y_lb,
-            "y_ub": self.y_ub,
-            "z_lb": self.z_lb,
-            "z_ub": self.z_ub,
-        }
-
-        max_dominos = max(max(CFG.domino_train_num_dominos),
-                          max(CFG.domino_test_num_dominos))
-        max_targets = max(max(CFG.domino_train_num_targets),
-                          max(CFG.domino_test_num_targets))
-        max_pivots = max(max(CFG.domino_train_num_pivots),
-                         max(CFG.domino_test_num_pivots))
-
-        domino_comp = DominoComponent(num_dominos_max=max_dominos,
-                                      num_targets_max=max_targets,
-                                      num_pivots_max=max_pivots,
-                                      workspace_bounds=workspace_bounds)
-
+        bounds = self._default_workspace_bounds()
+        domino_comp = self._make_domino_component(bounds)
         super().__init__(components=[domino_comp], use_gui=use_gui, **kwargs)
 
     @classmethod
@@ -403,38 +419,17 @@ class PyBulletDominoEnvNew(PyBulletDominoComposedEnv):
         return "pybullet_domino"
 
 
-class PyBulletDominoFanEnvNew(PyBulletDominoComposedEnv):
+class PyBulletDominoFanEnv(PyBulletDominoComposedEnv):
     """Backward-compatible domino + fan + ball environment class."""
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
-        workspace_bounds = {
-            "x_lb": self.x_lb,
-            "x_ub": self.x_ub,
-            "y_lb": self.y_lb,
-            "y_ub": self.y_ub,
-            "z_lb": self.z_lb,
-            "z_ub": self.z_ub,
-        }
-
-        max_dominos = max(max(CFG.domino_train_num_dominos),
-                          max(CFG.domino_test_num_dominos))
-        max_targets = max(max(CFG.domino_train_num_targets),
-                          max(CFG.domino_test_num_targets))
-        max_pivots = max(max(CFG.domino_train_num_pivots),
-                         max(CFG.domino_test_num_pivots))
-
-        domino_comp = DominoComponent(num_dominos_max=max_dominos,
-                                      num_targets_max=max_targets,
-                                      num_pivots_max=max_pivots,
-                                      workspace_bounds=workspace_bounds)
-
-        fan_comp = FanComponent(workspace_bounds=workspace_bounds,
+        bounds = self._default_workspace_bounds()
+        domino_comp = self._make_domino_component(bounds)
+        fan_comp = FanComponent(workspace_bounds=bounds,
                                 table_height=self.table_height,
                                 table_width=self.table_width)
-
-        ball_comp = BallComponent(workspace_bounds=workspace_bounds,
+        ball_comp = BallComponent(workspace_bounds=bounds,
                                   table_height=self.table_height)
-
         super().__init__(components=[domino_comp, fan_comp, ball_comp],
                          use_gui=use_gui,
                          **kwargs)
@@ -443,59 +438,21 @@ class PyBulletDominoFanEnvNew(PyBulletDominoComposedEnv):
     def get_name(cls) -> str:
         return "pybullet_domino_fan"
 
-    @property
-    def predicates(self) -> Set[Predicate]:
-        """Include BallAtTarget in predicates."""
-        preds = super().predicates
-        if self._ball_component is not None:
-            preds.add(self._ball_component.BallAtTarget)
-        return preds
-
-    @property
-    def goal_predicates(self) -> Set[Predicate]:
-        """Goals can be ball at target OR dominoes toppled."""
-        preds = super().goal_predicates
-        if self._ball_component is not None:
-            preds.add(self._ball_component.BallAtTarget)
-        return preds
-
 
 class PyBulletDominoFanRampEnv(PyBulletDominoComposedEnv):
     """Domino + fan + ball + ramp environment class."""
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
-        workspace_bounds = {
-            "x_lb": self.x_lb,
-            "x_ub": self.x_ub,
-            "y_lb": self.y_lb,
-            "y_ub": self.y_ub,
-            "z_lb": self.z_lb,
-            "z_ub": self.z_ub,
-        }
-
-        max_dominos = max(max(CFG.domino_train_num_dominos),
-                          max(CFG.domino_test_num_dominos))
-        max_targets = max(max(CFG.domino_train_num_targets),
-                          max(CFG.domino_test_num_targets))
-        max_pivots = max(max(CFG.domino_train_num_pivots),
-                         max(CFG.domino_test_num_pivots))
-
-        domino_comp = DominoComponent(num_dominos_max=max_dominos,
-                                      num_targets_max=max_targets,
-                                      num_pivots_max=max_pivots,
-                                      workspace_bounds=workspace_bounds)
-
-        fan_comp = FanComponent(workspace_bounds=workspace_bounds,
+        bounds = self._default_workspace_bounds()
+        domino_comp = self._make_domino_component(bounds)
+        fan_comp = FanComponent(workspace_bounds=bounds,
                                 table_height=self.table_height,
                                 table_width=self.table_width)
-
-        ball_comp = BallComponent(workspace_bounds=workspace_bounds,
+        ball_comp = BallComponent(workspace_bounds=bounds,
                                   table_height=self.table_height)
-
-        ramp_comp = RampComponent(workspace_bounds=workspace_bounds,
+        ramp_comp = RampComponent(workspace_bounds=bounds,
                                   table_height=self.table_height,
                                   max_ramps=5)
-
         super().__init__(
             components=[domino_comp, fan_comp, ball_comp, ramp_comp],
             use_gui=use_gui,
@@ -505,65 +462,26 @@ class PyBulletDominoFanRampEnv(PyBulletDominoComposedEnv):
     def get_name(cls) -> str:
         return "pybullet_domino_fan_ramp"
 
-    @property
-    def predicates(self) -> Set[Predicate]:
-        """Include BallAtTarget in predicates."""
-        preds = super().predicates
-        if self._ball_component is not None:
-            preds.add(self._ball_component.BallAtTarget)
-        return preds
-
-    @property
-    def goal_predicates(self) -> Set[Predicate]:
-        """Goals can be ball at target OR dominoes toppled."""
-        preds = super().goal_predicates
-        if self._ball_component is not None:
-            preds.add(self._ball_component.BallAtTarget)
-        return preds
-
 
 class PyBulletDominoFanRampStairsEnv(PyBulletDominoComposedEnv):
     """Domino + fan + ball + ramp + stairs environment class."""
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
-        workspace_bounds = {
-            "x_lb": self.x_lb,
-            "x_ub": self.x_ub,
-            "y_lb": self.y_lb,
-            "y_ub": self.y_ub,
-            "z_lb": self.z_lb,
-            "z_ub": self.z_ub,
-        }
-
-        max_dominos = max(max(CFG.domino_train_num_dominos),
-                          max(CFG.domino_test_num_dominos))
-        max_targets = max(max(CFG.domino_train_num_targets),
-                          max(CFG.domino_test_num_targets))
-        max_pivots = max(max(CFG.domino_train_num_pivots),
-                         max(CFG.domino_test_num_pivots))
-
-        domino_comp = DominoComponent(num_dominos_max=max_dominos,
-                                      num_targets_max=max_targets,
-                                      num_pivots_max=max_pivots,
-                                      workspace_bounds=workspace_bounds)
-
-        fan_comp = FanComponent(workspace_bounds=workspace_bounds,
+        bounds = self._default_workspace_bounds()
+        domino_comp = self._make_domino_component(bounds)
+        fan_comp = FanComponent(workspace_bounds=bounds,
                                 table_height=self.table_height,
                                 table_width=self.table_width)
-
-        ball_comp = BallComponent(workspace_bounds=workspace_bounds,
+        ball_comp = BallComponent(workspace_bounds=bounds,
                                   table_height=self.table_height)
-
-        ramp_comp = RampComponent(workspace_bounds=workspace_bounds,
+        ramp_comp = RampComponent(workspace_bounds=bounds,
                                   table_height=self.table_height,
                                   max_ramps=5)
-
         # Stairs component needs reference to domino type for positioning
-        stairs_comp = StairsComponent(workspace_bounds=workspace_bounds,
+        stairs_comp = StairsComponent(workspace_bounds=bounds,
                                       table_height=self.table_height,
                                       domino_type=domino_comp.domino_type,
                                       enabled=True)
-
         super().__init__(components=[
             domino_comp, fan_comp, ball_comp, ramp_comp, stairs_comp
         ],
@@ -576,22 +494,6 @@ class PyBulletDominoFanRampStairsEnv(PyBulletDominoComposedEnv):
     @classmethod
     def get_name(cls) -> str:
         return "pybullet_domino_fan_ramp_stairs"
-
-    @property
-    def predicates(self) -> Set[Predicate]:
-        """Include BallAtTarget in predicates."""
-        preds = super().predicates
-        if self._ball_component is not None:
-            preds.add(self._ball_component.BallAtTarget)
-        return preds
-
-    @property
-    def goal_predicates(self) -> Set[Predicate]:
-        """Goals can be ball at target OR dominoes toppled."""
-        preds = super().goal_predicates
-        if self._ball_component is not None:
-            preds.add(self._ball_component.BallAtTarget)
-        return preds
 
 
 if __name__ == "__main__":
@@ -627,13 +529,13 @@ if __name__ == "__main__":
     # Create environment based on selection
     env: PyBulletDominoComposedEnv
     if test_env == "domino":
-        print("Creating PyBulletDominoEnvNew...")
+        print("Creating PyBulletDominoEnv...")
         CFG.env = "pybullet_domino"
-        env = PyBulletDominoEnvNew(use_gui=True)
+        env = PyBulletDominoEnv(use_gui=True)
     elif test_env == "domino_fan":
-        print("Creating PyBulletDominoFanEnvNew...")
+        print("Creating PyBulletDominoFanEnv...")
         CFG.env = "pybullet_domino_fan"
-        env = PyBulletDominoFanEnvNew(use_gui=True)
+        env = PyBulletDominoFanEnv(use_gui=True)
     elif test_env == "domino_fan_ramp":
         print("Creating PyBulletDominoFanRampEnv...")
         CFG.env = "pybullet_domino_fan_ramp"
