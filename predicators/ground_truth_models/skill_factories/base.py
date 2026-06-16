@@ -6,8 +6,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, \
-    Sequence, Tuple, cast
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, Dict, List, \
+    Optional, Sequence, Tuple, cast
 
 if TYPE_CHECKING:
     from predicators.envs.pybullet_env import PyBulletEnv
@@ -18,11 +18,13 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.pybullet_helpers.controllers import \
+    _build_action_from_joints, _robot_supports_base_action, \
     get_change_fingers_action, get_move_end_effector_to_pose_action
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.inverse_kinematics import \
     InverseKinematicsError
 from predicators.pybullet_helpers.joint import JointPositions
+from predicators.pybullet_helpers.link import get_link_state
 from predicators.pybullet_helpers.motion_planning import run_motion_planning
 from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot
@@ -82,6 +84,14 @@ class SkillConfig:
             after push skills.  Required by ``create_push_skill``.
         transport_z: Safe Z height for transit above obstacles during
             pick, place, push, and pour skills.  Default ``0.7``.
+        base_standoff: For mobile-base robots, the forward (y) distance at
+            which the base parks in front of a reach target (with its x aligned
+            to the target x), so the arm reaches it straight forward at a
+            comfortable distance instead of sideways over the burner/a jug or
+            fully extended.  ``None`` (default) disables base positioning; only
+            mobile robots use it.
+        base_y_max: Upper bound on the base y while positioning, to keep the
+            base clear of the table front.  Default ``inf`` (no clamp).
         extra: Arbitrary dict for environment-specific constants that
             callbacks may need.  Access via ``config.extra["key"]``.
     """
@@ -99,6 +109,10 @@ class SkillConfig:
     robot_init_wrist: float = 0.0
     robot_home_pos: Optional[Tuple[float, float, float]] = None
     transport_z: float = 0.7
+    base_standoff: Optional[float] = None
+    base_y_max: float = float("inf")
+    base_align_x: bool = True
+    base_home_xy: Optional[Tuple[float, float]] = None
     simulator: Optional[PyBulletEnv] = None
     collision_skip_types: Tuple[str, ...] = ()
     sim_extra_collision_bodies: Tuple[int, ...] = ()
@@ -209,7 +223,8 @@ class PhaseSkill:
                  params_space: Box,
                  config: SkillConfig,
                  phases: List[Phase],
-                 params_description: Optional[Tuple[str, ...]] = None) -> None:
+                 params_description: Optional[Tuple[str, ...]] = None,
+                 base_mode: Optional[str] = None) -> None:
         assert len(phases) > 0
         self._name = name
         self._types = types
@@ -217,6 +232,14 @@ class PhaseSkill:
         self._config = config
         self._phases = phases
         self._params_description = params_description
+        # Mobile-base positioning mode for this skill (None disables it):
+        #   "home"        park at the robot's home base (good offset to press a
+        #                 switch; diagonal fixed-base reach for far targets).
+        #   "align_left"  slide base x toward the target but not right of home
+        #                 (frees the over-the-burner reach), forward in y.
+        #   "diag"        keep base x at home, move forward in y (diagonal carry
+        #                 that clears an adjacent jug / the faucet body).
+        self._base_mode = base_mode
 
     def build(self) -> ParameterizedOption:
         """Build and return the ParameterizedOption."""
@@ -344,11 +367,127 @@ class PhaseSkill:
 
     def _execute_move(self, phase: Phase, state: State, memory: Dict,
                       objects: Sequence[Object], params: Array) -> Action:
-        """Dispatch to BiRRT or incremental IK based on phase flag."""
+        """Dispatch to BiRRT or incremental IK based on phase flag.
+
+        For mobile-base robots, first drive the base to a pose that puts the
+        reach target in comfortable arm range (the arm BiRRT/IK then plans
+        from the repositioned base).
+        """
+        base_action = self._maybe_drive_base(phase, state, memory, objects,
+                                             params)
+        if base_action is not None:
+            return base_action
         if phase.use_motion_planning:
             return self._execute_move_birrt(phase, state, memory, objects,
                                             params)
         return self._execute_move_ik(phase, state, objects, params)
+
+    # Mobile-base positioning. Before the first reach of an option, drive the
+    # (kinematic) base to park `base_standoff` in front of the reach target with
+    # its x aligned to the target x (base y clamped to base_y_max to stay clear
+    # of the table), so the arm reaches *straight forward at a comfortable
+    # distance* rather than sideways/over the burner or fully extended. The base
+    # pose is a deterministic function of the option params, so it is
+    # reproducible across refinement samples (unlike a per-sample search) and
+    # adds just one base-drive step per option. Enabled per-env by setting
+    # base_standoff; only active for mobile robots (e.g. mobile_fetch), a no-op
+    # for fixed bases.
+    _base_pos_tol: ClassVar[float] = 0.02  # xy tol to call the base positioned
+    _base_step: ClassVar[float] = 0.08  # max base xy move per step (smooth)
+
+    def _maybe_drive_base(self, phase: Phase, state: State, memory: Dict,
+                          objects: Sequence[Object],
+                          params: Array) -> Optional[Action]:
+        """Return a one-step base-drive Action that stands the base in front of
+        this option's reach target; None once positioned (or for fixed-base
+        robots / when base positioning is disabled)."""
+        robot = self._config.robot
+        if self._config.base_standoff is None \
+                or self._base_mode is None \
+                or not _robot_supports_base_action(robot):
+            return None
+        pb_state = cast(utils.PyBulletState, state)
+        sim_state = pb_state.simulator_state
+        if not isinstance(sim_state, dict) or "base_pose" not in sim_state:
+            return None
+        if memory.get("_base_pos_done", False):
+            return None
+        (cur_x, cur_y, _), _ = sim_state["base_pose"]
+        home_xy = self._config.base_home_xy
+        if self._base_mode == "home" and home_xy is not None:
+            # Push: park at the robot's home base, which sits diagonally off the
+            # switch (offset opposite the push direction and in front) so the
+            # arm presses it naturally. Head-on (x-aligned) pins the arm near a
+            # singularity and makes the push wander off target.
+            target_bx, target_by = home_xy
+        else:
+            _, target_pose, _ = phase.target_fn(state, objects, params,
+                                                self._config)
+            home_x = home_xy[0] if home_xy is not None else (
+                self._config.robot_home_pos[0]
+                if self._config.robot_home_pos is not None else float(cur_x))
+            stay_home = False
+            if self._base_mode == "align_left":
+                # Pick: slide x toward the target but never to the right of
+                # home. The over-the-burner reach only happens for targets left
+                # of home; right targets (front jug, jug under the faucet) keep
+                # home's diagonal approach, which clears the faucet body.
+                target_bx = min(float(target_pose.position[0]), home_x)
+            elif self._base_mode == "approach":
+                # Pick a jug that may sit beside another jug (the 2-jug boil
+                # tasks). Reposition only when a second jug actually blocks the
+                # reach -- one sitting close to the target in both x and y, so
+                # reaching it from home would sweep the arm across it (the jug0-
+                # vs-jug1 grasp/lift collision a fixed base cannot avoid). Then
+                # stand to the target's far side from that jug, offset laterally
+                # (NOT x-aligned, which would pin this arm at a singularity -- see
+                # the "home" push note). With no blocker, keep home's diagonal
+                # approach: moving the base in would only risk that singularity
+                # (e.g. re-picking a jug under the faucet, which has no neighbor).
+                tx = float(target_pose.position[0])
+                ty = float(target_pose.position[1])
+                blocker_x: Optional[float] = None
+                for other in state:
+                    if other.type.name != "jug" or other in objects:
+                        continue
+                    ox = float(state.get(other, "x"))
+                    oy = float(state.get(other, "y"))
+                    if abs(ox - tx) < 0.4 and abs(oy - ty) < 0.4:
+                        blocker_x = ox
+                        break
+                if blocker_x is None:
+                    target_bx = home_x
+                    stay_home = True
+                else:
+                    side = 1.0 if tx >= blocker_x else -1.0
+                    target_bx = tx + side * 0.15
+            else:
+                # Place ("diag"): keep base x at home and only move forward in
+                # y, so the carry stays diagonal (clearing an adjacent jug or
+                # the faucet body) yet close enough for a comfortable reach.
+                target_bx = home_x
+            if stay_home:
+                # No reposition needed: return to (or stay at) the home base so
+                # the reach keeps home's well-conditioned diagonal geometry.
+                target_by = home_xy[1] if home_xy is not None else float(cur_y)
+            else:
+                target_by = min(
+                    float(target_pose.position[1]) -
+                    self._config.base_standoff, self._config.base_y_max)
+        dx, dy = target_bx - cur_x, target_by - cur_y
+        dist = float(np.hypot(dx, dy))
+        if dist < self._base_pos_tol:
+            memory["_base_pos_done"] = True
+            return None
+        # Move the base toward the target in small increments rather than one
+        # teleport, so a held jug follows the grasp constraint smoothly instead
+        # of being yanked across the jump (which destabilizes the carry).
+        if dist > self._base_step:
+            dx *= self._base_step / dist
+            dy *= self._base_step / dist
+        base_delta = np.array([dx, dy, 0.0], dtype=np.float32)
+        return _build_action_from_joints(robot, pb_state.joint_positions,
+                                         base_delta)
 
     def _execute_move_birrt(self, phase: Phase, state: State, memory: Dict,
                             objects: Sequence[Object],
@@ -450,12 +589,11 @@ class PhaseSkill:
         joint_action[finger_idx_l] = f_action
         joint_action[finger_idx_r] = f_action
 
-        action_arr = np.clip(
-            np.array(joint_action, dtype=np.float32),
-            robot.action_space.low,
-            robot.action_space.high,
-        )
-        return Action(action_arr)
+        # _build_action_from_joints pads zero base deltas for mobile robots
+        # (BiRRT replays a fixed-base arm trajectory) and is a no-op clip for
+        # fixed-base robots, keeping the action shape matched to the robot's
+        # action space.
+        return _build_action_from_joints(robot, joint_action)
 
     # ------------------------------------------------------------------
     # BiRRT planning helpers
@@ -590,6 +728,14 @@ class PhaseSkill:
         # 5. IK + motion planning on simulator's robot
         planning_robot = sim._pybullet_robot  # pylint: disable=protected-access
         planning_robot.set_joints(pb_state.joint_positions)
+
+        # Compute base_link_to_held_obj if an object is held (needed both for
+        # motion planning and the collision-aware IK below).
+        base_link_to_held_obj = None
+        if held_object is not None and sim._held_obj_to_base_link is not None:  # pylint: disable=protected-access
+            base_link_to_held_obj = p.invertTransform(
+                *sim._held_obj_to_base_link)  # pylint: disable=protected-access
+
         try:
             target_joints: JointPositions = planning_robot.inverse_kinematics(
                 target_pose,
@@ -602,12 +748,6 @@ class PhaseSkill:
                 f"({pos[0]:.3f}, {pos[1]:.3f}, {pos[2]:.3f}); "
                 "falling back to incremental IK.")
             return None
-
-        # Compute base_link_to_held_obj if an object is held.
-        base_link_to_held_obj = None
-        if held_object is not None and sim._held_obj_to_base_link is not None:  # pylint: disable=protected-access
-            base_link_to_held_obj = p.invertTransform(
-                *sim._held_obj_to_base_link)  # pylint: disable=protected-access
 
         traj = run_motion_planning(
             robot=planning_robot,
@@ -709,6 +849,10 @@ class PhaseSkill:
                 finger_action_nudge_magnitude=(
                     self._config.finger_action_nudge_magnitude),
                 validate=self._config.ik_validate,
+                # Base positioning is handled once per option by
+                # _maybe_drive_base; keep incremental IK arm-only so the base
+                # doesn't drift during contact phases (e.g. a switch push).
+                move_base=False,
             )
         except utils.OptionExecutionFailure:
             cur = current_pose.position

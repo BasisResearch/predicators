@@ -90,7 +90,10 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
         """Get the current set of Processes."""
         raise NotImplementedError("Override me!")
 
-    def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
+    def _solve(self,
+               task: Task,
+               timeout: int,
+               _allow_replan: bool = True) -> Callable[[State], Action]:
         self._num_calls += 1
         # ensure random over successive
         seed = self._seed + self._num_calls
@@ -152,11 +155,39 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
 
         self._save_metrics(metrics, processes, preds)
 
+        # A raw (replanned) policy is returned unwrapped so the wrapper below
+        # owns all replanning, avoiding nested replanning loops.
+        if not _allow_replan:
+            return policy
+
+        max_replans = CFG.process_planning_max_execution_replans
+
         def _policy(s: State) -> Action:
-            try:
-                return policy(s)
-            except utils.OptionExecutionFailure as e:
-                raise ApproachFailure(e.args[0], e.info)
+            nonlocal policy
+            replans = 0
+            while True:
+                try:
+                    return policy(s)
+                except utils.OptionExecutionFailure as e:
+                    if replans >= max_replans:
+                        raise ApproachFailure(e.args[0], e.info)
+                    replans += 1
+                    # An option failed mid-execution (typically a fresh BiRRT
+                    # collision from drift between the refinement simulator and
+                    # the real environment). Re-refine from the current state
+                    # so the remaining options use parameters valid for the
+                    # actual world, then retry. Bounded by the setting above.
+                    logging.info(
+                        "[ProcessPlanning] Execution failure (%s); replanning "
+                        "from the current state (attempt %d/%d).", e.args[0],
+                        replans, max_replans)
+                    try:
+                        policy = self._solve(Task(s, task.goal),
+                                             timeout,
+                                             _allow_replan=False)
+                    except (ApproachFailure, ApproachTimeout, PlanningFailure,
+                            PlanningTimeout) as solve_err:
+                        raise ApproachFailure(e.args[0], e.info) from solve_err
 
         return _policy
 

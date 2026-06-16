@@ -529,6 +529,21 @@ class GlobalSettings:
     boil_num_burner_train = [1]
     boil_num_burner_test = [1]
     boil_water_fill_speed = 0.002
+    # For the mobile_fetch robot: park the base (x-aligned to each reach
+    # target, a stand-off in front in y) before reaching, so the arm reaches
+    # straight forward at a comfortable distance instead of sideways over the
+    # burner or fully extended. No-op for fixed bases. Set False to disable
+    # (e.g. to isolate base-positioning effects).
+    boil_mobile_base_park = True
+    # Forward (y) stand-off distance for the parked base. Smaller = closer to
+    # the target = more reach margin (incl. sideways switch push-through),
+    # bounded by the table-clear y cap.
+    boil_mobile_base_standoff = 0.45
+    # Align the parked base x with the reach target x. True is best for picks
+    # (straight approach avoids sweeping over the burner); False keeps the base
+    # at the home x (diagonal approach) which leaves room for sideways switch
+    # push-throughs.
+    boil_mobile_base_align_x = True
 
     # parameters for random options approach
     random_options_max_tries = 100
@@ -765,6 +780,11 @@ class GlobalSettings:
     process_planning_use_abstract_policy = False
     process_planning_max_policy_guided_rollout = 10
     process_planning_set_parameters_one = False
+    # On an execution-time option failure (e.g. a fresh BiRRT collision caused
+    # by drift between the refinement simulator and the real environment),
+    # re-refine from the current state and retry, up to this many times. 0
+    # disables replanning (the option failure is terminal, as before).
+    process_planning_max_execution_replans = 0
     # Whether non-oracle process-planning approaches (process/param learning,
     # predicate invention, etc.) augment with the ground-truth helper types,
     # predicates, and objects (e.g. the domino grid). The oracle always does;

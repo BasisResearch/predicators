@@ -449,7 +449,14 @@ class PyBulletEnv(BaseEnv):
         """Run robot control, physics stepping, and grasp management."""
         # Send the action to the robot.
         target_joint_positions, base_delta = self._split_action(action)
-        if base_delta.size:
+        # Only relocate the (kinematic) base when there is an actual move.
+        # Calling set_base_pose (resetBasePositionAndOrientation) every step,
+        # even for a zero delta, perturbs the arm's contact dynamics — it makes
+        # the mobile_fetch switch-push wander off target — whereas fixed-base
+        # robots never touch the base. A zero delta is a no-op, so skip it.
+        base_moved = bool(
+            base_delta.size) and not bool(np.allclose(base_delta, 0.0))
+        if base_moved:
             self._apply_base_delta(base_delta)
         self._pybullet_robot.set_motors(target_joint_positions.tolist())
 
@@ -457,8 +464,16 @@ class PyBulletEnv(BaseEnv):
         # object, we need to reset the pose of the held object directly. This
         # is because the PyBullet constraints don't seem to play nicely with
         # resetJointState (the robot will sometimes drop the object).
-        if CFG.pybullet_control_mode == "reset" and \
-            self._held_obj_id is not None:
+        #
+        # The same hand-off is needed whenever the kinematic base just
+        # teleported with an object in hand (mobile robots): set_base_pose jumps
+        # the gripper, and over the single physics step the grasp constraint
+        # would yank the object across the jump -- the jug lags, tips, or slides
+        # in the gripper and then collides at the subsequent place/retreat. Pre-
+        # placing it at the gripper (it tracks the constant grasp offset, so this
+        # is exact for a rigid grasp) makes the carry follow the base smoothly.
+        if self._held_obj_id is not None and (CFG.pybullet_control_mode
+                                              == "reset" or base_moved):
             world_to_base_link = get_link_state(
                 self._pybullet_robot.robot_id,
                 self._pybullet_robot.end_effector_id,
@@ -538,6 +553,12 @@ class PyBulletEnv(BaseEnv):
         # any features this reset could not round-trip.
         self._last_unreconstructible_features = []
 
+        # Mobile base: restore the base pose first, since every arm/object
+        # world pose is expressed relative to it. _robot_matches_state also
+        # checks the base, so a base move forces the joints + grasp constraint
+        # to be rebuilt in the restored base frame below.
+        self._restore_base_pose_from_state(state)
+
         wrote_anything = False
 
         # 1) Robot pose diff. Skipping this branch when the live joints
@@ -603,6 +624,11 @@ class PyBulletEnv(BaseEnv):
             self._pybullet_robot.reset_state(self._extract_robot_state(state),
                                              joint_positions=joint_positions,
                                              trust_joints=trust_joints)
+            # reset_state snaps the base back to the robot's fixed home pose;
+            # for a mobile base, re-apply the requested base pose so the joints
+            # (recorded for that base) place the arm in the right world frame
+            # and the grasp constraint below is recorded in the correct frame.
+            self._restore_base_pose_from_state(state)
             wrote_anything = True
 
         for obj in objects_to_reset:
@@ -817,7 +843,42 @@ class PyBulletEnv(BaseEnv):
             cur_jp = self._pybullet_robot.get_joints()
         except (KeyError, ValueError):
             return False
-        return bool(np.allclose(jp, cur_jp, atol=atol))
+        if not bool(np.allclose(jp, cur_jp, atol=atol)):
+            return False
+        # Mobile base: a base move (with identical joints) still relocates the
+        # whole arm, so it must count as a robot change.
+        want_base = self._base_pose_from_state(state)
+        if want_base is not None:
+            cur_base = self._robot_base_pose_tuple()
+            if cur_base is not None and not (
+                    np.allclose(want_base[0], cur_base[0], atol=atol)
+                    and np.allclose(want_base[1], cur_base[1], atol=atol)):
+                return False
+        return True
+
+    @staticmethod
+    def _base_pose_from_state(
+        state: State
+    ) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float,
+                                                          float]]]:
+        """Pull a mobile base pose out of a State's simulator_state, if any."""
+        sim_state = getattr(state, "simulator_state", None)
+        if isinstance(sim_state, dict):
+            return sim_state.get("base_pose", None)
+        return None
+
+    def _restore_base_pose_from_state(self, state: State) -> None:
+        """Set the mobile base pose from the State's simulator_state, if it
+        carries one (no-op for fixed-base robots / states without it)."""
+        base_pose = self._base_pose_from_state(state)
+        if base_pose is None:
+            return
+        robot = self._pybullet_robot
+        if not hasattr(robot, "set_base_pose"):
+            return
+        pos, orn = base_pose
+        robot.set_base_pose(  # type: ignore[attr-defined]
+            Pose((pos[0], pos[1], pos[2]), (orn[0], orn[1], orn[2], orn[3])))
 
     def _object_pose_matches_state(self,
                                    obj: Object,
@@ -1063,15 +1124,33 @@ class PyBulletEnv(BaseEnv):
 
         state = utils.create_state_from_dict(state_dict)
         joint_positions = self._pybullet_robot.get_joints()
-        pyb_state = PyBulletState(state.data,
-                                  simulator_state={
-                                      "joint_positions": joint_positions,
-                                      "physics_client_id":
-                                      self._physics_client_id,
-                                      "robot_id":
-                                      self._pybullet_robot.robot_id,
-                                  })
+        sim_state_dict: Dict[str, Any] = {
+            "joint_positions": joint_positions,
+            "physics_client_id": self._physics_client_id,
+            "robot_id": self._pybullet_robot.robot_id,
+        }
+        # Mobile robots: carry the base pose so it round-trips through
+        # _set_state (the base is not a State feature, so without this a
+        # reconstruction would silently keep the live base pose, breaking
+        # option-model / refinement rollouts that move the base).
+        base_pose = self._robot_base_pose_tuple()
+        if base_pose is not None:
+            sim_state_dict["base_pose"] = base_pose
+        pyb_state = PyBulletState(state.data, simulator_state=sim_state_dict)
         return pyb_state
+
+    def _robot_base_pose_tuple(
+        self
+    ) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float,
+                                                          float]]]:
+        """Return the mobile base pose as (position, orientation) tuples, or
+        None for fixed-base robots."""
+        robot = self._pybullet_robot
+        if int(getattr(robot, "base_action_dim", 0)) <= 0 or \
+                not hasattr(robot, "get_base_pose"):
+            return None
+        base_pose = robot.get_base_pose()  # type: ignore[attr-defined]
+        return (tuple(base_pose.position), tuple(base_pose.orientation))
 
     def _get_robot_state_dict(self) -> Dict[str, float]:
         """Build a feature dict for the robot from PyBullet state.

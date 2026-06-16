@@ -5,6 +5,7 @@ from typing import Collection, Iterator, Optional, Sequence
 
 import numpy as np
 import pybullet as p
+from gym.spaces import Box
 from numpy.typing import NDArray
 
 from predicators import utils
@@ -29,7 +30,16 @@ def run_motion_planning(
     Note that this function changes the state of the robot.
     """
     rng = np.random.default_rng(seed)
+    # BiRRT plans in the arm-joint space. For mobile robots, action_space also
+    # includes base-delta dims (appended last); strip them so sampled configs
+    # match the arm joints that set_joints / forward_kinematics expect. For
+    # fixed-base robots (base_action_dim == 0) this is a no-op.
     joint_space = robot.action_space
+    base_dim = int(getattr(robot, "base_action_dim", 0))
+    if base_dim > 0:
+        joint_space = Box(low=np.asarray(joint_space.low[:-base_dim]),
+                          high=np.asarray(joint_space.high[:-base_dim]),
+                          dtype=np.float32)
     joint_space.seed(seed)
     num_interp = CFG.pybullet_birrt_extend_num_interp
 
