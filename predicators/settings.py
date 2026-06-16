@@ -434,7 +434,6 @@ class GlobalSettings:
     domino_some_dominoes_are_connected = False
     domino_initialize_at_finished_state = True
     domino_use_domino_blocks_as_target = False
-    domino_use_grid = False
     domino_include_connected_predicate = False
     domino_has_glued_dominos = True
     domino_prune_actions = False  # Set to True to enable action pruning
@@ -766,6 +765,11 @@ class GlobalSettings:
     process_planning_use_abstract_policy = False
     process_planning_max_policy_guided_rollout = 10
     process_planning_set_parameters_one = False
+    # Whether non-oracle process-planning approaches (process/param learning,
+    # predicate invention, etc.) augment with the ground-truth helper types,
+    # predicates, and objects (e.g. the domino grid). The oracle always does;
+    # the others opt in via this flag (e.g. for ExoPredicator).
+    process_planning_use_gt_helpers = False
     process_task_planning_heuristic = 'h_ff'
     wait_option_terminate_on_atom_change = True
     running_no_invent_baseline = False

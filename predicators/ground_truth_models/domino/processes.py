@@ -67,6 +67,10 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             options: Dict[str, ParameterizedOption]) -> Set[CausalProcess]:
         del env_name  # unused
 
+        # These processes are defined over the grid (loc/angle/direction).
+        # Only oracle / process-planning approaches request them, and they do
+        # so unconditionally, so the grid is intrinsic to those approaches.
+
         # Types
         robot_type = types["robot"]
         domino_type = types["domino"]
@@ -107,7 +111,13 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         robot = Variable("?robot", robot_type)
         domino = Variable("?domino", domino_type)
         parameters = [robot, domino]
-        option_vars = [robot, domino]
+        # With restricted push the "Push" option finds the start block from
+        # the state itself, so it takes only the robot. The unrestricted
+        # option also takes the domino to push.
+        if CFG.domino_restricted_push:
+            option_vars = [robot]
+        else:
+            option_vars = [robot, domino]
         option = Push
         condition_at_start = {
             LiftedAtom(HandEmpty, [robot]),

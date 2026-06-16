@@ -6,8 +6,7 @@ import numpy as np
 
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
-from predicators.envs.pybullet_domino.env import \
-    PyBulletDominoComposedEnv
+from predicators.envs.pybullet_domino.env import PyBulletDominoComposedEnv
 from predicators.ground_truth_models import GroundTruthTypeFactory
 from predicators.structs import Object, Task, Type
 from predicators.utils import PyBulletState
@@ -29,16 +28,14 @@ class PyBulletDominoGroundTruthTypeFactory(GroundTruthTypeFactory):
         """
         del env_name  # unused
 
-        # Position type with xx, yy coordinates
-        position_type = Type("loc", ["xx", "yy"])
-
-        # Angle type for discrete rotations
-        angle_type = Type("angle", ["angle"])
-
-        # Direction type for sequence generation
-        direction_type = Type("direction", ["dir"])
-
-        return {position_type, angle_type, direction_type}
+        # The grid types (loc/angle/direction) are defined canonically by
+        # GridComponent; delegate so there is a single source of truth. Only
+        # oracle / process-planning approaches request these helpers (and the
+        # grid predicates and processes built on them); the oracle does so
+        # unconditionally, so the grid is intrinsic to it and needs no flag.
+        from predicators.envs.pybullet_domino.components.grid_component import \
+            GridComponent  # pylint: disable=import-outside-toplevel
+        return GridComponent().get_types()
 
     @classmethod
     def augment_task_with_helper_objects(cls, task: Task) -> Task:

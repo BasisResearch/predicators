@@ -62,6 +62,7 @@ class GridComponent(DominoEnvComponent):
         self._position_type = Type("loc", ["xx", "yy"],
                                    sim_features=["id", "xx", "yy"])
         self._angle_type = Type("angle", ["angle"])
+        self._direction_type = Type("direction", ["dir"])
 
         # Create rotation objects for 8 discrete angles
         self.rotations: List[Object] = []
@@ -97,8 +98,7 @@ class GridComponent(DominoEnvComponent):
                                    self._PosClear_holds)
         self._InFrontDirection = DerivedPredicate(
             "InFrontDirection",
-            [self._domino_type, self._domino_type,
-             Type("direction", ["dir"])],
+            [self._domino_type, self._domino_type, self._direction_type],
             self._InFrontDirection_holds,
             auxiliary_predicates={self._DominoAtPos, self._DominoAtRot})
         self._InFront = DerivedPredicate(
@@ -115,7 +115,7 @@ class GridComponent(DominoEnvComponent):
     # -------------------------------------------------------------------------
 
     def get_types(self) -> Set[Type]:
-        return {self._position_type, self._angle_type}
+        return {self._position_type, self._angle_type, self._direction_type}
 
     def get_predicates(self) -> Set[Predicate]:
         if self._domino_type is None:
@@ -168,15 +168,35 @@ class GridComponent(DominoEnvComponent):
             self._debug_line_ids.append(line_id)
 
     def extract_feature(self, obj: Object, feature: str) -> Optional[float]:
-        if obj.type == self._position_type:
-            if feature == "xx":
-                return obj.xx
-            if feature == "yy":
-                return obj.yy
-        elif obj.type == self._angle_type:
-            if feature == "angle":
-                angle_str = obj.name.split("_")[1]
-                return float(angle_str)
+        # Grid helper-object features (loc/angle/direction) are encoded in
+        # their names; reuse the canonical name-based reconstruction.
+        return self.reconstruct_feature_from_name(obj, feature)
+
+    @staticmethod
+    def reconstruct_feature_from_name(obj: Object,
+                                      feature: str) -> Optional[float]:
+        """Reconstruct a grid helper-object feature from its name.
+
+        The grid helper objects (loc/angle/direction) are injected into
+        tasks by the ground-truth models and carry no PyBullet body, so
+        their feature values are encoded in their names (e.g.
+        "loc_0.47_1.28", "ang_-90", "straight"). The composed env calls
+        this during its _get_state round-trip, where there is no live
+        GridComponent to query (these objects appear only inside oracle /
+        process-planning, which requires the grid).
+
+        Returns None for non-grid objects/features so the caller can fall
+        through to its own error handling.
+        """
+        if obj.type.name == "loc" and feature in ("xx", "yy"):
+            # Name format: "loc_<x>_<y>", e.g. "loc_0.47_1.28".
+            _, x_str, y_str = obj.name.split("_")
+            return float(x_str) if feature == "xx" else float(y_str)
+        if obj.type.name == "angle" and feature == "angle":
+            # Name format: "ang_<degrees>", e.g. "ang_-90".
+            return float(obj.name.split("_")[1])
+        if obj.type.name == "direction" and feature == "dir":
+            return {"straight": 0.0, "left": 1.0, "right": 2.0}[obj.name]
         return None
 
     def get_init_dict_entries(
@@ -291,21 +311,43 @@ class GridComponent(DominoEnvComponent):
         y_adjacent = abs(dy - self.pos_gap) < tolerance and dx < tolerance
         return x_adjacent or y_adjacent
 
-    def _PosClear_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        """Check if a grid position is unoccupied by any domino."""
+    @staticmethod
+    def _PosClear_holds(state: State, objects: Sequence[Object]) -> bool:
+        """Check if a position is clear (not occupied by any domino).
+
+        A position is considered clear if no domino is currently at that
+        position. The occupancy tolerance is derived from the grid
+        spacing (half the smallest gap between location objects).
+        """
         position, = objects
+
         target_x = state.get(position, "xx")
         target_y = state.get(position, "yy")
-        position_tolerance = self.pos_gap * 0.5
 
-        assert self._domino_type is not None
-        for domino in state.get_objects(self._domino_type):
-            domino_x = state.get(domino, "x")
-            domino_y = state.get(domino, "y")
-            if (abs(domino_x - target_x) <= position_tolerance
-                    and abs(domino_y - target_y) <= position_tolerance
-                    and not state.get(domino, "is_held")):
-                return False
+        # Calculate grid spacing (minimum distance between positions).
+        position_type = position.type
+        positions = list(state.get_objects(position_type))
+        min_distance = float('inf')
+        for i, pos1 in enumerate(positions):
+            for pos2 in positions[i + 1:]:
+                x1 = state.get(pos1, "xx")
+                y1 = state.get(pos1, "yy")
+                x2 = state.get(pos2, "xx")
+                y2 = state.get(pos2, "yy")
+                distance = np.sqrt((x1 - x2)**2 + (y1 - y2)**2)
+                if distance > 1e-6:  # Skip identical positions
+                    min_distance = min(min_distance, distance)
+        position_tolerance = (min_distance *
+                              0.5 if min_distance != float('inf') else 0.1)
+
+        for obj in state:
+            if obj.type.name == "domino":
+                domino_x = state.get(obj, "x")
+                domino_y = state.get(obj, "y")
+                if (abs(domino_x - target_x) <= position_tolerance
+                        and abs(domino_y - target_y) <= position_tolerance
+                        and not state.get(obj, "is_held")):
+                    return False
         return True
 
     @staticmethod
@@ -317,16 +359,15 @@ class GridComponent(DominoEnvComponent):
         """
         domino1, domino2, direction_obj = objects
 
-        _pos_coord_cache: Dict[Object, Tuple[int, int]] = {}
+        _pos_coord_cache: Dict[Object, Tuple[float, float]] = {}
         _rot_rad_cache: Dict[Object, float] = {}
 
-        def extract_grid_coords(pos_obj: Object) -> Tuple[int, int]:
+        def extract_coords(pos_obj: Object) -> Tuple[float, float]:
+            # Location names encode continuous coords, e.g. "loc_0.49_1.23".
             if pos_obj in _pos_coord_cache:
                 return _pos_coord_cache[pos_obj]
             name_parts = pos_obj.name.split("_")
-            y_idx = int(name_parts[1][1:])
-            x_idx = int(name_parts[2][1:])
-            result = (x_idx, y_idx)
+            result = (float(name_parts[1]), float(name_parts[2]))
             _pos_coord_cache[pos_obj] = result
             return result
 
@@ -339,7 +380,7 @@ class GridComponent(DominoEnvComponent):
             return result
 
         d1_positions = {
-            extract_grid_coords(a.objects[1])
+            extract_coords(a.objects[1])
             for a in atoms
             if a.predicate.name == "DominoAtPos" and a.objects[0] == domino1
         }
@@ -349,7 +390,7 @@ class GridComponent(DominoEnvComponent):
             if a.predicate.name == "DominoAtRot" and a.objects[0] == domino1
         }
         d2_positions = {
-            extract_grid_coords(a.objects[1])
+            extract_coords(a.objects[1])
             for a in atoms
             if a.predicate.name == "DominoAtPos" and a.objects[0] == domino2
         }
@@ -359,25 +400,35 @@ class GridComponent(DominoEnvComponent):
             if a.predicate.name == "DominoAtRot" and a.objects[0] == domino2
         }
 
-        def _check_case(front_pos: Set[Tuple[int, int]],
+        def _check_case(front_pos: Set[Tuple[float, float]],
                         front_rot: Set[float],
-                        back_pos: Set[Tuple[int, int]],
+                        back_pos: Set[Tuple[float, float]],
                         back_rot: Set[float],
                         direction_name: str,
                         tolerance: float = 1e-6) -> bool:
             if not all([front_pos, front_rot, back_pos, back_rot]):
                 return False
 
+            # pos_gap is the physical spacing between adjacent grid cells.
+            from predicators.envs.pybullet_domino.env import \
+                PyBulletDominoComposedEnv  # pylint: disable=import-outside-toplevel
+            pos_gap = PyBulletDominoComposedEnv.pos_gap
+
             position_possible = False
             for (x_b, y_b) in back_pos:
                 for rot_b in back_rot:
+                    # Relationship only holds for cardinal rotations.
                     if not (abs(np.sin(rot_b)) < tolerance
                             or abs(np.cos(rot_b)) < tolerance):
                         continue
-                    dx_idx = round(np.sin(rot_b))
-                    dy_idx = round(np.cos(rot_b))
-                    if (x_b + dx_idx, y_b + dy_idx) in front_pos:
-                        position_possible = True
+                    expected_x = x_b + pos_gap * np.sin(rot_b)
+                    expected_y = y_b + pos_gap * np.cos(rot_b)
+                    for (x_f, y_f) in front_pos:
+                        if (abs(x_f - expected_x) < pos_gap * 0.3
+                                and abs(y_f - expected_y) < pos_gap * 0.3):
+                            position_possible = True
+                            break
+                    if position_possible:
                         break
                 if position_possible:
                     break
@@ -427,27 +478,42 @@ class GridComponent(DominoEnvComponent):
     @staticmethod
     def _AdjacentTo_holds(atoms: Set[GroundAtom],
                           objects: Sequence[Object]) -> bool:
-        """Check if a position is adjacent to a domino in cardinal
-        directions."""
+        """Check if a position is adjacent to a domino in cardinal directions.
+
+        Adjacent means about one ``pos_gap`` away in a cardinal
+        direction (up/down/left/right) but not diagonal, over the
+        continuous-coordinate location names (e.g. ``loc_0.49_1.23``).
+        """
         position, domino = objects
 
-        def extract_grid_coords(pos_obj: Object) -> Tuple[int, int]:
-            name_parts = pos_obj.name.split("_")
-            y_idx = int(name_parts[1][1:])
-            x_idx = int(name_parts[2][1:])
-            return (x_idx, y_idx)
+        _pos_coord_cache: Dict[Object, Tuple[float, float]] = {}
 
-        target_x, target_y = extract_grid_coords(position)
+        def extract_coords(pos_obj: Object) -> Tuple[float, float]:
+            if pos_obj in _pos_coord_cache:
+                return _pos_coord_cache[pos_obj]
+            name_parts = pos_obj.name.split("_")
+            result = (float(name_parts[1]), float(name_parts[2]))
+            _pos_coord_cache[pos_obj] = result
+            return result
+
+        # pos_gap is the physical spacing between adjacent grid cells.
+        from predicators.envs.pybullet_domino.env import \
+            PyBulletDominoComposedEnv  # pylint: disable=import-outside-toplevel
+        pos_gap = PyBulletDominoComposedEnv.pos_gap
+
+        target_x, target_y = extract_coords(position)
 
         domino_positions = {
-            extract_grid_coords(a.objects[1])
+            extract_coords(a.objects[1])
             for a in atoms
             if a.predicate.name == "DominoAtPos" and a.objects[0] == domino
         }
 
-        for dx, dy in domino_positions:
-            if (abs(target_x - dx) == 1 and target_y == dy) or \
-               (target_x == dx and abs(target_y - dy) == 1):
+        for domino_x, domino_y in domino_positions:
+            dx = abs(target_x - domino_x)
+            dy = abs(target_y - domino_y)
+            if ((abs(dx - pos_gap) < pos_gap * 0.3 and dy < pos_gap * 0.3) or
+                (abs(dy - pos_gap) < pos_gap * 0.3 and dx < pos_gap * 0.3)):
                 return True
         return False
 

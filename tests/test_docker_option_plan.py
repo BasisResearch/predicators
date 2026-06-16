@@ -38,7 +38,6 @@ _CFG_OVERRIDES = {
     "domino_use_continuous_place": True,
     "domino_use_skill_factories": True,
     "domino_use_domino_blocks_as_target": True,
-    "domino_use_grid": True,
     "domino_has_glued_dominos": False,
     "domino_initialize_at_finished_state": False,
     "num_train_tasks": 1,

@@ -17,6 +17,8 @@ from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.envs.pybullet_domino.components.fan_component import \
     FanComponent
+from predicators.envs.pybullet_domino.components.grid_component import \
+    GridComponent
 from predicators.envs.pybullet_domino.components.ramp_component import \
     RampComponent
 from predicators.envs.pybullet_domino.components.stairs_component import \
@@ -257,6 +259,16 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             result = comp.extract_feature(obj, feature)
             if result is not None:
                 return result
+
+        # Grid helper objects (loc/angle/direction) are injected by the
+        # ground-truth models during oracle / process planning and own no
+        # live component here. GridComponent is the canonical home for the
+        # grid logic, so reconstruct their features from their names. This
+        # lets the _get_state round-trip in _set_state succeed even when the
+        # env itself is built grid-free.
+        result = GridComponent.reconstruct_feature_from_name(obj, feature)
+        if result is not None:
+            return result
 
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
