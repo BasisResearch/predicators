@@ -232,6 +232,12 @@ class DominoComponent(DominoEnvComponent):
                                        self._MovableBlock_holds)
         self._DominoNotGlued = Predicate("DominoNotGlued", [self._domino_type],
                                          self._DominoNotGlued_holds)
+        # Position-based InFront over continuous domino poses. When the grid is
+        # in use, GridComponent's derived InFront replaces this one (helper
+        # predicates take precedence on name collisions).
+        self._InFront = Predicate("InFront",
+                                  [self._domino_type, self._domino_type],
+                                  self._InFront_holds)
 
     # -------------------------------------------------------------------------
     # DominoEnvComponent interface implementation
@@ -252,6 +258,7 @@ class DominoComponent(DominoEnvComponent):
             self._Tilting,
             self._InitialBlock,
             self._MovableBlock,
+            self._InFront,
         }
         if CFG.domino_has_glued_dominos:
             preds.add(self._DominoNotGlued)
@@ -475,6 +482,44 @@ class DominoComponent(DominoEnvComponent):
                               objects: Sequence[Object]) -> bool:
         """Check if domino is NOT glued."""
         return not cls._DominoGlued_holds(state, objects)
+
+    def _InFront_holds(self, state: State, objects: Sequence[Object]) -> bool:
+        """Position-based ``InFront`` classifier over continuous poses.
+
+        ``InFront(d1, d2)`` holds when one domino sits roughly one
+        ``pos_gap`` ahead of the other along that other's facing
+        (toppling) direction, with a discrete turn offset between their
+        yaws (straight / 45-left / 45-right). It reads the continuous
+        domino poses directly, so it is available to grid-free agent
+        approaches.
+        """
+        domino1, domino2 = objects
+        if state.get(domino1, "is_held") or state.get(domino2, "is_held"):
+            return False
+
+        pos_gap = self.pos_gap
+        pos_tol = pos_gap * 0.3
+        ang_tol = np.radians(15)
+        # Straight, 45-degree right turn, and 45-degree left turn.
+        turn_offsets = (-np.pi / 4, 0.0, np.pi / 4)
+
+        def _ahead(back: Object, front: Object) -> bool:
+            x_b = state.get(back, "x")
+            y_b = state.get(back, "y")
+            rot_b = state.get(back, "yaw")
+            # The relationship only holds for cardinal back-facings.
+            if not (abs(np.sin(rot_b)) < 1e-3 or abs(np.cos(rot_b)) < 1e-3):
+                return False
+            expected_x = x_b + pos_gap * np.sin(rot_b)
+            expected_y = y_b + pos_gap * np.cos(rot_b)
+            if (abs(state.get(front, "x") - expected_x) > pos_tol
+                    or abs(state.get(front, "y") - expected_y) > pos_tol):
+                return False
+            diff = utils.wrap_angle(state.get(front, "yaw") - rot_b)
+            return any(abs(diff - off) < ang_tol for off in turn_offsets)
+
+        # InFront(d1, d2) := d1 is ahead of d2, or d2 is ahead of d1.
+        return _ahead(domino2, domino1) or _ahead(domino1, domino2)
 
     @classmethod
     def _DominoGlued_holds(cls, state: State,

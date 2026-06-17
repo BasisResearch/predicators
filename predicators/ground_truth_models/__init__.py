@@ -221,7 +221,9 @@ def get_gt_processes(env_name: str,
     env = get_or_create_env(env_name)
     env_options = get_gt_options(env_name)
     helper_predicates = get_gt_helper_predicates(env_name)
-    all_predicates = env.predicates | helper_predicates
+    # Helper predicates take precedence over env predicates on name collisions
+    # (e.g. the grid's derived InFront replaces the position-based InFront).
+    all_predicates = helper_predicates | env.predicates
     helper_types = get_gt_helper_types(env_name)
     all_types = env.types | helper_types
     assert predicates_to_keep.issubset(all_predicates)

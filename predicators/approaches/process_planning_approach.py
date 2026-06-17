@@ -54,8 +54,10 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
         # a helper factory.
         if self._use_gt_helpers():
             self._types = self._types | get_gt_helper_types(CFG.env)
-            self._initial_predicates = (self._initial_predicates
-                                        | get_gt_helper_predicates(CFG.env))
+            # Helper predicates take precedence on name collisions (e.g. the
+            # grid's derived InFront replaces the position-based InFront).
+            self._initial_predicates = (get_gt_helper_predicates(CFG.env)
+                                        | self._initial_predicates)
 
         # Conditionally load VLM components if an abstract policy is used.
         self._vlm = None
