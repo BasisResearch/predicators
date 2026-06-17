@@ -137,11 +137,14 @@ class DominoTaskGenerator(TaskGenerator):
             for target_obj in init_state.get_objects(self.domino.target_type):
                 goal_atoms.add(GroundAtom(self.domino.Toppled, [target_obj]))
 
+        if len(goal_atoms) == 1:
+            target_word, target_verb = "the purple domino", "is"
+        else:
+            target_word, target_verb = "the purple dominoes", "are"
         goal_nl = (
-            "Arrange the moveable domino blocks into a chain so that when "
-            "the start domino is pushed, the chain reaction topples the "
-            "target(s). Do NOT directly push "
-            "or topple the target dominoes yourself.")
+            f"Move the blue dominoes such that when the green domino is "
+            f"pushed, {target_word} {target_verb} toppled. Do NOT directly "
+            f"push or topple {target_word} yourself.")
 
         return EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
 
