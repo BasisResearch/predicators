@@ -1146,6 +1146,20 @@ class GlobalSettings:
     agent_sim_learn_oracle_sim_param_noise_scale = 0.2
     # When True, use GT parameter values directly, skipping MCMC fitting.
     agent_sim_learn_oracle_sim_params = False
+    # When True, the agent synthesizes per-skill (per-option) samplers that
+    # aim continuous option parameters at each sketch step's subgoal, instead
+    # of bilevel refinement drawing them uniformly from the option's box. The
+    # agent authors a versioned ``samplers.py`` (LEARNED_SAMPLERS keyed by
+    # option name) and tunes it with the ``evaluate_sampler`` tool. Sampler
+    # learning rides along in the sim/predicate synthesis session when one
+    # runs (oracle_sim_program=False); when no synthesis session runs
+    # (oracle_sim_program=True) it gets a dedicated session of its own.
+    agent_sim_learn_synthesize_samplers = False
+    # When True (and synthesize_samplers is on), use ground-truth per-skill
+    # samplers from the env's GroundTruthSamplerFactory instead of having the
+    # agent learn them — if such samplers exist for the env; otherwise warn
+    # and fall back to synthesis. Mirrors agent_sim_learn_oracle_sim_program.
+    agent_sim_learn_oracle_samplers = False
 
     # Names of env predicates kept (not stripped) for the
     # agent_sim_predicate_invention approach. Empty list defers to the
