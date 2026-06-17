@@ -14,8 +14,8 @@ from predicators.agent_sdk.proposal_parser import ProposalBundle, \
     build_exec_context, exec_code_safely, validate_predicate
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, LowLevelTrajectory, \
-    ParameterizedOption, Predicate, State, Task, Type
+from predicators.structs import CausalProcess, LowLevelTrajectory, Object, \
+    OptionSampler, ParameterizedOption, Predicate, State, Task, Type
 
 MCP_SERVER_NAME = "predicator_tools"
 
@@ -163,6 +163,12 @@ class ToolContext:
     # candidates that straddle the learned model's decision boundaries.
     # None ⇒ plain feasibility search (default).
     atom_disagreement_fn: Optional[Callable[[State, Any], float]] = None
+    # Synthesized per-skill samplers (option name -> sampler), synced from
+    # the learning approach when agent_sim_learn_synthesize_samplers is on.
+    # The agent_bilevel explorer and synthesis tools pass these into
+    # refinement so continuous-parameter search aims at each step's subgoal
+    # instead of drawing uniformly. Empty ⇒ uniform sampling (default).
+    option_samplers: Dict[str, OptionSampler] = field(default_factory=dict)
     current_task: Optional[Task] = None
     iteration_proposals: ProposalBundle = field(default_factory=ProposalBundle)
     planning_results: Dict[str, Any] = field(default_factory=dict)

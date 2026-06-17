@@ -187,6 +187,7 @@ def run_refinement_for_synthesis(
         step_samples_cumulative=step_samples_cumulative,
         termination_reason=termination_reason,
         elapsed_holder=elapsed_holder,
+        option_samplers=approach._get_all_samplers(),
     )
 
     reason = termination_reason[0] if termination_reason else (

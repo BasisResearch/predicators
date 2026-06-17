@@ -12,7 +12,7 @@ neither approaches nor explorers need to subclass one another.
 import dataclasses
 import logging
 import re
-from typing import Callable, Collection, List, Optional, Sequence, Set, \
+from typing import Callable, Collection, Dict, List, Optional, Sequence, Set, \
     Tuple, cast
 
 import numpy as np
@@ -20,8 +20,8 @@ import numpy as np
 from predicators import utils
 from predicators.option_model import _OptionModelBase
 from predicators.planning import run_backtracking_refinement
-from predicators.structs import GroundAtom, Object, ParameterizedOption, \
-    Predicate, State, Task, Type, _Option
+from predicators.structs import GroundAtom, Object, OptionSampler, \
+    ParameterizedOption, Predicate, State, Task, Type, _Option
 
 # Signature of an info-gain scorer: given a candidate post-state and the
 # atoms whose truth the step is meant to establish, return a scalar where
@@ -368,6 +368,7 @@ def refine_sketch(
     elapsed_holder: Optional[List[float]] = None,
     info_scorer: Optional[InfoScorer] = None,
     info_n_feasible_target: int = 1,
+    option_samplers: Optional[Dict[str, OptionSampler]] = None,
 ) -> Tuple[List[_Option], bool, int]:
     """Backtracking search over continuous parameters for a plan sketch.
 
@@ -415,6 +416,14 @@ def refine_sketch(
     from the sketch's subgoal annotations into ``grounded.memory`` so
     that ``WaitOption`` terminates on the intended atom change rather
     than the first incidental one.
+
+    ``option_samplers`` maps an option name to a per-skill sampler
+    ``(state, subgoal_atoms, rng, objects) -> params`` (the NSRTSampler
+    signature, with the step subgoal in the atoms slot), used on both
+    plain and info-seeking draws to aim that option's parameters at the
+    subgoal instead of drawing uniformly. The return is clipped to the
+    option's box; a missing or misbehaving sampler falls back to uniform
+    sampling.
     """
     if not sketch:
         return [], False, 0
@@ -430,6 +439,42 @@ def refine_sketch(
     # plan[:idx+1] reflects the exact grounded options that led to it.
     deepest_fail_idx: List[int] = [-1]
     deepest_fail_prefix: List[List[Optional[_Option]]] = [[]]
+
+    # Options whose synthesized sampler already misbehaved once — so the
+    # per-draw fallback warning fires at most once per option, not on every
+    # one of the (potentially thousands of) draws during backtracking.
+    _sampler_warned: Set[str] = set()
+
+    def _draw_params(step: SketchStep, state: State,
+                     rng_: np.random.Generator) -> np.ndarray:
+        """Draw continuous params for a step's option.
+
+        Uses a registered per-skill sampler (keyed by option name) when
+        present, else falls back to uniform ``sample_params`` — also on
+        a sampler error or wrong-shaped return.
+        """
+        sampler = (option_samplers.get(step.option.name)
+                   if option_samplers else None)
+        if sampler is not None:
+            box = step.option.params_space
+            expected = box.shape[0]
+            try:
+                raw = sampler(state, step.subgoal_atoms or set(), rng_,
+                              list(step.objects))
+                params = np.asarray(raw, dtype=np.float32).reshape(-1)
+                if params.shape == (expected, ):
+                    return np.clip(params, box.low, box.high)
+                reason = (f"returned shape {params.shape}, "
+                          f"expected ({expected},)")
+            except Exception as e:  # pylint: disable=broad-except
+                reason = f"raised {type(e).__name__}: {e}"
+            if step.option.name not in _sampler_warned:
+                _sampler_warned.add(step.option.name)
+                logging.warning(
+                    "[%s] synthesized sampler for %s %s; falling back to "
+                    "uniform sampling for this option.", run_id,
+                    step.option.name, reason)
+        return sample_params(step.option, rng_)
 
     def _ground(step: SketchStep, params: np.ndarray) -> _Option:
         grounded = step.option.ground(list(step.objects), params)
@@ -538,7 +583,7 @@ def refine_sketch(
         first_candidate: Optional[_Option] = None
         n_draws = 0
         while len(scored) < info_n_feasible_target and n_draws < draw_cap:
-            grounded = _ground(step, sample_params(step.option, rng_))
+            grounded = _ground(step, _draw_params(step, state, rng_))
             n_draws += 1
             if first_candidate is None:
                 first_candidate = grounded
@@ -610,7 +655,7 @@ def refine_sketch(
                           f"{state.pretty_str()}")
         if _info_seeking_applies(step):
             return _sample_info_seeking(step, state, rng_, idx)
-        return _ground(step, sample_params(step.option, rng_))
+        return _ground(step, _draw_params(step, state, rng_))
 
     def validate_fn(idx: int, _pre_state: State, _option: _Option,
                     post_state: State, _num_actions: int) -> Tuple[bool, str]:

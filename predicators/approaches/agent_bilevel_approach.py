@@ -315,6 +315,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             check_subgoals=CFG.agent_bilevel_check_subgoals,
             log_state=CFG.agent_bilevel_log_state,
             run_id=self._run_id,
+            option_samplers=self._get_all_samplers(),
         )
         return plan, success
 

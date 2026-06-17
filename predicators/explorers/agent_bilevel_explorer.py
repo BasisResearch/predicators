@@ -176,6 +176,7 @@ class AgentBilevelExplorer(BaseExplorer):
                 run_id="agent_bilevel_explorer",
                 info_scorer=info_scorer,
                 info_n_feasible_target=info_n_feasible_target,
+                option_samplers=self._tool_context.option_samplers,
             )
             # Record the honest verdict so get_interaction_requests can
             # stamp it onto this request: early stopping should not treat a
