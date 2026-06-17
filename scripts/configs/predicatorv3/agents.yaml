@@ -13,7 +13,6 @@ APPROACHES:
   #     terminate_on_goal_reached_and_option_terminated: True
   #     agent_sdk_use_local_sandbox: True
   #     option_model_terminate_on_repeat: False
-  #     agent_sdk_max_agent_turns_per_iteration: 50
   #     agent_planner_use_scratchpad: False
   #     agent_planner_use_visualize_state: True
   #     agent_planner_use_annotate_scene: True
@@ -26,7 +25,6 @@ APPROACHES:
   #     terminate_on_goal_reached_and_option_terminated: True
   #     agent_sdk_use_local_sandbox: True
   #     option_model_terminate_on_repeat: False
-  #     agent_sdk_max_agent_turns_per_iteration: 50
   #     agent_planner_use_scratchpad: False
   #     agent_planner_use_visualize_state: True
   #     agent_planner_use_annotate_scene: True
@@ -41,13 +39,11 @@ APPROACHES:
   #     terminate_on_goal_reached_and_option_terminated: True
   #     agent_sdk_use_local_sandbox: True
   #     option_model_terminate_on_repeat: False
-  #     agent_sdk_max_agent_turns_per_iteration: 50
   #     agent_planner_use_visualize_state: True
   #     agent_planner_use_annotate_scene: True
   #     option_model_use_gui: True
   #     agent_bilevel_log_state: False
   #     agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
-  #     skip_test_until_last_ite_or_early_stopping: False
   #     agent_sim_learn_oracle_sim_program: True
   #     agent_sim_learn_oracle_sim_params: False
   #     agent_sim_learn_oracle_sim_param_noise_scale: 1.0 # 1.0 allows successful planning but insatisficing plan; 0.8 produces satisficing plan
@@ -60,13 +56,11 @@ APPROACHES:
   #     terminate_on_goal_reached_and_option_terminated: True
   #     agent_sdk_use_local_sandbox: True
   #     option_model_terminate_on_repeat: False
-  #     agent_sdk_max_agent_turns_per_iteration: 50
   #     agent_planner_use_visualize_state: True
   #     agent_planner_use_annotate_scene: True
   #     option_model_use_gui: True
   #     agent_bilevel_log_state: False
   #     agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
-  #     skip_test_until_last_ite_or_early_stopping: False
   #     agent_sim_learn_oracle_sim_program: False
   #     agent_sim_learn_oracle_sim_params: False
   #     code_sim_learning_num_mcmc_steps: 0
@@ -87,49 +81,47 @@ APPROACHES:
   #     agent_sim_learn_oracle_sim_params: False
   #     code_sim_learning_num_mcmc_steps: 0
   #     agent_sim_predicate_invention_kept_predicate_names: ["Holding"]
-  # agent_po_gt_sim:
-  #   NAME: "agent_sim_learning"
-  #   FLAGS:
-  #     demonstrator: "oracle_process_planning"
-  #     explorer: "agent_bilevel"
-  #     terminate_on_goal_reached_and_option_terminated: True
-  #     agent_sdk_use_local_sandbox: True
-  #     option_model_terminate_on_repeat: False
-  #     option_model_use_gui: False
-  #     agent_bilevel_log_state: False
-  #     agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
-  #     partially_observable: True
-  #     agent_sim_learn_oracle_sim_program: True
-  #     agent_sim_learn_oracle_sim_params: True
-  #     num_online_learning_cycles: 0
-  agent_po_predicate_invention_al:
-    NAME: "agent_po_sim_predicate_invention"
+  agent_po_gt_sim:
+    NAME: "agent_sim_learning"
     FLAGS:
       demonstrator: "oracle_process_planning"
       explorer: "agent_bilevel"
       terminate_on_goal_reached_and_option_terminated: True
       agent_sdk_use_local_sandbox: True
       option_model_terminate_on_repeat: False
-      agent_sdk_max_agent_turns_per_iteration: 50
       agent_planner_use_visualize_state: True
       agent_planner_use_annotate_scene: True
       option_model_use_gui: False
       agent_bilevel_log_state: False
-      skip_test_until_last_ite_or_early_stopping: False
-      online_learning_early_stopping: True
-      agent_sim_learn_oracle_sim_program: False
-      agent_sim_learn_oracle_sim_params: False
-      code_sim_learning_num_mcmc_steps: 0
-      code_sim_learning_warm_start_with_lm: True
-      agent_sim_predicate_invention_kept_predicate_names: ["Holding"]
       partially_observable: True
+      agent_sim_learn_oracle_sim_program: True
+      agent_sim_learn_oracle_sim_params: True
+      num_online_learning_cycles: 0
       agent_explorer_info_seeking: True
-      # Closed-loop test execution: replan when a finished step's subgoal
-      # annotation fails in the real state (chaotic place landings were
-      # costing 2-4 test tasks per run; see boil-…_al seed0/seed1 logs).
-      # The monitor detects divergence; the budget caps recoveries.
       execution_monitor: "subgoal_annotations"
       agent_bilevel_max_execution_replans: 2
+  # agent_po_predicate_invention_al:
+  #   NAME: "agent_po_sim_predicate_invention"
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     explorer: "agent_bilevel"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     agent_sdk_use_local_sandbox: True
+  #     option_model_terminate_on_repeat: False
+  #     agent_planner_use_visualize_state: True
+  #     agent_planner_use_annotate_scene: True
+  #     option_model_use_gui: False
+  #     agent_bilevel_log_state: False
+  #     online_learning_early_stopping: True
+  #     agent_sim_learn_oracle_sim_program: False
+  #     agent_sim_learn_oracle_sim_params: False
+  #     code_sim_learning_num_mcmc_steps: 0
+  #     code_sim_learning_warm_start_with_lm: True
+  #     agent_sim_predicate_invention_kept_predicate_names: ["Holding"]
+  #     partially_observable: True
+  #     agent_explorer_info_seeking: True
+  #     execution_monitor: "subgoal_annotations"
+  #     agent_bilevel_max_execution_replans: 2
   # agent_option_learning:
   #   NAME: "agent_option_learning"
   #   FLAGS:
@@ -138,4 +130,3 @@ APPROACHES:
   #     demonstrator: "oracle_process_planning"
   #     terminate_on_goal_reached_and_option_terminated: True
   #     agent_sdk_use_local_sandbox: True
-  #     agent_sdk_max_agent_turns_per_iteration: 50

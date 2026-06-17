@@ -1023,7 +1023,7 @@ class GlobalSettings:
 
     # agent SDK online abstraction learning parameters
     agent_sdk_model_name = "claude-sonnet-4-6"
-    agent_sdk_max_agent_turns_per_iteration = 20
+    agent_sdk_max_agent_turns_per_iteration = 50
     agent_sdk_agent_timeout = 300  # seconds per iteration
     agent_sdk_resume_session = True  # resume previous session if available
     agent_sdk_propose_types = True
