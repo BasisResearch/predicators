@@ -1,17 +1,18 @@
 """Ground-truth processes for the domino environment."""
 
-from typing import Dict, Sequence, Set
+from typing import Dict, Optional, Sequence, Set, Tuple
 
 import numpy as np
 import torch
 
-from predicators.ground_truth_models import GroundTruthProcessFactory
+from predicators.ground_truth_models import GroundTruthProcessFactory, \
+    GroundTruthSamplerFactory
 from predicators.settings import CFG
 from predicators.structs import Array, CausalProcess, EndogenousProcess, \
-    ExogenousProcess, GroundAtom, LiftedAtom, Object, ParameterizedOption, \
-    Predicate, State, Type, Variable
+    ExogenousProcess, GroundAtom, LiftedAtom, Object, OptionSampler, \
+    ParameterizedOption, Predicate, State, Type, Variable
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
-    null_sampler
+    null_sampler, wrap_angle
 
 # Fixed parameter values for domino environment.
 _DOMINO_GRASP_Z_OFFSET = 0.0825  # domino_height * 0.55
@@ -284,3 +285,124 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         processes.add(domino_tilting_delete_process)
 
         return processes
+
+
+# ---------------------------------------------------------------------------
+# Grid-free per-skill samplers (NSRTSampler / OptionSampler signature) for
+# bilevel refinement. The NSRT samplers above read the placement off grid
+# ``loc``/``angle`` objects in ``objs``; these instead compute it
+# geometrically from the step's ``InFront`` subgoal (passed in the atoms
+# slot), so they work in the grid-free agent_bilevel path. Both versions
+# coexist intentionally. Refinement clips the returned params to the box.
+# ---------------------------------------------------------------------------
+
+_DOMINO_POS_GAP = 0.098  # PyBulletDominoEnv.pos_gap (domino_width * 1.4)
+
+
+def _pick_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
+                         rng: np.random.Generator,
+                         objects: Sequence[Object]) -> Array:
+    """Grid-free Pick sampler: fixed grasp height above the domino origin."""
+    del state, subgoal_atoms, rng, objects
+    return np.array([_DOMINO_GRASP_Z_OFFSET], dtype=np.float32)
+
+
+def _push_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
+                         rng: np.random.Generator,
+                         objects: Sequence[Object]) -> Array:
+    """Grid-free Push sampler: fixed approach distance / contact height."""
+    del state, subgoal_atoms, rng, objects
+    return np.array([_DOMINO_OFFSET_X, _DOMINO_OFFSET_Z], dtype=np.float32)
+
+
+def _score_placement(state: State, subgoal_atoms: Set[GroundAtom],
+                     held: Object, hx: float, hy: float, hyaw: float) -> int:
+    """Count subgoal atoms that hold if ``held`` is placed at (hx, hy,
+    hyaw)."""
+    s2 = state.copy()
+    s2.set(held, "x", hx)
+    s2.set(held, "y", hy)
+    s2.set(held, "yaw", hyaw)
+    s2.set(held, "roll", 0.0)
+    s2.set(held, "is_held", 0.0)
+    return sum(1 for atom in subgoal_atoms if atom.holds(s2))
+
+
+def _place_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
+                          rng: np.random.Generator,
+                          objects: Sequence[Object]) -> Array:
+    """Grid-free Place sampler aimed at the step's ``InFront`` subgoal.
+
+    Places the held domino one ``pos_gap`` from a reference domino named
+    in an ``InFront`` subgoal atom, along the reference's cardinal
+    facing, at the turn offset (straight / +-45 deg) and direction that
+    satisfy the most subgoal atoms. Raises (so refinement falls back to
+    uniform) when the held domino or a usable reference can't be found.
+    """
+    del objects
+    dominoes = [o for o in state if o.type.name == "domino"]
+    held = [d for d in dominoes if state.get(d, "is_held") > 0.5]
+    if len(held) != 1:
+        raise ValueError(f"expected one held domino, found {len(held)}")
+    held_d = held[0]
+
+    refs = []
+    for atom in subgoal_atoms:
+        if atom.predicate.name != "InFront":
+            continue
+        d1, d2 = atom.objects
+        if held_d is d1 and held_d is not d2:
+            refs.append(d2)
+        elif held_d is d2 and held_d is not d1:
+            refs.append(d1)
+    if not refs:
+        raise ValueError("no InFront subgoal references the held domino")
+
+    turn_offsets = (0.0, np.pi / 4, -np.pi / 4)
+    best: Optional[Tuple[float, float, float]] = None
+    best_score = -1
+    for ref in refs:
+        xr = state.get(ref, "x")
+        yr = state.get(ref, "y")
+        rot = state.get(ref, "yaw")
+        # _InFront's "ahead" relation only holds for cardinal back-facings.
+        if not (abs(np.sin(rot)) < 1e-3 or abs(np.cos(rot)) < 1e-3):
+            continue
+        for direction in (1.0, -1.0):
+            cx = xr + direction * _DOMINO_POS_GAP * np.sin(rot)
+            cy = yr + direction * _DOMINO_POS_GAP * np.cos(rot)
+            for off in turn_offsets:
+                cyaw = wrap_angle(rot + off)
+                score = _score_placement(state, subgoal_atoms, held_d, cx, cy,
+                                         cyaw)
+                if score > best_score:
+                    best_score = score
+                    best = (cx, cy, cyaw)
+    if best is None:
+        raise ValueError("no cardinal-facing reference domino for placement")
+
+    cx, cy, cyaw = best
+    # Small jitter (well within InFront's position tolerance) so backtracking
+    # retries explore slightly different placements. Refinement clips the
+    # result to the option's params box.
+    jitter = _DOMINO_POS_GAP * 0.05
+    cx += float(rng.uniform(-jitter, jitter))
+    cy += float(rng.uniform(-jitter, jitter))
+    return np.array([cx, cy, _DOMINO_DROP_Z, cyaw], dtype=np.float32)
+
+
+class PyBulletDominoGroundTruthSamplerFactory(GroundTruthSamplerFactory):
+    """Ground-truth grid-free per-skill samplers for the domino env."""
+
+    @classmethod
+    def get_env_names(cls) -> Set[str]:
+        return {"pybullet_domino_grid", "pybullet_domino"}
+
+    @classmethod
+    def get_samplers(cls, env_name: str) -> Dict[str, OptionSampler]:
+        del env_name
+        return {
+            "Pick": _pick_option_sampler,
+            "Push": _push_option_sampler,
+            "Place": _place_option_sampler,
+        }

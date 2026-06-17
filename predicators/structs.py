@@ -1793,6 +1793,7 @@ class LowLevelTrajectory:
     _train_task_idx: Optional[int] = field(default=None)
     _source_simulator_version: Optional[str] = field(default=None)
     _source_predicates_version: Optional[str] = field(default=None)
+    _source_samplers_version: Optional[str] = field(default=None)
 
     def __post_init__(self) -> None:
         assert len(self._states) == len(self._actions) + 1
@@ -1834,6 +1835,12 @@ class LowLevelTrajectory:
         """Snapshot tag of the predicates set used to generate the plan that
         collected this trajectory, or ``None`` if not tracked."""
         return self._source_predicates_version
+
+    @property
+    def source_samplers_version(self) -> Optional[str]:
+        """Snapshot tag of the per-skill samplers used to generate the plan
+        that collected this trajectory, or ``None`` if not tracked."""
+        return self._source_samplers_version
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -3263,6 +3270,15 @@ NSRTSampler = Callable[
 NSRTSamplerWithEpsilonIndicator = Callable[
     [State, Set[GroundAtom], np.random.Generator, Sequence[Object]],
     Tuple[Array, bool]]
+# Per-skill sampler consulted during bilevel-sketch refinement. Shares
+# NSRTSampler's call signature (state, atoms, rng, objects) so the two are
+# interchangeable, but the GroundAtom set it receives is the step's
+# *subgoal* (not the task goal), letting it aim continuous params at the
+# subgoal instead of drawing uniformly. Returns a params array matching the
+# option's params_space; refinement clips it to that box and falls back to
+# uniform on a wrong-shaped return.
+OptionSampler = Callable[
+    [State, Set[GroundAtom], np.random.Generator, Sequence[Object]], Array]
 Metrics = DefaultDict[str, float]
 LiftedOrGroundAtom = TypeVar("LiftedOrGroundAtom", LiftedAtom, GroundAtom,
                              _Atom)
