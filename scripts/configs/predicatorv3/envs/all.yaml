@@ -11,7 +11,7 @@ ENVS:
     NAME: "pybullet_domino"
     FLAGS:
       excluded_objects_in_state_str: "loc,rot,angle,direction"
-      excluded_predicates: "InitialBlock,MovableBlock,Tilting,Toppled,Upright"
+      excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright"
       horizon: 500
       domino_initialize_at_finished_state: False
       domino_use_domino_blocks_as_target: True
