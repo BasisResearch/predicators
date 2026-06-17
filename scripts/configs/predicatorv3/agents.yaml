@@ -96,6 +96,8 @@ APPROACHES:
       partially_observable: True
       agent_sim_learn_oracle_sim_program: True
       agent_sim_learn_oracle_sim_params: True
+      agent_sim_learn_synthesize_samplers: True
+      agent_sim_learn_oracle_samplers: True
       num_online_learning_cycles: 0
       agent_explorer_info_seeking: True
       execution_monitor: "subgoal_annotations"
