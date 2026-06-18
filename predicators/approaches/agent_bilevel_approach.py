@@ -241,7 +241,9 @@ class AgentBilevelApproach(AgentPlannerApproach):
         """Query agent for a plan sketch and parse it."""
         sketch_file = CFG.agent_bilevel_plan_sketch_file
         if sketch_file:
-            with open(sketch_file, "r", encoding="utf-8") as f:
+            filepath = utils.get_path_to_predicators_root() + \
+                f"/scripts/{CFG.agent_bilevel_plan_sketch_dir}/{sketch_file}"
+            with open(filepath, "r", encoding="utf-8") as f:
                 plan_text = f.read().strip()
             logging.info("Loaded plan sketch from file: %s", sketch_file)
         else:

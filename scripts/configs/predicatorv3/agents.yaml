@@ -31,7 +31,6 @@ APPROACHES:
   #     option_model_use_gui: True
   #     agent_bilevel_log_state: False
   #     agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
-  # agent_oracle_hybrid_sim:  # ground truth hybrid sim / predicates
   agent_po_oracle_hybrid_sim:
     NAME: "agent_sim_learning"
     FLAGS:
