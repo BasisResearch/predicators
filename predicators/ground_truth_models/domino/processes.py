@@ -359,14 +359,20 @@ def _place_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
         raise ValueError("no InFront subgoal references the held domino")
 
     turn_offsets = (0.0, np.pi / 4, -np.pi / 4)
+    # Cardinal-facing slack, mirroring DominoComponent._InFront_holds: a
+    # settled (slightly off-cardinal) reference domino must still anchor a
+    # placement, else chained placements onto a re-placed block never score.
+    card_thresh = float(np.sin(np.radians(10)))
     best: Optional[Tuple[float, float, float]] = None
     best_score = -1
     for ref in refs:
         xr = state.get(ref, "x")
         yr = state.get(ref, "y")
         rot = state.get(ref, "yaw")
-        # _InFront's "ahead" relation only holds for cardinal back-facings.
-        if not (abs(np.sin(rot)) < 1e-3 or abs(np.cos(rot)) < 1e-3):
+        # _InFront's "ahead" relation only holds for (roughly) cardinal
+        # back-facings.
+        if not (abs(np.sin(rot)) < card_thresh
+                or abs(np.cos(rot)) < card_thresh):
             continue
         for direction in (1.0, -1.0):
             cx = xr + direction * _DOMINO_POS_GAP * np.sin(rot)

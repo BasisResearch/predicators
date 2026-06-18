@@ -506,6 +506,11 @@ class DominoComponent(DominoEnvComponent):
         pos_gap = self.pos_gap
         pos_tol = pos_gap * 0.3
         ang_tol = np.radians(15)
+        # Cardinal-facing slack for the reference (back) domino. A domino
+        # the robot re-places settles ~1 deg off cardinal, so a 1e-3 rad
+        # (~0.06 deg) gate makes InFront(front, placed_back) unsatisfiable
+        # for chained placements; allow a few degrees of slack instead.
+        card_thresh = float(np.sin(np.radians(10)))
         # Straight, 45-degree right turn, and 45-degree left turn.
         turn_offsets = (-np.pi / 4, 0.0, np.pi / 4)
 
@@ -513,8 +518,9 @@ class DominoComponent(DominoEnvComponent):
             x_b = state.get(back, "x")
             y_b = state.get(back, "y")
             rot_b = state.get(back, "yaw")
-            # The relationship only holds for cardinal back-facings.
-            if not (abs(np.sin(rot_b)) < 1e-3 or abs(np.cos(rot_b)) < 1e-3):
+            # The relationship only holds for (roughly) cardinal back-facings.
+            if not (abs(np.sin(rot_b)) < card_thresh
+                    or abs(np.cos(rot_b)) < card_thresh):
                 return False
             expected_x = x_b + pos_gap * np.sin(rot_b)
             expected_y = y_b + pos_gap * np.cos(rot_b)
