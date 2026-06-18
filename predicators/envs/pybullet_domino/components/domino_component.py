@@ -247,10 +247,10 @@ class DominoComponent(DominoEnvComponent):
             self._InFront_holds,
             natural_language_assertion=lambda os:
             ("the two dominoes are chain-adjacent: one sits one spacing-gap "
-             "directly ahead of the other along that other's facing "
-             "(toppling) direction, either straight or turned 45 degrees "
-             "left/right, so that toppling the back domino knocks the front "
-             "one over"))
+             "ahead of the other along that other's facing (toppling) "
+             "direction -- straight or bent 45 degrees left/right for a turn, "
+             "in both placement direction and yaw -- so that toppling the "
+             "back domino knocks the front one over"))
 
     # -------------------------------------------------------------------------
     # DominoEnvComponent interface implementation
@@ -529,13 +529,50 @@ class DominoComponent(DominoEnvComponent):
             if not (abs(np.sin(rot_b)) < card_thresh
                     or abs(np.cos(rot_b)) < card_thresh):
                 return False
-            expected_x = x_b + pos_gap * np.sin(rot_b)
-            expected_y = y_b + pos_gap * np.cos(rot_b)
-            if (abs(state.get(front, "x") - expected_x) > pos_tol
-                    or abs(state.get(front, "y") - expected_y) > pos_tol):
-                return False
+            # The front domino's yaw differs from the back's by a discrete
+            # turn offset (straight / +-45 deg).
             diff = utils.wrap_angle(state.get(front, "yaw") - rot_b)
-            return any(abs(diff - off) < ang_tol for off in turn_offsets)
+            if not any(abs(diff - off) < ang_tol for off in turn_offsets):
+                return False
+            # The front domino sits one pos_gap from the back, along the
+            # back's facing -- which may itself be rotated by a turn offset,
+            # so the chain can bend through a turn (the next block then lies
+            # diagonally off the back rather than straight ahead).
+            fx = state.get(front, "x")
+            fy = state.get(front, "y")
+            # A domino is 180-degree symmetric, so its facing names a
+            # bidirectional topple axis: the front may sit one gap along
+            # either end of that (possibly turn-rotated) axis.
+            #
+            # A turn-completing block always carries a half-width lateral
+            # ("side") offset, applied orthogonal to the reference's facing
+            # by the task generator (see DominoTaskGenerator.
+            # _place_turn90_domino) so the toppling chain stays overlapping
+            # through the corner. A turn placement (dir_off != 0) therefore
+            # sits at +-side_offset along the perpendicular -- NOT on the bare
+            # axis. Excluding lateral 0 here is what lets the Place sampler
+            # distinguish the cascade-enabling offset pose from the
+            # symbolically-equivalent-but-physically-dead on-axis pose (an
+            # on-axis turn block fails this edge, so scoring prefers the
+            # offset). Straight placements (dir_off == 0) stay exactly on the
+            # axis, so no spurious edges appear.
+            side_offset = self.domino_width / 2
+            perp_x = np.cos(rot_b)
+            perp_y = -np.sin(rot_b)
+            for dir_off in turn_offsets:
+                ang = rot_b + dir_off
+                laterals = ((0.0, ) if abs(dir_off) < 1e-9 else
+                            (side_offset, -side_offset))
+                for sgn in (1.0, -1.0):
+                    base_x = x_b + sgn * pos_gap * np.sin(ang)
+                    base_y = y_b + sgn * pos_gap * np.cos(ang)
+                    for lat in laterals:
+                        expected_x = base_x + lat * perp_x
+                        expected_y = base_y + lat * perp_y
+                        if (abs(fx - expected_x) < pos_tol
+                                and abs(fy - expected_y) < pos_tol):
+                            return True
+            return False
 
         # InFront(d1, d2) := d1 is ahead of d2, or d2 is ahead of d1.
         return _ahead(domino2, domino1) or _ahead(domino1, domino2)

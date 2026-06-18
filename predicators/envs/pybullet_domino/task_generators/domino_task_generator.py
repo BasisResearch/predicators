@@ -464,6 +464,15 @@ class DominoTaskGenerator(TaskGenerator):
         d1_yaw = base_yaw + turn_direction * np.pi / 4
         d1_x = x + gap * np.sin(rotation)
         d1_y = y + gap * np.cos(rotation)
+        # Lateral "side" offset for the first turn block, kept at 0 (matching
+        # the legacy generator, which only nudged the turn-completing block).
+        # Exposed here as an explicit tunable knob -- raise it to also shift
+        # the first block orthogonal to its post-turn travel direction
+        # ``d1_dir`` if future tuning needs more overlap entering the bend.
+        d1_side_offset = -self.domino.domino_width / 2
+        # d1_side_offset = 0
+        d1_x += turn_direction * d1_side_offset * np.cos(d1_dir)
+        d1_y -= turn_direction * d1_side_offset * np.sin(d1_dir)
 
         if not _in_bounds(d1_x, d1_y):
             return PlacementResult(success=False,
@@ -492,6 +501,18 @@ class DominoTaskGenerator(TaskGenerator):
         d2_rot = rotation - turn_direction * np.pi / 2
         d2_x = d1_x + gap * np.sin(d1_dir)
         d2_y = d1_y + gap * np.cos(d1_dir)
+        # Lateral "side" offset (ported from the legacy turn generator): in
+        # addition to stepping the turn-completing block one gap *along* the
+        # chain, nudge it a half-width *orthogonal* to its own travel
+        # direction. Without this sideways shift the falling chain only moves
+        # along one axis and clips past the corner block, so the cascade
+        # stalls; the inward nudge keeps the toppling dominoes overlapping
+        # through the bend. ``(cos d2_rot, -sin d2_rot)`` is the unit vector
+        # perpendicular to the block's facing, signed by the turn direction.
+        side_offset = -self.domino.domino_width / 2
+        # side_offset = 0
+        d2_x += turn_direction * side_offset * np.cos(d2_rot)
+        d2_y -= turn_direction * side_offset * np.sin(d2_rot)
 
         if not _in_bounds(d2_x, d2_y):
             return PlacementResult(success=False,
