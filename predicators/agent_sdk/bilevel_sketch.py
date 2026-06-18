@@ -168,7 +168,11 @@ def build_solve_prompt(
     pred_strs = []
     for pred in sorted(all_predicates, key=lambda p: p.name):
         type_sig = ", ".join(t.name for t in pred.types)
-        pred_strs.append(f"  {pred.name}({type_sig})")
+        line = f"  {pred.name}({type_sig})"
+        if pred.natural_language_assertion is not None:
+            names = [t.name for t in pred.types]
+            line += f" — {pred.natural_language_assertion(names)}"
+        pred_strs.append(line)
 
     prompt = f"""You are solving a task. \
 Generate a plan sketch to achieve the goal.

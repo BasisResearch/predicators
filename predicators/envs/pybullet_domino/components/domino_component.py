@@ -235,9 +235,15 @@ class DominoComponent(DominoEnvComponent):
         # Position-based InFront over continuous domino poses. When the grid is
         # in use, GridComponent's derived InFront replaces this one (helper
         # predicates take precedence on name collisions).
-        self._InFront = Predicate("InFront",
-                                  [self._domino_type, self._domino_type],
-                                  self._InFront_holds)
+        self._InFront = Predicate(
+            "InFront", [self._domino_type, self._domino_type],
+            self._InFront_holds,
+            natural_language_assertion=lambda os:
+            ("the two dominoes are chain-adjacent: one sits one spacing-gap "
+             "directly ahead of the other along that other's facing "
+             "(toppling) direction, either straight or turned 45 degrees "
+             "left/right, so that toppling the back domino knocks the front "
+             "one over"))
 
     # -------------------------------------------------------------------------
     # DominoEnvComponent interface implementation

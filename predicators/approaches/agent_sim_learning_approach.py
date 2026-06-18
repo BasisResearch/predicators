@@ -1565,7 +1565,11 @@ the tools."""
         lines = []
         for pred in sorted(predicates, key=lambda p: p.name):
             type_sig = ", ".join(t.name for t in pred.types)
-            lines.append(f"  {pred.name}({type_sig})")
+            line = f"  {pred.name}({type_sig})"
+            if pred.natural_language_assertion is not None:
+                names = [t.name for t in pred.types]
+                line += f" — {pred.natural_language_assertion(names)}"
+            lines.append(line)
         return "\n".join(lines)
 
     @staticmethod
