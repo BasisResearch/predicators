@@ -17,7 +17,6 @@ import logging
 from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Set
 
-import dill as pkl
 from gym.spaces import Box
 
 from predicators import utils
@@ -38,13 +37,15 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
     then plans with them in the same query.
     """
 
+    _save_suffix = "AgentOptionLearning"
+
     def __init__(self, initial_predicates: Set[Predicate],
                  initial_options: Set[ParameterizedOption], types: Set[Type],
                  action_space: Box, train_tasks: List[Task], *args: Any,
                  **kwargs: Any) -> None:
-        # Agent-specific state (before super().__init__)
+        # Agent-specific state (before super().__init__).
+        # (_agent_session_id is initialized by the session mixin.)
         self._agent_proposed_options: Set[ParameterizedOption] = set()
-        self._agent_session_id: Optional[str] = None
 
         super().__init__(initial_predicates, initial_options, types,
                          action_space, train_tasks, *args, **kwargs)
@@ -329,55 +330,14 @@ proposed options will be added to the option library for future tasks."""
     # Save / Load
     # ------------------------------------------------------------------ #
 
-    def save(self, online_learning_cycle: Optional[int] = None) -> None:
-        save_path = utils.get_approach_save_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentOptionLearning",
-                  "wb") as f:
-            save_dict = {
-                "offline_dataset":
-                self._offline_dataset,
-                "online_trajectories":
-                self._online_trajectories,
-                "online_learning_cycle":
-                self._online_learning_cycle,
-                "run_id":
-                self._run_id,
-                "agent_proposed_options":
-                self._agent_proposed_options,
-                "agent_session_id": (self._agent_session.session_id
-                                     if self._agent_session else None),
-            }
-            pkl.dump(save_dict, f)
-            logging.info(f"[Run {self._run_id}] Saved approach to {save_path}_"
-                         f"{online_learning_cycle}.AgentOptionLearning")
+    def _extra_save_state(self) -> Dict[str, Any]:
+        return {"agent_proposed_options": self._agent_proposed_options}
 
-    def load(self, online_learning_cycle: Optional[int] = None) -> None:
-        save_path = utils.get_approach_load_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentOptionLearning",
-                  "rb") as f:
-            save_dict = pkl.load(f)
-
-        self._offline_dataset = save_dict["offline_dataset"]
-        self._online_trajectories = save_dict["online_trajectories"]
-        self._online_learning_cycle = \
-            save_dict["online_learning_cycle"] + 1
-        self._agent_session_id = save_dict.get("agent_session_id")
+    def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
         self._agent_proposed_options = save_dict.get("agent_proposed_options",
                                                      set())
-
-        import datetime  # pylint: disable=import-outside-toplevel
-        original_run_id = save_dict.get("run_id", "unknown")
-        self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # Re-sync tool context
-        self._sync_tool_context()
-
-        logging.info(
-            f"[Run {self._run_id}] Loaded from previous run "
-            f"{original_run_id}: "
-            f"{len(self._offline_dataset.trajectories)} offline, "
-            f"{len(self._online_trajectories)} online trajectories, "
-            f"{len(self._agent_proposed_options)} agent-proposed options")
+        logging.info("[Run %s] Restored %d agent-proposed options.",
+                     self._run_id, len(self._agent_proposed_options))
 
 
 # --------------------------------------------------------------------------- #

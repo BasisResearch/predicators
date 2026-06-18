@@ -77,8 +77,8 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         self._requests_train_task_idxs: Optional[List[int]] = None
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self._pre_test_conversation_log: Optional[List[Dict[str, Any]]] = None
-        self._agent_session_id: Optional[str] = None
 
+        # Initializes _tool_context and _agent_session_id (see mixin).
         self._init_agent_session_state(types, initial_predicates,
                                        initial_options, train_tasks)
 
@@ -448,6 +448,26 @@ scene, then annotate_scene overlays markers on it."""
     # Solving
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def _wrap_option_failures(
+        policy: Callable[[State], Action]
+    ) -> Callable[[State], Action]:
+        """Wrap a policy so OptionExecutionFailure surfaces as ApproachFailure.
+
+        Bilevel planning and the base open-loop planner both build a
+        low-level policy from a grounded option plan; this adapter gives
+        them a single place to translate the option-execution exception
+        the harness raises into the ApproachFailure CogMan expects.
+        """
+
+        def _policy(s: State) -> Action:
+            try:
+                return policy(s)
+            except utils.OptionExecutionFailure as e:
+                raise ApproachFailure(e.args[0], e.info)
+
+        return _policy
+
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
         self._sync_tool_context()
         self._tool_context.current_task = task
@@ -460,13 +480,7 @@ scene, then annotate_scene overlays markers on it."""
         policy = utils.option_plan_to_policy(
             option_plan, abstract_function=lambda s: utils.abstract(s, preds))
 
-        def _policy(s: State) -> Action:
-            try:
-                return policy(s)
-            except utils.OptionExecutionFailure as e:
-                raise ApproachFailure(e.args[0], e.info)
-
-        return _policy
+        return self._wrap_option_failures(policy)
 
     # ------------------------------------------------------------------ #
     # Test phase lifecycle
@@ -871,45 +885,62 @@ Output ONLY the option plan lines at the end, after any analysis."""
     # Save / Load
     # ------------------------------------------------------------------ #
 
+    # Filename suffix for the pickled approach state. Subclasses that
+    # persist extra fields override this so their saves don't collide
+    # with the base planner's.
+    _save_suffix: str = "AgentPlanner"
+
+    def _extra_save_state(self) -> Dict[str, Any]:
+        """Subclass hook: extra (key -> value) pairs to persist.
+
+        Merged into the base save dict; restored by the matching
+        :meth:`_load_extra_save_state`.
+        """
+        return {}
+
+    def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
+        """Subclass hook: restore fields written by _extra_save_state.
+
+        Called after the base fields are restored and ``_run_id`` has
+        been refreshed, but before the tool context is re-synced.
+        """
+
     def save(self, online_learning_cycle: Optional[int] = None) -> None:
         """Save approach state to disk."""
         save_path = utils.get_approach_save_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentPlanner",
-                  "wb") as f:
-            save_dict = {
-                "offline_dataset":
-                self._offline_dataset,
-                "online_trajectories":
-                self._online_trajectories,
-                "online_learning_cycle":
-                self._online_learning_cycle,
-                "run_id":
-                self._run_id,
-                "agent_session_id": (self._agent_session.session_id
-                                     if self._agent_session else None),
-            }
+        path = f"{save_path}_{online_learning_cycle}.{self._save_suffix}"
+        save_dict = {
+            "offline_dataset": self._offline_dataset,
+            "online_trajectories": self._online_trajectories,
+            "online_learning_cycle": self._online_learning_cycle,
+            "run_id": self._run_id,
+            "agent_session_id": (self._agent_session.session_id
+                                 if self._agent_session else None),
+            **self._extra_save_state(),
+        }
+        with open(path, "wb") as f:
             pkl.dump(save_dict, f)
-            logging.info(f"[Run {self._run_id}] Saved approach to {save_path}_"
-                         f"{online_learning_cycle}.AgentPlanner")
+        logging.info(f"[Run {self._run_id}] Saved approach to {path}")
 
     def load(self, online_learning_cycle: Optional[int] = None) -> None:
         save_path = utils.get_approach_load_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentPlanner",
-                  "rb") as f:
+        path = f"{save_path}_{online_learning_cycle}.{self._save_suffix}"
+        with open(path, "rb") as f:
             save_dict = pkl.load(f)
 
         self._offline_dataset = save_dict["offline_dataset"]
         self._online_trajectories = save_dict["online_trajectories"]
-        self._online_learning_cycle = \
-            save_dict["online_learning_cycle"] + 1
+        self._online_learning_cycle = save_dict["online_learning_cycle"] + 1
         self._agent_session_id = save_dict.get("agent_session_id")
 
         # Create new run_id for continued execution (each run gets own dir)
-        # but log the original run_id for reference
+        # but log the original run_id for reference.
         original_run_id = save_dict.get("run_id", "unknown")
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # Re-sync tool context
+        self._load_extra_save_state(save_dict)
+
+        # Re-sync tool context (subclass fields are restored first).
         self._sync_tool_context()
 
         logging.info(

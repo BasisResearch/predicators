@@ -449,14 +449,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
 
         inner = utils.option_policy_to_policy(_option_policy,
                                               abstract_function=_abstract)
-
-        def _policy(s: State) -> Action:
-            try:
-                return inner(s)
-            except utils.OptionExecutionFailure as e:
-                raise ApproachFailure(e.args[0], e.info)
-
-        return _policy
+        return self._wrap_option_failures(inner)
 
     def _replan_suffix(
         self,
