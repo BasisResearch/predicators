@@ -512,25 +512,28 @@ if __name__ == "__main__":
     import sys
     import time
 
+    from predicators import utils
+
     # Choose which environment to test
     # Options: "domino", "domino_fan", "domino_fan_ramp",
     # "domino_fan_ramp_stairs"
     # Change this to test different environments
     test_env = "domino_fan_ramp_stairs"
+    test_env = "domino"
     if len(sys.argv) > 1:
         test_env = sys.argv[1]
 
     # Configure environment
     CFG.seed = 0
     CFG.num_train_tasks = 0
-    CFG.num_test_tasks = 3
+    CFG.num_test_tasks = 5
 
     # Domino configuration
     CFG.domino_initialize_at_finished_state = True
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_has_glued_dominos = False
-    CFG.domino_test_num_dominos = [3, 4]
-    CFG.domino_test_num_targets = [1]
+    CFG.domino_test_num_dominos = [3]
+    CFG.domino_test_num_targets = [1, 2]
     CFG.domino_test_num_pivots = [0]
 
     # Fan/ball configuration
@@ -580,8 +583,18 @@ if __name__ == "__main__":
         for atom in task.goal:
             print(f"  {atom}")
 
+        # Print the initial abstract atoms (what the agent sees).
+        init_atoms = utils.abstract(task.init, env.predicates)
+        print("\nInitial atoms (abstract state seen by the agent):")
+        for atom in sorted(init_atoms, key=str):
+            print(f"  {atom}")
+
+        # Print task pretty_str
+        print("\n Initial state:")
+        print(task.init.pretty_str())
+
         try:
-            for step in range(100000):
+            for step in range(100):
                 # pylint: disable=protected-access
                 cur_action = Action(
                     np.array(env._pybullet_robot.initial_joint_positions))
