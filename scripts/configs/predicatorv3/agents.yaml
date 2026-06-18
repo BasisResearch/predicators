@@ -5,7 +5,7 @@ includes:
   - common.yaml
   - envs/all.yaml
 APPROACHES:
-  # Baseline: agent planning does NOT have a simulator / world model
+  # # Baseline: agent planning does NOT have a simulator / world model
   # agent_model_free_planning:
   #   NAME: "agent_planner"
   #   FLAGS:
@@ -16,8 +16,7 @@ APPROACHES:
   #     option_model_terminate_on_repeat: False
   #     agent_planner_use_scratchpad: False
   #     agent_planner_use_simulator: False
-  #     option_model_use_gui: True
-  # Baseline: ground truth monolithic sim + agent planner
+  # # Baseline: ground truth monolithic sim + agent planner
   # agent_model_based_planning:
   #   NAME: "agent_planner"
   #   FLAGS:
@@ -30,7 +29,6 @@ APPROACHES:
   #     agent_planner_use_simulator: True
   #     agent_planner_use_visualize_state: True
   #     agent_planner_use_annotate_scene: True
-  #     option_model_use_gui: True
   # Oracle: ground truth monolithic sim + predicates + our planning pipeline
   # agent_bilevel:
   #   NAME: "agent_bilevel"
@@ -121,7 +119,7 @@ APPROACHES:
   #     agent_sim_learn_oracle_sim_params: False
   #     code_sim_learning_num_mcmc_steps: 0
   #     agent_sim_predicate_invention_kept_predicate_names: ["Holding"]
-  # Ours: no ground truth; learn predicates, hybrid sim, and params in PO setting
+  # # Ours: no ground truth; learn predicates, hybrid sim, and params in PO setting
   # agent_po_predicate_invention_al:
   #   NAME: "agent_po_sim_predicate_invention"
   #   FLAGS:
