@@ -5,7 +5,8 @@ includes:
   - common.yaml
   - envs/all.yaml
 APPROACHES:
-  # agent_planner:
+  # Baseline: agent planning does NOT have a simulator / world model
+  # agent_model_free_planning:
   #   NAME: "agent_planner"
   #   FLAGS:
   #     explorer: "agent_plan"
@@ -14,10 +15,24 @@ APPROACHES:
   #     agent_sdk_use_local_sandbox: True
   #     option_model_terminate_on_repeat: False
   #     agent_planner_use_scratchpad: False
+  #     agent_planner_use_simulator: False
+  #     option_model_use_gui: True
+  # Baseline: ground truth monolithic sim + agent planner
+  # agent_model_based_planning:
+  #   NAME: "agent_planner"
+  #   FLAGS:
+  #     explorer: "agent_plan"
+  #     demonstrator: "oracle_process_planning"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     agent_sdk_use_local_sandbox: True
+  #     option_model_terminate_on_repeat: False
+  #     agent_planner_use_scratchpad: False
+  #     agent_planner_use_simulator: True
   #     agent_planner_use_visualize_state: True
   #     agent_planner_use_annotate_scene: True
   #     option_model_use_gui: True
-  # agent_bilevel:  # ground truth monolithic sim / predicates
+  # Oracle: ground truth monolithic sim + predicates + our planning pipeline
+  # agent_bilevel:
   #   NAME: "agent_bilevel"
   #   FLAGS:
   #     explorer: "agent_plan"
@@ -31,6 +46,7 @@ APPROACHES:
   #     option_model_use_gui: True
   #     agent_bilevel_log_state: False
   #     agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
+  # Oracle: hybrid sim
   agent_po_oracle_hybrid_sim:
     NAME: "agent_sim_learning"
     FLAGS:
@@ -52,7 +68,8 @@ APPROACHES:
       agent_explorer_info_seeking: True
       execution_monitor: "subgoal_annotations"
       agent_bilevel_max_execution_replans: 2
-  # agent_param_learning:  # ground truth hybrid sim / predicates; learn params
+  # Oracle: ground truth hybrid sim / predicates; learn params
+  # agent_param_learning:
   #   NAME: "agent_sim_learning"
   #   FLAGS:
   #     explorer: "agent_bilevel"
@@ -69,7 +86,8 @@ APPROACHES:
   #     agent_sim_learn_oracle_sim_params: False
   #     agent_sim_learn_oracle_sim_param_noise_scale: 1.0 # 1.0 allows successful planning but insatisficing plan; 0.8 produces satisficing plan
   #     code_sim_learning_num_mcmc_steps: 0
-  # agent_rule_learning:  # ground truth predicates; learn hybrid sim and params
+  # Oracle: ground truth predicates; learn hybrid sim and params
+  # agent_rule_learning:
   #   NAME: "agent_sim_learning"
   #   FLAGS:
   #     explorer: "agent_bilevel"
@@ -85,7 +103,8 @@ APPROACHES:
   #     agent_sim_learn_oracle_sim_program: False
   #     agent_sim_learn_oracle_sim_params: False
   #     code_sim_learning_num_mcmc_steps: 0
-  # agent_predicate_invention:  # no ground truth; learn predicates, hybrid sim, and params
+  # Oracle: see state; no ground truth; learn predicates, hybrid sim, and params
+  # agent_predicate_invention: 
   #   NAME: "agent_sim_predicate_invention"
   #   FLAGS:
   #     explorer: "agent_bilevel"
@@ -102,7 +121,8 @@ APPROACHES:
   #     agent_sim_learn_oracle_sim_params: False
   #     code_sim_learning_num_mcmc_steps: 0
   #     agent_sim_predicate_invention_kept_predicate_names: ["Holding"]
-  # agent_po_predicate_invention_al: # no ground truth; learn predicates, hybrid sim, and params in PO setting
+  # Ours: no ground truth; learn predicates, hybrid sim, and params in PO setting
+  # agent_po_predicate_invention_al:
   #   NAME: "agent_po_sim_predicate_invention"
   #   FLAGS:
   #     demonstrator: "oracle_process_planning"
