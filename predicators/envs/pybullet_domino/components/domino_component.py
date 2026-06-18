@@ -41,6 +41,13 @@ class PlacementResult:
     target_count: int = 0
     just_turned_90: bool = False
     just_placed_target: bool = False
+    # Yaw to place the *next* block at. Tracks the smooth 45-deg-per-turn
+    # increment, which after a turn differs from ``rotation`` (the travel
+    # direction used to lay out positions) by 180 deg — same physical box,
+    # but the increment representation keeps a straight run reading as one
+    # constant yaw instead of flipping. ``None`` means "same as rotation"
+    # (no turn has happened yet).
+    block_yaw: Optional[float] = None
 
 
 class DominoComponent(DominoEnvComponent):

@@ -110,6 +110,16 @@ class DominoTaskGenerator(TaskGenerator):
         if obj_dict is None:
             return None
 
+        # Make the chain's terminal block(s) the target(s). The placement
+        # loop can otherwise mark a mid-chain block as the target, leaving
+        # movable blocks after the goal — which makes the bridge length
+        # ambiguous (an agent over-builds past the target, e.g. a 2-gap task
+        # that admits one intermediate but is planned with two). Blocks are
+        # placed start-first along the chain, so the highest-index ones are
+        # the chain end; re-designating those keeps the target last.
+        if CFG.domino_use_domino_blocks_as_target:
+            self._retarget_terminal_dominoes(obj_dict, n_targets)
+
         # Move intermediate objects if needed
         if not CFG.domino_initialize_at_finished_state:
             obj_dict = self._move_intermediate_objects_to_unfinished_state(
@@ -191,13 +201,47 @@ class DominoTaskGenerator(TaskGenerator):
             task_idx=task_idx)
         domino_count += 1
 
-        # Main placement loop
+        expected_count = self._get_expected_domino_count(n_dominos, n_targets)
+
+        # When targets are domino blocks, they are re-designated as the
+        # chain's terminal block(s) after generation (see
+        # _retarget_terminal_dominoes), so here we just fill the chain to
+        # length with regular blocks. This also avoids overrunning the
+        # fixed-size dominos[] list: the interleaved loop below could let a
+        # turn (which places two blocks at once) push the count past the last
+        # slot when a max-size task leaves no slack for the targets — the
+        # index-out-of-range crash. The turn90 guard
+        # (domino_count + 1 >= expected_count -> straight) keeps this loop in
+        # bounds.
+        if CFG.domino_use_domino_blocks_as_target:
+            # ``block_yaw`` tracks the smooth 45-deg-per-turn yaw increment so
+            # straight runs after a turn keep one constant yaw; positions still
+            # follow ``rotation`` (the travel direction).
+            block_yaw = rotation
+            while domino_count < expected_count:
+                result = self._place_next_domino(
+                    rng, obj_dict, x, y, rotation, gap, domino_count,
+                    pivot_count, target_count, n_pivots, n_dominos, n_targets,
+                    just_placed_target, just_turned_90, _in_bounds, task_idx,
+                    block_yaw)
+                if not result.success:
+                    return None
+                x, y, rotation = result.x, result.y, result.rotation
+                domino_count = result.domino_count
+                pivot_count = result.pivot_count
+                just_turned_90 = result.just_turned_90
+                block_yaw = (result.block_yaw
+                             if result.block_yaw is not None else rotation)
+            if domino_count == expected_count and pivot_count == n_pivots:
+                return obj_dict
+            return None
+
+        # Separate target objects (use_domino_blocks_as_target=False):
+        # interleave regular dominoes and target-typed objects.
         while self._should_continue_placement(domino_count, target_count,
                                               n_dominos, n_targets):
             can_place_target = (domino_count >= 2 and target_count < n_targets
                                 and not just_placed_target)
-            expected_count = self._get_expected_domino_count(
-                n_dominos, n_targets)
             can_place_domino = domino_count < expected_count
 
             should_place_domino = (not can_place_target
@@ -235,6 +279,31 @@ class DominoTaskGenerator(TaskGenerator):
             return obj_dict
         return None
 
+    def _retarget_terminal_dominoes(self, obj_dict: Dict[Object, Any],
+                                    n_targets: int) -> None:
+        """Recolor so the last ``n_targets`` placed blocks are the target(s).
+
+        Mutates ``obj_dict`` in place. Dominoes are placed start-first
+        along the chain, so ``self.domino.dominos`` index order is chain
+        order: the terminal ``n_targets`` blocks become targets (purple)
+        and every other non-start block becomes movable (blue). No-op
+        for ``n_targets <= 0``. (Glue state is not preserved; it only
+        applies when ``domino_has_glued_dominos`` is set, which is off
+        by default.)
+        """
+        if n_targets <= 0:
+            return
+        placed = [d for d in self.domino.dominos if d in obj_dict]
+        terminal = set(placed[-n_targets:])
+        target_color = self.domino.target_domino_color
+        movable_color = self.domino.domino_color
+        for idx, domino_obj in enumerate(placed):
+            if idx == 0:
+                continue  # start block keeps its color
+            color = target_color if domino_obj in terminal else movable_color
+            entry = obj_dict[domino_obj]
+            entry["r"], entry["g"], entry["b"] = color[0], color[1], color[2]
+
     def _get_expected_domino_count(self, n_dominos: int,
                                    n_targets: int) -> int:
         if CFG.domino_use_domino_blocks_as_target:
@@ -258,23 +327,25 @@ class DominoTaskGenerator(TaskGenerator):
         return (domino_count == n_dominos and target_count == n_targets
                 and pivot_count == n_pivots)
 
-    def _place_next_domino(self,
-                           rng: np.random.Generator,
-                           obj_dict: Dict,
-                           x: float,
-                           y: float,
-                           rotation: float,
-                           gap: float,
-                           domino_count: int,
-                           pivot_count: int,
-                           target_count: int,
-                           n_pivots: int,
-                           n_dominos: int,
-                           n_targets: int,
-                           just_placed_target: bool,
-                           just_turned_90: bool,
-                           _in_bounds: Callable[[float, float], bool],
-                           task_idx: Optional[int] = None) -> PlacementResult:
+    def _place_next_domino(
+            self,
+            rng: np.random.Generator,
+            obj_dict: Dict,
+            x: float,
+            y: float,
+            rotation: float,
+            gap: float,
+            domino_count: int,
+            pivot_count: int,
+            target_count: int,
+            n_pivots: int,
+            n_dominos: int,
+            n_targets: int,
+            just_placed_target: bool,
+            just_turned_90: bool,
+            _in_bounds: Callable[[float, float], bool],
+            task_idx: Optional[int] = None,
+            block_yaw: Optional[float] = None) -> PlacementResult:
         """Place the next domino using various strategies."""
         turn_choices = self.domino.turn_choices.copy()
         if pivot_count >= n_pivots and "pivot180" in turn_choices:
@@ -296,25 +367,39 @@ class DominoTaskGenerator(TaskGenerator):
         if choice == "straight":
             return self._place_straight_domino(rng, obj_dict, x, y, rotation,
                                                gap, domino_count, _in_bounds,
-                                               task_idx)
+                                               task_idx, block_yaw)
         if choice == "turn90":
             return self._place_turn90_domino(rng, obj_dict, x, y, rotation,
                                              gap, domino_count, n_dominos,
                                              n_targets, _in_bounds, task_idx,
-                                             should_place_target_at_end)
+                                             should_place_target_at_end,
+                                             block_yaw)
         if choice == "pivot180":
             return self._place_pivot180_domino(rng, obj_dict, x, y, rotation,
                                                gap, domino_count, pivot_count,
                                                _in_bounds, task_idx,
                                                should_place_target_at_end)
         return self._place_straight_domino(rng, obj_dict, x, y, rotation, gap,
-                                           domino_count, _in_bounds, task_idx)
+                                           domino_count, _in_bounds, task_idx,
+                                           block_yaw)
 
-    def _place_straight_domino(self, rng: np.random.Generator,
-                               obj_dict: Dict[Object, Any], x: float, y: float,
-                               rotation: float, gap: float, domino_count: int,
-                               _in_bounds: Callable[[float, float], bool],
-                               task_idx: Optional[int]) -> PlacementResult:
+    def _place_straight_domino(
+            self,
+            rng: np.random.Generator,
+            obj_dict: Dict[Object, Any],
+            x: float,
+            y: float,
+            rotation: float,
+            gap: float,
+            domino_count: int,
+            _in_bounds: Callable[[float, float], bool],
+            task_idx: Optional[int],
+            block_yaw: Optional[float] = None) -> PlacementResult:
+        # Travel direction (positions) follows ``rotation``; the block is laid
+        # at ``block_yaw`` (the smooth turn increment) when one has been
+        # established, else at ``rotation``. They are the same box, so a run
+        # after a turn reads as one constant yaw instead of flipping 180 deg.
+        yaw = rotation if block_yaw is None else block_yaw
         dx = gap * np.sin(rotation)
         dy = gap * np.cos(rotation)
         new_x, new_y = x + dx, y + dy
@@ -324,13 +409,14 @@ class DominoTaskGenerator(TaskGenerator):
                                    x=x,
                                    y=y,
                                    rotation=rotation,
-                                   domino_count=domino_count)
+                                   domino_count=domino_count,
+                                   block_yaw=block_yaw)
 
         obj_dict[self.domino.dominos[domino_count]] = self.domino.place_domino(
             domino_count,
             new_x,
             new_y,
-            rotation,
+            yaw,
             is_start_block=False,
             rng=rng,
             task_idx=task_idx)
@@ -339,34 +425,45 @@ class DominoTaskGenerator(TaskGenerator):
                                x=new_x,
                                y=new_y,
                                rotation=rotation,
-                               domino_count=domino_count + 1)
+                               domino_count=domino_count + 1,
+                               block_yaw=block_yaw)
 
     def _place_turn90_domino(
-            self, rng: np.random.Generator, obj_dict: Dict[Object, Any],
-            x: float, y: float, rotation: float, gap: float, domino_count: int,
-            n_dominos: int, n_targets: int,
-            _in_bounds: Callable[[float, float],
-                                 bool], task_idx: Optional[int],
-            should_place_target_at_end: bool) -> PlacementResult:
+            self,
+            rng: np.random.Generator,
+            obj_dict: Dict[Object, Any],
+            x: float,
+            y: float,
+            rotation: float,
+            gap: float,
+            domino_count: int,
+            n_dominos: int,
+            n_targets: int,
+            _in_bounds: Callable[[float, float], bool],
+            task_idx: Optional[int],
+            should_place_target_at_end: bool,
+            block_yaw: Optional[float] = None) -> PlacementResult:
         expected_count = self._get_expected_domino_count(n_dominos, n_targets)
         if domino_count + 1 >= expected_count:
             return self._place_straight_domino(rng, obj_dict, x, y, rotation,
                                                gap, domino_count, _in_bounds,
-                                               task_idx)
+                                               task_idx, block_yaw)
 
+        # The two turn blocks' yaws step 45 deg per block off the running block
+        # yaw (``block_yaw``, = ``rotation`` before any turn), so successive
+        # turns keep incrementing rather than resetting and a 90 deg turn reads
+        # as a smooth increment (yaw, yaw +/- 45, yaw +/- 90). Positions are
+        # independent of this representation and follow ``rotation`` (the
+        # travel direction): ``d1_dir`` is the chain's toppling direction one
+        # 45 deg step into the turn; d1 sits one gap ahead of the current block
+        # along the entry direction (no lateral shift, so it stays on the
+        # previous block's fall line) and d2 one gap ahead of d1 along d1_dir.
+        base_yaw = rotation if block_yaw is None else block_yaw
         turn_direction = rng.choice([-1, 1])
-        dx = gap * np.sin(rotation)
-        dy = gap * np.cos(rotation)
-        d1_base_x, d1_base_y = x + dx, y + dy
-        d1_rot = rotation - turn_direction * np.pi / 4
-
-        shift_magnitude = self.domino.domino_width * self.domino.turn_shift_frac
-        shift_dx = shift_magnitude * (turn_direction * np.cos(rotation) -
-                                      np.sin(rotation))
-        shift_dy = shift_magnitude * (-turn_direction * np.sin(rotation) -
-                                      np.cos(rotation))
-        d1_x = d1_base_x + shift_dx
-        d1_y = d1_base_y + shift_dy
+        d1_dir = rotation - turn_direction * np.pi / 4
+        d1_yaw = base_yaw + turn_direction * np.pi / 4
+        d1_x = x + gap * np.sin(rotation)
+        d1_y = y + gap * np.cos(rotation)
 
         if not _in_bounds(d1_x, d1_y):
             return PlacementResult(success=False,
@@ -379,21 +476,22 @@ class DominoTaskGenerator(TaskGenerator):
             domino_count,
             d1_x,
             d1_y,
-            d1_rot,
+            d1_yaw,
             is_start_block=False,
             rng=rng,
             task_idx=task_idx)
         domino_count += 1
 
-        d2_rot = d1_rot - turn_direction * np.pi / 4
-        sin_d1 = np.sin(d1_rot)
-        cos_d1 = np.cos(d1_rot)
-        disp_x = (gap * turn_direction * cos_d1 +
-                  (2 * shift_magnitude - gap) * sin_d1) / np.sqrt(2)
-        disp_y = (-gap * turn_direction * sin_d1 +
-                  (2 * shift_magnitude - gap) * cos_d1) / np.sqrt(2)
-        d2_x = d1_x + disp_x
-        d2_y = d1_y + disp_y
+        # Second turn block: one gap ahead of d1 along the chain direction,
+        # completing the 90 deg turn. Its yaw continues the +/-45 increment;
+        # ``d2_rot`` (the same cardinal orientation, 180 deg off) is returned
+        # as the travel direction so subsequent straight blocks lay out
+        # correctly, while ``d2_yaw`` is threaded as the running block yaw so
+        # those blocks keep this orientation instead of flipping.
+        d2_yaw = base_yaw + turn_direction * np.pi / 2
+        d2_rot = rotation - turn_direction * np.pi / 2
+        d2_x = d1_x + gap * np.sin(d1_dir)
+        d2_y = d1_y + gap * np.cos(d1_dir)
 
         if not _in_bounds(d2_x, d2_y):
             return PlacementResult(success=False,
@@ -406,7 +504,7 @@ class DominoTaskGenerator(TaskGenerator):
             domino_count,
             d2_x,
             d2_y,
-            d2_rot,
+            d2_yaw,
             is_start_block=False,
             is_target_block=should_place_target_at_end,
             rng=rng,
@@ -420,7 +518,8 @@ class DominoTaskGenerator(TaskGenerator):
                                domino_count=domino_count + 1,
                                target_count=target_inc,
                                just_turned_90=True,
-                               just_placed_target=should_place_target_at_end)
+                               just_placed_target=should_place_target_at_end,
+                               block_yaw=d2_yaw)
 
     def _place_pivot180_domino(
             self, rng: np.random.Generator, obj_dict: Dict[Object, Any],
