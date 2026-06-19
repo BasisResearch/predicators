@@ -4,6 +4,7 @@ import datetime
 import json
 import logging
 import os
+import time
 from typing import Any, Dict, List, Optional
 
 from predicators.agent_sdk.response_parser import parse_message
@@ -132,6 +133,11 @@ class AgentSessionManager:
 
         collected: List[Dict[str, Any]] = []
         log_path = self._init_incremental_log(message, kind=kind)
+        start = time.perf_counter()
+        # Wall-clock of the previous response message, so each logged step
+        # can report how long it took (model thinking before a tool call,
+        # tool execution before the next message, etc.).
+        prev_t = start
 
         try:
             await self._client.query(message)
@@ -140,19 +146,26 @@ class AgentSessionManager:
                 if entry is None:
                     continue
                 collected.append(entry)
+                now = time.perf_counter()
+                dt = now - prev_t
+                prev_t = now
 
                 # Log side-effects
                 if entry["type"] == "assistant":
                     for block in entry.get("content", []):
                         if block.get("type") == "text":
-                            logging.debug("Agent: %s...", block["text"][:200])
+                            logging.debug("[+%.2fs] Agent: %s...", dt,
+                                          block["text"][:200])
+                        elif block.get("thinking") is not None:
+                            logging.debug("[+%.2fs] Agent [thinking]: %s...",
+                                          dt, block["thinking"][:200])
                         elif block.get("type") == "tool_use":
                             params = block.get("input") or {}
                             param_summary = ", ".join(
                                 f"{k}={truncate(v)}"
                                 for k, v in params.items())
-                            logging.debug("Agent tool call: %s(%s)",
-                                          block["name"], param_summary)
+                            logging.debug("[+%.2fs] Agent tool call: %s(%s)",
+                                          dt, block["name"], param_summary)
                 elif entry["type"] == "result":
                     cost = entry.get("total_cost_usd")
                     turns = entry.get("num_turns")
@@ -172,6 +185,10 @@ class AgentSessionManager:
             logging.error("Agent session error: %s", e)
             collected.append({"type": "error", "error": str(e)})
             await self._recover_session(message)
+
+        elapsed = time.perf_counter() - start
+        logging.info("[agent-interaction] kind=%s took %.2fs (%d messages)",
+                     kind, elapsed, len(collected))
 
         # Final flush to ensure everything is saved
         if log_path:
