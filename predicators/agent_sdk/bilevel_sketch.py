@@ -507,9 +507,20 @@ def refine_sketch(
     # step exhausts precisely when every pooled candidate has been tried
     # (with 1-draw fillers for attempts left over when the pool came up
     # short of the target).
+    def _is_deterministic(step: SketchStep) -> bool:
+        # A sampler may flag itself as returning constant params (ignoring
+        # state/rng); re-drawing it yields the identical option, so its step
+        # gets a single attempt -- backtracking then skips straight past it
+        # instead of wasting the full budget re-descending through it.
+        sampler = (option_samplers.get(step.option.name)
+                   if option_samplers else None)
+        return bool(getattr(sampler, "deterministic", False))
+
     max_tries = []
     for _step in sketch:
         if _step.option.params_space.shape[0] == 0:
+            max_tries.append(1)
+        elif _is_deterministic(_step):
             max_tries.append(1)
         elif _info_seeking_applies(_step):
             max_tries.append(info_n_feasible_target)

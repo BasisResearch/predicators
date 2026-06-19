@@ -35,6 +35,7 @@ _PLACE_BOX = Box(low=np.array([0.4, 1.1, 0.5, -np.pi], dtype=np.float32),
 class _ClassifierStub:
     """Stub exposing the constants the InFront/Upright classifiers read."""
     pos_gap = 0.098
+    domino_width = 0.07
     domino_roll_threshold = np.deg2rad(5)
 
 
@@ -45,16 +46,16 @@ _Upright = Predicate("Upright", [_domino_type],
                      lambda s, o: DominoComponent._Upright_holds(_stub, s, o))  # pylint: disable=protected-access
 
 
-def _domino(name, x, y, yaw, is_held=0.0):
+def _domino(name, x, y, yaw, is_held=0.0, rgb=(0.5, 0.5, 0.5)):
     feats = {
         "x": x,
         "y": y,
         "z": 0.475,
         "yaw": yaw,
         "roll": 0.0,
-        "r": 0.5,
-        "g": 0.5,
-        "b": 0.5,
+        "r": rgb[0],
+        "g": rgb[1],
+        "b": rgb[2],
         "is_held": is_held,
     }
     obj = Object(name, _domino_type)
@@ -104,9 +105,80 @@ def test_place_sampler_satisfies_infront_subgoal():
     placed.set(d1, "is_held", 0.0)
     assert GroundAtom(_InFront, [d1, d0]).holds(placed)
     assert GroundAtom(_Upright, [d1]).holds(placed)
-    # Placed one pos_gap ahead of d0 along its facing (yaw=0 => +y).
-    assert np.isclose(float(params[0]), 0.8, atol=0.02)
-    assert np.isclose(float(params[1]), 1.3 + 0.098, atol=0.02)
+    # The exact pose is no longer pinned: with a single subgoal the sampler
+    # randomizes among the tied-best straight / +-45 turn placements (see
+    # test_place_sampler_randomizes_turn_offset). All that is guaranteed is
+    # that the drawn placement satisfies the subgoal, checked above.
+
+
+def test_place_sampler_randomizes_turn_offset():
+    """The sampler explores straight and +-45 turn placements across draws.
+
+    A single InFront subgoal is satisfied equally by a straight
+    placement and by a +-45 turn, so if the sampler always returned the
+    same one, backtracking that re-draws an upstream Place could never
+    turn a chain that needs a bend. Every draw must still satisfy the
+    subgoal.
+    """
+    robot = Object("robot", _robot_type)
+    d0, f0 = _domino("domino_0", x=0.8, y=1.3, yaw=0.0)
+    d1, f1 = _domino("domino_1", x=0.5, y=1.5, yaw=0.0, is_held=1.0)
+    state = _make_state([(d0, f0), (d1, f1)])
+    state.data[robot] = np.array([0.0], dtype=np.float32)
+    subgoal = {GroundAtom(_InFront, [d1, d0]), GroundAtom(_Upright, [d1])}
+
+    saw_straight = False
+    saw_turn = False
+    for seed in range(40):
+        params = _place_option_sampler(state, subgoal,
+                                       np.random.default_rng(seed), [robot])
+        placed = state.copy()
+        placed.set(d1, "x", float(params[0]))
+        placed.set(d1, "y", float(params[1]))
+        placed.set(d1, "yaw", float(params[3]))
+        placed.set(d1, "roll", 0.0)
+        placed.set(d1, "is_held", 0.0)
+        # Whatever offset was drawn, the subgoal must hold.
+        assert GroundAtom(_InFront, [d1, d0]).holds(placed)
+        turn = abs(utils.wrap_angle(float(params[3])))
+        if turn < np.radians(10):
+            saw_straight = True
+        elif abs(turn - np.pi / 4) < np.radians(10):
+            saw_turn = True
+    assert saw_straight, "sampler never produced a straight placement"
+    assert saw_turn, "sampler never produced a +-45 turn placement"
+
+
+def test_place_sampler_prefers_target_bridgeable_first_placement():
+    """When a purple target is visible, tie-break toward a completable chain.
+
+    In the seed-0 test layout, every first placement of domino_1 satisfies
+    ``InFront(domino_1, domino_0)`` locally, but only the +45-degree placement
+    leaves a one-domino bridge point that can also connect to the purple target.
+    """
+    robot = Object("robot", _robot_type)
+    d0, f0 = _domino("domino_0", x=0.9146, y=1.2534, yaw=0.0)
+    d1, f1 = _domino("domino_1",
+                     x=0.47,
+                     y=1.2975,
+                     yaw=0.0,
+                     is_held=1.0)
+    d2, f2 = _domino("domino_2", x=0.575, y=1.2975, yaw=0.0)
+    d3, f3 = _domino("domino_3",
+                     x=0.7225,
+                     y=1.3609,
+                     yaw=np.pi / 2,
+                     rgb=(0.85, 0.7, 0.85))
+    state = _make_state([(d0, f0), (d1, f1), (d2, f2), (d3, f3)])
+    state.data[robot] = np.array([0.0], dtype=np.float32)
+    subgoal = {GroundAtom(_InFront, [d1, d0]), GroundAtom(_Upright, [d1])}
+
+    params = _place_option_sampler(state, subgoal, np.random.default_rng(0),
+                                   [robot])
+
+    assert np.allclose(params[:2], [0.88985, 1.32665], atol=1e-3)
+    assert np.isclose(float(params[2]), 0.58)
+    assert abs(utils.wrap_angle(float(params[3]) - np.pi / 4)) < 1e-3
 
 
 def test_place_sampler_chain_between_two_references():
