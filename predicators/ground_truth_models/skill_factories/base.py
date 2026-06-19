@@ -760,6 +760,35 @@ class PhaseSkill:
             base_link_to_held_obj=base_link_to_held_obj,
         )
 
+        if traj is None and not self._config.ik_validate:
+            # A single unvalidated PyBullet IK call can return a joint
+            # configuration whose EE pose is close enough numerically but whose
+            # carried object is in collision. Before declaring the option
+            # infeasible, retry with validated IK, which iterates to a better
+            # Cartesian target solution while preserving the fast path for the
+            # common case.
+            sim._set_state(remapped_state)  # pylint: disable=protected-access
+            planning_robot.set_joints(pb_state.joint_positions)
+            try:
+                validated_target_joints = \
+                    planning_robot.inverse_kinematics(
+                        target_pose, validate=True, set_joints=True)
+            except InverseKinematicsError:
+                validated_target_joints = None
+            if validated_target_joints is not None:
+                traj = run_motion_planning(
+                    robot=planning_robot,
+                    initial_positions=pb_state.joint_positions,
+                    target_positions=validated_target_joints,
+                    collision_bodies=collision_bodies,
+                    seed=CFG.seed,
+                    physics_client_id=sim._physics_client_id,  # pylint: disable=protected-access
+                    held_object=held_object,
+                    base_link_to_held_obj=base_link_to_held_obj,
+                )
+                if traj is not None:
+                    target_joints = validated_target_joints
+
         if traj is None and not expect_contact:
             self._log_collision_diagnostics(
                 planning_robot,

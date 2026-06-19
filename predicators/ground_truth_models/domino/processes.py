@@ -16,7 +16,11 @@ from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
 
 # Fixed parameter values for domino environment.
 _DOMINO_GRASP_Z_OFFSET = 0.0825  # domino_height * 0.55
-_DOMINO_DROP_Z = 0.5695  # table_height + domino_height * 1.13
+# Slightly above the legacy drop height. With the skill-factory Pick grasp
+# transform, 0.5695 leaves the held domino penetrating the table at the
+# collision-aware Place goal; 0.58 clears the table and still settles to the
+# intended upright pose.
+_DOMINO_DROP_Z = 0.58
 _DOMINO_OFFSET_X = 0.045  # domino_depth * 3
 _DOMINO_OFFSET_Z = 0.0825  # domino_height * 0.55
 
