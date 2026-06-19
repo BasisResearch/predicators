@@ -77,6 +77,9 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         self._requests_train_task_idxs: Optional[List[int]] = None
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self._pre_test_conversation_log: Optional[List[Dict[str, Any]]] = None
+        # True only between begin_test_phase / end_test_phase, so per-episode
+        # hooks can act on test solves without touching exploration episodes.
+        self._in_test_phase = False
 
         # Initializes _tool_context and _agent_session_id (see mixin).
         self._init_agent_session_state(types, initial_predicates,
@@ -488,6 +491,7 @@ scene, then annotate_scene overlays markers on it."""
 
     def begin_test_phase(self) -> None:
         """Snapshot the learning conversation log before testing."""
+        self._in_test_phase = True
         if self._agent_session is not None:
             import copy  # pylint: disable=import-outside-toplevel
             self._pre_test_conversation_log = copy.deepcopy(
@@ -497,6 +501,7 @@ scene, then annotate_scene overlays markers on it."""
 
     def end_test_phase(self) -> None:
         """Restore the conversation log to its pre-test state."""
+        self._in_test_phase = False
         if self._agent_session is not None \
                 and self._pre_test_conversation_log is not None:
             self._agent_session._conversation_log = \

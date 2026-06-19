@@ -101,11 +101,18 @@ def build_solve_prompt(
     trajectory_summary: str = "",
     tool_names: Optional[Sequence[str]] = None,
     experiment_guidance: str = "",
+    prior_failures: str = "",
 ) -> str:
     """Build the bilevel solve/explore prompt asking for a plan sketch.
 
     Mirrors ``AgentBilevelApproach._build_solve_prompt`` but takes
     dependencies explicitly so explorers can reuse it.
+
+    ``prior_failures`` is a pre-formatted block summarizing earlier
+    sketch attempts that the backtracking search could not refine (with a
+    pointer to the full per-step log in the sandbox). Injected so a
+    re-query produces a *different* skeleton instead of re-emitting the
+    dead one.
     """
     init_state = task.init
     objects = list(init_state)
@@ -157,6 +164,18 @@ def build_solve_prompt(
         experiment_section = (f"\n## Experiment Guidance\n"
                               f"{experiment_guidance}\n")
 
+    prior_failures_section = ""
+    if prior_failures:
+        prior_failures_section = (
+            "\n## Previous Sketch Attempts (FAILED — do NOT repeat them)\n"
+            "Each block below is a sketch you already tried and the "
+            "backtracking search could NOT refine, with where it got stuck "
+            "and a pointer to the full per-step refinement log (read it with "
+            "`Read` for details). Produce a DIFFERENT skeleton that avoids "
+            "the failure — change the step that got stuck (object choice, "
+            "ordering, an intermediate step, or its subgoal annotation).\n"
+            f"{prior_failures}\n")
+
     goal_nl_section = ""
     if task.goal_nl:
         goal_nl_section = f"\n## Goal Description\n{task.goal_nl}\n"
@@ -191,7 +210,7 @@ Generate a plan sketch to achieve the goal.
 
 ## Available Predicates (for subgoal annotations)
 {chr(10).join(pred_strs)}
-{trajectory_summary}{tools_str}
+{trajectory_summary}{tools_str}{prior_failures_section}
 ## Instructions
 Use your available tools to inspect the environment before producing the plan.
 

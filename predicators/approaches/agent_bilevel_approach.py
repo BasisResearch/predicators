@@ -13,7 +13,9 @@ Example command::
         --num_online_learning_cycles 1 --explorer agent_plan
 """
 import logging
+import os
 import time
+from collections import Counter
 from typing import Any, Callable, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -68,6 +70,14 @@ class AgentBilevelApproach(AgentPlannerApproach):
         super().reset_for_new_episode()
         self._exec_status = None
         self._exec_replans_left = CFG.agent_bilevel_max_execution_replans
+        # Optionally give each test solve a fresh agent conversation: close
+        # the session here (once per test task, before its first solve; not
+        # on mid-episode replans, which go through step() not reset()). The
+        # next query lazily rebuilds the session — same sandbox + learned
+        # artifacts, empty chat context. Gated to the test phase so
+        # exploration episodes keep their shared session.
+        if CFG.agent_fresh_session_per_test_task and self._in_test_phase:
+            self._close_agent_session()
 
     def get_execution_monitoring_info(self) -> List[Any]:
         if self._exec_status is None:
@@ -126,14 +136,18 @@ class AgentBilevelApproach(AgentPlannerApproach):
     # Solve prompt (no continuous params, subgoal format)
     # ------------------------------------------------------------------ #
 
-    def _build_solve_prompt(self, task: Task) -> str:
+    def _build_solve_prompt(self,
+                            task: Task,
+                            prior_failures: Optional[List[str]] = None) -> str:
         """Build prompt asking for a plan sketch without continuous params."""
+        failures_text = "\n\n".join(prior_failures) if prior_failures else ""
         return bilevel_sketch.build_solve_prompt(
             task,
             all_predicates=self._get_all_predicates(),
             all_options=self._get_all_options(),
             trajectory_summary=self._build_trajectory_summary(),
             tool_names=self._get_solve_tool_names(),
+            prior_failures=failures_text,
         )
 
     # ------------------------------------------------------------------ #
@@ -159,12 +173,17 @@ class AgentBilevelApproach(AgentPlannerApproach):
             return timeout - elapsed
 
         sketches_tried = 0
+        # Pre-formatted summaries of earlier sketches the search could not
+        # refine; threaded into the next sketch query so the agent revises
+        # the dead skeleton instead of re-emitting it.
+        prior_failures: List[str] = []
         for sketch_attempt in range(max_sketch_retries):
             if _refine_remaining() <= 0:
                 break
             query_start = time.perf_counter()
             try:
-                sketch = self._query_agent_for_plan_sketch(task)
+                sketch = self._query_agent_for_plan_sketch(
+                    task, prior_failures=prior_failures)
             except Exception as e:  # pylint: disable=broad-except
                 llm_query_time += time.perf_counter() - query_start
                 logging.warning("Sketch query failed (attempt %d): %s",
@@ -184,6 +203,12 @@ class AgentBilevelApproach(AgentPlannerApproach):
             logging.info("[%s] Sketch (attempt %d):\n%s", self._run_id,
                          sketch_attempt, "\n".join(sketch_lines))
 
+            # Aggregate per-step failures across this sketch's refine
+            # retries (same skeleton, so the obstruction is the same):
+            # deepest step the search reached, and a tally of the distinct
+            # failure reasons it hit there and earlier.
+            record_fail, fail_state = self._make_step_fail_recorder()
+
             # Resample continuous params with a fresh seed before paying
             # for another agent query: a sketch that refines but fails
             # forward validation is a continuous-params problem, not a
@@ -200,7 +225,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 plan, success = self._refine_sketch(task,
                                                     sketch,
                                                     remaining,
-                                                    attempt=seed_offset)
+                                                    attempt=seed_offset,
+                                                    on_step_fail=record_fail)
                 if not success:
                     logging.info(
                         f"Refinement failed (sketch "
@@ -243,6 +269,16 @@ class AgentBilevelApproach(AgentPlannerApproach):
                              f"{refine_attempt}): {reason}")
                 # Fall through to the next seed on the same sketch.
 
+            # Every refine retry for this skeleton failed: save a full
+            # per-step refinement log to the sandbox and add a preview +
+            # pointer so the next sketch query revises this dead skeleton.
+            preview = self._record_refinement_failure(
+                sketch_attempt, sketch_lines, sketch,
+                fail_state["deepest_idx"], fail_state["deepest_reason"],
+                fail_state["counts"])
+            if preview:
+                prior_failures.append(preview)
+
         raise ApproachFailure(
             f"Bilevel solve failed after {sketches_tried} sketch(es) "
             f"(LLM query time {llm_query_time:.1f}s excluded from the "
@@ -252,8 +288,16 @@ class AgentBilevelApproach(AgentPlannerApproach):
     # Plan sketch extraction
     # ------------------------------------------------------------------ #
 
-    def _query_agent_for_plan_sketch(self, task: Task) -> List[_SketchStep]:
-        """Query agent for a plan sketch and parse it."""
+    def _query_agent_for_plan_sketch(
+            self,
+            task: Task,
+            prior_failures: Optional[List[str]] = None) -> List[_SketchStep]:
+        """Query agent for a plan sketch and parse it.
+
+        ``prior_failures`` carries preview+pointer blocks for earlier
+        sketches the search could not refine; they are injected into the
+        prompt so the re-query revises the dead skeleton.
+        """
         sketch_file = CFG.agent_bilevel_plan_sketch_file
         if sketch_file:
             filepath = utils.get_path_to_predicators_root() + \
@@ -262,7 +306,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 plan_text = f.read().strip()
             logging.info("Loaded plan sketch from file: %s", sketch_file)
         else:
-            prompt = self._build_solve_prompt(task)
+            prompt = self._build_solve_prompt(task,
+                                              prior_failures=prior_failures)
             responses = self._query_agent_sync(prompt, kind="test")
             plan_text = self._extract_option_plan_text(responses)
 
@@ -289,6 +334,109 @@ class AgentBilevelApproach(AgentPlannerApproach):
                      f"with subgoals.")
         return sketch
 
+    @staticmethod
+    def _make_step_fail_recorder(
+    ) -> Tuple[Callable[[int, List[Optional[_Option]], str], None], "dict"]:
+        """Build an ``on_step_fail`` callback and its accumulator state.
+
+        Returns ``(callback, state)`` where ``state`` is a dict with keys
+        ``deepest_idx`` (the deepest step index the search reached before
+        failing), ``deepest_reason`` (the failure reason there), and
+        ``counts`` (a ``Counter`` over ``(step_idx, reason)``). Built as a
+        factory so the closure captures fresh per-sketch state instead of
+        loop variables.
+        """
+        state: dict = {
+            "deepest_idx": -1,
+            "deepest_reason": "",
+            "counts": Counter(),
+        }
+
+        def _record(idx: int, _plan: List[Optional[_Option]],
+                    reason: str) -> None:
+            state["counts"][(idx, reason)] += 1
+            if idx > state["deepest_idx"]:
+                state["deepest_idx"] = idx
+                state["deepest_reason"] = reason
+
+        return _record, state
+
+    def _record_refinement_failure(
+        self,
+        attempt_idx: int,
+        sketch_lines: List[str],
+        sketch: List[_SketchStep],
+        deepest_idx: int,
+        deepest_reason: str,
+        reason_counts: "Counter[Tuple[int, str]]",
+    ) -> str:
+        """Persist a full refinement-failure log to the sandbox and return a
+        preview+pointer block for the next sketch prompt.
+
+        Writes ``<sandbox>/refinement_logs/sketch_<NN>_refine.md`` with the
+        tried skeleton, where backtracking got stuck (deepest step), and a
+        per-step tally of the distinct failure reasons. The returned block
+        embeds a short preview and a relative pointer to that file so the
+        agent can ``Read`` the detail. Returns ``""`` if there is nothing
+        to report (no recorded failures).
+        """
+        if not reason_counts:
+            return ""
+
+        def _step_desc(idx: int) -> str:
+            if 0 <= idx < len(sketch):
+                objs = ", ".join(o.name for o in sketch[idx].objects)
+                return f"step {idx}: {sketch[idx].option.name}({objs})"
+            return f"step {idx}"
+
+        total_fail = sum(reason_counts.values())
+        deepest_desc = _step_desc(deepest_idx)
+
+        full_lines = [
+            f"# Refinement failure — sketch attempt {attempt_idx}",
+            "",
+            "## Sketch (could not be refined)",
+            *sketch_lines,
+            "",
+            "## Outcome",
+            f"FAILED. Deepest step the search reached: {deepest_desc}.",
+            f"Dominant failure there: {deepest_reason}",
+            f"Total failed samples: {total_fail}.",
+            "",
+            "## Per-step failure reasons (count)",
+        ]
+        for (idx, reason), cnt in sorted(reason_counts.items(),
+                                         key=lambda kv: (kv[0][0], -kv[1])):
+            full_lines.append(f"- {_step_desc(idx)}: {cnt}x  {reason}")
+        full_text = "\n".join(full_lines) + "\n"
+
+        # Prefer the agent-visible sandbox cwd so the pointer is a valid
+        # relative path for the agent; fall back to the run log dir.
+        sandbox = getattr(self._tool_context, "sandbox_dir", None) \
+            or self._get_log_dir()
+        rel_dir = "refinement_logs"
+        out_dir = os.path.join(sandbox, rel_dir)
+        os.makedirs(out_dir, exist_ok=True)
+        fname = f"sketch_{attempt_idx:02d}_refine.md"
+        try:
+            with open(os.path.join(out_dir, fname), "w",
+                      encoding="utf-8") as f:
+                f.write(full_text)
+            pointer = f"./{rel_dir}/{fname}"
+        except OSError as e:  # pragma: no cover - best-effort logging
+            logging.warning("Could not write refinement log: %s", e)
+            pointer = "(refinement log unavailable)"
+
+        preview = "\n".join([
+            f"### Attempt {attempt_idx} (FAILED)",
+            *sketch_lines,
+            f"  -> Refinement FAILED. Deepest step reached: {deepest_desc}. "
+            f"Dominant failure: {deepest_reason} "
+            f"({total_fail} failed samples).",
+            f"  Full per-step refinement log: {pointer}",
+        ])
+        return preview
+
     # ------------------------------------------------------------------ #
     # Backtracking refinement
     # ------------------------------------------------------------------ #
@@ -299,6 +447,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
         sketch: List[_SketchStep],
         timeout: float,
         attempt: int = 0,
+        on_step_fail: Optional[Callable[[int, List[Optional[_Option]], str],
+                                        None]] = None,
     ) -> Tuple[List[_Option], bool]:
         """Backtracking search over continuous parameters for a plan sketch.
 
@@ -333,6 +483,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             log_state=CFG.agent_bilevel_log_state,
             run_id=self._run_id,
             option_samplers=self._get_all_samplers(),
+            on_step_fail=on_step_fail,
         )
         return plan, success
 

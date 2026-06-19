@@ -1068,6 +1068,12 @@ class GlobalSettings:
     # reseed refinement on the same skeleton before re-querying the agent
     agent_bilevel_max_refine_retries = 5
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
+    # When True, close the agent SDK session at the start of each test task
+    # so every test solve begins with a FRESH conversation (no context from
+    # earlier test tasks). The sandbox filesystem and learned artifacts are
+    # untouched. Default False keeps the current behavior: all test tasks
+    # share one continuous agent conversation.
+    agent_fresh_session_per_test_task = False
     # Test-time closed-loop recovery. After each option in the refined plan
     # finishes, the subgoal_annotations execution monitor checks the
     # sketch's subgoal annotation for that step against the REAL state; on
