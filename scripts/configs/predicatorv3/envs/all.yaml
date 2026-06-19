@@ -12,7 +12,7 @@ ENVS:
     FLAGS:
       excluded_objects_in_state_str: "loc,rot,angle,direction"
       # include for test oracle; exlude for test ours
-      # excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright"
+      excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright"
       horizon: 400
       domino_initialize_at_finished_state: False
       domino_use_domino_blocks_as_target: True

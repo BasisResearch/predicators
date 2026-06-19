@@ -49,6 +49,7 @@ APPROACHES:
     NAME: "agent_sim_learning"
     FLAGS:
       demonstrator: "oracle_process_planning"
+      bilevel_plan_without_sim: True # for the demonstrator
       explorer: "agent_bilevel"
       terminate_on_goal_reached_and_option_terminated: True
       agent_sdk_use_local_sandbox: True
