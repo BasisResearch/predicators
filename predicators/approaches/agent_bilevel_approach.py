@@ -149,16 +149,29 @@ class AgentBilevelApproach(AgentPlannerApproach):
         self._sync_tool_context()
         self._tool_context.current_task = task
         start = time.perf_counter()
+        # Exclude the (minutes-long) LLM sketch query from the refinement
+        # budget, else a slow query overruns `timeout` and starves the
+        # refine loop -- failing the solve without ever refining.
+        llm_query_time = 0.0
 
+        def _refine_remaining() -> float:
+            elapsed = time.perf_counter() - start - llm_query_time
+            return timeout - elapsed
+
+        sketches_tried = 0
         for sketch_attempt in range(max_sketch_retries):
-            if timeout - (time.perf_counter() - start) <= 0:
+            if _refine_remaining() <= 0:
                 break
+            query_start = time.perf_counter()
             try:
                 sketch = self._query_agent_for_plan_sketch(task)
             except Exception as e:  # pylint: disable=broad-except
+                llm_query_time += time.perf_counter() - query_start
                 logging.warning("Sketch query failed (attempt %d): %s",
                                 sketch_attempt, e)
                 continue
+            llm_query_time += time.perf_counter() - query_start
+            sketches_tried += 1
 
             sketch_lines = []
             for i, s in enumerate(sketch):
@@ -177,7 +190,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             # wrong skeleton, and re-querying rarely changes the skeleton
             # while always costing an LLM call.
             for refine_attempt in range(max_refine_retries):
-                remaining = timeout - (time.perf_counter() - start)
+                remaining = _refine_remaining()
                 if remaining <= 0:
                     break
                 # Flatten the two loop indices so every (sketch, refine)
@@ -231,7 +244,9 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 # Fall through to the next seed on the same sketch.
 
         raise ApproachFailure(
-            f"Bilevel solve failed after {max_sketch_retries} sketches.")
+            f"Bilevel solve failed after {sketches_tried} sketch(es) "
+            f"(LLM query time {llm_query_time:.1f}s excluded from the "
+            f"{timeout}s refinement budget).")
 
     # ------------------------------------------------------------------ #
     # Plan sketch extraction
