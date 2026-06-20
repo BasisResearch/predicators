@@ -47,7 +47,7 @@ import dill as pkl
 
 from predicators.agent_sdk.sandbox_prompts import build_claude_md, \
     build_sandbox_system_prompt, find_repo_root, setup_sandbox_directory
-from predicators.agent_sdk.tools import ToolContext
+from predicators.agent_sdk.tools import ToolContext, session_log_filename
 from predicators.settings import CFG
 
 logger = logging.getLogger(__name__)
@@ -234,7 +234,9 @@ class DockerSessionManager:
         # Counter-first layout: alphabetical sort matches chronological
         # order across mixed ``learn``/``test``/``explore`` phases.
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_filename = f"{self._query_count:03d}_{kind}_{timestamp}.md"
+        log_filename = session_log_filename(
+            self._query_count, kind, timestamp,
+            getattr(self._tool_context, "test_task_idx", None))
         if self._log_dir:
             os.makedirs(self._log_dir, exist_ok=True)
             incremental_log_path = os.path.join(self._log_dir, log_filename)
@@ -540,7 +542,9 @@ class DockerSessionManager:
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         kind = getattr(self, "_last_kind", "query")
-        filename = f"{self._query_count:03d}_{kind}_{timestamp}.md"
+        filename = session_log_filename(
+            self._query_count, kind, timestamp,
+            getattr(self._tool_context, "test_task_idx", None))
         filepath = os.path.join(self._log_dir, filename)
 
         lines = [

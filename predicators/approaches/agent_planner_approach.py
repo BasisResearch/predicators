@@ -80,6 +80,10 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         # True only between begin_test_phase / end_test_phase, so per-episode
         # hooks can act on test solves without touching exploration episodes.
         self._in_test_phase = False
+        # 0-based index of the test task being solved, mirroring main.py's
+        # ``test_task_idx``. Incremented per test solve; threaded into the
+        # session-log filename via the ToolContext.
+        self._test_task_idx = -1
 
         # Initializes _tool_context and _agent_session_id (see mixin).
         self._init_agent_session_state(types, initial_predicates,
@@ -492,6 +496,7 @@ scene, then annotate_scene overlays markers on it."""
     def begin_test_phase(self) -> None:
         """Snapshot the learning conversation log before testing."""
         self._in_test_phase = True
+        self._test_task_idx = -1
         if self._agent_session is not None:
             import copy  # pylint: disable=import-outside-toplevel
             self._pre_test_conversation_log = copy.deepcopy(
@@ -502,11 +507,26 @@ scene, then annotate_scene overlays markers on it."""
     def end_test_phase(self) -> None:
         """Restore the conversation log to its pre-test state."""
         self._in_test_phase = False
+        self._tool_context.test_task_idx = None
         if self._agent_session is not None \
                 and self._pre_test_conversation_log is not None:
             self._agent_session._conversation_log = \
                 self._pre_test_conversation_log  # pylint: disable=protected-access
         self._pre_test_conversation_log = None
+
+    def reset_for_new_episode(self) -> None:
+        """Advance the test-task counter at each test episode start.
+
+        CogMan calls this exactly once per test task (via ``cogman.reset``
+        in main.py's ``_solve_task``) and never on mid-episode replans, so
+        the counter stays in lockstep with main.py's ``test_task_idx``.
+        The index is exposed to the sandbox via the ToolContext and lands
+        in the session-log filename. No-op outside the test phase.
+        """
+        super().reset_for_new_episode()
+        if self._in_test_phase:
+            self._test_task_idx += 1
+            self._tool_context.test_task_idx = self._test_task_idx
 
     def _query_agent_for_option_plan(self, task: Task) -> list:
         """Query the agent for an option plan and parse it."""

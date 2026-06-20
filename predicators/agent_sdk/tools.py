@@ -184,6 +184,10 @@ class ToolContext:
     show_option_source: bool = True  # set False when using GT options
     iteration_id: int = 0  # current learning iteration (outer loop)
     turn_id: int = 0  # current query/turn within the session
+    # Index of the test task currently being solved (0-based), mirroring
+    # main.py's ``test_task_idx``. None outside the test phase. Threaded into
+    # the saved session-log filename so test queries are attributable to a task.
+    test_task_idx: Optional[int] = None
     test_call_id: int = 0  # incremented per test_option_plan call
     visualized_state: Optional[State] = None  # last state from visualize_state
     # Managed by AgentSessionMixin: populated from
@@ -205,6 +209,23 @@ class ToolContext:
     # the task goal during refinement? Read by get_interaction_requests to
     # stamp InteractionRequest.mental_model_solved (None ⇒ no verdict).
     last_mental_model_solved: Optional[bool] = None
+
+
+def session_log_filename(query_count: int,
+                         kind: str,
+                         timestamp: str,
+                         test_task_idx: Optional[int] = None,
+                         ext: str = "md") -> str:
+    """Build the session-log filename shared by the sandbox backends.
+
+    Layout: ``NNN_<kind>[_task<idx>]_<timestamp>.<ext>``. The counter comes
+    first so alphabetical sort matches chronological order; for test queries
+    the ``_task<idx>`` segment ties the file to ``main.py``'s test task index.
+    """
+    suffix = ""
+    if kind == "test" and test_task_idx is not None:
+        suffix = f"_task{test_task_idx}"
+    return f"{query_count:03d}_{kind}{suffix}_{timestamp}.{ext}"
 
 
 def _text_result(text: str) -> Dict[str, Any]:

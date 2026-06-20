@@ -33,7 +33,8 @@ from predicators.agent_sdk.response_parser import parse_message
 from predicators.agent_sdk.sandbox_prompts import build_claude_md, \
     build_sandbox_system_prompt, find_repo_root, setup_sandbox_directory, \
     truncate
-from predicators.agent_sdk.tools import BUILTIN_TOOLS, ToolContext
+from predicators.agent_sdk.tools import BUILTIN_TOOLS, ToolContext, \
+    session_log_filename
 from predicators.settings import CFG
 
 logger = logging.getLogger(__name__)
@@ -333,11 +334,13 @@ class LocalSandboxSessionManager:
 
     # -- Logging helpers --
 
-    # Matches both the new ``NNN_kind_ts.md`` layout and the legacy
+    # Matches the new ``NNN_kind[_taskN]_ts.md`` layout and the legacy
     # ``kind_NNN_ts.md`` layout so resuming across the migration is
-    # lossless. The counter is always captured in group 1 or 2.
+    # lossless. The counter is always captured in group 1 or 2; the
+    # optional ``_task<idx>`` segment tags test queries with their task.
     _LOG_FILENAME_RE = re.compile(
-        r"^(?:(\d{3})_[a-z][a-z_]*|[a-z][a-z_]*_(\d{3}))_\d{8}_\d{6}\.md$")
+        r"^(?:(\d{3})_[a-z][a-z_]*(?:_task\d+)?|[a-z][a-z_]*_(\d{3}))"
+        r"_\d{8}_\d{6}\.md$")
 
     def _seed_query_count_from_log_dir(self) -> None:
         """Make the per-session counter continuous across the run.
@@ -375,8 +378,11 @@ class LocalSandboxSessionManager:
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         # Counter-first layout: alphabetical sort matches chronological
-        # order across mixed ``learn``/``test``/``explore`` phases.
-        filename = f"{self._query_count:03d}_{kind}_{timestamp}.md"
+        # order across mixed ``learn``/``test``/``explore`` phases. Test
+        # queries also carry a ``_task<idx>`` segment for attribution.
+        filename = session_log_filename(
+            self._query_count, kind, timestamp,
+            getattr(self._tool_context, "test_task_idx", None))
         # Primary: main log dir (host-visible)
         filepath = os.path.join(self._log_dir, filename)
         os.makedirs(self._log_dir, exist_ok=True)
