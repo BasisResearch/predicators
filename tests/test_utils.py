@@ -3574,3 +3574,29 @@ def test_parse_model_output_into_option_plan():
         utils.parse_model_output_into_option_plan(options_str, [obj],
                                                   [obj_type], options,
                                                   False)) == 0
+    # A numbered/enumerated line prefix ("0:", "1.") that agents emit when
+    # mirroring the logged sketch format must parse identically to the
+    # bare line; without prefix stripping the whole plan parses as empty.
+    pick_opt = next(o for o in options if o.name == "Pick")
+    robot_type, block_type = pick_opt.types
+    robby = Object("robby", robot_type)
+    b0 = Object("b0", block_type)
+    types = [robot_type, block_type]
+    objs = [robby, b0]
+    bare = "Pick(robby:robot, b0:block)"
+    bare_plan = utils.parse_model_output_into_option_plan(
+        bare, objs, types, options, False)
+    assert len(bare_plan) == 1
+    for prefix in ("0: ", "1. ", "2) ", "  3:  "):
+        numbered = prefix + bare
+        numbered_plan = utils.parse_model_output_into_option_plan(
+            numbered, objs, types, options, False)
+        assert len(numbered_plan) == 1
+        assert numbered_plan[0][0].name == bare_plan[0][0].name
+        assert numbered_plan[0][1] == bare_plan[0][1]
+    # A prose bullet that merely mentions an option name is NOT a numbered
+    # plan line and must still be ignored (it is not stripped to an option).
+    prose = "- Step 1: Pick(robby:robot, b0:block) at the left side"
+    assert len(
+        utils.parse_model_output_into_option_plan(prose, objs, types, options,
+                                                  False)) == 0

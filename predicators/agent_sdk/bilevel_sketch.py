@@ -269,7 +269,11 @@ def parse_subgoal_annotations(
     results: List[Optional[Tuple[Set[GroundAtom], Set[GroundAtom]]]] = []
 
     for line in text.split('\n'):
-        stripped = line.strip()
+        # Mirror the enumeration-prefix tolerance in the option-plan
+        # parser so the per-line subgoal results stay index-parallel with
+        # the parsed options (a numbered "0: Pick(...)" line must be seen
+        # as an option line here too, else annotations misalign).
+        stripped = utils.strip_enumeration_prefix(line.strip())
         if not stripped:
             continue
         first_token = stripped.split('(')[0]
