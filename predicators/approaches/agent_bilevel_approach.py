@@ -228,10 +228,14 @@ class AgentBilevelApproach(AgentPlannerApproach):
                                                     attempt=seed_offset,
                                                     on_step_fail=record_fail)
                 if not success:
+                    reason_msg = ""
+                    if fail_state["deepest_idx"] >= 0:
+                        reason_msg = f" (stuck at step {fail_state['deepest_idx']}: {fail_state['deepest_reason']})"
+                    
                     logging.info(
                         f"Refinement failed (sketch "
                         f"{sketch_attempt}, refine {refine_attempt}), "
-                        f"{len(sketch)} steps.")
+                        f"{len(sketch)} steps{reason_msg}.")
                     continue
 
                 plan_strs = []
