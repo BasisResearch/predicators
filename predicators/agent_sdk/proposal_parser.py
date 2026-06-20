@@ -21,7 +21,7 @@ class ProposalBundle:
     # Retractions: names of previously-proposed abstractions to remove
     retract_type_names: Set[str] = field(default_factory=set)
     retract_predicate_names: Set[str] = field(default_factory=set)
-    retract_object_augmentor: bool = False
+    retract_task_augmentor: bool = False
     retract_process_names: Set[str] = field(default_factory=set)
     retract_option_names: Set[str] = field(default_factory=set)
 

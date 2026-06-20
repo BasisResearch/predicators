@@ -1,4 +1,4 @@
-"""Test that test_option_plan produces correct results.
+"""Test that evaluate_option_plan produces correct results.
 
 Validates that multi-step option plans (Pick→Place→Pick→Place→Push) produce
 non-zero actions at every step, both in-process and in a subprocess that

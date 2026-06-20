@@ -147,7 +147,7 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         Honors two CFG knobs:
 
         * ``agent_planner_use_simulator`` -- when False, returns ``None``
-          so the agent gets no ``test_option_plan`` rollouts and must
+          so the agent gets no ``evaluate_option_plan`` rollouts and must
           plan open-loop from data + LLM reasoning (the model-free
           baseline).
         * ``agent_planner_use_base_simulator`` -- when True (and a
@@ -191,9 +191,9 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
 ## Scratchpad — CRITICAL
 You MUST maintain `./notes.md` as your working memory. \
 **Read it at the very start of the session** and **read it \
-again before every test_option_plan call** to remind yourself \
+again before every evaluate_option_plan call** to remind yourself \
 what you already tried. **Update it immediately after every \
-test_option_plan call** — no exceptions.
+evaluate_option_plan call** — no exceptions.
 
 Use this exact format for each option you are tuning:
 
@@ -224,7 +224,7 @@ and update before doing anything else.**"""
 rotation, water_volume, is_on, etc.) and renders the scene \
 WITHOUT running the full simulation. It is FREE (no physics, \
 no failure modes) — use it liberally to build spatial \
-understanding before spending expensive test_option_plan calls.
+understanding before spending expensive evaluate_option_plan calls.
 
 **When to use visualize_state:**
 - **At the start**: visualize key objects to understand the \
@@ -301,7 +301,7 @@ scene, then annotate_scene overlays markers on it."""
         if use_scratchpad:
             steps.append(
                 "**Read `./notes.md` before every test**, then **update it "
-                "immediately after every test_option_plan call**. Record "
+                "immediately after every evaluate_option_plan call**. Record "
                 "what you tried, what happened, and what you learned. "
                 "This is your memory — without it you will repeat failures.")
         steps += [
@@ -311,7 +311,7 @@ scene, then annotate_scene overlays markers on it."""
             "**Inspect rendered images** from `./test_images/` when "
             "something goes wrong to understand the actual outcome. "
             "For finer-grained debugging, pass `save_low_level_action_images: "
-            "true` to test_option_plan — this saves per-simulator-step images "
+            "true` to evaluate_option_plan — this saves per-simulator-step images "
             "to `./test_images_low_level/`.",
             "**Expect geometric offsets.** The target position for "
             "options is often offset from the reference object's reported "
@@ -367,11 +367,11 @@ scene, then annotate_scene overlays markers on it."""
             "inspect_options", "inspect_trajectories", "inspect_train_tasks"
         ]
         # The remaining tools all require a simulator / live env:
-        # test_option_plan rolls plans out through the option model, and
+        # evaluate_option_plan rolls plans out through the option model, and
         # visualize_state / annotate_scene render env states. None are
         # offered when the planner has no simulator.
         if CFG.agent_planner_use_simulator:
-            tools.append("test_option_plan")
+            tools.append("evaluate_option_plan")
             if CFG.agent_planner_use_annotate_scene:
                 tools.append("annotate_scene")
             if CFG.agent_planner_use_visualize_state:
@@ -548,7 +548,7 @@ scene, then annotate_scene overlays markers on it."""
         """Return the notes.md bullet for the solve prompt, or empty."""
         if CFG.agent_planner_use_scratchpad:
             return (
-                "- **Read `./notes.md` before every test_option_plan call** "
+                "- **Read `./notes.md` before every evaluate_option_plan call** "
                 "and **update it immediately after each call** — append a "
                 "row to the parameter table and update the explored-ranges "
                 "summary. If you realize you forgot to update, STOP and "
@@ -855,7 +855,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
     def _sync_tool_context(self) -> None:
         """Push current approach state into the shared ToolContext.
 
-        The MCP tools (inspect_options, test_option_plan, etc.) read
+        The MCP tools (inspect_options, evaluate_option_plan, etc.) read
         from the ToolContext dataclass, not from the approach directly.
         This method keeps them in sync after mutations (e.g. new
         trajectories collected, options added).  Called before each

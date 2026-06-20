@@ -1050,7 +1050,7 @@ class GlobalSettings:
     agent_planner_use_visualize_state = False  # include visualize_state tool
     agent_planner_use_annotate_scene = False  # include annotate_scene tool
     # Whether the planner is given a simulator to test candidate plans with
-    # (the test_option_plan tool / option-model rollouts). When False, the
+    # (the evaluate_option_plan tool / option-model rollouts). When False, the
     # agent must plan open-loop from trajectory data and LLM reasoning alone
     # -- the genuinely model-free baseline.
     agent_planner_use_simulator = True

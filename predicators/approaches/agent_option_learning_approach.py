@@ -71,7 +71,7 @@ options before planning.
 2. **Invent** new options if needed — either by writing and executing
    Python code directly, or by using the `propose_options` tool
 3. **Test** — either write and run Python experiments to verify your
-   options, or use `test_option_plan` to check that a plan achieves
+   options, or use `evaluate_option_plan` to check that a plan achieves
    the goal. Use `retract_abstractions` to remove options that don't
    work.
 4. **Plan** — output the final option plan
@@ -125,20 +125,20 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
 - Only propose new options if existing ones cannot achieve the goal
 - You can invent and test options in two ways: (a) write and execute
   Python code directly in the sandbox, or (b) use the `propose_options`,
-  `retract_abstractions`, and `test_option_plan` tools
+  `retract_abstractions`, and `evaluate_option_plan` tools
 - Always test your plan before committing
 - Output the final plan in the standard format at the end
 
 ## Debugging Tips
 - Use `inspect_options` with `option_name` to save an option's source
   code to ./proposed_code/<name>.py, then Read it to study the implementation
-- `test_option_plan` automatically saves scene images to ./test_images/
+- `evaluate_option_plan` automatically saves scene images to ./test_images/
   after each step — check them to debug spatial issues
 - Your session logs are in ./session_logs/ — Glob and Read them to review
   past attempts when iterating
 - All proposal and option source code is in ./proposed_code/ — Read
   files there to understand how existing options work
-- When `test_option_plan` fails, check the "Object poses at failure"
+- When `evaluate_option_plan` fails, check the "Object poses at failure"
   and "Missing goal atoms" in the output"""
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
@@ -150,7 +150,7 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
             "inspect_past_proposals",
             "propose_options",
             "retract_abstractions",
-            "test_option_plan",
+            "evaluate_option_plan",
         ]
 
     def _get_sandbox_reference_files(  # pylint: disable=useless-super-delegation
@@ -292,7 +292,7 @@ context for pybullet environments.
 3. **Test** — Verify your options and plan work correctly:
    - **Python code**: Write and run Python experiments to unit-test \
 individual options or full plans.
-   - **MCP tools**: Use `test_option_plan` to check that a plan \
+   - **MCP tools**: Use `evaluate_option_plan` to check that a plan \
 (including any new options) achieves the goal.
    Iterate until the test passes.
 4. **Commit** — Once the test passes, output the final plan. Your \

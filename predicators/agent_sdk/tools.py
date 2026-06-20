@@ -49,7 +49,7 @@ INSPECTION_TOOL_NAMES = [
 PROPOSAL_TOOL_NAMES = [
     "propose_types",
     "propose_predicates",
-    "propose_object_augmentor",
+    "propose_task_augmentor",
     "propose_processes",
     "propose_options",
 ]
@@ -57,9 +57,8 @@ RETRACTION_TOOL_NAMES = [
     "retract_abstractions",
 ]
 TESTING_TOOL_NAMES = [
-    "test_predicate_on_states",
-    "test_planning",
-    "test_option_plan",
+    "evaluate_predicate_on_trajectory",
+    "evaluate_option_plan",
 ]
 PLANNING_TOOL_NAMES = [
     "generate_bilevel_plan",
@@ -188,7 +187,7 @@ class ToolContext:
     # main.py's ``test_task_idx``. None outside the test phase. Threaded into
     # the saved session-log filename so test queries are attributable to a task.
     test_task_idx: Optional[int] = None
-    test_call_id: int = 0  # incremented per test_option_plan call
+    test_call_id: int = 0  # incremented per evaluate_option_plan call
     visualized_state: Optional[State] = None  # last state from visualize_state
     # Managed by AgentSessionMixin: populated from
     # `_build_synthesis_mcp_tools` at session-open, reset to [] for
@@ -577,46 +576,9 @@ def _save_option_to_sandbox(ctx: ToolContext, option_name: str,
     return f"./proposed_code/{filename}"
 
 
-def create_mcp_tools(ctx: ToolContext,
-                     tool_names: Optional[List[str]] = None) -> list:
-    """Create MCP tools with the given ToolContext via closures.
-
-    Args:
-        ctx: Shared mutable state between the approach and MCP tools.
-        tool_names: If provided, only return tools with these names.
-            If None, return all tools.
-
-    Returns a list of SdkMcpTool objects to pass to create_sdk_mcp_server.
-    """
-    from claude_agent_sdk import \
-        tool  # pylint: disable=import-outside-toplevel
-
-    # Spill oversize tool output into the sandbox (``./tool_outputs/``)
-    # instead of returning it inline, where the agent SDK would truncate it
-    # and dump the full text to ``~/.claude/projects/.../tool-results/`` —
-    # outside the sandbox. Shadowing the module-level ``_text_result`` here
-    # routes every nested tool's ``_text_result(...)`` call (e.g.
-    # ``inspect_trajectories``) through the spiller, with no call-site edits.
-    _text_result = _make_spilling_text_result(ctx.sandbox_dir)
-
-    _propose_count = [0]  # mutable counter in closure
-
-    def _save_proposal_code(tool_name: str, code: str, names: List[str],
-                            description: str) -> None:
-        if not ctx.sandbox_dir:
-            return
-        _propose_count[0] += 1
-        subdir = os.path.join(ctx.sandbox_dir, "proposed_code")
-        os.makedirs(subdir, exist_ok=True)
-        names_slug = "_".join(names)[:80]
-        filename = f"{_propose_count[0]:03d}_{tool_name}_{names_slug}.py"
-        filepath = os.path.join(subdir, filename)
-        header = f'"""{tool_name}: {description}"""\n\n'
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(header + code)
-        logging.info(f"Saved proposal code to {filepath}")
-
-    # ===== INSPECTION TOOLS =====
+def _build_inspection_tools(ctx: ToolContext, _text_result: Callable,
+                            tool: Callable) -> Dict[str, Any]:
+    """Read-only inspection tools (views over ToolContext state)."""
 
     @tool("inspect_types", "List all object types and their features", {})
     async def inspect_types(_args: Dict[str, Any]) -> Dict[str, Any]:
@@ -944,7 +906,37 @@ def create_mcp_tools(ctx: ToolContext,
             lines.append(json.dumps(entry, indent=2, default=str))
         return _text_result("\n---\n".join(lines))
 
-    # ===== PROPOSAL TOOLS =====
+    return {
+        "inspect_types": inspect_types,
+        "inspect_predicates": inspect_predicates,
+        "inspect_processes": inspect_processes,
+        "inspect_options": inspect_options,
+        "inspect_trajectories": inspect_trajectories,
+        "inspect_train_tasks": inspect_train_tasks,
+        "inspect_planning_results": inspect_planning_results,
+        "inspect_past_proposals": inspect_past_proposals,
+    }
+
+
+def _build_proposal_tools(ctx: ToolContext, _text_result: Callable,
+                          tool: Callable) -> Dict[str, Any]:
+    """Proposal tools (agent authors new types/predicates/options/etc.)."""
+    _propose_count = [0]  # mutable counter in closure
+
+    def _save_proposal_code(tool_name: str, code: str, names: List[str],
+                            description: str) -> None:
+        if not ctx.sandbox_dir:
+            return
+        _propose_count[0] += 1
+        subdir = os.path.join(ctx.sandbox_dir, "proposed_code")
+        os.makedirs(subdir, exist_ok=True)
+        names_slug = "_".join(names)[:80]
+        filename = f"{_propose_count[0]:03d}_{tool_name}_{names_slug}.py"
+        filepath = os.path.join(subdir, filename)
+        header = f'"""{tool_name}: {description}"""\n\n'
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(header + code)
+        logging.info(f"Saved proposal code to {filepath}")
 
     @tool(
         "propose_types",
@@ -1047,7 +1039,7 @@ def create_mcp_tools(ctx: ToolContext,
         return _text_result(msg)
 
     @tool(
-        "propose_object_augmentor",
+        "propose_task_augmentor",
         "Propose a task augmentation function. Code must define "
         "`augment_task(task) -> Task`.",
         {
@@ -1067,7 +1059,7 @@ def create_mcp_tools(ctx: ToolContext,
             "required": ["code", "description"],
         },
     )
-    async def propose_object_augmentor(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def propose_task_augmentor(args: Dict[str, Any]) -> Dict[str, Any]:
         if not CFG.agent_sdk_propose_objects:
             return _error_result("Object augmentor proposals are disabled.")
         code = args["code"]
@@ -1096,7 +1088,7 @@ def create_mcp_tools(ctx: ToolContext,
         ctx.iteration_proposals.augment_task_fn = result
         ctx.iteration_proposals.augment_task_code = code
         logging.info(f"Agent proposed augmentor adding objects: {obj_names}")
-        _save_proposal_code("propose_object_augmentor", code, obj_names,
+        _save_proposal_code("propose_task_augmentor", code, obj_names,
                             args.get("description", ""))
         return _text_result(
             f"Successfully proposed augmentor. Test added objects: {obj_names}"
@@ -1200,13 +1192,24 @@ def create_mcp_tools(ctx: ToolContext,
         return _text_result(
             f"Successfully proposed {len(proposed)} options: {names}")
 
-    # ===== RETRACTION TOOLS =====
+    return {
+        "propose_types": propose_types,
+        "propose_predicates": propose_predicates,
+        "propose_task_augmentor": propose_task_augmentor,
+        "propose_processes": propose_processes,
+        "propose_options": propose_options,
+    }
+
+
+def _build_retraction_tools(ctx: ToolContext, _text_result: Callable,
+                            tool: Callable) -> Dict[str, Any]:
+    """Retraction tools (remove agent-proposed abstractions)."""
 
     @tool(
         "retract_abstractions",
         "Remove previously proposed abstractions that are no longer needed. "
         "Specify names of predicates, processes, options, or helper types to "
-        "remove, and/or set clear_object_augmentor to remove the augmentor.",
+        "remove, and/or set clear_task_augmentor to remove the augmentor.",
         {
             "type": "object",
             "properties": {
@@ -1238,7 +1241,7 @@ def create_mcp_tools(ctx: ToolContext,
                     },
                     "description": "Names of helper types to remove",
                 },
-                "clear_object_augmentor": {
+                "clear_task_augmentor": {
                     "type": "boolean",
                     "description":
                     "Set to true to remove the object augmentor",
@@ -1260,7 +1263,7 @@ def create_mcp_tools(ctx: ToolContext,
         proc_names = set(args.get("process_names") or [])
         opt_names = set(args.get("option_names") or [])
         type_names = set(args.get("type_names") or [])
-        clear_augmentor = bool(args.get("clear_object_augmentor", False))
+        clear_augmentor = bool(args.get("clear_task_augmentor", False))
 
         if not any(
             [pred_names, proc_names, opt_names, type_names, clear_augmentor]):
@@ -1306,17 +1309,24 @@ def create_mcp_tools(ctx: ToolContext,
                 lines.append(f"  (unknown, ignored: {sorted(unknown)})")
 
         if clear_augmentor:
-            ctx.iteration_proposals.retract_object_augmentor = True
+            ctx.iteration_proposals.retract_task_augmentor = True
             lines.append("Object augmentor will be cleared.")
 
         logging.info(f"Agent retraction request: {args}")
         return _text_result("\n".join(lines))
 
-    # ===== TESTING TOOLS =====
+    return {
+        "retract_abstractions": retract_abstractions,
+    }
+
+
+def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
+                         tool: Callable) -> Dict[str, Any]:
+    """Evaluation tools (run predicates / option plans against tasks)."""
 
     @tool(
-        "test_predicate_on_states",
-        "Test a predicate's truth value across timesteps in a trajectory",
+        "evaluate_predicate_on_trajectory",
+        "Evaluate a predicate's truth value across timesteps in a trajectory",
         {
             "type": "object",
             "properties": {
@@ -1339,7 +1349,8 @@ def create_mcp_tools(ctx: ToolContext,
             "required": ["predicate_name", "traj_idx", "object_names"],
         },
     )
-    async def test_predicate_on_states(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def evaluate_predicate_on_trajectory(
+            args: Dict[str, Any]) -> Dict[str, Any]:
         pred_name = args["predicate_name"]
         traj_idx = args["traj_idx"]
         object_names = args["object_names"]
@@ -1391,62 +1402,7 @@ def create_mcp_tools(ctx: ToolContext,
             f"over trajectory {traj_idx}:\n" + "\n".join(results))
 
     @tool(
-        "test_planning",
-        "Run the task planner on a specific task and report results",
-        {
-            "type": "object",
-            "properties": {
-                "task_idx": {
-                    "type": "integer",
-                    "description": "Task index to plan for"
-                },
-                "timeout": {
-                    "type": "integer",
-                    "description": "Planning timeout in seconds",
-                    "default": 30
-                },
-            },
-            "required": ["task_idx"],
-        },
-    )
-    async def test_planning(args: Dict[str, Any]) -> Dict[str, Any]:
-        # pylint: disable=import-outside-toplevel
-        from predicators.approaches import ApproachFailure, ApproachTimeout
-        from predicators.planning_with_processes import \
-            run_task_plan_with_processes_once
-
-        task_idx = args["task_idx"]
-        timeout = args.get("timeout", 30)
-
-        if task_idx < 0 or task_idx >= len(ctx.train_tasks):
-            return _error_result(f"Invalid task_idx {task_idx}. "
-                                 f"Available: 0-{len(ctx.train_tasks)-1}")
-
-        task = ctx.train_tasks[task_idx]
-        all_preds = ctx.predicates | ctx.iteration_proposals.proposed_predicates
-
-        try:
-            plan, _atoms_seq, metrics = run_task_plan_with_processes_once(
-                task,
-                ctx.processes | ctx.iteration_proposals.proposed_processes,
-                all_preds,
-                ctx.types | ctx.iteration_proposals.proposed_types,
-                timeout,
-                seed=CFG.seed,
-                _task_planning_heuristic=CFG.process_task_planning_heuristic,
-                max_horizon=float(CFG.horizon))
-            plan_desc = " -> ".join(p.name for p in plan)
-            return _text_result(
-                f"Planning succeeded for task {task_idx}!\n"
-                f"Plan length: {len(plan)}\n"
-                f"Nodes expanded: {metrics.get('num_nodes_expanded', '?')}\n"
-                f"Plan: {plan_desc}")
-        except (ApproachFailure, ApproachTimeout, Exception) as e:  # pylint: disable=broad-except
-            return _text_result(f"Planning failed for task {task_idx}.\n"
-                                f"Reason: {type(e).__name__}: {e}")
-
-    @tool(
-        "test_option_plan",
+        "evaluate_option_plan",
         "Execute a sequence of grounded options on a task via the option model "
         "and report the result at each step. Use include_states and/or "
         "include_atoms to control what is shown at each step.",
@@ -1522,7 +1478,7 @@ def create_mcp_tools(ctx: ToolContext,
             "required": ["option_plan"],
         },
     )
-    async def test_option_plan(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def evaluate_option_plan(args: Dict[str, Any]) -> Dict[str, Any]:
         import numpy as np  # pylint: disable=reimported,redefined-outer-name,import-outside-toplevel
 
         from predicators import \
@@ -1699,7 +1655,15 @@ def create_mcp_tools(ctx: ToolContext,
         # Build result with text only (images are saved to disk)
         return _text_result("\n".join(lines))
 
-    # ===== PLANNING TOOLS =====
+    return {
+        "evaluate_predicate_on_trajectory": evaluate_predicate_on_trajectory,
+        "evaluate_option_plan": evaluate_option_plan,
+    }
+
+
+def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
+                          tool: Callable) -> Dict[str, Any]:
+    """Planning tools (generate bilevel / abstract plans)."""
 
     @tool(
         "generate_bilevel_plan",
@@ -1945,12 +1909,22 @@ def create_mcp_tools(ctx: ToolContext,
     # Scene annotation
     # ------------------------------------------------------------------ #
 
+    return {
+        "generate_bilevel_plan": generate_bilevel_plan,
+        "generate_abstract_plan": generate_abstract_plan,
+    }
+
+
+def _build_scene_tools(ctx: ToolContext, _text_result: Callable,
+                       tool: Callable) -> Dict[str, Any]:
+    """Scene tools (render / annotate / mutate env states)."""
+
     @tool(
         "annotate_scene",
         "Draw annotations (markers, lines, rectangles) at world "
         "coordinates in the 3D scene, render an image, and save it. "
         "Use this to visualize candidate placement positions or spatial "
-        "relationships before committing to test_option_plan. Annotations "
+        "relationships before committing to evaluate_option_plan. Annotations "
         "are temporary and cleaned up after rendering.",
         {
             "type": "object",
@@ -2205,28 +2179,39 @@ def create_mcp_tools(ctx: ToolContext,
                  "against this modified state.")
         return _text_result(text)
 
-    _all = {
-        "inspect_types": inspect_types,
-        "inspect_predicates": inspect_predicates,
-        "inspect_processes": inspect_processes,
-        "inspect_options": inspect_options,
-        "inspect_trajectories": inspect_trajectories,
-        "inspect_train_tasks": inspect_train_tasks,
-        "inspect_planning_results": inspect_planning_results,
-        "inspect_past_proposals": inspect_past_proposals,
-        "propose_types": propose_types,
-        "propose_predicates": propose_predicates,
-        "propose_object_augmentor": propose_object_augmentor,
-        "propose_processes": propose_processes,
-        "propose_options": propose_options,
-        "retract_abstractions": retract_abstractions,
-        "test_predicate_on_states": test_predicate_on_states,
-        "test_planning": test_planning,
-        "test_option_plan": test_option_plan,
-        "generate_bilevel_plan": generate_bilevel_plan,
-        "generate_abstract_plan": generate_abstract_plan,
+    return {
         "annotate_scene": annotate_scene,
         "visualize_state": visualize_state,
+    }
+
+
+def create_mcp_tools(ctx: ToolContext,
+                     tool_names: Optional[List[str]] = None) -> list:
+    """Create MCP tools with the given ToolContext via closures.
+
+    Args:
+        ctx: Shared mutable state between the approach and MCP tools.
+        tool_names: If provided, only return tools with these names.
+            If None, return all tools.
+
+    Returns a list of SdkMcpTool objects to pass to create_sdk_mcp_server.
+    """
+    from claude_agent_sdk import \
+        tool  # pylint: disable=import-outside-toplevel
+
+    # Spill oversize tool output into the sandbox (``./tool_outputs/``)
+    # instead of returning it inline. Each builder names its parameter
+    # ``_text_result`` so every nested tool's ``_text_result(...)`` call
+    # routes through the spiller with no call-site edits.
+    _text_result = _make_spilling_text_result(ctx.sandbox_dir)
+
+    _all = {
+        **_build_inspection_tools(ctx, _text_result, tool),
+        **_build_proposal_tools(ctx, _text_result, tool),
+        **_build_retraction_tools(ctx, _text_result, tool),
+        **_build_testing_tools(ctx, _text_result, tool),
+        **_build_planning_tools(ctx, _text_result, tool),
+        **_build_scene_tools(ctx, _text_result, tool),
     }
     if tool_names is None:
         tools = list(_all.values())
