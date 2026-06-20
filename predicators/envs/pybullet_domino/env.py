@@ -524,12 +524,12 @@ if __name__ == "__main__":
         test_env = sys.argv[1]
 
     # Configure environment
-    CFG.seed = 0
+    CFG.seed = 1
     CFG.num_train_tasks = 0
-    CFG.num_test_tasks = 5
+    CFG.num_test_tasks = 1
 
     # Domino configuration
-    CFG.domino_initialize_at_finished_state = True
+    CFG.domino_initialize_at_finished_state = False
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_has_glued_dominos = False
     CFG.domino_test_num_dominos = [3]
