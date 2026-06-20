@@ -972,9 +972,17 @@ class PyBulletEnv(BaseEnv):
             # Convert from 2D angle to a 3D quaternion (assuming rotation around
             # z)
             orn = p.getQuaternionFromEuler([0.0, 0.0, angle])
-        elif "yaw" in features:
-            angle = state.get(obj, "yaw")
-            orn = p.getQuaternionFromEuler([0.0, 0.0, angle])
+        elif {"yaw", "roll", "pitch"} & set(features):
+            # Rebuild the full orientation from whichever Euler angles the type
+            # carries (PyBullet's convention is [roll, pitch, yaw]). Dropping
+            # roll/pitch here would make toppled objects — e.g. a fallen domino
+            # with roll≈π — unreconstructible: _get_state reads the angle back,
+            # the mismatch exceeds _reconstruction_raise_atol, and _set_state
+            # raises instead of round-tripping. Missing angles default to 0.
+            roll = state.get(obj, "roll") if "roll" in features else 0.0
+            pitch = state.get(obj, "pitch") if "pitch" in features else 0.0
+            yaw = state.get(obj, "yaw") if "yaw" in features else 0.0
+            orn = p.getQuaternionFromEuler([roll, pitch, yaw])
         else:
             orn = self._default_orn  # e.g. (0,0,0,1)
 
