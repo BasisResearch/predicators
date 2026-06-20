@@ -45,7 +45,7 @@ APPROACHES:
   #     agent_bilevel_log_state: False
   #     agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
   # Oracle: hybrid sim
-  agent_oracle_hybrid_sim:
+  agent_oracle_hybrid_sim_oracle_samplers:
     NAME: "agent_sim_learning"
     FLAGS:
       demonstrator: "oracle_process_planning"
@@ -66,6 +66,27 @@ APPROACHES:
       agent_explorer_info_seeking: True
       execution_monitor: "subgoal_annotations"
       agent_bilevel_max_execution_replans: 2
+  # agent_oracle_hybrid_sim_no_oracle_samplers:
+  #   NAME: "agent_sim_learning"
+  #   FLAGS:
+  #     demonstrator: "oracle_process_planning"
+  #     bilevel_plan_without_sim: True # for the demonstrator
+  #     explorer: "agent_bilevel"
+  #     terminate_on_goal_reached_and_option_terminated: True
+  #     agent_sdk_use_local_sandbox: True
+  #     option_model_terminate_on_repeat: False
+  #     agent_planner_use_visualize_state: True
+  #     agent_planner_use_annotate_scene: True
+  #     option_model_use_gui: False
+  #     agent_bilevel_log_state: False
+  #     agent_sim_learn_oracle_sim_program: True
+  #     agent_sim_learn_oracle_sim_params: True
+  #     agent_sim_learn_synthesize_samplers: False
+  #     agent_sim_learn_oracle_samplers: False
+  #     num_online_learning_cycles: 0
+  #     agent_explorer_info_seeking: True
+  #     execution_monitor: "subgoal_annotations"
+  #     agent_bilevel_max_execution_replans: 2
   # Oracle: ground truth hybrid sim / predicates; learn params
   # agent_param_learning:
   #   NAME: "agent_sim_learning"
