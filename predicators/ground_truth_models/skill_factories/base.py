@@ -198,6 +198,7 @@ class Phase:
     use_motion_planning: bool = field(
         default_factory=lambda: CFG.skill_phase_use_motion_planning)
     expect_contact: bool = False
+    allow_shallow_held_object_contacts: bool = False
 
 
 class PhaseSkill:
@@ -524,7 +525,8 @@ class PhaseSkill:
             if self._config.simulator is not None:
                 traj = self._plan_with_simulator(pb_state, target_pose,
                                                  phase.name,
-                                                 phase.expect_contact)
+                                                 phase.expect_contact, objects,
+                                                 phase)
             else:
                 traj = self._plan_without_simulator(pb_state, target_pose,
                                                     phase.name)
@@ -668,6 +670,8 @@ class PhaseSkill:
         target_pose: Pose,
         phase_name: str,
         expect_contact: bool = False,
+        objects: Sequence[Object] = (),
+        phase: Optional[Phase] = None,
     ) -> Optional[Sequence[JointPositions]]:
         """Plan using the simulator env for collision-aware motion planning.
 
@@ -758,6 +762,9 @@ class PhaseSkill:
             physics_client_id=sim._physics_client_id,  # pylint: disable=protected-access
             held_object=held_object,
             base_link_to_held_obj=base_link_to_held_obj,
+            allow_shallow_held_object_contacts=(
+                phase.allow_shallow_held_object_contacts
+                if phase is not None else False),
         )
 
         if traj is None and not self._config.ik_validate:
@@ -785,6 +792,9 @@ class PhaseSkill:
                     physics_client_id=sim._physics_client_id,  # pylint: disable=protected-access
                     held_object=held_object,
                     base_link_to_held_obj=base_link_to_held_obj,
+                    allow_shallow_held_object_contacts=(
+                        phase.allow_shallow_held_object_contacts
+                        if phase is not None else False),
                 )
                 if traj is not None:
                     target_joints = validated_target_joints
@@ -846,15 +856,19 @@ class PhaseSkill:
                     body,
                     physicsClientId=physics_client_id)
                 if any(c[8] < margin for c in contacts):
+                    min_dist = min(c[8] for c in contacts)
                     logging.error(f"[{self._name}/{phase_name}] {label} ROBOT "
-                                  f"collision with body {body} ({body_name})")
+                                  f"collision with body {body} ({body_name}); "
+                                  f"min contact distance {min_dist:.6f}")
                 if held_object is not None:
                     contacts = p.getContactPoints(
                         held_object, body, physicsClientId=physics_client_id)
                     if any(c[8] < margin for c in contacts):
+                        min_dist = min(c[8] for c in contacts)
                         logging.error(
                             f"[{self._name}/{phase_name}] {label} HELD "
-                            f"collision with body {body} ({body_name})")
+                            f"collision with body {body} ({body_name}); "
+                            f"min contact distance {min_dist:.6f}")
 
         _check(start_joints, "START")
         _check(goal_joints, "GOAL")

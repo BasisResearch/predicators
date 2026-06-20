@@ -24,6 +24,7 @@ def run_motion_planning(
     physics_client_id: int,
     held_object: Optional[int] = None,
     base_link_to_held_obj: Optional[NDArray] = None,
+    allow_shallow_held_object_contacts: bool = False,
 ) -> Optional[Sequence[JointPositions]]:
     """Run BiRRT to find a collision-free sequence of joint positions.
 
@@ -68,6 +69,20 @@ def run_motion_planning(
                 world_to_held_obj[1],
                 physicsClientId=physics_client_id)
 
+    allowed_shallow_held_collision_bodies = set()
+    if allow_shallow_held_object_contacts and held_object is not None:
+        _set_state(initial_positions)
+        p.performCollisionDetection(physicsClientId=physics_client_id)
+        shallow_margin = CFG.pybullet_birrt_shallow_held_contact_margin
+        hard_margin = CFG.pybullet_birrt_contact_margin
+        for body in collision_bodies:
+            contacts = p.getContactPoints(held_object,
+                                          body,
+                                          physicsClientId=physics_client_id)
+            penetrating = [c[8] for c in contacts if c[8] < hard_margin]
+            if penetrating and min(penetrating) >= shallow_margin:
+                allowed_shallow_held_collision_bodies.add(body)
+
     def _extend_fn(pt1: JointPositions,
                    pt2: JointPositions) -> Iterator[JointPositions]:
         pt1_arr = np.array(pt1)
@@ -97,7 +112,14 @@ def run_motion_planning(
             if held_object is not None:
                 contacts = p.getContactPoints(
                     held_object, body, physicsClientId=physics_client_id)
-                if any(c[8] < margin for c in contacts):
+                contact_distances = [c[8] for c in contacts]
+                if body in allowed_shallow_held_collision_bodies:
+                    shallow_margin = \
+                        CFG.pybullet_birrt_shallow_held_contact_margin
+                    if any(d < shallow_margin for d in contact_distances):
+                        return True
+                    continue
+                if any(d < margin for d in contact_distances):
                     return True
         return False
 

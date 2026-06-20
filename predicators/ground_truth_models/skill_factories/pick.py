@@ -148,7 +148,10 @@ def create_pick_skill(
             terminal_fn=None,
             finger_direction="close",
         ),
-        make_move_to_phase("LiftSlightly", _slight_lift_pose, "closed")
+        make_move_to_phase("LiftSlightly",
+                           _slight_lift_pose,
+                           "closed",
+                           allow_shallow_held_object_contacts=True)
     ])
 
     return PhaseSkill(name,

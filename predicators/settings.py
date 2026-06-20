@@ -197,6 +197,10 @@ class GlobalSettings:
     pybullet_birrt_extend_num_interp = 10
     pybullet_birrt_path_subsample_ratio = 1
     pybullet_birrt_contact_margin = -0.001
+    # During a lift after grasping, the held object can start in shallow
+    # penetration from grasp settling. Allow escaping these initial contacts
+    # only up to this depth; deeper penetration remains a collision.
+    pybullet_birrt_shallow_held_contact_margin = -0.003
     pybullet_control_mode = "position"
     pybullet_max_vel_norm = 0.05
     # env -> robot -> quaternion
