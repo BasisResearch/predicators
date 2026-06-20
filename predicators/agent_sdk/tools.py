@@ -63,6 +63,7 @@ TESTING_TOOL_NAMES = [
 PLANNING_TOOL_NAMES = [
     "generate_bilevel_plan",
     "generate_abstract_plan",
+    "refine_plan_sketch",
 ]
 SCENE_TOOL_NAMES = [
     "annotate_scene",
@@ -1905,6 +1906,142 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
 
         return _text_result("\n".join(lines))
 
+    @tool(
+        "refine_plan_sketch",
+        "Test whether a plan SKETCH is refinable: run backtracking search "
+        "for continuous parameters over the option model, then — on success "
+        "— forward-validate the refined plan by re-executing it continuously. "
+        "Unlike evaluate_option_plan (which runs a fully-specified plan whose "
+        "params you supply), this takes a sketch WITHOUT continuous params "
+        "and lets the search find them, exactly as the bilevel planner does "
+        "at solve time. `plan` is one option call per line with typed object "
+        "references (`obj:type`) and every argument supplied; add optional "
+        "`-> {Atom(obj:type, ...)}` subgoal annotations (effectively required "
+        "after open-ended skills like Place, and for Wait to say when it "
+        "should end — prefix an atom with NOT to require it become false). "
+        "Reports the verdict (SUCCESS / TIMEOUT / SAMPLE_EXHAUSTED with the "
+        "stuck step / FORWARD_VALIDATION_FAILED), per-step sample counts, and "
+        "time used. Requires a simulator (option model). Slow — use to vet a "
+        "skeleton before committing.",
+        {
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "type":
+                    "string",
+                    "description":
+                    "Option-skeleton plan text, one option call per "
+                    "line, typed `obj:type` references, every argument "
+                    "supplied; optional `-> {Atom(...)}` subgoal per step.",
+                },
+                "task_idx": {
+                    "type":
+                    "integer",
+                    "description":
+                    "Train task index. Omit to use the current "
+                    "solve-time task (if available).",
+                },
+                "timeout": {
+                    "type":
+                    "number",
+                    "description":
+                    "Refinement timeout in seconds. Omit for an auto "
+                    "value that scales with sketch length; the value "
+                    "used is reported back.",
+                },
+            },
+            "required": ["plan"],
+        },
+    )
+    async def refine_plan_sketch(args: Dict[str, Any]) -> Dict[str, Any]:
+        # pylint: disable=import-outside-toplevel,reimported,redefined-outer-name
+        import numpy as np
+
+        from predicators.agent_sdk import bilevel_sketch
+
+        if ctx.option_model is None:
+            return _error_result(
+                "refine_plan_sketch requires a simulator (no option model "
+                "in ToolContext).")
+
+        # Resolve the task (mirrors evaluate_option_plan).
+        task_idx = args.get("task_idx")
+        if task_idx is not None:
+            if task_idx < 0 or task_idx >= len(ctx.train_tasks):
+                return _error_result(f"Invalid task_idx {task_idx}. "
+                                     f"Available: 0-{len(ctx.train_tasks)-1}")
+            task = ctx.train_tasks[task_idx]
+        elif ctx.current_task is not None:
+            task = ctx.current_task
+            task_idx = "current"
+        else:
+            return _error_result(
+                "No task_idx provided and no current_task set.")
+
+        all_options = ctx.options | ctx.iteration_proposals.proposed_options
+        all_predicates = (ctx.predicates
+                          | ctx.iteration_proposals.proposed_predicates)
+        # Keep the option model's name map in sync with proposed options so
+        # refinement can ground them (matches evaluate_option_plan).
+        model = ctx.option_model
+        model._name_to_parameterized_option = (  # type: ignore[attr-defined]  # pylint: disable=protected-access
+            {o.name: o
+             for o in all_options})
+        # Union declared types with those reachable from options/predicates/
+        # objects so typed `obj:type` references in the sketch resolve.
+        types = set(ctx.types)
+        for opt in all_options:
+            types.update(opt.types)
+        for pred in all_predicates:
+            types.update(pred.types)
+        types.update(o.type for o in task.init)
+
+        plan_text = (args.get("plan") or "").strip()
+        if not plan_text:
+            return _error_result("`plan` is required (option-skeleton text).")
+        try:
+            sketch = bilevel_sketch.parse_sketch_from_text(
+                plan_text,
+                task,
+                predicates=all_predicates,
+                options=all_options,
+                types=types,
+            )
+        except Exception as e:  # pylint: disable=broad-except
+            return _error_result(f"Could not parse plan sketch: {e}")
+        if not sketch:
+            return _error_result(
+                "Parsed empty plan sketch. Check that every line names a "
+                "known option with typed `obj:type` arguments matching what "
+                "the inspect tools report.")
+
+        timeout, timeout_source = bilevel_sketch.resolve_refine_timeout(
+            args.get("timeout"),
+            len(sketch),
+            per_step=CFG.agent_bilevel_refinement_timeout_per_step,
+            minimum=CFG.agent_bilevel_refinement_timeout_min)
+
+        try:
+            _, report = bilevel_sketch.refine_and_validate_report(
+                task,
+                sketch,
+                ctx.option_model,
+                predicates=all_predicates,
+                timeout=timeout,
+                rng=np.random.default_rng(CFG.seed),
+                max_samples_per_step=CFG.agent_bilevel_max_samples_per_step,
+                check_subgoals=CFG.agent_bilevel_check_subgoals,
+                log_state=CFG.agent_bilevel_log_state,
+                option_samplers=ctx.option_samplers or None,
+                run_id="planner_refine",
+                timeout_source=timeout_source,
+            )
+        except Exception:  # pylint: disable=broad-except
+            tb = traceback.format_exc()
+            return _error_result(f"Refinement raised:\n{tb}")
+
+        return _text_result(f"Task {task_idx}:\n{report}")
+
     # ------------------------------------------------------------------ #
     # Scene annotation
     # ------------------------------------------------------------------ #
@@ -1912,6 +2049,7 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
     return {
         "generate_bilevel_plan": generate_bilevel_plan,
         "generate_abstract_plan": generate_abstract_plan,
+        "refine_plan_sketch": refine_plan_sketch,
     }
 
 

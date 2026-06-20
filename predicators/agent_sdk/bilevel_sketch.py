@@ -944,3 +944,146 @@ def validate_plan_forward(
             completed, opt_str, last_err or "unknown reason")
 
     return False, diagnosis_holder[0] or "validation failed"
+
+
+def resolve_refine_timeout(
+    timeout: Optional[float],
+    n_steps: int,
+    *,
+    per_step: float,
+    minimum: float,
+) -> Tuple[float, str]:
+    """Resolve a refinement timeout, auto-scaling by sketch length.
+
+    When ``timeout`` is None it auto-scales as
+    ``max(minimum, per_step * n_steps)`` so longer sketches get more
+    budget. Returns ``(timeout_seconds, source)`` where ``source`` is
+    ``"auto"`` or ``"explicit"``. Config defaults are passed in (not read
+    from ``CFG``) to keep this module settings-free.
+    """
+    if timeout is None:
+        return float(max(minimum, per_step * n_steps)), "auto"
+    return float(timeout), "explicit"
+
+
+def refine_and_validate_report(
+    task: Task,
+    sketch: List[SketchStep],
+    option_model: _OptionModelBase,
+    *,
+    predicates: Set[Predicate],
+    timeout: float,
+    rng: np.random.Generator,
+    max_samples_per_step: int,
+    check_subgoals: bool,
+    log_state: bool = False,
+    option_samplers: Optional[Dict[str, OptionSampler]] = None,
+    run_id: str = "refine",
+    timeout_source: str = "explicit",
+    extra_summary_lines: Optional[List[str]] = None,
+) -> Tuple[bool, str]:
+    """Refine a sketch, forward-validate on success, return a report.
+
+    Runs ``refine_sketch`` (backtracking search over continuous params)
+    and, when refinement succeeds, ``validate_plan_forward`` (continuous
+    re-execution). Returns ``(overall_success, human_readable_report)``
+    where ``overall_success`` is True only if both refinement and forward
+    validation pass. The report names the verdict (SUCCESS / TIMEOUT /
+    SAMPLE_EXHAUSTED / FORWARD_VALIDATION_FAILED), per-step sample counts,
+    the stuck step on failure, and the forward-validation outcome.
+
+    ``extra_summary_lines`` are appended verbatim after the time line
+    (e.g. a caller-specific ``Post-fit SSE`` line). Config-derived knobs
+    (``timeout``, ``max_samples_per_step``, ``check_subgoals``,
+    ``log_state``) are passed explicitly so this module stays free of
+    ``CFG``; callers read them from settings.
+    """
+    step_samples_cumulative: List[int] = [0] * len(sketch)
+    termination_reason: List[str] = []
+    elapsed_holder: List[float] = []
+    plan, success, n_samples = refine_sketch(
+        task,
+        sketch,
+        option_model,
+        predicates=predicates,
+        timeout=timeout,
+        rng=rng,
+        max_samples_per_step=max_samples_per_step,
+        check_subgoals=check_subgoals,
+        log_state=log_state,
+        run_id=run_id,
+        step_samples_cumulative=step_samples_cumulative,
+        termination_reason=termination_reason,
+        elapsed_holder=elapsed_holder,
+        option_samplers=option_samplers,
+    )
+
+    reason = termination_reason[0] if termination_reason else (
+        "success" if success else "exhausted")
+    elapsed = elapsed_holder[0] if elapsed_holder else 0.0
+    if success:
+        verdict = "SUCCESS"
+    elif reason == "timeout":
+        verdict = "FAILURE: TIMEOUT"
+    elif reason == "exhausted":
+        verdict = "FAILURE: SAMPLE_EXHAUSTED"
+    else:
+        verdict = "FAILURE"
+
+    lines = [
+        verdict,
+        f"  Sketch: {len(sketch)} steps  Refined: {len(plan)} steps  "
+        f"Samples: {n_samples} total",
+        f"  Per-step samples: {step_samples_cumulative}  "
+        f"(cap {max_samples_per_step}/step)",
+        f"  Time: {elapsed:.1f}s used / {timeout:.1f}s allotted "
+        f"(timeout source: {timeout_source})",
+    ]
+    if extra_summary_lines:
+        lines.extend(extra_summary_lines)
+    if not success and len(plan) < len(sketch):
+        stuck_idx = len(plan)
+        stuck = sketch[stuck_idx]
+        objs = ", ".join(f"{o.name}:{o.type.name}" for o in stuck.objects)
+        lines.append(f"  Stuck at step {stuck_idx}: "
+                     f"{stuck.option.name}({objs})")
+        if stuck.subgoal_atoms:
+            atoms = ", ".join(str(a) for a in stuck.subgoal_atoms)
+            lines.append(f"    subgoals: {atoms}")
+
+    # Forward validation: re-execute the refined plan continuously (state
+    # carries forward across all options). Refinement's per-step resets
+    # and resampling can mask drift the real env will hit at test time.
+    if success:
+        try:
+            fv_ok, fv_reason = validate_plan_forward(
+                task,
+                plan,
+                option_model,
+                predicates=predicates,
+                sketch=sketch,
+                run_id=run_id,
+            )
+        except Exception as e:  # pylint: disable=broad-except
+            fv_ok = False
+            fv_reason = f"forward validation raised: {e}"
+        if fv_ok:
+            lines.append("  Forward validation: SUCCESS")
+        else:
+            # Demote the headline verdict: refinement passed but the plan
+            # does not survive continuous execution, which is what the
+            # real env will see at test time.
+            success = False
+            lines[0] = "FAILURE: FORWARD_VALIDATION_FAILED"
+            lines.append(f"  Forward validation: FAIL — {fv_reason}")
+            lines.append(
+                "    (Refinement resets state between options and "
+                "resamples up to the per-step cap; forward validation "
+                "runs the same plan once continuously. A divergence here "
+                "means the refined plan does not survive continuous "
+                "execution — accumulated drift, or (when the model is "
+                "learned) a rule/threshold more permissive than the env's "
+                "effective behavior. See the INFO log for the step-by-step "
+                "divergence.)")
+
+    return success, "\n".join(lines)

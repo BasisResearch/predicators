@@ -367,11 +367,14 @@ scene, then annotate_scene overlays markers on it."""
             "inspect_options", "inspect_trajectories", "inspect_train_tasks"
         ]
         # The remaining tools all require a simulator / live env:
-        # evaluate_option_plan rolls plans out through the option model, and
-        # visualize_state / annotate_scene render env states. None are
-        # offered when the planner has no simulator.
+        # evaluate_option_plan rolls fully-specified plans out through the
+        # option model, refine_plan_sketch runs backtracking refinement +
+        # forward validation on a param-free sketch, and visualize_state /
+        # annotate_scene render env states. None are offered when the
+        # planner has no simulator.
         if CFG.agent_planner_use_simulator:
             tools.append("evaluate_option_plan")
+            tools.append("refine_plan_sketch")
             if CFG.agent_planner_use_annotate_scene:
                 tools.append("annotate_scene")
             if CFG.agent_planner_use_visualize_state:
