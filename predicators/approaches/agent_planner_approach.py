@@ -481,6 +481,8 @@ scene, then annotate_scene overlays markers on it."""
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
         self._sync_tool_context()
         self._tool_context.current_task = task
+        # Render the initial state so the agent can see the scene layout.
+        self._render_initial_state_image(task)
         try:
             option_plan = self._query_agent_for_option_plan(task)
         except Exception as e:
@@ -491,6 +493,59 @@ scene, then annotate_scene overlays markers on it."""
             option_plan, abstract_function=lambda s: utils.abstract(s, preds))
 
         return self._wrap_option_failures(policy)
+
+    def _render_initial_state_image(self, task: Task) -> Optional[str]:
+        """Render the initial state of the task and save to the sandbox.
+
+        Returns the sandbox-relative path to the saved image, or None if
+        rendering is not available.
+        """
+        env = self._tool_context.env
+        if env is None:
+            return None
+        save_dir = self._tool_context.image_save_dir
+        if save_dir is None:
+            return None
+        try:
+            # pylint: disable=import-outside-toplevel
+            from PIL import Image as PILImage
+
+            # For PyBullet envs, set state then use render() (render_state
+            # raises NotImplementedError for arbitrary states).
+            # For other envs, use render_state directly.
+            try:
+                from predicators.envs.pybullet_env import PyBulletEnv
+                is_pybullet = isinstance(env, PyBulletEnv)
+            except ImportError:
+                is_pybullet = False
+
+            if is_pybullet:
+                env._set_state(task.init)  # pylint: disable=protected-access
+                video = env.render()
+            else:
+                # Build a minimal EnvironmentTask for the render_state API.
+                from predicators.structs import EnvironmentTask
+                env_task = EnvironmentTask(task.init, task.goal)
+                video = env.render_state(task.init, env_task)
+
+            if not video:
+                return None
+
+            rgb_array = np.asarray(video[0], dtype=np.uint8)
+            img = PILImage.fromarray(rgb_array)
+            os.makedirs(save_dir, exist_ok=True)
+            task_id = self._tool_context.test_task_idx
+            if task_id is not None:
+                filename = f"task{task_id:03d}_initial_state.png"
+            else:
+                filename = "initial_state.png"
+            saved_path = os.path.join(save_dir, filename)
+            img.save(saved_path)
+            logging.info("Saved initial state image to %s", saved_path)
+            return saved_path
+        except Exception as e:  # pylint: disable=broad-except
+            logging.warning("Failed to render initial state image: %s", e)
+            return None
 
     # ------------------------------------------------------------------ #
     # Test phase lifecycle
@@ -615,6 +670,25 @@ scene, then annotate_scene overlays markers on it."""
 {task.goal_nl}
 """
 
+        # Initial state image reference
+        initial_image_section = ""
+        if self._tool_context.image_save_dir:
+            task_id = self._tool_context.test_task_idx
+            if task_id is not None:
+                img_name = f"task{task_id:03d}_initial_state.png"
+            else:
+                img_name = "initial_state.png"
+            initial_img_path = os.path.join(
+                self._tool_context.image_save_dir, img_name)
+            if os.path.exists(initial_img_path):
+                # Use sandbox-relative path for the agent
+                initial_image_section = (
+                    "\n## Initial State Image\n"
+                    "A rendering of the initial scene has been saved to "
+                    f"`./test_images/{img_name}`. **Read this image "
+                    "first** to understand the spatial layout before "
+                    "planning.\n")
+
         if CFG.agent_planner_use_simulator:
             instructions_intro = (
                 "Use your available tools to inspect the environment and "
@@ -636,7 +710,7 @@ Generate an option plan to achieve the goal.
 
 ## Initial State Features
 {state_str}
-
+{initial_image_section}
 ## Objects
 {chr(10).join(obj_strs)}
 
