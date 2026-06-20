@@ -1,6 +1,6 @@
 """Task generator for domino-based tasks."""
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -98,32 +98,41 @@ class DominoTaskGenerator(TaskGenerator):
         for attempt_num in range(max_attempts):
             if log_debug:
                 print(f"\nAttempt {attempt_num} for task {task_idx}")
-            obj_dict = self._generate_domino_sequence(rng, n_dominos,
-                                                      n_targets, n_pivots,
-                                                      log_debug, task_idx,
-                                                      domino_in_upper_half)
-            if obj_dict is not None:
-                if log_debug:
-                    print("Found satisfying domino sequence")
-                break
+            candidate_obj_dict = self._generate_domino_sequence(
+                rng, n_dominos, n_targets, n_pivots, log_debug, task_idx,
+                domino_in_upper_half)
+            if candidate_obj_dict is None:
+                continue
+
+            # Make the chain's terminal block(s) the target(s). The placement
+            # loop can otherwise mark a mid-chain block as the target, leaving
+            # movable blocks after the goal -- which makes the bridge length
+            # ambiguous (an agent over-builds past the target, e.g. a 2-gap
+            # task that admits one intermediate but is planned with two).
+            # Blocks are placed start-first along the chain, so the
+            # highest-index ones are the chain end; re-designating those keeps
+            # the target last.
+            if CFG.domino_use_domino_blocks_as_target:
+                self._retarget_terminal_dominoes(candidate_obj_dict,
+                                                 n_targets)
+
+            # Move intermediate objects if needed. This can fail if the
+            # unfinished staging area is too full after collision checking, so
+            # keep it inside the attempt loop and resample the solved chain.
+            if not CFG.domino_initialize_at_finished_state:
+                candidate_obj_dict = \
+                    self._move_intermediate_objects_to_unfinished_state(
+                        candidate_obj_dict)
+                if candidate_obj_dict is None:
+                    continue
+
+            obj_dict = candidate_obj_dict
+            if log_debug:
+                print("Found satisfying domino sequence")
+            break
 
         if obj_dict is None:
             return None
-
-        # Make the chain's terminal block(s) the target(s). The placement
-        # loop can otherwise mark a mid-chain block as the target, leaving
-        # movable blocks after the goal — which makes the bridge length
-        # ambiguous (an agent over-builds past the target, e.g. a 2-gap task
-        # that admits one intermediate but is planned with two). Blocks are
-        # placed start-first along the chain, so the highest-index ones are
-        # the chain end; re-designating those keeps the target last.
-        if CFG.domino_use_domino_blocks_as_target:
-            self._retarget_terminal_dominoes(obj_dict, n_targets)
-
-        # Move intermediate objects if needed
-        if not CFG.domino_initialize_at_finished_state:
-            obj_dict = self._move_intermediate_objects_to_unfinished_state(
-                obj_dict)
 
         init_dict.update(obj_dict)
 
@@ -646,8 +655,8 @@ class DominoTaskGenerator(TaskGenerator):
                                domino_count=domino_count,
                                target_count=target_count + 1)
 
-    def _move_intermediate_objects_to_unfinished_state(self,
-                                                       obj_dict: Dict) -> Dict:
+    def _move_intermediate_objects_to_unfinished_state(
+            self, obj_dict: Dict) -> Optional[Dict]:
         """Move intermediate dominoes and pivots to unfinished positions."""
         intermediate_objects = []
         eps = 1e-3
@@ -693,30 +702,114 @@ class DominoTaskGenerator(TaskGenerator):
         if not intermediate_objects:
             return obj_dict
 
-        start_x = self.domino.domino_x_lb + self.domino.domino_width
-        spacing = self.domino.domino_width * 1.5
-        y_position = (self.domino.domino_y_lb + self.domino.domino_y_ub) / 2
+        occupied = {
+            obj: data
+            for obj, data in obj_dict.items()
+            if all(obj != intermediate[0] for intermediate in
+                   intermediate_objects)
+        }
 
-        for i, (obj, obj_type) in enumerate(intermediate_objects):
-            new_x = start_x + i * spacing
-            if obj_type == "domino":
-                obj_dict[obj] = {
-                    "x": new_x,
-                    "y": y_position,
-                    "z": self.domino.z_lb + self.domino.domino_height / 2,
-                    "yaw": 0.0,
-                    "roll": 0.0,
-                    "r": self.domino.domino_color[0],
-                    "g": self.domino.domino_color[1],
-                    "b": self.domino.domino_color[2],
-                    "is_held": 0.0,
-                }
-            elif obj_type == "pivot":
-                obj_dict[obj] = {
-                    "x": new_x,
-                    "y": y_position,
-                    "z": self.domino.z_lb,
-                    "yaw": 0.0,
-                }
+        x_margin = self.domino.domino_width
+        y_margin = self.domino.domino_width
+        spacing = self.domino.domino_width * 1.5
+        x_values = np.arange(self.domino.domino_x_lb + x_margin,
+                             self.domino.domino_x_ub - x_margin + eps,
+                             spacing)
+        y_values = np.arange(self.domino.domino_y_lb + y_margin,
+                             self.domino.domino_y_ub - y_margin + eps,
+                             spacing)
+        candidate_xy = [(float(x), float(y)) for y in y_values
+                        for x in x_values]
+
+        for obj, obj_type in intermediate_objects:
+            placed = False
+            for new_x, new_y in candidate_xy:
+                candidate: Dict[str, float]
+                if obj_type == "domino":
+                    candidate = {
+                        "x": new_x,
+                        "y": new_y,
+                        "z": self.domino.z_lb + self.domino.domino_height / 2,
+                        "yaw": 0.0,
+                        "roll": 0.0,
+                        "r": self.domino.domino_color[0],
+                        "g": self.domino.domino_color[1],
+                        "b": self.domino.domino_color[2],
+                        "is_held": 0.0,
+                    }
+                else:
+                    candidate = {
+                        "x": new_x,
+                        "y": new_y,
+                        "z": self.domino.z_lb,
+                        "yaw": 0.0,
+                    }
+                if self._placement_collides(obj, candidate, occupied):
+                    continue
+                obj_dict[obj] = candidate
+                occupied[obj] = candidate
+                placed = True
+                break
+            if not placed:
+                return None
 
         return obj_dict
+
+    def _placement_collides(
+            self, obj: Object, candidate: Dict[str, float],
+            occupied: Dict[Object, Dict[str, float]]) -> bool:
+        """Check whether ``candidate`` overlaps any occupied object."""
+        candidate_rect = self._placement_rect(obj, candidate)
+        for other_obj, other_data in occupied.items():
+            other_rect = self._placement_rect(other_obj, other_data)
+            if self._rectangles_overlap(candidate_rect, other_rect):
+                return True
+        return False
+
+    def _placement_rect(
+            self, obj: Object,
+            data: Dict[str, float]) -> Tuple[np.ndarray, np.ndarray]:
+        """Return center and corners for an object's conservative footprint."""
+        if obj.type == self.domino.domino_type:
+            width = self.domino.domino_width
+            depth = self.domino.domino_depth
+        elif obj.type == self.domino.pivot_type:
+            width = self.domino.pivot_width
+            depth = self.domino.pivot_width
+        else:
+            width = self.domino.domino_width
+            depth = self.domino.domino_width
+
+        padding = 0.003
+        half_w = width / 2 + padding
+        half_d = depth / 2 + padding
+        yaw = data["yaw"]
+        center = np.array([data["x"], data["y"]], dtype=np.float64)
+        local = np.array(
+            [[-half_w, -half_d], [-half_w, half_d], [half_w, half_d],
+             [half_w, -half_d]],
+            dtype=np.float64,
+        )
+        rot = np.array([[np.cos(yaw), -np.sin(yaw)],
+                        [np.sin(yaw), np.cos(yaw)]],
+                       dtype=np.float64)
+        return center, center + local @ rot.T
+
+    @staticmethod
+    def _rectangles_overlap(
+            rect1: Tuple[np.ndarray, np.ndarray],
+            rect2: Tuple[np.ndarray, np.ndarray]) -> bool:
+        """Separating-axis overlap test for two oriented rectangles."""
+
+        def _axes(corners: np.ndarray) -> List[np.ndarray]:
+            edges = [corners[1] - corners[0], corners[2] - corners[1]]
+            return [edge / np.linalg.norm(edge) for edge in edges]
+
+        _, corners1 = rect1
+        _, corners2 = rect2
+        for axis in _axes(corners1) + _axes(corners2):
+            proj1 = corners1 @ axis
+            proj2 = corners2 @ axis
+            if max(proj1) <= min(proj2) or max(proj2) <= min(proj1):
+                return False
+        return True
