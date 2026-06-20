@@ -76,6 +76,10 @@ class LocalSandboxSessionManager:
         self._phase = phase
 
         self._total_cost_usd: float = 0.0
+        # The SDK reports total_cost_usd as the cumulative cost of the
+        # reused session, so we track the last value seen to derive the
+        # per-solve (marginal) cost of each query.
+        self._last_cost_usd: float = 0.0
         self._total_turns: int = 0
         self._query_count: int = 0
         self._session_id: Optional[str] = None
@@ -247,13 +251,28 @@ class LocalSandboxSessionManager:
                 elif entry["type"] == "result":
                     cost = entry.get("total_cost_usd")
                     turns = entry.get("num_turns")
+                    solve_cost: Optional[float] = None
                     if cost is not None:
-                        self._total_cost_usd += cost
+                        # cost is the session's cumulative total; the
+                        # per-solve cost is the delta since the last result.
+                        # A drop below the last value means the session was
+                        # reset (e.g. recovery), so the new cumulative is
+                        # itself the delta.
+                        solve_cost = (cost - self._last_cost_usd
+                                      if cost >= self._last_cost_usd else cost)
+                        self._last_cost_usd = cost
+                        self._total_cost_usd += solve_cost
+                        self._current_log_meta["solve_cost_usd"] = solve_cost
+                        self._current_log_meta["total_cost_usd"] = \
+                            self._total_cost_usd
                     if turns is not None:
                         self._total_turns += turns
                     logging.info(
-                        "Local sandbox iteration complete. "
-                        "Turns: %s, Cost: $%s", turns or '?', cost or '?')
+                        "Local sandbox iteration complete. Turns: %s, "
+                        "Cost this solve: $%s, Total cost so far: $%s", turns
+                        or '?',
+                        f"{solve_cost:.4f}" if solve_cost is not None else '?',
+                        f"{self._total_cost_usd:.4f}")
 
                 # Flush log after each message
                 if log_path:

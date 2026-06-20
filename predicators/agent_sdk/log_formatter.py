@@ -59,8 +59,17 @@ def format_conversation_markdown(
 
         elif etype == "result":
             turns = entry.get("num_turns", "?")
-            cost = entry.get("total_cost_usd")
-            cost_str = f"${cost:.2f}" if cost is not None else "?"
+            # Prefer the per-solve/total split the sandbox derives (the
+            # raw total_cost_usd is the cumulative session cost); fall
+            # back to the raw cumulative value when it isn't supplied.
+            solve_cost = meta.get("solve_cost_usd") if meta else None
+            total_cost = meta.get("total_cost_usd") if meta else None
+            if solve_cost is not None and total_cost is not None:
+                cost_str = (f"${solve_cost:.2f} this solve, "
+                            f"${total_cost:.2f} total")
+            else:
+                cost = entry.get("total_cost_usd")
+                cost_str = f"${cost:.2f}" if cost is not None else "?"
             lines.append(f"---\n\n**Result:** {turns} turns, {cost_str}\n")
 
         elif etype == "error":
