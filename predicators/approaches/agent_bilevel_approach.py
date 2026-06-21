@@ -148,6 +148,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             trajectory_summary=self._build_trajectory_summary(),
             tool_names=self._get_solve_tool_names(),
             prior_failures=failures_text,
+            initial_image_section=self._initial_image_section(),
         )
 
     # ------------------------------------------------------------------ #
@@ -162,6 +163,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
         max_refine_retries = CFG.agent_bilevel_max_refine_retries
         self._sync_tool_context()
         self._tool_context.current_task = task
+        # Render the initial state so the agent can see the scene layout.
+        self._render_initial_state_image(task)
         start = time.perf_counter()
         # Exclude the (minutes-long) LLM sketch query from the refinement
         # budget, else a slow query overruns `timeout` and starves the

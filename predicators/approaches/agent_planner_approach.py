@@ -547,6 +547,29 @@ scene, then annotate_scene overlays markers on it."""
             logging.warning("Failed to render initial state image: %s", e)
             return None
 
+    def _initial_image_section(self) -> str:
+        """Return a prompt section pointing at the rendered initial-state
+        image, or an empty string if no image has been rendered.
+
+        ``_render_initial_state_image`` must have been called first; this
+        only references the file (sandbox-relative) if it exists on disk.
+        """
+        save_dir = self._tool_context.image_save_dir
+        if not save_dir:
+            return ""
+        task_id = self._tool_context.test_task_idx
+        if task_id is not None:
+            img_name = f"task{task_id:03d}_initial_state.png"
+        else:
+            img_name = "initial_state.png"
+        if not os.path.exists(os.path.join(save_dir, img_name)):
+            return ""
+        # cwd of the agent is the sandbox root, so reference test_images/.
+        return ("\n## Initial State Image\n"
+                "A rendering of the initial scene has been saved to "
+                f"`./test_images/{img_name}`. **Read this image first** to "
+                "understand the spatial layout before planning.\n")
+
     # ------------------------------------------------------------------ #
     # Test phase lifecycle
     # ------------------------------------------------------------------ #
@@ -671,23 +694,7 @@ scene, then annotate_scene overlays markers on it."""
 """
 
         # Initial state image reference
-        initial_image_section = ""
-        if self._tool_context.image_save_dir:
-            task_id = self._tool_context.test_task_idx
-            if task_id is not None:
-                img_name = f"task{task_id:03d}_initial_state.png"
-            else:
-                img_name = "initial_state.png"
-            initial_img_path = os.path.join(
-                self._tool_context.image_save_dir, img_name)
-            if os.path.exists(initial_img_path):
-                # Use sandbox-relative path for the agent
-                initial_image_section = (
-                    "\n## Initial State Image\n"
-                    "A rendering of the initial scene has been saved to "
-                    f"`./test_images/{img_name}`. **Read this image "
-                    "first** to understand the spatial layout before "
-                    "planning.\n")
+        initial_image_section = self._initial_image_section()
 
         if CFG.agent_planner_use_simulator:
             instructions_intro = (

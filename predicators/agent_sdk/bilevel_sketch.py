@@ -102,6 +102,7 @@ def build_solve_prompt(
     tool_names: Optional[Sequence[str]] = None,
     experiment_guidance: str = "",
     prior_failures: str = "",
+    initial_image_section: str = "",
 ) -> str:
     """Build the bilevel solve/explore prompt asking for a plan sketch.
 
@@ -201,7 +202,7 @@ Generate a plan sketch to achieve the goal.
 
 ## Initial State Features
 {state_str}
-
+{initial_image_section}
 ## Objects
 {chr(10).join(obj_strs)}
 
