@@ -503,10 +503,18 @@ scene, then annotate_scene overlays markers on it."""
         env = self._tool_context.env
         if env is None:
             return None
-        save_dir = self._tool_context.image_save_dir
-        if save_dir is None:
-            return None
         try:
+            # The session/sandbox is created lazily on the first agent query,
+            # and only then is ``image_save_dir`` populated on the ToolContext.
+            # This render runs *before* that query in ``_solve``, so on the
+            # very first test task the dir would still be None and task0's
+            # image would be silently skipped. Ensure the session (and the
+            # dir) exist first. Inside the try so a session-creation hiccup
+            # leaves rendering best-effort rather than crashing the solve.
+            self._ensure_agent_session()
+            save_dir = self._tool_context.image_save_dir
+            if save_dir is None:
+                return None
             # pylint: disable=import-outside-toplevel
             from PIL import Image as PILImage
 
