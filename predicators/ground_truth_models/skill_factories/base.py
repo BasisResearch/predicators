@@ -199,6 +199,14 @@ class Phase:
         default_factory=lambda: CFG.skill_phase_use_motion_planning)
     expect_contact: bool = False
     allow_shallow_held_object_contacts: bool = False
+    # Force validated (iterative) IK for this phase's BiRRT goal pose, even
+    # when CFG.pybullet_ik_validate is False. Unvalidated IK can return a goal
+    # config whose EE pose is numerically close but whose gripper slightly
+    # penetrates the very object being approached (the grasp target), making
+    # BiRRT reject an otherwise-reachable grasp. Validating only this phase's
+    # goal fixes that without the cost/regressions of globally validating
+    # every transport/retreat IK.
+    validate_ik: bool = False
 
 
 class PhaseSkill:
@@ -740,10 +748,15 @@ class PhaseSkill:
             base_link_to_held_obj = p.invertTransform(
                 *sim._held_obj_to_base_link)  # pylint: disable=protected-access
 
+        # Validate the goal IK when globally enabled, or when this phase
+        # requests it (e.g. a grasp approach, where an imprecise goal config
+        # clips the target object and BiRRT then rejects a reachable grasp).
+        validate_goal_ik = self._config.ik_validate or (
+            phase is not None and phase.validate_ik)
         try:
             target_joints: JointPositions = planning_robot.inverse_kinematics(
                 target_pose,
-                validate=self._config.ik_validate,
+                validate=validate_goal_ik,
                 set_joints=True)
         except InverseKinematicsError:
             pos = target_pose.position
@@ -767,7 +780,7 @@ class PhaseSkill:
                 if phase is not None else False),
         )
 
-        if traj is None and not self._config.ik_validate:
+        if traj is None and not validate_goal_ik:
             # A single unvalidated PyBullet IK call can return a joint
             # configuration whose EE pose is close enough numerically but whose
             # carried object is in collision. Before declaring the option
