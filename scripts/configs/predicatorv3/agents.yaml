@@ -51,7 +51,7 @@ APPROACHES:
   #     agent_bilevel_log_state: False
   #     agent_bilevel_plan_sketch_file: "tests/approaches/test_data/boil_plan_sketch.txt"
   # Oracle: hybrid sim
-  agent_oracle_hybrid_sim_oracle_samplers:
+  agent_oracle_hybrid_sim_oracle_samplers_no_demo:
     NAME: "agent_sim_learning"
     FLAGS:
       demonstrator: "oracle_process_planning"
@@ -72,7 +72,6 @@ APPROACHES:
       agent_explorer_info_seeking: True
       execution_monitor: "subgoal_annotations"
       agent_bilevel_max_execution_replans: 2
-      domino_restricted_push: False
   # agent_oracle_hybrid_sim_no_oracle_samplers:
   #   NAME: "agent_sim_learning"
   #   FLAGS:
