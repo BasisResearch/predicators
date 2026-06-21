@@ -5,7 +5,7 @@ test_env_seed_offset and domino flags) and saves a PNG of each test
 task's initial state so failed tasks can be visualized.
 
 Usage:
-    PYTHONPATH=. python scripts/render_domino_initial_states.py
+    PYTHONPATH=. python scripts/domino_debug/render_domino_initial_states.py
 """
 import os
 

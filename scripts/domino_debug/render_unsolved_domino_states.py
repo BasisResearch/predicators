@@ -5,7 +5,7 @@ regenerated test scenes match the runs exactly (verified: seed1 = [4,4,5,4,4]
 dominoes, and the seed1.t2 grasp-infeasibility matches the run). Run ONE seed
 per process (task-gen RNG is shared across seeds in one interpreter).
 
-Usage: PYTHONPATH=. python scripts/render_unsolved_domino_states.py <seed>
+Usage: PYTHONPATH=. python scripts/domino_debug/render_unsolved_domino_states.py <seed>
 """
 import os, sys
 import numpy as np

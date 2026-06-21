@@ -13,9 +13,9 @@ wrapper at the bottom of the module docstring loops correctly.
 
 Usage:
     # motion-planning reproduction for a single seed (fresh process each):
-    for s in 0 1 2 3 4; do PYTHONPATH=. python scripts/reproduce_domino_failures.py mp $s; done
+    for s in 0 1 2 3 4; do PYTHONPATH=. python scripts/domino_debug/reproduce_domino_failures.py mp $s; done
     # option-plan parser (Push) bug:
-    PYTHONPATH=. python scripts/reproduce_domino_failures.py push 0
+    PYTHONPATH=. python scripts/domino_debug/reproduce_domino_failures.py push 0
 """
 
 import logging

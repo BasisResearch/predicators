@@ -11,7 +11,7 @@ K" reason therefore reproduce the run's solve-time failures deterministically.
 Run ONE seed per process (task-gen RNG is shared; see reproduce_domino_failures).
 
 Usage:
-    PYTHONPATH=. python scripts/replay_domino_sketches.py <seed> <demo|no_demo> [--all]
+    PYTHONPATH=. python scripts/domino_debug/replay_domino_sketches.py <seed> <demo|no_demo> [--all]
         --all replays every task; default replays only tasks the run did not solve.
 """
 
