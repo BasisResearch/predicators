@@ -2,6 +2,7 @@ ENVS:
   # grow:
   #   NAME: "pybullet_grow"
   #   FLAGS:
+  #     max_initial_demos: 1
   #     excluded_predicates: "HandTilted"
   #     coffee_use_pixelated_jug: True
   #     grow_weak_pour_terminate_condition: True
@@ -10,6 +11,7 @@ ENVS:
   domino:
     NAME: "pybullet_domino"
     FLAGS:
+      max_initial_demos: 0
       excluded_objects_in_state_str: "loc,rot,angle,direction"
       # excluded_predicates is set per-approach: agents.yaml excludes
       # these (test ours); oracle.yaml leaves them in (test oracle).
@@ -29,6 +31,7 @@ ENVS:
   # coffee:
   #   NAME: "pybullet_coffee"
   #   FLAGS:
+  #     max_initial_demos: 1
   #     excluded_predicates: "Twisting,PressingButton,NotSameCup,RobotAboveCup"
   #     coffee_rotated_jug_ratio: 0
   #     coffee_num_cups_train: [1]
@@ -44,6 +47,7 @@ ENVS:
   # boil:
   #   NAME: "pybullet_boil"
   #   FLAGS:
+  #     max_initial_demos: 1
   #     excluded_objects_in_state_str: "switch"
   #     max_num_steps_option_rollout: 100
   #     horizon: 500
@@ -56,6 +60,7 @@ ENVS:
   # fan:
   #   NAME: "pybullet_fan"
   #   FLAGS:
+  #     max_initial_demos: 1
   #     excluded_objects_in_state_str: "switch"
   #     terminate_on_goal_reached: True
   #     process_planning_heuristic_weight: 10.0
