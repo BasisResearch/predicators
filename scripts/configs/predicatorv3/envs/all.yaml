@@ -11,8 +11,8 @@ ENVS:
     NAME: "pybullet_domino"
     FLAGS:
       excluded_objects_in_state_str: "loc,rot,angle,direction"
-      # include for test oracle; exlude for test ours
-      excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright"
+      # excluded_predicates is set per-approach: agents.yaml excludes
+      # these (test ours); oracle.yaml leaves them in (test oracle).
       horizon: 400
       domino_initialize_at_finished_state: False
       domino_use_domino_blocks_as_target: True
