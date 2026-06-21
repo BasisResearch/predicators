@@ -712,6 +712,18 @@ class DominoTaskGenerator(TaskGenerator):
         x_margin = self.domino.domino_width
         y_margin = self.domino.domino_width
         spacing = self.domino.domino_width * 1.5
+
+        # Gripper swept-footprint half-extents for a top-down grasp of a
+        # staged (yaw=0) domino. The open fingers span the domino's depth axis
+        # (local y) and reach ~1.45x the domino width from the grasp center;
+        # the hand spans ~0.85x along the long axis (local x). Measured from
+        # the Fetch gripper at the descend pose. A staged domino must keep this
+        # footprint clear of every other object, otherwise it lands placed but
+        # *un-pickable* -- BiRRT finds no collision-free descent because a
+        # neighbor (especially a perpendicular one a few cm away in y) sits
+        # inside the finger sweep even though the footprints don't overlap.
+        grasp_clear_hand = self.domino.domino_width * 0.85
+        grasp_clear_finger = self.domino.domino_width * 1.45
         x_values = np.arange(self.domino.domino_x_lb + x_margin,
                              self.domino.domino_x_ub - x_margin + eps,
                              spacing)
@@ -746,6 +758,10 @@ class DominoTaskGenerator(TaskGenerator):
                     }
                 if self._placement_collides(obj, candidate, occupied):
                     continue
+                if obj_type == "domino" and self._grasp_clearance_blocked(
+                        candidate, occupied, grasp_clear_hand,
+                        grasp_clear_finger):
+                    continue
                 obj_dict[obj] = candidate
                 occupied[obj] = candidate
                 placed = True
@@ -765,6 +781,45 @@ class DominoTaskGenerator(TaskGenerator):
             if self._rectangles_overlap(candidate_rect, other_rect):
                 return True
         return False
+
+    def _grasp_clearance_blocked(self, candidate: Dict[str, float],
+                                 occupied: Dict[Object, Dict[str, float]],
+                                 half_hand: float, half_finger: float) -> bool:
+        """Whether the gripper's swept grasp footprint at ``candidate`` would
+        overlap another object, leaving the staged domino un-pickable.
+
+        ``half_hand``/``half_finger`` are the gripper footprint half-extents
+        along the domino's long axis (local x) and depth/finger-span axis
+        (local y). The check is the same oriented-rectangle overlap test used
+        for placement, but against the larger gripper footprint.
+        """
+        clear_rect = self._oriented_rect_corners(candidate["x"],
+                                                  candidate["y"],
+                                                  candidate.get("yaw", 0.0),
+                                                  half_hand, half_finger)
+        for other_obj, other_data in occupied.items():
+            if self._rectangles_overlap(clear_rect,
+                                        self._placement_rect(
+                                            other_obj, other_data)):
+                return True
+        return False
+
+    @staticmethod
+    def _oriented_rect_corners(
+            x: float, y: float, yaw: float, half_w: float,
+            half_d: float) -> Tuple[np.ndarray, np.ndarray]:
+        """Return (center, corners) of an oriented rectangle with the given
+        half-extents along its local x (``half_w``) and y (``half_d``) axes."""
+        center = np.array([x, y], dtype=np.float64)
+        local = np.array(
+            [[-half_w, -half_d], [-half_w, half_d], [half_w, half_d],
+             [half_w, -half_d]],
+            dtype=np.float64,
+        )
+        rot = np.array([[np.cos(yaw), -np.sin(yaw)],
+                        [np.sin(yaw), np.cos(yaw)]],
+                       dtype=np.float64)
+        return center, center + local @ rot.T
 
     def _placement_rect(
             self, obj: Object,
