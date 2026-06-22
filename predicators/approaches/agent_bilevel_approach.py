@@ -92,6 +92,16 @@ class AgentBilevelApproach(AgentPlannerApproach):
         """No synthesis phase in this approach — declare an empty set."""
         return []
 
+    def _get_solve_tool_names(self) -> Optional[List[str]]:
+        # Bilevel solving hands continuous refinement to a search procedure,
+        # so the agent gets refine_plan_sketch (backtracking refinement +
+        # forward validation on a param-free sketch) on top of the base
+        # inspection / evaluation tools. Like the others it needs a simulator.
+        tools = list(super()._get_solve_tool_names() or [])
+        if CFG.agent_planner_use_simulator:
+            tools.append("refine_plan_sketch")
+        return tools
+
     # ------------------------------------------------------------------ #
     # System prompt (simplified — no parameter tuning workflow)
     # ------------------------------------------------------------------ #
