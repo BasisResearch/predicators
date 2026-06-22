@@ -20,7 +20,6 @@ APPROACHES:
   #     terminate_on_goal_reached_and_option_terminated: True
   #     agent_sdk_use_local_sandbox: True
   #     option_model_terminate_on_repeat: False
-  #     agent_planner_use_scratchpad: False
   #     agent_planner_use_simulator: False
   # # Baseline: ground truth monolithic sim + agent planner
   # agent_model_based_planning:
@@ -31,8 +30,6 @@ APPROACHES:
   #     terminate_on_goal_reached_and_option_terminated: True
   #     agent_sdk_use_local_sandbox: True
   #     option_model_terminate_on_repeat: False
-  #     agent_planner_use_scratchpad: False
-  #     agent_planner_use_simulator: True
   #     agent_planner_use_visualize_state: True
   #     agent_planner_use_annotate_scene: True
   # Oracle: ground truth monolithic sim + predicates + our planning pipeline
@@ -44,7 +41,6 @@ APPROACHES:
   #     terminate_on_goal_reached_and_option_terminated: True
   #     agent_sdk_use_local_sandbox: True
   #     option_model_terminate_on_repeat: False
-  #     agent_planner_use_scratchpad: False
   #     agent_planner_use_visualize_state: True
   #     agent_planner_use_annotate_scene: True
   #     option_model_use_gui: True
