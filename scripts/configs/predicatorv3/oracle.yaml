@@ -10,8 +10,19 @@ APPROACHES:
     FLAGS:
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
-      sesame_check_expected_atoms: False
+      # Plan open-loop (task plan + greedy execution), NOT sim-in-the-loop.
+      # The deterministic ``_place_sampler`` rank-sums three signals
+      # (future-target bridge, planner cell, planner angle) over the
+      # generator-faithful placements, so the cascade-correct pose is chosen on
+      # the first try at corners, straights, and spurious-turn plans alike --
+      # no per-step pybullet rollout / backtracking needed. (Sim-in-the-loop was
+      # both slower and lower-scoring: the cascade is too physics-sensitive and
+      # the option-model resets diverge from continuous execution.)
       bilevel_plan_without_sim: True
+      # Greedy execution validates only the final Toppled(target) goal, not the
+      # full per-step grid state (whose exact Tilting/Upright cascade timing the
+      # physics can't match step for step).
+      sesame_check_expected_atoms: False
   # human_interaction:
   #   NAME: "human_interaction"
   #   FLAGS:

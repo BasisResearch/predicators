@@ -56,8 +56,20 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
             self._types = self._types | get_gt_helper_types(CFG.env)
             # Helper predicates take precedence on name collisions (e.g. the
             # grid's derived InFront replaces the position-based InFront).
-            self._initial_predicates = (get_gt_helper_predicates(CFG.env)
-                                        | self._initial_predicates)
+            # A plain set union does NOT enforce this: the two same-named
+            # predicates are ``==``-equal but hash differently (DerivedPredicate
+            # vs Predicate), so both survive the union and ``abstract`` then
+            # evaluates BOTH -- the looser position-based InFront injects
+            # spurious adjacencies (e.g. the start block "in front of" a staged
+            # movable 0.13 m away), which lets the task planner build a
+            # physically-impossible single-block bridge. Drop any base predicate
+            # whose name a helper predicate already provides, then union.
+            helper_preds = get_gt_helper_predicates(CFG.env)
+            helper_names = {p.name for p in helper_preds}
+            self._initial_predicates = helper_preds | {
+                p
+                for p in self._initial_predicates if p.name not in helper_names
+            }
 
         # Conditionally load VLM components if an abstract policy is used.
         self._vlm = None

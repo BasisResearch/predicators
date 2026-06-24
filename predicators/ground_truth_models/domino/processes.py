@@ -43,18 +43,65 @@ def _push_sampler(state: State, goal: Set[GroundAtom],
 
 def _place_sampler(state: State, goal: Set[GroundAtom],
                    rng: np.random.Generator, objs: Sequence[Object]) -> Array:
-    """Return placement params from process objects."""
+    """Return a generator-faithful placement for the open-loop oracle.
+
+    ``objs = [robot, domino1, domino2, target_pos, rotation]``. The process
+    planner picks a discrete grid cell (``target_pos``) and angle (``rotation``)
+    for the held ``domino1`` next to the reference ``domino2``. The grid is a
+    uniform lattice (see ``augment_task_with_helper_objects``), so a turn block
+    lands at the *same* cell a straight block would, differing only in angle --
+    the generator's inward ``domino_width/2`` corner offset is absent from the
+    lattice. Placing the held domino at the bare cell stalls corner cascades.
+
+    Instead pick from the placements the generator would lay next to ``domino2``
+    (``_generator_placements``, which carry the corner offset), rank-summing
+    three signals that each, alone, mishandle one case -- future-target bridge
+    (greedy: pulls a straight run onto the target), grid-cell distance (a
+    uniform-grid turn cell sits on the straight position, missing corners), and
+    angle error (the planner stamps spurious turn angles on straight runs). The
+    cascade-correct candidate is top-ranked on >=2 of the three. Deterministic;
+    final tiebreak is the planner's cell; bare cell if no candidate at all.
+    """
     if not CFG.domino_use_skill_factories:
         return np.array([], dtype=np.float32)
-    del state, goal, rng
+    del goal, rng
     # objs = [robot, domino1, domino2, target_pos, rotation]
+    held = objs[1]
+    ref = objs[2]
     target_pos = objs[3]
     rotation = objs[4]
-    x = float(target_pos.name.split("_")[1])
-    y = float(target_pos.name.split("_")[2])
-    angle_deg = float(rotation.name.split("_")[-1])
-    yaw = np.radians(angle_deg)
-    return np.array([x, y, _DOMINO_DROP_Z, yaw], dtype=np.float32)
+    gx = float(target_pos.name.split("_")[1])
+    gy = float(target_pos.name.split("_")[2])
+    gyaw = np.radians(float(rotation.name.split("_")[-1]))
+
+    rx = state.get(ref, "x")
+    ry = state.get(ref, "y")
+    ryaw = state.get(ref, "yaw")
+    candidates = _generator_placements(rx, ry, ryaw)
+    if not candidates:
+        # Fallback: bare lattice cell (no generator candidate available).
+        return np.array([gx, gy, _DOMINO_DROP_Z, gyaw], dtype=np.float32)
+    bridges = [
+        _future_target_bridge_score(state, held, c[0], c[1], c[2])
+        for c in candidates
+    ]
+    dgrids = [float(np.hypot(c[0] - gx, c[1] - gy)) for c in candidates]
+    angerrs = [abs(wrap_angle(c[2] - gyaw)) for c in candidates]
+
+    def _rank(vals: List[float], i: int, higher_better: bool = False) -> int:
+        # Number of candidates strictly better than ``i`` (ties share a rank).
+        if higher_better:
+            return sum(1 for v in vals if v > vals[i] + 1e-9)
+        return sum(1 for v in vals if v < vals[i] - 1e-9)
+
+    def _total(i: int) -> Tuple[int, float]:
+        rank_sum = (_rank(bridges, i, higher_better=True) + _rank(dgrids, i) +
+                    _rank(angerrs, i))
+        return (rank_sum, dgrids[i])
+
+    best_i = min(range(len(candidates)), key=_total)
+    cx, cy, cyaw = candidates[best_i]
+    return np.array([cx, cy, _DOMINO_DROP_Z, cyaw], dtype=np.float32)
 
 
 class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
@@ -423,12 +470,12 @@ def _future_target_bridge_score(state: State, held: Object, hx: float,
                                 hy: float, hyaw: float) -> float:
     """Tie-break score for placements that can be completed to a target.
 
-    The immediate ``InFront(held, ref)`` subgoal underdetermines which side of
-    the start domino to place the bridge on. Prefer placements for which one
-    additional domino can be placed at the intersection of generator-faithful
-    successors from the held domino and from a purple target domino. This keeps
-    the sampler from spending most refinement attempts on locally valid but
-    globally dead first placements.
+    The immediate ``InFront(held, ref)`` subgoal underdetermines which
+    side of the start domino to place the bridge on. Prefer placements
+    for which one additional domino can be placed at the intersection of
+    generator-faithful successors from the held domino and from a purple
+    target domino. This keeps the sampler from spending most refinement
+    attempts on locally valid but globally dead first placements.
     """
     dominoes = [o for o in state if o.type.name == "domino" and o is not held]
     targets = [d for d in dominoes if _is_target_domino(state, d)]
