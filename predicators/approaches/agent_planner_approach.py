@@ -309,10 +309,7 @@ scene, then annotate_scene overlays markers on it."""
             "Previous queries and tool results from earlier sessions are "
             "saved there. Read them to build on prior knowledge.",
             "**Inspect rendered images** from `./test_images/` when "
-            "something goes wrong to understand the actual outcome. "
-            "For finer-grained debugging, pass `save_low_level_action_images: "
-            "true` to evaluate_option_plan — this saves per-simulator-step images "
-            "to `./test_images_low_level/`.",
+            "something goes wrong to understand the actual outcome.",
             "**Expect geometric offsets.** The target position for "
             "options is often offset from the reference object's reported "
             "position due to object geometry. Explore a wide range around "
@@ -749,9 +746,7 @@ For negated targets: `Wait(robot:Robot)[] -> {{NOT Touching(a:block, b:block)}}`
 
 **Important — parameter tuning workflow:**
 - When a step fails or produces unexpected results, inspect the rendered images \
-in `./test_images/` to see what actually happened in the scene. For step-by-step \
-low-level frames, pass `save_low_level_action_images: true` — images are saved to \
-`./test_images_low_level/`.
+in `./test_images/` to see what actually happened in the scene.
 {self._solve_prompt_scratchpad_line()}\
 - Review past session logs in `./session_logs/` if available — they contain prior queries and results.
 - When a step fails (e.g. IK error), use the image + object poses to reason about \

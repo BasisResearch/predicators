@@ -1462,16 +1462,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     "Train task index to test on. Omit to use "
                     "the current solve-time task."
                 },
-                "save_low_level_action_images": {
-                    "type":
-                    "boolean",
-                    "description":
-                    "Save per low-level action images (one per "
-                    "simulator step) to a separate directory. "
-                    "Useful for debugging fine-grained behavior.",
-                    "default":
-                    False
-                },
             },
             "required": ["plan"],
         },
@@ -1499,8 +1489,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         plan_text = (args.get("plan") or "").strip()
         include_states = args.get("include_states", False)
         include_atoms = args.get("include_atoms", True)
-        save_low_level_action_images = args.get("save_low_level_action_images",
-                                                False)
 
         if task_idx is not None:
             if task_idx < 0 or task_idx >= len(ctx.train_tasks):
@@ -1598,17 +1586,6 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     state_dict[str(obj)] = obj_feats
                 step_line += f"\n  State: {json.dumps(state_dict, indent=4)}"
             lines.append(step_line)
-            last_traj = getattr(ctx.option_model, 'last_trajectory', None)
-            if save_low_level_action_images and last_traj is not None \
-                    and ctx.image_save_dir:
-                orig_img_dir = ctx.image_save_dir
-                ctx.image_save_dir = orig_img_dir + "_low_level"
-                for act_idx, act_state in enumerate(last_traj.states):
-                    _render_pybullet_image(
-                        ctx,
-                        f"step_{i}_{opt.name}_act_{act_idx}",
-                        state=act_state)
-                ctx.image_save_dir = orig_img_dir
             img_block = _render_scene_image(ctx, f"step_{i}_{opt.name}")
             if img_block and img_block.get("saved_path"):
                 saved_image_paths.append(img_block["saved_path"])

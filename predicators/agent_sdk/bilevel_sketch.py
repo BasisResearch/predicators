@@ -218,9 +218,8 @@ def build_solve_prompt(
     deep_tune_advice = (
         "deep-tune just that step (it needs precise values from you), then "
         "re-test it. When deep-tuning a step with `evaluate_option_plan`:\n"
-        "- Inspect the rendered images in `./test_images/` (pass "
-        "`save_low_level_action_images: true` for per-step frames in "
-        "`./test_images_low_level/`) to see what actually happened.\n"
+        "- Inspect the rendered images in `./test_images/` to see what "
+        "actually happened.\n"
         "- For a failure like an IK error or collision, use the image and "
         "object poses to reason about WHY and adjust params directionally — "
         "don't try random nearby values.\n"
