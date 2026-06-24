@@ -306,8 +306,15 @@ class AgentBilevelApproach(AgentPlannerApproach):
         """
         sketch_file = CFG.agent_bilevel_plan_sketch_file
         if sketch_file:
-            filepath = utils.get_path_to_predicators_root() + \
-                f"/scripts/{CFG.agent_bilevel_plan_sketch_dir}/{sketch_file}"
+            # An absolute path is used as-is; a bare name resolves under
+            # scripts/<plan_sketch_dir>/.
+            if os.path.isabs(sketch_file):
+                filepath = sketch_file
+            else:
+                filepath = os.path.join(utils.get_path_to_predicators_root(),
+                                        "scripts",
+                                        CFG.agent_bilevel_plan_sketch_dir,
+                                        sketch_file)
             with open(filepath, "r", encoding="utf-8") as f:
                 plan_text = f.read().strip()
             logging.info("Loaded plan sketch from file: %s", sketch_file)
