@@ -311,8 +311,9 @@ scene, then annotate_scene overlays markers on it."""
             "**Inspect rendered images** from `./test_images/` when "
             "something goes wrong to understand the actual outcome. "
             "For finer-grained debugging, pass `save_low_level_action_images: "
-            "true` to evaluate_option_plan — this saves per-simulator-step images "
-            "to `./test_images_low_level/`.",
+            "true` to evaluate_option_plan — this saves "
+            "per-simulator-step images to "
+            "`./test_images_low_level/`.",
             "**Expect geometric offsets.** The target position for "
             "options is often offset from the reference object's reported "
             "position due to object geometry. Explore a wide range around "
@@ -607,7 +608,8 @@ scene, then annotate_scene overlays markers on it."""
         """Return the notes.md bullet for the solve prompt, or empty."""
         if CFG.agent_planner_use_scratchpad:
             return (
-                "- **Read `./notes.md` before every evaluate_option_plan call** "
+                "- **Read `./notes.md` before every "
+                "evaluate_option_plan call** "
                 "and **update it immediately after each call** — append a "
                 "row to the parameter table and update the explored-ranges "
                 "summary. If you realize you forgot to update, STOP and "
@@ -1038,7 +1040,9 @@ Output ONLY the option plan lines at the end, after any analysis."""
         self._offline_dataset = save_dict["offline_dataset"]
         self._online_trajectories = save_dict["online_trajectories"]
         self._online_learning_cycle = save_dict["online_learning_cycle"] + 1
+        # pylint: disable=attribute-defined-outside-init
         self._agent_session_id = save_dict.get("agent_session_id")
+        # pylint: enable=attribute-defined-outside-init
 
         # Create new run_id for continued execution (each run gets own dir)
         # but log the original run_id for reference.

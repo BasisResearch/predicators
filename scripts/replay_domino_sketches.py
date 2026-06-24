@@ -8,19 +8,20 @@ pipeline uses (oracle option model + oracle samplers + subgoal checks, same
 per-(sketch,refine) RNG seeding). The pass/fail outcome and the "stuck at step
 K" reason therefore reproduce the run's solve-time failures deterministically.
 
-Run ONE seed per process (task-gen RNG is shared; see reproduce_domino_failures).
+Run ONE seed per process (task-gen RNG is shared; see
+reproduce_domino_failures).
 
 Usage:
-    PYTHONPATH=. python scripts/replay_domino_sketches.py <seed> <demo|no_demo> [--all]
-        --all replays every task; default replays only tasks the run did not solve.
+    PYTHONPATH=. python scripts/replay_domino_sketches.py \
+        <seed> <demo|no_demo> [--all]
+        --all replays every task; default replays only tasks the run
+        did not solve.
 """
 
 import logging
 import re
 import sys
 from glob import glob
-
-import numpy as np
 
 logging.disable(logging.CRITICAL)
 
@@ -65,6 +66,7 @@ _FLAGS = {
 
 
 def find_info_log(seed, arm):
+    """Return the newest info.log path for the given seed and arm."""
     exp = f"domino-agent_oracle_hybrid_sim_oracle_samplers_{arm}"
     pat = f"logs/agent_sim_learning/{exp}/seed{seed}/run_*/info.log"
     hits = sorted(glob(pat))
@@ -118,6 +120,7 @@ def typed_text(steps, name_to_type):
 
 
 def main():
+    """Replay the recorded sketches for one seed through real refinement."""
     seed = int(sys.argv[1])
     arm = sys.argv[2] if len(sys.argv) > 2 else "no_demo"
     replay_all = "--all" in sys.argv
@@ -125,6 +128,9 @@ def main():
     info_log = find_info_log(seed, arm)
     tasks = extract_sketches(info_log)
 
+    # These imports are deferred until after reset_config because the
+    # imported modules read CFG at import time.
+    # pylint: disable=import-outside-toplevel
     from predicators import utils
     utils.reset_config(dict(_FLAGS, seed=seed))
     from predicators.agent_sdk import bilevel_sketch
@@ -132,6 +138,8 @@ def main():
     from predicators.envs import get_or_create_env
     from predicators.ground_truth_models import get_gt_options
     from predicators.settings import CFG
+
+    # pylint: enable=import-outside-toplevel
 
     env = get_or_create_env("pybullet_domino")
     options = get_gt_options(env.get_name())
@@ -151,9 +159,8 @@ def main():
         if solved and not replay_all:
             continue
         task = test_tasks[ti].task
-        print(
-            f"\n== task{ti} (run Task{ti+1}) | run outcome: {rec['outcome'][:60]}"
-        )
+        print(f"\n== task{ti} (run Task{ti+1}) | "
+              f"run outcome: {rec['outcome'][:60]}")
         if not rec["sketches"]:
             print("   (no sketches recorded)")
             continue
@@ -172,7 +179,14 @@ def main():
             for r in range(CFG.agent_bilevel_max_refine_retries):
                 fail = {"idx": -1, "reason": ""}
 
-                def rec_fail(idx, _prefix, reason, _f=fail):
+                # _f snapshots this iteration's ``fail`` dict at definition
+                # time; rec_fail mutates it in place and is consumed within
+                # this same iteration, so the default-arg capture is safe.
+                def rec_fail(  # pylint: disable=dangerous-default-value
+                        idx,
+                        _prefix,
+                        reason,
+                        _f=fail):
                     if idx > _f["idx"]:
                         _f["idx"], _f["reason"] = idx, reason
 

@@ -56,6 +56,7 @@ _OUT_DIR = ("logs/agent_sim_learning/"
 
 
 def main() -> None:
+    """Render init-state PNGs for the domino test tasks of seeds 0 and 2."""
     os.makedirs(_OUT_DIR, exist_ok=True)
     for seed in (0, 2):
         utils.reset_config({**_DOMINO_FLAGS, "seed": seed})

@@ -125,9 +125,12 @@ OUT = "logs/agent_sim_learning/unsolved_init_states"
 
 
 def main():
+    """Render annotated init-state PNGs for one seed's unsolved tasks."""
     seed = int(sys.argv[1])
     os.makedirs(OUT, exist_ok=True)
     utils.reset_config(dict(FLAGS, seed=seed))
+    # Deferred until after reset_config: create_new_env reads CFG at import.
+    # pylint: disable=import-outside-toplevel
     from predicators.envs import create_new_env
     env = create_new_env("pybullet_domino", do_cache=False)
     tasks = env.get_test_tasks()
@@ -143,7 +146,7 @@ def main():
         rgb = _annotate(rgb, tasks[idx].init, cam)
         goal_ids = ",".join(
             sorted(
-                str(a).split("_")[-1].rstrip(":domino)")
+                str(a).rsplit("_", maxsplit=1)[-1].rstrip(":domino)")
                 for a in tasks[idx].goal))
         rgb = _caption(rgb, [
             f"seed {seed}  task {t1}  ({arms})",

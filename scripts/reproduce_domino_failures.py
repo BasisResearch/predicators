@@ -13,7 +13,9 @@ wrapper at the bottom of the module docstring loops correctly.
 
 Usage:
     # motion-planning reproduction for a single seed (fresh process each):
-    for s in 0 1 2 3 4; do PYTHONPATH=. python scripts/reproduce_domino_failures.py mp $s; done
+    for s in 0 1 2 3 4; do \
+        PYTHONPATH=. python scripts/reproduce_domino_failures.py mp $s; \
+    done
     # option-plan parser (Push) bug:
     PYTHONPATH=. python scripts/reproduce_domino_failures.py push 0
 """
@@ -48,11 +50,15 @@ _POS_GAP = 0.098  # domino chain spacing (env.py: domino_width * 1.4).
 _MAX_STEPS = 80
 
 
-def _setup(seed):
+def _setup(seed):  # pylint: disable=redefined-outer-name
     args = dict(_ARGS, seed=seed)
     utils.reset_config(args)
+    # Deferred until after reset_config: these modules read CFG at import.
+    # pylint: disable=import-outside-toplevel
     from predicators.envs import get_or_create_env
     from predicators.ground_truth_models import get_gt_options
+
+    # pylint: enable=import-outside-toplevel
     env = get_or_create_env("pybullet_domino")
     options = get_gt_options(env.get_name())
     return env, options
@@ -74,12 +80,11 @@ def _run_option(env, opt, state):
     return True, "ran-max-steps"
 
 
-def reproduce_mp(seed):
+def reproduce_mp(seed):  # pylint: disable=redefined-outer-name
     """For each test task, report which dominoes are grasp-infeasible and probe
     one Place/MoveToDrop into the tight InFront gap."""
     env, options = _setup(seed)
     Pick = next(o for o in options if o.name == "Pick")
-    Place = next(o for o in options if o.name == "Place")
     tasks = env.get_test_tasks()
     for ti in range(len(tasks)):
         env.reset("test", ti)
@@ -102,7 +107,7 @@ def reproduce_mp(seed):
             f"| grasp-INFEASIBLE: {infeasible if infeasible else 'none'}")
 
 
-def reproduce_push_bug(seed):
+def reproduce_push_bug(seed):  # pylint: disable=redefined-outer-name
     """Show the option-plan parser silently drops a Push line that names a
     target domino, because Push is registered with types=[robot]."""
     env, options = _setup(seed)

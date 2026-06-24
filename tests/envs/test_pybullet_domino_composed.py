@@ -7,7 +7,7 @@ from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.envs.pybullet_domino.components.grid_component import \
     GridComponent
-from predicators.envs.pybullet_domino.task_generators.domino_task_generator import \
+from predicators.envs.pybullet_domino.task_generators import \
     DominoTaskGenerator
 from predicators.settings import CFG
 from predicators.structs import Object, State, Type
