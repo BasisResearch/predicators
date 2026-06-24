@@ -25,8 +25,7 @@ from predicators.settings import CFG
 from predicators.structs import Object, Predicate, State, Type
 
 if TYPE_CHECKING:
-    from predicators.envs.pybullet_domino.env import \
-        PyBulletDominoComposedEnv
+    from predicators.envs.pybullet_domino.env import PyBulletDominoComposedEnv
 
 
 @dataclass

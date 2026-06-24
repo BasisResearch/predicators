@@ -1394,10 +1394,10 @@ def test_domino_second_place_with_unvalidated_ik():
     """The seed-0 bridge placement for domino_2 should refine with
     pybullet_ik_validate disabled.
 
-    This covers a failure mode where the fast one-shot IK solution reaches the
-    EE target but leaves the held domino colliding with the table, so
-    collision-aware BiRRT needs to retry the IK target with validation before
-    declaring Place infeasible.
+    This covers a failure mode where the fast one-shot IK solution
+    reaches the EE target but leaves the held domino colliding with the
+    table, so collision-aware BiRRT needs to retry the IK target with
+    validation before declaring Place infeasible.
     """
     try:
         from predicators.envs.pybullet_domino import PyBulletDominoEnv
@@ -1453,26 +1453,26 @@ def test_domino_second_place_with_unvalidated_ik():
         assert num_actions > 0, model.last_execution_failure
         return next_state
 
-    pick1 = options["Pick"].ground(
-        [robot, d1],
-        _pick_option_sampler(state, set(), np.random.default_rng(0),
-                             [robot, d1]))
+    pick1 = options["Pick"].ground([robot, d1],
+                                   _pick_option_sampler(
+                                       state, set(), np.random.default_rng(0),
+                                       [robot, d1]))
     state = _run_option(pick1, state)
 
     subgoal1 = {
         GroundAtom(preds["InFront"], [d1, d0]),
         GroundAtom(preds["HandEmpty"], [robot]),
     }
-    place1 = options["Place"].ground(
-        [robot],
-        _place_option_sampler(state, subgoal1, np.random.default_rng(0),
-                              [robot]))
+    place1 = options["Place"].ground([robot],
+                                     _place_option_sampler(
+                                         state, subgoal1,
+                                         np.random.default_rng(0), [robot]))
     state = _run_option(place1, state)
 
-    pick2 = options["Pick"].ground(
-        [robot, d2],
-        _pick_option_sampler(state, set(), np.random.default_rng(0),
-                             [robot, d2]))
+    pick2 = options["Pick"].ground([robot, d2],
+                                   _pick_option_sampler(
+                                       state, set(), np.random.default_rng(0),
+                                       [robot, d2]))
     state = _run_option(pick2, state)
 
     subgoal2 = {
@@ -1480,10 +1480,10 @@ def test_domino_second_place_with_unvalidated_ik():
         GroundAtom(preds["InFront"], [d2, d1]),
         GroundAtom(preds["HandEmpty"], [robot]),
     }
-    place2 = options["Place"].ground(
-        [robot],
-        _place_option_sampler(state, subgoal2, np.random.default_rng(0),
-                              [robot]))
+    place2 = options["Place"].ground([robot],
+                                     _place_option_sampler(
+                                         state, subgoal2,
+                                         np.random.default_rng(0), [robot]))
     state = _run_option(place2, state)
 
     assert GroundAtom(preds["HandEmpty"], [robot]).holds(state)

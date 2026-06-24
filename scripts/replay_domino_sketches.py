@@ -25,27 +25,37 @@ import numpy as np
 logging.disable(logging.CRITICAL)
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
-STEP = re.compile(r"^\s*\d+:\s*([A-Za-z]\w*)\((.*?)\)(?:\s*->\s*\{(.*)\})?\s*$")
+STEP = re.compile(
+    r"^\s*\d+:\s*([A-Za-z]\w*)\((.*?)\)(?:\s*->\s*\{(.*)\})?\s*$")
 SKETCH_HDR = re.compile(r"Sketch \(attempt (\d+)\)")
-TASK_RES = re.compile(r"\[main\.py\] Task (\d+) / \d+: (.*)|Task (\d+) / \d+: (SOLVED)")
+TASK_RES = re.compile(
+    r"\[main\.py\] Task (\d+) / \d+: (.*)|Task (\d+) / \d+: (SOLVED)")
 
 _FLAGS = {
-    "env": "pybullet_domino", "approach": "agent_sim_learning",
-    "num_train_tasks": 1, "num_test_tasks": 5,
-    "skill_phase_use_motion_planning": True, "pybullet_ik_validate": False,
-    "demonstrator": "oracle_process_planning", "bilevel_plan_without_sim": True,
-    "explorer": "agent_bilevel", "agent_sim_learn_oracle_sim_program": True,
+    "env": "pybullet_domino",
+    "approach": "agent_sim_learning",
+    "num_train_tasks": 1,
+    "num_test_tasks": 5,
+    "skill_phase_use_motion_planning": True,
+    "pybullet_ik_validate": False,
+    "demonstrator": "oracle_process_planning",
+    "bilevel_plan_without_sim": True,
+    "explorer": "agent_bilevel",
+    "agent_sim_learn_oracle_sim_program": True,
     "agent_sim_learn_oracle_sim_params": True,
     "agent_sim_learn_synthesize_samplers": True,
     "agent_sim_learn_oracle_samplers": True,
     "execution_monitor": "subgoal_annotations",
-    "agent_bilevel_max_execution_replans": 2, "horizon": 400,
+    "agent_bilevel_max_execution_replans": 2,
+    "horizon": 400,
     "excluded_objects_in_state_str": "loc,rot,angle,direction",
     "excluded_predicates": "InitialBlock,MovableBlock,Tilting,Upright",
     "domino_initialize_at_finished_state": False,
     "domino_use_domino_blocks_as_target": True,
-    "domino_use_continuous_place": True, "domino_restricted_push": True,
-    "process_planning_heuristic_weight": 2.0, "domino_has_glued_dominos": False,
+    "domino_use_continuous_place": True,
+    "domino_restricted_push": True,
+    "process_planning_heuristic_weight": 2.0,
+    "domino_has_glued_dominos": False,
     "pybullet_birrt_extend_num_interp": 20,
     "pybullet_birrt_path_subsample_ratio": 2,
     "agent_sdk_use_local_sandbox": True,
@@ -79,8 +89,10 @@ def extract_sketches(info_log):
             m = STEP.match(line)
             if m and cur is not None:
                 opt, args, sg = m.group(1), m.group(2), m.group(3) or ""
-                objs = [a.split(":")[0].strip() for a in args.split(",")
-                        if a.strip()]
+                objs = [
+                    a.split(":")[0].strip() for a in args.split(",")
+                    if a.strip()
+                ]
                 cur.append((opt, objs, sg))
                 continue
             cur = None  # any non-step line ends the current sketch block
@@ -115,10 +127,10 @@ def main():
 
     from predicators import utils
     utils.reset_config(dict(_FLAGS, seed=seed))
+    from predicators.agent_sdk import bilevel_sketch
+    from predicators.approaches import create_approach
     from predicators.envs import get_or_create_env
     from predicators.ground_truth_models import get_gt_options
-    from predicators.approaches import create_approach
-    from predicators.agent_sdk import bilevel_sketch
     from predicators.settings import CFG
 
     env = get_or_create_env("pybullet_domino")
@@ -139,16 +151,22 @@ def main():
         if solved and not replay_all:
             continue
         task = test_tasks[ti].task
-        print(f"\n== task{ti} (run Task{ti+1}) | run outcome: {rec['outcome'][:60]}")
+        print(
+            f"\n== task{ti} (run Task{ti+1}) | run outcome: {rec['outcome'][:60]}"
+        )
         if not rec["sketches"]:
             print("   (no sketches recorded)")
             continue
         for si, steps in enumerate(rec["sketches"]):
             sketch = bilevel_sketch.parse_sketch_from_text(
-                typed_text(steps, name_to_type), task,
-                predicates=preds, options=set(options), types=env.types)
+                typed_text(steps, name_to_type),
+                task,
+                predicates=preds,
+                options=set(options),
+                types=env.types)
             if not sketch:
-                print(f"   sketch{si}: unparseable"); continue
+                print(f"   sketch{si}: unparseable")
+                continue
             any_success = False
             deepest = (-1, "")
             for r in range(CFG.agent_bilevel_max_refine_retries):
@@ -157,9 +175,14 @@ def main():
                 def rec_fail(idx, _prefix, reason, _f=fail):
                     if idx > _f["idx"]:
                         _f["idx"], _f["reason"] = idx, reason
+
                 attempt = si * CFG.agent_bilevel_max_refine_retries + r
                 _, success = approach._refine_sketch(  # pylint: disable=protected-access
-                    task, sketch, 600.0, attempt=attempt, on_step_fail=rec_fail)
+                    task,
+                    sketch,
+                    600.0,
+                    attempt=attempt,
+                    on_step_fail=rec_fail)
                 if success:
                     any_success = True
                     break

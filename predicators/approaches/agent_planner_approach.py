@@ -460,8 +460,7 @@ scene, then annotate_scene overlays markers on it."""
 
     @staticmethod
     def _wrap_option_failures(
-        policy: Callable[[State], Action]
-    ) -> Callable[[State], Action]:
+            policy: Callable[[State], Action]) -> Callable[[State], Action]:
         """Wrap a policy so OptionExecutionFailure surfaces as ApproachFailure.
 
         Bilevel planning and the base open-loop planner both build a
@@ -532,7 +531,8 @@ scene, then annotate_scene overlays markers on it."""
                 return None
 
             rgb_array = np.asarray(video[0], dtype=np.uint8)
-            img = PILImage.fromarray(rgb_array)
+            img = PILImage.fromarray(
+                rgb_array)  # type: ignore[no-untyped-call]
             os.makedirs(save_dir, exist_ok=True)
             task_id = self._tool_context.test_task_idx
             if task_id is not None:
@@ -575,11 +575,12 @@ scene, then annotate_scene overlays markers on it."""
     def reset_for_new_episode(self) -> None:
         """Advance the test-task counter at each test episode start.
 
-        CogMan calls this exactly once per test task (via ``cogman.reset``
-        in main.py's ``_solve_task``) and never on mid-episode replans, so
-        the counter stays in lockstep with main.py's ``test_task_idx``.
-        The index is exposed to the sandbox via the ToolContext and lands
-        in the session-log filename. No-op outside the test phase.
+        CogMan calls this exactly once per test task (via
+        ``cogman.reset`` in main.py's ``_solve_task``) and never on mid-
+        episode replans, so the counter stays in lockstep with main.py's
+        ``test_task_idx``. The index is exposed to the sandbox via the
+        ToolContext and lands in the session-log filename. No-op outside
+        the test phase.
         """
         super().reset_for_new_episode()
         if self._in_test_phase:
@@ -678,8 +679,8 @@ scene, then annotate_scene overlays markers on it."""
                 img_name = f"task{task_id:03d}_initial_state.png"
             else:
                 img_name = "initial_state.png"
-            initial_img_path = os.path.join(
-                self._tool_context.image_save_dir, img_name)
+            initial_img_path = os.path.join(self._tool_context.image_save_dir,
+                                            img_name)
             if os.path.exists(initial_img_path):
                 # Use sandbox-relative path for the agent
                 initial_image_section = (
@@ -1012,12 +1013,16 @@ Output ONLY the option plan lines at the end, after any analysis."""
         save_path = utils.get_approach_save_path_str()
         path = f"{save_path}_{online_learning_cycle}.{self._save_suffix}"
         save_dict = {
-            "offline_dataset": self._offline_dataset,
-            "online_trajectories": self._online_trajectories,
-            "online_learning_cycle": self._online_learning_cycle,
-            "run_id": self._run_id,
-            "agent_session_id": (self._agent_session.session_id
-                                 if self._agent_session else None),
+            "offline_dataset":
+            self._offline_dataset,
+            "online_trajectories":
+            self._online_trajectories,
+            "online_learning_cycle":
+            self._online_learning_cycle,
+            "run_id":
+            self._run_id,
+            "agent_session_id":
+            (self._agent_session.session_id if self._agent_session else None),
             **self._extra_save_state(),
         }
         with open(path, "wb") as f:

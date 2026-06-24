@@ -170,7 +170,7 @@ class AgentSessionManager:
                             logging.debug("[+%.2fs] Agent tool call: %s(%s)",
                                           dt, block["name"], param_summary)
                 elif entry["type"] == "result":
-                    cost = entry.get("total_cost_usd")
+                    cost: Optional[float] = entry.get("total_cost_usd")
                     turns = entry.get("num_turns")
                     solve_cost: Optional[float] = None
                     if cost is not None:

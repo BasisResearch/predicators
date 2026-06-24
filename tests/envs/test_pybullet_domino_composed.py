@@ -7,8 +7,8 @@ from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.envs.pybullet_domino.components.grid_component import \
     GridComponent
-from predicators.envs.pybullet_domino.task_generators.domino_task_generator \
-    import DominoTaskGenerator
+from predicators.envs.pybullet_domino.task_generators.domino_task_generator import \
+    DominoTaskGenerator
 from predicators.settings import CFG
 from predicators.structs import Object, State, Type
 
@@ -78,6 +78,7 @@ class TestDominoComponent:
         # Target should have purple/pink color
         assert d["r"] == pytest.approx(0.85, abs=0.01)
 
+
 def test_unfinished_state_avoids_staging_collisions() -> None:
     """Test unfinished movable blocks avoid start/target blocks."""
     workspace_bounds = {
@@ -102,16 +103,16 @@ def test_unfinished_state_avoids_staging_collisions() -> None:
     obj_dict = {
         comp.dominos[0]:
         comp.place_domino(0,
-                           first_staging_x,
-                           first_staging_y,
-                           0.0,
-                           is_start_block=True),
+                          first_staging_x,
+                          first_staging_y,
+                          0.0,
+                          is_start_block=True),
         comp.dominos[1]:
         comp.place_domino(1,
-                           first_staging_x + 0.25,
-                           first_staging_y,
-                           0.0,
-                           is_target_block=True),
+                          first_staging_x + 0.25,
+                          first_staging_y,
+                          0.0,
+                          is_target_block=True),
         comp.dominos[2]:
         comp.place_domino(2, 0.9, 1.35, 0.0),
     }

@@ -231,7 +231,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
                     reason_msg = ""
                     if fail_state["deepest_idx"] >= 0:
                         reason_msg = f" (stuck at step {fail_state['deepest_idx']}: {fail_state['deepest_reason']})"
-                    
+
                     logging.info(
                         f"Refinement failed (sketch "
                         f"{sketch_attempt}, refine {refine_attempt}), "
@@ -343,12 +343,12 @@ class AgentBilevelApproach(AgentPlannerApproach):
     ) -> Tuple[Callable[[int, List[Optional[_Option]], str], None], "dict"]:
         """Build an ``on_step_fail`` callback and its accumulator state.
 
-        Returns ``(callback, state)`` where ``state`` is a dict with keys
-        ``deepest_idx`` (the deepest step index the search reached before
-        failing), ``deepest_reason`` (the failure reason there), and
-        ``counts`` (a ``Counter`` over ``(step_idx, reason)``). Built as a
-        factory so the closure captures fresh per-sketch state instead of
-        loop variables.
+        Returns ``(callback, state)`` where ``state`` is a dict with
+        keys ``deepest_idx`` (the deepest step index the search reached
+        before failing), ``deepest_reason`` (the failure reason there),
+        and ``counts`` (a ``Counter`` over ``(step_idx, reason)``).
+        Built as a factory so the closure captures fresh per-sketch
+        state instead of loop variables.
         """
         state: dict = {
             "deepest_idx": -1,

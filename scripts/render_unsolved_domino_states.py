@@ -7,9 +7,12 @@ per process (task-gen RNG is shared across seeds in one interpreter).
 
 Usage: PYTHONPATH=. python scripts/render_unsolved_domino_states.py <seed>
 """
-import os, sys
+import os
+import sys
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
 from predicators import utils
 
 
@@ -70,29 +73,50 @@ def _annotate(rgb, init_state, cam):
                int(init_state.get(o, "g") * 255),
                int(init_state.get(o, "b") * 255))
         r = 15
-        draw.ellipse([u - r, v - r, u + r, v + r], fill=(0, 0, 0),
-                     outline=col, width=3)
+        draw.ellipse([u - r, v - r, u + r, v + r],
+                     fill=(0, 0, 0),
+                     outline=col,
+                     width=3)
         tb = draw.textbbox((0, 0), idx, font=font)
         draw.text((u - (tb[2] - tb[0]) / 2, v - (tb[3] - tb[1]) / 2 - tb[1]),
-                  idx, fill=(255, 255, 255), font=font)
+                  idx,
+                  fill=(255, 255, 255),
+                  font=font)
     return np.asarray(img)
+
 
 # 1-indexed tasks unsolved in EITHER arm, with (arms, failure-mode) labels.
 UNSOLVED = {
-    0: {1: ("both", "push-dropped"), 2: ("both", "place-MP+InFront"),
-        3: ("no_demo", "pick+place-MP")},
-    1: {1: ("demo", "exec-retreat-collision"), 3: ("both", "pick+place-MP")},
-    2: {1: ("no_demo", "pick+place-MP"), 2: ("demo", "toppled-cascade"),
-        4: ("both", "pick+place-MP"), 5: ("both", "place-MP+toppled")},
-    3: {5: ("demo", "holding+InFront+place-MP")},
+    0: {
+        1: ("both", "push-dropped"),
+        2: ("both", "place-MP+InFront"),
+        3: ("no_demo", "pick+place-MP")
+    },
+    1: {
+        1: ("demo", "exec-retreat-collision"),
+        3: ("both", "pick+place-MP")
+    },
+    2: {
+        1: ("no_demo", "pick+place-MP"),
+        2: ("demo", "toppled-cascade"),
+        4: ("both", "pick+place-MP"),
+        5: ("both", "place-MP+toppled")
+    },
+    3: {
+        5: ("demo", "holding+InFront+place-MP")
+    },
 }
 FLAGS = {
-    "env": "pybullet_domino", "num_train_tasks": 1, "num_test_tasks": 5,
-    "pybullet_ik_validate": False, "pybullet_camera_width": 900,
+    "env": "pybullet_domino",
+    "num_train_tasks": 1,
+    "num_test_tasks": 5,
+    "pybullet_ik_validate": False,
+    "pybullet_camera_width": 900,
     "pybullet_camera_height": 900,
     "domino_initialize_at_finished_state": False,
     "domino_use_domino_blocks_as_target": True,
-    "domino_use_continuous_place": True, "domino_restricted_push": True,
+    "domino_use_continuous_place": True,
+    "domino_restricted_push": True,
     "domino_has_glued_dominos": False,
     "pybullet_birrt_extend_num_interp": 20,
     "pybullet_birrt_path_subsample_ratio": 2,
@@ -107,7 +131,9 @@ def main():
     from predicators.envs import create_new_env
     env = create_new_env("pybullet_domino", do_cache=False)
     tasks = env.get_test_tasks()
-    counts = [len([o for o in t.init if o.type.name == "domino"]) for t in tasks]
+    counts = [
+        len([o for o in t.init if o.type.name == "domino"]) for t in tasks
+    ]
     print(f"seed{seed} domino counts per task = {counts}")
     cam = env._get_camera_matrices()  # pylint: disable=protected-access
     for t1, (arms, mode) in sorted(UNSOLVED.get(seed, {}).items()):
@@ -115,10 +141,14 @@ def main():
         env.reset("test", idx)
         rgb = np.asarray(env.render()[0], dtype=np.uint8)
         rgb = _annotate(rgb, tasks[idx].init, cam)
-        goal_ids = ",".join(sorted(str(a).split("_")[-1].rstrip(":domino)")
-                                   for a in tasks[idx].goal))
-        rgb = _caption(rgb, [f"seed {seed}  task {t1}  ({arms})",
-                             f"goal: Toppled({goal_ids})   fail: {mode}"])
+        goal_ids = ",".join(
+            sorted(
+                str(a).split("_")[-1].rstrip(":domino)")
+                for a in tasks[idx].goal))
+        rgb = _caption(rgb, [
+            f"seed {seed}  task {t1}  ({arms})",
+            f"goal: Toppled({goal_ids})   fail: {mode}"
+        ])
         fname = f"seed{seed}_task{t1}_{arms}_{mode}.png"
         Image.fromarray(rgb).save(os.path.join(OUT, fname))
         goal = sorted(str(a) for a in tasks[idx].goal)

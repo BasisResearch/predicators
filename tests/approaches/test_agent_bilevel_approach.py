@@ -250,8 +250,8 @@ class TestParseSubgoalAnnotations:
 
         Mirrors a real failure: the agent mirrored the numbered sketch
         format shown in logs, embedding it between prose, and the
-        numbered prefix made every line parse as a non-option line so the
-        annotation list came back empty/misaligned.
+        numbered prefix made every line parse as a non-option line so
+        the annotation list came back empty/misaligned.
         """
         approach, _, _ = _make_approach()
         text = ("Some analysis the agent wrote first.\n"

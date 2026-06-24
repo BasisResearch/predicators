@@ -262,7 +262,8 @@ def _get_valid_option_plan_step(ctx: Any) -> dict[str, Any] | None:
 
 
 def test_option_plan_missing_goal_atoms(ctx: Any) -> None:
-    """evaluate_option_plan reports missing goal atoms when goal not achieved."""
+    """evaluate_option_plan reports missing goal atoms when goal not
+    achieved."""
     tools = _make_tools(ctx, ["evaluate_option_plan"])
 
     step = _get_valid_option_plan_step(ctx)
@@ -345,7 +346,8 @@ def test_option_plan_not_initiable_shows_poses(ctx: Any) -> None:
 
 
 def test_option_plan_saves_images(ctx: Any) -> None:
-    """evaluate_option_plan always saves scene images (never returns inline)."""
+    """evaluate_option_plan always saves scene images (never returns
+    inline)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx.image_save_dir = tmpdir
 
@@ -375,7 +377,8 @@ def test_option_plan_saves_images(ctx: Any) -> None:
 
 
 def test_option_plan_failure_shows_poses(ctx: Any) -> None:
-    """evaluate_option_plan shows object poses when option returns 0 actions."""
+    """evaluate_option_plan shows object poses when option returns 0
+    actions."""
     tools = _make_tools(ctx, ["evaluate_option_plan"])
 
     step = _get_valid_option_plan_step(ctx)

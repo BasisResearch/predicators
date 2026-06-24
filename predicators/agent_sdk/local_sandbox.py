@@ -249,7 +249,7 @@ class LocalSandboxSessionManager:
                             logging.debug("Agent tool call: %s(%s)",
                                           block["name"], param_summary)
                 elif entry["type"] == "result":
-                    cost = entry.get("total_cost_usd")
+                    cost: Optional[float] = entry.get("total_cost_usd")
                     turns = entry.get("num_turns")
                     solve_cost: Optional[float] = None
                     if cost is not None:
