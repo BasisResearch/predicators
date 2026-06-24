@@ -71,6 +71,11 @@ class SketchStep:
     objects: Sequence[Object]
     subgoal_atoms: Optional[Set[GroundAtom]]
     subgoal_neg_atoms: Optional[Set[GroundAtom]] = None
+    # Optional LLM-proposed continuous parameters for this step. ``None``
+    # means "no proposal" (the search samples from the start); otherwise the
+    # refinement tries these first (clipped to the option's box) on the first
+    # arrival at this step, then falls back to the sampler/uniform draw.
+    initial_params: Optional[np.ndarray] = None
 
 
 def strip_code_fences(text: str) -> str:
@@ -103,6 +108,8 @@ def build_solve_prompt(
     experiment_guidance: str = "",
     prior_failures: str = "",
     initial_image_section: str = "",
+    propose_params: bool = False,
+    require_tool_validation: bool = False,
 ) -> str:
     """Build the bilevel solve/explore prompt asking for a plan sketch.
 
@@ -114,6 +121,15 @@ def build_solve_prompt(
     pointer to the full per-step log in the sandbox). Injected so a
     re-query produces a *different* skeleton instead of re-emitting the
     dead one.
+
+    ``propose_params`` switches the prompt from "param-free sketch, search
+    finds all continuous params" to "propose your best continuous params in
+    ``[...]`` per step; the search refines them and samples on failure".
+
+    ``require_tool_validation`` tells the agent it MUST drive
+    ``refine_plan_sketch`` to a SUCCESS on the current task (its captured,
+    forward-validated plan is the only output) — used when the approach has
+    no refinement fallback. When False, validation is merely encouraged.
     """
     init_state = task.init
     objects = list(init_state)
@@ -139,12 +155,14 @@ def build_solve_prompt(
         if params_dim > 0:
             low = opt.params_space.low.tolist()
             high = opt.params_space.high.tolist()
+            label = "params" if propose_params else "auto-searched params"
             if opt.params_description:
                 desc = ", ".join(opt.params_description)
-                param_info = (f"  [auto-searched params: {desc}, "
+                param_info = (f"  [{label}: {desc}, "
                               f"range {low} to {high}]")
             else:
-                param_info = (f"  [auto-searched: {params_dim}d, "
+                kind = f"{params_dim}d"
+                param_info = (f"  [{label}: {kind}, "
                               f"range {low} to {high}]")
         else:
             param_info = ""
@@ -194,6 +212,87 @@ def build_solve_prompt(
             line += f" — {pred.natural_language_assertion(names)}"
         pred_strs.append(line)
 
+    # Advice for a step the search reports stuck (SAMPLE_EXHAUSTED). When the
+    # agent proposes params it tunes that step's values; otherwise it can only
+    # change the skeleton.
+    deep_tune_advice = (
+        "deep-tune just that step (it needs precise values from you), then "
+        "re-test it. When deep-tuning a step with `evaluate_option_plan`:\n"
+        "- Inspect the rendered images in `./test_images/` (pass "
+        "`save_low_level_action_images: true` for per-step frames in "
+        "`./test_images_low_level/`) to see what actually happened.\n"
+        "- For a failure like an IK error or collision, use the image and "
+        "object poses to reason about WHY and adjust params directionally — "
+        "don't try random nearby values.\n"
+        "- Use `visualize_state` to move objects to candidate positions and "
+        "orientations for free (no physics) and find the right region "
+        "visually before testing.\n"
+        "- Vary ALL parameters, not just position — orientation and others "
+        "affect both the outcome and whether the action succeeds.\n"
+        "- Search coarse-to-fine: spread attempts across the full range; if "
+        "several nearby values fail the same way, jump to a different region "
+        "instead of continuing to tweak.")
+    revise_sketch_advice = (
+        "revise the sketch — try different objects, a different ordering, an "
+        "added intermediate step, or a corrected subgoal annotation — then "
+        "re-test.")
+
+    if propose_params:
+        sketch_kind_guidance = (
+            "Generate a plan — the sequence of options with object arguments "
+            "and continuous parameters in `[...]` per step (see each option's "
+            "params and range above; use `[]` for options with no "
+            "parameters).\n\n"
+            "Spend effort on parameters in proportion to difficulty:\n"
+            "- Where a WIDE range of values works, any reasonable value is "
+            "fine — don't over-tune these.\n"
+            "- Where good values are hard to hit — tight tolerances or exact "
+            "relative placements (e.g. positioning one object at a precise "
+            "offset from another) — use `refine_plan_sketch` to search for a "
+            "working value (it's slower) and read the value it found.")
+        format_block = (
+            "Output the plan with one option per line in this format:\n"
+            "  OptionName(obj1:type1, obj2:type2)[param1, param2] -> "
+            "{Pred(obj1:type1), Pred2(obj1:type1, obj2:type2)}\n"
+            "  Wait(robot:robot)[] -> "
+            "{Pred3(obj1:type1), NOT Pred4(obj1:type1, obj2:type2)}")
+    else:
+        sketch_kind_guidance = (
+            "Generate a plan sketch — the sequence of options with object "
+            "arguments, WITHOUT continuous parameters; a backtracking search "
+            "finds them for you.")
+        format_block = (
+            "Output the plan sketch with one option per line in this "
+            "format:\n"
+            "  OptionName(obj1:type1, obj2:type2) -> "
+            "{Pred(obj1:type1), Pred2(obj1:type1, obj2:type2)}\n"
+            "  Wait(robot:robot) -> "
+            "{Pred3(obj1:type1), NOT Pred4(obj1:type1, obj2:type2)}")
+
+    if require_tool_validation:
+        stuck_advice = (deep_tune_advice
+                        if propose_params else revise_sketch_advice)
+        submit_guidance = (
+            "SUBMIT via `evaluate_option_plan`: pass your full plan as text "
+            "(one option per line, `Option(obj:type)[params] -> {subgoals}`, "
+            "with EXACT params) and run it on the CURRENT task (omit "
+            "task_idx). When it reaches the goal, that plan is captured as "
+            "your answer, so do NOT finish until evaluate_option_plan reaches "
+            "the goal. It runs your EXACT parameters with no sampling. To find "
+            "working parameters you MAY use `refine_plan_sketch` (it searches "
+            "but is slower); read the parameters it reports and submit them "
+            "via evaluate_option_plan. If a step does not reach its subgoal, "
+            + stuck_advice)
+    elif propose_params:
+        submit_guidance = (
+            "You may validate with `refine_plan_sketch` (it tries your "
+            "parameters first, then samples) and deep-tune any step it "
+            "reports stuck before finishing.")
+    else:
+        submit_guidance = (
+            "You may vet a sketch with `refine_plan_sketch` before finishing; "
+            "the backtracking search will find continuous parameters.")
+
     prompt = f"""You are solving a task. \
 Generate a plan sketch to achieve the goal.
 {goal_nl_section}{goal_atoms_section}{experiment_section}
@@ -215,9 +314,9 @@ Generate a plan sketch to achieve the goal.
 ## Instructions
 Use your available tools to inspect the environment before producing the plan.
 
-Generate a plan SKETCH — the sequence of options with object arguments, but \
-WITHOUT continuous parameters. Continuous parameters will be found \
-automatically by a backtracking search procedure.
+{sketch_kind_guidance}
+
+{submit_guidance}
 
 Annotate subgoal atoms after EVERY step whose effect your predicates can \
 express, using `-> {{atoms}}`. Prefer atoms that NEWLY hold (or stop \
@@ -233,11 +332,7 @@ steps, annotate with the atoms the process should produce — this tells the \
 system exactly when the Wait should end rather than terminating on any \
 incidental atom change. Use `NOT Pred(...)` for atoms that should become false.
 
-Output the plan sketch with one option per line in this format:
-  OptionName(obj1:type1, obj2:type2) -> \
-{{Pred(obj1:type1), Pred2(obj1:type1, obj2:type2)}}
-  Wait(robot:Robot) -> {{Boiled(water:water_type)}}
-  Wait(robot:Robot) -> {{NOT Touching(a:block, b:block)}}
+{format_block}
 
 Always use typed references (obj:type) in both option arguments AND subgoal \
 atoms. If you omit `-> {{atoms}}` on a step, the search only checks that the \
@@ -247,6 +342,49 @@ omit it only when no available predicate can express the step's effect.
 Output ONLY the plan sketch lines at the end, after any analysis."""
 
     return prompt
+
+
+# Matches an atom like ``Pred(a:t, b:t)`` or ``NOT Pred(a)`` in subgoal text.
+_ATOM_RE = re.compile(r'(NOT\s+)?(\w+)\(([^)]*)\)')
+
+
+def parse_atoms(
+    atoms_text: str,
+    predicates: Set[Predicate],
+    objects: Sequence[Object],
+) -> Tuple[Set[GroundAtom], Set[GroundAtom]]:
+    """Parse atoms like ``Pred(a:t, b:t)`` / ``NOT Pred(a)`` from a string.
+
+    Returns ``(positive_atoms, negative_atoms)``. Any number of atoms may
+    appear in ``atoms_text`` (separated by commas or anything else — the
+    regex finds each ``Pred(...)``). Atoms with an unknown predicate or
+    object, or the wrong arity, are skipped with a warning.
+    """
+    pred_map = {p.name: p for p in predicates}
+    obj_map = {o.name: o for o in objects}
+    pos_atoms: Set[GroundAtom] = set()
+    neg_atoms: Set[GroundAtom] = set()
+    for atom_match in _ATOM_RE.finditer(atoms_text):
+        is_neg = atom_match.group(1) is not None
+        pred_name = atom_match.group(2)
+        obj_names = [
+            n.strip().split(':')[0] for n in atom_match.group(3).split(',')
+        ]
+        if pred_name not in pred_map:
+            logging.warning(f"Unknown predicate in subgoal: {pred_name}")
+            continue
+        pred = pred_map[pred_name]
+        try:
+            objs = [obj_map[n] for n in obj_names]
+        except KeyError as e:
+            logging.warning(f"Unknown object in subgoal: {e}")
+            continue
+        if len(objs) != len(pred.types):
+            logging.warning(f"Arity mismatch for {pred_name}: expected "
+                            f"{len(pred.types)}, got {len(objs)}")
+            continue
+        (neg_atoms if is_neg else pos_atoms).add(GroundAtom(pred, objs))
+    return pos_atoms, neg_atoms
 
 
 def parse_subgoal_annotations(
@@ -261,12 +399,7 @@ def parse_subgoal_annotations(
     is ``None`` for a line with no annotation, or ``(positive_atoms,
     negative_atoms)`` otherwise.
     """
-    pred_map = {p.name: p for p in predicates}
-    obj_map = {o.name: o for o in objects}
-
     subgoal_re = re.compile(r'->\s*\{([^}]*)\}')
-    atom_re = re.compile(r'(NOT\s+)?(\w+)\(([^)]*)\)')
-
     results: List[Optional[Tuple[Set[GroundAtom], Set[GroundAtom]]]] = []
 
     for line in text.split('\n'):
@@ -286,41 +419,25 @@ def parse_subgoal_annotations(
             results.append(None)
             continue
 
-        atoms_text = sg_match.group(1)
-        pos_atoms: Set[GroundAtom] = set()
-        neg_atoms: Set[GroundAtom] = set()
-        for atom_match in atom_re.finditer(atoms_text):
-            is_neg = atom_match.group(1) is not None
-            pred_name = atom_match.group(2)
-            obj_names = [
-                n.strip().split(':')[0] for n in atom_match.group(3).split(',')
-            ]
-
-            if pred_name not in pred_map:
-                logging.warning(f"Unknown predicate in subgoal: {pred_name}")
-                continue
-            pred = pred_map[pred_name]
-            try:
-                objs = [obj_map[n] for n in obj_names]
-            except KeyError as e:
-                logging.warning(f"Unknown object in subgoal: {e}")
-                continue
-            if len(objs) != len(pred.types):
-                logging.warning(f"Arity mismatch for {pred_name}: expected "
-                                f"{len(pred.types)}, got {len(objs)}")
-                continue
-            atom = GroundAtom(pred, objs)
-            if is_neg:
-                neg_atoms.add(atom)
-            else:
-                pos_atoms.add(atom)
-
+        pos_atoms, neg_atoms = parse_atoms(sg_match.group(1), predicates,
+                                           objects)
         if pos_atoms or neg_atoms:
             results.append((pos_atoms, neg_atoms))
         else:
             results.append(None)
 
     return results
+
+
+# A `-> {atoms}` subgoal annotation appended to a sketch step line. Stripped
+# before the canonical option-plan parser reads the `[params]` block, so a
+# `{...}` brace is never mistaken for params text.
+_SUBGOAL_ANNOTATION_RE = re.compile(r'\s*->\s*\{[^}]*\}')
+
+
+def strip_subgoal_annotations(text: str) -> str:
+    """Remove ``-> {atoms}`` subgoal annotations from every line."""
+    return _SUBGOAL_ANNOTATION_RE.sub('', text)
 
 
 def parse_sketch_from_text(
@@ -330,19 +447,36 @@ def parse_sketch_from_text(
     predicates: Set[Predicate],
     options: Set[ParameterizedOption],
     types: Set[Type],
+    parse_continuous_params: bool = False,
 ) -> List[SketchStep]:
     """Parse plan-sketch text into ``SketchStep``s.
 
     Applies ``strip_code_fences`` first, then delegates option-plan
     parsing to ``utils.parse_model_output_into_option_plan`` and subgoal
     annotation parsing to ``parse_subgoal_annotations``.
+
+    When ``parse_continuous_params`` is set, each step's ``[p0, p1, ...]``
+    block is parsed by the SAME canonical parser the open-loop planner
+    uses (``parse_model_output_into_option_plan`` with
+    ``parse_continuous_params=True``) and stored as ``initial_params`` for
+    the refinement to try first. Sketch lines also carry ``-> {subgoal}``
+    annotations, which that parser would misread as params text, so they
+    are stripped before parsing and read separately from the original.
     """
     cleaned_text = strip_code_fences(plan_text)
     objects = list(task.init)
     option_names = {o.name for o in options}
 
+    # Strip subgoal annotations only when parsing params, so the `[params]`
+    # extraction in the canonical parser isn't confused by a `{...}` brace.
+    parse_text = (strip_subgoal_annotations(cleaned_text)
+                  if parse_continuous_params else cleaned_text)
     parsed = utils.parse_model_output_into_option_plan(
-        cleaned_text, objects, types, options, parse_continuous_params=False)
+        parse_text,
+        objects,
+        types,
+        options,
+        parse_continuous_params=parse_continuous_params)
 
     if not parsed:
         return []
@@ -351,18 +485,24 @@ def parse_sketch_from_text(
                                          option_names)
 
     sketch: List[SketchStep] = []
-    for i, (option, objs, _) in enumerate(parsed):
+    for i, (option, objs, params) in enumerate(parsed):
         sg = subgoals[i] if i < len(subgoals) else None
+        ip = (np.asarray(params, dtype=np.float32)
+              if parse_continuous_params else None)
         if sg is not None:
             pos, neg = sg
             sketch.append(
                 SketchStep(option=option,
                            objects=objs,
                            subgoal_atoms=pos if pos else None,
-                           subgoal_neg_atoms=neg if neg else None))
+                           subgoal_neg_atoms=neg if neg else None,
+                           initial_params=ip))
         else:
             sketch.append(
-                SketchStep(option=option, objects=objs, subgoal_atoms=None))
+                SketchStep(option=option,
+                           objects=objs,
+                           subgoal_atoms=None,
+                           initial_params=ip))
     # Coverage diagnostic: unannotated steps are invisible to per-step
     # refinement validation, execution monitoring, and suffix replanning.
     unannotated = [
@@ -473,6 +613,14 @@ def refine_sketch(
     # one of the (potentially thousands of) draws during backtracking.
     _sampler_warned: Set[str] = set()
 
+    # Step indices whose LLM-proposed initial_params have already been used --
+    # tried directly on the plain path, or seeded into the info-seeking pool.
+    # One-shot per step: on later attempts (resample after a failed subgoal
+    # check, or re-descent after an upstream backtrack) the guess is not
+    # re-proposed/re-seeded and selection falls to the sampler/uniform/
+    # info-seeking path.
+    _llm_params_tried: Set[int] = set()
+
     def _draw_params(step: SketchStep, state: State,
                      rng_: np.random.Generator) -> np.ndarray:
         """Draw continuous params for a step's option.
@@ -565,6 +713,12 @@ def refine_sketch(
         """Propose the most informative not-yet-tried feasible candidate for
         the step's current search node.
 
+        When the step carries LLM-proposed ``initial_params`` (and they
+        have not been used yet), they are evaluated as the FIRST candidate
+        of the node's pool, so the max-disagreement selection chooses among
+        {LLM guess} ∪ sampled draws rather than the guess short-circuiting
+        the probe.
+
         The first attempt at a node draws candidates — each rolled
         forward through the same option_model the backtracking loop uses
         — until ``info_n_feasible_target`` feasible ones are pooled or
@@ -595,6 +749,10 @@ def refine_sketch(
         budget refreshed.
         """
         assert info_scorer is not None and step.subgoal_atoms is not None
+        # Narrowed locals so the nested _consider closure (below) keeps the
+        # non-None types mypy can't carry across the function boundary.
+        scorer = info_scorer
+        subgoal_atoms = step.subgoal_atoms
         objs = ", ".join(o.name for o in step.objects)
         pool = step_pools[idx]
         if pool is None or pool.pre_state is not state:
@@ -615,19 +773,25 @@ def refine_sketch(
         best_score = -float("inf")
         best_nxt: Optional[State] = None
         scored: List[Tuple[float, _Option]] = []
-        # Score of the first feasible draw — what plain (non-info-seeking)
-        # backtracking would have accepted; logged as the baseline so a run
-        # shows what boundary-probing bought over greedy first-feasible.
+        # Score of the first feasible candidate — what plain (greedy
+        # first-feasible) backtracking would have accepted; logged as the
+        # baseline so a run shows what boundary-probing bought. With LLM
+        # params on, the seeded guess (below) is that first candidate.
         first_feasible_score: Optional[float] = None
         first_candidate: Optional[_Option] = None
         n_draws = 0
-        while len(scored) < info_n_feasible_target and n_draws < draw_cap:
-            grounded = _ground(step, _draw_params(step, state, rng_))
-            n_draws += 1
+
+        def _consider(grounded: _Option) -> None:
+            # Roll one grounded candidate forward and, when it establishes
+            # the subgoal, fold it into the scored pool and running argmax.
+            # Shared by the LLM-guess seed and the sampler/uniform draws so
+            # the two stay in lockstep.
+            nonlocal best_score, best_nxt, first_feasible_score
+            nonlocal first_candidate
             if first_candidate is None:
                 first_candidate = grounded
             if not grounded.initiable(state):
-                continue
+                return
             try:
                 nxt, num_actions = \
                     option_model.get_next_state_and_num_actions(
@@ -635,19 +799,45 @@ def refine_sketch(
             except Exception:  # pylint: disable=broad-except
                 # Scoring rollout is best-effort; a model failure on this
                 # candidate just removes it from contention.
-                continue
+                return
             if num_actions == 0:
-                continue
+                return
             post_atoms = utils.abstract(nxt, predicates)
-            if not step.subgoal_atoms.issubset(post_atoms):
-                continue  # infeasible: subgoal not established
-            score = info_scorer(nxt, step.subgoal_atoms)
+            if not subgoal_atoms.issubset(post_atoms):
+                return  # infeasible: subgoal not established
+            score = scorer(nxt, subgoal_atoms)
             scored.append((score, grounded))
             if first_feasible_score is None:
                 first_feasible_score = score
             if score > best_score:
                 best_score = score
                 best_nxt = nxt
+
+        # Seed the LLM-proposed params (once per step) as the FIRST pool
+        # candidate, so the disagreement argmax chooses among
+        # {LLM guess} ∪ sampled draws instead of the guess short-circuiting
+        # the probe. Clipping mirrors the plain branch; arity is already
+        # validated by the option-plan parser.
+        if step.initial_params is not None and idx not in _llm_params_tried:
+            _llm_params_tried.add(idx)
+            box = step.option.params_space
+            llm_grounded = _ground(
+                step,
+                np.clip(np.asarray(step.initial_params, dtype=np.float32),
+                        box.low, box.high).astype(np.float32))
+            n_draws += 1
+            n_pooled_before = len(scored)
+            _consider(llm_grounded)
+            logging.info(
+                "[%s] info-seeking %s(%s): seeded LLM-proposed params %s "
+                "(%s) into the candidate pool.", run_id, step.option.name,
+                objs, _fmt_params(llm_grounded), "feasible" if
+                len(scored) > n_pooled_before else "infeasible — not pooled")
+
+        while len(scored) < info_n_feasible_target and n_draws < draw_cap:
+            grounded = _ground(step, _draw_params(step, state, rng_))
+            n_draws += 1
+            _consider(grounded)
         pool.spent += n_draws
         total_pool_rollouts[0] += n_draws
         # Log every pick at INFO (not gated on log_state) — active-learning
@@ -692,8 +882,23 @@ def refine_sketch(
                          f"({', '.join(o.name for o in step.objects)})")
             logging.debug(f"[{run_id}]  State before {step_name}:\n"
                           f"{state.pretty_str()}")
+        # Info-seeking (when on) owns param selection for eligible steps and
+        # folds any LLM-proposed params into its scored candidate pool (see
+        # _sample_info_seeking), so the disagreement argmax chooses among
+        # {LLM guess} ∪ sampled draws instead of the guess pre-empting it.
         if _info_seeking_applies(step):
             return _sample_info_seeking(step, state, rng_, idx)
+        # Plain path: on the first arrival at this step, try the LLM-proposed
+        # params (if any) before any sampling. Clipping avoids ground()'s
+        # out-of-box ValueError; arity is already validated by the parser.
+        if step.initial_params is not None and idx not in _llm_params_tried:
+            _llm_params_tried.add(idx)
+            box = step.option.params_space
+            params = np.clip(np.asarray(step.initial_params, dtype=np.float32),
+                             box.low, box.high).astype(np.float32)
+            logging.debug("[%s] step %d %s: trying LLM-proposed params %s",
+                          run_id, idx, step.option.name, params.tolist())
+            return _ground(step, params)
         return _ground(step, _draw_params(step, state, rng_))
 
     def validate_fn(idx: int, _pre_state: State, _option: _Option,
@@ -792,6 +997,140 @@ def _fmt_state_features(state: State) -> str:
     return " ".join(parts)
 
 
+@dataclasses.dataclass
+class StepOutcome:
+    """Result of executing one option in ``execute_plan_forward``.
+
+    ``post_state`` is ``None`` when the option was not initiable or raised
+    (no state to continue from). ``failure_reason`` is ``None`` on a clean
+    step, else the reason (``"not initiable"`` / ``"0 actions"`` / the
+    option model's last failure / ``"env failure: ..."``). ``subgoal_missing``
+    holds the step's positive subgoal atoms that did NOT hold afterwards
+    (only set when a sketch is supplied).
+    """
+    option: _Option
+    pre_state: State
+    post_state: Optional[State]
+    num_actions: int
+    initiable: bool
+    failure_reason: Optional[str]
+    subgoal_missing: Optional[Set[GroundAtom]]
+
+
+@dataclasses.dataclass
+class ForwardResult:
+    """Outcome of executing a grounded plan forward through the option model."""
+    steps: List[StepOutcome]
+    final_state: State
+    goal_reached: bool
+    # First step that failed to execute (not initiable / 0 actions / env
+    # failure), or None if every step executed.
+    first_failure_idx: Optional[int]
+    # First step whose positive subgoal atoms diverged, or None.
+    first_subgoal_divergence_idx: Optional[int]
+
+    @property
+    def executed_all(self) -> bool:
+        """True iff every option executed (initiable and >0 actions)."""
+        return self.first_failure_idx is None
+
+    @property
+    def success(self) -> bool:
+        """True iff every option executed AND the goal was reached."""
+        return self.executed_all and self.goal_reached
+
+
+def execute_plan_forward(
+    task: Task,
+    plan: List[_Option],
+    option_model: _OptionModelBase,
+    *,
+    predicates: Set[Predicate],
+    sketch: Optional[List[SketchStep]] = None,
+    on_step: Optional[Callable[[int, StepOutcome], None]] = None,
+) -> ForwardResult:
+    """Execute a fully-grounded plan step by step through the option model.
+
+    Shared forward-execution core behind ``validate_plan_forward`` (used by
+    ``refine_plan_sketch``) and the ``evaluate_option_plan`` tool. State
+    carries forward across options — matching how the real env executes.
+    Per step it mirrors ``run_backtracking_refinement``'s fixed-plan path:
+    check ``initiable``, call ``get_next_state_and_num_actions`` (catching
+    ``EnvironmentFailure``), treat 0 actions as a failure, and — when a
+    sketch is given — check the step's positive ``subgoal_atoms`` against
+    the post-state. Execution stops early only when a step is not initiable
+    or raises (no post-state to continue from); a 0-action step is recorded
+    as a failure but execution continues from the model's returned state.
+    ``on_step(i, outcome)`` is called after each step for callers that emit
+    per-step reporting.
+    """
+    state = task.init
+    steps: List[StepOutcome] = []
+    first_failure_idx: Optional[int] = None
+    first_div_idx: Optional[int] = None
+
+    for i, option in enumerate(plan):
+        pre = state
+        initiable = option.initiable(pre)
+        post: Optional[State] = None
+        num_actions = 0
+        failure_reason: Optional[str] = None
+
+        if not initiable:
+            failure_reason = "not initiable"
+        else:
+            try:
+                post, num_actions = \
+                    option_model.get_next_state_and_num_actions(pre, option)
+            except utils.EnvironmentFailure as e:
+                failure_reason = f"env failure: {e}"
+                post = None
+            except Exception as e:  # pylint: disable=broad-except
+                failure_reason = f"execution error: {type(e).__name__}: {e}"
+                post = None
+            else:
+                if num_actions == 0:
+                    failure_reason = (getattr(option_model,
+                                              "last_execution_failure", None)
+                                      or "0 actions")
+
+        subgoal_missing: Optional[Set[GroundAtom]] = None
+        if post is not None and sketch is not None and i < len(sketch):
+            step = sketch[i]
+            if step.subgoal_atoms:
+                cur_atoms = utils.abstract(post, predicates)
+                missing = step.subgoal_atoms - cur_atoms
+                if missing:
+                    subgoal_missing = missing
+                    if first_div_idx is None:
+                        first_div_idx = i
+
+        outcome = StepOutcome(option=option,
+                              pre_state=pre,
+                              post_state=post,
+                              num_actions=num_actions,
+                              initiable=initiable,
+                              failure_reason=failure_reason,
+                              subgoal_missing=subgoal_missing)
+        steps.append(outcome)
+        if on_step is not None:
+            on_step(i, outcome)
+
+        if failure_reason is not None and first_failure_idx is None:
+            first_failure_idx = i
+        if post is None:
+            break  # cannot continue without a post-state
+        state = post
+
+    return ForwardResult(
+        steps=steps,
+        final_state=state,
+        goal_reached=task.goal_holds(state),
+        first_failure_idx=first_failure_idx,
+        first_subgoal_divergence_idx=first_div_idx,
+    )
+
+
 def validate_plan_forward(
     task: Task,
     plan: List[_Option],
@@ -816,15 +1155,12 @@ def validate_plan_forward(
     in synthesis-tool output. The full failure context (state features,
     missing atoms, last option model error) is logged at INFO level.
 
-    Differences from ``refine_sketch``:
-      * ``max_tries=[1]`` per step — single shot at each option, no
-        backtracking. Surfaces stochasticity-sensitive plans that
-        refinement's resampling hides.
-      * ``rng=np.random.default_rng(0)`` — sample_fn ignores it anyway
-        (returns ``plan[i]``).
-      * Per-step subgoal logging when ``sketch`` is given.
-      * Disables the refinement progress bar so per-step DEBUG logs from
-        ``run_backtracking_refinement`` remain visible.
+    Single-shot per option (no resampling) — surfaces stochasticity-
+    sensitive plans that refinement's resampling hides. Delegates the
+    execution to ``execute_plan_forward``; this wrapper adds the INFO
+    logging (per-step subgoal divergence, final state) and the one-line
+    diagnosis, with priority execution-failure > goal-not-reached >
+    subgoal-divergence.
     """
     n = len(plan)
     if n == 0:
@@ -839,112 +1175,75 @@ def validate_plan_forward(
             len(sketch), n)
         sketch = None
 
-    diagnosis_holder: List[str] = [""]
+    result = execute_plan_forward(task,
+                                  plan,
+                                  option_model,
+                                  predicates=predicates,
+                                  sketch=sketch)
 
-    def sample_fn(i: int, _s: State, _r: np.random.Generator) -> _Option:
-        return plan[i]
-
-    def _log_subgoal_divergence(i: int, post: State,
-                                step: SketchStep) -> Optional[str]:
-        """If ``step.subgoal_atoms`` aren't all in ``post``, log + return a
-        one-line summary of what's missing; else return None."""
-        if step.subgoal_atoms is None or not step.subgoal_atoms:
-            return None
-        cur_atoms = utils.abstract(post, predicates)
-        missing = step.subgoal_atoms - cur_atoms
-        if not missing:
-            return None
-        missing_strs = sorted(str(a) for a in missing)
-        objs_str = ", ".join(o.name for o in plan[i].objects)
-        opt_str = f"{plan[i].name}({objs_str})"
+    # Per-step subgoal divergence is a *signal*, not a hard failure (the
+    # plan may establish a subgoal earlier, have it temporarily violated,
+    # then re-establish it). Log each; remember the first for the diagnosis.
+    first_div_msg = ""
+    for i, outcome in enumerate(result.steps):
+        if not outcome.subgoal_missing or outcome.post_state is None:
+            continue
+        step = sketch[i] if sketch is not None else None
+        missing_strs = sorted(str(a) for a in outcome.subgoal_missing)
+        opt_str = (f"{outcome.option.name}"
+                   f"({', '.join(o.name for o in outcome.option.objects)})")
         logging.info(
             "[%s] Forward-validate subgoal divergence at step %d (%s):\n"
             "  expected:  %s\n"
             "  missing:   %s\n"
             "  full features: %s", run_id, i, opt_str,
-            sorted(str(a) for a in step.subgoal_atoms), missing_strs,
-            _fmt_state_features(post))
-        return (f"step {i} ({opt_str}): subgoals not satisfied after "
-                f"option (missing {missing_strs})")
+            sorted(str(a)
+                   for a in (step.subgoal_atoms or set())) if step else [],
+            missing_strs, _fmt_state_features(outcome.post_state))
+        if not first_div_msg:
+            first_div_msg = (f"step {i} ({opt_str}): subgoals not satisfied "
+                             f"after option (missing {missing_strs})")
 
-    def validate_fn(i: int, _pre: State, _opt: _Option, post: State,
-                    _n: int) -> Tuple[bool, str]:
-        # Per-step subgoal divergence is a *signal*, not a hard failure
-        # (the refined plan may have established a subgoal earlier and
-        # had it temporarily violated then re-established). We capture
-        # the first divergence as the leading-edge diagnosis but keep
-        # going so we still get the final-state log.
-        if sketch is not None:
-            div = _log_subgoal_divergence(i, post, sketch[i])
-            if div is not None and not diagnosis_holder[0]:
-                diagnosis_holder[0] = div
+    # Final-state log — only when every step executed (matches the old
+    # behavior, where it ran at the last step's validation).
+    if result.executed_all:
+        final = result.final_state
+        held = sorted(str(a) for a in task.goal if a.holds(final))
+        missing = sorted(str(a) for a in task.goal if not a.holds(final))
+        abstract_atoms = sorted(
+            str(a) for a in utils.abstract(final, predicates))
+        logging.info(
+            "[%s] Forward-validate FINAL state%s:\n"
+            "  goal atoms held:    %s\n"
+            "  goal atoms MISSING: %s\n"
+            "  abstract state:     %s\n"
+            "  full features:      %s\n"
+            "  full state:\n%s", run_id,
+            " (goal reached)" if result.goal_reached else " (GOAL NOT "
+            "REACHED)", held or "(none)", missing or "(none)", abstract_atoms,
+            _fmt_state_features(final), final.pretty_str())
 
-        if i == n - 1:
-            goal_ok = task.goal_holds(post)
-            held = sorted(str(a) for a in task.goal if a.holds(post))
-            missing = sorted(str(a) for a in task.goal if not a.holds(post))
-            abstract_atoms = sorted(
-                str(a) for a in utils.abstract(post, predicates))
-            logging.info(
-                "[%s] Forward-validate FINAL state%s:\n"
-                "  goal atoms held:    %s\n"
-                "  goal atoms MISSING: %s\n"
-                "  abstract state:     %s\n"
-                "  full features:      %s\n"
-                "  full state:\n%s", run_id,
-                " (goal reached)" if goal_ok else " (GOAL NOT REACHED)", held
-                or "(none)", missing or "(none)", abstract_atoms,
-                _fmt_state_features(post), post.pretty_str())
-            if not goal_ok:
-                # Final-state goal failure wins over any earlier subgoal
-                # divergence as the headline reason.
-                diagnosis_holder[0] = (f"goal not reached at final step "
-                                       f"(missing {missing or '(none)'})")
-                return False, "goal not reached"
+    if result.success:
         return True, ""
 
-    # progress_bar=False keeps INFO/DEBUG logs from
-    # run_backtracking_refinement (the "Step X/N FAIL: <reason>" lines)
-    # visible — critical for diagnosing why an option's
-    # get_next_state_and_num_actions returned 0 actions.
-    plan_result, success, _ = run_backtracking_refinement(
-        init_state=task.init,
-        option_model=option_model,
-        n_steps=n,
-        max_tries=[1] * n,
-        sample_fn=sample_fn,
-        validate_fn=validate_fn,
-        rng=np.random.default_rng(0),
-        timeout=float('inf'),
-        progress_bar=False,
-    )
-
-    if success:
-        return True, ""
-
-    # Validation reached `success=False` for one of:
-    #   1. validate_fn returned False at the final step (goal not reached)
-    #   2. an earlier step's option failed (initiable=False, 0 actions,
-    #      or env failure) — run_backtracking_refinement backtracks until
-    #      cur_idx<0 with max_tries=1
-    # Identify which by checking how far the plan progressed.
-    completed = sum(1 for p in plan_result if p is not None)
-    if completed < n and not diagnosis_holder[0]:
-        # Failure happened during option execution at step `completed`.
-        # Pull whatever the option model recorded as the last failure
-        # reason so the caller knows it's an execution problem, not a
-        # subgoal-divergence one.
-        last_err = getattr(option_model, "last_execution_failure", None)
-        opt = plan[completed]
-        opt_str = f"{opt.name}({', '.join(o.name for o in opt.objects)})"
-        diagnosis_holder[0] = (f"option execution failed at step "
-                               f"{completed} ({opt_str}): "
-                               f"{last_err or 'unknown reason'}")
+    # Diagnosis priority: execution failure > goal-not-reached > divergence.
+    if result.first_failure_idx is not None:
+        i = result.first_failure_idx
+        outcome = result.steps[i]
+        opt_str = (f"{outcome.option.name}"
+                   f"({', '.join(o.name for o in outcome.option.objects)})")
+        reason = outcome.failure_reason or "unknown reason"
         logging.info(
             "[%s] Forward-validate option failure at step %d (%s): %s", run_id,
-            completed, opt_str, last_err or "unknown reason")
-
-    return False, diagnosis_holder[0] or "validation failed"
+            i, opt_str, reason)
+        return False, (f"option execution failed at step {i} ({opt_str}): "
+                       f"{reason}")
+    if not result.goal_reached:
+        goal_missing = sorted(
+            str(a) for a in task.goal if not a.holds(result.final_state))
+        return False, (f"goal not reached at final step "
+                       f"(missing {goal_missing or '(none)'})")
+    return False, first_div_msg or "validation failed"
 
 
 def resolve_refine_timeout(
@@ -982,16 +1281,18 @@ def refine_and_validate_report(
     run_id: str = "refine",
     timeout_source: str = "explicit",
     extra_summary_lines: Optional[List[str]] = None,
-) -> Tuple[bool, str]:
+) -> Tuple[bool, str, List[_Option]]:
     """Refine a sketch, forward-validate on success, return a report.
 
     Runs ``refine_sketch`` (backtracking search over continuous params)
     and, when refinement succeeds, ``validate_plan_forward`` (continuous
-    re-execution). Returns ``(overall_success, human_readable_report)``
-    where ``overall_success`` is True only if both refinement and forward
-    validation pass. The report names the verdict (SUCCESS / TIMEOUT /
-    SAMPLE_EXHAUSTED / FORWARD_VALIDATION_FAILED), per-step sample counts,
-    the stuck step on failure, and the forward-validation outcome.
+    re-execution). Returns ``(overall_success, human_readable_report,
+    plan)`` where ``overall_success`` is True only if both refinement and
+    forward validation pass, and ``plan`` is the refined grounded-option
+    plan (the longest refined prefix on failure). The report names the
+    verdict (SUCCESS / TIMEOUT / SAMPLE_EXHAUSTED /
+    FORWARD_VALIDATION_FAILED), per-step sample counts, the stuck step on
+    failure, and the forward-validation outcome.
 
     ``extra_summary_lines`` are appended verbatim after the time line
     (e.g. a caller-specific ``Post-fit SSE`` line). Config-derived knobs
@@ -1087,4 +1388,4 @@ def refine_and_validate_report(
                 "effective behavior. See the INFO log for the step-by-step "
                 "divergence.)")
 
-    return success, "\n".join(lines)
+    return success, "\n".join(lines), plan

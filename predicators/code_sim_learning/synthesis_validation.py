@@ -169,7 +169,7 @@ def run_refinement_for_synthesis(
     # Shared refinement + forward-validation + report builder (also used
     # by the planner's refine_plan_sketch tool). Synthesis-specific extra:
     # the post-fit SSE line, and the "Task N:" prefix on the verdict.
-    _, report = bilevel_sketch.refine_and_validate_report(
+    _, report, _ = bilevel_sketch.refine_and_validate_report(
         task,
         sketch,
         candidate_om,

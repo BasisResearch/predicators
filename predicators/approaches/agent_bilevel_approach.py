@@ -107,16 +107,75 @@ class AgentBilevelApproach(AgentPlannerApproach):
     # ------------------------------------------------------------------ #
 
     def _get_agent_system_prompt(self) -> str:
+        propose = CFG.agent_bilevel_use_llm_initial_params
+        # When True the approach skips its own (post-agent) backtracking
+        # refinement, so the agent must itself deliver a plan it validated via
+        # refine_plan_sketch. (The agent still triggers a backtracking search
+        # inside that tool; what's skipped is the approach's separate one.)
+        skip_final_backtracking_search = not CFG.agent_bilevel_refine_fallback
+        # What a sketch step consists of (shared between modes).
+        if propose:
+            sketch_desc = (
+                "a sequence of skills (parameterized options) with object "
+                "arguments, subgoal atoms after each step, and the continuous "
+                "parameters for each step")
+        else:
+            sketch_desc = (
+                "a sequence of skills (parameterized options) with object "
+                "arguments and subgoal atoms after each step, plus continuous "
+                "parameters you find with refine_plan_sketch")
+
+        if skip_final_backtracking_search:
+            # The deliverable is a plan that WORKS IN THE SIMULATOR, submitted
+            # by evaluate_option_plan; refine_plan_sketch is only a (slower)
+            # aid for finding parameters while reasoning.
+            job = (
+                "Your job is to produce a plan that WORKS IN THE SIMULATOR — "
+                + sketch_desc +
+                " that reaches the goal. You DELIVER it by running "
+                "evaluate_option_plan with per-step subgoals on the current "
+                "task until it reaches the goal — that captured plan is your "
+                "ONLY output, so do not finish until evaluate_option_plan "
+                "reaches the goal. It runs your EXACT parameters with no "
+                "sampling, so every parameter must be right. To find working "
+                "values you MAY use refine_plan_sketch while reasoning (it "
+                "searches for parameters but is slower); read the parameters "
+                "it reports and submit them via evaluate_option_plan. Use "
+                "whatever tools help (inspection, visualize_state).")
+            if propose:
+                job += (
+                    " Where many values work, any reasonable parameter is "
+                    "fine; where good values are hard to hit (tight "
+                    "tolerances), use refine_plan_sketch to search for one.")
+        else:
+            # Fallback mode: the agent hands off a sketch and the approach's
+            # backtracking search refines the continuous parameters.
+            job = "Your job is to produce a plan sketch: " + sketch_desc + "."
+            if propose:
+                job += (
+                    " A backtracking search refines the parameters, trying "
+                    "yours first and sampling for any step where they don't "
+                    "work, so propose precise values only where sampling would "
+                    "struggle. You may validate with refine_plan_sketch and "
+                    "deep-tune any step it reports stuck.")
+
+        # Keep responses short: the model's deliberation is the main driver of
+        # the output-token overflow, and testing is often faster than deriving.
+        brevity = (
+            " Keep your reasoning concise: prefer making a concrete attempt "
+            "and testing it with refine_plan_sketch / evaluate_option_plan to "
+            "let the simulator tell you what's wrong.")
+        params_clause = job + brevity + "\n\n"
+        # Keep the subgoal-annotation template's option format consistent with
+        # the solve prompt: show the [params] slot iff the agent proposes them.
+        param_slot = "[param1, param2]" if propose else ""
+        wait_slot = "[]" if propose else ""
         return (
             "You are a planning agent. You observe task environments through "
             "inspection tools and generate plan sketches to achieve goals. "
             "You have access to read-only tools to inspect predicates, "
             "options, trajectories, and training tasks.\n\n"
-            "Your job is to produce a DISCRETE plan sketch: the sequence of "
-            "skills (parameterized options) and their object arguments, plus "
-            "optional subgoal atoms that should hold after each step. You do "
-            "NOT need to specify continuous parameters — those will be found "
-            "automatically by a search procedure.\n\n"
+            f"{params_clause}"
             "Some effects may not be immediate — if an action triggers a "
             "delayed process (e.g. gradual accumulation, propagation "
             "through contacting objects, a sensor catching up to an "
@@ -125,8 +184,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
             "## Subgoal Annotations\n"
             "After each step, annotate which predicate atoms should hold "
             "after that step succeeds. Use the format:\n"
-            "  OptionName(obj1:type1, obj2:type2) -> {Pred(obj1:type1), "
-            "Pred2(obj1:type1, obj2:type2)}\n"
+            f"  OptionName(obj1:type1, obj2:type2){param_slot} -> "
+            "{Pred(obj1:type1), Pred2(obj1:type1, obj2:type2)}\n"
             "Always use typed references (obj:type) in subgoal atoms.\n"
             "Annotate EVERY step whose effect the predicates can express. "
             "Annotations are not just search hints: refinement validates "
@@ -139,7 +198,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             "blind spot for both search and recovery.\n"
             "For Wait steps, the annotation also specifies exactly when the "
             "Wait should terminate. Use `NOT Pred(...)` for atoms that should "
-            "become false (e.g. `Wait(robot:robot) -> "
+            f"become false (e.g. `Wait(robot:robot){wait_slot} -> "
             "{Ready(widget:widget)}`).")
 
     # ------------------------------------------------------------------ #
@@ -159,6 +218,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
             tool_names=self._get_solve_tool_names(),
             prior_failures=failures_text,
             initial_image_section=self._initial_image_section(),
+            propose_params=CFG.agent_bilevel_use_llm_initial_params,
+            require_tool_validation=not CFG.agent_bilevel_refine_fallback,
         )
 
     # ------------------------------------------------------------------ #
@@ -173,6 +234,9 @@ class AgentBilevelApproach(AgentPlannerApproach):
         max_refine_retries = CFG.agent_bilevel_max_refine_retries
         self._sync_tool_context()
         self._tool_context.current_task = task
+        # Let refine_plan_sketch / evaluate_option_plan record a goal-reaching
+        # plan on this task into solved_plan/solved_sketch (consumed below).
+        self._tool_context.capture_goal_reaching_plans = True
         # Render the initial state so the agent can see the scene layout.
         self._render_initial_state_image(task)
         start = time.perf_counter()
@@ -193,22 +257,70 @@ class AgentBilevelApproach(AgentPlannerApproach):
         for sketch_attempt in range(max_sketch_retries):
             if _refine_remaining() <= 0:
                 break
+            # Clear any prior capture so we only act on this query's result.
+            self._tool_context.solved_plan = None
+            self._tool_context.solved_sketch = None
             query_start = time.perf_counter()
             try:
                 sketch = self._query_agent_for_plan_sketch(
                     task, prior_failures=prior_failures)
             except Exception as e:  # pylint: disable=broad-except
                 llm_query_time += time.perf_counter() - query_start
+                # The agent may have validated a working plan via
+                # refine_plan_sketch even if its final text didn't parse.
+                policy = self._consume_validated_plan()
+                if policy is not None:
+                    return policy
+                # If the response blew the output-token limit, tell the next
+                # attempt (same conversation, so it keeps its context) what
+                # happened and to be concise, so it doesn't repeat the
+                # overflow. Note: the agent session continues across retries,
+                # and the SDK auto-compacts the context window on its own; the
+                # overflow is a single over-long RESPONSE, which only brevity
+                # (not compaction) can prevent.
+                if "output token maximum" in str(e):
+                    prior_failures.append(
+                        "Your previous response hit the output-token limit and "
+                        "was discarded, so no plan was produced. Your extended "
+                        "thinking is capped — do not spend a whole response on "
+                        "long derivations.")
                 logging.warning("Sketch query failed (attempt %d): %s",
                                 sketch_attempt, e)
                 continue
             llm_query_time += time.perf_counter() - query_start
             sketches_tried += 1
 
+            # Fast path: the agent already refined + forward-validated a plan
+            # on this task via refine_plan_sketch — return it directly instead
+            # of re-refining the (possibly different) final-text sketch.
+            policy = self._consume_validated_plan()
+            if policy is not None:
+                return policy
+
+            if not CFG.agent_bilevel_refine_fallback:
+                # Default: no approach-side refinement fallback. The agent
+                # itself must reach a refine_plan_sketch SUCCESS (which also
+                # forward-validates), captured above, so we never execute a
+                # plan the agent didn't verify. If it ended without one,
+                # re-query with explicit feedback rather than silently
+                # refining its unvalidated sketch.
+                logging.info(
+                    "[%s] Attempt %d ended without a validated plan; "
+                    "re-querying the agent.", self._run_id, sketch_attempt)
+                prior_failures.append(
+                    "You finished without a validated plan. You MUST call "
+                    "refine_plan_sketch (omit task_idx) and iterate until it "
+                    "reports SUCCESS on the current task before finishing; "
+                    "that validated plan is your submitted answer.")
+                continue
+
             sketch_lines = []
             for i, s in enumerate(sketch):
                 objs = ", ".join(o.name for o in s.objects)
                 line = f"  {i}: {s.option.name}({objs})"
+                if s.initial_params is not None and len(s.initial_params):
+                    par = ", ".join(f"{p:.4f}" for p in s.initial_params)
+                    line += f"[{par}]"
                 if s.subgoal_atoms:
                     atoms = ", ".join(str(a) for a in s.subgoal_atoms)
                     line += f" -> {{{atoms}}}"
@@ -244,7 +356,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
                     reason_msg = ""
                     if fail_state["deepest_idx"] >= 0:
                         reason_msg = f" (stuck at step {fail_state['deepest_idx']}: {fail_state['deepest_reason']})"
-                    
+
                     logging.info(
                         f"Refinement failed (sketch "
                         f"{sketch_attempt}, refine {refine_attempt}), "
@@ -337,6 +449,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             predicates=self._get_all_predicates(),
             options=self._get_all_options(),
             types=self._types,
+            parse_continuous_params=CFG.agent_bilevel_use_llm_initial_params,
         )
 
         if not sketch:
@@ -581,6 +694,40 @@ class AgentBilevelApproach(AgentPlannerApproach):
             logging.info("Suffix replan failed; querying the agent for a "
                          "fresh sketch.")
         return policy
+
+    def _consume_validated_plan(self) -> Optional[Callable[[State], Action]]:
+        """Return a policy from an agent-validated plan, or None.
+
+        ``refine_plan_sketch`` records a refined + forward-validated plan on
+        the current solve task into the tool context. Returning that exact
+        simulator-verified plan guarantees the agent's tool-validated answer
+        is what executes, and skips a re-refinement that — with a different
+        seed — might not reproduce it.
+        """
+        plan = self._tool_context.solved_plan
+        sketch = self._tool_context.solved_sketch
+        self._tool_context.solved_plan = None
+        self._tool_context.solved_sketch = None
+        if not plan:
+            return None
+        # Log the full validated plan (options + continuous params + subgoal
+        # annotations), mirroring the per-step plan log the approach-side
+        # refinement path emits.
+        lines = []
+        for i, opt in enumerate(plan):
+            objs = ", ".join(o.name for o in opt.objects)
+            par = ", ".join(f"{p:.4f}" for p in opt.params)
+            line = f"  {i}: {opt.name}({objs})[{par}]"
+            step = sketch[i] if sketch and i < len(sketch) else None
+            if step is not None and step.subgoal_atoms:
+                atoms = ", ".join(str(a) for a in step.subgoal_atoms)
+                line += f" -> {{{atoms}}}"
+            lines.append(line)
+        logging.info(
+            "[%s] Using agent-validated plan from refine_plan_sketch "
+            "(%d steps, simulator-verified):\n%s", self._run_id, len(plan),
+            "\n".join(lines))
+        return self._plan_to_policy(plan, sketch=sketch)
 
     def _plan_to_policy(
         self,

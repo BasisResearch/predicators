@@ -261,6 +261,19 @@ def _get_valid_option_plan_step(ctx: Any) -> dict[str, Any] | None:
     return None
 
 
+def _plan_to_text(plan: Any, ctx: Any) -> str:
+    """Render structured option-plan steps as the text grammar that
+    evaluate_option_plan now expects (typed object refs + params in [])."""
+    type_of = {o.name: o.type.name for o in ctx.current_task.init}
+    lines = []
+    for step in plan:
+        objs = ", ".join(f"{n}:{type_of.get(n, 'object')}"
+                         for n in step["object_names"])
+        params = ", ".join(str(p) for p in step["params"])
+        lines.append(f"{step['option_name']}({objs})[{params}]")
+    return "\n".join(lines)
+
+
 def test_option_plan_missing_goal_atoms(ctx: Any) -> None:
     """evaluate_option_plan reports missing goal atoms when goal not achieved."""
     tools = _make_tools(ctx, ["evaluate_option_plan"])
@@ -270,8 +283,10 @@ def test_option_plan_missing_goal_atoms(ctx: Any) -> None:
     plan = [step]
 
     result = _run(tools["evaluate_option_plan"]({
-        "option_plan": plan,
-        "include_atoms": True,
+        "plan":
+        _plan_to_text(plan, ctx),
+        "include_atoms":
+        True,
     }))
     text = result["content"][0]["text"]
 
@@ -330,7 +345,8 @@ def test_option_plan_not_initiable_shows_poses(ctx: Any) -> None:
     }]
 
     result = _run(tools["evaluate_option_plan"]({
-        "option_plan": plan,
+        "plan":
+        _plan_to_text(plan, ctx),
     }))
     text = result["content"][0]["text"]
 
@@ -356,7 +372,8 @@ def test_option_plan_saves_images(ctx: Any) -> None:
         plan = [step]
 
         result = _run(tools["evaluate_option_plan"]({
-            "option_plan": plan,
+            "plan":
+            _plan_to_text(plan, ctx),
         }))
 
         content = result["content"]
@@ -383,7 +400,8 @@ def test_option_plan_failure_shows_poses(ctx: Any) -> None:
     plan = [step]
 
     result = _run(tools["evaluate_option_plan"]({
-        "option_plan": plan,
+        "plan":
+        _plan_to_text(plan, ctx),
     }))
     text = result["content"][0]["text"]
 

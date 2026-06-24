@@ -1078,6 +1078,18 @@ class GlobalSettings:
     # reseed refinement on the same skeleton before re-querying the agent
     agent_bilevel_max_refine_retries = 5
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
+    # When True, the agent proposes per-step continuous parameters inside the
+    # plan sketch (`Option(obj:type)[p1, p2] -> {subgoals}`). Refinement tries
+    # the proposed params first, then falls back to the registered sampler /
+    # uniform backtracking on failure. Default False keeps the param-free
+    # sketch (search finds all continuous params).
+    agent_bilevel_use_llm_initial_params = False
+    # When True, restore the approach-side refinement fallback: if the agent
+    # finishes without a refine_plan_sketch-validated plan, the approach
+    # refines its parsed sketch itself. Default False makes the agent's
+    # tool-validated (refined + forward-validated) plan the ONLY solve path,
+    # so nothing unvalidated is ever executed.
+    agent_bilevel_refine_fallback = False
     # When True, close the agent SDK session at the start of each test task
     # so every test solve begins with a FRESH conversation (no context from
     # earlier test tasks). The sandbox filesystem and learned artifacts are

@@ -209,6 +209,18 @@ class ToolContext:
     # the task goal during refinement? Read by get_interaction_requests to
     # stamp InteractionRequest.mental_model_solved (None ⇒ no verdict).
     last_mental_model_solved: Optional[bool] = None
+    # Set by refine_plan_sketch / evaluate_option_plan when a plan is verified
+    # to reach the goal on the CURRENT solve task: the simulator-verified plan
+    # (grounded options with found params) and the parallel subgoal sketch.
+    # The bilevel approach returns this directly instead of re-refining, so
+    # the agent's tool-validated answer is exactly what gets executed. None ⇒
+    # nothing captured this query.
+    solved_plan: Optional[Any] = None
+    solved_sketch: Optional[Any] = None
+    # Gate for the above: only approaches that consume captured plans
+    # (AgentBilevelApproach) set this True. Keeps the open-loop planner, which
+    # also uses evaluate_option_plan, from recording spurious captures.
+    capture_goal_reaching_plans: bool = False
 
 
 def session_log_filename(query_count: int,
@@ -1404,44 +1416,29 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
 
     @tool(
         "evaluate_option_plan",
-        "Execute a sequence of grounded options on a task via the option model "
-        "and report the result at each step. Use include_states and/or "
-        "include_atoms to control what is shown at each step.",
+        "Execute a fully-specified plan on a task via the option model and "
+        "report the result at each step. `plan` is text — one option per "
+        "line, same grammar as refine_plan_sketch: "
+        "`Option(obj1:type1, obj2:type2)[param1, param2] -> {Atom(obj:type), "
+        "...}` (typed object refs; EXACT continuous params in `[]`, `[]` for "
+        "none; optional `-> {atoms}` subgoals, prefix NOT to require false). "
+        "Runs your exact params with NO sampling. Use include_states/"
+        "include_atoms to control output. If the plan reaches the goal on the "
+        "CURRENT task (omit task_idx), it is captured as your answer, and the "
+        "per-step subgoals make it execute closed-loop (monitored, with "
+        "replan-on-divergence).",
         {
             "type": "object",
             "properties": {
-                "option_plan": {
-                    "type": "array",
-                    "description": "Ordered list of options to execute",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "option_name": {
-                                "type": "string",
-                                "description":
-                                "Name of the ParameterizedOption"
-                            },
-                            "object_names": {
-                                "type":
-                                "array",
-                                "items": {
-                                    "type": "string"
-                                },
-                                "description":
-                                "Object names to ground the option on"
-                            },
-                            "params": {
-                                "type":
-                                "array",
-                                "items": {
-                                    "type": "number"
-                                },
-                                "description":
-                                "Continuous parameters (empty list if none)"
-                            },
-                        },
-                        "required": ["option_name", "object_names", "params"],
-                    },
+                "plan": {
+                    "type":
+                    "string",
+                    "description":
+                    "Plan text, one option per line: "
+                    "`Option(obj1:type1, obj2:type2)[p1, p2] -> "
+                    "{Atom(obj:type), ...}` (exact params in `[]`; `[]` for "
+                    "none; optional `-> {atoms}` subgoals, NOT-prefix to "
+                    "require false).",
                 },
                 "include_states": {
                     "type":
@@ -1476,7 +1473,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                     False
                 },
             },
-            "required": ["option_plan"],
+            "required": ["plan"],
         },
     )
     async def evaluate_option_plan(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -1499,7 +1496,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             opt_map)
 
         task_idx = args.get("task_idx")
-        option_plan_spec = args["option_plan"]
+        plan_text = (args.get("plan") or "").strip()
         include_states = args.get("include_states", False)
         include_atoms = args.get("include_atoms", True)
         save_low_level_action_images = args.get("save_low_level_action_images",
@@ -1519,121 +1516,154 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         all_options = ctx.options | ctx.iteration_proposals.proposed_options
         opt_map = {o.name: o for o in all_options}
 
-        state = task.init
         lines = [f"Testing option plan on task {task_idx}:"]
         saved_image_paths: List[str] = []
 
-        for step_idx, opt_spec in enumerate(option_plan_spec):
-            opt_name = opt_spec["option_name"]
-            obj_names = opt_spec["object_names"]
-            params = opt_spec["params"]
+        from predicators.agent_sdk import \
+            bilevel_sketch  # pylint: disable=import-outside-toplevel
+        all_predicates = (ctx.predicates
+                          | ctx.iteration_proposals.proposed_predicates)
 
-            if opt_name not in opt_map:
-                return _error_result(f"Unknown option '{opt_name}'. "
-                                     f"Available: {sorted(opt_map.keys())}")
-
-            param_opt = opt_map[opt_name]
-
-            obj_name_to_obj = {o.name: o for o in state}
-            objects = []
-            for name in obj_names:
-                if name not in obj_name_to_obj:
-                    return _error_result(
-                        f"Object '{name}' not found in state at step "
-                        f"{step_idx}. Available: "
-                        f"{sorted(obj_name_to_obj.keys())}")
-                objects.append(obj_name_to_obj[name])
-
+        if not plan_text:
+            return _error_result("`plan` is required (option plan text).")
+        # Parse the text plan into a sketch (options + objects + exact params +
+        # subgoals) using the SAME grammar/parser as refine_plan_sketch.
+        types = set(ctx.types)
+        for opt in all_options:
+            types.update(opt.types)
+        for pred in all_predicates:
+            types.update(pred.types)
+        types.update(o.type for o in task.init)
+        try:
+            sketch_steps = bilevel_sketch.parse_sketch_from_text(
+                plan_text,
+                task,
+                predicates=all_predicates,
+                options=all_options,
+                types=types,
+                parse_continuous_params=True)
+        except Exception as e:  # pylint: disable=broad-except
+            return _error_result(f"Could not parse plan: {e}")
+        if not sketch_steps:
+            return _error_result(
+                "Parsed empty plan. Each line must be "
+                "`Option(obj:type, ...)[params] -> {subgoals}` with a known "
+                "option, typed object refs, and exact params in `[]`.")
+        # Ground each step with its parsed exact params.
+        grounded_plan: List[Any] = []
+        for step_idx, st in enumerate(sketch_steps):
+            params = (st.initial_params if st.initial_params is not None else
+                      np.array([], dtype=np.float32))
             try:
-                params_arr = np.array(params, dtype=np.float32)
-                option = param_opt.ground(objects, params_arr)
+                grounded_plan.append(
+                    st.option.ground(list(st.objects),
+                                     np.asarray(params, dtype=np.float32)))
             except Exception as e:  # pylint: disable=broad-except
-                return _error_result(
-                    f"Failed to ground option '{opt_name}' at step "
-                    f"{step_idx}: {e}")
+                return _error_result(f"Failed to ground step {step_idx} "
+                                     f"({st.option.name}): {e}")
 
-            if not option.initiable(state):
-                atoms = utils.abstract(state, ctx.predicates)
+        # Per-step report callback, driven by the shared forward executor.
+        def _report_step(i: int, outcome: Any) -> None:
+            opt = outcome.option
+            sig = f"{opt.name}({[o.name for o in opt.objects]})"
+            if not outcome.initiable:
+                atoms = utils.abstract(outcome.pre_state, ctx.predicates)
                 atoms_str = ", ".join(str(a) for a in sorted(atoms))
-                lines.append(f"Step {step_idx}: {opt_name}({obj_names}) - "
-                             f"NOT INITIABLE\n"
+                lines.append(f"Step {i}: {sig} - NOT INITIABLE\n"
                              f"  Current atoms: {{{atoms_str}}}\n"
                              f"  Object poses at failure:\n"
-                             f"{_format_object_poses(state)}")
-                return _text_result("\n".join(lines) +
-                                    "\n\nPlan FAILED: option not initiable.")
-
-            try:
-                next_state, num_actions = \
-                    ctx.option_model.get_next_state_and_num_actions(
-                        state, option)
-            except Exception as e:  # pylint: disable=broad-except
-                tb = traceback.format_exc()
-                lines.append(f"Step {step_idx}: {opt_name}({obj_names}) - "
-                             f"EXECUTION ERROR: {type(e).__name__}: {e}\n"
-                             f"  Traceback:\n{tb}")
-                return _text_result("\n".join(lines) +
-                                    "\n\nPlan FAILED: execution error.")
-
-            step_line = (f"Step {step_idx}: {opt_name}({obj_names}) "
-                         f"({num_actions} actions)")
-            if num_actions == 0:
-                failure = getattr(ctx.option_model, 'last_execution_failure',
-                                  None)
-                if failure:
-                    step_line += f"\n  FAILURE REASON: {failure}"
-                else:
-                    step_line += ("\n  FAILURE REASON: Option terminated "
-                                  "immediately (terminal condition was True "
-                                  "before any action was taken)")
-                step_line += ("\n  Object poses at failure:\n"
-                              f"{_format_object_poses(state)}")
-            if include_atoms:
-                atoms_before = utils.abstract(state, ctx.predicates)
-                atoms_after = utils.abstract(next_state, ctx.predicates)
-                added = atoms_after - atoms_before
-                deleted = atoms_before - atoms_after
-                added_s = ", ".join(str(a) for a in sorted(added))
-                del_s = ", ".join(str(a) for a in sorted(deleted))
+                             f"{_format_object_poses(outcome.pre_state)}")
+                return
+            step_line = f"Step {i}: {sig} ({outcome.num_actions} actions)"
+            if outcome.failure_reason is not None:
+                step_line += (f"\n  FAILURE REASON: {outcome.failure_reason}"
+                              "\n  Object poses at failure:\n"
+                              f"{_format_object_poses(outcome.pre_state)}")
+            post = outcome.post_state
+            if post is not None and include_atoms:
+                before = utils.abstract(outcome.pre_state, ctx.predicates)
+                after = utils.abstract(post, ctx.predicates)
+                added_s = ", ".join(str(a) for a in sorted(after - before))
+                del_s = ", ".join(str(a) for a in sorted(before - after))
                 step_line += (f"\n  Added:   {{{added_s}}}"
                               f"\n  Deleted: {{{del_s}}}")
-            if include_states:
+            if post is not None and include_states:
                 state_dict = {}
-                for obj in sorted(next_state, key=str):
+                for obj in sorted(post, key=str):
                     obj_feats = {}
                     for feat in obj.type.feature_names:
-                        val = next_state.get(obj, feat)
+                        val = post.get(obj, feat)
                         obj_feats[feat] = round(float(val), 4) \
                             if isinstance(val, (float, int)) else str(val)
                     state_dict[str(obj)] = obj_feats
                 step_line += f"\n  State: {json.dumps(state_dict, indent=4)}"
             lines.append(step_line)
-
-            # Save per low-level action images in a separate directory
             last_traj = getattr(ctx.option_model, 'last_trajectory', None)
             if save_low_level_action_images and last_traj is not None \
                     and ctx.image_save_dir:
-                action_img_dir = ctx.image_save_dir + "_low_level"
                 orig_img_dir = ctx.image_save_dir
-                ctx.image_save_dir = action_img_dir
+                ctx.image_save_dir = orig_img_dir + "_low_level"
                 for act_idx, act_state in enumerate(last_traj.states):
                     _render_pybullet_image(
                         ctx,
-                        f"step_{step_idx}_{opt_name}_act_{act_idx}",
+                        f"step_{i}_{opt.name}_act_{act_idx}",
                         state=act_state)
                 ctx.image_save_dir = orig_img_dir
-
-            # Always render and save scene image after this step
-            img_block = _render_scene_image(ctx, f"step_{step_idx}_{opt_name}")
+            img_block = _render_scene_image(ctx, f"step_{i}_{opt.name}")
             if img_block and img_block.get("saved_path"):
                 saved_image_paths.append(img_block["saved_path"])
 
-            state = next_state
+        result = bilevel_sketch.execute_plan_forward(task,
+                                                     grounded_plan,
+                                                     ctx.option_model,
+                                                     predicates=all_predicates,
+                                                     sketch=sketch_steps,
+                                                     on_step=_report_step)
 
-        final_atoms = utils.abstract(state, ctx.predicates)
-        # Use the env's goal-check (its own classifiers); robust to
-        # invented predicates that don't reuse env names.
-        goal_achieved = task.goal_holds(state)
+        final_atoms = utils.abstract(result.final_state, ctx.predicates)
+        # Use the env's goal-check (its own classifiers); robust to invented
+        # predicates that don't reuse env names.
+        goal_achieved = result.goal_reached
+        # Capture a goal-reaching plan on the current task with a sketch that
+        # keeps only the subgoals that actually held (so the closed-loop
+        # monitor won't flag a spurious divergence on a wrong annotation).
+        if (ctx.capture_goal_reaching_plans and task_idx == "current"
+                and goal_achieved and grounded_plan):
+            captured_sketch = []
+            for i, st in enumerate(sketch_steps):
+                post = (result.steps[i].post_state
+                        if i < len(result.steps) else None)
+                if post is not None:
+                    after = utils.abstract(post, all_predicates)
+                    pos_held = {
+                        a
+                        for a in (st.subgoal_atoms or set()) if a in after
+                    }
+                    neg_held = {
+                        a
+                        for a in (st.subgoal_neg_atoms or set())
+                        if a not in after
+                    }
+                else:
+                    pos_held, neg_held = set(), set()
+                captured_sketch.append(
+                    bilevel_sketch.SketchStep(option=st.option,
+                                              objects=st.objects,
+                                              subgoal_atoms=pos_held or None,
+                                              subgoal_neg_atoms=neg_held
+                                              or None))
+            ctx.solved_plan = grounded_plan
+            ctx.solved_sketch = captured_sketch
+            n_annot = sum(1 for s in captured_sketch
+                          if s.subgoal_atoms or s.subgoal_neg_atoms)
+            lines.append(
+                f"Captured as the current answer: {len(grounded_plan)} steps, "
+                f"{n_annot} with subgoal annotations for closed-loop "
+                "monitoring.")
+        if result.first_failure_idx is not None:
+            fr = result.steps[result.first_failure_idx].failure_reason
+            lines.append(
+                f"\nPlan FAILED at step {result.first_failure_idx}: {fr}")
         final_atoms_str = ", ".join(str(a) for a in sorted(final_atoms))
         lines.append(f"\nFinal atoms: {{{final_atoms_str}}}")
         if task.goal_nl:
@@ -1908,21 +1938,23 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
 
     @tool(
         "refine_plan_sketch",
-        "Test whether a plan SKETCH is refinable: run backtracking search "
-        "for continuous parameters over the option model, then — on success "
-        "— forward-validate the refined plan by re-executing it continuously. "
-        "Unlike evaluate_option_plan (which runs a fully-specified plan whose "
-        "params you supply), this takes a sketch WITHOUT continuous params "
-        "and lets the search find them, exactly as the bilevel planner does "
-        "at solve time. `plan` is one option call per line with typed object "
-        "references (`obj:type`) and every argument supplied; add optional "
-        "`-> {Atom(obj:type, ...)}` subgoal annotations (effectively required "
-        "after open-ended skills like Place, and for Wait to say when it "
-        "should end — prefix an atom with NOT to require it become false). "
-        "Reports the verdict (SUCCESS / TIMEOUT / SAMPLE_EXHAUSTED with the "
-        "stuck step / FORWARD_VALIDATION_FAILED), per-step sample counts, and "
-        "time used. Requires a simulator (option model). Slow — use to vet a "
-        "skeleton before committing.",
+        "FIND continuous parameters for a plan SKETCH: run a backtracking "
+        "search over the option model, then — on success — forward-validate "
+        "the refined plan. Unlike evaluate_option_plan (which runs your EXACT "
+        "params with no search), this takes a sketch and lets the search find "
+        "params. You may seed it by appending `[p1, p2]` per step (use `[]` "
+        "for none); the search tries them first, then samples. `plan` is one "
+        "option call per line with typed object references (`obj:type`) and "
+        "every argument supplied; add `-> {Atom(obj:type, ...)}` subgoal "
+        "annotations (effectively required after open-ended skills like Place, "
+        "and for Wait to say when it should end — prefix an atom with NOT to "
+        "require it become false). On SUCCESS it reports the exact PARAMETERS "
+        "it found per step — submit those via evaluate_option_plan, which is "
+        "the delivery path; refine_plan_sketch itself does NOT submit. Also "
+        "reports the verdict (SUCCESS / TIMEOUT / SAMPLE_EXHAUSTED with the "
+        "stuck step / FORWARD_VALIDATION_FAILED) and time used. Requires a "
+        "simulator (option model). Slower than evaluate_option_plan — use it "
+        "to find params for hard steps, not to submit.",
         {
             "type": "object",
             "properties": {
@@ -1932,7 +1964,9 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                     "description":
                     "Option-skeleton plan text, one option call per "
                     "line, typed `obj:type` references, every argument "
-                    "supplied; optional `-> {Atom(...)}` subgoal per step.",
+                    "supplied; optional `-> {Atom(...)}` subgoal per step, "
+                    "and `[p1, p2]` proposed continuous params per step "
+                    "(`[]` for none) when param-proposing is enabled.",
                 },
                 "task_idx": {
                     "type":
@@ -2006,6 +2040,8 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                 predicates=all_predicates,
                 options=all_options,
                 types=types,
+                parse_continuous_params=CFG.
+                agent_bilevel_use_llm_initial_params,
             )
         except Exception as e:  # pylint: disable=broad-except
             return _error_result(f"Could not parse plan sketch: {e}")
@@ -2022,7 +2058,7 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
             minimum=CFG.agent_bilevel_refinement_timeout_min)
 
         try:
-            _, report = bilevel_sketch.refine_and_validate_report(
+            success, report, plan = bilevel_sketch.refine_and_validate_report(
                 task,
                 sketch,
                 ctx.option_model,
@@ -2039,6 +2075,19 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         except Exception:  # pylint: disable=broad-except
             tb = traceback.format_exc()
             return _error_result(f"Refinement raised:\n{tb}")
+
+        # refine_plan_sketch is a parameter FINDER, not a submission path: on
+        # success, append the parameters the search found per step so the
+        # agent can submit these exact values via evaluate_option_plan (the
+        # only delivery path). It deliberately does NOT capture a solved plan.
+        if success and plan:
+            param_lines = []
+            for i, gopt in enumerate(plan):
+                objs = ", ".join(o.name for o in gopt.objects)
+                par = ", ".join(f"{p:.4f}" for p in gopt.params)
+                param_lines.append(f"  {i}: {gopt.name}({objs})[{par}]")
+            report += ("\n\nParameters found (submit these exact values via "
+                       "evaluate_option_plan):\n" + "\n".join(param_lines))
 
         return _text_result(f"Task {task_idx}:\n{report}")
 

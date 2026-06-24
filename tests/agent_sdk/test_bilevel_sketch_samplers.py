@@ -47,6 +47,28 @@ _Move = ParameterizedOption(
     terminal=_false,
 )
 
+# A zero-dim option (no continuous params) for empty-bracket parsing tests.
+_Wait0 = ParameterizedOption(
+    "Wait0",
+    types=[_block_type],
+    params_space=Box(low=np.zeros(0, dtype=np.float32),
+                     high=np.zeros(0, dtype=np.float32)),
+    policy=_noop_policy,
+    initiable=_true,
+    terminal=_false,
+)
+
+# An option that is never initiable, for forward-execution failure tests.
+_NeverInit = ParameterizedOption(
+    "NeverInit",
+    types=[_block_type],
+    params_space=Box(low=np.array([0.0], dtype=np.float32),
+                     high=np.array([1.0], dtype=np.float32)),
+    policy=_noop_policy,
+    initiable=_false,
+    terminal=_false,
+)
+
 
 class _FakeOptionModel:
     """Deterministic model: Move sets block.x to its parameter value."""
@@ -241,3 +263,342 @@ def test_sampler_used_on_info_seeking_path():
     assert success
     # Every pooled candidate came from the sampler => satisfies x >= 0.9.
     assert float(plan[0].params[0]) >= 0.9
+
+
+# --------------------------------------------------------------------------- #
+# LLM-proposed initial_params (tried first, with sampling fallback).
+# --------------------------------------------------------------------------- #
+
+
+def test_initial_params_tried_first_without_sampler():
+    """LLM-proposed initial_params are used before any uniform draw."""
+    step = SketchStep(option=_Move,
+                      objects=[_block],
+                      subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
+                      initial_params=np.array([0.95], dtype=np.float32))
+    model = _FakeOptionModel()
+    plan, success, total = bilevel_sketch.refine_sketch(
+        _task_hi(), [step],
+        model,
+        predicates={_ReachedHi},
+        timeout=10.0,
+        rng=np.random.default_rng(0),
+        max_samples_per_step=50,
+        check_subgoals=True,
+        check_final_goal=False,
+        option_samplers=None)
+    assert success
+    # The proposal satisfied the hard subgoal on the very first attempt.
+    assert np.isclose(float(plan[0].params[0]), 0.95)
+    assert total == 1
+    assert model.num_calls == 1
+
+
+def test_initial_params_fall_back_to_uniform_on_failure():
+    """A bad proposal fails the first attempt; uniform backtracking
+    recovers."""
+    step = SketchStep(option=_Move,
+                      objects=[_block],
+                      subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
+                      initial_params=np.array([0.0], dtype=np.float32))
+    plan, success, total = bilevel_sketch.refine_sketch(
+        _task_hi(), [step],
+        _FakeOptionModel(),
+        predicates={_ReachedHi},
+        timeout=10.0,
+        rng=np.random.default_rng(0),
+        max_samples_per_step=200,
+        check_subgoals=True,
+        check_final_goal=False,
+        option_samplers=None)
+    assert success
+    # The failed proposal was the first sample; uniform then found x >= 0.9.
+    assert total > 1
+    assert float(plan[0].params[0]) >= 0.9
+
+
+def test_initial_params_clipped_to_box():
+    """Out-of-box proposals are clipped before grounding (no ValueError)."""
+    step = SketchStep(option=_Move,
+                      objects=[_block],
+                      subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
+                      initial_params=np.array([5.0], dtype=np.float32))
+    plan, success, total = bilevel_sketch.refine_sketch(
+        _task_hi(), [step],
+        _FakeOptionModel(),
+        predicates={_ReachedHi},
+        timeout=10.0,
+        rng=np.random.default_rng(0),
+        max_samples_per_step=50,
+        check_subgoals=True,
+        check_final_goal=False,
+        option_samplers=None)
+    assert success
+    # 5.0 clipped to the option's high bound (1.0), which clears x >= 0.9.
+    assert np.isclose(float(plan[0].params[0]), 1.0)
+    assert total == 1
+
+
+def test_initial_params_seeded_and_win_on_disagreement():
+    """LLM params are pooled with sampled draws; the argmax (most
+    informative) is chosen. Here the guess is the most informative."""
+    step = SketchStep(option=_Move,
+                      objects=[_block],
+                      subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
+                      initial_params=np.array([1.0], dtype=np.float32))
+    model = _FakeOptionModel()
+
+    # Sampled candidates clear x >= 0.9 but stay below the guess's x = 1.0.
+    def sampler(_s, _a, rng, _o):
+        return np.array([0.9 + 0.05 * rng.random()], dtype=np.float32)
+
+    plan, success, _ = bilevel_sketch.refine_sketch(
+        _task_hi(), [step],
+        model,
+        predicates={_ReachedHi},
+        timeout=10.0,
+        rng=np.random.default_rng(0),
+        max_samples_per_step=50,
+        check_subgoals=True,
+        check_final_goal=False,
+        info_scorer=lambda s, _a: float(s.get(_block, "x")),
+        info_n_feasible_target=4,
+        option_samplers={"Move": sampler})
+    assert success
+    # The guess had the highest disagreement (x = 1.0) => argmax picked it.
+    assert np.isclose(float(plan[0].params[0]), 1.0)
+    # The pool was actually built (guess + draws rolled), not short-circuited
+    # at the guess: a short-circuit would have rolled the option only once.
+    assert model.num_calls >= 4
+
+
+def test_initial_params_lose_to_more_informative_draw():
+    """A feasible guess no longer short-circuits: a strictly more
+    informative sampled candidate beats it in the disagreement argmax."""
+    step = SketchStep(option=_Move,
+                      objects=[_block],
+                      subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
+                      initial_params=np.array([0.9], dtype=np.float32))
+    plan, success, _ = bilevel_sketch.refine_sketch(
+        _task_hi(), [step],
+        _FakeOptionModel(),
+        predicates={_ReachedHi},
+        timeout=10.0,
+        rng=np.random.default_rng(0),
+        max_samples_per_step=50,
+        check_subgoals=True,
+        check_final_goal=False,
+        info_scorer=lambda s, _a: float(s.get(_block, "x")),
+        info_n_feasible_target=4,
+        option_samplers={
+            "Move": lambda *_a: np.array([0.99], dtype=np.float32)
+        })
+    assert success
+    # The seeded guess (x = 0.9) was beaten by the more informative draw
+    # (0.99) — proving it is pooled, not accepted just for being first.
+    assert np.isclose(float(plan[0].params[0]), 0.99)
+
+
+def test_initial_params_infeasible_seed_info_seeking_recovers():
+    """An infeasible guess isn't pooled; info-seeking draws still solve."""
+    step = SketchStep(option=_Move,
+                      objects=[_block],
+                      subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
+                      initial_params=np.array([0.0], dtype=np.float32))
+    plan, success, _ = bilevel_sketch.refine_sketch(
+        _task_hi(), [step],
+        _FakeOptionModel(),
+        predicates={_ReachedHi},
+        timeout=10.0,
+        rng=np.random.default_rng(0),
+        max_samples_per_step=200,
+        check_subgoals=True,
+        check_final_goal=False,
+        info_scorer=lambda s, _a: float(s.get(_block, "x")),
+        info_n_feasible_target=4,
+        option_samplers={
+            "Move":
+            lambda _s, _a, rng, _o: np.array([0.9 + 0.05 * rng.random()],
+                                             dtype=np.float32)
+        })
+    assert success
+    # The infeasible guess (x = 0) wasn't pooled; sampled candidates won.
+    assert float(plan[0].params[0]) >= 0.9
+
+
+def test_strip_subgoal_annotations():
+    """`-> {atoms}` is removed so the params parser sees only the option."""
+    out = bilevel_sketch.strip_subgoal_annotations(
+        "Move(block0:block)[0.7] -> {ReachedHi(block0:block)}")
+    assert out == "Move(block0:block)[0.7]"
+    # A line without an annotation is untouched.
+    assert bilevel_sketch.strip_subgoal_annotations(
+        "Move(block0:block)[0.7]") == "Move(block0:block)[0.7]"
+
+
+def test_parse_sketch_params_wrong_arity_drops_sketch():
+    """Wrong param count is rejected by the canonical parser (empty sketch)."""
+    sketch = bilevel_sketch.parse_sketch_from_text(
+        "Move(block0:block)[0.7, 0.8] -> {ReachedHi(block0:block)}",
+        _task_hi(),
+        predicates={_ReachedHi},
+        options={_Move},
+        types={_block_type},
+        parse_continuous_params=True)
+    assert sketch == []
+
+
+def test_parse_sketch_zero_dim_empty_brackets():
+    """`[]` on a zero-param option yields an empty initial_params array."""
+    task = Task(State({_block: np.array([0.0], dtype=np.float32)}), set())
+    sketch = bilevel_sketch.parse_sketch_from_text(
+        "Wait0(block0:block)[]",
+        task,
+        predicates=set(),
+        options={_Wait0},
+        types={_block_type},
+        parse_continuous_params=True)
+    assert len(sketch) == 1
+    assert sketch[0].initial_params is not None
+    assert sketch[0].initial_params.shape == (0, )
+
+
+def test_parse_sketch_from_text_with_params():
+    """parse_continuous_params=True populates SketchStep.initial_params."""
+    sketch = bilevel_sketch.parse_sketch_from_text(
+        "Move(block0:block)[0.7] -> {ReachedHi(block0:block)}",
+        _task_hi(),
+        predicates={_ReachedHi},
+        options={_Move},
+        types={_block_type},
+        parse_continuous_params=True)
+    assert len(sketch) == 1
+    assert sketch[0].initial_params is not None
+    assert np.allclose(sketch[0].initial_params, [0.7])
+    assert GroundAtom(_ReachedHi, [_block]) in sketch[0].subgoal_atoms
+
+
+def test_parse_sketch_from_text_params_disabled_by_default():
+    """Default (params off) ignores `[..]` and leaves initial_params None."""
+    sketch = bilevel_sketch.parse_sketch_from_text(
+        "Move(block0:block)[0.7] -> {ReachedHi(block0:block)}",
+        _task_hi(),
+        predicates={_ReachedHi},
+        options={_Move},
+        types={_block_type})
+    assert len(sketch) == 1
+    assert sketch[0].initial_params is None
+    # The option + subgoal still parse, unaffected by the trailing `[..]`.
+    assert GroundAtom(_ReachedHi, [_block]) in sketch[0].subgoal_atoms
+
+
+def test_parse_atoms_pos_neg():
+    """parse_atoms splits positive and NOT-prefixed (negative) atoms."""
+    pos, neg = bilevel_sketch.parse_atoms(
+        "ReachedHi(block0:block), NOT Reached(block0:block)",
+        {_ReachedHi, _Reached}, [_block])
+    assert pos == {GroundAtom(_ReachedHi, [_block])}
+    assert neg == {GroundAtom(_Reached, [_block])}
+
+
+def test_parse_atoms_unknown_skipped():
+    """Atoms with an unknown predicate are skipped (not raised)."""
+    pos, neg = bilevel_sketch.parse_atoms("Nope(block0:block)", {_ReachedHi},
+                                          [_block])
+    assert pos == set()
+    assert neg == set()
+
+
+def test_execute_plan_forward_success():
+    """A plan that reaches the goal: success, executed_all, no failure."""
+    plan = [_Move.ground([_block], np.array([0.95], dtype=np.float32))]
+    seen = []
+    result = bilevel_sketch.execute_plan_forward(
+        _task_hi(),
+        plan,
+        _FakeOptionModel(),
+        predicates={_ReachedHi},
+        on_step=lambda i, o: seen.append(i))
+    assert result.success
+    assert result.goal_reached
+    assert result.executed_all
+    assert result.first_failure_idx is None
+    assert len(result.steps) == 1
+    assert result.steps[0].num_actions == 1
+    assert seen == [0]  # on_step fired once
+
+
+def test_execute_plan_forward_goal_not_reached():
+    """The step executes but doesn't reach the goal: not success, no failure."""
+    plan = [_Move.ground([_block], np.array([0.5], dtype=np.float32))]
+    result = bilevel_sketch.execute_plan_forward(_task_hi(),
+                                                 plan,
+                                                 _FakeOptionModel(),
+                                                 predicates={_ReachedHi})
+    assert not result.success
+    assert not result.goal_reached
+    assert result.executed_all
+    assert result.first_failure_idx is None
+
+
+def test_execute_plan_forward_subgoal_divergence():
+    """An unmet step subgoal is recorded (but isn't an execution failure)."""
+    sketch = [
+        SketchStep(option=_Move,
+                   objects=[_block],
+                   subgoal_atoms={GroundAtom(_ReachedHi, [_block])})
+    ]
+    plan = [_Move.ground([_block], np.array([0.5], dtype=np.float32))]
+    result = bilevel_sketch.execute_plan_forward(_task_hi(),
+                                                 plan,
+                                                 _FakeOptionModel(),
+                                                 predicates={_ReachedHi},
+                                                 sketch=sketch)
+    assert result.first_subgoal_divergence_idx == 0
+    assert result.steps[0].subgoal_missing == {
+        GroundAtom(_ReachedHi, [_block])
+    }
+    assert result.first_failure_idx is None  # divergence != execution failure
+
+
+def test_execute_plan_forward_not_initiable_stops():
+    """A not-initiable step fails and halts execution (no later steps run)."""
+    plan = [
+        _NeverInit.ground([_block], np.array([0.0], dtype=np.float32)),
+        _Move.ground([_block], np.array([0.95], dtype=np.float32)),
+    ]
+    model = _FakeOptionModel()
+    result = bilevel_sketch.execute_plan_forward(_task_hi(),
+                                                 plan,
+                                                 model,
+                                                 predicates={_ReachedHi})
+    assert result.first_failure_idx == 0
+    assert not result.executed_all
+    assert result.steps[0].failure_reason == "not initiable"
+    assert len(result.steps) == 1  # stopped after the failed step
+    assert model.num_calls == 0  # never executed (not initiable)
+
+
+def test_refine_and_validate_report_returns_plan():
+    """refine_and_validate_report yields (success, report, plan).
+
+    The grounded plan is what refine_plan_sketch captures so the approach
+    can return the simulator-verified answer directly.
+    """
+    step = SketchStep(option=_Move,
+                      objects=[_block],
+                      subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
+                      initial_params=np.array([0.95], dtype=np.float32))
+    success, report, plan = bilevel_sketch.refine_and_validate_report(
+        _task_hi(), [step],
+        _FakeOptionModel(),
+        predicates={_ReachedHi},
+        timeout=10.0,
+        rng=np.random.default_rng(0),
+        max_samples_per_step=50,
+        check_subgoals=True)
+    assert success
+    assert "SUCCESS" in report
+    assert len(plan) == 1
+    # The captured plan carries the validated continuous params.
+    assert np.isclose(float(plan[0].params[0]), 0.95)

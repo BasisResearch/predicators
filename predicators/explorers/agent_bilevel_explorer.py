@@ -72,6 +72,10 @@ class AgentBilevelExplorer(BaseExplorer):
                 trajectory_summary=self._build_trajectory_summary(),
                 tool_names=self._agent_tool_names(),
                 experiment_guidance=self._build_experiment_guidance(),
+                propose_params=CFG.agent_bilevel_use_llm_initial_params,
+                # The explorer refines its own sketch for exploration; it does
+                # not use the approach's tool-validated capture path.
+                require_tool_validation=False,
             )
             responses = run_query_sync(self._agent_session,
                                        prompt,
@@ -86,6 +90,8 @@ class AgentBilevelExplorer(BaseExplorer):
                 predicates=self._predicates,
                 options=self._options,
                 types=self._types,
+                parse_continuous_params=CFG.
+                agent_bilevel_use_llm_initial_params,
             )
             if not sketch:
                 raise ValueError("parsed empty plan sketch")
@@ -105,6 +111,9 @@ class AgentBilevelExplorer(BaseExplorer):
             for i, s in enumerate(sketch):
                 objs = ", ".join(o.name for o in s.objects)
                 line = f"  {i}: {s.option.name}({objs})"
+                if s.initial_params is not None and len(s.initial_params):
+                    par = ", ".join(f"{p:.4f}" for p in s.initial_params)
+                    line += f"[{par}]"
                 if s.subgoal_atoms:
                     atoms = ", ".join(str(a) for a in s.subgoal_atoms)
                     line += f" -> {{{atoms}}}"
