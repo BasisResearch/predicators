@@ -1028,6 +1028,12 @@ class GlobalSettings:
     # agent SDK online abstraction learning parameters
     agent_sdk_model_name = "claude-sonnet-4-6"
     agent_sdk_max_agent_turns_per_iteration = 50
+    # Per-response extended-thinking budget (tokens) for the agent SDK. Bounds
+    # the model's deliberation so a single response's thinking + text stays
+    # under the harness output-token cap (default 32000), preventing the
+    # "exceeded the output token maximum" overflow. 0 ⇒ leave unset (the
+    # model's default adaptive thinking, which can overflow on hard tasks).
+    agent_sdk_thinking_budget_tokens = 16000
     agent_sdk_agent_timeout = 300  # seconds per iteration
     agent_sdk_resume_session = True  # resume previous session if available
     agent_sdk_propose_types = True

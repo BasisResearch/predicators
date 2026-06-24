@@ -183,6 +183,13 @@ class LocalSandboxSessionManager:
         allowed_tools = BUILTIN_TOOLS + mcp_tool_list
 
         extra_hooks = dict(self._tool_context.extra_session_hooks or {})
+        # Cap per-response extended thinking so deliberation can't blow the
+        # harness output-token limit (the 32000-token overflow). Keeps the
+        # model's effort otherwise at its default (high).
+        thinking = ({
+            "type": "enabled",
+            "budget_tokens": CFG.agent_sdk_thinking_budget_tokens
+        } if CFG.agent_sdk_thinking_budget_tokens > 0 else None)
         options = ClaudeAgentOptions(
             allowed_tools=allowed_tools,
             mcp_servers={"predicator_tools": mcp_server},
@@ -190,6 +197,7 @@ class LocalSandboxSessionManager:
             system_prompt=self._system_prompt,
             model=self._model_name,
             max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
+            thinking=thinking,  # type: ignore[arg-type]
             cwd=self._sandbox_dir,
             setting_sources=["project", "local"],
             hooks=(extra_hooks

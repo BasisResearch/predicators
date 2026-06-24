@@ -72,6 +72,12 @@ class AgentSessionManager:
         if self._tool_context is not None:
             extra_hooks = dict(
                 getattr(self._tool_context, "extra_session_hooks", {}) or {})
+        # Cap per-response extended thinking so deliberation can't blow the
+        # harness output-token limit (the 32000-token overflow).
+        thinking = ({
+            "type": "enabled",
+            "budget_tokens": CFG.agent_sdk_thinking_budget_tokens
+        } if CFG.agent_sdk_thinking_budget_tokens > 0 else None)
         options = ClaudeAgentOptions(
             allowed_tools=self._allowed_tools or [],
             mcp_servers={"predicator_tools": self._mcp_server},
@@ -79,6 +85,7 @@ class AgentSessionManager:
             system_prompt=self._system_prompt,
             model=self._model_name,
             max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
+            thinking=thinking,  # type: ignore[arg-type]
             hooks=(extra_hooks
                    if extra_hooks else None),  # type: ignore[arg-type]
         )
