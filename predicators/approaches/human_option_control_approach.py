@@ -80,9 +80,12 @@ class HumanOptionControlApproach(BilevelProcessPlanningApproach):
         """
         return self._processes
 
-    def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
+    def _solve(self,
+               task: Task,
+               timeout: int,
+               _allow_replan: bool = True) -> Callable[[State], Action]:
         """Create a policy that prompts the user for process selection."""
-        del timeout  # Unused parameter
+        del timeout, _allow_replan  # Unused parameters
 
         # If scripted option is enabled, use the scripted plan
         if CFG.human_option_control_approach_use_scripted_option:

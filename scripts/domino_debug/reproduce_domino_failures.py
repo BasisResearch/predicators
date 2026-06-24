@@ -13,17 +13,24 @@ wrapper at the bottom of the module docstring loops correctly.
 
 Usage:
     # motion-planning reproduction for a single seed (fresh process each):
-    for s in 0 1 2 3 4; do PYTHONPATH=. python scripts/domino_debug/reproduce_domino_failures.py mp $s; done
+    #   for s in 0 1 2 3 4; do PYTHONPATH=. python \
+    #     scripts/domino_debug/reproduce_domino_failures.py mp $s; done
     # option-plan parser (Push) bug:
-    PYTHONPATH=. python scripts/domino_debug/reproduce_domino_failures.py push 0
+    #   PYTHONPATH=. python \
+    #     scripts/domino_debug/reproduce_domino_failures.py push 0
 """
 
 import logging
 import sys
+from typing import List, Optional, Tuple
 
 import numpy as np
 
 from predicators import utils
+from predicators.envs import get_or_create_env
+from predicators.envs.base_env import BaseEnv
+from predicators.ground_truth_models import get_gt_options
+from predicators.structs import ParameterizedOption, State, _Option
 
 logging.disable(logging.CRITICAL)
 
@@ -48,17 +55,17 @@ _POS_GAP = 0.098  # domino chain spacing (env.py: domino_width * 1.4).
 _MAX_STEPS = 80
 
 
-def _setup(seed):
+def _setup(seed: int) -> Tuple[BaseEnv, List[ParameterizedOption]]:
+    """Reset the config and create the env + ground-truth options."""
     args = dict(_ARGS, seed=seed)
     utils.reset_config(args)
-    from predicators.envs import get_or_create_env
-    from predicators.ground_truth_models import get_gt_options
     env = get_or_create_env("pybullet_domino")
-    options = get_gt_options(env.get_name())
+    options = list(get_gt_options(env.get_name()))
     return env, options
 
 
-def _run_option(env, opt, state):
+def _run_option(env: BaseEnv, opt: _Option,
+                state: State) -> Tuple[Optional[bool], str]:
     """Drive a grounded option to termination; return (ok, failure_msg)."""
     if not opt.initiable(state):
         return None, "not-initiable"
@@ -74,12 +81,10 @@ def _run_option(env, opt, state):
     return True, "ran-max-steps"
 
 
-def reproduce_mp(seed):
-    """For each test task, report which dominoes are grasp-infeasible and probe
-    one Place/MoveToDrop into the tight InFront gap."""
+def reproduce_mp(seed: int) -> None:
+    """Report grasp-infeasible dominoes and probe one Place into the gap."""
     env, options = _setup(seed)
     Pick = next(o for o in options if o.name == "Pick")
-    Place = next(o for o in options if o.name == "Place")
     tasks = env.get_test_tasks()
     for ti in range(len(tasks)):
         env.reset("test", ti)
@@ -102,9 +107,8 @@ def reproduce_mp(seed):
             f"| grasp-INFEASIBLE: {infeasible if infeasible else 'none'}")
 
 
-def reproduce_push_bug(seed):
-    """Show the option-plan parser silently drops a Push line that names a
-    target domino, because Push is registered with types=[robot]."""
+def reproduce_push_bug(seed: int) -> None:
+    """Show the parser drops a Push line that names a target domino."""
     env, options = _setup(seed)
     push = next(o for o in options if o.name == "Push")
     print(f"Push option signature: types={[t.name for t in push.types]}")
@@ -126,7 +130,8 @@ def reproduce_push_bug(seed):
         print(f"  {label:42s} -> {names}  ({flag})")
 
 
-if __name__ == "__main__":
+def _main() -> None:
+    """Dispatch to the requested reproduction mode."""
     mode = sys.argv[1] if len(sys.argv) > 1 else "mp"
     seed = int(sys.argv[2]) if len(sys.argv) > 2 else 0
     if mode == "mp":
@@ -135,3 +140,7 @@ if __name__ == "__main__":
         reproduce_push_bug(seed)
     else:
         raise SystemExit(f"unknown mode {mode!r} (expected 'mp' or 'push')")
+
+
+if __name__ == "__main__":
+    _main()

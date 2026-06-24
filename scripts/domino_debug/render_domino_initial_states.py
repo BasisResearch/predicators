@@ -56,6 +56,7 @@ _OUT_DIR = ("logs/agent_sim_learning/"
 
 
 def main() -> None:
+    """Render and save initial states of the domino test tasks."""
     os.makedirs(_OUT_DIR, exist_ok=True)
     for seed in (0, 2):
         utils.reset_config({**_DOMINO_FLAGS, "seed": seed})
@@ -71,7 +72,8 @@ def main() -> None:
                 else "solved"
             fname = f"seed{seed}_task{task_num}_{status}.png"
             path = os.path.join(_OUT_DIR, fname)
-            Image.fromarray(rgb).save(path)
+            Image.fromarray(rgb).save(  # type: ignore[no-untyped-call]
+                path)
             goal = sorted(str(a) for a in tasks[idx].goal)
             print(f"seed{seed} task{task_num} [{status}] -> {path}")
             print(f"    goal: {goal}")

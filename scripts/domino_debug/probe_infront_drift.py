@@ -3,28 +3,33 @@ generator-faithful nominal pose through the REAL option model (PyBullet forward
 sim), then compare the settled pose to the nominal one and to the InFront
 tolerance window.
 
-Usage: PYTHONPATH=. python scripts/domino_debug/probe_infront_drift.py <seed> <env_task_idx>
+Usage: PYTHONPATH=. python \
+    scripts/domino_debug/probe_infront_drift.py <seed> <env_task_idx>
 """
 import logging
 import sys
 
 import numpy as np
 
+from predicators import utils
+from predicators.approaches import create_approach
+from predicators.envs import get_or_create_env
+from predicators.ground_truth_models import get_gt_options
+from predicators.ground_truth_models.domino import processes as P
+
 logging.disable(logging.CRITICAL)
 
 # Same flags the replay uses so the option model + oracle samplers match.
+# pylint: disable=wrong-import-position
 from scripts.domino_debug.replay_domino_sketches import _FLAGS  # noqa: E402
 
 
-def main():
+def main() -> None:
+    """Probe InFront settle-drift for one seed/test-task index."""
     seed = int(sys.argv[1])
     ti = int(sys.argv[2])
 
-    from predicators import utils
     utils.reset_config(dict(_FLAGS, seed=seed))
-    from predicators.approaches import create_approach
-    from predicators.envs import get_or_create_env
-    from predicators.ground_truth_models import get_gt_options
 
     env = get_or_create_env("pybullet_domino")
     options = get_gt_options(env.get_name())
@@ -32,8 +37,9 @@ def main():
     train_tasks = [t.task for t in env.get_train_tasks()]
     approach = create_approach("agent_sim_learning", preds, options, env.types,
                                env.action_space, train_tasks)
-    approach._maybe_install_oracle_samplers()
-    om = approach._option_model
+    # pylint: disable=protected-access
+    approach._maybe_install_oracle_samplers()  # type: ignore[attr-defined]
+    om = approach._option_model  # type: ignore[attr-defined]
     assert om is not None, "no option model"
 
     task = env.get_test_tasks()[ti].task
@@ -47,7 +53,7 @@ def main():
               f"yaw={state.get(d,'yaw'):+.4f} roll={state.get(d,'roll'):+.4f}")
 
     InFront = [p for p in preds if p.name == "InFront"][0]
-    infront_holds = lambda s, objs: InFront.holds(s, objs)
+    infront_holds = InFront.holds
     pos_gap = 0.098  # PyBulletDominoEnv.pos_gap
     pos_tol = pos_gap * 0.3
     print(f"\n# InFront window: pos_tol={pos_tol:.4f} m, ang_tol=15deg, "
@@ -56,13 +62,12 @@ def main():
     opt_by_name = {o.name: o for o in options}
     Pick, Place = opt_by_name["Pick"], opt_by_name["Place"]
 
-    from predicators.ground_truth_models.domino import processes as P
-
     # Place domino_1 to satisfy InFront(domino_1, domino_0).
     held, ref = dominoes[1], dominoes[0]
     sub = {utils.GroundAtom(InFront, [held, ref])}
 
     # 1) Pick the held domino.
+    # pylint: disable=protected-access
     pick_params = P._pick_option_sampler(state, set(),
                                          np.random.default_rng(0),
                                          [robot, held])
@@ -99,10 +104,11 @@ def main():
               f"roll={groll:+.4f})")
         print(f"    drift dx={gx-nom_x:+.4f} dy={gy-nom_y:+.4f} "
               f"dyaw={gyaw-nom_yaw:+.4f}  (pos_tol={pos_tol:.4f})")
-        print(
-            f"    {ref.name}=({rx:.4f},{ry:.4f},yaw={ryaw:+.4f}) "
-            f"cardinal={'yes' if (abs(np.sin(ryaw))<np.sin(np.radians(10)) or abs(np.cos(ryaw))<np.sin(np.radians(10))) else 'NO'}"
-        )
+        tol10 = np.sin(np.radians(10))
+        is_cardinal = (abs(np.sin(ryaw)) < tol10 or abs(np.cos(ryaw)) < tol10)
+        cardinal = "yes" if is_cardinal else "NO"
+        print(f"    {ref.name}=({rx:.4f},{ry:.4f},yaw={ryaw:+.4f}) "
+              f"cardinal={cardinal}")
         print(f"    => settled InFront({held.name},{ref.name}) = {infront}")
 
 

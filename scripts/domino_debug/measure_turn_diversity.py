@@ -9,6 +9,8 @@ A task is a TURN if the purple target block's yaw differs from the green start
 block's yaw by > 30 deg (a straight chain shares one yaw mod pi; a turn90 chain
 ends ~90 deg rotated).
 """
+from typing import Any, List, Tuple
+
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.patches import Rectangle
@@ -16,21 +18,27 @@ from matplotlib.transforms import Affine2D
 
 from predicators import utils
 from predicators.envs.pybullet_domino.env import PyBulletDominoEnv
-from predicators.envs.pybullet_domino.task_generators.domino_task_generator import \
-    DominoTaskGenerator
+from predicators.envs.pybullet_domino.task_generators import \
+    domino_task_generator as dtg
 from predicators.settings import CFG
+from predicators.structs import EnvironmentTask
 
 SEEDS = [0, 1, 2, 3, 4]
 TASKS_PER_SEED = 5
 OFFSET = 10000  # CFG.test_env_seed_offset
 
+DominoEntry = Tuple[float, float, float, str]
 
-def ang_diff(a, b):
+
+def ang_diff(a: float, b: float) -> float:
+    """Smallest angular difference modulo pi (radians)."""
     d = (a - b) % np.pi
     return min(d, np.pi - d)
 
 
-def classify(task, comp):
+def classify(task: EnvironmentTask,
+             comp: Any) -> Tuple[bool, List[DominoEntry]]:
+    """Return (is_turn, dominoes) for a task using start/target yaw."""
     st = task.init
     dominoes, sy, ty = [], None, None
     for d in st.get_objects(comp.domino_type):
@@ -50,7 +58,8 @@ def classify(task, comp):
     return is_turn, dominoes
 
 
-def build_generator(env):
+def build_generator(env: PyBulletDominoEnv) -> dtg.DominoTaskGenerator:
+    """Build a DominoTaskGenerator matching the env's config."""
     ris = {
         "x": env.robot_init_x,
         "y": env.robot_init_y,
@@ -60,19 +69,31 @@ def build_generator(env):
         "tilt": env.robot_init_tilt,
         "wrist": env.robot_init_wrist,
     }
-    return DominoTaskGenerator(domino_component=env._domino_component,
-                               robot=env._robot,
-                               robot_init_state=ris,
-                               additional_components=[])
+    # pylint: disable=protected-access
+    return dtg.DominoTaskGenerator(
+        domino_component=env._domino_component,  # type: ignore[arg-type]
+        robot=env._robot,
+        robot_init_state=ris,
+        additional_components=[])
 
 
-def gen_all(env, disable_grasp):
+def _no_block(*_a: Any, **_k: Any) -> bool:
+    """Stub replacement that never blocks grasp clearance."""
+    return False
+
+
+def gen_all(env: PyBulletDominoEnv,
+            disable_grasp: bool) -> List[Tuple[int, int, EnvironmentTask]]:
+    """Generate all (seed, task_idx, task) entries, optionally with the grasp-
+    clearance staging check disabled."""
     gen = build_generator(env)
-    orig = DominoTaskGenerator._grasp_clearance_blocked
+    cls = dtg.DominoTaskGenerator
+    # pylint: disable=protected-access
+    orig = cls._grasp_clearance_blocked
     if disable_grasp:
-        DominoTaskGenerator._grasp_clearance_blocked = lambda *a, **k: False
+        cls._grasp_clearance_blocked = _no_block  # type: ignore[method-assign]
     try:
-        out = []  # (seed, task_idx, task)
+        out: List[Tuple[int, int, EnvironmentTask]] = []
         for seed in SEEDS:
             rng = np.random.default_rng(seed + OFFSET)
             tasks = gen.generate_tasks(
@@ -84,11 +105,13 @@ def gen_all(env, disable_grasp):
             for ti, t in enumerate(tasks):
                 out.append((seed, ti, t))
     finally:
-        DominoTaskGenerator._grasp_clearance_blocked = orig
+        cls._grasp_clearance_blocked = orig  # type: ignore[method-assign]
     return out
 
 
-def render(entries, comp, title, path):
+def render(entries: List[Tuple[int, int, EnvironmentTask]], comp: Any,
+           title: str, path: str) -> None:
+    """Render a grid of task scenes and report the turn percentage."""
     nrows, ncols = len(SEEDS), TASKS_PER_SEED
     fig, axes = plt.subplots(nrows, ncols, figsize=(2.4 * ncols, 2.4 * nrows))
     w, dpth = comp.domino_width, comp.domino_depth
@@ -132,7 +155,8 @@ def render(entries, comp, title, path):
     print(f"  {title}: {turns}/{n} turns = {100.0*turns/n:.1f}%  -> {path}")
 
 
-def main():
+def main() -> None:
+    """Generate, render, and compare turn % before/after the staging check."""
     utils.reset_config({
         "env": "pybullet_domino",
         "seed": 0,
@@ -147,7 +171,7 @@ def main():
         "domino_test_num_pivots": [0],
     })
     env = PyBulletDominoEnv(use_gui=False)
-    comp = env._domino_component
+    comp = env._domino_component  # pylint: disable=protected-access
     base = "/Users/ycliang/Code/predicators/scripts/domino_debug/"
     for label, disable, fn in [
         ("AFTER  (grasp-clearance ON  = commit 50d56e940)", False, "after"),

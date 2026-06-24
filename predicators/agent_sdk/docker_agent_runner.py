@@ -138,9 +138,9 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
                             file=sys.stderr,
                             flush=True)
                     elif btype == "ThinkingBlock":
-                        thinking = block.get("thinking", "")
-                        if thinking:
-                            print(f"Thinking: {thinking[:200]}...",
+                        thinking_text = str(block.get("thinking", ""))
+                        if thinking_text:
+                            print(f"Thinking: {thinking_text[:200]}...",
                                   file=sys.stderr,
                                   flush=True)
             elif entry["type"] == "result":

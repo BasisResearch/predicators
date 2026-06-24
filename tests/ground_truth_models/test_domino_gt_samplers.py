@@ -41,9 +41,9 @@ class _ClassifierStub:
 
 _stub = _ClassifierStub()
 _InFront = Predicate("InFront", [_domino_type, _domino_type],
-                     lambda s, o: DominoComponent._InFront_holds(_stub, s, o))  # pylint: disable=protected-access
+                     lambda s, o: DominoComponent._InFront_holds(_stub, s, o))  # type: ignore[arg-type]  # pylint: disable=protected-access
 _Upright = Predicate("Upright", [_domino_type],
-                     lambda s, o: DominoComponent._Upright_holds(_stub, s, o))  # pylint: disable=protected-access
+                     lambda s, o: DominoComponent._Upright_holds(_stub, s, o))  # type: ignore[arg-type]  # pylint: disable=protected-access
 
 
 def _domino(name, x, y, yaw, is_held=0.0, rgb=(0.5, 0.5, 0.5)):

@@ -5,18 +5,25 @@ regenerated test scenes match the runs exactly (verified: seed1 = [4,4,5,4,4]
 dominoes, and the seed1.t2 grasp-infeasibility matches the run). Run ONE seed
 per process (task-gen RNG is shared across seeds in one interpreter).
 
-Usage: PYTHONPATH=. python scripts/domino_debug/render_unsolved_domino_states.py <seed>
+Usage: PYTHONPATH=. python \
+    scripts/domino_debug/render_unsolved_domino_states.py <seed>
 """
 import os
 import sys
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+from numpy.typing import NDArray
 from PIL import Image, ImageDraw, ImageFont
 
 from predicators import utils
+from predicators.envs import create_new_env
+from predicators.structs import State
 
 
-def _project(xyz, view_matrix, proj_matrix, width, height):
+def _project(xyz: Sequence[float], view_matrix: Sequence[float],
+             proj_matrix: Sequence[float], width: int,
+             height: int) -> Optional[Tuple[float, float]]:
     """World (x,y,z) -> (u,v) pixel using pybullet's column-major matrices."""
     V = np.array(view_matrix).reshape((4, 4), order="F")
     P = np.array(proj_matrix).reshape((4, 4), order="F")
@@ -28,11 +35,13 @@ def _project(xyz, view_matrix, proj_matrix, width, height):
             (1.0 - (ndc[1] * 0.5 + 0.5)) * height)
 
 
-def _font(size):
+def _font(size: int) -> Any:
+    """Load a TrueType font at the given size, falling back to a default."""
     for path in ("/System/Library/Fonts/Supplemental/Arial Bold.ttf",
                  "/System/Library/Fonts/Helvetica.ttc"):
         try:
-            return ImageFont.truetype(path, size)
+            return ImageFont.truetype(  # type: ignore[no-untyped-call]
+                path, size)
         except Exception:  # pylint: disable=broad-except
             pass
     try:
@@ -41,13 +50,15 @@ def _font(size):
         return ImageFont.load_default()
 
 
-def _caption(rgb, lines):
+def _caption(rgb: NDArray[np.uint8], lines: List[str]) -> NDArray[np.uint8]:
     """Draw a header banner (top-left) with the given text lines."""
-    img = Image.fromarray(rgb)
+    img = Image.fromarray(rgb)  # type: ignore[no-untyped-call]
     draw = ImageDraw.Draw(img, "RGBA")
     font = _font(22)
     pad, lh = 8, 26
-    w = max(draw.textlength(t, font=font) for t in lines)
+    w = max(
+        draw.textlength(  # type: ignore[no-untyped-call]
+            t, font=font) for t in lines)
     draw.rectangle([0, 0, w + 2 * pad, lh * len(lines) + pad],
                    fill=(0, 0, 0, 170))
     for i, t in enumerate(lines):
@@ -55,9 +66,10 @@ def _caption(rgb, lines):
     return np.asarray(img)
 
 
-def _annotate(rgb, init_state, cam):
+def _annotate(rgb: NDArray[np.uint8], init_state: State,
+              cam: Any) -> NDArray[np.uint8]:
     """Label each domino with its index at its initial-state position."""
-    img = Image.fromarray(rgb)
+    img = Image.fromarray(rgb)  # type: ignore[no-untyped-call]
     draw = ImageDraw.Draw(img)
     font = _font(26)
     for o in sorted([o for o in init_state if o.type.name == "domino"],
@@ -86,7 +98,7 @@ def _annotate(rgb, init_state, cam):
 
 
 # 1-indexed tasks unsolved in EITHER arm, with (arms, failure-mode) labels.
-UNSOLVED = {
+UNSOLVED: Dict[int, Dict[int, Tuple[str, str]]] = {
     0: {
         1: ("both", "push-dropped"),
         2: ("both", "place-MP+InFront"),
@@ -106,7 +118,7 @@ UNSOLVED = {
         5: ("demo", "holding+InFront+place-MP")
     },
 }
-FLAGS = {
+FLAGS: Dict[str, Any] = {
     "env": "pybullet_domino",
     "num_train_tasks": 1,
     "num_test_tasks": 5,
@@ -124,18 +136,19 @@ FLAGS = {
 OUT = "logs/agent_sim_learning/unsolved_init_states"
 
 
-def main():
+def main() -> None:
+    """Render annotated init-state PNGs for one seed's unsolved tasks."""
     seed = int(sys.argv[1])
     os.makedirs(OUT, exist_ok=True)
     utils.reset_config(dict(FLAGS, seed=seed))
-    from predicators.envs import create_new_env
     env = create_new_env("pybullet_domino", do_cache=False)
     tasks = env.get_test_tasks()
     counts = [
         len([o for o in t.init if o.type.name == "domino"]) for t in tasks
     ]
     print(f"seed{seed} domino counts per task = {counts}")
-    cam = env._get_camera_matrices()  # pylint: disable=protected-access
+    # pylint: disable=protected-access
+    cam = env._get_camera_matrices()  # type: ignore[attr-defined]
     for t1, (arms, mode) in sorted(UNSOLVED.get(seed, {}).items()):
         idx = t1 - 1
         env.reset("test", idx)
@@ -143,14 +156,15 @@ def main():
         rgb = _annotate(rgb, tasks[idx].init, cam)
         goal_ids = ",".join(
             sorted(
-                str(a).split("_")[-1].rstrip(":domino)")
+                str(a).rsplit("_", maxsplit=1)[-1].rstrip(":domino)")
                 for a in tasks[idx].goal))
         rgb = _caption(rgb, [
             f"seed {seed}  task {t1}  ({arms})",
             f"goal: Toppled({goal_ids})   fail: {mode}"
         ])
         fname = f"seed{seed}_task{t1}_{arms}_{mode}.png"
-        Image.fromarray(rgb).save(os.path.join(OUT, fname))
+        Image.fromarray(  # type: ignore[no-untyped-call]
+            rgb).save(os.path.join(OUT, fname))
         goal = sorted(str(a) for a in tasks[idx].goal)
         print(f"  saved {fname} | {counts[idx]} dominoes | goal={goal}")
 

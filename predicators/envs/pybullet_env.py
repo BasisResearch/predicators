@@ -470,7 +470,7 @@ class PyBulletEnv(BaseEnv):
         # the gripper, and over the single physics step the grasp constraint
         # would yank the object across the jump -- the jug lags, tips, or slides
         # in the gripper and then collides at the subsequent place/retreat. Pre-
-        # placing it at the gripper (it tracks the constant grasp offset, so this
+        # placing it at the gripper (tracks the constant grasp offset, so this
         # is exact for a rigid grasp) makes the carry follow the base smoothly.
         if self._held_obj_id is not None and (CFG.pybullet_control_mode
                                               == "reset" or base_moved):

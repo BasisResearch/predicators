@@ -24,7 +24,6 @@ from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.inverse_kinematics import \
     InverseKinematicsError
 from predicators.pybullet_helpers.joint import JointPositions
-from predicators.pybullet_helpers.link import get_link_state
 from predicators.pybullet_helpers.motion_planning import run_motion_planning
 from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot
@@ -449,10 +448,10 @@ class PhaseSkill:
                 # reaching it from home would sweep the arm across it (the jug0-
                 # vs-jug1 grasp/lift collision a fixed base cannot avoid). Then
                 # stand to the target's far side from that jug, offset laterally
-                # (NOT x-aligned, which would pin this arm at a singularity -- see
+                # (NOT x-aligned, which pins this arm at a singularity -- see
                 # the "home" push note). With no blocker, keep home's diagonal
                 # approach: moving the base in would only risk that singularity
-                # (e.g. re-picking a jug under the faucet, which has no neighbor).
+                # (e.g. re-picking a jug under the faucet, with no neighbor).
                 tx = float(target_pose.position[0])
                 ty = float(target_pose.position[1])
                 blocker_x: Optional[float] = None
@@ -687,6 +686,7 @@ class PhaseSkill:
         the simulator, collects collision body IDs, and runs IK + BiRRT
         on the simulator's physics client.
         """
+        del objects  # Unused; kept for a uniform planner signature.
         sim = self._config.simulator
         assert sim is not None
 

@@ -448,7 +448,7 @@ def test_parse_sketch_params_wrong_arity_drops_sketch():
         options={_Move},
         types={_block_type},
         parse_continuous_params=True)
-    assert sketch == []
+    assert not sketch
 
 
 def test_parse_sketch_zero_dim_empty_brackets():

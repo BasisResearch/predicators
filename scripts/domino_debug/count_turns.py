@@ -7,21 +7,26 @@ place.
 import numpy as np
 
 from predicators import utils
+from predicators.envs.pybullet_domino.components.domino_component import \
+    DominoComponent
 from predicators.envs.pybullet_domino.env import PyBulletDominoEnv
-from predicators.envs.pybullet_domino.task_generators.domino_task_generator import \
-    DominoTaskGenerator
+from predicators.envs.pybullet_domino.task_generators import \
+    domino_task_generator as dtg
 from predicators.settings import CFG
+from predicators.structs import Task
 
 N_TASKS = 40
 SEED = 0
 
 
-def ang_diff(a, b):
+def ang_diff(a: float, b: float) -> float:
+    """Return the smallest unsigned angle between a and b (mod pi)."""
     d = (a - b) % np.pi
     return min(d, np.pi - d)
 
 
-def is_turn(task, comp):
+def is_turn(task: Task, comp: DominoComponent) -> bool:
+    """Return True if the task's start/target dominoes differ in yaw."""
     st = task.init
     sy = ty = None
     for d in st.get_objects(comp.domino_type):
@@ -36,7 +41,8 @@ def is_turn(task, comp):
         ang_diff(sy, ty) > np.deg2rad(30)
 
 
-def main():
+def main() -> None:
+    """Print the percentage of generated test tasks with a turn."""
     utils.reset_config({
         "env": "pybullet_domino",
         "seed": SEED,
@@ -50,7 +56,8 @@ def main():
         "domino_test_num_pivots": [0],
     })
     env = PyBulletDominoEnv(use_gui=False)
-    comp = env._domino_component
+    comp = env._domino_component  # pylint: disable=protected-access
+    assert comp is not None
     robot_init_state = {
         "x": env.robot_init_x,
         "y": env.robot_init_y,
@@ -60,10 +67,11 @@ def main():
         "tilt": env.robot_init_tilt,
         "wrist": env.robot_init_wrist,
     }
-    gen = DominoTaskGenerator(domino_component=comp,
-                              robot=env._robot,
-                              robot_init_state=robot_init_state,
-                              additional_components=[])
+    gen = dtg.DominoTaskGenerator(
+        domino_component=comp,
+        robot=env._robot,  # pylint: disable=protected-access
+        robot_init_state=robot_init_state,
+        additional_components=[])
     # Reproduce the env's per-seed test path: seeds 0-4, 5 tasks each.
     turns = total = 0
     for seed in range(5):
@@ -74,7 +82,7 @@ def main():
             possible_num_dominos=CFG.domino_test_num_dominos,
             possible_num_targets=CFG.domino_test_num_targets,
             possible_num_pivots=CFG.domino_test_num_pivots)
-        turns += sum(is_turn(t, comp) for t in tasks)
+        turns += sum(is_turn(t.task, comp) for t in tasks)
         total += len(tasks)
     print(f"RESULT turns={turns}/{total} = {100.0 * turns / total:.1f}%")
 

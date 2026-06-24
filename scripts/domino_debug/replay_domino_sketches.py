@@ -8,19 +8,30 @@ pipeline uses (oracle option model + oracle samplers + subgoal checks, same
 per-(sketch,refine) RNG seeding). The pass/fail outcome and the "stuck at step
 K" reason therefore reproduce the run's solve-time failures deterministically.
 
-Run ONE seed per process (task-gen RNG is shared; see reproduce_domino_failures).
+Run ONE seed per process (task-gen RNG is shared; see
+reproduce_domino_failures).
 
 Usage:
-    PYTHONPATH=. python scripts/domino_debug/replay_domino_sketches.py <seed> <demo|no_demo> [--all]
-        --all replays every task; default replays only tasks the run did not solve.
+    PYTHONPATH=. python scripts/domino_debug/replay_domino_sketches.py \
+        <seed> <demo|no_demo> [--all]
+        --all replays every task; default replays only tasks the run
+        did not solve.
 """
 
 import logging
 import re
 import sys
 from glob import glob
+from typing import Dict, List, Optional, Tuple
 
-import numpy as np
+from predicators import utils
+from predicators.agent_sdk import bilevel_sketch
+from predicators.approaches import create_approach
+from predicators.approaches.agent_sim_learning_approach import \
+    AgentSimLearningApproach
+from predicators.envs import get_or_create_env
+from predicators.ground_truth_models import get_gt_options
+from predicators.settings import CFG
 
 logging.disable(logging.CRITICAL)
 
@@ -64,7 +75,8 @@ _FLAGS = {
 }
 
 
-def find_info_log(seed, arm):
+def find_info_log(seed: int, arm: str) -> str:
+    """Return the newest matching run's info.log path for seed/arm."""
     exp = f"domino-agent_oracle_hybrid_sim_oracle_samplers_{arm}"
     pat = f"logs/agent_sim_learning/{exp}/seed{seed}/run_*/info.log"
     hits = sorted(glob(pat))
@@ -73,12 +85,14 @@ def find_info_log(seed, arm):
     return hits[-1]
 
 
-def extract_sketches(info_log):
-    """Return {task_idx (0-based): {"outcome": str, "sketches": [[step,...]]}}.
+def extract_sketches(info_log: str) -> Dict[int, dict]:
+    """Return {task_idx (0-based): {"outcome": str, "sketches": ...}}.
 
     Each step is (option_name, [obj_names], raw_subgoal_str).
     """
-    tasks, pending, cur = {}, [], None
+    tasks: Dict[int, dict] = {}
+    pending: List[List[Tuple[str, List[str], str]]] = []
+    cur: Optional[List[Tuple[str, List[str], str]]] = None
     with open(info_log, encoding="utf-8") as f:
         for raw in f:
             line = ANSI.sub("", raw.rstrip("\n"))
@@ -105,7 +119,8 @@ def extract_sketches(info_log):
     return tasks
 
 
-def typed_text(steps, name_to_type):
+def typed_text(steps: List[Tuple[str, List[str], str]],
+               name_to_type: Dict[str, str]) -> str:
     """Rebuild typed sketch text the option-plan parser expects."""
     lines = []
     for opt, objs, sg in steps:
@@ -117,7 +132,21 @@ def typed_text(steps, name_to_type):
     return "\n".join(lines)
 
 
-def main():
+class _DeepestFail:
+    """Track the deepest (highest-index) step failure seen so far."""
+
+    def __init__(self) -> None:
+        self.idx: int = -1
+        self.reason: str = ""
+
+    def record(self, idx: int, _prefix: list, reason: str) -> None:
+        """on_step_fail callback: keep the deepest failure."""
+        if idx > self.idx:
+            self.idx, self.reason = idx, reason
+
+
+def main() -> None:
+    """Replay recorded sketches through the real refinement."""
     seed = int(sys.argv[1])
     arm = sys.argv[2] if len(sys.argv) > 2 else "no_demo"
     replay_all = "--all" in sys.argv
@@ -125,13 +154,7 @@ def main():
     info_log = find_info_log(seed, arm)
     tasks = extract_sketches(info_log)
 
-    from predicators import utils
     utils.reset_config(dict(_FLAGS, seed=seed))
-    from predicators.agent_sdk import bilevel_sketch
-    from predicators.approaches import create_approach
-    from predicators.envs import get_or_create_env
-    from predicators.ground_truth_models import get_gt_options
-    from predicators.settings import CFG
 
     env = get_or_create_env("pybullet_domino")
     options = get_gt_options(env.get_name())
@@ -139,7 +162,10 @@ def main():
     train_tasks = [t.task for t in env.get_train_tasks()]
     approach = create_approach("agent_sim_learning", preds, options, env.types,
                                env.action_space, train_tasks)
-    approach._maybe_install_oracle_samplers()  # pylint: disable=protected-access
+    assert isinstance(approach, AgentSimLearningApproach)
+    # pylint: disable=protected-access
+    approach._maybe_install_oracle_samplers()
+    # pylint: enable=protected-access
     test_tasks = env.get_test_tasks()
     name_to_type = {o.name: o.type.name for o in test_tasks[0].task.init}
 
@@ -151,9 +177,8 @@ def main():
         if solved and not replay_all:
             continue
         task = test_tasks[ti].task
-        print(
-            f"\n== task{ti} (run Task{ti+1}) | run outcome: {rec['outcome'][:60]}"
-        )
+        print(f"\n== task{ti} (run Task{ti+1}) | run outcome: "
+              f"{rec['outcome'][:60]}")
         if not rec["sketches"]:
             print("   (no sketches recorded)")
             continue
@@ -168,28 +193,24 @@ def main():
                 print(f"   sketch{si}: unparseable")
                 continue
             any_success = False
-            deepest = (-1, "")
+            deepest_idx, deepest_reason = -1, ""
             for r in range(CFG.agent_bilevel_max_refine_retries):
-                fail = {"idx": -1, "reason": ""}
-
-                def rec_fail(idx, _prefix, reason, _f=fail):
-                    if idx > _f["idx"]:
-                        _f["idx"], _f["reason"] = idx, reason
-
+                fail = _DeepestFail()
                 attempt = si * CFG.agent_bilevel_max_refine_retries + r
-                _, success = approach._refine_sketch(  # pylint: disable=protected-access
-                    task,
-                    sketch,
-                    600.0,
-                    attempt=attempt,
-                    on_step_fail=rec_fail)
+                # pylint: disable=protected-access
+                _, success = approach._refine_sketch(task,
+                                                     sketch,
+                                                     600.0,
+                                                     attempt=attempt,
+                                                     on_step_fail=fail.record)
+                # pylint: enable=protected-access
                 if success:
                     any_success = True
                     break
-                if fail["idx"] > deepest[0]:
-                    deepest = (fail["idx"], fail["reason"])
+                if fail.idx > deepest_idx:
+                    deepest_idx, deepest_reason = fail.idx, fail.reason
             verdict = "REFINED-OK" if any_success else \
-                f"FAILED (stuck step {deepest[0]}: {deepest[1][:60]})"
+                f"FAILED (stuck step {deepest_idx}: {deepest_reason[:60]})"
             head = " -> ".join(f"{o}({','.join(a)})" for o, a, _ in steps)
             print(f"   sketch{si} [{len(steps)} steps]: {verdict}")
             print(f"            {head}")

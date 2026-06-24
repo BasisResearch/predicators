@@ -535,7 +535,8 @@ scene, then annotate_scene overlays markers on it."""
                 return None
 
             rgb_array = np.asarray(video[0], dtype=np.uint8)
-            img = PILImage.fromarray(rgb_array)
+            img = PILImage.fromarray(  # type: ignore[no-untyped-call]
+                rgb_array)
             os.makedirs(save_dir, exist_ok=True)
             task_id = self._tool_context.test_task_idx
             if task_id is not None:
@@ -634,7 +635,8 @@ scene, then annotate_scene overlays markers on it."""
         """Return the notes.md bullet for the solve prompt, or empty."""
         if CFG.agent_planner_use_scratchpad:
             return (
-                "- **Read `./notes.md` before every evaluate_option_plan call** "
+                "- **Read `./notes.md` before every "
+                "evaluate_option_plan call** "
                 "and **update it immediately after each call** — append a "
                 "row to the parameter table and update the explored-ranges "
                 "summary. If you realize you forgot to update, STOP and "
@@ -1047,6 +1049,8 @@ Output ONLY the option plan lines at the end, after any analysis."""
         self._offline_dataset = save_dict["offline_dataset"]
         self._online_trajectories = save_dict["online_trajectories"]
         self._online_learning_cycle = save_dict["online_learning_cycle"] + 1
+        # pylint: disable=attribute-defined-outside-init
+        # (_agent_session_id is initialized via the agent-session mixin.)
         self._agent_session_id = save_dict.get("agent_session_id")
 
         # Create new run_id for continued execution (each run gets own dir)

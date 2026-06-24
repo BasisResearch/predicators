@@ -14,6 +14,7 @@ import re
 import sys
 import time
 from glob import glob
+from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 
@@ -27,8 +28,11 @@ TRES = re.compile(
     r"\[main\.py\] Task (\d+) / \d+: (.*)|Task (\d+) / \d+: (SOLVED)")
 
 
-def extract(info_log):
-    tasks, pending, cur = {}, [], None
+def extract(info_log: str) -> Dict[int, dict]:
+    """Parse recorded sketches and outcomes per task from an info.log."""
+    tasks: Dict[int, dict] = {}
+    pending: List[List[Tuple[str, List[str], str]]] = []
+    cur: List[Tuple[str, List[str], str]] | None = None
     for raw in open(info_log, encoding="utf-8"):
         line = ANSI.sub("", raw.rstrip("\n"))
         if SKH.search(line):
@@ -54,7 +58,8 @@ def extract(info_log):
     return tasks
 
 
-def main():
+def main() -> None:
+    """Replay recorded sketches with ik_validate and report flips."""
     seed = int(sys.argv[1])
     arm = sys.argv[2]
     budget = float(sys.argv[3]) if len(sys.argv) > 3 else 300.0
@@ -94,6 +99,9 @@ def main():
         "option_model_terminate_on_repeat": False,
         "agent_planner_use_simulator": True
     }
+    # pylint: disable=import-outside-toplevel
+    # Imports are deferred until after reset_config so module-level CFG
+    # reads in these modules observe the FLAGS set above.
     from predicators import utils
     utils.reset_config(FLAGS)
     from predicators.agent_sdk import bilevel_sketch
@@ -104,13 +112,16 @@ def main():
     env = get_or_create_env("pybullet_domino")
     options = get_gt_options(env.get_name())
     preds, _ = utils.parse_config_excluded_predicates(env)
-    ap = create_approach("agent_sim_learning", preds, options, env.types,
-                         env.action_space,
-                         [t.task for t in env.get_train_tasks()])
-    ap._maybe_install_oracle_samplers()
+    # Cast to Any: this script probes approach-specific protected members
+    # (sampler installers, option model) absent from the BaseApproach API.
+    ap: Any = create_approach("agent_sim_learning", preds, options, env.types,
+                              env.action_space,
+                              [t.task for t in env.get_train_tasks()])
+    ap._maybe_install_oracle_samplers()  # pylint: disable=protected-access
     n2t = {o.name: o.type.name for o in env.get_test_tasks()[0].task.init}
 
-    def typed(steps):
+    def typed(steps: List[Tuple[str, List[str], str]]) -> str:
+        """Render parsed sketch steps as typed operator lines."""
         lines = []
         for op, objs, sg in steps:
             args = ", ".join(o + ":" + n2t.get(o, "object") for o in objs)
@@ -120,36 +131,52 @@ def main():
             lines.append(line)
         return "\n".join(lines)
 
-    print(
-        f"# seed{seed} {arm} | ik_validate={ikv} | NEW task-gen | budget={budget}s"
-    )
+    header = (f"# seed{seed} {arm} | ik_validate={ikv} | "
+              f"NEW task-gen | budget={budget}s")
+    print(header)
     for ti in sorted(rec):
         task = env.get_test_tasks()[ti].task
         recout = "SOLVED" if rec[ti]["outcome"].upper().startswith(
             "SOLVED") else "FAILED"
         t0 = time.perf_counter()
         solved_by = None
-        deepest = (-1, "")
+        deepest: Tuple[int, str] = (-1, "")
         for si, steps in enumerate(rec[ti]["sketches"]):
-            if time.perf_counter() - t0 > budget: break
+            if time.perf_counter() - t0 > budget:
+                break
             sk = bilevel_sketch.parse_sketch_from_text(typed(steps),
                                                        task,
                                                        predicates=preds,
                                                        options=set(options),
                                                        types=env.types)
-            if not sk: continue
+            if not sk:
+                continue
             for r in range(2):
-                if time.perf_counter() - t0 > budget: break
-                fail = {"idx": -1, "reason": ""}
+                if time.perf_counter() - t0 > budget:
+                    break
+                fail: Dict[str, object] = {"idx": -1, "reason": ""}
 
-                def rc(i, p, reason, _f=fail):
-                    if i > _f["idx"]: _f["idx"], _f["reason"] = i, reason
+                def make_rc(
+                    f: Dict[str,
+                            object]) -> Callable[[int, object, str], None]:
+                    """Build an on_step_fail recording the deepest fail."""
 
+                    def rc(i: int, _p: object, reason: str) -> None:
+                        if i > f["idx"]:  # type: ignore[operator]
+                            f["idx"], f["reason"] = i, reason
+
+                    return rc
+
+                # pylint: disable=protected-access
+                option_model = ap._option_model
+                all_preds = ap._get_all_predicates()
+                all_samplers = ap._get_all_samplers()
+                # pylint: enable=protected-access
                 _, ok, _ = bilevel_sketch.refine_sketch(
                     task,
                     sk,
-                    ap._option_model,
-                    predicates=ap._get_all_predicates(),
+                    option_model,
+                    predicates=all_preds,
                     timeout=budget,
                     rng=np.random.default_rng(CFG.seed + si * 5 + r),
                     max_samples_per_step=CFG.
@@ -157,22 +184,26 @@ def main():
                     check_subgoals=True,
                     log_state=False,
                     run_id="iv",
-                    option_samplers=ap._get_all_samplers(),
-                    on_step_fail=rc)
+                    option_samplers=all_samplers,
+                    on_step_fail=make_rc(fail))
                 if ok:
                     solved_by = (si, r)
                     break
-                if fail["idx"] > deepest[0]:
-                    deepest = (fail["idx"], fail["reason"])
-            if solved_by: break
+                if fail["idx"] > deepest[0]:  # type: ignore[operator]
+                    deepest = (fail["idx"], fail["reason"])  # type: ignore
+            if solved_by:
+                break
         dt = time.perf_counter() - t0
         verdict = "SOLVED" if solved_by else "FAILED"
         flip = "" if verdict == recout else (
             "  *** REGRESSION" if recout == "SOLVED" else "  *** FIXED")
-        extra = f"by sketch{solved_by[0]}" if solved_by else f"deepest step{deepest[0]}: {deepest[1][:32]}"
-        print(
-            f"  task{ti+1}: recorded(F)={recout:6s} -> new={verdict:6s} [{dt:5.0f}s] {extra}{flip}"
-        )
+        if solved_by:
+            extra = f"by sketch{solved_by[0]}"
+        else:
+            extra = f"deepest step{deepest[0]}: {deepest[1][:32]}"
+        line = (f"  task{ti+1}: recorded(F)={recout:6s} -> "
+                f"new={verdict:6s} [{dt:5.0f}s] {extra}{flip}")
+        print(line)
 
 
 if __name__ == "__main__":

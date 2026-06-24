@@ -266,8 +266,9 @@ class LocalSandboxSessionManager:
                         # A drop below the last value means the session was
                         # reset (e.g. recovery), so the new cumulative is
                         # itself the delta.
-                        solve_cost = (cost - self._last_cost_usd
-                                      if cost >= self._last_cost_usd else cost)
+                        solve_cost = float(cost -
+                                           self._last_cost_usd if cost >= self.
+                                           _last_cost_usd else cost)
                         self._last_cost_usd = cost
                         self._total_cost_usd += solve_cost
                         self._current_log_meta["solve_cost_usd"] = solve_cost

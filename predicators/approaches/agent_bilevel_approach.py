@@ -355,7 +355,9 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 if not success:
                     reason_msg = ""
                     if fail_state["deepest_idx"] >= 0:
-                        reason_msg = f" (stuck at step {fail_state['deepest_idx']}: {fail_state['deepest_reason']})"
+                        reason_msg = (
+                            f" (stuck at step {fail_state['deepest_idx']}: "
+                            f"{fail_state['deepest_reason']})")
 
                     logging.info(
                         f"Refinement failed (sketch "
@@ -429,8 +431,14 @@ class AgentBilevelApproach(AgentPlannerApproach):
         """
         sketch_file = CFG.agent_bilevel_plan_sketch_file
         if sketch_file:
-            filepath = utils.get_path_to_predicators_root() + \
-                f"/scripts/{CFG.agent_bilevel_plan_sketch_dir}/{sketch_file}"
+            # An absolute path is used as-is; a bare filename is resolved
+            # against the configured plan-sketch directory under scripts/.
+            if os.path.isabs(sketch_file):
+                filepath = sketch_file
+            else:
+                filepath = (
+                    f"{utils.get_path_to_predicators_root()}/scripts/"
+                    f"{CFG.agent_bilevel_plan_sketch_dir}/{sketch_file}")
             with open(filepath, "r", encoding="utf-8") as f:
                 plan_text = f.read().strip()
             logging.info("Loaded plan sketch from file: %s", sketch_file)

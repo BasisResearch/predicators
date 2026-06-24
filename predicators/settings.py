@@ -1110,8 +1110,10 @@ class GlobalSettings:
     agent_bilevel_max_execution_replans = 0
     # log state pretty_str before/after each step
     agent_bilevel_log_state = False
-    agent_bilevel_plan_sketch_dir = "plan_sketches"  # load sketch from file instead of LLM
-    agent_bilevel_plan_sketch_file = ""  # load sketch from file instead of LLM
+    # Load a plan sketch from a file instead of querying the LLM. The dir is
+    # under scripts/; the file may be a bare name or an absolute path.
+    agent_bilevel_plan_sketch_dir = "plan_sketches"
+    agent_bilevel_plan_sketch_file = ""
     # When evaluate_plan_refinement is called without an explicit timeout,
     # the synthesis tool computes
     #   max(_min, _per_step * len(sketch))
