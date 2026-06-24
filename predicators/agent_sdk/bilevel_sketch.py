@@ -354,10 +354,10 @@ def parse_atoms(
 ) -> Tuple[Set[GroundAtom], Set[GroundAtom]]:
     """Parse atoms like ``Pred(a:t, b:t)`` / ``NOT Pred(a)`` from a string.
 
-    Returns ``(positive_atoms, negative_atoms)``. Any number of atoms may
-    appear in ``atoms_text`` (separated by commas or anything else — the
-    regex finds each ``Pred(...)``). Atoms with an unknown predicate or
-    object, or the wrong arity, are skipped with a warning.
+    Returns ``(positive_atoms, negative_atoms)``. Any number of atoms
+    may appear in ``atoms_text`` (separated by commas or anything else —
+    the regex finds each ``Pred(...)``). Atoms with an unknown predicate
+    or object, or the wrong arity, are skipped with a warning.
     """
     pred_map = {p.name: p for p in predicates}
     obj_map = {o.name: o for o in objects}
@@ -1000,12 +1000,12 @@ def _fmt_state_features(state: State) -> str:
 class StepOutcome:
     """Result of executing one option in ``execute_plan_forward``.
 
-    ``post_state`` is ``None`` when the option was not initiable or raised
-    (no state to continue from). ``failure_reason`` is ``None`` on a clean
-    step, else the reason (``"not initiable"`` / ``"0 actions"`` / the
-    option model's last failure / ``"env failure: ..."``). ``subgoal_missing``
-    holds the step's positive subgoal atoms that did NOT hold afterwards
-    (only set when a sketch is supplied).
+    ``post_state`` is ``None`` when the option was not initiable or
+    raised (no state to continue from). ``failure_reason`` is ``None``
+    on a clean step, else the reason (``"not initiable"`` / ``"0
+    actions"`` / the option model's last failure / ``"env failure:
+    ..."``). ``subgoal_missing`` holds the step's positive subgoal atoms
+    that did NOT hold afterwards (only set when a sketch is supplied).
     """
     option: _Option
     pre_state: State
@@ -1018,7 +1018,8 @@ class StepOutcome:
 
 @dataclasses.dataclass
 class ForwardResult:
-    """Outcome of executing a grounded plan forward through the option model."""
+    """Outcome of executing a grounded plan forward through the option
+    model."""
     steps: List[StepOutcome]
     final_state: State
     goal_reached: bool
@@ -1050,18 +1051,19 @@ def execute_plan_forward(
 ) -> ForwardResult:
     """Execute a fully-grounded plan step by step through the option model.
 
-    Shared forward-execution core behind ``validate_plan_forward`` (used by
-    ``refine_plan_sketch``) and the ``evaluate_option_plan`` tool. State
-    carries forward across options — matching how the real env executes.
-    Per step it mirrors ``run_backtracking_refinement``'s fixed-plan path:
-    check ``initiable``, call ``get_next_state_and_num_actions`` (catching
+    Shared forward-execution core behind ``validate_plan_forward`` (used
+    by ``refine_plan_sketch``) and the ``evaluate_option_plan`` tool.
+    State carries forward across options — matching how the real env
+    executes. Per step it mirrors ``run_backtracking_refinement``'s
+    fixed-plan path: check ``initiable``, call
+    ``get_next_state_and_num_actions`` (catching
     ``EnvironmentFailure``), treat 0 actions as a failure, and — when a
-    sketch is given — check the step's positive ``subgoal_atoms`` against
-    the post-state. Execution stops early only when a step is not initiable
-    or raises (no post-state to continue from); a 0-action step is recorded
-    as a failure but execution continues from the model's returned state.
-    ``on_step(i, outcome)`` is called after each step for callers that emit
-    per-step reporting.
+    sketch is given — check the step's positive ``subgoal_atoms``
+    against the post-state. Execution stops early only when a step is
+    not initiable or raises (no post-state to continue from); a 0-action
+    step is recorded as a failure but execution continues from the
+    model's returned state. ``on_step(i, outcome)`` is called after each
+    step for callers that emit per-step reporting.
     """
     state = task.init
     steps: List[StepOutcome] = []

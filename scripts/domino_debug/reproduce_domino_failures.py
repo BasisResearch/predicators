@@ -93,12 +93,13 @@ def reproduce_mp(seed):
             rb = next(o for o in s if o.type.name == "robot")
             dd = next(o for o in s if o.name == d.name)
             opt = Pick.ground([rb, dd],
-                             np.array([_GRASP_Z_OFFSET], dtype=np.float32))
+                              np.array([_GRASP_Z_OFFSET], dtype=np.float32))
             ok, _ = _run_option(env, opt, s)
             if ok is False:
                 infeasible.append(d.name)
-        print(f"seed{seed} task{ti} (run Task{ti+1}): {len(dominoes)} dominoes "
-              f"| grasp-INFEASIBLE: {infeasible if infeasible else 'none'}")
+        print(
+            f"seed{seed} task{ti} (run Task{ti+1}): {len(dominoes)} dominoes "
+            f"| grasp-INFEASIBLE: {infeasible if infeasible else 'none'}")
 
 
 def reproduce_push_bug(seed):
@@ -111,11 +112,11 @@ def reproduce_push_bug(seed):
     objects = list(state)
     cases = {
         "LLM-style 'Push(robot, domino_0)'":
-            "Pick(robot:robot, domino_1:domino)\n"
-            "Push(robot:robot, domino_0:domino)\nWait(robot:robot)",
+        "Pick(robot:robot, domino_1:domino)\n"
+        "Push(robot:robot, domino_0:domino)\nWait(robot:robot)",
         "legal 'Push(robot)'":
-            "Pick(robot:robot, domino_1:domino)\n"
-            "Push(robot:robot)\nWait(robot:robot)",
+        "Pick(robot:robot, domino_1:domino)\n"
+        "Push(robot:robot)\nWait(robot:robot)",
     }
     for label, txt in cases.items():
         plan = utils.parse_model_output_into_option_plan(

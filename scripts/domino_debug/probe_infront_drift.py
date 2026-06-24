@@ -1,7 +1,7 @@
 """Measure InFront settle-drift: place a domino at the oracle sampler's
-generator-faithful nominal pose through the REAL option model (PyBullet
-forward sim), then compare the settled pose to the nominal one and to the
-InFront tolerance window.
+generator-faithful nominal pose through the REAL option model (PyBullet forward
+sim), then compare the settled pose to the nominal one and to the InFront
+tolerance window.
 
 Usage: PYTHONPATH=. python scripts/domino_debug/probe_infront_drift.py <seed> <env_task_idx>
 """
@@ -22,9 +22,9 @@ def main():
 
     from predicators import utils
     utils.reset_config(dict(_FLAGS, seed=seed))
+    from predicators.approaches import create_approach
     from predicators.envs import get_or_create_env
     from predicators.ground_truth_models import get_gt_options
-    from predicators.approaches import create_approach
 
     env = get_or_create_env("pybullet_domino")
     options = get_gt_options(env.get_name())
@@ -63,7 +63,8 @@ def main():
     sub = {utils.GroundAtom(InFront, [held, ref])}
 
     # 1) Pick the held domino.
-    pick_params = P._pick_option_sampler(state, set(), np.random.default_rng(0),
+    pick_params = P._pick_option_sampler(state, set(),
+                                         np.random.default_rng(0),
                                          [robot, held])
     pick_opt = Pick.ground([robot, held], pick_params)
     assert pick_opt.initiable(state), "pick not initiable"
@@ -77,18 +78,20 @@ def main():
         nom_x, nom_y, _, nom_yaw = [float(v) for v in place_params]
         place_opt = Place.ground([robot], place_params)
         if not place_opt.initiable(s1):
-            print(f"  trial{trial}: place not initiable"); continue
+            print(f"  trial{trial}: place not initiable")
+            continue
         s2, _ = om.get_next_state_and_num_actions(s1, place_opt)
-        gx, gy, gyaw = (s2.get(held, "x"), s2.get(held, "y"),
-                        s2.get(held, "yaw"))
+        gx, gy, gyaw = (s2.get(held, "x"), s2.get(held,
+                                                  "y"), s2.get(held, "yaw"))
         groll = s2.get(held, "roll")
-        rx, ry, ryaw = (s2.get(ref, "x"), s2.get(ref, "y"),
-                        s2.get(ref, "yaw"))
+        rx, ry, ryaw = (s2.get(ref, "x"), s2.get(ref, "y"), s2.get(ref, "yaw"))
         infront = infront_holds(s2, [held, ref])
         # nominal InFront check (kinematic, roll=0, exactly at sampler pose)
         snom = s2.copy()
-        snom.set(held, "x", nom_x); snom.set(held, "y", nom_y)
-        snom.set(held, "yaw", nom_yaw); snom.set(held, "roll", 0.0)
+        snom.set(held, "x", nom_x)
+        snom.set(held, "y", nom_y)
+        snom.set(held, "yaw", nom_yaw)
+        snom.set(held, "roll", 0.0)
         nom_infront = infront_holds(snom, [held, ref])
         print(f"\n  trial{trial}: nominal place=({nom_x:.4f},{nom_y:.4f},"
               f"yaw={nom_yaw:+.4f})  nominal_InFront={nom_infront}")
@@ -96,8 +99,10 @@ def main():
               f"roll={groll:+.4f})")
         print(f"    drift dx={gx-nom_x:+.4f} dy={gy-nom_y:+.4f} "
               f"dyaw={gyaw-nom_yaw:+.4f}  (pos_tol={pos_tol:.4f})")
-        print(f"    {ref.name}=({rx:.4f},{ry:.4f},yaw={ryaw:+.4f}) "
-              f"cardinal={'yes' if (abs(np.sin(ryaw))<np.sin(np.radians(10)) or abs(np.cos(ryaw))<np.sin(np.radians(10))) else 'NO'}")
+        print(
+            f"    {ref.name}=({rx:.4f},{ry:.4f},yaw={ryaw:+.4f}) "
+            f"cardinal={'yes' if (abs(np.sin(ryaw))<np.sin(np.radians(10)) or abs(np.cos(ryaw))<np.sin(np.radians(10))) else 'NO'}"
+        )
         print(f"    => settled InFront({held.name},{ref.name}) = {infront}")
 
 

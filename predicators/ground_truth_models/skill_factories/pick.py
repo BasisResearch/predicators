@@ -143,7 +143,9 @@ def create_pick_skill(
         # Validate the grasp goal IK: the gripper descends to envelop the
         # target, and an imprecise (unvalidated) IK config can clip the target
         # object, making BiRRT reject a reachable grasp. See Phase.validate_ik.
-        make_move_to_phase("MoveToGrasp", _descend_pose, "open",
+        make_move_to_phase("MoveToGrasp",
+                           _descend_pose,
+                           "open",
                            validate_ik=True),
         Phase(
             name="Grasp",

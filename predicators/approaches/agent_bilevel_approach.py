@@ -469,12 +469,12 @@ class AgentBilevelApproach(AgentPlannerApproach):
     ) -> Tuple[Callable[[int, List[Optional[_Option]], str], None], "dict"]:
         """Build an ``on_step_fail`` callback and its accumulator state.
 
-        Returns ``(callback, state)`` where ``state`` is a dict with keys
-        ``deepest_idx`` (the deepest step index the search reached before
-        failing), ``deepest_reason`` (the failure reason there), and
-        ``counts`` (a ``Counter`` over ``(step_idx, reason)``). Built as a
-        factory so the closure captures fresh per-sketch state instead of
-        loop variables.
+        Returns ``(callback, state)`` where ``state`` is a dict with
+        keys ``deepest_idx`` (the deepest step index the search reached
+        before failing), ``deepest_reason`` (the failure reason there),
+        and ``counts`` (a ``Counter`` over ``(step_idx, reason)``).
+        Built as a factory so the closure captures fresh per-sketch
+        state instead of loop variables.
         """
         state: dict = {
             "deepest_idx": -1,
@@ -698,11 +698,11 @@ class AgentBilevelApproach(AgentPlannerApproach):
     def _consume_validated_plan(self) -> Optional[Callable[[State], Action]]:
         """Return a policy from an agent-validated plan, or None.
 
-        ``refine_plan_sketch`` records a refined + forward-validated plan on
-        the current solve task into the tool context. Returning that exact
-        simulator-verified plan guarantees the agent's tool-validated answer
-        is what executes, and skips a re-refinement that — with a different
-        seed — might not reproduce it.
+        ``refine_plan_sketch`` records a refined + forward-validated
+        plan on the current solve task into the tool context. Returning
+        that exact simulator-verified plan guarantees the agent's tool-
+        validated answer is what executes, and skips a re-refinement
+        that — with a different seed — might not reproduce it.
         """
         plan = self._tool_context.solved_plan
         sketch = self._tool_context.solved_sketch

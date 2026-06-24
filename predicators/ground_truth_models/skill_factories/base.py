@@ -378,9 +378,9 @@ class PhaseSkill:
                       objects: Sequence[Object], params: Array) -> Action:
         """Dispatch to BiRRT or incremental IK based on phase flag.
 
-        For mobile-base robots, first drive the base to a pose that puts the
-        reach target in comfortable arm range (the arm BiRRT/IK then plans
-        from the repositioned base).
+        For mobile-base robots, first drive the base to a pose that puts
+        the reach target in comfortable arm range (the arm BiRRT/IK then
+        plans from the repositioned base).
         """
         base_action = self._maybe_drive_base(phase, state, memory, objects,
                                              params)
@@ -751,13 +751,11 @@ class PhaseSkill:
         # Validate the goal IK when globally enabled, or when this phase
         # requests it (e.g. a grasp approach, where an imprecise goal config
         # clips the target object and BiRRT then rejects a reachable grasp).
-        validate_goal_ik = self._config.ik_validate or (
-            phase is not None and phase.validate_ik)
+        validate_goal_ik = self._config.ik_validate or (phase is not None
+                                                        and phase.validate_ik)
         try:
             target_joints: JointPositions = planning_robot.inverse_kinematics(
-                target_pose,
-                validate=validate_goal_ik,
-                set_joints=True)
+                target_pose, validate=validate_goal_ik, set_joints=True)
         except InverseKinematicsError:
             pos = target_pose.position
             logging.warning(

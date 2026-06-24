@@ -423,12 +423,12 @@ def _future_target_bridge_score(state: State, held: Object, hx: float,
                                 hy: float, hyaw: float) -> float:
     """Tie-break score for placements that can be completed to a target.
 
-    The immediate ``InFront(held, ref)`` subgoal underdetermines which side of
-    the start domino to place the bridge on. Prefer placements for which one
-    additional domino can be placed at the intersection of generator-faithful
-    successors from the held domino and from a purple target domino. This keeps
-    the sampler from spending most refinement attempts on locally valid but
-    globally dead first placements.
+    The immediate ``InFront(held, ref)`` subgoal underdetermines which
+    side of the start domino to place the bridge on. Prefer placements
+    for which one additional domino can be placed at the intersection of
+    generator-faithful successors from the held domino and from a purple
+    target domino. This keeps the sampler from spending most refinement
+    attempts on locally valid but globally dead first placements.
     """
     dominoes = [o for o in state if o.type.name == "domino" and o is not held]
     targets = [d for d in dominoes if _is_target_domino(state, d)]

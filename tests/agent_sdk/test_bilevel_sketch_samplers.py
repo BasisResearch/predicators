@@ -340,8 +340,11 @@ def test_initial_params_clipped_to_box():
 
 
 def test_initial_params_seeded_and_win_on_disagreement():
-    """LLM params are pooled with sampled draws; the argmax (most
-    informative) is chosen. Here the guess is the most informative."""
+    """LLM params are pooled with sampled draws; the argmax (most informative)
+    is chosen.
+
+    Here the guess is the most informative.
+    """
     step = SketchStep(option=_Move,
                       objects=[_block],
                       subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
@@ -373,8 +376,8 @@ def test_initial_params_seeded_and_win_on_disagreement():
 
 
 def test_initial_params_lose_to_more_informative_draw():
-    """A feasible guess no longer short-circuits: a strictly more
-    informative sampled candidate beats it in the disagreement argmax."""
+    """A feasible guess no longer short-circuits: a strictly more informative
+    sampled candidate beats it in the disagreement argmax."""
     step = SketchStep(option=_Move,
                       objects=[_block],
                       subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
@@ -529,7 +532,8 @@ def test_execute_plan_forward_success():
 
 
 def test_execute_plan_forward_goal_not_reached():
-    """The step executes but doesn't reach the goal: not success, no failure."""
+    """The step executes but doesn't reach the goal: not success, no
+    failure."""
     plan = [_Move.ground([_block], np.array([0.5], dtype=np.float32))]
     result = bilevel_sketch.execute_plan_forward(_task_hi(),
                                                  plan,
@@ -582,8 +586,8 @@ def test_execute_plan_forward_not_initiable_stops():
 def test_refine_and_validate_report_returns_plan():
     """refine_and_validate_report yields (success, report, plan).
 
-    The grounded plan is what refine_plan_sketch captures so the approach
-    can return the simulator-verified answer directly.
+    The grounded plan is what refine_plan_sketch captures so the
+    approach can return the simulator-verified answer directly.
     """
     step = SketchStep(option=_Move,
                       objects=[_block],

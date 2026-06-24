@@ -16,8 +16,8 @@ from matplotlib.transforms import Affine2D
 
 from predicators import utils
 from predicators.envs.pybullet_domino.env import PyBulletDominoEnv
-from predicators.envs.pybullet_domino.task_generators.domino_task_generator \
-    import DominoTaskGenerator
+from predicators.envs.pybullet_domino.task_generators.domino_task_generator import \
+    DominoTaskGenerator
 from predicators.settings import CFG
 
 SEEDS = [0, 1, 2, 3, 4]
@@ -52,13 +52,18 @@ def classify(task, comp):
 
 def build_generator(env):
     ris = {
-        "x": env.robot_init_x, "y": env.robot_init_y, "z": env.robot_init_z,
-        "fingers": env.open_fingers, "roll": env.robot_init_roll,
-        "tilt": env.robot_init_tilt, "wrist": env.robot_init_wrist,
+        "x": env.robot_init_x,
+        "y": env.robot_init_y,
+        "z": env.robot_init_z,
+        "fingers": env.open_fingers,
+        "roll": env.robot_init_roll,
+        "tilt": env.robot_init_tilt,
+        "wrist": env.robot_init_wrist,
     }
     return DominoTaskGenerator(domino_component=env._domino_component,
-                              robot=env._robot, robot_init_state=ris,
-                              additional_components=[])
+                               robot=env._robot,
+                               robot_init_state=ris,
+                               additional_components=[])
 
 
 def gen_all(env, disable_grasp):
@@ -71,7 +76,8 @@ def gen_all(env, disable_grasp):
         for seed in SEEDS:
             rng = np.random.default_rng(seed + OFFSET)
             tasks = gen.generate_tasks(
-                num_tasks=TASKS_PER_SEED, rng=rng,
+                num_tasks=TASKS_PER_SEED,
+                rng=rng,
                 possible_num_dominos=CFG.domino_test_num_dominos,
                 possible_num_targets=CFG.domino_test_num_targets,
                 possible_num_pivots=CFG.domino_test_num_pivots)
@@ -94,23 +100,32 @@ def render(entries, comp, title, path):
             ax = axes[r][c]
             t = by_key.get((seed, c))
             if t is None:
-                ax.axis("off"); continue
+                ax.axis("off")
+                continue
             is_turn, dominoes = classify(t, comp)
             turns += is_turn
             for (x, y, yaw, role) in dominoes:
-                rect = Rectangle((-w / 2, -dpth / 2), w, dpth, color=cmap[role])
-                rect.set_transform(
-                    Affine2D().rotate(yaw).translate(x, y) + ax.transData)
+                rect = Rectangle((-w / 2, -dpth / 2),
+                                 w,
+                                 dpth,
+                                 color=cmap[role])
+                rect.set_transform(Affine2D().rotate(yaw).translate(x, y) +
+                                   ax.transData)
                 ax.add_patch(rect)
             ax.set_xlim(comp.domino_x_lb - 0.05, comp.domino_x_ub + 0.05)
             ax.set_ylim(comp.domino_y_lb - 0.05, comp.domino_y_ub + 0.05)
-            ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
-            ax.set_title(f"seed{seed} t{c}: {'TURN' if is_turn else 'straight'}",
-                         fontsize=9, color="red" if is_turn else "black")
+            ax.set_aspect("equal")
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_title(
+                f"seed{seed} t{c}: {'TURN' if is_turn else 'straight'}",
+                fontsize=9,
+                color="red" if is_turn else "black")
     n = len(entries)
-    fig.suptitle(f"{title}  —  {turns}/{n} turns ({100.0*turns/n:.0f}%)\n"
-                 "green=start  blue=movable(staged)  purple=target",
-                 fontsize=13)
+    fig.suptitle(
+        f"{title}  —  {turns}/{n} turns ({100.0*turns/n:.0f}%)\n"
+        "green=start  blue=movable(staged)  purple=target",
+        fontsize=13)
     fig.tight_layout(rect=[0, 0, 1, 0.97])
     fig.savefig(path, dpi=95)
     plt.close(fig)
@@ -119,8 +134,10 @@ def render(entries, comp, title, path):
 
 def main():
     utils.reset_config({
-        "env": "pybullet_domino", "seed": 0,
-        "num_train_tasks": 0, "num_test_tasks": TASKS_PER_SEED,
+        "env": "pybullet_domino",
+        "seed": 0,
+        "num_train_tasks": 0,
+        "num_test_tasks": TASKS_PER_SEED,
         "test_env_seed_offset": OFFSET,
         "domino_initialize_at_finished_state": False,
         "domino_use_domino_blocks_as_target": True,

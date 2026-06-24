@@ -113,8 +113,7 @@ class DominoTaskGenerator(TaskGenerator):
             # highest-index ones are the chain end; re-designating those keeps
             # the target last.
             if CFG.domino_use_domino_blocks_as_target:
-                self._retarget_terminal_dominoes(candidate_obj_dict,
-                                                 n_targets)
+                self._retarget_terminal_dominoes(candidate_obj_dict, n_targets)
 
             # Move intermediate objects if needed. This can fail if the
             # unfinished staging area is too full after collision checking, so
@@ -705,8 +704,8 @@ class DominoTaskGenerator(TaskGenerator):
         occupied = {
             obj: data
             for obj, data in obj_dict.items()
-            if all(obj != intermediate[0] for intermediate in
-                   intermediate_objects)
+            if all(obj != intermediate[0]
+                   for intermediate in intermediate_objects)
         }
 
         x_margin = self.domino.domino_width
@@ -725,11 +724,9 @@ class DominoTaskGenerator(TaskGenerator):
         grasp_clear_hand = self.domino.domino_width * 0.85
         grasp_clear_finger = self.domino.domino_width * 1.45
         x_values = np.arange(self.domino.domino_x_lb + x_margin,
-                             self.domino.domino_x_ub - x_margin + eps,
-                             spacing)
+                             self.domino.domino_x_ub - x_margin + eps, spacing)
         y_values = np.arange(self.domino.domino_y_lb + y_margin,
-                             self.domino.domino_y_ub - y_margin + eps,
-                             spacing)
+                             self.domino.domino_y_ub - y_margin + eps, spacing)
         candidate_xy = [(float(x), float(y)) for y in y_values
                         for x in x_values]
 
@@ -771,9 +768,8 @@ class DominoTaskGenerator(TaskGenerator):
 
         return obj_dict
 
-    def _placement_collides(
-            self, obj: Object, candidate: Dict[str, float],
-            occupied: Dict[Object, Dict[str, float]]) -> bool:
+    def _placement_collides(self, obj: Object, candidate: Dict[str, float],
+                            occupied: Dict[Object, Dict[str, float]]) -> bool:
         """Check whether ``candidate`` overlaps any occupied object."""
         candidate_rect = self._placement_rect(obj, candidate)
         for other_obj, other_data in occupied.items():
@@ -788,26 +784,25 @@ class DominoTaskGenerator(TaskGenerator):
         """Whether the gripper's swept grasp footprint at ``candidate`` would
         overlap another object, leaving the staged domino un-pickable.
 
-        ``half_hand``/``half_finger`` are the gripper footprint half-extents
-        along the domino's long axis (local x) and depth/finger-span axis
-        (local y). The check is the same oriented-rectangle overlap test used
-        for placement, but against the larger gripper footprint.
+        ``half_hand``/``half_finger`` are the gripper footprint half-
+        extents along the domino's long axis (local x) and depth/finger-
+        span axis (local y). The check is the same oriented-rectangle
+        overlap test used for placement, but against the larger gripper
+        footprint.
         """
         clear_rect = self._oriented_rect_corners(candidate["x"],
-                                                  candidate["y"],
-                                                  candidate.get("yaw", 0.0),
-                                                  half_hand, half_finger)
+                                                 candidate["y"],
+                                                 candidate.get("yaw", 0.0),
+                                                 half_hand, half_finger)
         for other_obj, other_data in occupied.items():
-            if self._rectangles_overlap(clear_rect,
-                                        self._placement_rect(
-                                            other_obj, other_data)):
+            if self._rectangles_overlap(
+                    clear_rect, self._placement_rect(other_obj, other_data)):
                 return True
         return False
 
     @staticmethod
-    def _oriented_rect_corners(
-            x: float, y: float, yaw: float, half_w: float,
-            half_d: float) -> Tuple[np.ndarray, np.ndarray]:
+    def _oriented_rect_corners(x: float, y: float, yaw: float, half_w: float,
+                               half_d: float) -> Tuple[np.ndarray, np.ndarray]:
         """Return (center, corners) of an oriented rectangle with the given
         half-extents along its local x (``half_w``) and y (``half_d``) axes."""
         center = np.array([x, y], dtype=np.float64)
@@ -851,9 +846,8 @@ class DominoTaskGenerator(TaskGenerator):
         return center, center + local @ rot.T
 
     @staticmethod
-    def _rectangles_overlap(
-            rect1: Tuple[np.ndarray, np.ndarray],
-            rect2: Tuple[np.ndarray, np.ndarray]) -> bool:
+    def _rectangles_overlap(rect1: Tuple[np.ndarray, np.ndarray],
+                            rect2: Tuple[np.ndarray, np.ndarray]) -> bool:
         """Separating-axis overlap test for two oriented rectangles."""
 
         def _axes(corners: np.ndarray) -> List[np.ndarray]:

@@ -1,14 +1,15 @@
 """Count % of generated domino test tasks that contain a turn.
 
-Uses whatever DominoTaskGenerator is currently installed on disk, so it can be
-run across git versions of the generator by swapping the file in place.
+Uses whatever DominoTaskGenerator is currently installed on disk, so it
+can be run across git versions of the generator by swapping the file in
+place.
 """
 import numpy as np
 
 from predicators import utils
 from predicators.envs.pybullet_domino.env import PyBulletDominoEnv
-from predicators.envs.pybullet_domino.task_generators.domino_task_generator \
-    import DominoTaskGenerator
+from predicators.envs.pybullet_domino.task_generators.domino_task_generator import \
+    DominoTaskGenerator
 from predicators.settings import CFG
 
 N_TASKS = 40
@@ -37,8 +38,10 @@ def is_turn(task, comp):
 
 def main():
     utils.reset_config({
-        "env": "pybullet_domino", "seed": SEED,
-        "num_train_tasks": 0, "num_test_tasks": N_TASKS,
+        "env": "pybullet_domino",
+        "seed": SEED,
+        "num_train_tasks": 0,
+        "num_test_tasks": N_TASKS,
         "domino_initialize_at_finished_state": False,
         "domino_use_domino_blocks_as_target": True,
         "domino_has_glued_dominos": False,
@@ -49,19 +52,25 @@ def main():
     env = PyBulletDominoEnv(use_gui=False)
     comp = env._domino_component
     robot_init_state = {
-        "x": env.robot_init_x, "y": env.robot_init_y, "z": env.robot_init_z,
-        "fingers": env.open_fingers, "roll": env.robot_init_roll,
-        "tilt": env.robot_init_tilt, "wrist": env.robot_init_wrist,
+        "x": env.robot_init_x,
+        "y": env.robot_init_y,
+        "z": env.robot_init_z,
+        "fingers": env.open_fingers,
+        "roll": env.robot_init_roll,
+        "tilt": env.robot_init_tilt,
+        "wrist": env.robot_init_wrist,
     }
-    gen = DominoTaskGenerator(domino_component=comp, robot=env._robot,
-                             robot_init_state=robot_init_state,
-                             additional_components=[])
+    gen = DominoTaskGenerator(domino_component=comp,
+                              robot=env._robot,
+                              robot_init_state=robot_init_state,
+                              additional_components=[])
     # Reproduce the env's per-seed test path: seeds 0-4, 5 tasks each.
     turns = total = 0
     for seed in range(5):
         rng = np.random.default_rng(seed + 10000)
         tasks = gen.generate_tasks(
-            num_tasks=5, rng=rng,
+            num_tasks=5,
+            rng=rng,
             possible_num_dominos=CFG.domino_test_num_dominos,
             possible_num_targets=CFG.domino_test_num_targets,
             possible_num_pivots=CFG.domino_test_num_pivots)

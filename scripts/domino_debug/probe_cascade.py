@@ -1,6 +1,6 @@
 """Locate where a domino cascade dies: run the recorded sketch
-(Pick->Place->Push->Wait) through the REAL option model and log every
-domino's roll (topple angle) after each step.
+(Pick->Place->Push->Wait) through the REAL option model and log every domino's
+roll (topple angle) after each step.
 
 Usage: PYTHONPATH=. python scripts/domino_debug/probe_cascade.py <seed> <env_task_idx>
 """
@@ -14,16 +14,17 @@ from scripts.domino_debug.replay_domino_sketches import _FLAGS  # noqa: E402
 
 
 def rolls(state, dominoes):
-    return "  ".join(f"{d.name}:r={state.get(d,'roll'):+.3f}" for d in dominoes)
+    return "  ".join(f"{d.name}:r={state.get(d,'roll'):+.3f}"
+                     for d in dominoes)
 
 
 def main():
     seed, ti = int(sys.argv[1]), int(sys.argv[2])
     from predicators import utils
     utils.reset_config(dict(_FLAGS, seed=seed))
+    from predicators.approaches import create_approach
     from predicators.envs import get_or_create_env
     from predicators.ground_truth_models import get_gt_options
-    from predicators.approaches import create_approach
     from predicators.ground_truth_models.domino import processes as P
 
     env = get_or_create_env("pybullet_domino")
@@ -54,18 +55,22 @@ def main():
 
     held = dominoes[1]
     ref0, ref1 = dominoes[0], dominoes[3]
-    sub = {utils.GroundAtom(InFront, [held, ref0]),
-           utils.GroundAtom(InFront, [ref1, held])}
+    sub = {
+        utils.GroundAtom(InFront, [held, ref0]),
+        utils.GroundAtom(InFront, [ref1, held])
+    }
 
     # Pick(d1)
     s = om.get_next_state_and_num_actions(
-        state, opt["Pick"].ground([robot, held],
-                                  P._pick_option_sampler(state, set(),
-                                                         np.random.default_rng(0),
-                                                         [robot, held])))[0]
+        state,
+        opt["Pick"].ground([robot, held],
+                           P._pick_option_sampler(state, set(),
+                                                  np.random.default_rng(0),
+                                                  [robot, held])))[0]
     # Place(d1) at generator-faithful pose for the two InFront subgoals
     pp = P._place_option_sampler(s, sub, np.random.default_rng(3), [robot])
-    s = om.get_next_state_and_num_actions(s, opt["Place"].ground([robot], pp))[0]
+    s = om.get_next_state_and_num_actions(s, opt["Place"].ground([robot],
+                                                                 pp))[0]
     print(f"after Place {rolls(s, dominoes)}   "
           f"(d1 placed at {pp[0]:.3f},{pp[1]:.3f},yaw={pp[3]:+.3f})")
     for d in dominoes:
@@ -75,7 +80,8 @@ def main():
 
     # Push
     push = opt["Push"]
-    pparams = P._push_option_sampler(s, set(), np.random.default_rng(0), [robot])
+    pparams = P._push_option_sampler(s, set(), np.random.default_rng(0),
+                                     [robot])
     pg = push.ground([robot], pparams) if len(push.types) == 1 else \
         push.ground([robot, dominoes[0]], pparams)
     s = om.get_next_state_and_num_actions(s, pg)[0]
@@ -87,7 +93,8 @@ def main():
     s = om.get_next_state_and_num_actions(s, wait.ground([robot], wparams))[0]
     print(f"after Wait  {rolls(s, dominoes)}")
     print("\nToppled after Wait: " +
-          str({d.name: Toppled.holds(s, [d]) for d in dominoes}))
+          str({d.name: Toppled.holds(s, [d])
+               for d in dominoes}))
 
 
 if __name__ == "__main__":

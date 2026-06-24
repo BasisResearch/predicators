@@ -152,17 +152,14 @@ def test_place_sampler_randomizes_turn_offset():
 def test_place_sampler_prefers_target_bridgeable_first_placement():
     """When a purple target is visible, tie-break toward a completable chain.
 
-    In the seed-0 test layout, every first placement of domino_1 satisfies
-    ``InFront(domino_1, domino_0)`` locally, but only the +45-degree placement
-    leaves a one-domino bridge point that can also connect to the purple target.
+    In the seed-0 test layout, every first placement of domino_1
+    satisfies ``InFront(domino_1, domino_0)`` locally, but only the
+    +45-degree placement leaves a one-domino bridge point that can also
+    connect to the purple target.
     """
     robot = Object("robot", _robot_type)
     d0, f0 = _domino("domino_0", x=0.9146, y=1.2534, yaw=0.0)
-    d1, f1 = _domino("domino_1",
-                     x=0.47,
-                     y=1.2975,
-                     yaw=0.0,
-                     is_held=1.0)
+    d1, f1 = _domino("domino_1", x=0.47, y=1.2975, yaw=0.0, is_held=1.0)
     d2, f2 = _domino("domino_2", x=0.575, y=1.2975, yaw=0.0)
     d3, f3 = _domino("domino_3",
                      x=0.7225,
