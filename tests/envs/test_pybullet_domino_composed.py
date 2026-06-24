@@ -7,8 +7,8 @@ from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.envs.pybullet_domino.components.grid_component import \
     GridComponent
-from predicators.envs.pybullet_domino.task_generators.domino_task_generator import \
-    DominoTaskGenerator
+from predicators.envs.pybullet_domino.task_generators import \
+    domino_task_generator as dtg
 from predicators.settings import CFG
 from predicators.structs import Object, State, Type
 
@@ -96,7 +96,7 @@ def test_unfinished_state_avoids_staging_collisions() -> None:
                            num_pivots_max=1,
                            workspace_bounds=workspace_bounds)
     robot = Object("robot", Type("robot", ["x", "y", "z"]))
-    generator = DominoTaskGenerator(comp, robot, {})
+    generator = dtg.DominoTaskGenerator(comp, robot, {})
 
     first_staging_x = comp.domino_x_lb + comp.domino_width
     first_staging_y = comp.domino_y_lb + comp.domino_width
