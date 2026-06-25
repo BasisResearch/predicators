@@ -64,6 +64,22 @@ class AgentBilevelExplorer(BaseExplorer):
         # falls back to random before producing one.
         self._tool_context.last_mental_model_solved = None
 
+        # Point the agent's interactive tools (refine_plan_sketch,
+        # evaluate_option_plan, visualize_state) at the EXPLORE task. These
+        # tools default to ctx.current_task when the agent omits task_idx,
+        # and the test-time _solve leaves current_task set to the last TEST
+        # task. Without this, the agent tunes/validates its exploration plan
+        # against the wrong task (e.g. a test goal referencing objects this
+        # task doesn't even have), so parameter search is meaningless and
+        # only tasks solvable without tuning get solved. The explorer does
+        # not use the approach's capture path, so disable it (and clear any
+        # stale capture) to keep an exploration plan from leaking into the
+        # next test solve.
+        self._tool_context.current_task = task
+        self._tool_context.capture_goal_reaching_plans = False
+        self._tool_context.solved_plan = None
+        self._tool_context.solved_sketch = None
+
         try:
             prompt = bilevel_sketch.build_solve_prompt(
                 task,
