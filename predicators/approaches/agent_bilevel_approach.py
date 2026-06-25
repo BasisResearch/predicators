@@ -23,6 +23,7 @@ import numpy as np
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.bilevel_sketch import SketchStep as _SketchStep
+from predicators.agent_sdk.tools import BUILTIN_TOOLS
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_planner_approach import AgentPlannerApproach
 from predicators.execution_monitoring.subgoal_annotations_monitor import \
@@ -215,12 +216,30 @@ class AgentBilevelApproach(AgentPlannerApproach):
             all_predicates=self._get_all_predicates(),
             all_options=self._get_all_options(),
             trajectory_summary=self._build_trajectory_summary(),
-            tool_names=self._get_solve_tool_names(),
+            tool_names=self._solve_prompt_tool_names(),
             prior_failures=failures_text,
             initial_image_section=self._initial_image_section(),
             propose_params=CFG.agent_bilevel_use_llm_initial_params,
             require_tool_validation=not CFG.agent_bilevel_refine_fallback,
         )
+
+    def _solve_prompt_tool_names(self) -> Optional[List[str]]:
+        """Tool list advertised in the solve prompt's "Available Tools".
+
+        Mirrors what the explore prompt lists (the explorer renders
+        ``agent_session.tool_names``): the same MCP subset *plus* the
+        sandbox's built-in tools (Bash/Read/Write/...). The built-ins are
+        only actually granted under the local or docker sandbox -- which
+        is exactly when ``LocalSandboxSessionManager.tool_names`` prepends
+        them -- so they are advertised only then. Without a sandbox the
+        list is the bare MCP subset, unchanged.
+        """
+        names = self._get_solve_tool_names()
+        if names is None:
+            return None
+        if CFG.agent_sdk_use_local_sandbox or CFG.agent_sdk_use_docker_sandbox:
+            return list(BUILTIN_TOOLS) + names
+        return names
 
     # ------------------------------------------------------------------ #
     # Solving
