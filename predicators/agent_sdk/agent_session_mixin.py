@@ -2,7 +2,7 @@
 
 Extracts common code for ToolContext initialization, lazy
 AgentSessionManager creation, async-to-sync bridging, and agent explorer
-creation from AgentPlannerApproach and AgentAbstractionLearningApproach.
+creation shared by AgentPlannerApproach and its subclasses.
 """
 import asyncio
 import logging

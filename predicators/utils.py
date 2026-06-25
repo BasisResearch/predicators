@@ -2889,6 +2889,23 @@ def create_vlm_by_name(
                      f"{CFG.pretrained_model_service_provider}")
 
 
+def strip_enumeration_prefix(line: str) -> str:
+    """Strip a leading list-enumeration prefix like ``0:``, ``1.``, ``2)``.
+
+    Agents sometimes number plan/sketch lines, mirroring the numbered
+    format the system itself prints in logs and prior-failure previews
+    (e.g. ``0: Pick(robot:robot, block:block)``). The option-plan parser
+    keys on the option name being the first token of the line, so an
+    unstripped number prefix turns ``0: Pick(...)`` into the bogus token
+    ``"0: Pick"`` and the whole plan parses as empty. Stripping is
+    deliberately conservative: it matches only a leading run of digits
+    followed by one of ``:.)`` so prose bullets like ``- Step 1:`` are
+    left untouched (their option name is still not the first token, so
+    they are correctly ignored as preamble).
+    """
+    return re.sub(r'^\s*\d+\s*[:.)]\s*', '', line)
+
+
 def parse_model_output_into_option_plan(
     model_prediction: str, objects: Collection[Object],
     types: Collection[Type], options: Collection[ParameterizedOption],
@@ -2912,7 +2929,11 @@ def parse_model_output_into_option_plan(
     obj_name_to_obj = {o.name: o for o in objects}
     options_str_list = model_prediction.split('\n')
     for option_str in options_str_list:
-        option_str_stripped = option_str.strip()
+        # Tolerate a leading enumeration prefix ("0:", "1.", "2)") that
+        # agents emit when mirroring the numbered sketch format shown in
+        # logs; without this the bogus first token makes the plan parse
+        # as empty.
+        option_str_stripped = strip_enumeration_prefix(option_str.strip())
         option_name = option_str_stripped.split('(')[0]
         # Skip empty option strs.
         if not option_str:

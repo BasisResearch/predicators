@@ -17,7 +17,6 @@ import logging
 from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Set
 
-import dill as pkl
 from gym.spaces import Box
 
 from predicators import utils
@@ -38,13 +37,15 @@ class AgentOptionLearningApproach(AgentPlannerApproach):
     then plans with them in the same query.
     """
 
+    _save_suffix = "AgentOptionLearning"
+
     def __init__(self, initial_predicates: Set[Predicate],
                  initial_options: Set[ParameterizedOption], types: Set[Type],
                  action_space: Box, train_tasks: List[Task], *args: Any,
                  **kwargs: Any) -> None:
-        # Agent-specific state (before super().__init__)
+        # Agent-specific state (before super().__init__).
+        # (_agent_session_id is initialized by the session mixin.)
         self._agent_proposed_options: Set[ParameterizedOption] = set()
-        self._agent_session_id: Optional[str] = None
 
         super().__init__(initial_predicates, initial_options, types,
                          action_space, train_tasks, *args, **kwargs)
@@ -70,7 +71,7 @@ options before planning.
 2. **Invent** new options if needed — either by writing and executing
    Python code directly, or by using the `propose_options` tool
 3. **Test** — either write and run Python experiments to verify your
-   options, or use `test_option_plan` to check that a plan achieves
+   options, or use `evaluate_option_plan` to check that a plan achieves
    the goal. Use `retract_abstractions` to remove options that don't
    work.
 4. **Plan** — output the final option plan
@@ -124,20 +125,20 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
 - Only propose new options if existing ones cannot achieve the goal
 - You can invent and test options in two ways: (a) write and execute
   Python code directly in the sandbox, or (b) use the `propose_options`,
-  `retract_abstractions`, and `test_option_plan` tools
+  `retract_abstractions`, and `evaluate_option_plan` tools
 - Always test your plan before committing
 - Output the final plan in the standard format at the end
 
 ## Debugging Tips
 - Use `inspect_options` with `option_name` to save an option's source
   code to ./proposed_code/<name>.py, then Read it to study the implementation
-- `test_option_plan` automatically saves scene images to ./test_images/
+- `evaluate_option_plan` automatically saves scene images to ./test_images/
   after each step — check them to debug spatial issues
 - Your session logs are in ./session_logs/ — Glob and Read them to review
   past attempts when iterating
 - All proposal and option source code is in ./proposed_code/ — Read
   files there to understand how existing options work
-- When `test_option_plan` fails, check the "Object poses at failure"
+- When `evaluate_option_plan` fails, check the "Object poses at failure"
   and "Missing goal atoms" in the output"""
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
@@ -149,7 +150,7 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
             "inspect_past_proposals",
             "propose_options",
             "retract_abstractions",
-            "test_option_plan",
+            "evaluate_option_plan",
         ]
 
     def _get_sandbox_reference_files(  # pylint: disable=useless-super-delegation
@@ -291,7 +292,7 @@ context for pybullet environments.
 3. **Test** — Verify your options and plan work correctly:
    - **Python code**: Write and run Python experiments to unit-test \
 individual options or full plans.
-   - **MCP tools**: Use `test_option_plan` to check that a plan \
+   - **MCP tools**: Use `evaluate_option_plan` to check that a plan \
 (including any new options) achieves the goal.
    Iterate until the test passes.
 4. **Commit** — Once the test passes, output the final plan. Your \
@@ -329,55 +330,14 @@ proposed options will be added to the option library for future tasks."""
     # Save / Load
     # ------------------------------------------------------------------ #
 
-    def save(self, online_learning_cycle: Optional[int] = None) -> None:
-        save_path = utils.get_approach_save_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentOptionLearning",
-                  "wb") as f:
-            save_dict = {
-                "offline_dataset":
-                self._offline_dataset,
-                "online_trajectories":
-                self._online_trajectories,
-                "online_learning_cycle":
-                self._online_learning_cycle,
-                "run_id":
-                self._run_id,
-                "agent_proposed_options":
-                self._agent_proposed_options,
-                "agent_session_id": (self._agent_session.session_id
-                                     if self._agent_session else None),
-            }
-            pkl.dump(save_dict, f)
-            logging.info(f"[Run {self._run_id}] Saved approach to {save_path}_"
-                         f"{online_learning_cycle}.AgentOptionLearning")
+    def _extra_save_state(self) -> Dict[str, Any]:
+        return {"agent_proposed_options": self._agent_proposed_options}
 
-    def load(self, online_learning_cycle: Optional[int] = None) -> None:
-        save_path = utils.get_approach_load_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentOptionLearning",
-                  "rb") as f:
-            save_dict = pkl.load(f)
-
-        self._offline_dataset = save_dict["offline_dataset"]
-        self._online_trajectories = save_dict["online_trajectories"]
-        self._online_learning_cycle = \
-            save_dict["online_learning_cycle"] + 1
-        self._agent_session_id = save_dict.get("agent_session_id")
+    def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
         self._agent_proposed_options = save_dict.get("agent_proposed_options",
                                                      set())
-
-        import datetime  # pylint: disable=import-outside-toplevel
-        original_run_id = save_dict.get("run_id", "unknown")
-        self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # Re-sync tool context
-        self._sync_tool_context()
-
-        logging.info(
-            f"[Run {self._run_id}] Loaded from previous run "
-            f"{original_run_id}: "
-            f"{len(self._offline_dataset.trajectories)} offline, "
-            f"{len(self._online_trajectories)} online trajectories, "
-            f"{len(self._agent_proposed_options)} agent-proposed options")
+        logging.info("[Run %s] Restored %d agent-proposed options.",
+                     self._run_id, len(self._agent_proposed_options))
 
 
 # --------------------------------------------------------------------------- #

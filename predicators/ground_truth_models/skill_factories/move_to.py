@@ -101,6 +101,8 @@ def make_move_to_phase(
     get_target_pose_fn: TargetPoseFn,
     finger_status: Optional[str] = None,
     expect_contact: bool = False,
+    allow_shallow_held_object_contacts: bool = False,
+    validate_ik: bool = False,
 ) -> Phase:
     """Create a MOVE_TO_POSE phase for use in a ``PhaseSkill``.
 
@@ -166,4 +168,6 @@ def make_move_to_phase(
         action_type=PhaseAction.MOVE_TO_POSE,
         target_fn=_target_fn,
         expect_contact=expect_contact,
+        allow_shallow_held_object_contacts=allow_shallow_held_object_contacts,
+        validate_ik=validate_ik,
     )

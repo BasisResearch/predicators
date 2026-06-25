@@ -72,6 +72,14 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
     mcp_tool_list = get_allowed_tool_list(tool_names)
     allowed_tools = BUILTIN_TOOLS + mcp_tool_list
 
+    # Cap per-response extended thinking so deliberation can't blow the
+    # harness output-token limit (the 32000-token overflow). Fed via
+    # query_input (this runner has no CFG); default mirrors settings.
+    thinking_budget = query_input.get("thinking_budget_tokens", 16000)
+    thinking = ({
+        "type": "enabled",
+        "budget_tokens": thinking_budget
+    } if thinking_budget and thinking_budget > 0 else None)
     options = ClaudeAgentOptions(
         allowed_tools=allowed_tools,
         mcp_servers={"predicator_tools": mcp_server},
@@ -79,6 +87,7 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
         system_prompt=query_input["system_prompt"],
         model=query_input["model_name"],
         max_turns=query_input.get("max_turns", 20),
+        thinking=thinking,  # type: ignore[arg-type]
     )
 
     client = ClaudeSDKClient(options=options)
@@ -129,9 +138,9 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
                             file=sys.stderr,
                             flush=True)
                     elif btype == "ThinkingBlock":
-                        thinking = block.get("thinking", "")
-                        if thinking:
-                            print(f"Thinking: {thinking[:200]}...",
+                        thinking_text = str(block.get("thinking", ""))
+                        if thinking_text:
+                            print(f"Thinking: {thinking_text[:200]}...",
                                   file=sys.stderr,
                                   flush=True)
             elif entry["type"] == "result":

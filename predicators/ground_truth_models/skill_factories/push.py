@@ -207,4 +207,5 @@ def create_push_skill(
                       params_space,
                       config,
                       phases,
-                      params_description=params_description).build()
+                      params_description=params_description,
+                      base_mode="home").build()

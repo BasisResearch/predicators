@@ -31,7 +31,7 @@ from predicators.option_model import _OptionModelBase, create_option_model
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, GroundAtom, \
     InteractionRequest, InteractionResult, LowLevelTrajectory, Object, \
-    ParameterizedOption, Predicate, State, Task, Type
+    OptionSampler, ParameterizedOption, Predicate, State, Task, Type
 
 
 class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
@@ -68,11 +68,24 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
                 Any, self._option_model)._abstract_function = (
                     lambda s: utils.abstract(s, self._get_all_predicates()))
         self._online_learning_cycle = 0
+        # Synthesized per-skill samplers (option name -> sampler). Empty for
+        # the base planner; learning subclasses that synthesize samplers
+        # populate it. Threaded into bilevel refinement via
+        # _get_all_samplers() so continuous-parameter search can aim at each
+        # step's subgoal instead of drawing uniformly.
+        self._synthesized_samplers: Dict[str, OptionSampler] = {}
         self._requests_train_task_idxs: Optional[List[int]] = None
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self._pre_test_conversation_log: Optional[List[Dict[str, Any]]] = None
-        self._agent_session_id: Optional[str] = None
+        # True only between begin_test_phase / end_test_phase, so per-episode
+        # hooks can act on test solves without touching exploration episodes.
+        self._in_test_phase = False
+        # 0-based index of the test task being solved, mirroring main.py's
+        # ``test_task_idx``. Incremented per test solve; threaded into the
+        # session-log filename via the ToolContext.
+        self._test_task_idx = -1
 
+        # Initializes _tool_context and _agent_session_id (see mixin).
         self._init_agent_session_state(types, initial_predicates,
                                        initial_options, train_tasks)
 
@@ -115,6 +128,15 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         """Return the full set of predicates for abstraction."""
         return self._initial_predicates
 
+    def _get_all_samplers(self) -> Dict[str, OptionSampler]:
+        """Return synthesized per-skill samplers (option name -> sampler).
+
+        Empty by default; learning subclasses populate the backing
+        field. Threaded into bilevel refinement to aim continuous-
+        parameter search at each step's subgoal.
+        """
+        return self._synthesized_samplers
+
     def _get_all_trajectories(self) -> List[LowLevelTrajectory]:
         """Return all trajectories (offline + online)."""
         return self._offline_dataset.trajectories + self._online_trajectories
@@ -125,7 +147,7 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         Honors two CFG knobs:
 
         * ``agent_planner_use_simulator`` -- when False, returns ``None``
-          so the agent gets no ``test_option_plan`` rollouts and must
+          so the agent gets no ``evaluate_option_plan`` rollouts and must
           plan open-loop from data + LLM reasoning (the model-free
           baseline).
         * ``agent_planner_use_base_simulator`` -- when True (and a
@@ -169,9 +191,9 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
 ## Scratchpad — CRITICAL
 You MUST maintain `./notes.md` as your working memory. \
 **Read it at the very start of the session** and **read it \
-again before every test_option_plan call** to remind yourself \
+again before every evaluate_option_plan call** to remind yourself \
 what you already tried. **Update it immediately after every \
-test_option_plan call** — no exceptions.
+evaluate_option_plan call** — no exceptions.
 
 Use this exact format for each option you are tuning:
 
@@ -202,7 +224,7 @@ and update before doing anything else.**"""
 rotation, water_volume, is_on, etc.) and renders the scene \
 WITHOUT running the full simulation. It is FREE (no physics, \
 no failure modes) — use it liberally to build spatial \
-understanding before spending expensive test_option_plan calls.
+understanding before spending expensive evaluate_option_plan calls.
 
 **When to use visualize_state:**
 - **At the start**: visualize key objects to understand the \
@@ -279,7 +301,7 @@ scene, then annotate_scene overlays markers on it."""
         if use_scratchpad:
             steps.append(
                 "**Read `./notes.md` before every test**, then **update it "
-                "immediately after every test_option_plan call**. Record "
+                "immediately after every evaluate_option_plan call**. Record "
                 "what you tried, what happened, and what you learned. "
                 "This is your memory — without it you will repeat failures.")
         steps += [
@@ -287,10 +309,7 @@ scene, then annotate_scene overlays markers on it."""
             "Previous queries and tool results from earlier sessions are "
             "saved there. Read them to build on prior knowledge.",
             "**Inspect rendered images** from `./test_images/` when "
-            "something goes wrong to understand the actual outcome. "
-            "For finer-grained debugging, pass `save_low_level_action_images: "
-            "true` to test_option_plan — this saves per-simulator-step images "
-            "to `./test_images_low_level/`.",
+            "something goes wrong to understand the actual outcome.",
             "**Expect geometric offsets.** The target position for "
             "options is often offset from the reference object's reported "
             "position due to object geometry. Explore a wide range around "
@@ -345,11 +364,13 @@ scene, then annotate_scene overlays markers on it."""
             "inspect_options", "inspect_trajectories", "inspect_train_tasks"
         ]
         # The remaining tools all require a simulator / live env:
-        # test_option_plan rolls plans out through the option model, and
-        # visualize_state / annotate_scene render env states. None are
-        # offered when the planner has no simulator.
+        # evaluate_option_plan rolls fully-specified plans out through the
+        # option model, and visualize_state / annotate_scene render env
+        # states. None are offered when the planner has no simulator.
+        # (refine_plan_sketch, which runs backtracking refinement on a
+        # param-free sketch, is exposed only by AgentBilevelApproach.)
         if CFG.agent_planner_use_simulator:
-            tools.append("test_option_plan")
+            tools.append("evaluate_option_plan")
             if CFG.agent_planner_use_annotate_scene:
                 tools.append("annotate_scene")
             if CFG.agent_planner_use_visualize_state:
@@ -403,6 +424,9 @@ scene, then annotate_scene overlays markers on it."""
         preds_version: Optional[str] = getattr(self,
                                                "_current_predicates_version",
                                                None)
+        samplers_version: Optional[str] = getattr(self,
+                                                  "_current_samplers_version",
+                                                  None)
         for i, result in enumerate(results):
             task_idx = self._requests_train_task_idxs[i]
             traj = LowLevelTrajectory(
@@ -411,6 +435,7 @@ scene, then annotate_scene overlays markers on it."""
                 _train_task_idx=task_idx,
                 _source_simulator_version=sim_version,
                 _source_predicates_version=preds_version,
+                _source_samplers_version=samplers_version,
             )
             self._online_trajectories.append(traj)
 
@@ -429,17 +454,16 @@ scene, then annotate_scene overlays markers on it."""
     # Solving
     # ------------------------------------------------------------------ #
 
-    def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
-        self._sync_tool_context()
-        self._tool_context.current_task = task
-        try:
-            option_plan = self._query_agent_for_option_plan(task)
-        except Exception as e:
-            raise ApproachFailure(f"Agent failed to produce option plan: {e}")
+    @staticmethod
+    def _wrap_option_failures(
+            policy: Callable[[State], Action]) -> Callable[[State], Action]:
+        """Wrap a policy so OptionExecutionFailure surfaces as ApproachFailure.
 
-        preds = self._get_all_predicates()
-        policy = utils.option_plan_to_policy(
-            option_plan, abstract_function=lambda s: utils.abstract(s, preds))
+        Bilevel planning and the base open-loop planner both build a
+        low-level policy from a grounded option plan; this adapter gives
+        them a single place to translate the option-execution exception
+        the harness raises into the ApproachFailure CogMan expects.
+        """
 
         def _policy(s: State) -> Action:
             try:
@@ -449,12 +473,116 @@ scene, then annotate_scene overlays markers on it."""
 
         return _policy
 
+    def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
+        self._sync_tool_context()
+        self._tool_context.current_task = task
+        # Render the initial state so the agent can see the scene layout.
+        self._render_initial_state_image(task)
+        try:
+            option_plan = self._query_agent_for_option_plan(task)
+        except Exception as e:
+            raise ApproachFailure(f"Agent failed to produce option plan: {e}")
+
+        preds = self._get_all_predicates()
+        policy = utils.option_plan_to_policy(
+            option_plan, abstract_function=lambda s: utils.abstract(s, preds))
+
+        return self._wrap_option_failures(policy)
+
+    def _render_initial_state_image(self, task: Task) -> Optional[str]:
+        """Render the initial state of the task and save to the sandbox.
+
+        Returns the sandbox-relative path to the saved image, or None if
+        rendering is not available.
+        """
+        env = self._tool_context.env
+        if env is None:
+            return None
+        try:
+            # The session/sandbox is created lazily on the first agent query,
+            # and only then is ``image_save_dir`` populated on the ToolContext.
+            # This render runs *before* that query in ``_solve``, so on the
+            # very first test task the dir would still be None and task0's
+            # image would be silently skipped. Ensure the session (and the
+            # dir) exist first. Inside the try so a session-creation hiccup
+            # leaves rendering best-effort rather than crashing the solve.
+            self._ensure_agent_session()
+            save_dir = self._tool_context.image_save_dir
+            if save_dir is None:
+                return None
+            # pylint: disable=import-outside-toplevel
+            from PIL import Image as PILImage
+
+            # For PyBullet envs, set state then use render() (render_state
+            # raises NotImplementedError for arbitrary states).
+            # For other envs, use render_state directly.
+            try:
+                from predicators.envs.pybullet_env import PyBulletEnv
+                is_pybullet = isinstance(env, PyBulletEnv)
+            except ImportError:
+                is_pybullet = False
+
+            if is_pybullet:
+                env._set_state(task.init)  # pylint: disable=protected-access
+                video = env.render()
+            else:
+                # Build a minimal EnvironmentTask for the render_state API.
+                from predicators.structs import EnvironmentTask
+                env_task = EnvironmentTask(task.init, task.goal)
+                video = env.render_state(task.init, env_task)
+
+            if not video:
+                return None
+
+            rgb_array = np.asarray(video[0], dtype=np.uint8)
+            img = PILImage.fromarray(  # type: ignore[no-untyped-call]
+                rgb_array)
+            os.makedirs(save_dir, exist_ok=True)
+            task_id = self._tool_context.test_task_idx
+            if task_id is not None:
+                filename = f"task{task_id:03d}_initial_state.png"
+            else:
+                filename = "initial_state.png"
+            saved_path = os.path.join(save_dir, filename)
+            img.save(saved_path)
+            logging.info("Saved initial state image to %s", saved_path)
+            return saved_path
+        except Exception as e:  # pylint: disable=broad-except
+            logging.warning("Failed to render initial state image: %s", e)
+            return None
+
+    def _initial_image_section(self) -> str:
+        """Return a prompt section pointing at the rendered initial-state
+        image, or an empty string if no image has been rendered.
+
+        ``_render_initial_state_image`` must have been called first;
+        this only references the file (sandbox-relative) if it exists on
+        disk.
+        """
+        save_dir = self._tool_context.image_save_dir
+        if not save_dir:
+            return ""
+        task_id = self._tool_context.test_task_idx
+        if task_id is not None:
+            img_name = f"task{task_id:03d}_initial_state.png"
+        else:
+            img_name = "initial_state.png"
+        if not os.path.exists(os.path.join(save_dir, img_name)):
+            return ""
+        # cwd of the agent is the sandbox root, so reference test_images/.
+        return ("\n## Initial State Image\n"
+                "A rendering of the initial scene has been saved to "
+                f"`./test_images/{img_name}`. **Read this image first** to "
+                "understand the spatial layout before planning.\n")
+
     # ------------------------------------------------------------------ #
     # Test phase lifecycle
     # ------------------------------------------------------------------ #
 
     def begin_test_phase(self) -> None:
         """Snapshot the learning conversation log before testing."""
+        self._in_test_phase = True
+        self._test_task_idx = -1
         if self._agent_session is not None:
             import copy  # pylint: disable=import-outside-toplevel
             self._pre_test_conversation_log = copy.deepcopy(
@@ -464,11 +592,28 @@ scene, then annotate_scene overlays markers on it."""
 
     def end_test_phase(self) -> None:
         """Restore the conversation log to its pre-test state."""
+        self._in_test_phase = False
+        self._tool_context.test_task_idx = None
         if self._agent_session is not None \
                 and self._pre_test_conversation_log is not None:
             self._agent_session._conversation_log = \
                 self._pre_test_conversation_log  # pylint: disable=protected-access
         self._pre_test_conversation_log = None
+
+    def reset_for_new_episode(self) -> None:
+        """Advance the test-task counter at each test episode start.
+
+        CogMan calls this exactly once per test task (via
+        ``cogman.reset`` in main.py's ``_solve_task``) and never on mid-
+        episode replans, so the counter stays in lockstep with main.py's
+        ``test_task_idx``. The index is exposed to the sandbox via the
+        ToolContext and lands in the session-log filename. No-op outside
+        the test phase.
+        """
+        super().reset_for_new_episode()
+        if self._in_test_phase:
+            self._test_task_idx += 1
+            self._tool_context.test_task_idx = self._test_task_idx
 
     def _query_agent_for_option_plan(self, task: Task) -> list:
         """Query the agent for an option plan and parse it."""
@@ -490,7 +635,8 @@ scene, then annotate_scene overlays markers on it."""
         """Return the notes.md bullet for the solve prompt, or empty."""
         if CFG.agent_planner_use_scratchpad:
             return (
-                "- **Read `./notes.md` before every test_option_plan call** "
+                "- **Read `./notes.md` before every "
+                "evaluate_option_plan call** "
                 "and **update it immediately after each call** — append a "
                 "row to the parameter table and update the explored-ranges "
                 "summary. If you realize you forgot to update, STOP and "
@@ -554,6 +700,9 @@ scene, then annotate_scene overlays markers on it."""
 {task.goal_nl}
 """
 
+        # Initial state image reference
+        initial_image_section = self._initial_image_section()
+
         if CFG.agent_planner_use_simulator:
             instructions_intro = (
                 "Use your available tools to inspect the environment and "
@@ -575,7 +724,7 @@ Generate an option plan to achieve the goal.
 
 ## Initial State Features
 {state_str}
-
+{initial_image_section}
 ## Objects
 {chr(10).join(obj_strs)}
 
@@ -600,9 +749,7 @@ For negated targets: `Wait(robot:Robot)[] -> {{NOT Touching(a:block, b:block)}}`
 
 **Important — parameter tuning workflow:**
 - When a step fails or produces unexpected results, inspect the rendered images \
-in `./test_images/` to see what actually happened in the scene. For step-by-step \
-low-level frames, pass `save_low_level_action_images: true` — images are saved to \
-`./test_images_low_level/`.
+in `./test_images/` to see what actually happened in the scene.
 {self._solve_prompt_scratchpad_line()}\
 - Review past session logs in `./session_logs/` if available — they contain prior queries and results.
 - When a step fails (e.g. IK error), use the image + object poses to reason about \
@@ -797,7 +944,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
     def _sync_tool_context(self) -> None:
         """Push current approach state into the shared ToolContext.
 
-        The MCP tools (inspect_options, test_option_plan, etc.) read
+        The MCP tools (inspect_options, evaluate_option_plan, etc.) read
         from the ToolContext dataclass, not from the approach directly.
         This method keeps them in sync after mutations (e.g. new
         trajectories collected, options added).  Called before each
@@ -818,6 +965,9 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
         self._tool_context.log_dir = self._get_log_dir()
         self._tool_context.option_model = self._option_model
+        # Synthesized samplers, so the explorer and synthesis tools thread
+        # the same per-skill samplers into refinement that the approach uses.
+        self._tool_context.option_samplers = self._get_all_samplers()
         # Wire the active-experiment info-gain scorer when a learning
         # subclass exposes one and info-seeking exploration is on. Syncing
         # the bound method (not a snapshot) keeps it pointed at the latest
@@ -849,45 +999,68 @@ Output ONLY the option plan lines at the end, after any analysis."""
     # Save / Load
     # ------------------------------------------------------------------ #
 
+    # Filename suffix for the pickled approach state. Subclasses that
+    # persist extra fields override this so their saves don't collide
+    # with the base planner's.
+    _save_suffix: str = "AgentPlanner"
+
+    def _extra_save_state(self) -> Dict[str, Any]:
+        """Subclass hook: extra (key -> value) pairs to persist.
+
+        Merged into the base save dict; restored by the matching
+        :meth:`_load_extra_save_state`.
+        """
+        return {}
+
+    def _load_extra_save_state(self, save_dict: Dict[str, Any]) -> None:
+        """Subclass hook: restore fields written by _extra_save_state.
+
+        Called after the base fields are restored and ``_run_id`` has
+        been refreshed, but before the tool context is re-synced.
+        """
+
     def save(self, online_learning_cycle: Optional[int] = None) -> None:
         """Save approach state to disk."""
         save_path = utils.get_approach_save_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentPlanner",
-                  "wb") as f:
-            save_dict = {
-                "offline_dataset":
-                self._offline_dataset,
-                "online_trajectories":
-                self._online_trajectories,
-                "online_learning_cycle":
-                self._online_learning_cycle,
-                "run_id":
-                self._run_id,
-                "agent_session_id": (self._agent_session.session_id
-                                     if self._agent_session else None),
-            }
+        path = f"{save_path}_{online_learning_cycle}.{self._save_suffix}"
+        save_dict = {
+            "offline_dataset":
+            self._offline_dataset,
+            "online_trajectories":
+            self._online_trajectories,
+            "online_learning_cycle":
+            self._online_learning_cycle,
+            "run_id":
+            self._run_id,
+            "agent_session_id":
+            (self._agent_session.session_id if self._agent_session else None),
+            **self._extra_save_state(),
+        }
+        with open(path, "wb") as f:
             pkl.dump(save_dict, f)
-            logging.info(f"[Run {self._run_id}] Saved approach to {save_path}_"
-                         f"{online_learning_cycle}.AgentPlanner")
+        logging.info(f"[Run {self._run_id}] Saved approach to {path}")
 
     def load(self, online_learning_cycle: Optional[int] = None) -> None:
         save_path = utils.get_approach_load_path_str()
-        with open(f"{save_path}_{online_learning_cycle}.AgentPlanner",
-                  "rb") as f:
+        path = f"{save_path}_{online_learning_cycle}.{self._save_suffix}"
+        with open(path, "rb") as f:
             save_dict = pkl.load(f)
 
         self._offline_dataset = save_dict["offline_dataset"]
         self._online_trajectories = save_dict["online_trajectories"]
-        self._online_learning_cycle = \
-            save_dict["online_learning_cycle"] + 1
+        self._online_learning_cycle = save_dict["online_learning_cycle"] + 1
+        # pylint: disable=attribute-defined-outside-init
+        # (_agent_session_id is initialized via the agent-session mixin.)
         self._agent_session_id = save_dict.get("agent_session_id")
 
         # Create new run_id for continued execution (each run gets own dir)
-        # but log the original run_id for reference
+        # but log the original run_id for reference.
         original_run_id = save_dict.get("run_id", "unknown")
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # Re-sync tool context
+        self._load_extra_save_state(save_dict)
+
+        # Re-sync tool context (subclass fields are restored first).
         self._sync_tool_context()
 
         logging.info(

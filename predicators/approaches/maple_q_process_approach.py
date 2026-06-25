@@ -68,10 +68,12 @@ class MapleQProcessApproach(OnlineProcessLearningAndPlanningApproach):
         return "maple_q_with_process"
 
     # pylint: disable=arguments-differ
-    def _solve(self,
-               task: Task,
-               timeout: int,
-               train_or_test: str = "") -> Callable[[State], Action]:
+    def _solve(
+        self,
+        task: Task,
+        timeout: int,
+        train_or_test: str = ""  # type: ignore[override]
+    ) -> Callable[[State], Action]:
 
         def _option_policy(state: State) -> _Option:
             option = self._q_function.get_option(

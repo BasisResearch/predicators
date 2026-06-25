@@ -176,7 +176,7 @@ ENVS:
       horizon: 200
       domino_initialize_at_finished_state: False
       domino_use_domino_blocks_as_target: True
-      domino_use_grid: True
+      process_planning_use_gt_helpers: True
       domino_include_connected_predicate: False # necessary to generate valid plan
       domino_prune_actions: False
       process_planning_heuristic_weight: 2 # too large will generate suboptimal plans in some cases (e.g. w 2 moveble and 2 targets)

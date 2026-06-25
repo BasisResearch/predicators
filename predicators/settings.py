@@ -197,6 +197,10 @@ class GlobalSettings:
     pybullet_birrt_extend_num_interp = 10
     pybullet_birrt_path_subsample_ratio = 1
     pybullet_birrt_contact_margin = -0.001
+    # During a lift after grasping, the held object can start in shallow
+    # penetration from grasp settling. Allow escaping these initial contacts
+    # only up to this depth; deeper penetration remains a collision.
+    pybullet_birrt_shallow_held_contact_margin = -0.003
     pybullet_control_mode = "position"
     pybullet_max_vel_norm = 0.05
     # env -> robot -> quaternion
@@ -434,7 +438,6 @@ class GlobalSettings:
     domino_some_dominoes_are_connected = False
     domino_initialize_at_finished_state = True
     domino_use_domino_blocks_as_target = False
-    domino_use_grid = False
     domino_include_connected_predicate = False
     domino_has_glued_dominos = True
     domino_prune_actions = False  # Set to True to enable action pruning
@@ -530,6 +533,21 @@ class GlobalSettings:
     boil_num_burner_train = [1]
     boil_num_burner_test = [1]
     boil_water_fill_speed = 0.002
+    # For the mobile_fetch robot: park the base (x-aligned to each reach
+    # target, a stand-off in front in y) before reaching, so the arm reaches
+    # straight forward at a comfortable distance instead of sideways over the
+    # burner or fully extended. No-op for fixed bases. Set False to disable
+    # (e.g. to isolate base-positioning effects).
+    boil_mobile_base_park = True
+    # Forward (y) stand-off distance for the parked base. Smaller = closer to
+    # the target = more reach margin (incl. sideways switch push-through),
+    # bounded by the table-clear y cap.
+    boil_mobile_base_standoff = 0.45
+    # Align the parked base x with the reach target x. True is best for picks
+    # (straight approach avoids sweeping over the burner); False keeps the base
+    # at the home x (diagonal approach) which leaves room for sideways switch
+    # push-throughs.
+    boil_mobile_base_align_x = True
 
     # parameters for random options approach
     random_options_max_tries = 100
@@ -766,6 +784,16 @@ class GlobalSettings:
     process_planning_use_abstract_policy = False
     process_planning_max_policy_guided_rollout = 10
     process_planning_set_parameters_one = False
+    # On an execution-time option failure (e.g. a fresh BiRRT collision caused
+    # by drift between the refinement simulator and the real environment),
+    # re-refine from the current state and retry, up to this many times. 0
+    # disables replanning (the option failure is terminal, as before).
+    process_planning_max_execution_replans = 0
+    # Whether non-oracle process-planning approaches (process/param learning,
+    # predicate invention, etc.) augment with the ground-truth helper types,
+    # predicates, and objects (e.g. the domino grid). The oracle always does;
+    # the others opt in via this flag (e.g. for ExoPredicator).
+    process_planning_use_gt_helpers = False
     process_task_planning_heuristic = 'h_ff'
     wait_option_terminate_on_atom_change = True
     running_no_invent_baseline = False
@@ -999,7 +1027,13 @@ class GlobalSettings:
 
     # agent SDK online abstraction learning parameters
     agent_sdk_model_name = "claude-sonnet-4-6"
-    agent_sdk_max_agent_turns_per_iteration = 20
+    agent_sdk_max_agent_turns_per_iteration = 50
+    # Per-response extended-thinking budget (tokens) for the agent SDK. Bounds
+    # the model's deliberation so a single response's thinking + text stays
+    # under the harness output-token cap (default 32000), preventing the
+    # "exceeded the output token maximum" overflow. 0 ⇒ leave unset (the
+    # model's default adaptive thinking, which can overflow on hard tasks).
+    agent_sdk_thinking_budget_tokens = 16000
     agent_sdk_agent_timeout = 300  # seconds per iteration
     agent_sdk_resume_session = True  # resume previous session if available
     agent_sdk_propose_types = True
@@ -1026,7 +1060,7 @@ class GlobalSettings:
     agent_planner_use_visualize_state = False  # include visualize_state tool
     agent_planner_use_annotate_scene = False  # include annotate_scene tool
     # Whether the planner is given a simulator to test candidate plans with
-    # (the test_option_plan tool / option-model rollouts). When False, the
+    # (the evaluate_option_plan tool / option-model rollouts). When False, the
     # agent must plan open-loop from trajectory data and LLM reasoning alone
     # -- the genuinely model-free baseline.
     agent_planner_use_simulator = True
@@ -1044,6 +1078,24 @@ class GlobalSettings:
     # reseed refinement on the same skeleton before re-querying the agent
     agent_bilevel_max_refine_retries = 5
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
+    # When True, the agent proposes per-step continuous parameters inside the
+    # plan sketch (`Option(obj:type)[p1, p2] -> {subgoals}`). Refinement tries
+    # the proposed params first, then falls back to the registered sampler /
+    # uniform backtracking on failure. Default False keeps the param-free
+    # sketch (search finds all continuous params).
+    agent_bilevel_use_llm_initial_params = False
+    # When True, restore the approach-side refinement fallback: if the agent
+    # finishes without a refine_plan_sketch-validated plan, the approach
+    # refines its parsed sketch itself. Default False makes the agent's
+    # tool-validated (refined + forward-validated) plan the ONLY solve path,
+    # so nothing unvalidated is ever executed.
+    agent_bilevel_refine_fallback = False
+    # When True, close the agent SDK session at the start of each test task
+    # so every test solve begins with a FRESH conversation (no context from
+    # earlier test tasks). The sandbox filesystem and learned artifacts are
+    # untouched. Default False keeps the current behavior: all test tasks
+    # share one continuous agent conversation.
+    agent_fresh_session_per_test_task = False
     # Test-time closed-loop recovery. After each option in the refined plan
     # finishes, the subgoal_annotations execution monitor checks the
     # sketch's subgoal annotation for that step against the REAL state; on
@@ -1058,7 +1110,10 @@ class GlobalSettings:
     agent_bilevel_max_execution_replans = 0
     # log state pretty_str before/after each step
     agent_bilevel_log_state = False
-    agent_bilevel_plan_sketch_file = ""  # load sketch from file instead of LLM
+    # Load a plan sketch from a file instead of querying the LLM. The dir is
+    # under scripts/; the file may be a bare name or an absolute path.
+    agent_bilevel_plan_sketch_dir = "plan_sketches"
+    agent_bilevel_plan_sketch_file = ""
     # When evaluate_plan_refinement is called without an explicit timeout,
     # the synthesis tool computes
     #   max(_min, _per_step * len(sketch))
@@ -1122,6 +1177,20 @@ class GlobalSettings:
     agent_sim_learn_oracle_sim_param_noise_scale = 0.2
     # When True, use GT parameter values directly, skipping MCMC fitting.
     agent_sim_learn_oracle_sim_params = False
+    # When True, the agent synthesizes per-skill (per-option) samplers that
+    # aim continuous option parameters at each sketch step's subgoal, instead
+    # of bilevel refinement drawing them uniformly from the option's box. The
+    # agent authors a versioned ``samplers.py`` (LEARNED_SAMPLERS keyed by
+    # option name) and tunes it with the ``evaluate_sampler`` tool. Sampler
+    # learning rides along in the sim/predicate synthesis session when one
+    # runs (oracle_sim_program=False); when no synthesis session runs
+    # (oracle_sim_program=True) it gets a dedicated session of its own.
+    agent_sim_learn_synthesize_samplers = False
+    # When True (and synthesize_samplers is on), use ground-truth per-skill
+    # samplers from the env's GroundTruthSamplerFactory instead of having the
+    # agent learn them — if such samplers exist for the env; otherwise warn
+    # and fall back to synthesis. Mirrors agent_sim_learn_oracle_sim_program.
+    agent_sim_learn_oracle_samplers = False
 
     # Names of env predicates kept (not stripped) for the
     # agent_sim_predicate_invention approach. Empty list defers to the

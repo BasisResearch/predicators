@@ -4,12 +4,21 @@
 includes:
   - common.yaml
   - envs/all.yaml
+# Oracle keeps restricted push (target inferred from state). The agent
+# configs rely on the codebase default (False) so the LLM can name the
+# trigger domino explicitly via Push(robot, domino).
+ENVS:
+  domino:
+    FLAGS:
+      domino_restricted_push: True
 APPROACHES:
   oracle:
     NAME: "oracle_process_planning"
     FLAGS:
       demonstrator: "oracle_process_planning"
       terminate_on_goal_reached_and_option_terminated: True
+      sesame_check_expected_atoms: False
+      bilevel_plan_without_sim: True
   # human_interaction:
   #   NAME: "human_interaction"
   #   FLAGS:

@@ -7,6 +7,8 @@ from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.envs.pybullet_domino.components.grid_component import \
     GridComponent
+from predicators.envs.pybullet_domino.task_generators import \
+    domino_task_generator as dtg
 from predicators.settings import CFG
 from predicators.structs import Object, State, Type
 
@@ -75,6 +77,57 @@ class TestDominoComponent:
         d = self.comp.place_domino(1, 0.6, 1.3, 0.0, is_target_block=True)
         # Target should have purple/pink color
         assert d["r"] == pytest.approx(0.85, abs=0.01)
+
+
+def test_unfinished_state_avoids_staging_collisions() -> None:
+    """Test unfinished movable blocks avoid start/target blocks."""
+    workspace_bounds = {
+        "x_lb": 0.4,
+        "x_ub": 1.1,
+        "y_lb": 1.1,
+        "y_ub": 1.6,
+        "z_lb": 0.4,
+        "z_ub": 0.95,
+    }
+    CFG.domino_use_domino_blocks_as_target = True
+    CFG.domino_has_glued_dominos = False
+    comp = DominoComponent(num_dominos_max=5,
+                           num_targets_max=2,
+                           num_pivots_max=1,
+                           workspace_bounds=workspace_bounds)
+    robot = Object("robot", Type("robot", ["x", "y", "z"]))
+    generator = dtg.DominoTaskGenerator(comp, robot, {})
+
+    first_staging_x = comp.domino_x_lb + comp.domino_width
+    first_staging_y = comp.domino_y_lb + comp.domino_width
+    obj_dict = {
+        comp.dominos[0]:
+        comp.place_domino(0,
+                          first_staging_x,
+                          first_staging_y,
+                          0.0,
+                          is_start_block=True),
+        comp.dominos[1]:
+        comp.place_domino(1,
+                          first_staging_x + 0.25,
+                          first_staging_y,
+                          0.0,
+                          is_target_block=True),
+        comp.dominos[2]:
+        comp.place_domino(2, 0.9, 1.35, 0.0),
+    }
+
+    # pylint: disable=protected-access
+    moved = generator._move_intermediate_objects_to_unfinished_state(obj_dict)
+
+    assert moved is not None
+    movable = comp.dominos[2]
+    assert not generator._placement_collides(
+        movable, moved[movable], {
+            comp.dominos[0]: moved[comp.dominos[0]],
+            comp.dominos[1]: moved[comp.dominos[1]],
+        })
+    assert moved[movable]["x"] != pytest.approx(first_staging_x)
 
 
 class TestGridComponent:

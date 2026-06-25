@@ -1,21 +1,26 @@
 """Ground-truth processes for the domino environment."""
 
-from typing import Dict, Sequence, Set
+from typing import Dict, List, Sequence, Set, Tuple
 
 import numpy as np
 import torch
 
-from predicators.ground_truth_models import GroundTruthProcessFactory
+from predicators.ground_truth_models import GroundTruthProcessFactory, \
+    GroundTruthSamplerFactory
 from predicators.settings import CFG
 from predicators.structs import Array, CausalProcess, EndogenousProcess, \
-    ExogenousProcess, GroundAtom, LiftedAtom, Object, ParameterizedOption, \
-    Predicate, State, Type, Variable
+    ExogenousProcess, GroundAtom, LiftedAtom, Object, OptionSampler, \
+    ParameterizedOption, Predicate, State, Type, Variable
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
-    null_sampler
+    null_sampler, wrap_angle
 
 # Fixed parameter values for domino environment.
 _DOMINO_GRASP_Z_OFFSET = 0.0825  # domino_height * 0.55
-_DOMINO_DROP_Z = 0.5695  # table_height + domino_height * 1.13
+# Slightly above the legacy drop height. With the skill-factory Pick grasp
+# transform, 0.5695 leaves the held domino penetrating the table at the
+# collision-aware Place goal; 0.58 clears the table and still settles to the
+# intended upright pose.
+_DOMINO_DROP_Z = 0.58
 _DOMINO_OFFSET_X = 0.045  # domino_depth * 3
 _DOMINO_OFFSET_Z = 0.0825  # domino_height * 0.55
 
@@ -67,6 +72,10 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
             options: Dict[str, ParameterizedOption]) -> Set[CausalProcess]:
         del env_name  # unused
 
+        # These processes are defined over the grid (loc/angle/direction).
+        # Only oracle / process-planning approaches request them, and they do
+        # so unconditionally, so the grid is intrinsic to those approaches.
+
         # Types
         robot_type = types["robot"]
         domino_type = types["domino"]
@@ -107,7 +116,13 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         robot = Variable("?robot", robot_type)
         domino = Variable("?domino", domino_type)
         parameters = [robot, domino]
-        option_vars = [robot, domino]
+        # With restricted push the "Push" option finds the start block from
+        # the state itself, so it takes only the robot. The unrestricted
+        # option also takes the domino to push.
+        if CFG.domino_restricted_push:
+            option_vars = [robot]
+        else:
+            option_vars = [robot, domino]
         option = Push
         condition_at_start = {
             LiftedAtom(HandEmpty, [robot]),
@@ -274,3 +289,252 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
         processes.add(domino_tilting_delete_process)
 
         return processes
+
+
+# ---------------------------------------------------------------------------
+# Grid-free per-skill samplers (NSRTSampler / OptionSampler signature) for
+# bilevel refinement. The NSRT samplers above read the placement off grid
+# ``loc``/``angle`` objects in ``objs``; these instead compute it
+# geometrically from the step's ``InFront`` subgoal (passed in the atoms
+# slot), so they work in the grid-free agent_bilevel path. Both versions
+# coexist intentionally. Refinement clips the returned params to the box.
+# ---------------------------------------------------------------------------
+
+_DOMINO_POS_GAP = 0.098  # PyBulletDominoEnv.pos_gap (domino_width * 1.4)
+_DOMINO_WIDTH = 0.07  # PyBulletDominoEnv.domino_width
+_DOMINO_TARGET_COLOR = (0.85, 0.7, 0.85)
+_DOMINO_COLOR_EPS = 1e-3
+
+
+def _deterministic(sampler: OptionSampler) -> OptionSampler:
+    """Flag a sampler as returning constant params (ignores state/rng).
+
+    Backtracking refinement reads this flag to cap such a step's retries at
+    1: re-drawing a constant sampler yields the identical option, so spending
+    the full per-step budget re-descending through it on every backtrack is
+    wasted work (it can never produce a different outcome).
+    """
+    setattr(sampler, "deterministic", True)
+    return sampler
+
+
+@_deterministic
+def _pick_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
+                         rng: np.random.Generator,
+                         objects: Sequence[Object]) -> Array:
+    """Grid-free Pick sampler: fixed grasp height above the domino origin."""
+    del state, subgoal_atoms, rng, objects
+    return np.array([_DOMINO_GRASP_Z_OFFSET], dtype=np.float32)
+
+
+@_deterministic
+def _push_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
+                         rng: np.random.Generator,
+                         objects: Sequence[Object]) -> Array:
+    """Grid-free Push sampler: fixed approach distance / contact height."""
+    del state, subgoal_atoms, rng, objects
+    return np.array([_DOMINO_OFFSET_X, _DOMINO_OFFSET_Z], dtype=np.float32)
+
+
+def _score_placement(state: State, subgoal_atoms: Set[GroundAtom],
+                     held: Object, hx: float, hy: float, hyaw: float) -> int:
+    """Count subgoal atoms that hold if ``held`` is placed at (hx, hy,
+    hyaw)."""
+    s2 = state.copy()
+    s2.set(held, "x", hx)
+    s2.set(held, "y", hy)
+    s2.set(held, "yaw", hyaw)
+    s2.set(held, "roll", 0.0)
+    s2.set(held, "is_held", 0.0)
+    return sum(1 for atom in subgoal_atoms if atom.holds(s2))
+
+
+def _is_cardinal(angle: float) -> bool:
+    """True when ``angle`` is within ~10 deg of a cardinal (axis-aligned) yaw.
+
+    Mirrors the cardinal-facing gate in
+    ``DominoComponent._InFront_holds``: a settled reference domino sits
+    a degree or two off cardinal, so a hard equality would make chained
+    placements onto it unsatisfiable.
+    """
+    card_thresh = float(np.sin(np.radians(10)))
+    return bool(
+        abs(np.sin(angle)) < card_thresh or abs(np.cos(angle)) < card_thresh)
+
+
+def _generator_placements(xr: float, yr: float,
+                          ryaw: float) -> List[Tuple[float, float, float]]:
+    """Every placement the task generator would lay next to a reference.
+
+    Reproduces ``DominoTaskGenerator._place_straight_domino`` /
+    ``_place_turn90_domino`` exactly -- one ``pos_gap`` along a cardinal
+    travel direction, with 45-deg turn blocks carrying the generator's
+    half-width inward side offset -- expressed relative to a reference domino
+    at ``(xr, yr, ryaw)``. Each returned ``(cx, cy, cyaw)`` is a valid
+    ``InFront`` placement off the reference.
+
+    A cardinal reference yields, for each of the two chain (forward / backward)
+    directions, the straight successor and the two turn-start (``d1``) blocks
+    (left / right). A non-cardinal reference -- an already-placed 45-deg
+    turn-start block -- yields the turn-completing (``d2``) block that bends
+    the chain the rest of the way through the corner.
+    """
+    gap = _DOMINO_POS_GAP
+    s_off = -_DOMINO_WIDTH / 2  # generator's d1_side_offset / side_offset
+    out: List[Tuple[float, float, float]] = []
+    if _is_cardinal(ryaw):
+        for rotation in (ryaw, wrap_angle(ryaw + np.pi)):
+            # Straight successor: one gap along travel, same (box) yaw.
+            out.append(
+                (xr + gap * np.sin(rotation), yr + gap * np.cos(rotation),
+                 wrap_angle(ryaw)))
+            # Turn-start (d1): one gap ahead, nudged a half width orthogonal
+            # to the post-turn travel direction, yaw stepped +-45.
+            for turn in (1.0, -1.0):
+                d1_dir = wrap_angle(rotation - turn * np.pi / 4)
+                cx = xr + gap * np.sin(rotation) + turn * s_off * np.cos(
+                    d1_dir)
+                cy = yr + gap * np.cos(rotation) - turn * s_off * np.sin(
+                    d1_dir)
+                out.append((cx, cy, wrap_angle(ryaw + turn * np.pi / 4)))
+    else:
+        # Turn-completing block (d2) off an already-placed turn-start block.
+        # Take whichever turn sign(s) leave the pre-turn travel cardinal.
+        for turn in (1.0, -1.0):
+            base = wrap_angle(ryaw - turn * np.pi / 4)
+            if not _is_cardinal(base):
+                continue
+            d1_dir = wrap_angle(base - turn * np.pi / 4)
+            d2_rot = wrap_angle(base - turn * np.pi / 2)
+            cx = xr + gap * np.sin(d1_dir) + turn * s_off * np.cos(d2_rot)
+            cy = yr + gap * np.cos(d1_dir) - turn * s_off * np.sin(d2_rot)
+            out.append((cx, cy, wrap_angle(base + turn * np.pi / 2)))
+    return out
+
+
+def _is_target_domino(state: State, domino: Object) -> bool:
+    """Check whether ``domino`` has the target-block color."""
+    return all(
+        abs(state.get(domino, feat) - val) < _DOMINO_COLOR_EPS
+        for feat, val in zip(("r", "g", "b"), _DOMINO_TARGET_COLOR))
+
+
+def _future_target_bridge_score(state: State, held: Object, hx: float,
+                                hy: float, hyaw: float) -> float:
+    """Tie-break score for placements that can be completed to a target.
+
+    The immediate ``InFront(held, ref)`` subgoal underdetermines which
+    side of the start domino to place the bridge on. Prefer placements
+    for which one additional domino can be placed at the intersection of
+    generator-faithful successors from the held domino and from a purple
+    target domino. This keeps the sampler from spending most refinement
+    attempts on locally valid but globally dead first placements.
+    """
+    dominoes = [o for o in state if o.type.name == "domino" and o is not held]
+    targets = [d for d in dominoes if _is_target_domino(state, d)]
+    if not targets:
+        return 0.0
+    held_next = _generator_placements(hx, hy, hyaw)
+    if not held_next:
+        return 0.0
+    best_resid = float("inf")
+    yaw_scale = _DOMINO_POS_GAP / np.pi
+    for target in targets:
+        tx = state.get(target, "x")
+        ty = state.get(target, "y")
+        tyaw = state.get(target, "yaw")
+        for hx2, hy2, hyaw2 in held_next:
+            for tx2, ty2, tyaw2 in _generator_placements(tx, ty, tyaw):
+                yaw_resid = abs(wrap_angle(hyaw2 - tyaw2)) * yaw_scale
+                resid = float(np.hypot(hx2 - tx2, hy2 - ty2) + yaw_resid)
+                best_resid = min(best_resid, resid)
+    if best_resid == float("inf"):
+        return 0.0
+    return -best_resid
+
+
+def _place_option_sampler(state: State, subgoal_atoms: Set[GroundAtom],
+                          rng: np.random.Generator,
+                          objects: Sequence[Object]) -> Array:
+    """Grid-free Place sampler that draws a generator-faithful placement.
+
+    Builds the discrete set of placements the task generator could lay next
+    to each reference domino named in an ``InFront`` subgoal -- straight, or a
+    45-deg left / right turn block, in either chain direction (see
+    ``_generator_placements``) -- scores each by how many of the step's
+    subgoal atoms it satisfies, and draws one uniformly at random from those
+    tied for the best score. Randomizing (rather than always returning the
+    first / straight placement) is what lets backtracking that re-draws this
+    step reach a turn when the lone subgoal (e.g. ``InFront(d1, d0)``) is
+    satisfied equally by straight and by a turn and a later step needs the
+    bend. No jitter is added -- the generator placements are already the
+    exact, cascade-tuned poses. Raises (so refinement falls back to uniform)
+    when the held domino or a usable reference can't be found.
+    """
+    del objects
+    dominoes = [o for o in state if o.type.name == "domino"]
+    held = [d for d in dominoes if state.get(d, "is_held") > 0.5]
+    if len(held) != 1:
+        raise ValueError(f"expected one held domino, found {len(held)}")
+    held_d = held[0]
+
+    refs = []
+    for atom in subgoal_atoms:
+        if atom.predicate.name != "InFront":
+            continue
+        d1, d2 = atom.objects
+        if held_d is d1 and held_d is not d2:
+            refs.append(d2)
+        elif held_d is d2 and held_d is not d1:
+            refs.append(d1)
+    if not refs:
+        raise ValueError("no InFront subgoal references the held domino")
+
+    # Collect every generator-faithful candidate, scored by how many of the
+    # step's subgoal atoms it satisfies. The candidates come straight from the
+    # task generator's geometry, so each is a valid InFront placement off its
+    # reference and the set is exactly what the generator could have laid.
+    candidates: List[Tuple[int, float, float, float, float]] = []
+    for ref in refs:
+        xr = state.get(ref, "x")
+        yr = state.get(ref, "y")
+        rot = state.get(ref, "yaw")
+        for cx, cy, cyaw in _generator_placements(xr, yr, rot):
+            score = _score_placement(state, subgoal_atoms, held_d, cx, cy,
+                                     cyaw)
+            future_score = _future_target_bridge_score(state, held_d, cx, cy,
+                                                       cyaw)
+            candidates.append((score, future_score, cx, cy, cyaw))
+    if not candidates:
+        raise ValueError("no usable reference domino for placement")
+
+    # Randomize among the placements tied for the best score, so backtracking
+    # that re-draws this step explores a turn instead of always returning the
+    # straight pose. Score alone disambiguates: a multi-edge step (a second
+    # InFront naming the next block) is satisfied only by the turn block that
+    # bends toward it, which no straight placement matches.
+    best_score = max(c[0] for c in candidates)
+    best_future_score = max(c[1] for c in candidates if c[0] == best_score)
+    tied = [
+        c for c in candidates
+        if c[0] == best_score and abs(c[1] - best_future_score) < 1e-9
+    ]
+    _, _, cx, cy, cyaw = tied[int(rng.integers(len(tied)))]
+    return np.array([cx, cy, _DOMINO_DROP_Z, cyaw], dtype=np.float32)
+
+
+class PyBulletDominoGroundTruthSamplerFactory(GroundTruthSamplerFactory):
+    """Ground-truth grid-free per-skill samplers for the domino env."""
+
+    @classmethod
+    def get_env_names(cls) -> Set[str]:
+        return {"pybullet_domino_grid", "pybullet_domino"}
+
+    @classmethod
+    def get_samplers(cls, env_name: str) -> Dict[str, OptionSampler]:
+        del env_name
+        return {
+            "Pick": _pick_option_sampler,
+            "Push": _push_option_sampler,
+            "Place": _place_option_sampler,
+        }

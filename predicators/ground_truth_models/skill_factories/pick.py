@@ -140,7 +140,13 @@ def create_pick_skill(
     phases = []
     phases.extend([
         make_move_to_phase("MoveAbove", _above_pose, "closed"),
-        make_move_to_phase("MoveToGrasp", _descend_pose, "open"),
+        # Validate the grasp goal IK: the gripper descends to envelop the
+        # target, and an imprecise (unvalidated) IK config can clip the target
+        # object, making BiRRT reject a reachable grasp. See Phase.validate_ik.
+        make_move_to_phase("MoveToGrasp",
+                           _descend_pose,
+                           "open",
+                           validate_ik=True),
         Phase(
             name="Grasp",
             action_type=PhaseAction.CHANGE_FINGERS,
@@ -148,7 +154,10 @@ def create_pick_skill(
             terminal_fn=None,
             finger_direction="close",
         ),
-        make_move_to_phase("LiftSlightly", _slight_lift_pose, "closed")
+        make_move_to_phase("LiftSlightly",
+                           _slight_lift_pose,
+                           "closed",
+                           allow_shallow_held_object_contacts=True)
     ])
 
     return PhaseSkill(name,
@@ -156,4 +165,5 @@ def create_pick_skill(
                       params_space,
                       config,
                       phases,
-                      params_description=params_description).build()
+                      params_description=params_description,
+                      base_mode="home").build()

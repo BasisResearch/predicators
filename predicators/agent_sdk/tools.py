@@ -14,8 +14,8 @@ from predicators.agent_sdk.proposal_parser import ProposalBundle, \
     build_exec_context, exec_code_safely, validate_predicate
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
-from predicators.structs import CausalProcess, LowLevelTrajectory, \
-    ParameterizedOption, Predicate, State, Task, Type
+from predicators.structs import CausalProcess, LowLevelTrajectory, Object, \
+    OptionSampler, ParameterizedOption, Predicate, State, Task, Type
 
 MCP_SERVER_NAME = "predicator_tools"
 
@@ -49,7 +49,7 @@ INSPECTION_TOOL_NAMES = [
 PROPOSAL_TOOL_NAMES = [
     "propose_types",
     "propose_predicates",
-    "propose_object_augmentor",
+    "propose_task_augmentor",
     "propose_processes",
     "propose_options",
 ]
@@ -57,13 +57,13 @@ RETRACTION_TOOL_NAMES = [
     "retract_abstractions",
 ]
 TESTING_TOOL_NAMES = [
-    "test_predicate_on_states",
-    "test_planning",
-    "test_option_plan",
+    "evaluate_predicate_on_trajectory",
+    "evaluate_option_plan",
 ]
 PLANNING_TOOL_NAMES = [
     "generate_bilevel_plan",
     "generate_abstract_plan",
+    "refine_plan_sketch",
 ]
 SCENE_TOOL_NAMES = [
     "annotate_scene",
@@ -87,6 +87,7 @@ SYNTHESIS_TOOL_NAMES = (
     "evaluate_plan_refinement",
 )
 PREDICATE_SYNTHESIS_TOOL_NAMES = ("evaluate_predicate_quality", )
+SAMPLER_SYNTHESIS_TOOL_NAMES = ("evaluate_sampler", )
 
 
 def get_allowed_tool_list(tool_names: Optional[List[str]] = None) -> List[str]:
@@ -163,6 +164,12 @@ class ToolContext:
     # candidates that straddle the learned model's decision boundaries.
     # None ⇒ plain feasibility search (default).
     atom_disagreement_fn: Optional[Callable[[State, Any], float]] = None
+    # Synthesized per-skill samplers (option name -> sampler), synced from
+    # the learning approach when agent_sim_learn_synthesize_samplers is on.
+    # The agent_bilevel explorer and synthesis tools pass these into
+    # refinement so continuous-parameter search aims at each step's subgoal
+    # instead of drawing uniformly. Empty ⇒ uniform sampling (default).
+    option_samplers: Dict[str, OptionSampler] = field(default_factory=dict)
     current_task: Optional[Task] = None
     iteration_proposals: ProposalBundle = field(default_factory=ProposalBundle)
     planning_results: Dict[str, Any] = field(default_factory=dict)
@@ -177,7 +184,11 @@ class ToolContext:
     show_option_source: bool = True  # set False when using GT options
     iteration_id: int = 0  # current learning iteration (outer loop)
     turn_id: int = 0  # current query/turn within the session
-    test_call_id: int = 0  # incremented per test_option_plan call
+    # Index of the test task currently being solved (0-based), mirroring
+    # main.py's ``test_task_idx``. None outside the test phase. Threaded into
+    # the saved session-log filename so test queries are attributable to a task.
+    test_task_idx: Optional[int] = None
+    test_call_id: int = 0  # incremented per evaluate_option_plan call
     visualized_state: Optional[State] = None  # last state from visualize_state
     # Managed by AgentSessionMixin: populated from
     # `_build_synthesis_mcp_tools` at session-open, reset to [] for
@@ -198,6 +209,35 @@ class ToolContext:
     # the task goal during refinement? Read by get_interaction_requests to
     # stamp InteractionRequest.mental_model_solved (None ⇒ no verdict).
     last_mental_model_solved: Optional[bool] = None
+    # Set by refine_plan_sketch / evaluate_option_plan when a plan is verified
+    # to reach the goal on the CURRENT solve task: the simulator-verified plan
+    # (grounded options with found params) and the parallel subgoal sketch.
+    # The bilevel approach returns this directly instead of re-refining, so
+    # the agent's tool-validated answer is exactly what gets executed. None ⇒
+    # nothing captured this query.
+    solved_plan: Optional[Any] = None
+    solved_sketch: Optional[Any] = None
+    # Gate for the above: only approaches that consume captured plans
+    # (AgentBilevelApproach) set this True. Keeps the open-loop planner, which
+    # also uses evaluate_option_plan, from recording spurious captures.
+    capture_goal_reaching_plans: bool = False
+
+
+def session_log_filename(query_count: int,
+                         kind: str,
+                         timestamp: str,
+                         test_task_idx: Optional[int] = None,
+                         ext: str = "md") -> str:
+    """Build the session-log filename shared by the sandbox backends.
+
+    Layout: ``NNN_<kind>[_task<idx>]_<timestamp>.<ext>``. The counter comes
+    first so alphabetical sort matches chronological order; for test queries
+    the ``_task<idx>`` segment ties the file to ``main.py``'s test task index.
+    """
+    suffix = ""
+    if kind == "test" and test_task_idx is not None:
+        suffix = f"_task{test_task_idx}"
+    return f"{query_count:03d}_{kind}{suffix}_{timestamp}.{ext}"
 
 
 def _text_result(text: str) -> Dict[str, Any]:
@@ -549,46 +589,9 @@ def _save_option_to_sandbox(ctx: ToolContext, option_name: str,
     return f"./proposed_code/{filename}"
 
 
-def create_mcp_tools(ctx: ToolContext,
-                     tool_names: Optional[List[str]] = None) -> list:
-    """Create MCP tools with the given ToolContext via closures.
-
-    Args:
-        ctx: Shared mutable state between the approach and MCP tools.
-        tool_names: If provided, only return tools with these names.
-            If None, return all tools.
-
-    Returns a list of SdkMcpTool objects to pass to create_sdk_mcp_server.
-    """
-    from claude_agent_sdk import \
-        tool  # pylint: disable=import-outside-toplevel
-
-    # Spill oversize tool output into the sandbox (``./tool_outputs/``)
-    # instead of returning it inline, where the agent SDK would truncate it
-    # and dump the full text to ``~/.claude/projects/.../tool-results/`` —
-    # outside the sandbox. Shadowing the module-level ``_text_result`` here
-    # routes every nested tool's ``_text_result(...)`` call (e.g.
-    # ``inspect_trajectories``) through the spiller, with no call-site edits.
-    _text_result = _make_spilling_text_result(ctx.sandbox_dir)
-
-    _propose_count = [0]  # mutable counter in closure
-
-    def _save_proposal_code(tool_name: str, code: str, names: List[str],
-                            description: str) -> None:
-        if not ctx.sandbox_dir:
-            return
-        _propose_count[0] += 1
-        subdir = os.path.join(ctx.sandbox_dir, "proposed_code")
-        os.makedirs(subdir, exist_ok=True)
-        names_slug = "_".join(names)[:80]
-        filename = f"{_propose_count[0]:03d}_{tool_name}_{names_slug}.py"
-        filepath = os.path.join(subdir, filename)
-        header = f'"""{tool_name}: {description}"""\n\n'
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(header + code)
-        logging.info(f"Saved proposal code to {filepath}")
-
-    # ===== INSPECTION TOOLS =====
+def _build_inspection_tools(ctx: ToolContext, _text_result: Callable,
+                            tool: Callable) -> Dict[str, Any]:
+    """Read-only inspection tools (views over ToolContext state)."""
 
     @tool("inspect_types", "List all object types and their features", {})
     async def inspect_types(_args: Dict[str, Any]) -> Dict[str, Any]:
@@ -916,7 +919,37 @@ def create_mcp_tools(ctx: ToolContext,
             lines.append(json.dumps(entry, indent=2, default=str))
         return _text_result("\n---\n".join(lines))
 
-    # ===== PROPOSAL TOOLS =====
+    return {
+        "inspect_types": inspect_types,
+        "inspect_predicates": inspect_predicates,
+        "inspect_processes": inspect_processes,
+        "inspect_options": inspect_options,
+        "inspect_trajectories": inspect_trajectories,
+        "inspect_train_tasks": inspect_train_tasks,
+        "inspect_planning_results": inspect_planning_results,
+        "inspect_past_proposals": inspect_past_proposals,
+    }
+
+
+def _build_proposal_tools(ctx: ToolContext, _text_result: Callable,
+                          tool: Callable) -> Dict[str, Any]:
+    """Proposal tools (agent authors new types/predicates/options/etc.)."""
+    _propose_count = [0]  # mutable counter in closure
+
+    def _save_proposal_code(tool_name: str, code: str, names: List[str],
+                            description: str) -> None:
+        if not ctx.sandbox_dir:
+            return
+        _propose_count[0] += 1
+        subdir = os.path.join(ctx.sandbox_dir, "proposed_code")
+        os.makedirs(subdir, exist_ok=True)
+        names_slug = "_".join(names)[:80]
+        filename = f"{_propose_count[0]:03d}_{tool_name}_{names_slug}.py"
+        filepath = os.path.join(subdir, filename)
+        header = f'"""{tool_name}: {description}"""\n\n'
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(header + code)
+        logging.info(f"Saved proposal code to {filepath}")
 
     @tool(
         "propose_types",
@@ -1019,7 +1052,7 @@ def create_mcp_tools(ctx: ToolContext,
         return _text_result(msg)
 
     @tool(
-        "propose_object_augmentor",
+        "propose_task_augmentor",
         "Propose a task augmentation function. Code must define "
         "`augment_task(task) -> Task`.",
         {
@@ -1039,7 +1072,7 @@ def create_mcp_tools(ctx: ToolContext,
             "required": ["code", "description"],
         },
     )
-    async def propose_object_augmentor(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def propose_task_augmentor(args: Dict[str, Any]) -> Dict[str, Any]:
         if not CFG.agent_sdk_propose_objects:
             return _error_result("Object augmentor proposals are disabled.")
         code = args["code"]
@@ -1068,7 +1101,7 @@ def create_mcp_tools(ctx: ToolContext,
         ctx.iteration_proposals.augment_task_fn = result
         ctx.iteration_proposals.augment_task_code = code
         logging.info(f"Agent proposed augmentor adding objects: {obj_names}")
-        _save_proposal_code("propose_object_augmentor", code, obj_names,
+        _save_proposal_code("propose_task_augmentor", code, obj_names,
                             args.get("description", ""))
         return _text_result(
             f"Successfully proposed augmentor. Test added objects: {obj_names}"
@@ -1172,13 +1205,24 @@ def create_mcp_tools(ctx: ToolContext,
         return _text_result(
             f"Successfully proposed {len(proposed)} options: {names}")
 
-    # ===== RETRACTION TOOLS =====
+    return {
+        "propose_types": propose_types,
+        "propose_predicates": propose_predicates,
+        "propose_task_augmentor": propose_task_augmentor,
+        "propose_processes": propose_processes,
+        "propose_options": propose_options,
+    }
+
+
+def _build_retraction_tools(ctx: ToolContext, _text_result: Callable,
+                            tool: Callable) -> Dict[str, Any]:
+    """Retraction tools (remove agent-proposed abstractions)."""
 
     @tool(
         "retract_abstractions",
         "Remove previously proposed abstractions that are no longer needed. "
         "Specify names of predicates, processes, options, or helper types to "
-        "remove, and/or set clear_object_augmentor to remove the augmentor.",
+        "remove, and/or set clear_task_augmentor to remove the augmentor.",
         {
             "type": "object",
             "properties": {
@@ -1210,7 +1254,7 @@ def create_mcp_tools(ctx: ToolContext,
                     },
                     "description": "Names of helper types to remove",
                 },
-                "clear_object_augmentor": {
+                "clear_task_augmentor": {
                     "type": "boolean",
                     "description":
                     "Set to true to remove the object augmentor",
@@ -1232,7 +1276,7 @@ def create_mcp_tools(ctx: ToolContext,
         proc_names = set(args.get("process_names") or [])
         opt_names = set(args.get("option_names") or [])
         type_names = set(args.get("type_names") or [])
-        clear_augmentor = bool(args.get("clear_object_augmentor", False))
+        clear_augmentor = bool(args.get("clear_task_augmentor", False))
 
         if not any(
             [pred_names, proc_names, opt_names, type_names, clear_augmentor]):
@@ -1278,17 +1322,24 @@ def create_mcp_tools(ctx: ToolContext,
                 lines.append(f"  (unknown, ignored: {sorted(unknown)})")
 
         if clear_augmentor:
-            ctx.iteration_proposals.retract_object_augmentor = True
+            ctx.iteration_proposals.retract_task_augmentor = True
             lines.append("Object augmentor will be cleared.")
 
         logging.info(f"Agent retraction request: {args}")
         return _text_result("\n".join(lines))
 
-    # ===== TESTING TOOLS =====
+    return {
+        "retract_abstractions": retract_abstractions,
+    }
+
+
+def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
+                         tool: Callable) -> Dict[str, Any]:
+    """Evaluation tools (run predicates / option plans against tasks)."""
 
     @tool(
-        "test_predicate_on_states",
-        "Test a predicate's truth value across timesteps in a trajectory",
+        "evaluate_predicate_on_trajectory",
+        "Evaluate a predicate's truth value across timesteps in a trajectory",
         {
             "type": "object",
             "properties": {
@@ -1311,7 +1362,8 @@ def create_mcp_tools(ctx: ToolContext,
             "required": ["predicate_name", "traj_idx", "object_names"],
         },
     )
-    async def test_predicate_on_states(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def evaluate_predicate_on_trajectory(
+            args: Dict[str, Any]) -> Dict[str, Any]:
         pred_name = args["predicate_name"]
         traj_idx = args["traj_idx"]
         object_names = args["object_names"]
@@ -1363,100 +1415,30 @@ def create_mcp_tools(ctx: ToolContext,
             f"over trajectory {traj_idx}:\n" + "\n".join(results))
 
     @tool(
-        "test_planning",
-        "Run the task planner on a specific task and report results",
+        "evaluate_option_plan",
+        "Execute a fully-specified plan on a task via the option model and "
+        "report the result at each step. `plan` is text — one option per "
+        "line, same grammar as refine_plan_sketch: "
+        "`Option(obj1:type1, obj2:type2)[param1, param2] -> {Atom(obj:type), "
+        "...}` (typed object refs; EXACT continuous params in `[]`, `[]` for "
+        "none; optional `-> {atoms}` subgoals, prefix NOT to require false). "
+        "Runs your exact params with NO sampling. Use include_states/"
+        "include_atoms to control output. If the plan reaches the goal on the "
+        "CURRENT task (omit task_idx), it is captured as your answer, and the "
+        "per-step subgoals make it execute closed-loop (monitored, with "
+        "replan-on-divergence).",
         {
             "type": "object",
             "properties": {
-                "task_idx": {
-                    "type": "integer",
-                    "description": "Task index to plan for"
-                },
-                "timeout": {
-                    "type": "integer",
-                    "description": "Planning timeout in seconds",
-                    "default": 30
-                },
-            },
-            "required": ["task_idx"],
-        },
-    )
-    async def test_planning(args: Dict[str, Any]) -> Dict[str, Any]:
-        # pylint: disable=import-outside-toplevel
-        from predicators.approaches import ApproachFailure, ApproachTimeout
-        from predicators.planning_with_processes import \
-            run_task_plan_with_processes_once
-
-        task_idx = args["task_idx"]
-        timeout = args.get("timeout", 30)
-
-        if task_idx < 0 or task_idx >= len(ctx.train_tasks):
-            return _error_result(f"Invalid task_idx {task_idx}. "
-                                 f"Available: 0-{len(ctx.train_tasks)-1}")
-
-        task = ctx.train_tasks[task_idx]
-        all_preds = ctx.predicates | ctx.iteration_proposals.proposed_predicates
-
-        try:
-            plan, _atoms_seq, metrics = run_task_plan_with_processes_once(
-                task,
-                ctx.processes | ctx.iteration_proposals.proposed_processes,
-                all_preds,
-                ctx.types | ctx.iteration_proposals.proposed_types,
-                timeout,
-                seed=CFG.seed,
-                _task_planning_heuristic=CFG.process_task_planning_heuristic,
-                max_horizon=float(CFG.horizon))
-            plan_desc = " -> ".join(p.name for p in plan)
-            return _text_result(
-                f"Planning succeeded for task {task_idx}!\n"
-                f"Plan length: {len(plan)}\n"
-                f"Nodes expanded: {metrics.get('num_nodes_expanded', '?')}\n"
-                f"Plan: {plan_desc}")
-        except (ApproachFailure, ApproachTimeout, Exception) as e:  # pylint: disable=broad-except
-            return _text_result(f"Planning failed for task {task_idx}.\n"
-                                f"Reason: {type(e).__name__}: {e}")
-
-    @tool(
-        "test_option_plan",
-        "Execute a sequence of grounded options on a task via the option model "
-        "and report the result at each step. Use include_states and/or "
-        "include_atoms to control what is shown at each step.",
-        {
-            "type": "object",
-            "properties": {
-                "option_plan": {
-                    "type": "array",
-                    "description": "Ordered list of options to execute",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "option_name": {
-                                "type": "string",
-                                "description":
-                                "Name of the ParameterizedOption"
-                            },
-                            "object_names": {
-                                "type":
-                                "array",
-                                "items": {
-                                    "type": "string"
-                                },
-                                "description":
-                                "Object names to ground the option on"
-                            },
-                            "params": {
-                                "type":
-                                "array",
-                                "items": {
-                                    "type": "number"
-                                },
-                                "description":
-                                "Continuous parameters (empty list if none)"
-                            },
-                        },
-                        "required": ["option_name", "object_names", "params"],
-                    },
+                "plan": {
+                    "type":
+                    "string",
+                    "description":
+                    "Plan text, one option per line: "
+                    "`Option(obj1:type1, obj2:type2)[p1, p2] -> "
+                    "{Atom(obj:type), ...}` (exact params in `[]`; `[]` for "
+                    "none; optional `-> {atoms}` subgoals, NOT-prefix to "
+                    "require false).",
                 },
                 "include_states": {
                     "type":
@@ -1480,21 +1462,11 @@ def create_mcp_tools(ctx: ToolContext,
                     "Train task index to test on. Omit to use "
                     "the current solve-time task."
                 },
-                "save_low_level_action_images": {
-                    "type":
-                    "boolean",
-                    "description":
-                    "Save per low-level action images (one per "
-                    "simulator step) to a separate directory. "
-                    "Useful for debugging fine-grained behavior.",
-                    "default":
-                    False
-                },
             },
-            "required": ["option_plan"],
+            "required": ["plan"],
         },
     )
-    async def test_option_plan(args: Dict[str, Any]) -> Dict[str, Any]:
+    async def evaluate_option_plan(args: Dict[str, Any]) -> Dict[str, Any]:
         import numpy as np  # pylint: disable=reimported,redefined-outer-name,import-outside-toplevel
 
         from predicators import \
@@ -1514,11 +1486,9 @@ def create_mcp_tools(ctx: ToolContext,
             opt_map)
 
         task_idx = args.get("task_idx")
-        option_plan_spec = args["option_plan"]
+        plan_text = (args.get("plan") or "").strip()
         include_states = args.get("include_states", False)
         include_atoms = args.get("include_atoms", True)
-        save_low_level_action_images = args.get("save_low_level_action_images",
-                                                False)
 
         if task_idx is not None:
             if task_idx < 0 or task_idx >= len(ctx.train_tasks):
@@ -1534,121 +1504,143 @@ def create_mcp_tools(ctx: ToolContext,
         all_options = ctx.options | ctx.iteration_proposals.proposed_options
         opt_map = {o.name: o for o in all_options}
 
-        state = task.init
         lines = [f"Testing option plan on task {task_idx}:"]
         saved_image_paths: List[str] = []
 
-        for step_idx, opt_spec in enumerate(option_plan_spec):
-            opt_name = opt_spec["option_name"]
-            obj_names = opt_spec["object_names"]
-            params = opt_spec["params"]
+        from predicators.agent_sdk import \
+            bilevel_sketch  # pylint: disable=import-outside-toplevel
+        all_predicates = (ctx.predicates
+                          | ctx.iteration_proposals.proposed_predicates)
 
-            if opt_name not in opt_map:
-                return _error_result(f"Unknown option '{opt_name}'. "
-                                     f"Available: {sorted(opt_map.keys())}")
-
-            param_opt = opt_map[opt_name]
-
-            obj_name_to_obj = {o.name: o for o in state}
-            objects = []
-            for name in obj_names:
-                if name not in obj_name_to_obj:
-                    return _error_result(
-                        f"Object '{name}' not found in state at step "
-                        f"{step_idx}. Available: "
-                        f"{sorted(obj_name_to_obj.keys())}")
-                objects.append(obj_name_to_obj[name])
-
+        if not plan_text:
+            return _error_result("`plan` is required (option plan text).")
+        # Parse the text plan into a sketch (options + objects + exact params +
+        # subgoals) using the SAME grammar/parser as refine_plan_sketch.
+        types = set(ctx.types)
+        for opt in all_options:
+            types.update(opt.types)
+        for pred in all_predicates:
+            types.update(pred.types)
+        types.update(o.type for o in task.init)
+        try:
+            sketch_steps = bilevel_sketch.parse_sketch_from_text(
+                plan_text,
+                task,
+                predicates=all_predicates,
+                options=all_options,
+                types=types,
+                parse_continuous_params=True)
+        except Exception as e:  # pylint: disable=broad-except
+            return _error_result(f"Could not parse plan: {e}")
+        if not sketch_steps:
+            return _error_result(
+                "Parsed empty plan. Each line must be "
+                "`Option(obj:type, ...)[params] -> {subgoals}` with a known "
+                "option, typed object refs, and exact params in `[]`.")
+        # Ground each step with its parsed exact params.
+        grounded_plan: List[Any] = []
+        for step_idx, st in enumerate(sketch_steps):
+            params = (st.initial_params if st.initial_params is not None else
+                      np.array([], dtype=np.float32))
             try:
-                params_arr = np.array(params, dtype=np.float32)
-                option = param_opt.ground(objects, params_arr)
+                grounded_plan.append(
+                    st.option.ground(list(st.objects),
+                                     np.asarray(params, dtype=np.float32)))
             except Exception as e:  # pylint: disable=broad-except
-                return _error_result(
-                    f"Failed to ground option '{opt_name}' at step "
-                    f"{step_idx}: {e}")
+                return _error_result(f"Failed to ground step {step_idx} "
+                                     f"({st.option.name}): {e}")
 
-            if not option.initiable(state):
-                atoms = utils.abstract(state, ctx.predicates)
+        # Per-step report callback, driven by the shared forward executor.
+        def _report_step(i: int, outcome: Any) -> None:
+            opt = outcome.option
+            sig = f"{opt.name}({[o.name for o in opt.objects]})"
+            if not outcome.initiable:
+                atoms = utils.abstract(outcome.pre_state, ctx.predicates)
                 atoms_str = ", ".join(str(a) for a in sorted(atoms))
-                lines.append(f"Step {step_idx}: {opt_name}({obj_names}) - "
-                             f"NOT INITIABLE\n"
+                lines.append(f"Step {i}: {sig} - NOT INITIABLE\n"
                              f"  Current atoms: {{{atoms_str}}}\n"
                              f"  Object poses at failure:\n"
-                             f"{_format_object_poses(state)}")
-                return _text_result("\n".join(lines) +
-                                    "\n\nPlan FAILED: option not initiable.")
-
-            try:
-                next_state, num_actions = \
-                    ctx.option_model.get_next_state_and_num_actions(
-                        state, option)
-            except Exception as e:  # pylint: disable=broad-except
-                tb = traceback.format_exc()
-                lines.append(f"Step {step_idx}: {opt_name}({obj_names}) - "
-                             f"EXECUTION ERROR: {type(e).__name__}: {e}\n"
-                             f"  Traceback:\n{tb}")
-                return _text_result("\n".join(lines) +
-                                    "\n\nPlan FAILED: execution error.")
-
-            step_line = (f"Step {step_idx}: {opt_name}({obj_names}) "
-                         f"({num_actions} actions)")
-            if num_actions == 0:
-                failure = getattr(ctx.option_model, 'last_execution_failure',
-                                  None)
-                if failure:
-                    step_line += f"\n  FAILURE REASON: {failure}"
-                else:
-                    step_line += ("\n  FAILURE REASON: Option terminated "
-                                  "immediately (terminal condition was True "
-                                  "before any action was taken)")
-                step_line += ("\n  Object poses at failure:\n"
-                              f"{_format_object_poses(state)}")
-            if include_atoms:
-                atoms_before = utils.abstract(state, ctx.predicates)
-                atoms_after = utils.abstract(next_state, ctx.predicates)
-                added = atoms_after - atoms_before
-                deleted = atoms_before - atoms_after
-                added_s = ", ".join(str(a) for a in sorted(added))
-                del_s = ", ".join(str(a) for a in sorted(deleted))
+                             f"{_format_object_poses(outcome.pre_state)}")
+                return
+            step_line = f"Step {i}: {sig} ({outcome.num_actions} actions)"
+            if outcome.failure_reason is not None:
+                step_line += (f"\n  FAILURE REASON: {outcome.failure_reason}"
+                              "\n  Object poses at failure:\n"
+                              f"{_format_object_poses(outcome.pre_state)}")
+            post = outcome.post_state
+            if post is not None and include_atoms:
+                before = utils.abstract(outcome.pre_state, ctx.predicates)
+                after = utils.abstract(post, ctx.predicates)
+                added_s = ", ".join(str(a) for a in sorted(after - before))
+                del_s = ", ".join(str(a) for a in sorted(before - after))
                 step_line += (f"\n  Added:   {{{added_s}}}"
                               f"\n  Deleted: {{{del_s}}}")
-            if include_states:
+            if post is not None and include_states:
                 state_dict = {}
-                for obj in sorted(next_state, key=str):
+                for obj in sorted(post, key=str):
                     obj_feats = {}
                     for feat in obj.type.feature_names:
-                        val = next_state.get(obj, feat)
+                        val = post.get(obj, feat)
                         obj_feats[feat] = round(float(val), 4) \
                             if isinstance(val, (float, int)) else str(val)
                     state_dict[str(obj)] = obj_feats
                 step_line += f"\n  State: {json.dumps(state_dict, indent=4)}"
             lines.append(step_line)
-
-            # Save per low-level action images in a separate directory
-            last_traj = getattr(ctx.option_model, 'last_trajectory', None)
-            if save_low_level_action_images and last_traj is not None \
-                    and ctx.image_save_dir:
-                action_img_dir = ctx.image_save_dir + "_low_level"
-                orig_img_dir = ctx.image_save_dir
-                ctx.image_save_dir = action_img_dir
-                for act_idx, act_state in enumerate(last_traj.states):
-                    _render_pybullet_image(
-                        ctx,
-                        f"step_{step_idx}_{opt_name}_act_{act_idx}",
-                        state=act_state)
-                ctx.image_save_dir = orig_img_dir
-
-            # Always render and save scene image after this step
-            img_block = _render_scene_image(ctx, f"step_{step_idx}_{opt_name}")
+            img_block = _render_scene_image(ctx, f"step_{i}_{opt.name}")
             if img_block and img_block.get("saved_path"):
                 saved_image_paths.append(img_block["saved_path"])
 
-            state = next_state
+        result = bilevel_sketch.execute_plan_forward(task,
+                                                     grounded_plan,
+                                                     ctx.option_model,
+                                                     predicates=all_predicates,
+                                                     sketch=sketch_steps,
+                                                     on_step=_report_step)
 
-        final_atoms = utils.abstract(state, ctx.predicates)
-        # Use the env's goal-check (its own classifiers); robust to
-        # invented predicates that don't reuse env names.
-        goal_achieved = task.goal_holds(state)
+        final_atoms = utils.abstract(result.final_state, ctx.predicates)
+        # Use the env's goal-check (its own classifiers); robust to invented
+        # predicates that don't reuse env names.
+        goal_achieved = result.goal_reached
+        # Capture a goal-reaching plan on the current task with a sketch that
+        # keeps only the subgoals that actually held (so the closed-loop
+        # monitor won't flag a spurious divergence on a wrong annotation).
+        if (ctx.capture_goal_reaching_plans and task_idx == "current"
+                and goal_achieved and grounded_plan):
+            captured_sketch = []
+            for i, st in enumerate(sketch_steps):
+                post = (result.steps[i].post_state
+                        if i < len(result.steps) else None)
+                if post is not None:
+                    after = utils.abstract(post, all_predicates)
+                    pos_held = {
+                        a
+                        for a in (st.subgoal_atoms or set()) if a in after
+                    }
+                    neg_held = {
+                        a
+                        for a in (st.subgoal_neg_atoms or set())
+                        if a not in after
+                    }
+                else:
+                    pos_held, neg_held = set(), set()
+                captured_sketch.append(
+                    bilevel_sketch.SketchStep(option=st.option,
+                                              objects=st.objects,
+                                              subgoal_atoms=pos_held or None,
+                                              subgoal_neg_atoms=neg_held
+                                              or None))
+            ctx.solved_plan = grounded_plan
+            ctx.solved_sketch = captured_sketch
+            n_annot = sum(1 for s in captured_sketch
+                          if s.subgoal_atoms or s.subgoal_neg_atoms)
+            lines.append(
+                f"Captured as the current answer: {len(grounded_plan)} steps, "
+                f"{n_annot} with subgoal annotations for closed-loop "
+                "monitoring.")
+        if result.first_failure_idx is not None:
+            fr = result.steps[result.first_failure_idx].failure_reason
+            lines.append(
+                f"\nPlan FAILED at step {result.first_failure_idx}: {fr}")
         final_atoms_str = ", ".join(str(a) for a in sorted(final_atoms))
         lines.append(f"\nFinal atoms: {{{final_atoms_str}}}")
         if task.goal_nl:
@@ -1671,7 +1663,15 @@ def create_mcp_tools(ctx: ToolContext,
         # Build result with text only (images are saved to disk)
         return _text_result("\n".join(lines))
 
-    # ===== PLANNING TOOLS =====
+    return {
+        "evaluate_predicate_on_trajectory": evaluate_predicate_on_trajectory,
+        "evaluate_option_plan": evaluate_option_plan,
+    }
+
+
+def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
+                          tool: Callable) -> Dict[str, Any]:
+    """Planning tools (generate bilevel / abstract plans)."""
 
     @tool(
         "generate_bilevel_plan",
@@ -1913,16 +1913,182 @@ def create_mcp_tools(ctx: ToolContext,
 
         return _text_result("\n".join(lines))
 
+    @tool(
+        "refine_plan_sketch",
+        "FIND continuous parameters for a plan SKETCH: run a backtracking "
+        "search over the option model, then — on success — forward-validate "
+        "the refined plan. Unlike evaluate_option_plan (which runs your EXACT "
+        "params with no search), this takes a sketch and lets the search find "
+        "params. You may seed it by appending `[p1, p2]` per step (use `[]` "
+        "for none); the search tries them first, then samples. `plan` is one "
+        "option call per line with typed object references (`obj:type`) and "
+        "every argument supplied; add `-> {Atom(obj:type, ...)}` subgoal "
+        "annotations (effectively required after open-ended skills like Place, "
+        "and for Wait to say when it should end — prefix an atom with NOT to "
+        "require it become false). On SUCCESS it reports the exact PARAMETERS "
+        "it found per step — submit those via evaluate_option_plan, which is "
+        "the delivery path; refine_plan_sketch itself does NOT submit. Also "
+        "reports the verdict (SUCCESS / TIMEOUT / SAMPLE_EXHAUSTED with the "
+        "stuck step / FORWARD_VALIDATION_FAILED) and time used. Requires a "
+        "simulator (option model). Slower than evaluate_option_plan — use it "
+        "to find params for hard steps, not to submit.",
+        {
+            "type": "object",
+            "properties": {
+                "plan": {
+                    "type":
+                    "string",
+                    "description":
+                    "Option-skeleton plan text, one option call per "
+                    "line, typed `obj:type` references, every argument "
+                    "supplied; optional `-> {Atom(...)}` subgoal per step, "
+                    "and `[p1, p2]` proposed continuous params per step "
+                    "(`[]` for none) when param-proposing is enabled.",
+                },
+                "task_idx": {
+                    "type":
+                    "integer",
+                    "description":
+                    "Train task index. Omit to use the current "
+                    "solve-time task (if available).",
+                },
+                "timeout": {
+                    "type":
+                    "number",
+                    "description":
+                    "Refinement timeout in seconds. Omit for an auto "
+                    "value that scales with sketch length; the value "
+                    "used is reported back.",
+                },
+            },
+            "required": ["plan"],
+        },
+    )
+    async def refine_plan_sketch(args: Dict[str, Any]) -> Dict[str, Any]:
+        # pylint: disable=import-outside-toplevel,reimported,redefined-outer-name
+        import numpy as np
+
+        from predicators.agent_sdk import bilevel_sketch
+
+        if ctx.option_model is None:
+            return _error_result(
+                "refine_plan_sketch requires a simulator (no option model "
+                "in ToolContext).")
+
+        # Resolve the task (mirrors evaluate_option_plan).
+        task_idx = args.get("task_idx")
+        if task_idx is not None:
+            if task_idx < 0 or task_idx >= len(ctx.train_tasks):
+                return _error_result(f"Invalid task_idx {task_idx}. "
+                                     f"Available: 0-{len(ctx.train_tasks)-1}")
+            task = ctx.train_tasks[task_idx]
+        elif ctx.current_task is not None:
+            task = ctx.current_task
+            task_idx = "current"
+        else:
+            return _error_result(
+                "No task_idx provided and no current_task set.")
+
+        all_options = ctx.options | ctx.iteration_proposals.proposed_options
+        all_predicates = (ctx.predicates
+                          | ctx.iteration_proposals.proposed_predicates)
+        # Keep the option model's name map in sync with proposed options so
+        # refinement can ground them (matches evaluate_option_plan).
+        model = ctx.option_model
+        model._name_to_parameterized_option = (  # type: ignore[attr-defined]  # pylint: disable=protected-access
+            {o.name: o
+             for o in all_options})
+        # Union declared types with those reachable from options/predicates/
+        # objects so typed `obj:type` references in the sketch resolve.
+        types = set(ctx.types)
+        for opt in all_options:
+            types.update(opt.types)
+        for pred in all_predicates:
+            types.update(pred.types)
+        types.update(o.type for o in task.init)
+
+        plan_text = (args.get("plan") or "").strip()
+        if not plan_text:
+            return _error_result("`plan` is required (option-skeleton text).")
+        try:
+            sketch = bilevel_sketch.parse_sketch_from_text(
+                plan_text,
+                task,
+                predicates=all_predicates,
+                options=all_options,
+                types=types,
+                parse_continuous_params=CFG.
+                agent_bilevel_use_llm_initial_params,
+            )
+        except Exception as e:  # pylint: disable=broad-except
+            return _error_result(f"Could not parse plan sketch: {e}")
+        if not sketch:
+            return _error_result(
+                "Parsed empty plan sketch. Check that every line names a "
+                "known option with typed `obj:type` arguments matching what "
+                "the inspect tools report.")
+
+        timeout, timeout_source = bilevel_sketch.resolve_refine_timeout(
+            args.get("timeout"),
+            len(sketch),
+            per_step=CFG.agent_bilevel_refinement_timeout_per_step,
+            minimum=CFG.agent_bilevel_refinement_timeout_min)
+
+        try:
+            success, report, plan = bilevel_sketch.refine_and_validate_report(
+                task,
+                sketch,
+                ctx.option_model,
+                predicates=all_predicates,
+                timeout=timeout,
+                rng=np.random.default_rng(CFG.seed),
+                max_samples_per_step=CFG.agent_bilevel_max_samples_per_step,
+                check_subgoals=CFG.agent_bilevel_check_subgoals,
+                log_state=CFG.agent_bilevel_log_state,
+                option_samplers=ctx.option_samplers or None,
+                run_id="planner_refine",
+                timeout_source=timeout_source,
+            )
+        except Exception:  # pylint: disable=broad-except
+            tb = traceback.format_exc()
+            return _error_result(f"Refinement raised:\n{tb}")
+
+        # refine_plan_sketch is a parameter FINDER, not a submission path: on
+        # success, append the parameters the search found per step so the
+        # agent can submit these exact values via evaluate_option_plan (the
+        # only delivery path). It deliberately does NOT capture a solved plan.
+        if success and plan:
+            param_lines = []
+            for i, gopt in enumerate(plan):
+                objs = ", ".join(o.name for o in gopt.objects)
+                par = ", ".join(f"{p:.4f}" for p in gopt.params)
+                param_lines.append(f"  {i}: {gopt.name}({objs})[{par}]")
+            report += ("\n\nParameters found (submit these exact values via "
+                       "evaluate_option_plan):\n" + "\n".join(param_lines))
+
+        return _text_result(f"Task {task_idx}:\n{report}")
+
     # ------------------------------------------------------------------ #
     # Scene annotation
     # ------------------------------------------------------------------ #
+
+    return {
+        "generate_bilevel_plan": generate_bilevel_plan,
+        "generate_abstract_plan": generate_abstract_plan,
+        "refine_plan_sketch": refine_plan_sketch,
+    }
+
+
+def _build_scene_tools(ctx: ToolContext, _text_result: Callable,
+                       tool: Callable) -> Dict[str, Any]:
+    """Scene tools (render / annotate / mutate env states)."""
 
     @tool(
         "annotate_scene",
         "Draw annotations (markers, lines, rectangles) at world "
         "coordinates in the 3D scene, render an image, and save it. "
         "Use this to visualize candidate placement positions or spatial "
-        "relationships before committing to test_option_plan. Annotations "
+        "relationships before committing to evaluate_option_plan. Annotations "
         "are temporary and cleaned up after rendering.",
         {
             "type": "object",
@@ -2177,28 +2343,39 @@ def create_mcp_tools(ctx: ToolContext,
                  "against this modified state.")
         return _text_result(text)
 
-    _all = {
-        "inspect_types": inspect_types,
-        "inspect_predicates": inspect_predicates,
-        "inspect_processes": inspect_processes,
-        "inspect_options": inspect_options,
-        "inspect_trajectories": inspect_trajectories,
-        "inspect_train_tasks": inspect_train_tasks,
-        "inspect_planning_results": inspect_planning_results,
-        "inspect_past_proposals": inspect_past_proposals,
-        "propose_types": propose_types,
-        "propose_predicates": propose_predicates,
-        "propose_object_augmentor": propose_object_augmentor,
-        "propose_processes": propose_processes,
-        "propose_options": propose_options,
-        "retract_abstractions": retract_abstractions,
-        "test_predicate_on_states": test_predicate_on_states,
-        "test_planning": test_planning,
-        "test_option_plan": test_option_plan,
-        "generate_bilevel_plan": generate_bilevel_plan,
-        "generate_abstract_plan": generate_abstract_plan,
+    return {
         "annotate_scene": annotate_scene,
         "visualize_state": visualize_state,
+    }
+
+
+def create_mcp_tools(ctx: ToolContext,
+                     tool_names: Optional[List[str]] = None) -> list:
+    """Create MCP tools with the given ToolContext via closures.
+
+    Args:
+        ctx: Shared mutable state between the approach and MCP tools.
+        tool_names: If provided, only return tools with these names.
+            If None, return all tools.
+
+    Returns a list of SdkMcpTool objects to pass to create_sdk_mcp_server.
+    """
+    from claude_agent_sdk import \
+        tool  # pylint: disable=import-outside-toplevel
+
+    # Spill oversize tool output into the sandbox (``./tool_outputs/``)
+    # instead of returning it inline. Each builder names its parameter
+    # ``_text_result`` so every nested tool's ``_text_result(...)`` call
+    # routes through the spiller with no call-site edits.
+    _text_result = _make_spilling_text_result(ctx.sandbox_dir)
+
+    _all = {
+        **_build_inspection_tools(ctx, _text_result, tool),
+        **_build_proposal_tools(ctx, _text_result, tool),
+        **_build_retraction_tools(ctx, _text_result, tool),
+        **_build_testing_tools(ctx, _text_result, tool),
+        **_build_planning_tools(ctx, _text_result, tool),
+        **_build_scene_tools(ctx, _text_result, tool),
     }
     if tool_names is None:
         tools = list(_all.values())
@@ -3485,3 +3662,202 @@ def create_predicate_synthesis_tools(
         return _text("\n".join(lines))
 
     return [evaluate_predicate_quality]
+
+
+def create_sampler_synthesis_tools(
+    samplers_file: str,
+    samplers_versions_dir: str,
+    approach: Any,
+    cycle_index_provider: Optional[Callable[[], int]] = None,
+) -> list:
+    """Create the per-skill sampler-synthesis tool.
+
+    Returns ``[evaluate_sampler]``. On each call the tool loads
+    ``samplers.py`` fresh (snapshotting into ``samplers_versions_dir``),
+    validates the ``LEARNED_SAMPLERS`` dict (option name -> callable),
+    installs it into ``approach._synthesized_samplers`` so refinement
+    uses it, and reports a per-option shape/in-box sanity check.
+
+    Args:
+        samplers_file: Host path to the agent-edited ``samplers.py``.
+        samplers_versions_dir: Directory for per-call snapshots.
+        approach: The ``AgentSimLearningApproach`` instance.
+        cycle_index_provider: Returns the current 1-indexed cycle.
+    """
+    # pylint: disable=import-outside-toplevel
+    import traceback  # pylint: disable=redefined-outer-name,reimported
+
+    from claude_agent_sdk import tool
+
+    from predicators.code_sim_learning.training import ParamSpec
+
+    # pylint: enable=import-outside-toplevel
+    _text = _make_spilling_text_result(os.path.dirname(samplers_file))
+    _snapshotter = _ArtifactSnapshotter(
+        live_file=samplers_file,
+        versions_dir=samplers_versions_dir,
+        artifact_name="samplers",
+        cycle_index_provider=cycle_index_provider,
+        missing_file_hint=("Use Write to create it with "
+                           "LEARNED_SAMPLERS = {\"OptionName\": fn, ...}."),
+    )
+    params_view = _ParamsView(approach._fitted_params)  # pylint: disable=protected-access
+
+    def _snapshot_and_load_samplers(
+        path: str,
+    ) -> Tuple[Dict[str, Any], Optional[str], Optional[str], List[str]]:
+        """Snapshot ``path`` then exec it into a fresh namespace.
+
+        Returns ``(samplers, version_tag, error_msg, warnings)``.
+        Entries keyed by an unknown option name, or whose value is not
+        callable, are skipped and described in ``warnings``. On success,
+        mutates ``approach._synthesized_samplers`` to the validated
+        dict.
+        """
+        raw, version_tag, err = _snapshotter.snapshot(path)
+        if err is not None:
+            return {}, None, err, []
+        assert raw is not None and version_tag is not None
+
+        ctx = build_exec_context(
+            types=approach._types,  # pylint: disable=protected-access
+            predicates=approach._get_all_predicates(),  # pylint: disable=protected-access
+            options=approach._get_all_options(),  # pylint: disable=protected-access
+            extra_context={
+                "params": params_view,
+                "ParamSpec": ParamSpec,
+            })
+        result, err = exec_code_safely(raw.decode("utf-8"), ctx,
+                                       "LEARNED_SAMPLERS")
+        if err is not None:
+            return {}, version_tag, (f"[{version_tag}] Error executing "
+                                     f"{path}:\n{err}"), []
+        if not isinstance(result, dict):
+            return {}, version_tag, (
+                f"[{version_tag}] LEARNED_SAMPLERS must be a dict "
+                f"{{option_name: sampler_fn}}, got "
+                f"{type(result).__name__}."), []
+
+        option_names = {o.name for o in approach._get_all_options()}  # pylint: disable=protected-access
+        valid: Dict[str, Any] = {}
+        warnings: List[str] = []
+        for name, fn in result.items():
+            if name not in option_names:
+                warnings.append(
+                    f"Skipped '{name}' (not a known option name; known: "
+                    f"{', '.join(sorted(option_names))}).")
+                continue
+            if not callable(fn):
+                warnings.append(
+                    f"Skipped '{name}' (value is not callable, got "
+                    f"{type(fn).__name__}).")
+                continue
+            valid[name] = fn
+
+        # Mutate approach state so evaluate_plan_refinement / test-time
+        # refinement draw from the agent's draft samplers.
+        approach._synthesized_samplers = valid  # pylint: disable=protected-access
+        return valid, version_tag, None, warnings
+
+    def _sanity_check(name: str, fn: Any) -> str:
+        """Draw a few params from a representative state; report shape/box."""
+        # pylint: disable=protected-access,import-outside-toplevel
+        import numpy as np  # pylint: disable=redefined-outer-name,reimported
+
+        from predicators.settings import \
+            CFG  # pylint: disable=redefined-outer-name,reimported
+        options_by_name = {o.name: o for o in approach._get_all_options()}
+        opt = options_by_name[name]
+        train_tasks = approach._train_tasks
+        if not train_tasks:
+            return f"  {name}: no train task to sanity-check against."
+        state = train_tasks[0].init
+        # Pick the first object of each option-arg type present in the state.
+        objs: List[Object] = []
+        for t in opt.types:
+            match = next((o for o in state if o.type.name == t.name), None)
+            if match is None:
+                return (f"  {name}: no object of type '{t.name}' in the "
+                        "train-task state to sanity-check against.")
+            objs.append(match)
+        box = opt.params_space
+        expected = box.shape[0]
+        rng = np.random.default_rng(CFG.seed)
+        in_box = 0
+        n_draws = 3
+        for _ in range(n_draws):
+            try:
+                raw = fn(state, set(), rng, objs)
+                arr = np.asarray(raw, dtype=np.float32).reshape(-1)
+            except Exception:  # pylint: disable=broad-except
+                last = traceback.format_exc().strip().splitlines()[-1]
+                return f"  {name}: ERROR — sampler raised: {last}"
+            if arr.shape != (expected, ):
+                return (f"  {name}: ERROR — returned shape {arr.shape}, "
+                        f"expected ({expected},).")
+            if bool(np.all(arr >= box.low - 1e-6)) and \
+                    bool(np.all(arr <= box.high + 1e-6)):
+                in_box += 1
+        return (f"  {name}: OK — {n_draws} draws, {in_box}/{n_draws} "
+                f"within the params box.")
+
+    @tool(
+        "evaluate_sampler",
+        "Load LEARNED_SAMPLERS (fresh from `samplers.py`) and install "
+        "them as the per-skill samplers used by refinement. Each entry "
+        "maps an option name to a function "
+        "(state, subgoal_atoms, rng, objects) -> params array (the same "
+        "signature as the env's NSRT samplers); refinement calls it "
+        "instead of drawing uniformly so the sampler can aim continuous "
+        "params at the step's subgoal, then clips the result to the box. "
+        "Reports a per-option sanity check (return shape + within-box) "
+        "over a representative train-task state. After loading, the "
+        "samplers used by evaluate_plan_refinement are updated — so call "
+        "this any time you edit samplers.py before re-running "
+        "refinement. Snapshots samplers.py into samplers_versions/; "
+        "output tagged [cycle_XXX_vers_YYY].",
+        {
+            "type": "object",
+            "properties": {},
+        },
+    )
+    async def evaluate_sampler(args: Dict[str, Any]) -> Dict[str, Any]:
+        del args
+        try:
+            samplers, version_tag, err, warnings = (
+                _snapshot_and_load_samplers(samplers_file))
+        except Exception:  # pylint: disable=broad-except
+            return _text(
+                f"Error loading samplers.py:\n{traceback.format_exc()}")
+
+        if err is not None:
+            return _text(err)
+
+        prefix = f"[{version_tag}]"
+        lines = [
+            f"{prefix} Sampler report — {len(samplers)} per-skill "
+            f"sampler(s) installed.",
+        ]
+        if warnings:
+            lines.append("")
+            lines.append("Warnings (entries skipped during load):")
+            for w in warnings:
+                lines.append(f"  - {w}")
+
+        if not samplers:
+            lines.append("")
+            lines.append("LEARNED_SAMPLERS is empty — add "
+                         "{\"OptionName\": fn} entries to samplers.py.")
+            return _text("\n".join(lines))
+
+        lines.append("")
+        lines.append("Sanity check (representative train-task state):")
+        for name in sorted(samplers):
+            lines.append(_sanity_check(name, samplers[name]))
+        lines.append("")
+        lines.append("Now call evaluate_plan_refinement with a sketch that "
+                     "uses these options to measure the samples-to-refine "
+                     "improvement.")
+        return _text("\n".join(lines))
+
+    return [evaluate_sampler]

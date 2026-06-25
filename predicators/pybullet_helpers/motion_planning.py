@@ -5,6 +5,7 @@ from typing import Collection, Iterator, Optional, Sequence
 
 import numpy as np
 import pybullet as p
+from gym.spaces import Box
 from numpy.typing import NDArray
 
 from predicators import utils
@@ -23,13 +24,23 @@ def run_motion_planning(
     physics_client_id: int,
     held_object: Optional[int] = None,
     base_link_to_held_obj: Optional[NDArray] = None,
+    allow_shallow_held_object_contacts: bool = False,
 ) -> Optional[Sequence[JointPositions]]:
     """Run BiRRT to find a collision-free sequence of joint positions.
 
     Note that this function changes the state of the robot.
     """
     rng = np.random.default_rng(seed)
+    # BiRRT plans in the arm-joint space. For mobile robots, action_space also
+    # includes base-delta dims (appended last); strip them so sampled configs
+    # match the arm joints that set_joints / forward_kinematics expect. For
+    # fixed-base robots (base_action_dim == 0) this is a no-op.
     joint_space = robot.action_space
+    base_dim = int(getattr(robot, "base_action_dim", 0))
+    if base_dim > 0:
+        joint_space = Box(low=np.asarray(joint_space.low[:-base_dim]),
+                          high=np.asarray(joint_space.high[:-base_dim]),
+                          dtype=np.float32)
     joint_space.seed(seed)
     num_interp = CFG.pybullet_birrt_extend_num_interp
 
@@ -57,6 +68,20 @@ def run_motion_planning(
                 world_to_held_obj[0],
                 world_to_held_obj[1],
                 physicsClientId=physics_client_id)
+
+    allowed_shallow_held_collision_bodies = set()
+    if allow_shallow_held_object_contacts and held_object is not None:
+        _set_state(initial_positions)
+        p.performCollisionDetection(physicsClientId=physics_client_id)
+        shallow_margin = CFG.pybullet_birrt_shallow_held_contact_margin
+        hard_margin = CFG.pybullet_birrt_contact_margin
+        for body in collision_bodies:
+            contacts = p.getContactPoints(held_object,
+                                          body,
+                                          physicsClientId=physics_client_id)
+            penetrating = [c[8] for c in contacts if c[8] < hard_margin]
+            if penetrating and min(penetrating) >= shallow_margin:
+                allowed_shallow_held_collision_bodies.add(body)
 
     def _extend_fn(pt1: JointPositions,
                    pt2: JointPositions) -> Iterator[JointPositions]:
@@ -87,7 +112,14 @@ def run_motion_planning(
             if held_object is not None:
                 contacts = p.getContactPoints(
                     held_object, body, physicsClientId=physics_client_id)
-                if any(c[8] < margin for c in contacts):
+                contact_distances = [c[8] for c in contacts]
+                if body in allowed_shallow_held_collision_bodies:
+                    shallow_margin = \
+                        CFG.pybullet_birrt_shallow_held_contact_margin
+                    if any(d < shallow_margin for d in contact_distances):
+                        return True
+                    continue
+                if any(d < margin for d in contact_distances):
                     return True
         return False
 

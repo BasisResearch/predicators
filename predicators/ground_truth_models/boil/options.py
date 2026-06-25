@@ -83,6 +83,17 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
             robot_home_pos=(env_cls.robot_init_x, env_cls.robot_init_y,
                             env_cls.robot_init_z),
             transport_z=cls._transport_z,
+            # Mobile-base (mobile_fetch) positioning: park the base 0.6 m in
+            # front of each reach target with its x aligned to the target x, so
+            # the arm reaches straight forward at a comfortable distance instead
+            # of sideways over the burner or fully extended. base_y is clamped
+            # to keep the base clear of the table front (y_lb).
+            base_standoff=(CFG.boil_mobile_base_standoff
+                           if CFG.boil_mobile_base_park else None),
+            base_y_max=env_cls.y_lb - 0.28,
+            base_align_x=CFG.boil_mobile_base_align_x,
+            base_home_xy=(env_cls.robot_base_pos[0],
+                          env_cls.robot_base_pos[1]),
             simulator=simulator,
         )
 

@@ -33,7 +33,8 @@ from predicators.agent_sdk.response_parser import parse_message
 from predicators.agent_sdk.sandbox_prompts import build_claude_md, \
     build_sandbox_system_prompt, find_repo_root, setup_sandbox_directory, \
     truncate
-from predicators.agent_sdk.tools import BUILTIN_TOOLS, ToolContext
+from predicators.agent_sdk.tools import BUILTIN_TOOLS, ToolContext, \
+    session_log_filename
 from predicators.settings import CFG
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,10 @@ class LocalSandboxSessionManager:
         self._phase = phase
 
         self._total_cost_usd: float = 0.0
+        # The SDK reports total_cost_usd as the cumulative cost of the
+        # reused session, so we track the last value seen to derive the
+        # per-solve (marginal) cost of each query.
+        self._last_cost_usd: float = 0.0
         self._total_turns: int = 0
         self._query_count: int = 0
         self._session_id: Optional[str] = None
@@ -178,6 +183,13 @@ class LocalSandboxSessionManager:
         allowed_tools = BUILTIN_TOOLS + mcp_tool_list
 
         extra_hooks = dict(self._tool_context.extra_session_hooks or {})
+        # Cap per-response extended thinking so deliberation can't blow the
+        # harness output-token limit (the 32000-token overflow). Keeps the
+        # model's effort otherwise at its default (high).
+        thinking = ({
+            "type": "enabled",
+            "budget_tokens": CFG.agent_sdk_thinking_budget_tokens
+        } if CFG.agent_sdk_thinking_budget_tokens > 0 else None)
         options = ClaudeAgentOptions(
             allowed_tools=allowed_tools,
             mcp_servers={"predicator_tools": mcp_server},
@@ -185,6 +197,7 @@ class LocalSandboxSessionManager:
             system_prompt=self._system_prompt,
             model=self._model_name,
             max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
+            thinking=thinking,  # type: ignore[arg-type]
             cwd=self._sandbox_dir,
             setting_sources=["project", "local"],
             hooks=(extra_hooks
@@ -246,13 +259,29 @@ class LocalSandboxSessionManager:
                 elif entry["type"] == "result":
                     cost = entry.get("total_cost_usd")
                     turns = entry.get("num_turns")
+                    solve_cost: Optional[float] = None
                     if cost is not None:
-                        self._total_cost_usd += cost
+                        # cost is the session's cumulative total; the
+                        # per-solve cost is the delta since the last result.
+                        # A drop below the last value means the session was
+                        # reset (e.g. recovery), so the new cumulative is
+                        # itself the delta.
+                        solve_cost = float(cost -
+                                           self._last_cost_usd if cost >= self.
+                                           _last_cost_usd else cost)
+                        self._last_cost_usd = cost
+                        self._total_cost_usd += solve_cost
+                        self._current_log_meta["solve_cost_usd"] = solve_cost
+                        self._current_log_meta["total_cost_usd"] = \
+                            self._total_cost_usd
                     if turns is not None:
                         self._total_turns += turns
                     logging.info(
-                        "Local sandbox iteration complete. "
-                        "Turns: %s, Cost: $%s", turns or '?', cost or '?')
+                        "Local sandbox iteration complete. Turns: %s, "
+                        "Cost this solve: $%s, Total cost so far: $%s", turns
+                        or '?',
+                        f"{solve_cost:.4f}" if solve_cost is not None else '?',
+                        f"{self._total_cost_usd:.4f}")
 
                 # Flush log after each message
                 if log_path:
@@ -333,11 +362,13 @@ class LocalSandboxSessionManager:
 
     # -- Logging helpers --
 
-    # Matches both the new ``NNN_kind_ts.md`` layout and the legacy
+    # Matches the new ``NNN_kind[_taskN]_ts.md`` layout and the legacy
     # ``kind_NNN_ts.md`` layout so resuming across the migration is
-    # lossless. The counter is always captured in group 1 or 2.
+    # lossless. The counter is always captured in group 1 or 2; the
+    # optional ``_task<idx>`` segment tags test queries with their task.
     _LOG_FILENAME_RE = re.compile(
-        r"^(?:(\d{3})_[a-z][a-z_]*|[a-z][a-z_]*_(\d{3}))_\d{8}_\d{6}\.md$")
+        r"^(?:(\d{3})_[a-z][a-z_]*(?:_task\d+)?|[a-z][a-z_]*_(\d{3}))"
+        r"_\d{8}_\d{6}\.md$")
 
     def _seed_query_count_from_log_dir(self) -> None:
         """Make the per-session counter continuous across the run.
@@ -375,8 +406,11 @@ class LocalSandboxSessionManager:
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         # Counter-first layout: alphabetical sort matches chronological
-        # order across mixed ``learn``/``test``/``explore`` phases.
-        filename = f"{self._query_count:03d}_{kind}_{timestamp}.md"
+        # order across mixed ``learn``/``test``/``explore`` phases. Test
+        # queries also carry a ``_task<idx>`` segment for attribution.
+        filename = session_log_filename(
+            self._query_count, kind, timestamp,
+            getattr(self._tool_context, "test_task_idx", None))
         # Primary: main log dir (host-visible)
         filepath = os.path.join(self._log_dir, filename)
         os.makedirs(self._log_dir, exist_ok=True)

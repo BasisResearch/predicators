@@ -90,14 +90,14 @@ def test_solve_and_synthesis_tool_names_are_independent() -> None:
     class _Approach(AgentSessionMixin):
 
         def _get_solve_tool_names(self) -> Optional[List[str]]:
-            return ["inspect_options", "test_option_plan"]
+            return ["inspect_options", "evaluate_option_plan"]
 
         def _get_synthesis_tool_names(self) -> Optional[List[str]]:
             return ["inspect_trajectories", "visualize_state"]
 
     obj = _Approach()
     assert obj._get_solve_tool_names() == [
-        "inspect_options", "test_option_plan"
+        "inspect_options", "evaluate_option_plan"
     ]
     assert obj._get_synthesis_tool_names() == [
         "inspect_trajectories", "visualize_state"

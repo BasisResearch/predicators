@@ -70,12 +70,18 @@ def create_wait_option(
         joint_positions[robot.left_finger_joint_idx] = f_action
         joint_positions[robot.right_finger_joint_idx] = f_action
 
+        # Pad base-action dims with zeros for mobile robots so the action
+        # matches the (arm + base) action space; a no-op for fixed bases.
+        action_arr = np.array(joint_positions, dtype=np.float32)
+        n_action = robot.action_space.shape[0]
+        if action_arr.shape[0] < n_action:
+            action_arr = np.concatenate([
+                action_arr,
+                np.zeros(n_action - action_arr.shape[0], dtype=np.float32)
+            ])
         return Action(
-            np.clip(
-                np.array(joint_positions, dtype=np.float32),
-                robot.action_space.low,
-                robot.action_space.high,
-            ))
+            np.clip(action_arr, robot.action_space.low,
+                    robot.action_space.high))
 
     return ParameterizedOption(
         name,

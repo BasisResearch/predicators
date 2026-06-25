@@ -2,9 +2,9 @@
 
 Validates:
 1. inspect_options with option_name saves source code to sandbox
-2. test_option_plan always saves scene images
-3. test_option_plan shows "Missing goal atoms" when goal not achieved
-4. test_option_plan shows object poses on failure
+2. evaluate_option_plan always saves scene images
+3. evaluate_option_plan shows "Missing goal atoms" when goal not achieved
+4. evaluate_option_plan shows object poses on failure
 5. propose_options saves code to sandbox/proposed_code/
 6. _format_object_poses helper
 7. _render_scene_image helper
@@ -37,7 +37,6 @@ _CFG_OVERRIDES = {
     "domino_use_continuous_place": True,
     "domino_use_skill_factories": True,
     "domino_use_domino_blocks_as_target": True,
-    "domino_use_grid": True,
     "domino_has_glued_dominos": False,
     "domino_initialize_at_finished_state": False,
     "num_train_tasks": 1,
@@ -262,17 +261,33 @@ def _get_valid_option_plan_step(ctx: Any) -> dict[str, Any] | None:
     return None
 
 
+def _plan_to_text(plan: Any, ctx: Any) -> str:
+    """Render structured option-plan steps as the text grammar that
+    evaluate_option_plan now expects (typed object refs + params in [])."""
+    type_of = {o.name: o.type.name for o in ctx.current_task.init}
+    lines = []
+    for step in plan:
+        objs = ", ".join(f"{n}:{type_of.get(n, 'object')}"
+                         for n in step["object_names"])
+        params = ", ".join(str(p) for p in step["params"])
+        lines.append(f"{step['option_name']}({objs})[{params}]")
+    return "\n".join(lines)
+
+
 def test_option_plan_missing_goal_atoms(ctx: Any) -> None:
-    """test_option_plan reports missing goal atoms when goal not achieved."""
-    tools = _make_tools(ctx, ["test_option_plan"])
+    """evaluate_option_plan reports missing goal atoms when goal not
+    achieved."""
+    tools = _make_tools(ctx, ["evaluate_option_plan"])
 
     step = _get_valid_option_plan_step(ctx)
     assert step is not None, "No valid option found for testing"
     plan = [step]
 
-    result = _run(tools["test_option_plan"]({
-        "option_plan": plan,
-        "include_atoms": True,
+    result = _run(tools["evaluate_option_plan"]({
+        "plan":
+        _plan_to_text(plan, ctx),
+        "include_atoms":
+        True,
     }))
     text = result["content"][0]["text"]
 
@@ -284,21 +299,21 @@ def test_option_plan_missing_goal_atoms(ctx: Any) -> None:
         # agents).
         assert ("Missing goal atoms:" in text
                 or "Goal (natural language):" in text)
-        print("  PASS: test_option_plan (failure diagnostic shown)")
+        print("  PASS: evaluate_option_plan (failure diagnostic shown)")
     elif "Goal achieved: True" in text:
         assert "Missing goal atoms:" not in text
-        print("  PASS: test_option_plan (goal achieved, no missing atoms)")
+        print("  PASS: evaluate_option_plan (goal achieved, no missing atoms)")
     else:
         # Plan failed early (grounding error, NOT INITIABLE, etc.)
         assert ("NOT INITIABLE" in text or "FAILURE REASON:" in text
                 or "EXECUTION ERROR" in text or "Failed to ground" in text)
-        print("  PASS: test_option_plan (plan failed early, "
+        print("  PASS: evaluate_option_plan (plan failed early, "
               "goal check not reached)")
 
 
 def test_option_plan_not_initiable_shows_poses(ctx: Any) -> None:
-    """test_option_plan shows object poses when option is NOT INITIABLE."""
-    tools = _make_tools(ctx, ["test_option_plan"])
+    """evaluate_option_plan shows object poses when option is NOT INITIABLE."""
+    tools = _make_tools(ctx, ["evaluate_option_plan"])
 
     # Find Place option and try it without Pick first
     place_opt = None
@@ -308,7 +323,7 @@ def test_option_plan_not_initiable_shows_poses(ctx: Any) -> None:
             break
 
     if place_opt is None:
-        print("  SKIP: test_option_plan (no Place option)")
+        print("  SKIP: evaluate_option_plan (no Place option)")
         return
 
     # Build object names from types
@@ -330,34 +345,37 @@ def test_option_plan_not_initiable_shows_poses(ctx: Any) -> None:
         "params": params,
     }]
 
-    result = _run(tools["test_option_plan"]({
-        "option_plan": plan,
+    result = _run(tools["evaluate_option_plan"]({
+        "plan":
+        _plan_to_text(plan, ctx),
     }))
     text = result["content"][0]["text"]
 
     if "NOT INITIABLE" in text:
         assert "Object poses at failure:" in text
-        print("  PASS: test_option_plan (NOT INITIABLE shows poses)")
+        print("  PASS: evaluate_option_plan (NOT INITIABLE shows poses)")
     elif "Failed to ground" in text:
-        print("  SKIP: test_option_plan (Place could not be grounded)")
+        print("  SKIP: evaluate_option_plan (Place could not be grounded)")
     else:
-        print("  SKIP: test_option_plan (Place was initiable, "
+        print("  SKIP: evaluate_option_plan (Place was initiable, "
               "can't test NOT INITIABLE path)")
 
 
 def test_option_plan_saves_images(ctx: Any) -> None:
-    """test_option_plan always saves scene images (never returns inline)."""
+    """evaluate_option_plan always saves scene images (never returns
+    inline)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx.image_save_dir = tmpdir
 
-        tools = _make_tools(ctx, ["test_option_plan"])
+        tools = _make_tools(ctx, ["evaluate_option_plan"])
 
         step = _get_valid_option_plan_step(ctx)
         assert step is not None, "No valid option found for testing"
         plan = [step]
 
-        result = _run(tools["test_option_plan"]({
-            "option_plan": plan,
+        result = _run(tools["evaluate_option_plan"]({
+            "plan":
+            _plan_to_text(plan, ctx),
         }))
 
         content = result["content"]
@@ -368,23 +386,25 @@ def test_option_plan_saves_images(ctx: Any) -> None:
         # Check files were saved if env rendering works
         saved = [f for f in os.listdir(tmpdir) if f.endswith(".png")]
         if saved:
-            print(f"  PASS: test_option_plan ({len(saved)} images saved)")
+            print(f"  PASS: evaluate_option_plan ({len(saved)} images saved)")
         else:
-            print("  SKIP: test_option_plan (rendering not available)")
+            print("  SKIP: evaluate_option_plan (rendering not available)")
 
         ctx.image_save_dir = None
 
 
 def test_option_plan_failure_shows_poses(ctx: Any) -> None:
-    """test_option_plan shows object poses when option returns 0 actions."""
-    tools = _make_tools(ctx, ["test_option_plan"])
+    """evaluate_option_plan shows object poses when option returns 0
+    actions."""
+    tools = _make_tools(ctx, ["evaluate_option_plan"])
 
     step = _get_valid_option_plan_step(ctx)
     assert step is not None, "No valid option found for testing"
     plan = [step]
 
-    result = _run(tools["test_option_plan"]({
-        "option_plan": plan,
+    result = _run(tools["evaluate_option_plan"]({
+        "plan":
+        _plan_to_text(plan, ctx),
     }))
     text = result["content"][0]["text"]
 
@@ -394,12 +414,12 @@ def test_option_plan_failure_shows_poses(ctx: Any) -> None:
             or "Testing option plan" in text)
     if "FAILURE REASON:" in text:
         assert "Object poses at failure:" in text
-        print("  PASS: test_option_plan (failure shows poses)")
+        print("  PASS: evaluate_option_plan (failure shows poses)")
     elif "NOT INITIABLE" in text:
         assert "Object poses at failure:" in text
-        print("  PASS: test_option_plan (NOT INITIABLE shows poses)")
+        print("  PASS: evaluate_option_plan (NOT INITIABLE shows poses)")
     else:
-        print("  PASS: test_option_plan (no failures in output)")
+        print("  PASS: evaluate_option_plan (no failures in output)")
 
 
 def test_format_object_poses(ctx: Any) -> None:
@@ -684,8 +704,8 @@ def main() -> None:
         test_inspect_options_unknown(ctx)
         test_inspect_options_proposed_code(ctx)
 
-        # test_option_plan tests
-        print("\n2. test_option_plan tests:")
+        # evaluate_option_plan tests
+        print("\n2. evaluate_option_plan tests:")
         test_option_plan_missing_goal_atoms(ctx)
         test_option_plan_not_initiable_shows_poses(ctx)
         test_option_plan_saves_images(ctx)

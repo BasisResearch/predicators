@@ -63,9 +63,17 @@ def _place_outside_sampler(state: State, goal: Set[GroundAtom],
     if not CFG.boil_use_skill_factories:
         return np.array([], dtype=np.float32)
     del state, goal, rng, objs
+    # Drop the idle jug at a single tuned spot in the open table region between
+    # the burner (south) and the faucet (east), clear of the table edges. This
+    # deterministic point is reachable and collision-free for both the fixed
+    # and mobile bases. (A per-sample randomized spread was tried for
+    # mobile_fetch but measured strictly worse -- 8/10 vs 10/10 on the 2-jug
+    # tasks -- because the spread occasionally lands near the burner or past the
+    # arm's reach, so it was removed.)
     x = PyBulletBoilEnv.x_mid - 0.15
     y = PyBulletBoilEnv.y_mid + 0.10
-    return np.array([x, y, _BOIL_DROP_Z, 0.0], dtype=np.float32)
+    z = _BOIL_DROP_Z
+    return np.array([x, y, z, 0.0], dtype=np.float32)
 
 
 class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
@@ -118,7 +126,15 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
 
         # Options
         PickJug = options["PickJug"]
-        Place = options["Place"]
+        if CFG.boil_use_skill_factories:
+            Place = options["Place"]
+        else:
+            # Legacy options expose object-keyed place options instead of a
+            # generic Place; the samplers already return empty params for the
+            # legacy path, so each place process just selects the right one.
+            PlaceUnderFaucetOpt = options["PlaceUnderFaucet"]
+            PlaceOnBurnerOpt = options["PlaceOnBurner"]
+            PlaceOutsideOpt = options["PlaceOutsideBurnerAndFaucet"]
         # Having swtich for each because of the type
         SwitchFaucetOn = options["SwitchFaucetOn"]
         SwitchFaucetOff = options["SwitchFaucetOff"]
@@ -216,8 +232,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         jug = Variable("?jug", jug_type)
         burner = Variable("?burner", burner_type)
         parameters = [robot, jug, burner]
-        option_vars = [robot]
-        option = Place
+        if CFG.boil_use_skill_factories:
+            option_vars = [robot]
+            option = Place
+        else:
+            option_vars = [robot, burner]
+            option = PlaceOnBurnerOpt
         condition_at_start = {
             LiftedAtom(Holding, [robot, jug]),
             LiftedAtom(NoJugAtBurner, [burner]),
@@ -243,8 +263,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         jug = Variable("?jug", jug_type)
         faucet = Variable("?faucet", faucet_type)
         parameters = [robot, jug, faucet]
-        option_vars = [robot]
-        option = Place
+        if CFG.boil_use_skill_factories:
+            option_vars = [robot]
+            option = Place
+        else:
+            option_vars = [robot, faucet]
+            option = PlaceUnderFaucetOpt
         condition_at_start = {
             LiftedAtom(Holding, [robot, jug]),
             LiftedAtom(NoJugAtFaucet, [faucet]),
@@ -270,8 +294,12 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         robot = Variable("?robot", robot_type)
         jug = Variable("?jug", jug_type)
         parameters = [robot, jug]
-        option_vars = [robot]
-        option = Place
+        if CFG.boil_use_skill_factories:
+            option_vars = [robot]
+            option = Place
+        else:
+            option_vars = [robot]
+            option = PlaceOutsideOpt
         condition_at_start = {
             LiftedAtom(Holding, [robot, jug]),
         }
@@ -442,7 +470,18 @@ class PyBulletBoilGroundTruthProcessFactory(GroundTruthProcessFactory):
         # delete_effects = {
         #     LiftedAtom(JugNotFilled, [jug]),
         # }
-        delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(5.0),
+        # Legacy options take fewer low-level steps per option than the
+        # skill-factory options, so the jug does not physically reach the
+        # fill threshold within the SwitchFaucetOn(1)+SwitchBurnerOn(3)+
+        # SwitchFaucetOff(1) window the skill-factory timing was calibrated
+        # for. Use a longer symbolic fill delay for the legacy options so
+        # the planner emits an explicit Wait (which terminates exactly on
+        # JugFilled), filling robustly regardless of option duration. Keep
+        # the original delay for the skill-factory options, whose longer
+        # rollouts already fill within the window and would overfill / spill
+        # if the faucet kept running through an added Wait.
+        _fill_mu = 5.0 if CFG.boil_use_skill_factories else 8.0
+        delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(_fill_mu),
                                                    sigma=torch.tensor(0.1))
         fill_jug_process = ExogenousProcess("FillJug", parameters,
                                             condition_at_start,

@@ -85,12 +85,19 @@ def get_move_end_effector_to_pose_action(
     max_vel_norm: float,
     finger_action_nudge_magnitude: float,
     validate: bool = True,
+    move_base: bool = True,
 ) -> Action:
     """Get an action for moving the end effector to a target pose.
 
     See create_move_end_effector_to_pose_option() for more info.
+
+    For mobile-base robots the base is also driven toward the target by
+    default. Callers that position the base separately (e.g. the skill
+    factories' ``_maybe_drive_base``) should pass ``move_base=False`` to keep
+    this purely an arm motion -- otherwise the base would drift during delicate
+    incremental-IK phases such as a switch push.
     """
-    if _robot_supports_base_action(robot):
+    if move_base and _robot_supports_base_action(robot):
         max_base_vel_norm = getattr(robot, "default_base_vel_norm",
                                     max_vel_norm)
         max_base_rot_vel = getattr(robot, "default_base_rot_vel", max_vel_norm)
@@ -211,6 +218,7 @@ def create_move_end_effector_to_pose_option(
     initiable: ParameterizedInitiable = lambda _1, _2, _3, _4: True,
     terminal: Optional[ParameterizedTerminal] = None,
     validate: bool = True,
+    stall_limit: Optional[int] = None,
 ) -> ParameterizedOption:
     """A generic utility that creates a ParameterizedOption for moving the end
     effector to a target pose, given a function that takes in the current
@@ -248,7 +256,6 @@ def create_move_end_effector_to_pose_option(
 
     def _terminal(state: State, memory: Dict, objects: Sequence[Object],
                   params: Array) -> bool:
-        del memory  # unused
         current_pose, target_pose, _ = \
             get_current_and_target_pose_and_finger_status(
                 state, objects, params)
@@ -257,7 +264,24 @@ def create_move_end_effector_to_pose_option(
         current = current_pose.position
         target = target_pose.position
         squared_dist = np.sum(np.square(np.subtract(current, target)))
-        return squared_dist < move_to_pose_tol
+        if squared_dist < move_to_pose_tol:
+            return True
+        # When opted in via ``stall_limit``, also terminate once the end
+        # effector has frozen: incremental IK can plateau a couple of cm
+        # short of a reach-edge target under the fixed wrist orientation,
+        # otherwise burning the whole option horizon. The near-target gate
+        # keeps this from masking genuine far-from-goal failures.
+        if stall_limit is not None:
+            last = memory.get("_stall_last_pos")
+            if last is not None and \
+                    np.sum(np.square(np.subtract(current, last))) < 1e-8:
+                memory["_stall_count"] = memory.get("_stall_count", 0) + 1
+            else:
+                memory["_stall_count"] = 0
+            memory["_stall_last_pos"] = current
+            if memory["_stall_count"] >= stall_limit and squared_dist < 0.01:
+                return True
+        return False
 
     return ParameterizedOption(
         name,

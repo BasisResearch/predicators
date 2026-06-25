@@ -25,8 +25,7 @@ from predicators.settings import CFG
 from predicators.structs import Object, Predicate, State, Type
 
 if TYPE_CHECKING:
-    from predicators.envs.pybullet_domino.composed_env import \
-        PyBulletDominoComposedEnv
+    from predicators.envs.pybullet_domino.env import PyBulletDominoComposedEnv
 
 
 @dataclass
@@ -41,6 +40,13 @@ class PlacementResult:
     target_count: int = 0
     just_turned_90: bool = False
     just_placed_target: bool = False
+    # Yaw to place the *next* block at. Tracks the smooth 45-deg-per-turn
+    # increment, which after a turn differs from ``rotation`` (the travel
+    # direction used to lay out positions) by 180 deg — same physical box,
+    # but the increment representation keeps a straight run reading as one
+    # constant yaw instead of flipping. ``None`` means "same as rotation"
+    # (no turn has happened yet).
+    block_yaw: Optional[float] = None
 
 
 class DominoComponent(DominoEnvComponent):
@@ -87,7 +93,7 @@ class DominoComponent(DominoEnvComponent):
     @staticmethod
     def _get_env_class() -> TypingType["PyBulletDominoComposedEnv"]:
         """Get PyBulletDominoComposedEnv class to access shared config."""
-        from predicators.envs.pybullet_domino.composed_env import \
+        from predicators.envs.pybullet_domino.env import \
             PyBulletDominoComposedEnv  # pylint: disable=import-outside-toplevel
         return PyBulletDominoComposedEnv
 
@@ -163,10 +169,14 @@ class DominoComponent(DominoEnvComponent):
         self.z_lb = workspace_bounds["z_lb"]
         self.z_ub = workspace_bounds["z_ub"]
 
-        # Domino-specific placement bounds (narrower than workspace)
-        # to avoid placing dominoes too close to edges
-        # 1.1 + 0.07 = 1.17
-        self.domino_y_lb = self.y_lb + self.domino_width
+        # Domino-specific placement bounds (narrower than workspace) to avoid
+        # placing dominoes too close to edges. The lower (robot-side) margin is
+        # 1.5x the width: keeping the start block farther from the near edge
+        # makes it reliably reachable for the push, which lifts the oracle
+        # push-only solve rate from ~92% to ~99% (the misses were robot
+        # reach/push failures, not cascade stalls) while keeping task diversity.
+        # 1.1 + 1.5 * 0.07 = 1.205
+        self.domino_y_lb = self.y_lb + 1.5 * self.domino_width
         # 1.6 - 0.21 = 1.39
         self.domino_y_ub = self.y_ub - 3 * self.domino_width
         self.domino_x_lb = self.x_lb
@@ -232,6 +242,18 @@ class DominoComponent(DominoEnvComponent):
                                        self._MovableBlock_holds)
         self._DominoNotGlued = Predicate("DominoNotGlued", [self._domino_type],
                                          self._DominoNotGlued_holds)
+        # Position-based InFront over continuous domino poses. When the grid is
+        # in use, GridComponent's derived InFront replaces this one (helper
+        # predicates take precedence on name collisions).
+        self._InFront = Predicate(
+            "InFront", [self._domino_type, self._domino_type],
+            self._InFront_holds,
+            natural_language_assertion=lambda os:
+            ("the two dominoes are chain-adjacent: one sits one spacing-gap "
+             "ahead of the other along that other's facing (toppling) "
+             "direction -- straight or bent 45 degrees left/right for a turn, "
+             "in both placement direction and yaw -- so that toppling the "
+             "back domino knocks the front one over"))
 
     # -------------------------------------------------------------------------
     # DominoEnvComponent interface implementation
@@ -252,6 +274,7 @@ class DominoComponent(DominoEnvComponent):
             self._Tilting,
             self._InitialBlock,
             self._MovableBlock,
+            self._InFront,
         }
         if CFG.domino_has_glued_dominos:
             preds.add(self._DominoNotGlued)
@@ -475,6 +498,87 @@ class DominoComponent(DominoEnvComponent):
                               objects: Sequence[Object]) -> bool:
         """Check if domino is NOT glued."""
         return not cls._DominoGlued_holds(state, objects)
+
+    def _InFront_holds(self, state: State, objects: Sequence[Object]) -> bool:
+        """Position-based ``InFront`` classifier over continuous poses.
+
+        ``InFront(d1, d2)`` holds when one domino sits roughly one
+        ``pos_gap`` ahead of the other along that other's facing
+        (toppling) direction, with a discrete turn offset between their
+        yaws (straight / 45-left / 45-right). It reads the continuous
+        domino poses directly, so it is available to grid-free agent
+        approaches.
+        """
+        domino1, domino2 = objects
+        if state.get(domino1, "is_held") or state.get(domino2, "is_held"):
+            return False
+
+        pos_gap = self.pos_gap
+        pos_tol = pos_gap * 0.3
+        ang_tol = np.radians(15)
+        # Cardinal-facing slack for the reference (back) domino. A domino
+        # the robot re-places settles ~1 deg off cardinal, so a 1e-3 rad
+        # (~0.06 deg) gate makes InFront(front, placed_back) unsatisfiable
+        # for chained placements; allow a few degrees of slack instead.
+        card_thresh = float(np.sin(np.radians(10)))
+        # Straight, 45-degree right turn, and 45-degree left turn.
+        turn_offsets = (-np.pi / 4, 0.0, np.pi / 4)
+
+        def _ahead(back: Object, front: Object) -> bool:
+            x_b = state.get(back, "x")
+            y_b = state.get(back, "y")
+            rot_b = state.get(back, "yaw")
+            # The relationship only holds for (roughly) cardinal back-facings.
+            if not (abs(np.sin(rot_b)) < card_thresh
+                    or abs(np.cos(rot_b)) < card_thresh):
+                return False
+            # The front domino's yaw differs from the back's by a discrete
+            # turn offset (straight / +-45 deg).
+            diff = utils.wrap_angle(state.get(front, "yaw") - rot_b)
+            if not any(abs(diff - off) < ang_tol for off in turn_offsets):
+                return False
+            # The front domino sits one pos_gap from the back, along the
+            # back's facing -- which may itself be rotated by a turn offset,
+            # so the chain can bend through a turn (the next block then lies
+            # diagonally off the back rather than straight ahead).
+            fx = state.get(front, "x")
+            fy = state.get(front, "y")
+            # A domino is 180-degree symmetric, so its facing names a
+            # bidirectional topple axis: the front may sit one gap along
+            # either end of that (possibly turn-rotated) axis.
+            #
+            # A turn-completing block always carries a half-width lateral
+            # ("side") offset, applied orthogonal to the reference's facing
+            # by the task generator (see DominoTaskGenerator.
+            # _place_turn90_domino) so the toppling chain stays overlapping
+            # through the corner. A turn placement (dir_off != 0) therefore
+            # sits at +-side_offset along the perpendicular -- NOT on the bare
+            # axis. Excluding lateral 0 here is what lets the Place sampler
+            # distinguish the cascade-enabling offset pose from the
+            # symbolically-equivalent-but-physically-dead on-axis pose (an
+            # on-axis turn block fails this edge, so scoring prefers the
+            # offset). Straight placements (dir_off == 0) stay exactly on the
+            # axis, so no spurious edges appear.
+            side_offset = self.domino_width / 2
+            perp_x = np.cos(rot_b)
+            perp_y = -np.sin(rot_b)
+            for dir_off in turn_offsets:
+                ang = rot_b + dir_off
+                laterals = ((0.0, ) if abs(dir_off) < 1e-9 else
+                            (side_offset, -side_offset))
+                for sgn in (1.0, -1.0):
+                    base_x = x_b + sgn * pos_gap * np.sin(ang)
+                    base_y = y_b + sgn * pos_gap * np.cos(ang)
+                    for lat in laterals:
+                        expected_x = base_x + lat * perp_x
+                        expected_y = base_y + lat * perp_y
+                        if (abs(fx - expected_x) < pos_tol
+                                and abs(fy - expected_y) < pos_tol):
+                            return True
+            return False
+
+        # InFront(d1, d2) := d1 is ahead of d2, or d2 is ahead of d1.
+        return _ahead(domino2, domino1) or _ahead(domino1, domino2)
 
     @classmethod
     def _DominoGlued_holds(cls, state: State,

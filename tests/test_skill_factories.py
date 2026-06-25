@@ -240,6 +240,7 @@ class TestPhase:
         assert phase.action_type == PhaseAction.MOVE_TO_POSE
         assert phase.terminal_fn is None
         assert phase.use_motion_planning is False  # default from CFG
+        assert not phase.allow_shallow_held_object_contacts
 
     def test_change_fingers_phase(self):
         """Test change fingers phase."""
@@ -275,6 +276,20 @@ class TestPhase:
             use_motion_planning=False,
         )
         assert phase.use_motion_planning is False
+
+    def test_move_to_phase_collision_metadata(self):
+        """Test move-to phase stores collision metadata."""
+
+        def dummy_pose(_state, _objects, _params, _cfg):
+            return 0.0, 0.0, 0.0, 0.0
+
+        phase = make_move_to_phase(
+            "Move",
+            dummy_pose,
+            allow_shallow_held_object_contacts=True,
+        )
+
+        assert phase.allow_shallow_held_object_contacts
 
 
 # ===========================================================================

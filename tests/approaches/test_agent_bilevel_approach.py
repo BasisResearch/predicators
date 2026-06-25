@@ -245,6 +245,31 @@ class TestParseSubgoalAnnotations:
         pos2, _ = result[1]
         assert GroundAtom(_On, [_block0, _block1]) in pos2
 
+    def test_numbered_prefix_subgoals(self):
+        """Agent numbers the lines (0:, 1:) — annotations must still align.
+
+        Mirrors a real failure: the agent mirrored the numbered sketch
+        format shown in logs, embedding it between prose, and the
+        numbered prefix made every line parse as a non-option line so
+        the annotation list came back empty/misaligned.
+        """
+        approach, _, _ = _make_approach()
+        text = ("Some analysis the agent wrote first.\n"
+                "  0: Pick(block0:block) -> {Holding(block0:block)}\n"
+                "  1: Place(block0:block, block1:block) "
+                "-> {On(block0:block, block1:block)}\n"
+                "Rationale: ...\n")
+        result = approach._parse_subgoal_annotations(text, _ALL_PREDICATES,
+                                                     _ALL_OBJECTS)
+
+        assert len(result) == 2
+        assert result[0] is not None
+        pos, _ = result[0]
+        assert GroundAtom(_Holding, [_block0]) in pos
+        assert result[1] is not None
+        pos2, _ = result[1]
+        assert GroundAtom(_On, [_block0, _block1]) in pos2
+
     def test_preamble_ignored(self):
         """Non-option lines should be ignored."""
         approach, _, _ = _make_approach()

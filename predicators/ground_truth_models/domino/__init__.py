@@ -1,5 +1,6 @@
 """Ground-truth models for coffee environment and variants."""
 
+from .gt_simulator import PyBulletDominoGroundTruthSimulatorFactory
 from .nsrts import PyBulletDominoGroundTruthNSRTFactory
 from .options import PyBulletDominoGroundTruthOptionFactory
 from .predicates import PyBulletDominoGroundTruthPredicateFactory
@@ -11,6 +12,6 @@ __all__ = [
     "PyBulletDominoGroundTruthOptionFactory",
     "PyBulletDominoGroundTruthPredicateFactory",
     "PyBulletDominoGroundTruthProcessFactory",
-    "PyBulletDominoGroundTruthProcessFactory",
+    "PyBulletDominoGroundTruthSimulatorFactory",
     "PyBulletDominoGroundTruthTypeFactory",
 ]

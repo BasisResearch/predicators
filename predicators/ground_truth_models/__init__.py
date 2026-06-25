@@ -2,7 +2,7 @@
 import abc
 import sys
 from pathlib import Path
-from typing import Dict, List, Sequence, Set
+from typing import Dict, List, Optional, Sequence, Set
 
 from gym.spaces import Box
 
@@ -10,7 +10,8 @@ from predicators import utils
 from predicators.envs import BaseEnv, get_or_create_env
 from predicators.settings import CFG
 from predicators.structs import NSRT, CausalProcess, EndogenousProcess, \
-    LiftedDecisionList, ParameterizedOption, Predicate, Task, Type
+    LiftedDecisionList, OptionSampler, ParameterizedOption, Predicate, Task, \
+    Type
 
 
 class GroundTruthOptionFactory(abc.ABC):
@@ -84,6 +85,28 @@ class GroundTruthSimulatorFactory(abc.ABC):
     @abc.abstractmethod
     def get_env_names(cls) -> Set[str]:
         """Get the env names that this factory builds simulators for."""
+        raise NotImplementedError("Override me!")
+
+
+class GroundTruthSamplerFactory(abc.ABC):
+    """Parent class for ground-truth per-skill samplers.
+
+    Provides a mapping ``option name -> OptionSampler`` consulted by
+    bilevel-sketch refinement (the grid-free counterpart of the NSRT
+    samplers in ``processes.py``). Lets an env supply hand-written
+    samplers instead of having the agent synthesize them.
+    """
+
+    @classmethod
+    @abc.abstractmethod
+    def get_env_names(cls) -> Set[str]:
+        """Get the env names that this factory builds samplers for."""
+        raise NotImplementedError("Override me!")
+
+    @classmethod
+    @abc.abstractmethod
+    def get_samplers(cls, env_name: str) -> Dict[str, OptionSampler]:
+        """Return ``option name -> OptionSampler`` for the given env."""
         raise NotImplementedError("Override me!")
 
 
@@ -221,7 +244,9 @@ def get_gt_processes(env_name: str,
     env = get_or_create_env(env_name)
     env_options = get_gt_options(env_name)
     helper_predicates = get_gt_helper_predicates(env_name)
-    all_predicates = env.predicates | helper_predicates
+    # Helper predicates take precedence over env predicates on name collisions
+    # (e.g. the grid's derived InFront replaces the position-based InFront).
+    all_predicates = helper_predicates | env.predicates
     helper_types = get_gt_helper_types(env_name)
     all_types = env.types | helper_types
     assert predicates_to_keep.issubset(all_predicates)
@@ -290,6 +315,20 @@ def get_gt_simulator(env_name: str) -> tuple:
             return rules, specs, features
     raise NotImplementedError("Ground-truth simulator not implemented for "
                               f"env: {env_name}")
+
+
+def get_gt_samplers(env_name: str) -> Optional[Dict[str, OptionSampler]]:
+    """Return ``option name -> ground-truth OptionSampler`` for an env.
+
+    Merges the samplers from every ``GroundTruthSamplerFactory`` bound
+    to ``env_name``. Returns ``None`` when no factory provides samplers
+    for the env, so callers can fall back to learning/uniform sampling.
+    """
+    out: Dict[str, OptionSampler] = {}
+    for cls in utils.get_all_subclasses(GroundTruthSamplerFactory):
+        if not cls.__abstractmethods__ and env_name in cls.get_env_names():
+            out.update(cls.get_samplers(env_name))
+    return out or None
 
 
 def get_gt_ldl_bridge_policy(env_name: str, types: Set[Type],
