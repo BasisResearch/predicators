@@ -1028,6 +1028,15 @@ class ForwardResult:
     first_failure_idx: Optional[int]
     # First step whose positive subgoal atoms diverged, or None.
     first_subgoal_divergence_idx: Optional[int]
+    # Total low-level actions executed across all options.
+    total_actions: int = 0
+    # First step index whose post-state satisfies the goal, or None if the
+    # goal was never reached along the way.
+    goal_step_idx: Optional[int] = None
+    # Cumulative low-level actions through ``goal_step_idx`` (the count the
+    # real, horizon-capped executor would spend to first reach the goal), or
+    # None if the goal was never reached.
+    actions_to_goal: Optional[int] = None
 
     @property
     def executed_all(self) -> bool:
@@ -1039,6 +1048,25 @@ class ForwardResult:
         """True iff every option executed AND the goal was reached."""
         return self.executed_all and self.goal_reached
 
+    @property
+    def clean_to_goal(self) -> bool:
+        """True iff the goal is reached with no hard option failure at or
+        before the step that first reaches it.
+
+        Mirrors the real closed-loop executor, which aborts at the first
+        failing option: a 0-action / not-initiable failure *after* the goal
+        already holds is harmless, but one before it dooms the rollout.
+        ``execute_plan_forward`` itself continues past such failures (the
+        option model returns an unchanged post-state), so this guards
+        against capturing a plan whose goal atoms only hold because forward
+        simulation pressed on through a collision the real env would abort
+        on.
+        """
+        if not self.goal_reached or self.goal_step_idx is None:
+            return False
+        return (self.first_failure_idx is None
+                or self.first_failure_idx > self.goal_step_idx)
+
 
 def execute_plan_forward(
     task: Task,
@@ -1048,6 +1076,7 @@ def execute_plan_forward(
     predicates: Set[Predicate],
     sketch: Optional[List[SketchStep]] = None,
     on_step: Optional[Callable[[int, StepOutcome], None]] = None,
+    stop_on_failure: bool = False,
 ) -> ForwardResult:
     """Execute a fully-grounded plan step by step through the option model.
 
@@ -1059,16 +1088,24 @@ def execute_plan_forward(
     ``get_next_state_and_num_actions`` (catching
     ``EnvironmentFailure``), treat 0 actions as a failure, and — when a
     sketch is given — check the step's positive ``subgoal_atoms``
-    against the post-state. Execution stops early only when a step is
-    not initiable or raises (no post-state to continue from); a 0-action
-    step is recorded as a failure but execution continues from the
-    model's returned state. ``on_step(i, outcome)`` is called after each
+    against the post-state. ``on_step(i, outcome)`` is called after each
     step for callers that emit per-step reporting.
+
+    Execution always stops early when a step is not initiable or raises
+    (no post-state to continue from). When ``stop_on_failure`` is True it
+    *also* stops at a 0-action step — mirroring the real closed-loop
+    executor, which aborts at the first failing option rather than
+    pressing on. When False (the default), a 0-action step is recorded as
+    a failure but execution continues from the model's returned state
+    (kept for ``validate_plan_forward``'s per-step diagnostics).
     """
     state = task.init
     steps: List[StepOutcome] = []
     first_failure_idx: Optional[int] = None
     first_div_idx: Optional[int] = None
+    total_actions = 0
+    goal_step_idx: Optional[int] = None
+    actions_to_goal: Optional[int] = None
 
     for i, option in enumerate(plan):
         pre = state
@@ -1121,7 +1158,17 @@ def execute_plan_forward(
             first_failure_idx = i
         if post is None:
             break  # cannot continue without a post-state
+        if failure_reason is not None and stop_on_failure:
+            break  # mirror the real executor: abort at the first failure
         state = post
+        total_actions += num_actions
+        # Record when the goal *first* holds, plus the cumulative actions to
+        # get there — the budget the real horizon-capped executor would
+        # spend. A plan whose goal only holds after more steps than the
+        # episode horizon allows is not real-executable.
+        if goal_step_idx is None and task.goal_holds(state):
+            goal_step_idx = i
+            actions_to_goal = total_actions
 
     return ForwardResult(
         steps=steps,
@@ -1129,6 +1176,9 @@ def execute_plan_forward(
         goal_reached=task.goal_holds(state),
         first_failure_idx=first_failure_idx,
         first_subgoal_divergence_idx=first_div_idx,
+        total_actions=total_actions,
+        goal_step_idx=goal_step_idx,
+        actions_to_goal=actions_to_goal,
     )
 
 
