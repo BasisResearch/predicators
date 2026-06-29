@@ -8,6 +8,7 @@ import pytest
 from gym.spaces import Box
 
 from predicators import utils
+from predicators.agent_sdk.bilevel_sketch import SketchStep
 from predicators.agent_sdk.tools import ToolContext
 from predicators.explorers import create_explorer
 from predicators.explorers.agent_bilevel_explorer import AgentBilevelExplorer
@@ -300,6 +301,115 @@ def test_plan_truncates_at_deepest_subgoal_failure_after_backtracking():
     assert executed_names.count("Pick") >= 2, (
         "Backtracking should have retried Pick at least twice before "
         f"giving up, got {executed_names}")
+
+
+def _make_captured(pick_params, place_params):
+    """Build the (solved_plan, solved_sketch) a tool capture would stash."""
+    grounded_plan = [
+        _Pick.ground([_block0], np.array(pick_params, dtype=np.float32)),
+        _Place.ground([_block0, _block1],
+                      np.array(place_params, dtype=np.float32)),
+    ]
+    captured_sketch = [
+        SketchStep(option=_Pick, objects=[_block0], subgoal_atoms=None),
+        SketchStep(option=_Place,
+                   objects=[_block0, _block1],
+                   subgoal_atoms={GroundAtom(_On, [_block0, _block1])}),
+    ]
+    return grounded_plan, captured_sketch
+
+
+def test_recovers_captured_plan_when_final_text_unparseable():
+    """Agent validates a plan via evaluate_option_plan but ends in prose:
+
+    explorer recovers the captured plan instead of falling back to
+    random, and seeds the captured continuous params into refinement.
+    """
+    _reset_config()
+
+    goal_state = _make_state({_block0: [0.5, 0.6, 0.0]})
+    option_model = MagicMock()
+    option_model.get_next_state_and_num_actions.return_value = (goal_state, 3)
+
+    pick_params, place_params = [0.42], [0.11, 0.22]
+    grounded_plan, captured_sketch = _make_captured(pick_params, place_params)
+
+    explorer, tool_context = _make_explorer(option_model, None)
+
+    async def query_impl(_msg, **_kw):
+        # Simulate the agent capturing a validated plan via the tool during
+        # the query (set AFTER the explorer's entry-time capture clear), then
+        # ending with prose that does NOT parse into a sketch.
+        tool_context.solved_plan = grounded_plan
+        tool_context.solved_sketch = captured_sketch
+        return _assistant_response("Solved it. Plan: 1. pick 2. place. Done.")
+
+    explorer._agent_session.query = query_impl
+
+    policy, term_fn = explorer._get_exploration_strategy(0, timeout=5)
+
+    # Recovered (not random fallback): subgoals/options come from the capture.
+    assert callable(policy)
+    assert term_fn(_make_state()) is False
+    assert tool_context.last_sketch_options == [
+        ("Pick", ["block0"]),
+        ("Place", ["block0", "block1"]),
+    ]
+    # The capture was consumed (cleared) so it can't leak into a later solve.
+    assert tool_context.solved_plan is None
+    assert tool_context.solved_sketch is None
+    # Captured params were seeded as initial_params: the option model is
+    # invoked with them (Pick tries them first; Place's are pooled).
+    called = [
+        c.args[1]
+        for c in option_model.get_next_state_and_num_actions.call_args_list
+    ]
+    pick_calls = [o for o in called if o.name == "Pick"]
+    place_calls = [o for o in called if o.name == "Place"]
+    assert pick_calls and place_calls
+    np.testing.assert_allclose(pick_calls[0].params, pick_params)
+    assert any(
+        np.allclose(o.params, place_params) for o in place_calls), \
+        "captured Place params were not seeded into refinement"
+
+
+def test_captured_params_seed_info_gain_search():
+    """With info-seeking ON, the recovered capture's continuous params are
+    seeded as candidates in the info-gain pool (not replayed verbatim)."""
+    _reset_config(agent_explorer_info_seeking=True,
+                  agent_explorer_info_n_feasible_target=2,
+                  agent_bilevel_explorer_max_samples_per_step=4)
+
+    goal_state = _make_state({_block0: [0.5, 0.6, 0.0]})
+    option_model = MagicMock()
+    option_model.get_next_state_and_num_actions.return_value = (goal_state, 3)
+
+    place_params = [0.33, 0.44]
+    grounded_plan, captured_sketch = _make_captured([0.42], place_params)
+
+    explorer, tool_context = _make_explorer(option_model, None)
+    # Wire a trivial ensemble scorer so info-seeking engages on annotated
+    # steps; constant score means the seeded candidate is chosen.
+    tool_context.atom_disagreement_fn = lambda _s, _atoms: 0.0
+
+    async def query_impl(_msg, **_kw):
+        tool_context.solved_plan = grounded_plan
+        tool_context.solved_sketch = captured_sketch
+        return _assistant_response("Done — summary only, no sketch block.")
+
+    explorer._agent_session.query = query_impl
+
+    policy, _ = explorer._get_exploration_strategy(0, timeout=5)
+    assert callable(policy)
+    # Place is the subgoal-annotated step that info-seeking pools; its captured
+    # params must appear among the candidates the pool evaluated.
+    place_calls = [
+        c.args[1]
+        for c in option_model.get_next_state_and_num_actions.call_args_list
+        if c.args[1].name == "Place"
+    ]
+    assert any(np.allclose(o.params, place_params) for o in place_calls), \
+        "captured Place params were not seeded into the info-gain pool"
 
 
 def test_fallback_when_query_fails_and_flag_on():
