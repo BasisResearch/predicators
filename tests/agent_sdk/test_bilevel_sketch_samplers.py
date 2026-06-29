@@ -565,8 +565,8 @@ class _StuckThenMoveModel:
 
 
 def test_execute_plan_forward_continues_past_zero_action_failure():
-    """A 0-action (collision) step is a failure but execution continues; if
-    a later step reaches the goal, goal_reached is True yet clean_to_goal is
+    """A 0-action (collision) step is a failure but execution continues; if a
+    later step reaches the goal, goal_reached is True yet clean_to_goal is
     False — the real executor would abort at the failing step."""
     plan = [
         _Stuck.ground([_block], np.array([0.5], dtype=np.float32)),
@@ -587,8 +587,8 @@ def test_execute_plan_forward_continues_past_zero_action_failure():
 
 def test_execute_plan_forward_stop_on_failure_aborts():
     """With stop_on_failure (the evaluate_option_plan path), a 0-action step
-    aborts execution like the real executor: later steps don't run and the
-    goal is not reached."""
+    aborts execution like the real executor: later steps don't run and the goal
+    is not reached."""
     plan = [
         _Stuck.ground([_block], np.array([0.5], dtype=np.float32)),
         _Move.ground([_block], np.array([0.95], dtype=np.float32)),
@@ -608,8 +608,8 @@ def test_execute_plan_forward_stop_on_failure_aborts():
 
 
 def test_execute_plan_forward_clean_to_goal_tracks_actions():
-    """A clean plan that reaches the goal is clean_to_goal with the
-    cumulative actions-to-goal recorded."""
+    """A clean plan that reaches the goal is clean_to_goal with the cumulative
+    actions-to-goal recorded."""
     plan = [_Move.ground([_block], np.array([0.95], dtype=np.float32))]
     result = bilevel_sketch.execute_plan_forward(_task_hi(),
                                                  plan,

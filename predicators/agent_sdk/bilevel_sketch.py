@@ -1054,13 +1054,13 @@ class ForwardResult:
         before the step that first reaches it.
 
         Mirrors the real closed-loop executor, which aborts at the first
-        failing option: a 0-action / not-initiable failure *after* the goal
-        already holds is harmless, but one before it dooms the rollout.
-        ``execute_plan_forward`` itself continues past such failures (the
-        option model returns an unchanged post-state), so this guards
-        against capturing a plan whose goal atoms only hold because forward
-        simulation pressed on through a collision the real env would abort
-        on.
+        failing option: a 0-action / not-initiable failure *after* the
+        goal already holds is harmless, but one before it dooms the
+        rollout. ``execute_plan_forward`` itself continues past such
+        failures (the option model returns an unchanged post-state), so
+        this guards against capturing a plan whose goal atoms only hold
+        because forward simulation pressed on through a collision the
+        real env would abort on.
         """
         if not self.goal_reached or self.goal_step_idx is None:
             return False
