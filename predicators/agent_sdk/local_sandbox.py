@@ -190,6 +190,15 @@ class LocalSandboxSessionManager:
             "type": "enabled",
             "budget_tokens": CFG.agent_sdk_thinking_budget_tokens
         } if CFG.agent_sdk_thinking_budget_tokens > 0 else None)
+        # Reasoning effort: pass through to the agent when set to one of the
+        # SDK's accepted levels; "" / "default" leaves it unset.
+        effort = CFG.agent_sdk_reasoning_effort.strip().lower()
+        valid_efforts = {"low", "medium", "high", "max"}
+        if effort and effort not in valid_efforts and effort != "default":
+            raise ValueError(f"agent_sdk_reasoning_effort must be one of "
+                             f"{sorted(valid_efforts)} or ''/'default'; got "
+                             f"{CFG.agent_sdk_reasoning_effort!r}")
+        reasoning_effort = effort if effort in valid_efforts else None
         options = ClaudeAgentOptions(
             allowed_tools=allowed_tools,
             mcp_servers={"predicator_tools": mcp_server},
@@ -198,6 +207,7 @@ class LocalSandboxSessionManager:
             model=self._model_name,
             max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
             thinking=thinking,  # type: ignore[arg-type]
+            effort=reasoning_effort,  # type: ignore[arg-type]
             cwd=self._sandbox_dir,
             setting_sources=["project", "local"],
             hooks=(extra_hooks
