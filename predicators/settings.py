@@ -1034,6 +1034,12 @@ class GlobalSettings:
     # "exceeded the output token maximum" overflow. 0 ⇒ leave unset (the
     # model's default adaptive thinking, which can overflow on hard tasks).
     agent_sdk_thinking_budget_tokens = 16000
+    # Reasoning effort for the agent SDK's Claude agent. One of "low",
+    # "medium", "high", "max" to set it, or "" / "default" to leave it unset
+    # (the model's own default). Higher effort trades latency/cost for more
+    # deliberate planning; orthogonal to agent_sdk_thinking_budget_tokens,
+    # which caps a single response's extended thinking.
+    agent_sdk_reasoning_effort = ""
     agent_sdk_agent_timeout = 300  # seconds per iteration
     agent_sdk_resume_session = True  # resume previous session if available
     agent_sdk_propose_types = True

@@ -80,6 +80,10 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
         "type": "enabled",
         "budget_tokens": thinking_budget
     } if thinking_budget and thinking_budget > 0 else None)
+    # Reasoning effort: one of the SDK levels, or unset for ""/"default".
+    effort = str(query_input.get("reasoning_effort", "")).strip().lower()
+    reasoning_effort = (effort if effort in {"low", "medium", "high", "max"}
+                        else None)
     options = ClaudeAgentOptions(
         allowed_tools=allowed_tools,
         mcp_servers={"predicator_tools": mcp_server},
@@ -88,6 +92,7 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
         model=query_input["model_name"],
         max_turns=query_input.get("max_turns", 20),
         thinking=thinking,  # type: ignore[arg-type]
+        effort=reasoning_effort,  # type: ignore[arg-type]
     )
 
     client = ClaudeSDKClient(options=options)

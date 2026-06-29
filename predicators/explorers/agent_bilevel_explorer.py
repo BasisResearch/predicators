@@ -15,6 +15,7 @@ Parallels ``AgentPlanExplorer`` for session plumbing and
 import logging
 from typing import Any, Callable, Dict, List, Optional, Set
 
+import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
@@ -64,6 +65,30 @@ class AgentBilevelExplorer(BaseExplorer):
         # falls back to random before producing one.
         self._tool_context.last_mental_model_solved = None
 
+        # Point the agent's interactive tools (refine_plan_sketch,
+        # evaluate_option_plan, visualize_state) at the EXPLORE task. These
+        # tools default to ctx.current_task when the agent omits task_idx,
+        # and the test-time _solve leaves current_task set to the last TEST
+        # task. Without this, the agent tunes/validates its exploration plan
+        # against the wrong task (e.g. a test goal referencing objects this
+        # task doesn't even have), so parameter search is meaningless and
+        # only tasks solvable without tuning get solved.
+        #
+        # Enable the capture path too (keyed to current_task == this explore
+        # task): the agent often submits + simulator-validates a goal-reaching
+        # plan via evaluate_option_plan / refine_plan_sketch but then ends with
+        # a prose summary whose final text doesn't parse into a sketch. Without
+        # capture that productive solve is lost to the random-options fallback;
+        # with it we recover the captured plan below (see _sketch_from_capture)
+        # and feed its continuous params into the info-gain search. Clear any
+        # stale capture first; the next test _solve re-points current_task and
+        # clears capture again, so an exploration plan can't leak into a test
+        # solve.
+        self._tool_context.current_task = task
+        self._tool_context.capture_goal_reaching_plans = True
+        self._tool_context.solved_plan = None
+        self._tool_context.solved_sketch = None
+
         try:
             prompt = bilevel_sketch.build_solve_prompt(
                 task,
@@ -93,6 +118,16 @@ class AgentBilevelExplorer(BaseExplorer):
                 parse_continuous_params=CFG.
                 agent_bilevel_use_llm_initial_params,
             )
+            if not sketch:
+                # The agent's final message didn't parse into a sketch, but it
+                # may have submitted + simulator-validated a goal-reaching plan
+                # via evaluate_option_plan / refine_plan_sketch (captured into
+                # solved_plan / solved_sketch). Recover that plan as the
+                # sketch, carrying its continuous params as initial_params so
+                # they seed the info-gain search below rather than being
+                # replayed verbatim. This mirrors the test solver's preference
+                # for the tool-validated capture over the final text.
+                sketch = self._sketch_from_capture() or []
             if not sketch:
                 raise ValueError("parsed empty plan sketch")
 
@@ -227,6 +262,45 @@ class AgentBilevelExplorer(BaseExplorer):
     # ------------------------------------------------------------------ #
     # Helpers
     # ------------------------------------------------------------------ #
+
+    def _sketch_from_capture(
+            self) -> Optional[List[bilevel_sketch.SketchStep]]:
+        """Rebuild a sketch from a captured, tool-validated plan, or None.
+
+        ``evaluate_option_plan`` / ``refine_plan_sketch`` stash a
+        refined + forward-validated, goal-reaching plan on the explore
+        task into ``solved_plan`` (grounded options with continuous
+        params) and ``solved_sketch`` (the option skeleton plus the
+        subgoals that actually held). We reconstruct a sketch from that
+        skeleton and graft each captured option's continuous params onto
+        the step's ``initial_params``, so the info-gain refinement below
+        seeds them as the first candidate in each step's pool (see
+        ``_sample_info_seeking``) instead of replaying them verbatim.
+        Consume (clear) the capture so it can't be reused.
+        """
+        plan = self._tool_context.solved_plan
+        captured_sketch = self._tool_context.solved_sketch
+        self._tool_context.solved_plan = None
+        self._tool_context.solved_sketch = None
+        if not plan or not captured_sketch:
+            return None
+        seeded: List[bilevel_sketch.SketchStep] = []
+        for i, step in enumerate(captured_sketch):
+            params = None
+            if i < len(plan):
+                params = np.asarray(plan[i].params, dtype=np.float32)
+            seeded.append(
+                bilevel_sketch.SketchStep(
+                    option=step.option,
+                    objects=step.objects,
+                    subgoal_atoms=step.subgoal_atoms,
+                    subgoal_neg_atoms=step.subgoal_neg_atoms,
+                    initial_params=params))
+        logging.info(
+            "agent_bilevel explorer: final text didn't parse, recovered the "
+            "agent's tool-validated plan from capture (%d steps); seeding its "
+            "continuous params into the info-gain search.", len(seeded))
+        return seeded
 
     def _wrap_policy(
             self, policy: Callable[[State],

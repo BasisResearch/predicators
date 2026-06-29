@@ -531,6 +531,96 @@ def test_execute_plan_forward_success():
     assert seen == [0]  # on_step fired once
 
 
+# An option that is initiable but whose execution yields 0 actions (e.g. a
+# motion-planning collision), for the continue-past-failure tests.
+_Stuck = ParameterizedOption(
+    "Stuck",
+    types=[_block_type],
+    params_space=Box(low=np.array([0.0], dtype=np.float32),
+                     high=np.array([1.0], dtype=np.float32)),
+    policy=_noop_policy,
+    initiable=_true,
+    terminal=_false,
+)
+
+
+class _StuckThenMoveModel:
+    """Like _FakeOptionModel, but Stuck returns 0 actions (unchanged state)
+    while leaving a post-state, so forward execution keeps going."""
+
+    def __init__(self):
+        self.num_calls = 0
+        self.last_execution_failure = None
+
+    def get_next_state_and_num_actions(self, state, option):
+        """Stuck -> (unchanged state, 0 actions); Move -> sets x, 1 action."""
+        self.num_calls += 1
+        if option.name == "Stuck":
+            self.last_execution_failure = "BiRRT collision"
+            return state.copy(), 0
+        nxt = state.copy()
+        if len(option.params):
+            nxt.set(_block, "x", float(option.params[0]))
+        return nxt, 1
+
+
+def test_execute_plan_forward_continues_past_zero_action_failure():
+    """A 0-action (collision) step is a failure but execution continues; if a
+    later step reaches the goal, goal_reached is True yet clean_to_goal is
+    False — the real executor would abort at the failing step."""
+    plan = [
+        _Stuck.ground([_block], np.array([0.5], dtype=np.float32)),
+        _Move.ground([_block], np.array([0.95], dtype=np.float32)),
+    ]
+    result = bilevel_sketch.execute_plan_forward(_task_hi(),
+                                                 plan,
+                                                 _StuckThenMoveModel(),
+                                                 predicates={_ReachedHi})
+    assert result.goal_reached  # goal atoms hold in the final state
+    assert result.first_failure_idx == 0  # the 0-action Stuck step
+    assert result.goal_step_idx == 1  # goal first holds after Move
+    assert not result.clean_to_goal  # failure precedes the goal step
+    assert not result.success
+    assert result.steps[0].failure_reason == "BiRRT collision"
+    assert result.actions_to_goal == 1  # only Move spent an action
+
+
+def test_execute_plan_forward_stop_on_failure_aborts():
+    """With stop_on_failure (the evaluate_option_plan path), a 0-action step
+    aborts execution like the real executor: later steps don't run and the goal
+    is not reached."""
+    plan = [
+        _Stuck.ground([_block], np.array([0.5], dtype=np.float32)),
+        _Move.ground([_block], np.array([0.95], dtype=np.float32)),
+    ]
+    model = _StuckThenMoveModel()
+    result = bilevel_sketch.execute_plan_forward(_task_hi(),
+                                                 plan,
+                                                 model,
+                                                 predicates={_ReachedHi},
+                                                 stop_on_failure=True)
+    assert not result.goal_reached  # aborted before the Move could run
+    assert result.first_failure_idx == 0
+    assert len(result.steps) == 1  # stopped after the failed step
+    assert model.num_calls == 1  # Move never executed
+    assert result.goal_step_idx is None
+    assert not result.clean_to_goal
+
+
+def test_execute_plan_forward_clean_to_goal_tracks_actions():
+    """A clean plan that reaches the goal is clean_to_goal with the cumulative
+    actions-to-goal recorded."""
+    plan = [_Move.ground([_block], np.array([0.95], dtype=np.float32))]
+    result = bilevel_sketch.execute_plan_forward(_task_hi(),
+                                                 plan,
+                                                 _FakeOptionModel(),
+                                                 predicates={_ReachedHi})
+    assert result.clean_to_goal
+    assert result.goal_step_idx == 0
+    assert result.actions_to_goal == 1
+    assert result.total_actions == 1
+
+
 def test_execute_plan_forward_goal_not_reached():
     """The step executes but doesn't reach the goal: not success, no
     failure."""
