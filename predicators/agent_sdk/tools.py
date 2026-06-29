@@ -1590,17 +1590,32 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             if img_block and img_block.get("saved_path"):
                 saved_image_paths.append(img_block["saved_path"])
 
+        # Execute exactly like the real closed-loop executor: abort at the
+        # first failing option (0-action collision / not-initiable / env
+        # failure) instead of pressing on. Otherwise forward simulation can
+        # continue past a collision and report a goal that the real rollout —
+        # which ends the episode at that failed option — never reaches.
         result = bilevel_sketch.execute_plan_forward(task,
                                                      grounded_plan,
                                                      ctx.option_model,
                                                      predicates=all_predicates,
                                                      sketch=sketch_steps,
-                                                     on_step=_report_step)
+                                                     on_step=_report_step,
+                                                     stop_on_failure=True)
 
         final_atoms = utils.abstract(result.final_state, ctx.predicates)
         # Use the env's goal-check (its own classifiers); robust to invented
         # predicates that don't reuse env names.
-        goal_achieved = result.goal_reached
+        goal_reached = result.goal_reached
+        # One more real-executor constraint the option model doesn't enforce:
+        # the episode is capped at `CFG.horizon` low-level steps. A plan whose
+        # goal is reached only after more steps than the horizon allows will
+        # time out in real rollout, so don't count it as achieved/captured.
+        horizon = CFG.horizon
+        within_horizon = (result.actions_to_goal is not None
+                          and result.actions_to_goal <= horizon)
+        goal_achieved = (goal_reached and result.clean_to_goal
+                         and within_horizon)
         # Capture a goal-reaching plan on the current task with a sketch that
         # keeps only the subgoals that actually held (so the closed-loop
         # monitor won't flag a spurious divergence on a wrong annotation).
@@ -1649,7 +1664,17 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             goal_str = ", ".join(str(g) for g in sorted(task.goal))
             lines.append(f"Goal: {{{goal_str}}}")
         lines.append(f"Goal achieved: {goal_achieved}")
-        if not goal_achieved and not task.goal_nl:
+        # Goal atoms hold but the plan needs more low-level steps than the
+        # episode horizon allows: say so and that it was NOT captured, so the
+        # agent shortens the plan instead of stopping on a false positive.
+        if goal_reached and not within_horizon:
+            lines.append(
+                f"NOT EXECUTABLE (plan was NOT captured): reaching the goal "
+                f"takes {result.actions_to_goal} low-level steps but the "
+                f"episode horizon is {horizon}. The real executor will run "
+                f"out of steps — shorten the plan (fewer or quicker steps) "
+                f"before resubmitting.")
+        if not goal_reached and not task.goal_nl:
             missing = task.goal - final_atoms
             missing_str = ", ".join(str(a) for a in sorted(missing))
             lines.append(f"Missing goal atoms: {{{missing_str}}}")
