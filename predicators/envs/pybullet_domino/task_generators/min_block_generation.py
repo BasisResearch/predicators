@@ -23,7 +23,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 import numpy as np
 
 from predicators.envs.pybullet_domino.task_generators.min_block_utils import \
-    compute_k_star, compute_turn_k_star, straight_span_k_star
+    clear_probe_memo, compute_k_star, compute_turn_k_star, \
+    straight_span_k_star
 from predicators.settings import CFG
 from predicators.structs import EnvironmentTask, GroundAtom, Object, State
 
@@ -76,6 +77,7 @@ def make_min_block_tasks(env: "PyBulletDominoComposedEnv",
     if cached is not None:
         return cached
 
+    clear_probe_memo()
     n_turn = int(round(num_tasks * CFG.domino_min_block_turn_ratio))
     n_straight = num_tasks - n_turn
     turns: List[EnvironmentTask] = []
@@ -104,11 +106,21 @@ def make_min_block_tasks(env: "PyBulletDominoComposedEnv",
             "after %d attempts; widen the span/gap bands or raise "
             "domino_min_block_num_blues.", len(survivors), num_tasks,
             len(turns), len(straights), max_attempts)
-    _save_min_block_cache(cache_path, survivors)
+    _save_min_block_cache(cache_path, survivors, num_tasks)
     return survivors
 
 
 # ── Min-block task cache ─────────────────────────────────────
+
+# Flags matched by the cache key's prefixes that only affect RENDERING —
+# they cannot change generation physics or the tasks themselves, so they
+# are excluded from the key (a camera-resolution change must not orphan
+# a 20-minute generation cache).
+_RENDER_ONLY_FLAGS = frozenset({
+    "pybullet_camera_width",
+    "pybullet_camera_height",
+    "pybullet_draw_debug",
+})
 
 
 def _min_block_cache_path(env: "PyBulletDominoComposedEnv", cache_tag: str,
@@ -116,17 +128,18 @@ def _min_block_cache_path(env: "PyBulletDominoComposedEnv", cache_tag: str,
     """Cache file for this (config, seed, code) combination, or None.
 
     The key hashes every ``domino_``/``pybullet_``/``skill_phase_``
-    CFG flag, the seed and task counts, AND a digest of the domino
-    env + domino skill source code — so any change to the physics
-    config or the generation/skill code automatically invalidates
-    the cache.
+    CFG flag (except the render-only ones above), the seed and task
+    counts, AND a digest of the domino env + domino skill source code —
+    so any change to the physics config or the generation/skill code
+    automatically invalidates the cache.
     """
     cache_dir = CFG.domino_min_block_task_cache_dir
     if not cache_dir or not cache_tag:
         return None
     cfg_items = {}
     for name in dir(CFG):
-        if name.startswith(("domino_", "pybullet_", "skill_phase_")):
+        if name.startswith(("domino_", "pybullet_", "skill_phase_")) \
+                and name not in _RENDER_ONLY_FLAGS:
             value = getattr(CFG, name)
             if not callable(value):
                 cfg_items[name] = value
@@ -149,6 +162,11 @@ def _load_min_block_cache(
     if path is None or not path.exists():
         return None
     raw = json.loads(path.read_text())
+    if isinstance(raw, dict):
+        num_requested = raw["num_requested"]
+        entries = raw["tasks"]
+    else:  # legacy format: bare task list, request size unknown
+        num_requested, entries = None, raw
     pred_map = {p.name: p for p in env.predicates}
     # Map names to the env's LIVE object instances: they carry the
     # PyBullet body ids that state I/O needs (fresh Object()s would
@@ -158,7 +176,7 @@ def _load_min_block_cache(
         for obj in comp.get_objects():
             live_objs[obj.name] = obj
     tasks: List[EnvironmentTask] = []
-    for entry in raw:
+    for entry in entries:
         objs = {name: live_objs[name] for name, _tname in entry["objects"]}
         state = State({
             objs[name]: np.array(vals, dtype=np.float64)
@@ -178,17 +196,26 @@ def _load_min_block_cache(
         # Re-run the standard PyBullet conversion (joints, optional
         # rendering) instead of caching simulator state.
         tasks.extend(env._add_pybullet_state_to_tasks([plain]))
+    if num_requested is not None and len(tasks) < num_requested:
+        logging.warning(
+            "Min-block: cache %s holds a PARTIAL set (%d/%d tasks — the "
+            "generating run hit its attempt cap). Runs will evaluate on "
+            "the reduced set; delete the file to retry generation, or "
+            "widen the span/gap bands.", path, len(tasks), num_requested)
     logging.info("Min-block: loaded %d cached tasks from %s.", len(tasks),
                  path)
     return tasks
 
 
-def _save_min_block_cache(path: Optional[Path],
-                          tasks: List[EnvironmentTask]) -> None:
+def _save_min_block_cache(path: Optional[Path], tasks: List[EnvironmentTask],
+                          num_requested: int) -> None:
     """Serialize finished tasks (init data, goal, K*) to the cache.
 
     The reward function itself isn't serializable; its K* budget is
     stored and the ``MinBlockReward`` is rebuilt on load.
+    ``num_requested`` is stored alongside so a partial set (the quota
+    loop hit its attempt cap) is flagged loudly on every reload instead
+    of silently shrinking the eval.
     """
     # pylint: disable=import-outside-toplevel
     from predicators.envs.pybullet_domino.env import MinBlockReward
@@ -210,7 +237,11 @@ def _save_min_block_cache(path: Optional[Path],
             reward.max_blocks if isinstance(reward, MinBlockReward) else None,
         })
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload))
+    path.write_text(
+        json.dumps({
+            "num_requested": num_requested,
+            "tasks": payload
+        }))
     logging.info("Min-block: cached %d tasks at %s.", len(tasks), path)
 
 
@@ -344,16 +375,20 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
     1. Sample the geometry directly: start pose in the pushable band and
        a target one 90-degree turn away, at leg lengths drawn from the
        empirically differentiating region (long entry legs).
-    2. K* = ``compute_turn_k_star`` at the true friction — the minimum
+    2. Cheap pre-filters on memoized straight-leg probes: a feasibility
+       bound (the legs' own straight-chain minima already exceed the
+       staged budget) and the per-LEG differentiation certificate (see
+       inline comment) — full believed corner plans rarely validate at
+       the planning friction, so differentiation is certified on the
+       straight legs instead. These run BEFORE the layout search below,
+       which costs dozens of Push rollouts per attempt and dominated
+       generation time when it ran on every attempt.
+    3. K* = ``compute_turn_k_star`` at the true friction — the minimum
        blues over a layout SEARCH of agent-buildable candidates
        (straight-line probes + natural-yaw corners), because around a
        corner an evenly-spaced chain is not minimal: sliding the corner
        toward the start can save a block. The winning layout doubles as
        the proof the task is solvable.
-    3. Differentiation filter: per-LEG reach certificate (see inline
-       comment) — full believed corner plans rarely validate at the
-       planning friction, so differentiation is certified on the
-       straight legs instead.
     4. Stage ``domino_min_block_num_blues`` blues (more than K*), so
        over-building is possible and penalized by the ``max_blocks`` cap.
     """
@@ -389,6 +424,64 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
     start_pose = (sx, sy, syaw)
     target_pose = (float(t_pt[0]), float(t_pt[1]), tyaw)
     num_blues = min(CFG.domino_min_block_num_blues, len(comp.dominos) - 2)
+    # Cheap memoized leg probes FIRST — the corner layout search below is
+    # by far the most expensive step (dozens of real Push rollouts per
+    # attempt), so attempts are pre-filtered on straight-leg reach alone.
+    legs = (entry_leg, exit_leg)
+    true_legs = [
+        straight_span_k_star(env, leg, budget=num_blues) for leg in legs
+    ]
+    true_counts = [v for v in true_legs if v is not None]
+    if len(true_counts) < len(legs):
+        logging.warning(
+            "Dropping turn task (true-friction leg probe failed: legs=%s "
+            "-> %s).", legs, true_legs)
+        return None
+    if sum(true_counts) >= num_blues:
+        # Feasibility bound: a turn chain cannot beat its legs' own
+        # straight-chain minima (the stretched corner saves at most the
+        # corner blue itself), so K* >= sum(true legs) — which already
+        # leaves no spare blue. Skip the layout search outright.
+        logging.warning(
+            "Dropping turn task (legs alone need %s blues >= staged "
+            "blues %d).", true_legs, num_blues)
+        return None
+    direction = _planning_mismatch_direction()
+    bel_legs: List[Optional[int]] = []
+    if direction is not None:
+        # Relaxed per-LEG certificate. The strong "a cheaper believed
+        # plan validates in the wrong sim" check is unusable for turns:
+        # natural corners barely propagate at the planning friction
+        # (high friction grips the base — redirection is what's hard),
+        # so a full believed corner plan almost never exists and every
+        # turn task would drop. Instead certify reach differentiation
+        # where it actually lives — on the straight LEGS: probe how
+        # many blues each friction needs for a straight chain of each
+        # leg's length (real rollouts). The corner's own cost is the
+        # same on both sides of the comparison and cancels.
+        env.set_domino_physical_params(friction=CFG.domino_planning_friction)
+        try:
+            bel_legs = [
+                straight_span_k_star(env, leg, budget=num_blues)
+                for leg in legs
+            ]
+        finally:
+            env.set_domino_physical_params(friction=CFG.domino_true_friction)
+        bel_counts = [v for v in bel_legs if v is not None]
+        if len(bel_counts) < len(legs):
+            logging.warning(
+                "Dropping turn task (planning-friction leg probe failed: "
+                "legs=%s true=%s believed=%s).", legs, true_legs, bel_legs)
+            return None
+        t_sum, b_sum = sum(true_counts), sum(bel_counts)
+        differentiates = (b_sum < t_sum
+                          if direction == "over_reach" else t_sum < b_sum)
+        if not differentiates:
+            logging.warning(
+                "Dropping turn task (legs true=%s believed=%s, %s): "
+                "does not differentiate calibrated vs uncalibrated "
+                "reach.", true_legs, bel_legs, direction)
+            return None
     k_true = compute_turn_k_star(env,
                                  start_pose,
                                  target_pose,
@@ -403,46 +496,7 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
             "Dropping turn task (K*=%d == staged blues %d): no spare "
             "blue for the over-build check.", k_true, num_blues)
         return None
-    direction = _planning_mismatch_direction()
     if direction is not None:
-        # Relaxed per-LEG certificate. The strong "a cheaper believed
-        # plan validates in the wrong sim" check is unusable for turns:
-        # natural corners barely propagate at the planning friction
-        # (high friction grips the base — redirection is what's hard),
-        # so a full believed corner plan almost never exists and every
-        # turn task would drop. Instead certify reach differentiation
-        # where it actually lives — on the straight LEGS: probe how
-        # many blues each friction needs for a straight chain of each
-        # leg's length (real rollouts). The corner's own cost is the
-        # same on both sides of the comparison and cancels.
-        legs = (entry_leg, exit_leg)
-        true_legs = [
-            straight_span_k_star(env, leg, budget=num_blues) for leg in legs
-        ]
-        env.set_domino_physical_params(friction=CFG.domino_planning_friction)
-        try:
-            bel_legs = [
-                straight_span_k_star(env, leg, budget=num_blues)
-                for leg in legs
-            ]
-        finally:
-            env.set_domino_physical_params(friction=CFG.domino_true_friction)
-        true_counts = [v for v in true_legs if v is not None]
-        bel_counts = [v for v in bel_legs if v is not None]
-        if len(true_counts) < len(legs) or len(bel_counts) < len(legs):
-            logging.warning(
-                "Dropping turn task (leg probe failed: legs=%s true=%s "
-                "believed=%s).", legs, true_legs, bel_legs)
-            return None
-        t_sum, b_sum = sum(true_counts), sum(bel_counts)
-        differentiates = (b_sum < t_sum
-                          if direction == "over_reach" else t_sum < b_sum)
-        if not differentiates:
-            logging.warning(
-                "Dropping turn task (legs true=%s believed=%s, %s): "
-                "does not differentiate calibrated vs uncalibrated "
-                "reach.", true_legs, bel_legs, direction)
-            return None
         logging.info(
             "Turn task differentiates (%s): true K*=%d, legs true=%s "
             "believed=%s.", direction, k_true, true_legs, bel_legs)

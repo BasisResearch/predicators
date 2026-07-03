@@ -16,7 +16,7 @@ the env; callers must run it before any episode (each episode re-sets state).
 # pylint: disable=protected-access
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -55,6 +55,21 @@ _CORNER_CONFIGS = (
 _ENTRY_GAPS = (0.10, 0.13, 0.15)
 _MAX_GAP = 0.20  # beyond any measured topple reach at any friction
 _MIN_GAP = 0.03  # bodies would spawn overlapping
+
+# Memo for straight-span probes. Straight-chain reach is a step function
+# of span, so results are reused across task attempts after bucketing the
+# span to _SPAN_BUCKET — the turn tasks' per-leg certificate re-probes the
+# same narrow leg bands on every attempt, and uncached this dominated
+# generation time (each probe is a full robot Push rollout). Keyed on the
+# component's live physical-param override so probes at the true and
+# planning frictions never mix. Cleared once per generation run.
+_SPAN_BUCKET = 0.01
+_span_probe_memo: Dict[Tuple[Any, ...], Optional[int]] = {}
+
+
+def clear_probe_memo() -> None:
+    """Reset the span-probe memo (call at the start of a generation run)."""
+    _span_probe_memo.clear()
 
 
 def _feat_index(domino_type: Any, feat: str) -> int:
@@ -366,6 +381,9 @@ def straight_span_k_star(env: Any,
     leg needs" is measured by an actual rollout of a chain of that length —
     independent of any corner (whose cost is the same on both sides of the
     comparison and cancels).
+
+    Results are memoized per (span bucket, budget, physics override); two
+    spans within _SPAN_BUCKET of each other share one probe.
     """
     comp = env._domino_component
     if comp is None:
@@ -373,25 +391,33 @@ def straight_span_k_star(env: Any,
     if budget is None:
         budget = CFG.domino_min_block_num_blues
     budget = min(budget, len(comp.dominos) - 2)
+    memo_key = (round(span / _SPAN_BUCKET), budget,
+                tuple(sorted(comp._physical_param_override.items())))
+    if memo_key in _span_probe_memo:
+        return _span_probe_memo[memo_key]
     push_opt = _get_push_option(env)
     doms = comp.dominos
     sx, sy = _PROBE_ANCHOR
     syaw = np.pi / 2  # chain runs along +x
+    result: Optional[int] = None
     for k in range(budget + 1):
         gap = span / (k + 1)
         if not _MIN_GAP < gap < _MAX_GAP:
             continue
         od = {
-            doms[0]: comp.place_domino(0, sx, sy, syaw, is_start_block=True),
-            doms[1]: comp.place_domino(1, sx + span, sy, syaw,
-                                       is_target_block=True),
+            doms[0]:
+            comp.place_domino(0, sx, sy, syaw, is_start_block=True),
+            doms[1]:
+            comp.place_domino(1, sx + span, sy, syaw, is_target_block=True),
         }
         for i in range(k):
             od[doms[2 + i]] = comp.place_domino(2 + i, sx + (i + 1) * gap, sy,
                                                 syaw)
         if _layout_topples(env, od, doms[0], doms[1], push_opt):
-            return k
-    return None
+            result = k
+            break
+    _span_probe_memo[memo_key] = result
+    return result
 
 
 def _on_table(comp: Any, pts: List[Any]) -> bool:
@@ -484,8 +510,9 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
                 c_pt = s_pt + (k1 * g_entry + g1) * u_vec
                 c_yaw = syaw - t_dir * f_yaw * np.pi / 2
                 c_dir = np.array([np.sin(c_yaw), np.cos(c_yaw)])
-                od[dominos[slot]] = comp.place_domino(
-                    slot, float(c_pt[0]), float(c_pt[1]), float(c_yaw))
+                od[dominos[slot]] = comp.place_domino(slot, float(c_pt[0]),
+                                                      float(c_pt[1]),
+                                                      float(c_yaw))
                 pts.append((c_pt[0], c_pt[1]))
                 slot += 1
                 if k2 == 0:
