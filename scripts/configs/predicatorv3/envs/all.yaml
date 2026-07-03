@@ -55,20 +55,10 @@ ENVS:
       # FORWARD (over-reach) condition: planning friction above true, so an
       # uncalibrated planner over-estimates reach, UNDER-builds, and the
       # chain dies short of the target. Primary sysID-learning setting
-      # (failed cascades carry the most friction signal).
       domino_true_friction: 0.1
       domino_planning_friction: 0.5
-      # REVERSE (under-reach) condition: swap the two values below (and
-      # comment the pair above) to make the planner OVER-build — the target
-      # topples but blocks_used exceeds the K* cap. Exercises the reward's
-      # over-build side; weaker learning signal (cascades succeed).
-      # domino_true_friction: 0.5
-      # domino_planning_friction: 0.1
       domino_min_block_span_lo: 0.13
       domino_min_block_span_hi: 0.30
-      # 4 = the staging grid's empirical capacity (5+ blues cannot all be
-      # placed with gripper clearance). Tasks enforce K* <= 3 so at least one
-      # spare blue always exists and over-building stays penalized.
       domino_min_block_num_blues: 4
   # coffee:
   #   NAME: "pybullet_coffee"
