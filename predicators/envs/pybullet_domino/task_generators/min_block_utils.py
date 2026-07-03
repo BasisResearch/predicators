@@ -71,6 +71,7 @@ def clear_probe_memo() -> None:
     """Reset the probe memos (call at the start of a generation run)."""
     _span_probe_memo.clear()
     _dogleg_probe_memo.clear()
+    _swerve_probe_memo.clear()
 
 
 def _feat_index(domino_type: Any, feat: str) -> int:
@@ -650,6 +651,114 @@ def heavy_dogleg_k_star(env: Any, start_pose: Any, target_pose: Any,
         if result is not None:
             break
     _dogleg_probe_memo[memo_key] = result
+    return result
+
+
+# Peak swerve headings (off the start->target line) scanned by the
+# half-circle family. Calibrated by the 2026-07-03 sweep: per-knock
+# heading changes stay within the ~33-degree propagation tolerance at
+# phi <= 40 with 3-4 blues, and the peak lateral offset clears the gray
+# block from ~30 degrees up.
+_SWERVE_PHIS = (25.0, 30.0, 35.0, 40.0)
+
+# Memo for swerve probes; keyed on the rounded ABSOLUTE pose as well as
+# the relative geometry, so canonical-anchor probes are shared across
+# attempts while real-pose re-verifications get their own entries.
+_swerve_probe_memo: Dict[Tuple[Any, ...], Optional[int]] = {}
+
+
+def _candidate_swerve_layouts(comp: Any, k: int, start_pose: Any,
+                              target_pose: Any, heavy_pose: Any) -> Any:
+    """Yield k-blue "half-circle" swerves around a collinear gray block.
+
+    The heavy block sits ON the segment from start to target (all three
+    aligned with the line). Each candidate follows the heading profile
+    m_i = phi * sin(2*pi*(i+0.5)/(k+1)): aligned with the line at both
+    ends (head-on first knock, head-on target hit), bulging sideways
+    mid-path to clear the gray block, with net lateral displacement
+    ~zero. Both sides and all ``_SWERVE_PHIS`` peaks are scanned.
+    """
+    sx, sy, syaw = (float(v) for v in start_pose)
+    tx, ty, _ = (float(v) for v in target_pose)
+    hx, hy, hyaw = (float(v) for v in heavy_pose)
+    dominos = comp.dominos
+    s_pt = np.array([sx, sy])
+    t_pt = np.array([tx, ty])
+    span = float(np.linalg.norm(t_pt - s_pt))
+    if span <= 0 or k < 2:
+        return
+    u_vec = (t_pt - s_pt) / span
+    line_yaw = float(np.arctan2(u_vec[0], u_vec[1]))
+    steps = k + 1
+    for phi_deg in _SWERVE_PHIS:
+        for side in (1.0, -1.0):
+            m_arr = np.radians(phi_deg) * side * np.sin(
+                2 * np.pi * (np.arange(steps) + 0.5) / steps)
+            gap = span / float(np.sum(np.cos(m_arr)))
+            if not _MIN_GAP < gap < _MAX_GAP:
+                continue
+            od = {
+                dominos[0]:
+                comp.place_domino(0, sx, sy, syaw, is_start_block=True),
+                dominos[1]:
+                comp.place_domino(1, tx, ty, line_yaw, is_target_block=True),
+                dominos[-1]:
+                comp.place_domino(0, hx, hy, hyaw, is_heavy_block=True),
+            }
+            pos = s_pt.copy()
+            pts = []
+            for i in range(k):
+                yaw_i = line_yaw - float(m_arr[i])
+                pos = pos + gap * np.array([np.sin(yaw_i), np.cos(yaw_i)])
+                od[dominos[2 + i]] = comp.place_domino(2 + i, float(pos[0]),
+                                                       float(pos[1]), yaw_i)
+                pts.append((float(pos[0]), float(pos[1])))
+            # Prune candidates that would spawn a blue inside the gray.
+            if any(
+                    np.hypot(px - hx, py - hy) < 0.05  # body clearance
+                    for px, py in pts):
+                continue
+            if _on_table(comp, pts):
+                yield od
+
+
+def swerve_k_star(env: Any, start_pose: Any, target_pose: Any, heavy_pose: Any,
+                  budget: int) -> Optional[int]:
+    """Minimum blues whose half-circle swerve AROUND the collinear gray
+    block topples the target at the env's CURRENT physics, or None.
+
+    The constructive counterpart of ``heavy_dogleg_k_star``'s straight
+    lure: same start/target line, but the chain leaves the line, clears
+    the gray block sideways, and rejoins to hit the target head-on.
+    Results are memoized (pose included in the key, so canonical-anchor
+    certification and real-pose re-verification never mix).
+    """
+    comp = env._domino_component
+    if comp is None:
+        return None
+    doms = comp.dominos
+    budget = min(budget, len(doms) - 3)
+    sx, sy, syaw = (float(v) for v in start_pose)
+    tx, ty, _ = (float(v) for v in target_pose)
+    hx, hy, _ = (float(v) for v in heavy_pose)
+    memo_key = (round(sx / _SPAN_BUCKET), round(sy / _SPAN_BUCKET),
+                round(syaw,
+                      2), round(np.hypot(tx - sx, ty - sy) / _SPAN_BUCKET),
+                round(np.hypot(hx - sx, hy - sy) / _SPAN_BUCKET), budget,
+                tuple(sorted(comp._physical_param_override.items())))
+    if memo_key in _swerve_probe_memo:
+        return _swerve_probe_memo[memo_key]
+    push_opt = _get_push_option(env)
+    result: Optional[int] = None
+    for k in range(2, budget + 1):
+        for od in _candidate_swerve_layouts(comp, k, start_pose, target_pose,
+                                            heavy_pose):
+            if _layout_topples(env, od, doms[0], doms[1], push_opt):
+                result = k
+                break
+        if result is not None:
+            break
+    _swerve_probe_memo[memo_key] = result
     return result
 
 

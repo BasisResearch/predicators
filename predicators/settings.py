@@ -513,20 +513,23 @@ class GlobalSettings:
     # straight (original min-block behaviour).
     domino_min_block_turn_ratio = 0.5
     # Heavy-block (immovable obstacle) task type — the single switch for the
-    # variant. Each task is a dogleg: a HEAVY gray domino-shaped block
-    # stands directly on the start's fall line, yawed ~30 degrees off it —
-    # visually a ready-made bend link toward the target beyond it. Its true
-    # mass (DominoComponent.heavy_block_true_mass) makes it untopple-able
-    # and unmovable, but planning sims believe it has normal domino mass
-    # (env init sets the ``heavy_block_mass`` override), so an uncalibrated
-    # planner runs its chain straight into the gray block and bends there
-    # for free — the believed-cheapest plan — and the chain dies against
-    # it; a mass-calibrated planner bends EARLY with its own corner blue
-    # and cuts across to the target. Reuses the min-block machinery
-    # (MinBlockReward with budget = detour K*, quota loop, disk cache,
-    # domino_min_block_num_blues); when set, it replaces the straight/turn
-    # task mix entirely, and domino_min_block_tasks does not also need to
-    # be set.
+    # variant. A HEAVY gray domino-shaped block sits with natural alignment
+    # in one of two shapes (mixed per domino_min_block_turn_ratio):
+    #   * straight: start -> gray -> target on ONE line, all co-facing; the
+    #     true solution is a half-circle swerve around the gray;
+    #   * turn: an L whose believed-cheapest corner layout is found first,
+    #     and the gray stands exactly where that natural corner blue would
+    #     go; the true solution skips around it with an own corner.
+    # The gray's true mass (DominoComponent.heavy_block_true_mass) makes it
+    # untopple-able and unmovable, but planning sims believe it has normal
+    # domino mass (env init sets the ``heavy_block_mass`` override), so the
+    # believed-cheapest plan runs THROUGH the gray (a free link/corner) and
+    # dies against it at execution. Run WITHOUT domino_planning_friction:
+    # corners never propagate at friction 0.5, which would kill the turn
+    # lure — this task type isolates the MASS dimension. Reuses the
+    # min-block machinery (MinBlockReward with budget = detour K*, quota
+    # loop, disk cache, domino_min_block_num_blues);
+    # domino_min_block_tasks does not also need to be set.
     domino_heavy_block_tasks = False
 
     # burger env parameters
