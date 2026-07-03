@@ -6,7 +6,7 @@ Anything that varies between runs should be a command-line arg
 
 from collections import defaultdict
 from types import SimpleNamespace
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 
@@ -461,6 +461,57 @@ class GlobalSettings:
     domino_restricted_push = False
     # Use skill_factories-based option implementations
     domino_use_skill_factories = True
+    # Reach-limited "minimum-blocks" task mode: generate start/target pairs
+    # spaced so that toppling requires bridging near the reach limit, and
+    # attach each task a ``MinBlockReward`` with budget K* (the minimum blues
+    # needed to topple at the true friction). Success then requires toppling
+    # the target AND using no more than K* blues, so a solver with a
+    # miscalibrated (too-high) reach model over-reaches and fails. Off by
+    # default (existing behavior).
+    domino_min_block_tasks = False
+    # The "real" domino lateral friction the env runs at. Applied to the live
+    # PyBullet bodies at env init via set_domino_physical_params and used when
+    # computing K* for min-block tasks. Default matches the ClassVar (0.5), so
+    # leaving it unset preserves existing behavior; lower it to make a
+    # high-friction (no-learning) planner over-reach.
+    domino_true_friction = 0.5
+    # Friction for the *planning* base sim only — envs created with
+    # skip_process_dynamics=True (the approaches' base envs / option models),
+    # the same flag that already denies planners the ground-truth delayed
+    # dynamics. The eval env (main.py) is created without that flag and keeps
+    # domino_true_friction. Either mismatch direction defeats an uncalibrated
+    # planner on min-block tasks (the task filters are direction-aware):
+    #   * ABOVE true friction: planner over-estimates reach -> UNDER-builds
+    #     -> chain dies short of the target;
+    #   * BELOW true friction: planner under-estimates reach -> OVER-builds
+    #     -> target topples but blocks_used exceeds the max_blocks (K*) cap.
+    # A sysID learner must recover the true value either way. None (default)
+    # = planning sim uses domino_true_friction (no mismatch).
+    domino_planning_friction: Optional[float] = None
+    # Start->target distance (metres) sampled per min-block task, uniformly
+    # from [lo, hi]. Choose a range that lands K* in {1, 2} at the true
+    # friction (calibrate with the reach probe). Two scalars (not a tuple) so
+    # the value passes cleanly through the shell-based launch flag plumbing.
+    domino_min_block_span_lo = 0.13
+    domino_min_block_span_hi = 0.30
+    # How many blue (movable) blocks to stage per min-block task. Must exceed
+    # the largest expected K* so over-building is possible (and thus penalized
+    # by the max_blocks cap) rather than budget-limited.
+    domino_min_block_num_blues = 4
+    # Directory for caching generated min-block tasks (with their simulated
+    # K*). The cache key hashes the task-relevant CFG flags, the seed, AND
+    # the domino env/skill source code, so tasks regenerate automatically
+    # whenever the config or code changes. Lives with the other cached
+    # datasets; note cluster prep (get_cmds_to_prep_repo) wipes SAVE_DIRS
+    # including saved_datasets, so cluster runs regenerate once. Empty
+    # string disables caching.
+    domino_min_block_task_cache_dir = "saved_datasets/domino_min_block_tasks"
+    # Fraction of min-block tasks that are L-shaped (one 90-degree domino turn,
+    # no pivots) rather than straight. The turn's reach limit is tighter
+    # (~0.11 vs ~0.15 straight), so turn tasks are built at a tighter gap and
+    # K* = the verified reach-limited blue count of the L-chain. 0.0 = all
+    # straight (original min-block behaviour).
+    domino_min_block_turn_ratio = 0.5
 
     # burger env parameters
     burger_render_set_of_marks = True
@@ -1182,6 +1233,14 @@ class GlobalSettings:
     # Relative scale for perturbing oracle parameter init_values before MCMC.
     agent_sim_learn_oracle_sim_param_noise_scale = 0.2
     # When True, use GT parameter values directly, skipping MCMC fitting.
+    # Also grants planning base sims the TRUE physical params (e.g. the true
+    # domino friction even when domino_planning_friction is set) — as if all
+    # param learning, rule-level and physical, had already succeeded. Task
+    # generation still reads domino_planning_friction for the
+    # differentiation filter, so the oracle, the no-learning baseline, and
+    # the sysID learner all see IDENTICAL tasks (and share the task cache:
+    # this agent_ flag is outside the cache key's
+    # domino_/pybullet_/skill_phase_ prefixes on purpose).
     agent_sim_learn_oracle_sim_params = False
     # When True, the agent synthesizes per-skill (per-option) samplers that
     # aim continuous option parameters at each sketch step's subgoal, instead

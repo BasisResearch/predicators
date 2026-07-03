@@ -8,6 +8,31 @@ ENVS:
   #     grow_weak_pour_terminate_condition: True
   #     grow_place_option_no_sampler: True
   #     horizon: 400
+  # OLD domino config (standard chain tasks). Commented out in favour of the
+  # min-block variant below; uncomment (and comment the new block) to revert.
+  # domino:
+  #   NAME: "pybullet_domino"
+  #   FLAGS:
+  #     max_initial_demos: 0
+  #     excluded_objects_in_state_str: "loc,rot,angle,direction"
+  #     horizon: 500
+  #     domino_initialize_at_finished_state: False
+  #     domino_use_domino_blocks_as_target: True
+  #     domino_use_continuous_place: True
+  #     process_planning_heuristic_weight: 2.0
+  #     domino_has_glued_dominos: False
+  #     keep_failed_demos: True
+  #     predicate_invent_invent_derived_predicates: True
+  #     pybullet_birrt_extend_num_interp: 20
+  #     pybullet_birrt_path_subsample_ratio: 2
+  # NEW: reach-limited "minimum-blocks" domino tasks for the system-ID
+  # experiment. Same base flags as the old config, plus the min-block flags:
+  #   - domino_min_block_tasks: start/target pairs bridged near the reach
+  #     limit; each task carries a MinBlockReward with budget K* (min blues
+  #     to topple at the true friction): topple AND blues used <= K*.
+  #   - domino_true_friction: the real env's friction (K* computed at it).
+  #   - span_lo/hi + num_blues: task geometry / blue budget. Recalibrate the
+  #     span with the reach probe if you change domino_true_friction.
   domino:
     NAME: "pybullet_domino"
     FLAGS:
@@ -23,10 +48,28 @@ ENVS:
       domino_has_glued_dominos: False
       keep_failed_demos: True
       predicate_invent_invent_derived_predicates: True
-      # script_option_file_name: "domino2.txt"
-      # agent_bilevel_plan_sketch_file: "domino3.txt"
       pybullet_birrt_extend_num_interp: 20 # increase this to avoid collisions when placing dominoes
       pybullet_birrt_path_subsample_ratio: 2
+      # --- min-block / system-ID experiment ---
+      domino_min_block_tasks: True
+      # FORWARD (over-reach) condition: planning friction above true, so an
+      # uncalibrated planner over-estimates reach, UNDER-builds, and the
+      # chain dies short of the target. Primary sysID-learning setting
+      # (failed cascades carry the most friction signal).
+      domino_true_friction: 0.1
+      domino_planning_friction: 0.5
+      # REVERSE (under-reach) condition: swap the two values below (and
+      # comment the pair above) to make the planner OVER-build — the target
+      # topples but blocks_used exceeds the K* cap. Exercises the reward's
+      # over-build side; weaker learning signal (cascades succeed).
+      # domino_true_friction: 0.5
+      # domino_planning_friction: 0.1
+      domino_min_block_span_lo: 0.13
+      domino_min_block_span_hi: 0.30
+      # 4 = the staging grid's empirical capacity (5+ blues cannot all be
+      # placed with gripper clearance). Tasks enforce K* <= 3 so at least one
+      # spare blue always exists and over-building stays penalized.
+      domino_min_block_num_blues: 4
   # coffee:
   #   NAME: "pybullet_coffee"
   #   FLAGS:
