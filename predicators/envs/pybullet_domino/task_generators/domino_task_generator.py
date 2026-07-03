@@ -83,6 +83,9 @@ class DominoTaskGenerator(TaskGenerator):
             log_debug: bool = False,
             domino_in_upper_half: bool = False) -> Optional[EnvironmentTask]:
         """Generate a single domino task."""
+        if CFG.domino_min_block_tasks:
+            return self._generate_min_block_task(task_idx, rng)
+
         init_dict: Dict[Object, Dict[str, Any]] = {}
 
         # Robot initial state
@@ -164,6 +167,92 @@ class DominoTaskGenerator(TaskGenerator):
             f"pushed, {target_word} {target_verb} toppled. Do NOT directly "
             f"push or topple {target_word} yourself.")
 
+        return EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
+
+    def _generate_min_block_task(
+            self, task_idx: int,
+            rng: np.random.Generator) -> Optional[EnvironmentTask]:
+        """Reach-limited "minimum-blocks" task.
+
+        A green start block and a purple target sit a sampled distance apart
+        (``CFG.domino_min_block_span_range``), with a generous pile of staged
+        blue blocks. The span is chosen so bridging start->target must happen
+        near the topple-reach limit; the per-task ``MinBlockReward`` (budget =
+        K*) is attached afterwards with physics in the loop — see
+        ``min_block_generation._assign_min_blocks``. The goal is simply to
+        topple the target, but the reward additionally caps the blues used at
+        K*, so a solver that over-estimates reach under-builds and fails.
+        Returns ``None`` if no in-bounds placement is found.
+        """
+        dominos = self.domino.dominos
+        num_blues = min(CFG.domino_min_block_num_blues, len(dominos) - 2)
+        if num_blues < 1:
+            return None
+        span_lo = CFG.domino_min_block_span_lo
+        span_hi = CFG.domino_min_block_span_hi
+        x_lb, x_ub = self.domino.domino_x_lb, self.domino.domino_x_ub
+        y_lb, y_ub = self.domino.domino_y_lb, self.domino.domino_y_ub
+
+        placement = None
+        for _ in range(500):
+            rotation = float(rng.choice([0.0, np.pi / 2, -np.pi / 2]))
+            span = float(rng.uniform(span_lo, span_hi))
+            # Chain travels along `rotation`, matching _place_straight_domino
+            # (dx=sin, dy=cos); the block faces this way so a Push topples it
+            # toward the target.
+            tx = rng.uniform(x_lb, x_ub)
+            ty = rng.uniform(y_lb, y_ub)
+            sx = tx - span * np.sin(rotation)
+            sy = ty - span * np.cos(rotation)
+            if x_lb < sx < x_ub and y_lb < sy < y_ub:
+                placement = (rotation, sx, sy, tx, ty)
+                break
+        if placement is None:
+            return None
+        rotation, sx, sy, tx, ty = placement
+
+        # Build the domino-only dict first: the staging collision-check reads
+        # object yaw, which the robot's feature dict lacks, so the robot must
+        # be added only after staging (matching the main generator).
+        obj_dict: Dict[Object, Dict[str, Any]] = {}
+        obj_dict[dominos[0]] = self.domino.place_domino(0,
+                                                        sx,
+                                                        sy,
+                                                        rotation,
+                                                        is_start_block=True,
+                                                        rng=rng,
+                                                        task_idx=task_idx)
+        obj_dict[dominos[1]] = self.domino.place_domino(1,
+                                                        tx,
+                                                        ty,
+                                                        rotation,
+                                                        is_target_block=True,
+                                                        rng=rng,
+                                                        task_idx=task_idx)
+        for i in range(num_blues):
+            # Placed at the start for now; staged to a pickable spot below.
+            obj_dict[dominos[2 + i]] = self.domino.place_domino(
+                2 + i, sx, sy, rotation, rng=rng, task_idx=task_idx)
+
+        staged = self._move_intermediate_objects_to_unfinished_state(obj_dict)
+        if staged is None:
+            return None
+
+        init_dict: Dict[Object, Dict[str, Any]] = {
+            self.robot: self.robot_init_state.copy()
+        }
+        init_dict.update(staged)
+        init_state = utils.create_state_from_dict(init_dict)
+        goal_atoms = set()
+        for domino_obj in init_state.get_objects(self.domino.domino_type):
+            # pylint: disable=protected-access
+            if self.domino._TargetDomino_holds(init_state, [domino_obj]):
+                goal_atoms.add(GroundAtom(self.domino.Toppled, [domino_obj]))
+        goal_nl = (
+            "Move the blue dominoes so that when the green domino is pushed, "
+            "the purple domino is toppled — using AS FEW blue dominoes as "
+            "possible. Do NOT directly push or topple the purple domino "
+            "yourself.")
         return EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
 
     def _generate_domino_sequence(

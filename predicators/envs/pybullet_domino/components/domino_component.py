@@ -220,6 +220,16 @@ class DominoComponent(DominoEnvComponent):
         self.block_constraints: List[int] = []
         self.fixed_domino_ids: List[int] = []
 
+        # Optional per-instance override of PyBullet contact/inertial params
+        # (mass, friction, restitution, ...). Empty by default, so the env
+        # behaves exactly as its ClassVars dictate. Set via
+        # ``set_physical_params`` to make one env instance's physics diverge
+        # from another's (e.g. a miscalibrated planning sim vs. the "real"
+        # env) *in the same process* without touching the shared ClassVars.
+        # Re-applied at the end of ``reset_state`` because reset rewrites
+        # domino mass on glue/unglue.
+        self._physical_param_override: Dict[str, float] = {}
+
         # Create predicates
         self._create_predicates()
 
@@ -352,6 +362,80 @@ class DominoComponent(DominoEnvComponent):
             assert self._physics_client_id is not None
             pivot.joint_id = self._get_joint_id(id_, "flap_hinge_joint",
                                                 self._physics_client_id)
+        # A freshly (re)created body has default ClassVar dynamics; re-assert
+        # any standing override so it survives body recreation as well as
+        # reset (see set_physical_params).
+        self._apply_physical_param_override()
+
+    # -------------------------------------------------------------------------
+    # Per-instance physical-parameter override (system-ID / sim-vs-real)
+    # -------------------------------------------------------------------------
+
+    _PHYSICAL_PARAM_KEYS = frozenset({
+        "mass", "friction", "restitution", "rolling_friction",
+        "spinning_friction"
+    })
+
+    # Map override keys -> p.changeDynamics kwarg names. ``mass`` is handled
+    # separately (skipped for glued/fixed dominoes carrying the 1e10 sentinel).
+    _CHANGE_DYNAMICS_KW = {
+        "friction": "lateralFriction",
+        "restitution": "restitution",
+        "rolling_friction": "rollingFriction",
+        "spinning_friction": "spinningFriction",
+    }
+
+    def set_physical_params(self, **params: Optional[float]) -> None:
+        """Override PyBullet contact/inertial params on the live domino bodies.
+
+        Accepts any of ``mass``, ``friction``, ``restitution``,
+        ``rolling_friction``, ``spinning_friction`` (pass ``None`` to leave a
+        param at its current value). Applies ``p.changeDynamics`` to every
+        domino body in *this* component's physics client, so one env
+        instance's physics can diverge from another's without disturbing the
+        shared ClassVars. The override is stored and re-applied after every
+        ``reset_state`` (reset rewrites mass on glue/unglue) and after body
+        recreation.
+
+        Only affects dynamics-layer params (``changeDynamics``); domino
+        *geometry* (width/height) is baked at body creation and is not
+        changeable here.
+        """
+        provided = {k: v for k, v in params.items() if v is not None}
+        unknown = set(provided) - self._PHYSICAL_PARAM_KEYS
+        if unknown:
+            raise ValueError(
+                f"Unknown physical param(s) {sorted(unknown)}; "
+                f"expected a subset of {sorted(self._PHYSICAL_PARAM_KEYS)}.")
+        self._physical_param_override.update(provided)
+        self._apply_physical_param_override()
+
+    def clear_physical_params(self) -> None:
+        """Drop the override (bodies keep their last-set values until
+        reset)."""
+        self._physical_param_override = {}
+
+    def _apply_physical_param_override(self) -> None:
+        """Push the stored override onto the live domino bodies."""
+        override = self._physical_param_override
+        if not override or self._physics_client_id is None:
+            return
+        base_kwargs = {
+            self._CHANGE_DYNAMICS_KW[k]: v
+            for k, v in override.items() if k in self._CHANGE_DYNAMICS_KW
+        }
+        for domino in self.dominos:
+            if domino.id is None:
+                continue
+            kwargs = dict(base_kwargs)
+            # Don't clobber the 1e10 glue sentinel on fixed dominoes.
+            if "mass" in override and domino.id not in self.fixed_domino_ids:
+                kwargs["mass"] = override["mass"]
+            if kwargs:
+                p.changeDynamics(domino.id,
+                                 -1,
+                                 physicsClientId=self._physics_client_id,
+                                 **kwargs)
 
     def reset_state(self, state: State) -> None:
         """Reset dominoes, targets, and pivots to match state."""
@@ -424,6 +508,11 @@ class DominoComponent(DominoEnvComponent):
                             mass=1e10,
                             physicsClientId=self._physics_client_id)
                         self.fixed_domino_ids.append(domino.id)
+
+        # Re-assert any standing physical-param override: reset just rewrote
+        # mass on the (un)glued dominoes above, so the override (if any) must
+        # be re-applied to keep this instance's physics diverged.
+        self._apply_physical_param_override()
 
     def extract_feature(self, obj: Object, feature: str) -> Optional[float]:
         """Extract feature for domino-related objects."""
