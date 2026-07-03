@@ -1013,6 +1013,15 @@ class EnvironmentTask:
     alt_goal_desc: Optional[GoalDescription] = field(default=None)
     # Optional natural language goal description (passed through to Task).
     goal_nl: Optional[str] = None
+    # Optional binary reward: the environment-side success criterion as a
+    # function of the current State. A generalization of the atom-set goal:
+    # when None (every ordinary task), success = all goal_description atoms
+    # hold; when set, this callable IS the criterion (typically wrapping the
+    # atom check plus conditions atoms can't express, e.g. "the executed
+    # solution toppled at most K* movable dominoes"). Ground truth for
+    # ``BaseEnv.goal_reached`` only — it is deliberately NOT copied into the
+    # agent-facing ``Task``, so approaches can't peek at it.
+    reward_fn: Optional[Callable[[State], bool]] = None
 
     @cached_property
     def task(self) -> Task:
@@ -1060,7 +1069,8 @@ class EnvironmentTask:
         """
         if self.alt_goal_desc is not None:
             return EnvironmentTask(self.init_obs,
-                                   goal_description=self.alt_goal_desc)
+                                   goal_description=self.alt_goal_desc,
+                                   reward_fn=self.reward_fn)
         return self
 
 

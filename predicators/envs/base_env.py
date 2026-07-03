@@ -215,6 +215,10 @@ class BaseEnv(abc.ABC):
 
         Subclasses may override.
         """
+        # A task's binary reward function, when present, is the success
+        # criterion — the atom-set check below is its special case.
+        if self._current_task.reward_fn is not None:
+            return self._current_task.reward_fn(self._current_state)
         # NOTE: this is a convenience hack because most environments that are
         # currently implemented have goal descriptions that are simply sets of
         # ground atoms. In the future, it may be better to implement this on a
