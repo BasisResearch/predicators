@@ -68,8 +68,9 @@ _span_probe_memo: Dict[Tuple[Any, ...], Optional[int]] = {}
 
 
 def clear_probe_memo() -> None:
-    """Reset the span-probe memo (call at the start of a generation run)."""
+    """Reset the probe memos (call at the start of a generation run)."""
     _span_probe_memo.clear()
+    _dogleg_probe_memo.clear()
 
 
 def _feat_index(domino_type: Any, feat: str) -> int:
@@ -541,10 +542,122 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
                     yield od, start, target
 
 
+# First-exit-blue gaps swept by the dogleg probe (distance from the gray
+# bend link to the first exit blue along the gray's fall line) — mirrors
+# the corner family's calibrated approach/exit gap treatment.
+_DOGLEG_EXIT_GAPS = (0.06, 0.08, 0.10)
+
+# Memo for dogleg probes, mirroring the straight-span memo above. Valid
+# because callers probe at the canonical anchor (translation/rotation
+# invariant physics, known-pushable start); keyed on the RELATIVE
+# geometry plus the live physics override.
+_dogleg_probe_memo: Dict[Tuple[Any, ...], Optional[int]] = {}
+
+
+def heavy_dogleg_k_star(env: Any, start_pose: Any, target_pose: Any,
+                        heavy_pose: Any, budget: int) -> Optional[int]:
+    """Minimum blues whose dogleg chain THROUGH the heavy (gray) block
+    topples the target at the env's CURRENT physics, or None.
+
+    The gray block stands on the start's fall line and acts as a free
+    bend link: k1 blues run evenly from the start to the gray, the chain
+    bends at the gray, and k2 = k - k1 blues run from just past the gray
+    (first exit gap swept over ``_DOGLEG_EXIT_GAPS``, the rest evenly to
+    the target). ALL splits are tried, so the result is the best cost a
+    planner could commit to within this natural family. Probed at
+    whatever friction / ``heavy_block_mass`` the env currently has, so
+    callers flip between the believed physics (normal mass — the chain
+    runs through) and the true physics (untopple-able — the chain dies
+    at the gray).
+
+    Callers should pass canonical-anchor poses (see ``_PROBE_ANCHOR``):
+    results are memoized on the relative geometry, which is only sound
+    where the push is known to be executable.
+    """
+    comp = env._domino_component
+    if comp is None:
+        return None
+    doms = comp.dominos
+    budget = min(budget, len(doms) - 3)  # gray takes the last slot
+    heavy = doms[-1]
+    sx, sy, syaw = (float(v) for v in start_pose)
+    tx, ty, tyaw = (float(v) for v in target_pose)
+    hx, hy, hyaw = (float(v) for v in heavy_pose)
+    s_pt, t_pt, h_pt = (np.array([sx, sy]), np.array([tx,
+                                                      ty]), np.array([hx, hy]))
+    len1 = float(np.linalg.norm(h_pt - s_pt))
+    len2 = float(np.linalg.norm(t_pt - h_pt))
+    if min(len1, len2) <= 0:
+        return None
+    d1_vec = (h_pt - s_pt) / len1
+    yaw1 = float(np.arctan2(d1_vec[0], d1_vec[1]))
+    h_dir = np.array([np.sin(hyaw), np.cos(hyaw)])
+    bend = float((hyaw - syaw + np.pi) % (2 * np.pi) - np.pi)
+    memo_key = (round(len1 / _SPAN_BUCKET), round(len2 / _SPAN_BUCKET),
+                round(bend, 2), budget,
+                tuple(sorted(comp._physical_param_override.items())))
+    if memo_key in _dogleg_probe_memo:
+        return _dogleg_probe_memo[memo_key]
+    push_opt = _get_push_option(env)
+    result: Optional[int] = None
+    for k in range(budget + 1):
+        for k1 in range(k + 1):
+            k2 = k - k1
+            gap1 = len1 / (k1 + 1)
+            if not _MIN_GAP < gap1 < _MAX_GAP:
+                continue
+            exit_gaps: Tuple[Optional[float], ...] = \
+                _DOGLEG_EXIT_GAPS if k2 > 0 else (None,)
+            for g2 in exit_gaps:
+                od = {
+                    doms[0]:
+                    comp.place_domino(0, sx, sy, syaw, is_start_block=True),
+                    doms[1]:
+                    comp.place_domino(1, tx, ty, tyaw, is_target_block=True),
+                    heavy:
+                    comp.place_domino(0, hx, hy, hyaw, is_heavy_block=True),
+                }
+                slot = 2
+                for i in range(k1):
+                    p_pt = s_pt + (i + 1) * gap1 * d1_vec
+                    od[doms[slot]] = comp.place_domino(slot, float(p_pt[0]),
+                                                       float(p_pt[1]), yaw1)
+                    slot += 1
+                if k2 == 0:
+                    # The gray itself must reach the target.
+                    if not _MIN_GAP < len2 < _MAX_GAP:
+                        continue
+                else:
+                    assert g2 is not None
+                    b1_pt = h_pt + g2 * h_dir
+                    e_vec = t_pt - b1_pt
+                    e_len = float(np.linalg.norm(e_vec))
+                    per = e_len / k2
+                    if not _MIN_GAP < per < _MAX_GAP:
+                        continue
+                    e_dir = e_vec / e_len
+                    e_yaw = float(np.arctan2(e_dir[0], e_dir[1]))
+                    for j in range(k2):
+                        p_pt = b1_pt + j * per * e_dir
+                        od[doms[slot]] = comp.place_domino(
+                            slot, float(p_pt[0]), float(p_pt[1]), e_yaw)
+                        slot += 1
+                if _layout_topples(env, od, doms[0], doms[1], push_opt):
+                    result = k
+                    break
+            if result is not None:
+                break
+        if result is not None:
+            break
+    _dogleg_probe_memo[memo_key] = result
+    return result
+
+
 def compute_turn_k_star(env: Any,
                         start_pose: Any,
                         target_pose: Any,
-                        budget: Optional[int] = None) -> Optional[int]:
+                        budget: Optional[int] = None,
+                        extra: Optional[dict] = None) -> Optional[int]:
     """Minimum blues that topple a cornered target, by layout search.
 
     For each k (ascending), simulates every candidate in
@@ -562,19 +675,37 @@ def compute_turn_k_star(env: Any,
     ``start_pose`` = (x, y, yaw) of the green start block, ``target_pose`` =
     (x, y, yaw) of the purple target. ``budget`` caps k (default
     ``CFG.domino_min_block_num_blues``).
+
+    ``extra`` optionally maps additional dominoes (e.g. a heavy gray
+    obstacle, using slots ABOVE the blues') to their pose dicts; they are
+    merged into every candidate scene, and candidates that would spawn a
+    blue overlapping an extra body are pruned without simulation
+    (PyBullet resolves spawn penetration explosively, which would fake a
+    topple).
     """
     comp = env._domino_component
     if comp is None:
         return None
     if budget is None:
         budget = CFG.domino_min_block_num_blues
-    budget = min(budget, len(comp.dominos) - 2)
+    n_extra = len(extra) if extra else 0
+    budget = min(budget, len(comp.dominos) - 2 - n_extra)
     if budget < 0:
         return None
+    extra_pts = [(d["x"], d["y"]) for d in extra.values()] if extra else []
+    clearance = comp.domino_width
     push_opt = _get_push_option(env)
     for k in range(budget + 1):
         for od, start, target in _candidate_turn_layouts(
                 comp, k, start_pose, target_pose):
+            if extra:
+                blue_pts = [(d["x"], d["y"]) for dom, d in od.items()
+                            if dom not in (start, target)]
+                if any(
+                        np.hypot(bx - ex, by - ey) < clearance
+                        for bx, by in blue_pts for ex, ey in extra_pts):
+                    continue
+                od.update(extra)
             if _layout_topples(env, od, start, target, push_opt):
                 return k
     return None

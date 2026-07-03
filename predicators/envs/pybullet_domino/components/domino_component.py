@@ -83,6 +83,13 @@ class DominoComponent(DominoEnvComponent):
     glued_domino_color: ClassVar[Tuple[float, float, float,
                                        float]] = (1.0, 0.0, 0.0, 1.0)
     glued_percentage: ClassVar[float] = 0.5
+    # Heavy (immovable-obstacle) blocks: domino-shaped, gray. Their TRUE
+    # mass makes them untopple-able/unmovable; planning sims can believe a
+    # different (normal) mass via the ``heavy_block_mass`` physical-param
+    # override, which is what the heavy-block tasks exploit.
+    heavy_block_color: ClassVar[Tuple[float, float, float,
+                                      float]] = (0.35, 0.35, 0.35, 1.0)
+    heavy_block_true_mass: ClassVar[float] = 1000.0
 
     # Target and pivot dimensions
     target_height: ClassVar[float] = 0.2
@@ -219,6 +226,10 @@ class DominoComponent(DominoEnvComponent):
         # Constraint tracking for connected dominoes
         self.block_constraints: List[int] = []
         self.fixed_domino_ids: List[int] = []
+        # Bodies currently carrying heavy-block mass (gray blocks); like
+        # fixed_domino_ids, rebuilt on every reset and shielded from the
+        # generic ``mass`` override.
+        self.heavy_domino_ids: List[int] = []
 
         # Optional per-instance override of PyBullet contact/inertial params
         # (mass, friction, restitution, ...). Empty by default, so the env
@@ -373,7 +384,7 @@ class DominoComponent(DominoEnvComponent):
 
     _PHYSICAL_PARAM_KEYS = frozenset({
         "mass", "friction", "restitution", "rolling_friction",
-        "spinning_friction"
+        "spinning_friction", "heavy_block_mass"
     })
 
     # Map override keys -> p.changeDynamics kwarg names. ``mass`` is handled
@@ -389,8 +400,11 @@ class DominoComponent(DominoEnvComponent):
         """Override PyBullet contact/inertial params on the live domino bodies.
 
         Accepts any of ``mass``, ``friction``, ``restitution``,
-        ``rolling_friction``, ``spinning_friction`` (pass ``None`` to leave a
-        param at its current value). Applies ``p.changeDynamics`` to every
+        ``rolling_friction``, ``spinning_friction``, ``heavy_block_mass``
+        (pass ``None`` to leave a param at its current value).
+        ``heavy_block_mass`` applies only to heavy (gray) blocks — it is a
+        planning sim's BELIEF about them (the true value is
+        ``heavy_block_true_mass``, asserted at every reset). Applies ``p.changeDynamics`` to every
         domino body in *this* component's physics client, so one env
         instance's physics can diverge from another's without disturbing the
         shared ClassVars. The override is stored and re-applied after every
@@ -428,9 +442,18 @@ class DominoComponent(DominoEnvComponent):
             if domino.id is None:
                 continue
             kwargs = dict(base_kwargs)
-            # Don't clobber the 1e10 glue sentinel on fixed dominoes.
-            if "mass" in override and domino.id not in self.fixed_domino_ids:
+            # Don't clobber the 1e10 glue sentinel on fixed dominoes, nor
+            # the heavy-block mass on gray blocks (which have their own
+            # override key below).
+            if "mass" in override and domino.id not in self.fixed_domino_ids \
+                    and domino.id not in self.heavy_domino_ids:
                 kwargs["mass"] = override["mass"]
+            # ``heavy_block_mass`` overrides gray blocks only — a planning
+            # sim believing heavy blocks are ordinary dominoes sets this to
+            # the normal domino mass.
+            if "heavy_block_mass" in override \
+                    and domino.id in self.heavy_domino_ids:
+                kwargs["mass"] = override["heavy_block_mass"]
             if kwargs:
                 p.changeDynamics(domino.id,
                                  -1,
@@ -448,13 +471,14 @@ class DominoComponent(DominoEnvComponent):
                                physicsClientId=self._physics_client_id)
         self.block_constraints = []
 
-        # Restore normal dynamics to previously fixed dominoes
-        for domino_id in self.fixed_domino_ids:
+        # Restore normal dynamics to previously fixed/heavy dominoes
+        for domino_id in self.fixed_domino_ids + self.heavy_domino_ids:
             p.changeDynamics(domino_id,
                              -1,
                              mass=self.domino_mass,
                              physicsClientId=self._physics_client_id)
         self.fixed_domino_ids = []
+        self.heavy_domino_ids = []
 
         # Update domino colors to match state
         for domino in domino_objs:
@@ -466,12 +490,17 @@ class DominoComponent(DominoEnvComponent):
                               color=(r, g, b, 1.0),
                               physics_client_id=self._physics_client_id)
 
-        # Move unused dominoes out of view
+        # Move dominoes absent from the state out of view (by identity,
+        # not prefix count: heavy-block tasks use the LAST domino slot
+        # for the gray block, so the used set need not be a prefix).
+        used_dominos = set(domino_objs)
         oov_x, oov_y = self.out_of_view_xy
-        for i in range(len(domino_objs), len(self.dominos)):
+        for domino in self.dominos:
+            if domino in used_dominos:
+                continue
             oov_x += 0.1
             oov_y += 0.1
-            update_object(self.dominos[i].id,
+            update_object(domino.id,
                           position=(oov_x, oov_y, self.domino_height / 2),
                           physics_client_id=self._physics_client_id)
 
@@ -508,6 +537,17 @@ class DominoComponent(DominoEnvComponent):
                             mass=1e10,
                             physicsClientId=self._physics_client_id)
                         self.fixed_domino_ids.append(domino.id)
+
+        # Handle heavy (gray) blocks: true physics makes them untopple-able.
+        # The believed mass, if any, is re-asserted by the override below.
+        for domino in domino_objs:
+            if domino.id is not None and self._HeavyBlock_holds(
+                    state, [domino]):
+                p.changeDynamics(domino.id,
+                                 -1,
+                                 mass=self.heavy_block_true_mass,
+                                 physicsClientId=self._physics_client_id)
+                self.heavy_domino_ids.append(domino.id)
 
         # Re-assert any standing physical-param override: reset just rewrote
         # mass on the (un)glued dominoes above, so the override (if any) must
@@ -570,6 +610,23 @@ class DominoComponent(DominoEnvComponent):
         return (abs(state.get(domino, "r") - cls.domino_color[0]) < eps
                 and abs(state.get(domino, "g") - cls.domino_color[1]) < eps
                 and abs(state.get(domino, "b") - cls.domino_color[2]) < eps)
+
+    @classmethod
+    def _HeavyBlock_holds(cls, state: State,
+                          objects: Sequence[Object]) -> bool:
+        """Check if domino is a heavy (immovable, gray) block."""
+        domino, = objects
+        return cls.is_heavy_color(state.get(domino,
+                                            "r"), state.get(domino, "g"),
+                                  state.get(domino, "b"))
+
+    @classmethod
+    def is_heavy_color(cls, r: float, g: float, b: float) -> bool:
+        """Whether an (r, g, b) triple is the heavy-block gray."""
+        eps = 1e-3
+        return (abs(r - cls.heavy_block_color[0]) < eps
+                and abs(g - cls.heavy_block_color[1]) < eps
+                and abs(b - cls.heavy_block_color[2]) < eps)
 
     @classmethod
     def _TargetDomino_holds(cls, state: State,
@@ -715,10 +772,13 @@ class DominoComponent(DominoEnvComponent):
                      rot: float,
                      is_start_block: bool = False,
                      is_target_block: bool = False,
+                     is_heavy_block: bool = False,
                      rng: Optional[np.random.Generator] = None,
                      task_idx: Optional[int] = None) -> Dict:
         """Create a dictionary with placement parameters for a domino."""
-        if is_start_block:
+        if is_heavy_block:
+            color = self.heavy_block_color
+        elif is_start_block:
             color = self.start_domino_color
         elif is_target_block:
             should_be_glued = False

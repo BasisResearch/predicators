@@ -780,7 +780,13 @@ class DominoTaskGenerator(TaskGenerator):
                                 data.get("b", 0.0) -
                                 self.domino.glued_domino_color[2]) < eps))
 
-                if not is_start and not is_target:
+                # Heavy (gray) blocks are scenery, not workpieces: they stay
+                # where the task placed them (and count as occupied below).
+                is_heavy = self.domino.is_heavy_color(data.get("r", 0.0),
+                                                      data.get("g", 0.0),
+                                                      data.get("b", 0.0))
+
+                if not is_start and not is_target and not is_heavy:
                     intermediate_objects.append((domino, "domino"))
 
         for pivot in self.domino.pivots:

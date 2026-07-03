@@ -187,6 +187,15 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         if self._domino_component is not None and abs(
                 friction - self._domino_component.domino_friction) > 1e-9:
             self.set_domino_physical_params(friction=friction)
+        # Heavy-block tasks: planning sims BELIEVE the heavy gray blocks
+        # are ordinary dominoes (normal mass), so their rollouts propagate
+        # a chain straight through one. The eval env (and the oracle-
+        # params planner) keeps the true heavy mass, asserted at reset.
+        if CFG.domino_heavy_block_tasks \
+                and self._domino_component is not None \
+                and self._skip_domain_specific_dynamics \
+                and not CFG.agent_sim_learn_oracle_sim_params:
+            self.set_domino_physical_params(heavy_block_mass=self.domino_mass)
 
     def _create_robot_predicates(self) -> None:
         """Create robot-specific predicates."""
@@ -415,9 +424,12 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                           max(CFG.domino_test_num_targets))
         max_pivots = max(max(CFG.domino_train_num_pivots),
                          max(CFG.domino_test_num_pivots))
-        if CFG.domino_min_block_tasks:
-            # Need slots for the start + target + all staged blues.
-            max_dominos = max(max_dominos, CFG.domino_min_block_num_blues + 2)
+        if CFG.domino_min_block_tasks or CFG.domino_heavy_block_tasks:
+            # Need slots for the start + target + all staged blues, plus
+            # one more for the heavy gray obstacle in heavy-block mode.
+            extra = 3 if CFG.domino_heavy_block_tasks else 2
+            max_dominos = max(max_dominos,
+                              CFG.domino_min_block_num_blues + extra)
         return DominoComponent(num_dominos_max=max_dominos,
                                num_targets_max=max_targets,
                                num_pivots_max=max_pivots,
@@ -497,12 +509,13 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 domino_in_upper_half=domino_in_upper_half)
 
         # Non-min-block mode: single generation pass, unchanged behaviour.
-        if not CFG.domino_min_block_tasks:
+        if not (CFG.domino_min_block_tasks or CFG.domino_heavy_block_tasks):
             return self._add_pybullet_state_to_tasks(
                 _generate_batch(num_tasks))
 
-        # Min-block / system-ID mode: the whole pipeline (quota loop, K*
-        # searches, differentiation filters, disk cache) lives in
+        # Min-block / system-ID mode (incl. the heavy-block task type):
+        # the whole pipeline (quota loop, K* searches, differentiation
+        # filters, disk cache) lives in
         # task_generators.min_block_generation. Imported lazily: that
         # module constructs MinBlockReward from this one.
         # pylint: disable-next=import-outside-toplevel,line-too-long

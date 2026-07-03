@@ -512,6 +512,22 @@ class GlobalSettings:
     # K* = the verified reach-limited blue count of the L-chain. 0.0 = all
     # straight (original min-block behaviour).
     domino_min_block_turn_ratio = 0.5
+    # Heavy-block (immovable obstacle) task type — the single switch for the
+    # variant. Each task is a dogleg: a HEAVY gray domino-shaped block
+    # stands directly on the start's fall line, yawed ~30 degrees off it —
+    # visually a ready-made bend link toward the target beyond it. Its true
+    # mass (DominoComponent.heavy_block_true_mass) makes it untopple-able
+    # and unmovable, but planning sims believe it has normal domino mass
+    # (env init sets the ``heavy_block_mass`` override), so an uncalibrated
+    # planner runs its chain straight into the gray block and bends there
+    # for free — the believed-cheapest plan — and the chain dies against
+    # it; a mass-calibrated planner bends EARLY with its own corner blue
+    # and cuts across to the target. Reuses the min-block machinery
+    # (MinBlockReward with budget = detour K*, quota loop, disk cache,
+    # domino_min_block_num_blues); when set, it replaces the straight/turn
+    # task mix entirely, and domino_min_block_tasks does not also need to
+    # be set.
+    domino_heavy_block_tasks = False
 
     # burger env parameters
     burger_render_set_of_marks = True
