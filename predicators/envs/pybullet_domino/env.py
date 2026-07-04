@@ -4,7 +4,6 @@ This module provides the main environment class that composes multiple
 components (dominoes, fans, balls, etc.) into a single environment.
 """
 
-import logging
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
@@ -660,33 +659,33 @@ if __name__ == "__main__":
     CFG.fan_fans_blow_opposite_direction = False
 
     # Create environment based on selection
-    env: PyBulletDominoComposedEnv
+    demo_env: PyBulletDominoComposedEnv
     if test_env == "domino":
         print("Creating PyBulletDominoEnv...")
         CFG.env = "pybullet_domino"
-        env = PyBulletDominoEnv(use_gui=True)
+        demo_env = PyBulletDominoEnv(use_gui=True)
     elif test_env == "domino_fan":
         print("Creating PyBulletDominoFanEnv...")
         CFG.env = "pybullet_domino_fan"
-        env = PyBulletDominoFanEnv(use_gui=True)
+        demo_env = PyBulletDominoFanEnv(use_gui=True)
     elif test_env == "domino_fan_ramp":
         print("Creating PyBulletDominoFanRampEnv...")
         CFG.env = "pybullet_domino_fan_ramp"
-        env = PyBulletDominoFanRampEnv(use_gui=True)
+        demo_env = PyBulletDominoFanRampEnv(use_gui=True)
     elif test_env == "domino_fan_ramp_stairs":
         print("Creating PyBulletDominoFanRampStairsEnv...")
         CFG.env = "pybullet_domino_fan_ramp_stairs"
-        env = PyBulletDominoFanRampStairsEnv(use_gui=True)
+        demo_env = PyBulletDominoFanRampStairsEnv(use_gui=True)
     else:
         raise ValueError(f"Unknown environment: {test_env}")
 
     # Generate test tasks
     print("Generating test tasks...")
-    test_tasks = env._generate_test_tasks()  # pylint: disable=protected-access
+    test_tasks = demo_env._generate_test_tasks()  # pylint: disable=protected-access
 
     print(f"\nGenerated {len(test_tasks)} tasks")
-    print(f"Types: {[t.name for t in env.types]}")
-    print(f"Predicates: {[p.name for p in env.predicates]}")
+    print(f"Types: {[t.name for t in demo_env.types]}")
+    print(f"Predicates: {[p.name for p in demo_env.predicates]}")
 
     # Test each task
     for i, task in enumerate(test_tasks):
@@ -695,14 +694,14 @@ if __name__ == "__main__":
         print(f"{'=' * 60}")
 
         # Reset to initial state
-        env._set_state(task.init)  # pylint: disable=protected-access
+        demo_env._set_state(task.init)  # pylint: disable=protected-access
 
         print("\nGoal atoms:")
         for atom in task.goal:
             print(f"  {atom}")
 
         # Print the initial abstract atoms (what the agent sees).
-        init_atoms = utils.abstract(task.init, env.predicates)
+        init_atoms = utils.abstract(task.init, demo_env.predicates)
         print("\nInitial atoms (abstract state seen by the agent):")
         for atom in sorted(init_atoms, key=str):
             print(f"  {atom}")
@@ -715,8 +714,8 @@ if __name__ == "__main__":
             for step in range(100):
                 # pylint: disable=protected-access
                 cur_action = Action(
-                    np.array(env._pybullet_robot.initial_joint_positions))
-                cur_state = env.step(cur_action)
+                    np.array(demo_env._pybullet_robot.initial_joint_positions))
+                cur_state = demo_env.step(cur_action)
 
                 if all(atom.holds(cur_state) for atom in task.goal):
                     print(f"Goal reached at step {step}!")

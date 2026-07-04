@@ -99,8 +99,8 @@ def state_poses(state):
 
 
 def winning_layout(state, k_max, friction):
-    """First toppling layout (straight chain or turn candidate) with the
-    fewest blues at ``friction``; returns (od, start, target, k) or None."""
+    """First toppling layout (straight chain or turn candidate) with the fewest
+    blues at ``friction``; returns (od, start, target, k) or None."""
     # pylint: disable=protected-access
     dominoes = state.get_objects(comp.domino_type)
     start = next(d for d in dominoes if comp._StartBlock_holds(state, [d]))

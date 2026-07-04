@@ -3,9 +3,10 @@ plan. Pure drawing (numbers match the measured reaches)."""
 import matplotlib
 
 matplotlib.use("Agg")
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
-from pathlib import Path
 from matplotlib.patches import FancyArrowPatch, Rectangle
 
 W, D = 0.07, 0.015  # domino width (perp to chain) x depth (along chain)

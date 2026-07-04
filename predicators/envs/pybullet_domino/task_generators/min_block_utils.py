@@ -385,8 +385,8 @@ def compute_k_star(env: Any,
 def straight_span_k_star(env: Any,
                          span: float,
                          budget: Optional[int] = None) -> Optional[int]:
-    """Minimum blues whose evenly-spaced STRAIGHT chain crosses ``span`` at
-    the env's CURRENT friction, or None if no k within budget works.
+    """Minimum blues whose evenly-spaced STRAIGHT chain crosses ``span`` at the
+    env's CURRENT friction, or None if no k within budget works.
 
     Probed with a real Push at a canonical pushable pose. Used by the turn
     tasks' per-leg differentiation certificate: each leg of a turn is a
@@ -572,8 +572,8 @@ def heavy_dogleg_k_star(env: Any,
                         heavy_pose: Any,
                         budget: int,
                         only_k: Optional[int] = None) -> Optional[int]:
-    """Minimum blues whose dogleg chain THROUGH the heavy (gray) block
-    topples the target at the env's CURRENT physics, or None.
+    """Minimum blues whose dogleg chain THROUGH the heavy (gray) block topples
+    the target at the env's CURRENT physics, or None.
 
     The gray block stands on the start's fall line and acts as a free
     bend link: k1 blues run evenly from the start to the gray, the chain
@@ -749,8 +749,8 @@ def swerve_k_star(env: Any,
                   heavy_pose: Any,
                   budget: int,
                   min_hits: int = 1) -> Optional[int]:
-    """Minimum blues whose half-circle swerve AROUND the collinear gray
-    block topples the target at the env's CURRENT physics, or None.
+    """Minimum blues whose half-circle swerve AROUND the collinear gray block
+    topples the target at the env's CURRENT physics, or None.
 
     The constructive counterpart of ``heavy_dogleg_k_star``'s straight
     lure: same start/target line, but the chain leaves the line, clears

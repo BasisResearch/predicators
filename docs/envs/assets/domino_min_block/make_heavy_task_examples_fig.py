@@ -34,8 +34,8 @@ from predicators import utils
 from predicators.envs import create_new_env
 from predicators.envs.pybullet_domino.task_generators import \
     min_block_utils as mbu
-from predicators.envs.pybullet_domino.task_generators.min_block_generation \
-    import _with_believed_physics
+from predicators.envs.pybullet_domino.task_generators.min_block_generation import \
+    _with_believed_physics
 from predicators.settings import CFG
 
 utils.reset_config({
@@ -161,8 +161,8 @@ def swerve_solution(s_pose, t_pose, h_pose, k_max):
 
 
 def detour_solution(s_pose, t_pose, gray_od, k_max):
-    """Winning skip-around detour at the TRUE physics (corner family
-    with the gray in every candidate scene)."""
+    """Winning skip-around detour at the TRUE physics (corner family with the
+    gray in every candidate scene)."""
     # pylint: disable=protected-access
     extra_pts = [(d["x"], d["y"]) for d in gray_od.values()]
     for k in range(k_max + 1):
@@ -239,8 +239,8 @@ def believed_straight(start, target, gray, s_pose, t_pose, h_pose, k_max):
 
 
 def believed_gray_corner(start, target, gray, s_pose, t_pose, h_pose, k_max):
-    """The believed gray-corner lure: the family layout whose corner
-    pose matches the gray, with the gray substituted in (free corner)."""
+    """The believed gray-corner lure: the family layout whose corner pose
+    matches the gray, with the gray substituted in (free corner)."""
 
     # pylint: disable=protected-access
     def _probe():

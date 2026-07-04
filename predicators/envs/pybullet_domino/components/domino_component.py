@@ -404,7 +404,8 @@ class DominoComponent(DominoEnvComponent):
         (pass ``None`` to leave a param at its current value).
         ``heavy_block_mass`` applies only to heavy (gray) blocks — it is a
         planning sim's BELIEF about them (the true value is
-        ``heavy_block_true_mass``, asserted at every reset). Applies ``p.changeDynamics`` to every
+        ``heavy_block_true_mass``, asserted at every reset). Applies
+        ``p.changeDynamics`` to every
         domino body in *this* component's physics client, so one env
         instance's physics can diverge from another's without disturbing the
         shared ClassVars. The override is stored and re-applied after every

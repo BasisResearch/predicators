@@ -2,10 +2,11 @@
 
 Renders the REAL candidates yielded by ``_candidate_turn_layouts`` for a
 canonical turn geometry (k=3): the straight-line probe plus the five
-natural-yaw corner configs (``_CORNER_CONFIGS``), and — for contrast — the
-generator's mirrored 45-degree pair, which is deliberately EXCLUDED from
-the search because no planner would propose it. Footprints are geometry-
-exact (poses come from the search code itself); no simulation is run.
+natural-yaw corner configs (``_CORNER_CONFIGS``), and — for contrast —
+the generator's mirrored 45-degree pair, which is deliberately EXCLUDED
+from the search because no planner would propose it. Footprints are
+geometry- exact (poses come from the search code itself); no simulation
+is run.
 """
 from pathlib import Path
 

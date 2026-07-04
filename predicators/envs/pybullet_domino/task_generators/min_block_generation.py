@@ -158,10 +158,10 @@ def _min_block_cache_path(env: "PyBulletDominoComposedEnv", cache_tag: str,
                           num_tasks: int) -> Optional[Path]:
     """Cache file for this (config, seed, code) combination, or None.
 
-    The key hashes every ``domino_``/``pybullet_``/``skill_phase_``
-    CFG flag (except the render-only ones above), the seed and task
-    counts, AND a digest of the domino env + domino skill source code —
-    so any change to the physics config or the generation/skill code
+    The key hashes every ``domino_``/``pybullet_``/``skill_phase_`` CFG
+    flag (except the render-only ones above), the seed and task counts,
+    AND a digest of the domino env + domino skill source code — so any
+    change to the physics config or the generation/skill code
     automatically invalidates the cache.
     """
     cache_dir = CFG.domino_min_block_task_cache_dir
@@ -342,8 +342,8 @@ def _assign_min_blocks(env: "PyBulletDominoComposedEnv",
 def _planning_mismatch_direction() -> Optional[str]:
     """Direction of the configured planning-friction mismatch.
 
-    ``"over_reach"`` when the planning sim's friction is HIGHER than
-    the true friction (planner over-estimates topple reach -> under-
+    ``"over_reach"`` when the planning sim's friction is HIGHER than the
+    true friction (planner over-estimates topple reach -> under-
     builds), ``"under_reach"`` when lower (planner over-builds),
     ``None`` when no mismatch is configured (differentiation filters
     disabled).
@@ -357,8 +357,7 @@ def _planning_mismatch_direction() -> Optional[str]:
 
 def _believed_k_differentiates(direction: str, k_true: int,
                                k_believed: Optional[int]) -> bool:
-    """Whether a task with these K*s forces the uncalibrated planner to
-    fail.
+    """Whether a task with these K*s forces the uncalibrated planner to fail.
 
     * over_reach: the planner must believe FEWER blues suffice (it then
       under-builds and the chain dies short of the target);
@@ -617,7 +616,7 @@ def _wrap_angle(a: float) -> float:
 
 def _to_real_pose(x: float, y: float, yaw: float, d_yaw: float, ax: float,
                   ay: float, sx: float,
-                  sy: float) -> "Tuple[float, float, float]":
+                  sy: float) -> Tuple[float, float, float]:
     """Map a canonical-anchor pose to a real start pose rotated by
     ``d_yaw`` (yaw convention: dir(yaw) = (sin, cos), so adding d_yaw to
     every yaw pairs with rotating offsets by [[c, s], [-s, c]])."""
@@ -670,13 +669,13 @@ def _finish_heavy_task(env: "PyBulletDominoComposedEnv", comp: Any,
 
     The reward budget is the STAGED blue count, not the searched K*:
     heavy tasks differentiate on topple-vs-not (the believing planner
-    never topples the target), and the corner/swerve minima are
-    solver-history sensitive at the margin — a layout that barely
-    topples during generation can need one more blue under a fresh
-    simulator's contact state (and vice versa). Binding the reward to
-    the exact K* would make such tasks unsolvable-within-budget at
-    execution; the K* searches remain as solvability certificates
-    (a within-staged-blues solution exists).
+    never topples the target), and the corner/swerve minima are solver-
+    history sensitive at the margin — a layout that barely topples
+    during generation can need one more blue under a fresh simulator's
+    contact state (and vice versa). Binding the reward to the exact K*
+    would make such tasks unsolvable-within-budget at execution; the K*
+    searches remain as solvability certificates (a within-staged-blues
+    solution exists).
     """
     # pylint: disable=import-outside-toplevel,protected-access
     from predicators.envs.pybullet_domino.env import MinBlockReward
@@ -837,8 +836,10 @@ _corner_blueprint_memo: Dict[Any, Optional[Any]] = {}
 
 def _mirror_od_about_anchor(
         od: Dict[Object, Dict[str, Any]]) -> Dict[Object, Dict[str, Any]]:
-    """Reflect a canonical-anchor layout across the anchor's fall line
-    (y = anchor_y): (x, y, yaw) -> (x, 2*ay - y, pi - yaw)."""
+    """Reflect a canonical-anchor layout across the anchor's fall line.
+
+    (y = anchor_y): (x, y, yaw) -> (x, 2*ay - y, pi - yaw).
+    """
     _, ay = _PROBE_ANCHOR
     out: Dict[Object, Dict[str, Any]] = {}
     for obj, pose in od.items():
@@ -1049,9 +1050,11 @@ def _make_heavy_turn_task(
                 is_start_block=lure_obj is start,
                 is_target_block=lure_obj is target,
                 is_heavy_block=lure_obj is heavy_obj)
+
         ok_real = _with_believed_physics(
-            env, lambda: mbu._layout_topples(env, lure_real, start, target,
-                                             push_opt))
+            env,
+            functools.partial(mbu._layout_topples, env, lure_real, start,
+                              target, push_opt))
         if not ok_real:
             staged = None
             continue
