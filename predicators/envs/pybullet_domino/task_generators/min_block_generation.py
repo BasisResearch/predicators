@@ -1006,7 +1006,11 @@ def _make_heavy_turn_task(
     c_tyaw = 0.0 if side > 0 else np.pi
     staged = None
     k_true: Optional[int] = None
-    for _ in range(12):
+    # Generous pose retries: besides bounds/staging, a pose must now
+    # also pass the real-pose lure re-verification below, and knife-edge
+    # pose transfer fails often. Failed poses are cheap (staging is pure
+    # geometry; a lure fail costs ~2 rollouts before the detour search).
+    for _ in range(24):
         syaw = float(rng.choice([np.pi / 2, -np.pi / 2]))
         d_yaw = syaw - np.pi / 2
         if syaw > 0:

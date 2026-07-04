@@ -129,8 +129,11 @@ def state_poses(state):
 def od_poses(od, start, target, gray):
     out = []
     for obj, pose in od.items():
-        role = ("start" if obj is start else "target"
-                if obj is target else "heavy" if obj is gray else "blue")
+        # Compare by equality, not identity: the env is re-created after
+        # loading the tasks, so layouts may be keyed by either the cached
+        # tasks' objects or the fresh env's (equal by name).
+        role = ("start" if obj == start else "target"
+                if obj == target else "heavy" if obj == gray else "blue")
         out.append((pose["x"], pose["y"], pose["yaw"], role))
     return out
 
