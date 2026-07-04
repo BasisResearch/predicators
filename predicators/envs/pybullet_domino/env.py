@@ -31,8 +31,33 @@ from predicators.pybullet_helpers.geometry import Pose3D, Quaternion
 from predicators.pybullet_helpers.objects import create_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
-from predicators.structs import Action, EnvironmentTask, Object, Predicate, \
-    State, Type
+from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
+    Predicate, State, Type
+
+
+class MinBlockReward:
+    """Binary task reward for min-block / system-ID tasks.
+
+    Generalizes the atom-set goal (see ``EnvironmentTask.reward_fn``):
+    success = every goal atom holds AND the solution used at most
+    ``max_blocks`` movable (blue) dominoes. "Used" is measured on the
+    final state as the number of movable dominoes that toppled — for a
+    successful cascade these are exactly the blues bridging start to
+    target, so an over-built (denser-than-needed) chain exceeds the
+    budget and fails, while an under-built one fails to topple the
+    target and is already rejected by the atom check.
+    """
+
+    def __init__(self, env: "PyBulletDominoComposedEnv", goal: Set[GroundAtom],
+                 max_blocks: int) -> None:
+        self._env = env
+        self.goal = goal
+        self.max_blocks = max_blocks
+
+    def __call__(self, state: State) -> bool:
+        if not all(atom.holds(state) for atom in self.goal):
+            return False
+        return self._env.count_movable_blocks_used(state) <= self.max_blocks
 
 
 class PyBulletDominoComposedEnv(PyBulletEnv):
@@ -136,6 +161,40 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         # (done after PyBullet init in _store_pybullet_bodies)
 
         super().__init__(use_gui, **kwargs)
+
+        # Apply the configured domino friction to the live bodies. Two roles,
+        # distinguished by how this instance was constructed:
+        #   * eval/"real" env (skip_process_dynamics=False, e.g. main.py) ->
+        #     CFG.domino_true_friction;
+        #   * planning base sim (skip_process_dynamics=True — the approaches'
+        #     base envs / option models, the same flag that already denies
+        #     planners the ground-truth delayed dynamics) ->
+        #     CFG.domino_planning_friction when set (else true friction).
+        # Setting planning friction above true friction makes an uncalibrated
+        # planner over-estimate topple reach (min-block / system-ID
+        # experiments). Only applied when it differs from the built-in
+        # default, so existing runs are physically untouched; re-applied
+        # automatically after every reset_state.
+        friction = CFG.domino_true_friction
+        if self._skip_domain_specific_dynamics and \
+                CFG.domino_planning_friction is not None and \
+                not CFG.agent_sim_learn_oracle_sim_params:
+            # agent_sim_learn_oracle_sim_params grants the planner the
+            # TRUE friction (oracle upper bound) while task generation keeps
+            # using domino_planning_friction for the differentiation filter.
+            friction = CFG.domino_planning_friction
+        if self._domino_component is not None and abs(
+                friction - self._domino_component.domino_friction) > 1e-9:
+            self.set_domino_physical_params(friction=friction)
+        # Heavy-block tasks: planning sims BELIEVE the heavy gray blocks
+        # are ordinary dominoes (normal mass), so their rollouts propagate
+        # a chain straight through one. The eval env (and the oracle-
+        # params planner) keeps the true heavy mass, asserted at reset.
+        if CFG.domino_heavy_block_tasks \
+                and self._domino_component is not None \
+                and self._skip_domain_specific_dynamics \
+                and not CFG.agent_sim_learn_oracle_sim_params:
+            self.set_domino_physical_params(heavy_block_mass=self.domino_mass)
 
     def _create_robot_predicates(self) -> None:
         """Create robot-specific predicates."""
@@ -290,6 +349,34 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             state = self._get_state()
             self._ball_component.set_current_state(state)
 
+    def set_domino_physical_params(self, **params: Optional[float]) -> None:
+        """Override this env instance's domino PyBullet dynamics params.
+
+        Thin delegate to ``DominoComponent.set_physical_params``
+        (accepts ``mass``, ``friction``, ``restitution``,
+        ``rolling_friction``, ``spinning_friction``). Lets a caller run
+        two env instances with divergent physics in one process — e.g. a
+        miscalibrated planning sim vs. the "real" env — for system-ID /
+        sim-vs-real experiments, without touching the shared ClassVars.
+        No-op if there is no domino component.
+        """
+        if self._domino_component is not None:
+            self._domino_component.set_physical_params(**params)
+
+    def count_movable_blocks_used(self, state: State) -> int:
+        """Count movable (blue) dominoes that have toppled in ``state``."""
+        comp = self._domino_component
+        if comp is None:
+            return 0
+        thresh = comp.fallen_threshold
+        count = 0
+        for d in state.get_objects(comp.domino_type):
+            # pylint: disable=protected-access
+            if comp._MovableBlock_holds(state, [d]) and \
+                    abs(state.get(d, "roll")) >= thresh:
+                count += 1
+        return count
+
     # =========================================================================
     # PREDICATE HOLD FUNCTIONS
     # =========================================================================
@@ -336,6 +423,12 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                           max(CFG.domino_test_num_targets))
         max_pivots = max(max(CFG.domino_train_num_pivots),
                          max(CFG.domino_test_num_pivots))
+        if CFG.domino_min_block_tasks or CFG.domino_heavy_block_tasks:
+            # Need slots for the start + target + all staged blues, plus
+            # one more for the heavy gray obstacle in heavy-block mode.
+            extra = 3 if CFG.domino_heavy_block_tasks else 2
+            max_dominos = max(max_dominos,
+                              CFG.domino_min_block_num_blues + extra)
         return DominoComponent(num_dominos_max=max_dominos,
                                num_targets_max=max_targets,
                                num_pivots_max=max_pivots,
@@ -352,7 +445,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             possible_num_dominos=CFG.domino_train_num_dominos,
             possible_num_targets=CFG.domino_train_num_targets,
             possible_num_pivots=CFG.domino_train_num_pivots,
-            rng=self._train_rng)
+            rng=self._train_rng,
+            cache_tag="train")
 
     def _generate_test_tasks(self) -> List[EnvironmentTask]:
         """Generate test tasks."""
@@ -361,7 +455,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             possible_num_dominos=CFG.domino_test_num_dominos,
             possible_num_targets=CFG.domino_test_num_targets,
             possible_num_pivots=CFG.domino_test_num_pivots,
-            rng=self._test_rng)
+            rng=self._test_rng,
+            cache_tag="test")
 
     def _make_tasks(self,
                     num_tasks: int,
@@ -369,7 +464,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                     possible_num_targets: List[int],
                     possible_num_pivots: List[int],
                     rng: np.random.Generator,
-                    log_debug: bool = False) -> List[EnvironmentTask]:
+                    log_debug: bool = False,
+                    cache_tag: str = "") -> List[EnvironmentTask]:
         """Generate tasks using task generator."""
         if self._domino_component is None:
             raise ValueError("Cannot generate tasks without domino component")
@@ -401,16 +497,31 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         # to leave space for ball in lower half
         domino_in_upper_half = self._ball_component is not None
 
-        tasks = generator.generate_tasks(
-            num_tasks=num_tasks,
-            rng=rng,
-            log_debug=log_debug,
-            possible_num_dominos=possible_num_dominos,
-            possible_num_targets=possible_num_targets,
-            possible_num_pivots=possible_num_pivots,
-            domino_in_upper_half=domino_in_upper_half)
+        def _generate_batch(n: int) -> List[EnvironmentTask]:
+            return generator.generate_tasks(
+                num_tasks=n,
+                rng=rng,
+                log_debug=log_debug,
+                possible_num_dominos=possible_num_dominos,
+                possible_num_targets=possible_num_targets,
+                possible_num_pivots=possible_num_pivots,
+                domino_in_upper_half=domino_in_upper_half)
 
-        return self._add_pybullet_state_to_tasks(tasks)
+        # Non-min-block mode: single generation pass, unchanged behaviour.
+        if not (CFG.domino_min_block_tasks or CFG.domino_heavy_block_tasks):
+            return self._add_pybullet_state_to_tasks(
+                _generate_batch(num_tasks))
+
+        # Min-block / system-ID mode (incl. the heavy-block task type):
+        # the whole pipeline (quota loop, K* searches, differentiation
+        # filters, disk cache) lives in
+        # task_generators.min_block_generation. Imported lazily: that
+        # module constructs MinBlockReward from this one.
+        # pylint: disable-next=import-outside-toplevel,line-too-long
+        from predicators.envs.pybullet_domino.task_generators.min_block_generation import \
+            make_min_block_tasks
+        return make_min_block_tasks(self, generator, _generate_batch,
+                                    num_tasks, rng, cache_tag)
 
 
 # =============================================================================
@@ -523,10 +634,16 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         test_env = sys.argv[1]
 
+    CFG.domino_min_block_tasks = True
+    CFG.domino_true_friction = 0.1
+    CFG.domino_min_block_span_lo = 0.13
+    CFG.domino_min_block_span_hi = 0.30
+    CFG.domino_min_block_num_blues = 4
+
     # Configure environment
     CFG.seed = 1
     CFG.num_train_tasks = 0
-    CFG.num_test_tasks = 1
+    CFG.num_test_tasks = 5
 
     # Domino configuration
     CFG.domino_initialize_at_finished_state = False
@@ -542,33 +659,33 @@ if __name__ == "__main__":
     CFG.fan_fans_blow_opposite_direction = False
 
     # Create environment based on selection
-    env: PyBulletDominoComposedEnv
+    demo_env: PyBulletDominoComposedEnv
     if test_env == "domino":
         print("Creating PyBulletDominoEnv...")
         CFG.env = "pybullet_domino"
-        env = PyBulletDominoEnv(use_gui=True)
+        demo_env = PyBulletDominoEnv(use_gui=True)
     elif test_env == "domino_fan":
         print("Creating PyBulletDominoFanEnv...")
         CFG.env = "pybullet_domino_fan"
-        env = PyBulletDominoFanEnv(use_gui=True)
+        demo_env = PyBulletDominoFanEnv(use_gui=True)
     elif test_env == "domino_fan_ramp":
         print("Creating PyBulletDominoFanRampEnv...")
         CFG.env = "pybullet_domino_fan_ramp"
-        env = PyBulletDominoFanRampEnv(use_gui=True)
+        demo_env = PyBulletDominoFanRampEnv(use_gui=True)
     elif test_env == "domino_fan_ramp_stairs":
         print("Creating PyBulletDominoFanRampStairsEnv...")
         CFG.env = "pybullet_domino_fan_ramp_stairs"
-        env = PyBulletDominoFanRampStairsEnv(use_gui=True)
+        demo_env = PyBulletDominoFanRampStairsEnv(use_gui=True)
     else:
         raise ValueError(f"Unknown environment: {test_env}")
 
     # Generate test tasks
     print("Generating test tasks...")
-    test_tasks = env._generate_test_tasks()  # pylint: disable=protected-access
+    test_tasks = demo_env._generate_test_tasks()  # pylint: disable=protected-access
 
     print(f"\nGenerated {len(test_tasks)} tasks")
-    print(f"Types: {[t.name for t in env.types]}")
-    print(f"Predicates: {[p.name for p in env.predicates]}")
+    print(f"Types: {[t.name for t in demo_env.types]}")
+    print(f"Predicates: {[p.name for p in demo_env.predicates]}")
 
     # Test each task
     for i, task in enumerate(test_tasks):
@@ -577,14 +694,14 @@ if __name__ == "__main__":
         print(f"{'=' * 60}")
 
         # Reset to initial state
-        env._set_state(task.init)  # pylint: disable=protected-access
+        demo_env._set_state(task.init)  # pylint: disable=protected-access
 
         print("\nGoal atoms:")
         for atom in task.goal:
             print(f"  {atom}")
 
         # Print the initial abstract atoms (what the agent sees).
-        init_atoms = utils.abstract(task.init, env.predicates)
+        init_atoms = utils.abstract(task.init, demo_env.predicates)
         print("\nInitial atoms (abstract state seen by the agent):")
         for atom in sorted(init_atoms, key=str):
             print(f"  {atom}")
@@ -597,8 +714,8 @@ if __name__ == "__main__":
             for step in range(100):
                 # pylint: disable=protected-access
                 cur_action = Action(
-                    np.array(env._pybullet_robot.initial_joint_positions))
-                cur_state = env.step(cur_action)
+                    np.array(demo_env._pybullet_robot.initial_joint_positions))
+                cur_state = demo_env.step(cur_action)
 
                 if all(atom.holds(cur_state) for atom in task.goal):
                     print(f"Goal reached at step {step}!")

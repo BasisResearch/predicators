@@ -1,0 +1,1099 @@
+"""Min-block / system-ID task generation for the domino environment.
+
+Builds the reach-limited "minimum-blocks" tasks: start/target pairs whose
+gap sits near the topple-reach limit, each carrying a ``MinBlockReward``
+with budget K* (the simulated minimum number of movable blues that topple
+the target at the true friction). A differentiation filter keeps only
+tasks that separate a friction-calibrated planner from a miscalibrated
+one. Finished tasks are cached on disk, keyed by config + seed + a source
+digest.
+
+Every function takes the composed domino env as its first argument; this
+module owns the generation pipeline while the env owns the physics and
+reward semantics (``MinBlockReward``, ``count_movable_blocks_used``).
+"""
+
+import functools
+import hashlib
+import json
+import logging
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+
+import numpy as np
+
+from predicators.envs.pybullet_domino.task_generators import \
+    min_block_utils as mbu
+from predicators.envs.pybullet_domino.task_generators.min_block_utils import \
+    _PROBE_ANCHOR, clear_probe_memo, compute_k_star, compute_turn_k_star, \
+    heavy_dogleg_k_star, straight_span_k_star, swerve_k_star
+from predicators.settings import CFG
+from predicators.structs import EnvironmentTask, GroundAtom, Object, State
+
+if TYPE_CHECKING:
+    from predicators.envs.pybullet_domino.env import PyBulletDominoComposedEnv
+    # pylint: disable-next=line-too-long
+    from predicators.envs.pybullet_domino.task_generators.domino_task_generator import \
+        DominoTaskGenerator
+
+
+@functools.lru_cache(maxsize=1)
+def _domino_code_digest() -> str:
+    """Digest of the source code that determines min-block task generation.
+
+    Covers the domino env package (task generators, K* search, the env)
+    and the domino skills (push geometry feeds the simulated K*). Any
+    edit to these files changes the digest and invalidates cached tasks.
+    """
+    import predicators  # pylint: disable=import-outside-toplevel
+    base = Path(predicators.__file__).parent
+    digest = hashlib.sha256()
+    for rel in ("envs/pybullet_domino", "ground_truth_models/domino",
+                "ground_truth_models/skill_factories"):
+        for source in sorted((base / rel).rglob("*.py")):
+            digest.update(source.name.encode())
+            digest.update(source.read_bytes())
+    return digest.hexdigest()
+
+
+def make_min_block_tasks(env: "PyBulletDominoComposedEnv",
+                         generator: "DominoTaskGenerator",
+                         generate_batch: Callable[[int],
+                                                  List[EnvironmentTask]],
+                         num_tasks: int, rng: np.random.Generator,
+                         cache_tag: str) -> List[EnvironmentTask]:
+    """Generate (or reload) the min-block task set.
+
+    Min-block generation is expensive (each kept task runs simulated K*
+    searches), but fully deterministic given the seed, the config, and
+    the code — so finished tasks are cached and reloaded on repeat runs.
+
+    A fraction (``domino_min_block_turn_ratio``) of tasks are L-shaped
+    (one 90-degree domino turn), the rest straight. Both drop tasks that
+    can't be pushed / don't topple, so the quota loop keeps going until
+    enough of each survive (or the attempt cap is hit). ``rng`` is
+    stateful, so each attempt yields fresh tasks.
+
+    In heavy-block mode (``domino_heavy_block_tasks``) the mix instead
+    comes from the two natural-alignment heavy variants — straight tasks
+    (gray block dead ahead on the line, solved by a half-circle swerve)
+    fill the straight quota and turn tasks (gray block at the L's
+    natural corner, solved by skipping around it) fill the turn quota;
+    the quota loop, cache, and reward machinery are shared.
+    """
+    cache_path = _min_block_cache_path(env, cache_tag, num_tasks)
+    cached = _load_min_block_cache(env, cache_path)
+    if cached is not None:
+        return cached
+
+    clear_probe_memo()
+    _corner_blueprint_memo.clear()
+    maker_t = Callable[[
+        "PyBulletDominoComposedEnv", "DominoTaskGenerator", np.random.Generator
+    ], Optional[EnvironmentTask]]
+    turn_maker: maker_t
+    straight_maker: Optional[maker_t] = None
+    n_turn = int(round(num_tasks * CFG.domino_min_block_turn_ratio))
+    n_straight = num_tasks - n_turn
+    if CFG.domino_heavy_block_tasks:
+        turn_maker = _make_heavy_turn_task
+        straight_maker = _make_heavy_straight_task
+    else:
+        turn_maker = _make_turn_task
+    turns: List[EnvironmentTask] = []
+    straights: List[EnvironmentTask] = []
+    # The differentiating span/leg windows are narrow relative to the
+    # sampling bands (~25% of straight attempts survive the filters, and
+    # turn attempts only ~1-in-30: the per-leg certificate's dead band
+    # dominates — the 2026-07-03 oracle run got 1 turn from 34 attempts
+    # and shipped a 4/5 PARTIAL set at the old 12x+20 cap). Rejected
+    # attempts are nearly free (memoized probes), so the cap is
+    # generous; results are cached.
+    max_attempts = 36 * num_tasks + 40
+    for _ in range(max_attempts):
+        if len(turns) >= n_turn and len(straights) >= n_straight:
+            break
+        if len(turns) < n_turn:
+            turn_task = turn_maker(env, generator, rng)
+            if turn_task is not None:
+                turns.extend(
+                    env._add_pybullet_state_to_tasks(  # pylint: disable=protected-access
+                        [turn_task]))
+        if len(straights) < n_straight:
+            if straight_maker is not None:
+                straight_task = straight_maker(env, generator, rng)
+                if straight_task is not None:
+                    straights.extend(
+                        env._add_pybullet_state_to_tasks(  # pylint: disable=protected-access
+                            [straight_task]))
+            else:
+                batch = env._add_pybullet_state_to_tasks(  # pylint: disable=protected-access
+                    generate_batch(1))
+                straights.extend(_assign_min_blocks(env, batch))
+    survivors = turns[:n_turn] + straights[:n_straight]
+    if len(survivors) < num_tasks:
+        logging.warning(
+            "Min-block: generated only %d/%d tasks (%d turn, %d straight) "
+            "after %d attempts; widen the span/gap bands or raise "
+            "domino_min_block_num_blues.", len(survivors), num_tasks,
+            len(turns), len(straights), max_attempts)
+    _save_min_block_cache(cache_path, survivors, num_tasks)
+    return survivors
+
+
+# ── Min-block task cache ─────────────────────────────────────
+
+# Flags matched by the cache key's prefixes that only affect RENDERING —
+# they cannot change generation physics or the tasks themselves, so they
+# are excluded from the key (a camera-resolution change must not orphan
+# a 20-minute generation cache).
+_RENDER_ONLY_FLAGS = frozenset({
+    "pybullet_camera_width",
+    "pybullet_camera_height",
+    "pybullet_draw_debug",
+})
+
+
+def _min_block_cache_path(env: "PyBulletDominoComposedEnv", cache_tag: str,
+                          num_tasks: int) -> Optional[Path]:
+    """Cache file for this (config, seed, code) combination, or None.
+
+    The key hashes every ``domino_``/``pybullet_``/``skill_phase_`` CFG
+    flag (except the render-only ones above), the seed and task counts,
+    AND a digest of the domino env + domino skill source code — so any
+    change to the physics config or the generation/skill code
+    automatically invalidates the cache.
+    """
+    cache_dir = CFG.domino_min_block_task_cache_dir
+    if not cache_dir or not cache_tag:
+        return None
+    cfg_items = {}
+    for name in dir(CFG):
+        if name.startswith(("domino_", "pybullet_", "skill_phase_")) \
+                and name not in _RENDER_ONLY_FLAGS:
+            value = getattr(CFG, name)
+            if not callable(value):
+                cfg_items[name] = value
+    blob = json.dumps([
+        env.get_name(), cache_tag, num_tasks, CFG.seed, cfg_items,
+        _domino_code_digest()
+    ],
+                      sort_keys=True,
+                      default=str)
+    key = hashlib.sha256(blob.encode()).hexdigest()[:16]
+    return Path(cache_dir) / f"{cache_tag}_{key}.json"
+
+
+def _load_min_block_cache(
+        env: "PyBulletDominoComposedEnv",
+        path: Optional[Path]) -> Optional[List[EnvironmentTask]]:
+    """Rebuild cached tasks, or None on a cache miss."""
+    # pylint: disable=import-outside-toplevel,protected-access
+    from predicators.envs.pybullet_domino.env import MinBlockReward
+    if path is None or not path.exists():
+        return None
+    raw = json.loads(path.read_text())
+    if isinstance(raw, dict):
+        num_requested = raw["num_requested"]
+        entries = raw["tasks"]
+    else:  # legacy format: bare task list, request size unknown
+        num_requested, entries = None, raw
+    pred_map = {p.name: p for p in env.predicates}
+    # Map names to the env's LIVE object instances: they carry the
+    # PyBullet body ids that state I/O needs (fresh Object()s would
+    # compare equal but have id=None).
+    live_objs = {env._robot.name: env._robot}
+    for comp in env._components:
+        for obj in comp.get_objects():
+            live_objs[obj.name] = obj
+    tasks: List[EnvironmentTask] = []
+    for entry in entries:
+        objs = {name: live_objs[name] for name, _tname in entry["objects"]}
+        state = State({
+            objs[name]: np.array(vals, dtype=np.float64)
+            for name, vals in entry["data"].items()
+        })
+        goal = {
+            GroundAtom(pred_map[pname], [objs[oname] for oname in onames])
+            for pname, onames in entry["goal"]
+        }
+        max_blocks = entry["max_blocks"]
+        plain = EnvironmentTask(
+            state,
+            goal,
+            goal_nl=entry["goal_nl"],
+            reward_fn=(MinBlockReward(env, goal, max_blocks)
+                       if max_blocks is not None else None))
+        # Re-run the standard PyBullet conversion (joints, optional
+        # rendering) instead of caching simulator state.
+        tasks.extend(env._add_pybullet_state_to_tasks([plain]))
+    if num_requested is not None and len(tasks) < num_requested:
+        logging.warning(
+            "Min-block: cache %s holds a PARTIAL set (%d/%d tasks — the "
+            "generating run hit its attempt cap). Runs will evaluate on "
+            "the reduced set; delete the file to retry generation, or "
+            "widen the span/gap bands.", path, len(tasks), num_requested)
+    logging.info("Min-block: loaded %d cached tasks from %s.", len(tasks),
+                 path)
+    return tasks
+
+
+def _save_min_block_cache(path: Optional[Path], tasks: List[EnvironmentTask],
+                          num_requested: int) -> None:
+    """Serialize finished tasks (init data, goal, K*) to the cache.
+
+    The reward function itself isn't serializable; its K* budget is
+    stored and the ``MinBlockReward`` is rebuilt on load.
+    ``num_requested`` is stored alongside so a partial set (the quota
+    loop hit its attempt cap) is flagged loudly on every reload instead
+    of silently shrinking the eval.
+    """
+    # pylint: disable=import-outside-toplevel
+    from predicators.envs.pybullet_domino.env import MinBlockReward
+    if path is None:
+        return
+    payload = []
+    for env_task in tasks:
+        init = env_task.init
+        reward = env_task.reward_fn
+        payload.append({
+            "objects": [(o.name, o.type.name) for o in init],
+            "data": {o.name: [float(v) for v in init.data[o]]
+                     for o in init},
+            "goal": [(a.predicate.name, [o.name for o in a.objects])
+                     for a in env_task.goal],
+            "goal_nl":
+            env_task.goal_nl,
+            "max_blocks":
+            reward.max_blocks if isinstance(reward, MinBlockReward) else None,
+        })
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "num_requested": num_requested,
+            "tasks": payload
+        }))
+    logging.info("Min-block: cached %d tasks at %s.", len(tasks), path)
+
+
+# ── Straight tasks: K* assignment + differentiation filter ──────
+
+
+def _assign_min_blocks(env: "PyBulletDominoComposedEnv",
+                       tasks: List[EnvironmentTask]) -> List[EnvironmentTask]:
+    """Attach each min-block task's ``MinBlockReward`` (budget = K*,
+    computed by simulation).
+
+    K* is the minimum number of blues whose evenly-spaced chain lets a real
+    Push on the start topple the target at this env's true friction (see
+    ``min_block_utils.compute_k_star``). Tasks whose target is unreachable
+    within the blue budget, or that need no blues at all (K*=0, trivially
+    solved by a direct push), are dropped — neither exercises the reach
+    model. Computing K* pushes/steps the sim; that's fine here because it
+    runs before any episode and every episode re-sets state.
+    """
+    # pylint: disable=import-outside-toplevel
+    from predicators.envs.pybullet_domino.env import MinBlockReward
+    out: List[EnvironmentTask] = []
+    for env_task in tasks:
+        k_star = compute_k_star(env, env_task.init)
+        if k_star is None or k_star < 1:
+            logging.warning(
+                "Dropping min-block task (K*=%s): target unreachable "
+                "within budget or solvable with a direct push.", k_star)
+            continue
+        if k_star >= CFG.domino_min_block_num_blues:
+            logging.warning(
+                "Dropping min-block task (K*=%d == staged blues %d): no "
+                "spare blue for the over-build check.", k_star,
+                CFG.domino_min_block_num_blues)
+            continue
+        # Differentiation filter (only when a planning-friction mismatch
+        # is configured), direction-aware:
+        #   * planning > true (over-reach): keep only believed < true —
+        #     an uncalibrated minimal planner structurally UNDER-builds
+        #     (chain dies, target never topples);
+        #   * planning < true (under-reach): keep only believed > true
+        #     (and expressible within the staged blues) — the planner
+        #     OVER-builds, topples the target, but exceeds max_blocks.
+        # Dead-band spans where both frictions agree cannot separate the
+        # calibrated from the uncalibrated model and are dropped.
+        direction = _planning_mismatch_direction()
+        if direction is not None:
+            k_believed = _planning_k_star(env, env_task.init)
+            if not _believed_k_differentiates(direction, k_star, k_believed):
+                logging.warning(
+                    "Dropping min-block task (true K*=%d, planner "
+                    "believes %s, %s): does not differentiate calibrated "
+                    "vs uncalibrated reach.", k_star, k_believed, direction)
+                continue
+        out.append(
+            EnvironmentTask(env_task.init_obs,
+                            env_task.goal_description,
+                            alt_goal_desc=env_task.alt_goal_desc,
+                            goal_nl=env_task.goal_nl,
+                            reward_fn=MinBlockReward(env, env_task.goal,
+                                                     k_star)))
+    logging.info("Min-block tasks: kept %d/%d with K* assigned.", len(out),
+                 len(tasks))
+    return out
+
+
+def _planning_mismatch_direction() -> Optional[str]:
+    """Direction of the configured planning-friction mismatch.
+
+    ``"over_reach"`` when the planning sim's friction is HIGHER than the
+    true friction (planner over-estimates topple reach -> under-
+    builds), ``"under_reach"`` when lower (planner over-builds),
+    ``None`` when no mismatch is configured (differentiation filters
+    disabled).
+    """
+    planning = CFG.domino_planning_friction
+    if planning is None or abs(planning - CFG.domino_true_friction) < 1e-9:
+        return None
+    return ("over_reach"
+            if planning > CFG.domino_true_friction else "under_reach")
+
+
+def _believed_k_differentiates(direction: str, k_true: int,
+                               k_believed: Optional[int]) -> bool:
+    """Whether a task with these K*s forces the uncalibrated planner to fail.
+
+    * over_reach: the planner must believe FEWER blues suffice (it then
+      under-builds and the chain dies short of the target);
+    * under_reach: the planner must believe MORE blues are needed — but
+      no more than the staged budget, so its over-built plan is
+      physically expressible and fails on the ``max_blocks`` cap rather
+      than on a muddled "can't build my plan" path.
+    """
+    if k_believed is None:
+        return False
+    if direction == "over_reach":
+        return k_believed < k_true
+    return k_true < k_believed <= CFG.domino_min_block_num_blues
+
+
+def _planning_k_star(env: "PyBulletDominoComposedEnv",
+                     init_state: State) -> Optional[int]:
+    """K* as the (miscalibrated) planning sim would compute it.
+
+    Temporarily switches the env's domino friction to
+    ``CFG.domino_planning_friction``, computes K*, then restores the true
+    friction. Returns ``None`` when no planning-friction mismatch is
+    configured, which disables the caller's differentiation filter.
+    """
+    planning = CFG.domino_planning_friction
+    if planning is None or abs(planning - CFG.domino_true_friction) < 1e-9:
+        return None
+    env.set_domino_physical_params(friction=planning)
+    try:
+        return compute_k_star(env, init_state)
+    finally:
+        env.set_domino_physical_params(friction=CFG.domino_true_friction)
+
+
+# ── Turn tasks ───────────────────────────────────────────────
+
+
+def _make_turn_task(env: "PyBulletDominoComposedEnv",
+                    gen: "DominoTaskGenerator",
+                    rng: np.random.Generator) -> Optional[EnvironmentTask]:
+    """Build one L-shaped (90-degree turn) min-block task, or None.
+
+    Pipeline:
+
+    1. Sample the geometry directly: start pose in the pushable band and
+       a target one 90-degree turn away, at leg lengths drawn from the
+       empirically differentiating region (long entry legs).
+    2. Cheap pre-filters on memoized straight-leg probes: a feasibility
+       bound (the legs' own straight-chain minima already exceed the
+       staged budget) and the per-LEG differentiation certificate (see
+       inline comment) — full believed corner plans rarely validate at
+       the planning friction, so differentiation is certified on the
+       straight legs instead. These run BEFORE the layout search below,
+       which costs dozens of Push rollouts per attempt and dominated
+       generation time when it ran on every attempt.
+    3. K* = ``compute_turn_k_star`` at the true friction — the minimum
+       blues over a layout SEARCH of agent-buildable candidates
+       (straight-line probes + natural-yaw corners), because around a
+       corner an evenly-spaced chain is not minimal: sliding the corner
+       toward the start can save a block. The winning layout doubles as
+       the proof the task is solvable.
+    4. Stage ``domino_min_block_num_blues`` blues (more than K*), so
+       over-building is possible and penalized by the ``max_blocks`` cap.
+    """
+    # pylint: disable=import-outside-toplevel
+    from predicators.envs.pybullet_domino.env import MinBlockReward
+    from predicators.utils import create_state_from_dict
+    comp = env._domino_component  # pylint: disable=protected-access
+    if comp is None:
+        return None
+    # Synthesize the start/target geometry directly from sampled leg
+    # lengths (the K* search below is itself the constructive proof of
+    # solvability, so no chain needs to be pre-built). Leg ranges follow
+    # the empirical leg-length scan: long ENTRY legs are what make a turn
+    # task differentiate calibrated vs uncalibrated reach (short-legged
+    # corners cost the same block count at both frictions).
+    # Leg ranges target the scan's K*=3-vs-believed-2 region; longer legs
+    # give K*>=4, which the staging capacity (num_blues=4, so K*<=3 for a
+    # spare blue) cannot host. Legs snap to the probe-memo lattice (1 cm,
+    # matching _SPAN_BUCKET): repeats of a shape are guaranteed memo hits
+    # (no bucket-edge double probes), and the drop log becomes a readable
+    # coverage map over the finite (entry, exit) cells — the data for any
+    # future retuning of these bands.
+    entry_leg = round(float(rng.uniform(0.26, 0.34)), 2)
+    exit_leg = round(float(rng.uniform(0.18, 0.26)), 2)
+    sx = float(rng.uniform(comp.domino_x_lb, comp.domino_x_ub))
+    sy = float(rng.uniform(comp.domino_y_lb, comp.domino_y_ub))
+    syaw = float(rng.choice([0.0, np.pi / 2, -np.pi / 2]))
+    side = float(rng.choice([-1.0, 1.0]))
+    u_vec = np.array([np.sin(syaw), np.cos(syaw)])
+    p_vec = side * np.array([-u_vec[1], u_vec[0]])  # turn side
+    t_pt = np.array([sx, sy]) + entry_leg * u_vec + exit_leg * p_vec
+    if not (env.x_lb < t_pt[0] < env.x_ub and env.y_lb < t_pt[1] < env.y_ub):
+        return None
+    tyaw = float(np.arctan2(p_vec[0], p_vec[1]))  # faces exit direction
+    start = comp.dominos[0]
+    target = comp.dominos[1]
+    start_pose = (sx, sy, syaw)
+    target_pose = (float(t_pt[0]), float(t_pt[1]), tyaw)
+    num_blues = min(CFG.domino_min_block_num_blues, len(comp.dominos) - 2)
+    # Cheap memoized leg probes FIRST — the corner layout search below is
+    # by far the most expensive step (dozens of real Push rollouts per
+    # attempt), so attempts are pre-filtered on straight-leg reach alone.
+    legs = (entry_leg, exit_leg)
+    true_legs = [
+        straight_span_k_star(env, leg, budget=num_blues) for leg in legs
+    ]
+    true_counts = [v for v in true_legs if v is not None]
+    if len(true_counts) < len(legs):
+        logging.warning(
+            "Dropping turn task (true-friction leg probe failed: legs=%s "
+            "-> %s).", legs, true_legs)
+        return None
+    if sum(true_counts) >= num_blues:
+        # Feasibility bound: a turn chain cannot beat its legs' own
+        # straight-chain minima (the stretched corner saves at most the
+        # corner blue itself), so K* >= sum(true legs) — which already
+        # leaves no spare blue. Skip the layout search outright.
+        logging.warning(
+            "Dropping turn task (legs alone need %s blues >= staged "
+            "blues %d).", true_legs, num_blues)
+        return None
+    direction = _planning_mismatch_direction()
+    bel_legs: List[Optional[int]] = []
+    if direction is not None:
+        # Relaxed per-LEG certificate. The strong "a cheaper believed
+        # plan validates in the wrong sim" check is unusable for turns:
+        # natural corners barely propagate at the planning friction
+        # (high friction grips the base — redirection is what's hard),
+        # so a full believed corner plan almost never exists and every
+        # turn task would drop. Instead certify reach differentiation
+        # where it actually lives — on the straight LEGS: probe how
+        # many blues each friction needs for a straight chain of each
+        # leg's length (real rollouts). The corner's own cost is the
+        # same on both sides of the comparison and cancels.
+        env.set_domino_physical_params(friction=CFG.domino_planning_friction)
+        try:
+            bel_legs = [
+                straight_span_k_star(env, leg, budget=num_blues)
+                for leg in legs
+            ]
+        finally:
+            env.set_domino_physical_params(friction=CFG.domino_true_friction)
+        bel_counts = [v for v in bel_legs if v is not None]
+        if len(bel_counts) < len(legs):
+            logging.warning(
+                "Dropping turn task (planning-friction leg probe failed: "
+                "legs=%s true=%s believed=%s).", legs, true_legs, bel_legs)
+            return None
+        t_sum, b_sum = sum(true_counts), sum(bel_counts)
+        differentiates = (b_sum < t_sum
+                          if direction == "over_reach" else t_sum < b_sum)
+        if not differentiates:
+            logging.warning(
+                "Dropping turn task (legs true=%s believed=%s, %s): "
+                "does not differentiate calibrated vs uncalibrated "
+                "reach.", true_legs, bel_legs, direction)
+            return None
+    k_true = compute_turn_k_star(env,
+                                 start_pose,
+                                 target_pose,
+                                 budget=num_blues)
+    if k_true is None or k_true < 1:
+        logging.warning("Dropping turn task (searched K*=%s).", k_true)
+        return None
+    if k_true >= num_blues:
+        # No spare blue would remain: the over-build side of the reward
+        # would be vacuous (the staging grid caps the scene's blues).
+        logging.warning(
+            "Dropping turn task (K*=%d == staged blues %d): no spare "
+            "blue for the over-build check.", k_true, num_blues)
+        return None
+    if direction is not None:
+        logging.info(
+            "Turn task differentiates (%s): true K*=%d, legs true=%s "
+            "believed=%s.", direction, k_true, true_legs, bel_legs)
+    # Build the scene: start/target fixed at the chain's endpoints,
+    # num_blues blues staged (scattered by the staging pass).
+    scene: Dict[Object, Dict[str, Any]] = {
+        start:
+        comp.place_domino(0,
+                          start_pose[0],
+                          start_pose[1],
+                          start_pose[2],
+                          is_start_block=True),
+        target:
+        comp.place_domino(1,
+                          target_pose[0],
+                          target_pose[1],
+                          target_pose[2],
+                          is_target_block=True),
+    }
+    blues = [d for d in comp.dominos if d not in (start, target)]
+    for blue in blues[:num_blues]:
+        # Initial position is irrelevant — the staging pass re-places
+        # every movable (blue) block on the staging grid.
+        scene[blue] = comp.place_domino(0, start_pose[0], start_pose[1], 0.0)
+    staged = gen._move_intermediate_objects_to_unfinished_state(  # pylint: disable=protected-access
+        scene)
+    if staged is None:
+        return None
+    robot_init = {
+        "x": env.robot_init_x,
+        "y": env.robot_init_y,
+        "z": env.robot_init_z,
+        "fingers": env.open_fingers,
+        "roll": env.robot_init_roll,
+        "tilt": env.robot_init_tilt,
+        "wrist": env.robot_init_wrist,
+    }
+    init_dict: Dict[Object, Dict[str, Any]] = {env._robot: robot_init}  # pylint: disable=protected-access
+    init_dict.update(staged)
+    init_state = create_state_from_dict(init_dict)
+    goal_atoms = {GroundAtom(comp.Toppled, [target])}
+    goal_nl = (
+        "Move the blue dominoes so that when the green domino is pushed, "
+        "the purple domino is toppled -- using AS FEW blue dominoes as "
+        "possible. The chain may need to make a 90-degree turn. Do NOT "
+        "directly push or topple the purple domino yourself.")
+    return EnvironmentTask(init_state,
+                           goal_atoms,
+                           goal_nl=goal_nl,
+                           reward_fn=MinBlockReward(env, goal_atoms, k_true))
+
+
+# ── Heavy-block (immovable obstacle) tasks ───────────────────
+
+
+def _with_believed_physics(env: "PyBulletDominoComposedEnv",
+                           probe: Callable[[], Any]) -> Any:
+    """Run ``probe`` under the planner's believed physics.
+
+    Switches the env to the believed physics — the heavy gray block at
+    NORMAL domino mass (an ordinary chain link) plus
+    ``domino_planning_friction`` when configured — runs the probe, then
+    restores the true physics.
+    """
+    comp = env._domino_component  # pylint: disable=protected-access
+    assert comp is not None
+    believed: Dict[str, float] = {"heavy_block_mass": comp.domino_mass}
+    if CFG.domino_planning_friction is not None:
+        believed["friction"] = CFG.domino_planning_friction
+    env.set_domino_physical_params(**believed)
+    try:
+        return probe()
+    finally:
+        env.set_domino_physical_params(
+            friction=CFG.domino_true_friction,
+            heavy_block_mass=comp.heavy_block_true_mass)
+
+
+def _wrap_angle(a: float) -> float:
+    """Wrap an angle to (-pi, pi]."""
+    return float((a + np.pi) % (2 * np.pi) - np.pi)
+
+
+def _to_real_pose(x: float, y: float, yaw: float, d_yaw: float, ax: float,
+                  ay: float, sx: float,
+                  sy: float) -> Tuple[float, float, float]:
+    """Map a canonical-anchor pose to a real start pose rotated by
+    ``d_yaw`` (yaw convention: dir(yaw) = (sin, cos), so adding d_yaw to
+    every yaw pairs with rotating offsets by [[c, s], [-s, c]])."""
+    dx, dy = x - ax, y - ay
+    c, s = np.cos(d_yaw), np.sin(d_yaw)
+    return (sx + c * dx + s * dy, sy - s * dx + c * dy, yaw + d_yaw)
+
+
+def _stage_heavy_scene(
+        gen: "DominoTaskGenerator", comp: Any, num_blues: int, start_pose: Any,
+        target_pose: Any,
+        heavy_pose: Any) -> Optional[Dict[Object, Dict[str, Any]]]:
+    """Scene dict with start/target/gray fixed and blues staged, or None."""
+    # pylint: disable=protected-access
+    start, target, heavy_obj = comp.dominos[0], comp.dominos[1], \
+        comp.dominos[-1]
+    scene: Dict[Object, Dict[str, Any]] = {
+        start:
+        comp.place_domino(0,
+                          start_pose[0],
+                          start_pose[1],
+                          start_pose[2],
+                          is_start_block=True),
+        target:
+        comp.place_domino(1,
+                          target_pose[0],
+                          target_pose[1],
+                          target_pose[2],
+                          is_target_block=True),
+        heavy_obj:
+        comp.place_domino(0,
+                          heavy_pose[0],
+                          heavy_pose[1],
+                          heavy_pose[2],
+                          is_heavy_block=True),
+    }
+    blues = [d for d in comp.dominos if d not in scene]
+    for blue in blues[:num_blues]:
+        # Initial position is irrelevant -- the staging pass re-places
+        # every movable (blue) block on the staging grid (the gray block
+        # is exempt and stays where the task put it).
+        scene[blue] = comp.place_domino(0, start_pose[0], start_pose[1], 0.0)
+    return gen._move_intermediate_objects_to_unfinished_state(scene)
+
+
+def _finish_heavy_task(env: "PyBulletDominoComposedEnv", comp: Any,
+                       staged: Dict[Object, Dict[str, Any]], num_blues: int,
+                       goal_nl: str) -> EnvironmentTask:
+    """Assemble the EnvironmentTask from a staged heavy-block scene.
+
+    The reward budget is the STAGED blue count, not the searched K*:
+    heavy tasks differentiate on topple-vs-not (the believing planner
+    never topples the target), and the corner/swerve minima are solver-
+    history sensitive at the margin — a layout that barely topples
+    during generation can need one more blue under a fresh simulator's
+    contact state (and vice versa). Binding the reward to the exact K*
+    would make such tasks unsolvable-within-budget at execution; the K*
+    searches remain as solvability certificates (a within-staged-blues
+    solution exists).
+    """
+    # pylint: disable=import-outside-toplevel,protected-access
+    from predicators.envs.pybullet_domino.env import MinBlockReward
+    from predicators.utils import create_state_from_dict
+    robot_init = {
+        "x": env.robot_init_x,
+        "y": env.robot_init_y,
+        "z": env.robot_init_z,
+        "fingers": env.open_fingers,
+        "roll": env.robot_init_roll,
+        "tilt": env.robot_init_tilt,
+        "wrist": env.robot_init_wrist,
+    }
+    init_dict: Dict[Object, Dict[str, Any]] = {env._robot: robot_init}
+    init_dict.update(staged)
+    init_state = create_state_from_dict(init_dict)
+    goal_atoms = {GroundAtom(comp.Toppled, [comp.dominos[1]])}
+    return EnvironmentTask(init_state,
+                           goal_atoms,
+                           goal_nl=goal_nl,
+                           reward_fn=MinBlockReward(env, goal_atoms,
+                                                    num_blues))
+
+
+_HEAVY_GOAL_NL = (
+    "Move the blue dominoes so that when the green domino is pushed, "
+    "the purple domino is toppled -- using AS FEW blue dominoes as "
+    "possible. Only the blue dominoes may be moved. {hint} Do NOT "
+    "directly push or topple the purple domino yourself.")
+
+
+def _make_heavy_straight_task(
+        env: "PyBulletDominoComposedEnv", gen: "DominoTaskGenerator",
+        rng: np.random.Generator) -> Optional[EnvironmentTask]:
+    """Build one straight-variant heavy-block task, or None.
+
+    Natural alignment: start, GRAY block, and target sit on ONE line,
+    all facing along it. The believed physics (normal gray mass, see the
+    env init / ``heavy_block_mass`` override) makes the cheapest plan a
+    straight chain THROUGH the gray -- a free link, head-on knocks
+    everywhere. At the true mass the chain dies against the gray, and
+    the real solution is a half-circle swerve around it (the
+    ``swerve_k_star`` family: aligned at both ends, bulging sideways to
+    clear the block).
+
+    Certificate (lure probes at the canonical anchor, memoized):
+    1. believed straight-through exists (k_bel blues);
+    2. true straight-through is dead for every stageable split;
+    3. a true swerve exists with k_bel < K* <= staged blues,
+       re-verified at the real pose (which doubles as the push-
+       reachability check). K* certifies SOLVABILITY only; the reward
+       budget is the staged blues (see ``_finish_heavy_task``).
+    """
+    # pylint: disable=protected-access
+    comp = env._domino_component
+    if comp is None:
+        return None
+    span = round(float(rng.uniform(0.36, 0.44)), 2)
+    h_frac = float(rng.choice([0.45, 0.5, 0.55]))
+    num_blues = min(CFG.domino_min_block_num_blues, len(comp.dominos) - 3)
+    ax, ay = _PROBE_ANCHOR
+    c_start = (ax, ay, np.pi / 2)
+    c_heavy = (ax + h_frac * span, ay, np.pi / 2)
+    c_target = (ax + span, ay, np.pi / 2)
+    # 1) The believed straight-through must exist (the lure).
+    k_bel = _with_believed_physics(
+        env, lambda: heavy_dogleg_k_star(env, c_start, c_target, c_heavy,
+                                         num_blues))
+    if k_bel is None:
+        logging.warning(
+            "Dropping heavy straight task (no believed straight-through "
+            "within %d blues, span %.2f).", num_blues, span)
+        return None
+    # 2) The true straight-through must be dead AT THE BELIEVED COST: a
+    # block-minimizing planner only builds believed-cheapest (k_bel)
+    # layouts, so a freak jump-over at some other count cannot leak —
+    # restricting the scan to k_bel cuts the sweep ~4x.
+    k_dead = heavy_dogleg_k_star(env,
+                                 c_start,
+                                 c_target,
+                                 c_heavy,
+                                 num_blues,
+                                 only_k=k_bel)
+    if k_dead is not None:
+        logging.warning(
+            "Dropping heavy straight task (true straight-through still "
+            "topples at the believed cost k=%d).", k_dead)
+        return None
+    # 3) A swerve around the gray must exist, strictly dearer than the
+    # lure (structural -- the lure gets the gray link for free -- but
+    # verified).
+    k_star_c = swerve_k_star(env, c_start, c_target, c_heavy, num_blues)
+    if k_star_c is None or k_bel >= k_star_c:
+        logging.warning(
+            "Dropping heavy straight task (swerve K*=%s vs believed "
+            "k=%d, span %.2f).", k_star_c, k_bel, span)
+        return None
+    # Place the certified shape; retry poses on placement-local failures.
+    staged = None
+    k_true: Optional[int] = None
+    for _ in range(12):
+        syaw = float(rng.choice([np.pi / 2, -np.pi / 2]))
+        if syaw > 0:  # falls toward +x
+            sx = float(rng.uniform(comp.domino_x_lb, env.x_ub - span - 0.03))
+        else:
+            sx = float(rng.uniform(env.x_lb + span + 0.03, comp.domino_x_ub))
+        sy = float(rng.uniform(comp.domino_y_lb, comp.domino_y_ub))
+        u_vec = np.array([np.sin(syaw), np.cos(syaw)])
+        h_pt = np.array([sx, sy]) + h_frac * span * u_vec
+        t_pt = np.array([sx, sy]) + span * u_vec
+        # The swerve needs sideways room on at least one side.
+        if not all(env.x_lb < pt[0] < env.x_ub and env.y_lb +
+                   0.09 < pt[1] < env.y_ub - 0.09 for pt in (h_pt, t_pt)):
+            continue
+        start_pose = (sx, sy, syaw)
+        heavy_pose = (float(h_pt[0]), float(h_pt[1]), syaw)
+        target_pose = (float(t_pt[0]), float(t_pt[1]), syaw)
+        # Staging FIRST (pure geometry, no sim): the staging grid is a
+        # single row, so this is the common per-pose failure and must
+        # cost nothing. Only a staged pose pays the sim re-verification.
+        staged = _stage_heavy_scene(gen, comp, num_blues, start_pose,
+                                    target_pose, heavy_pose)
+        if staged is None:
+            continue
+        # Re-verify the swerve at THIS pose (real push reachability),
+        # demanding TWO independent toppling swerves: a task whose only
+        # solution is one knife-edge layout can flip under a fresh
+        # simulator's contact-solver history.
+        k_true = swerve_k_star(env,
+                               start_pose,
+                               target_pose,
+                               heavy_pose,
+                               num_blues,
+                               min_hits=2)
+        if k_true is None or k_true < 1:
+            staged = None
+            continue
+        break
+    if staged is None:
+        logging.warning(
+            "Dropping heavy straight task (no placement for span %.2f).", span)
+        return None
+    assert k_true is not None
+    logging.info(
+        "Heavy straight task differentiates: believed through-gray k=%d, "
+        "true dead, swerve K*=%d.", k_bel, k_true)
+    goal_nl = _HEAVY_GOAL_NL.format(
+        hint="The chain may need to curve around obstacles.")
+    return _finish_heavy_task(env, comp, staged, num_blues, goal_nl)
+
+
+# Blueprint memo for the turn variant: the believed-physics corner
+# layout for an L shape, found once at the canonical anchor and reused
+# across attempts and placements (keyed on the shape lattice + the
+# frictions that define the believed physics).
+_corner_blueprint_memo: Dict[Any, Optional[Any]] = {}
+
+
+def _mirror_od_about_anchor(
+        od: Dict[Object, Dict[str, Any]]) -> Dict[Object, Dict[str, Any]]:
+    """Reflect a canonical-anchor layout across the anchor's fall line.
+
+    (y = anchor_y): (x, y, yaw) -> (x, 2*ay - y, pi - yaw).
+    """
+    _, ay = _PROBE_ANCHOR
+    out: Dict[Object, Dict[str, Any]] = {}
+    for obj, pose in od.items():
+        q = dict(pose)
+        q["y"] = 2 * ay - pose["y"]
+        q["yaw"] = _wrap_angle(np.pi - pose["yaw"])
+        out[obj] = q
+    return out
+
+
+def _believed_corner_blueprint(env: "PyBulletDominoComposedEnv", comp: Any,
+                               entry: float, exit_leg: float, side: float,
+                               num_blues: int) -> Optional[Any]:
+    """Cheapest believed-physics corner layout for this L shape, at the
+    canonical anchor: (layout od, corner object, k_full) or None.
+
+    Enumerates the SAME candidate family the K* search uses and keeps
+    the first toppling layout -- but only if it has a mid-chain corner
+    (>= 1 entry blue): the gray block will replace that corner, and a
+    detour must have room to bend before it. If the cheapest believed
+    layout is cornerless (straight) or start-adjacent, the shape cannot
+    host the lure and is rejected.
+
+    The sweep runs for the LEFT-turning side only and mirrors the result
+    for the other side (chain physics is mirror-symmetric; the caller's
+    gray-substituted lure rollout re-verifies the mirrored geometry, so
+    any residual push asymmetry is caught rather than trusted). This
+    halves the expensive blueprint misses.
+    """
+    # pylint: disable=protected-access
+    key = (entry, exit_leg, num_blues, CFG.domino_planning_friction,
+           CFG.domino_true_friction)
+    ax, ay = _PROBE_ANCHOR
+    c_start = (ax, ay, np.pi / 2)
+    c_target = (ax + entry, ay + exit_leg, 0.0)
+    push_opt = mbu._get_push_option(env)
+
+    def _probe() -> Optional[Any]:
+        # Cap the sweep: shapes where NO corner layout propagates used to
+        # sweep every candidate at every k (~minutes) before concluding
+        # None. The chord's straight-chain minimum (memoized, ~free)
+        # bounds where a corner plan could plausibly first appear — a
+        # corner path is longer and lossier than the chord, so if
+        # nothing has toppled within two counts past that minimum,
+        # corners don't work for this shape (heuristic: may rarely skip
+        # a viable shape, never keeps a wrong one).
+        chord = float(np.hypot(entry, exit_leg))
+        c_min = straight_span_k_star(env, chord, budget=num_blues + 1)
+        if c_min is None:
+            return None
+        k_hi = min(num_blues + 1, c_min + 2)
+        # k_full may exceed the staged blues by one: the gray replaces
+        # the corner blue, so the LURE costs k_full - 1 blues. Scan ALL
+        # candidates of each k: the gray layout must sit at the family's
+        # MINIMUM cost (else a cheaper own-corner plan would dodge the
+        # gray), but within that minimum any mid-chain-corner layout
+        # qualifies — the cheapest topplers are often start-adjacent
+        # (k1=0) while equally-cheap mid-chain ones follow.
+        for k in range(2, k_hi + 1):
+            any_topple = False
+            for od, s_, t_ in mbu._candidate_turn_layouts(
+                    comp, k, c_start, c_target):
+                if not mbu._layout_topples(env, od, s_, t_, push_opt):
+                    continue
+                any_topple = True
+                blues = [o for o in od if o not in (s_, t_)]
+                entry_blues = [
+                    o for o in blues
+                    if abs(_wrap_angle(od[o]["yaw"] - np.pi / 2)) < 0.15
+                ]
+                corners = [
+                    o for o in blues
+                    if 0.3 < abs(_wrap_angle(od[o]["yaw"] - np.pi / 2)) < 1.2
+                ]
+                if len(corners) == 1 and entry_blues:
+                    return od, corners[0], k
+            if any_topple:
+                # The family minimum topples only via straight or
+                # start-adjacent-corner layouts: no natural mid-chain
+                # corner spot to occupy at the believed-best cost.
+                return None
+        return None
+
+    if key in _corner_blueprint_memo:
+        result = _corner_blueprint_memo[key]
+    else:
+        result = _with_believed_physics(env, _probe)
+        _corner_blueprint_memo[key] = result
+    if result is None or side > 0:
+        return result
+    od_bel, corner_obj, k_full = result
+    return _mirror_od_about_anchor(od_bel), corner_obj, k_full
+
+
+def _make_heavy_turn_task(
+        env: "PyBulletDominoComposedEnv", gen: "DominoTaskGenerator",
+        rng: np.random.Generator) -> Optional[EnvironmentTask]:
+    """Build one turn-variant heavy-block task, or None.
+
+    Natural alignment: an L-shaped start/target pair whose believed-
+    cheapest plan turns at a corner -- and the GRAY block stands exactly
+    where that natural corner blue would go, at the corner's natural
+    yaw. In the believed physics (normal gray mass) it is a ready-made
+    corner FOR FREE, one blue cheaper than any own-corner plan, so a
+    block-minimizing planner routes through it; at the true mass the
+    chain dies there, and the real solution skips around it (an own
+    corner elsewhere on the entry line -- the detour search with the
+    gray as obstacle).
+
+    Certificate: believed corner blueprint exists with a mid-chain
+    corner; the gray-substituted lure still propagates believedly and
+    dies at the true physics; the true detour K* fits the staged blues.
+    K* certifies SOLVABILITY only; the reward budget is the staged
+    blues (see ``_finish_heavy_task``).
+    """
+    # pylint: disable=protected-access
+    comp = env._domino_component
+    if comp is None:
+        return None
+    entry = round(float(rng.uniform(0.26, 0.34)), 2)
+    exit_leg = round(float(rng.uniform(0.18, 0.26)), 2)
+    side = float(rng.choice([-1.0, 1.0]))
+    num_blues = min(CFG.domino_min_block_num_blues, len(comp.dominos) - 3)
+    bp = _believed_corner_blueprint(env, comp, entry, exit_leg, side,
+                                    num_blues)
+    if bp is None:
+        logging.warning(
+            "Dropping heavy turn task (no believed mid-chain corner plan "
+            "for entry=%.2f exit=%.2f).", entry, exit_leg)
+        return None
+    od_bel, corner_obj, k_full = bp
+    k_bel = k_full - 1
+    if k_bel > num_blues:
+        logging.warning(
+            "Dropping heavy turn task (lure needs %d blues > staged %d).",
+            k_bel, num_blues)
+        return None
+    heavy_obj = comp.dominos[-1]
+    start, target = comp.dominos[0], comp.dominos[1]
+    cp = od_bel[corner_obj]
+    corner_pose_c = (float(cp["x"]), float(cp["y"]), float(cp["yaw"]))
+    lure_od = {o: dict(p) for o, p in od_bel.items() if o is not corner_obj}
+    lure_od[heavy_obj] = comp.place_domino(0,
+                                           *corner_pose_c,
+                                           is_heavy_block=True)
+    push_opt = mbu._get_push_option(env)
+    # The gray-substituted lure must still propagate in the believed
+    # physics (it is body-identical to the corner blue there)...
+    ok_bel = _with_believed_physics(
+        env,
+        lambda: mbu._layout_topples(env, lure_od, start, target, push_opt))
+    if not ok_bel:
+        logging.warning(
+            "Dropping heavy turn task (gray-substituted lure fails "
+            "believedly, entry=%.2f exit=%.2f).", entry, exit_leg)
+        return None
+    # ...and must DIE at the true physics.
+    if mbu._layout_topples(env, lure_od, start, target, push_opt):
+        logging.warning(
+            "Dropping heavy turn task (lure survives the true physics: "
+            "chain passes the gray corner).")
+        return None
+    ax, ay = _PROBE_ANCHOR
+    c_tx, c_ty = ax + entry, ay + side * exit_leg
+    c_tyaw = 0.0 if side > 0 else np.pi
+    staged = None
+    k_true: Optional[int] = None
+    # Generous pose retries: besides bounds/staging, a pose must now
+    # also pass the real-pose lure re-verification below, and knife-edge
+    # pose transfer fails often. Failed poses are cheap (staging is pure
+    # geometry; a lure fail costs ~2 rollouts before the detour search).
+    for _ in range(24):
+        syaw = float(rng.choice([np.pi / 2, -np.pi / 2]))
+        d_yaw = syaw - np.pi / 2
+        if syaw > 0:
+            sx = float(rng.uniform(comp.domino_x_lb, env.x_ub - entry - 0.05))
+        else:
+            sx = float(rng.uniform(env.x_lb + entry + 0.05, comp.domino_x_ub))
+        sy = float(rng.uniform(comp.domino_y_lb, comp.domino_y_ub))
+        start_pose = (sx, sy, syaw)
+        target_pose = _to_real_pose(c_tx, c_ty, c_tyaw, d_yaw, ax, ay, sx, sy)
+        heavy_pose = _to_real_pose(*corner_pose_c, d_yaw, ax, ay, sx, sy)
+        if not all(env.x_lb < px < env.x_ub and env.y_lb < py < env.y_ub
+                   for px, py in ((target_pose[0], target_pose[1]),
+                                  (heavy_pose[0], heavy_pose[1]))):
+            continue
+        # Staging FIRST (pure geometry, no sim): the staging grid is a
+        # single row, so this is the common per-pose failure and must
+        # cost nothing. Only a staged pose pays the sim checks below.
+        staged = _stage_heavy_scene(gen, comp, num_blues, start_pose,
+                                    target_pose, heavy_pose)
+        if staged is None:
+            continue
+        # Re-verify the LURE at THIS pose (2 rollouts): the anchor
+        # checks above are cheap pre-filters, but pose transfer is only
+        # approximately physics-preserving and knife-edge corners can
+        # flip under it — a task whose real-pose lure fails believedly
+        # would not lure the baseline at all.
+        lure_real = {}
+        for lure_obj, lure_p in lure_od.items():
+            rx, ry, ryaw = _to_real_pose(lure_p["x"], lure_p["y"],
+                                         lure_p["yaw"], d_yaw, ax, ay, sx, sy)
+            lure_real[lure_obj] = comp.place_domino(
+                0,
+                rx,
+                ry,
+                ryaw,
+                is_start_block=lure_obj is start,
+                is_target_block=lure_obj is target,
+                is_heavy_block=lure_obj is heavy_obj)
+
+        ok_real = _with_believed_physics(
+            env,
+            functools.partial(mbu._layout_topples, env, lure_real, start,
+                              target, push_opt))
+        if not ok_real:
+            staged = None
+            continue
+        if mbu._layout_topples(env, lure_real, start, target, push_opt):
+            # Jump-over leak at this pose (true physics).
+            staged = None
+            continue
+        gray_scene = {
+            heavy_obj:
+            comp.place_domino(0,
+                              heavy_pose[0],
+                              heavy_pose[1],
+                              heavy_pose[2],
+                              is_heavy_block=True)
+        }
+        # The detour must exist at THIS pose (skip around the gray with
+        # an own corner; doubles as the push-reachability check) — with
+        # TWO independent toppling layouts: a task whose only solution
+        # is one knife-edge layout can flip under a fresh simulator's
+        # contact-solver history and become unsolvable at execution.
+        k_true = compute_turn_k_star(env,
+                                     start_pose,
+                                     target_pose,
+                                     budget=num_blues,
+                                     extra=gray_scene,
+                                     min_hits=2)
+        if k_true is None or k_true < 1:
+            staged = None
+            continue
+        break
+    if staged is None:
+        logging.warning(
+            "Dropping heavy turn task (no placement for entry=%.2f "
+            "exit=%.2f).", entry, exit_leg)
+        return None
+    assert k_true is not None
+    logging.info(
+        "Heavy turn task differentiates: believed gray-corner k=%d, lure "
+        "dead at true physics, detour K*=%d.", k_bel, k_true)
+    goal_nl = _HEAVY_GOAL_NL.format(
+        hint="The chain may need to make a 90-degree turn.")
+    return _finish_heavy_task(env, comp, staged, num_blues, goal_nl)
