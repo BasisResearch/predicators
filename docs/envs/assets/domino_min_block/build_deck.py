@@ -399,7 +399,8 @@ HTML = r"""<!doctype html>
     <li class="bad">Either way the baseline's cheapest validated plan dies against the gray</li>
     <li>Certificate per task (all simulated): believed lure exists at the family
         minimum, lure dead at true physics, true swerve/detour K* within the staged
-        blues; <b>budget = K*</b></li>
+        blues; <b>budget = the staged blues</b> (binary topple success — K* certifies
+        solvability only; corner minima are solver-history sensitive at the margin)</li>
     <li class="small">No friction mismatch here: corners never propagate at µ=0.5,
         which would kill the turn lure — this env isolates the mass dimension</li>
   </ul>

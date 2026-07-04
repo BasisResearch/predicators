@@ -664,9 +664,20 @@ def _stage_heavy_scene(
 
 
 def _finish_heavy_task(env: "PyBulletDominoComposedEnv", comp: Any,
-                       staged: Dict[Object, Dict[str, Any]], k_true: int,
+                       staged: Dict[Object, Dict[str, Any]], num_blues: int,
                        goal_nl: str) -> EnvironmentTask:
-    """Assemble the EnvironmentTask from a staged heavy-block scene."""
+    """Assemble the EnvironmentTask from a staged heavy-block scene.
+
+    The reward budget is the STAGED blue count, not the searched K*:
+    heavy tasks differentiate on topple-vs-not (the believing planner
+    never topples the target), and the corner/swerve minima are
+    solver-history sensitive at the margin — a layout that barely
+    topples during generation can need one more blue under a fresh
+    simulator's contact state (and vice versa). Binding the reward to
+    the exact K* would make such tasks unsolvable-within-budget at
+    execution; the K* searches remain as solvability certificates
+    (a within-staged-blues solution exists).
+    """
     # pylint: disable=import-outside-toplevel,protected-access
     from predicators.envs.pybullet_domino.env import MinBlockReward
     from predicators.utils import create_state_from_dict
@@ -686,7 +697,8 @@ def _finish_heavy_task(env: "PyBulletDominoComposedEnv", comp: Any,
     return EnvironmentTask(init_state,
                            goal_atoms,
                            goal_nl=goal_nl,
-                           reward_fn=MinBlockReward(env, goal_atoms, k_true))
+                           reward_fn=MinBlockReward(env, goal_atoms,
+                                                    num_blues))
 
 
 _HEAVY_GOAL_NL = (
@@ -713,10 +725,10 @@ def _make_heavy_straight_task(
     Certificate (lure probes at the canonical anchor, memoized):
     1. believed straight-through exists (k_bel blues);
     2. true straight-through is dead for every stageable split;
-    3. a true swerve exists with k_bel < K* <= staged blues (K* may
-       EQUAL the staged blues: heavy tasks differentiate on topple
-       failure, not the over-build cap). Budget = K*, re-verified at
-       the real pose (which doubles as the push-reachability check).
+    3. a true swerve exists with k_bel < K* <= staged blues,
+       re-verified at the real pose (which doubles as the push-
+       reachability check). K* certifies SOLVABILITY only; the reward
+       budget is the staged blues (see ``_finish_heavy_task``).
     """
     # pylint: disable=protected-access
     comp = env._domino_component
@@ -806,7 +818,7 @@ def _make_heavy_straight_task(
         "true dead, swerve K*=%d.", k_bel, k_true)
     goal_nl = _HEAVY_GOAL_NL.format(
         hint="The chain may need to curve around obstacles.")
-    return _finish_heavy_task(env, comp, staged, k_true, goal_nl)
+    return _finish_heavy_task(env, comp, staged, num_blues, goal_nl)
 
 
 # Blueprint memo for the turn variant: the believed-physics corner
@@ -932,7 +944,8 @@ def _make_heavy_turn_task(
     Certificate: believed corner blueprint exists with a mid-chain
     corner; the gray-substituted lure still propagates believedly and
     dies at the true physics; the true detour K* fits the staged blues.
-    Budget = K*.
+    K* certifies SOLVABILITY only; the reward budget is the staged
+    blues (see ``_finish_heavy_task``).
     """
     # pylint: disable=protected-access
     comp = env._domino_component
@@ -1038,4 +1051,4 @@ def _make_heavy_turn_task(
         "dead at true physics, detour K*=%d.", k_bel, k_true)
     goal_nl = _HEAVY_GOAL_NL.format(
         hint="The chain may need to make a 90-degree turn.")
-    return _finish_heavy_task(env, comp, staged, k_true, goal_nl)
+    return _finish_heavy_task(env, comp, staged, num_blues, goal_nl)

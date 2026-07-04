@@ -39,12 +39,15 @@ from predicators.envs.pybullet_domino.task_generators.min_block_generation \
 from predicators.settings import CFG
 
 utils.reset_config({
-    'env': 'pybullet_domino', 'seed': 0,
+    'env': 'pybullet_domino',
+    'seed': 0,
     # common.yaml
-    'num_train_tasks': 1, 'num_test_tasks': 5,
+    'num_train_tasks': 1,
+    'num_test_tasks': 5,
     'skill_phase_use_motion_planning': True,
     'pybullet_ik_validate': False,
-    'pybullet_camera_height': 900, 'pybullet_camera_width': 900,
+    'pybullet_camera_height': 900,
+    'pybullet_camera_width': 900,
     # envs/all.yaml domino_heavy (mass-only mismatch: no planning friction)
     'max_initial_demos': 0,
     'excluded_objects_in_state_str': "loc,rot,angle,direction",
@@ -83,8 +86,14 @@ def wrap(a):
 def block(ax, x, y, yaw, color):
     tr = (Affine2D().rotate(-yaw).translate(x, y) + ax.transData)
     ax.add_patch(
-        Rectangle((-W / 2, -D / 2), W, D, facecolor=color, edgecolor="k",
-                  lw=0.9, transform=tr, zorder=3))
+        Rectangle((-W / 2, -D / 2),
+                  W,
+                  D,
+                  facecolor=color,
+                  edgecolor="k",
+                  lw=0.9,
+                  transform=tr,
+                  zorder=3))
     fx, fy = 0.025 * np.sin(yaw), 0.025 * np.cos(yaw)
     ax.arrow(x, y, fx, fy, head_width=0.008, color=color, lw=0.9, zorder=4)
 
@@ -120,8 +129,8 @@ def state_poses(state):
 def od_poses(od, start, target, gray):
     out = []
     for obj, pose in od.items():
-        role = ("start" if obj is start else "target" if obj is target else
-                "heavy" if obj is gray else "blue")
+        role = ("start" if obj is start else "target"
+                if obj is target else "heavy" if obj is gray else "blue")
         out.append((pose["x"], pose["y"], pose["yaw"], role))
     return out
 
@@ -130,11 +139,10 @@ def task_geometry(state):
     # pylint: disable=protected-access
     dominoes = state.get_objects(comp.domino_type)
     start = next(d for d in dominoes if comp._StartBlock_holds(state, [d]))
-    target = next(d for d in dominoes
-                  if comp._TargetDomino_holds(state, [d]))
+    target = next(d for d in dominoes if comp._TargetDomino_holds(state, [d]))
     gray = next(d for d in dominoes if comp._HeavyBlock_holds(state, [d]))
-    pose = lambda d: (state.get(d, "x"), state.get(d, "y"),
-                      state.get(d, "yaw"))
+    pose = lambda d: (state.get(d, "x"), state.get(d, "y"), state.get(
+        d, "yaw"))
     return start, target, gray, pose(start), pose(target), pose(gray)
 
 
@@ -155,8 +163,7 @@ def detour_solution(s_pose, t_pose, gray_od, k_max):
     # pylint: disable=protected-access
     extra_pts = [(d["x"], d["y"]) for d in gray_od.values()]
     for k in range(k_max + 1):
-        for od, s_, t_ in mbu._candidate_turn_layouts(
-                comp, k, s_pose, t_pose):
+        for od, s_, t_ in mbu._candidate_turn_layouts(comp, k, s_pose, t_pose):
             blue_pts = [(d["x"], d["y"]) for o, d in od.items()
                         if o not in (s_, t_)]
             if any(
@@ -186,13 +193,16 @@ def believed_straight(start, target, gray, s_pose, t_pose, h_pose, k_max):
                 gap1 = len1 / (k1 + 1)
                 if not mbu._MIN_GAP < gap1 < mbu._MAX_GAP:
                     continue
-                for g2 in (mbu._DOGLEG_EXIT_GAPS if k2 else (None,)):
+                for g2 in (mbu._DOGLEG_EXIT_GAPS if k2 else (None, )):
                     od = {
-                        start: comp.place_domino(0, *s_pose,
+                        start: comp.place_domino(0,
+                                                 *s_pose,
                                                  is_start_block=True),
-                        target: comp.place_domino(1, *t_pose,
+                        target: comp.place_domino(1,
+                                                  *t_pose,
                                                   is_target_block=True),
-                        gray: comp.place_domino(0, *h_pose,
+                        gray: comp.place_domino(0,
+                                                *h_pose,
                                                 is_heavy_block=True),
                     }
                     slot = 2
@@ -218,33 +228,30 @@ def believed_straight(start, target, gray, s_pose, t_pose, h_pose, k_max):
                     elif not mbu._MIN_GAP < float(
                             np.linalg.norm(t_pt - h_pt)) < mbu._MAX_GAP:
                         continue
-                    if mbu._layout_topples(env, od, start, target,
-                                           push_opt):
+                    if mbu._layout_topples(env, od, start, target, push_opt):
                         return od, k
         return None
 
     return _with_believed_physics(env, _probe)
 
 
-def believed_gray_corner(start, target, gray, s_pose, t_pose, h_pose,
-                         k_max):
+def believed_gray_corner(start, target, gray, s_pose, t_pose, h_pose, k_max):
     """The believed gray-corner lure: the family layout whose corner
     pose matches the gray, with the gray substituted in (free corner)."""
+
     # pylint: disable=protected-access
     def _probe():
         for k in range(2, k_max + 2):
             for od, s_, t_ in mbu._candidate_turn_layouts(
                     comp, k, s_pose, t_pose):
-                corner = next(
-                    (o for o in od if o not in (s_, t_)
-                     and np.hypot(od[o]["x"] - h_pose[0], od[o]["y"] -
-                                  h_pose[1]) < 0.02
-                     and abs(wrap(od[o]["yaw"] - h_pose[2])) < 0.1), None)
+                corner = next((o for o in od if o not in (s_, t_) and np.hypot(
+                    od[o]["x"] - h_pose[0], od[o]["y"] - h_pose[1]) < 0.02
+                               and abs(wrap(od[o]["yaw"] - h_pose[2])) < 0.1),
+                              None)
                 if corner is None:
                     continue
                 lure = {o: dict(p) for o, p in od.items() if o is not corner}
-                lure[gray] = comp.place_domino(0, *h_pose,
-                                               is_heavy_block=True)
+                lure[gray] = comp.place_domino(0, *h_pose, is_heavy_block=True)
                 if mbu._layout_topples(env, lure, s_, t_, push_opt):
                     return lure, k - 1
         return None
@@ -258,13 +265,13 @@ fig, axes = plt.subplots(3, n, figsize=(3.4 * n, 10.2))
 axes = np.atleast_2d(axes).T  # axes[col] = (init, solution, believed)
 
 for col, task in enumerate(tasks):
-    k_star = task.reward_fn.max_blocks
+    budget = task.reward_fn.max_blocks
     init = task.init
     start, target, gray, s_pose, t_pose, h_pose = task_geometry(init)
     is_straight = abs(wrap(h_pose[2] - s_pose[2])) < 0.1
     kind = "straight" if is_straight else "turn"
     draw_state(axes[col][0], state_poses(init),
-               f"task {col} ({kind}) · K*={k_star}\nstaged init")
+               f"task {col} ({kind}) · budget={budget}\nstaged init")
 
     k_max = CFG.domino_min_block_num_blues
     gray_od = {gray: comp.place_domino(0, *h_pose, is_heavy_block=True)}
@@ -272,43 +279,54 @@ for col, task in enumerate(tasks):
         sol = swerve_solution(s_pose, t_pose, h_pose, k_max)
         sol_od = sol[0] if sol else None
         sol_label = f"swerve around: {sol[1]} blues" if sol else None
-        bel = believed_straight(start, target, gray, s_pose, t_pose,
-                                h_pose, k_max)
+        bel = believed_straight(start, target, gray, s_pose, t_pose, h_pose,
+                                k_max)
         bel_label = "believed through-gray"
     else:
         sol = detour_solution(s_pose, t_pose, gray_od, k_max)
         sol_od = sol[0] if sol else None
         sol_label = f"skip-around detour: {sol[3]} blues" if sol else None
-        bel = believed_gray_corner(start, target, gray, s_pose, t_pose,
-                                   h_pose, k_max)
+        bel = believed_gray_corner(start, target, gray, s_pose, t_pose, h_pose,
+                                   k_max)
         bel_label = "believed gray-corner"
 
     if sol_od is None:
         axes[col][1].axis("off")
         axes[col][1].set_title("solution not reproducible",
-                               fontsize=9.5, color="#555")
+                               fontsize=9.5,
+                               color="#555")
     else:
-        draw_state(axes[col][1], od_poses(sol_od, doms[0], doms[1], gray),
-                   f"{sol_label}\n→ TOPPLES ✓", tcolor="#1a7a1a")
+        draw_state(axes[col][1],
+                   od_poses(sol_od, doms[0], doms[1], gray),
+                   f"{sol_label}\n→ TOPPLES ✓",
+                   tcolor="#1a7a1a")
 
     if bel is None:
         axes[col][2].axis("off")
         axes[col][2].set_title("no believed plan reproducible",
-                               fontsize=9.5, color="#555")
+                               fontsize=9.5,
+                               color="#555")
         continue
     od_b, k_b = bel
     # Execute the believed plan at the TRUE physics (gray heavy again).
     ok = mbu._layout_topples(env, od_b, start, target, push_opt)
     verdict = "→ TOPPLES (leak!)" if ok else "→ DIES AT GRAY ✗"
-    draw_state(axes[col][2], od_poses(od_b, start, target, gray),
+    draw_state(axes[col][2],
+               od_poses(od_b, start, target, gray),
                f"{bel_label}: {k_b} blues\n{verdict}",
                tcolor="#a01515" if not ok else "#b3541e")
 
-for label, y in (("staged init", 0.86),
-                 ("calibrated solution\n@ true physics", 0.53),
+for label, y in (("staged init", 0.86), ("calibrated solution\n@ true physics",
+                                         0.53),
                  ("believed (normal-mass) plan\nrun @ true physics", 0.19)):
-    fig.text(0.005, y, label, fontsize=11, rotation=90, va="center",
-             weight="bold", color="#333")
+    fig.text(0.005,
+             y,
+             label,
+             fontsize=11,
+             rotation=90,
+             va="center",
+             weight="bold",
+             color="#333")
 fig.tight_layout(rect=(0.03, 0, 1, 1))
 out = Path(__file__).parent / "heavy_task_examples.png"
 fig.savefig(out, dpi=140, bbox_inches="tight")

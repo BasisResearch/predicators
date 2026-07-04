@@ -527,9 +527,12 @@ class GlobalSettings:
     # dies against it at execution. Run WITHOUT domino_planning_friction:
     # corners never propagate at friction 0.5, which would kill the turn
     # lure — this task type isolates the MASS dimension. Reuses the
-    # min-block machinery (MinBlockReward with budget = detour K*, quota
-    # loop, disk cache, domino_min_block_num_blues);
-    # domino_min_block_tasks does not also need to be set.
+    # min-block machinery (MinBlockReward with budget = the STAGED blues:
+    # heavy tasks differentiate on topple-vs-not, and the searched K*
+    # certifies solvability only — corner minima are solver-history
+    # sensitive at the margin; quota loop, disk cache,
+    # domino_min_block_num_blues); domino_min_block_tasks does not also
+    # need to be set.
     domino_heavy_block_tasks = False
 
     # burger env parameters
