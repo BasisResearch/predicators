@@ -168,6 +168,9 @@ def _chain_topples(env: Any, init_state: State, start: Object, target: Object,
             _set_pose(state, blue, _OOV + i * 0.1, _OOV + i * 0.1, z, yaw, 0.0)
 
     env._set_state(state)
+    # Pin the arm to its initial joints (see _layout_topples): probes
+    # must not inherit arm-configuration drift from prior rollouts.
+    env._pybullet_robot.set_joints(env._pybullet_robot.initial_joint_positions)
     if not _execute_push(env, state, push_opt, start):
         return False
     final = _settle(env, _SETTLE_STEPS)
@@ -271,6 +274,14 @@ def _layout_topples(env: Any,
     state = _assembled_state(env, comp, obj_dict, target, z,
                              comp.target_domino_color)
     env._set_state(state)
+    # Pin the arm to its exact initial joints: _set_state reaches the
+    # robot pose by IK FROM THE CURRENT configuration, so consecutive
+    # probes inherit ~1e-3 rad wrist differences from wherever the
+    # previous rollout parked the arm — enough to flip knife-edge
+    # layouts under motion-planned pushes (observed as the same layout
+    # alternating topple/no-topple). Episodes start from the initial
+    # joints too, so this also matches execution-time conditions.
+    env._pybullet_robot.set_joints(env._pybullet_robot.initial_joint_positions)
     joints = env._pybullet_robot.get_joints()
     from predicators.utils import \
         PyBulletState  # pylint: disable=import-outside-toplevel
