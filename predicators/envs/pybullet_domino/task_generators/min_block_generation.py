@@ -103,9 +103,13 @@ def make_min_block_tasks(env: "PyBulletDominoComposedEnv",
     turns: List[EnvironmentTask] = []
     straights: List[EnvironmentTask] = []
     # The differentiating span/leg windows are narrow relative to the
-    # sampling bands (~25% of straight attempts survive the filters),
-    # so give the quota loop generous headroom; results are cached.
-    max_attempts = 12 * num_tasks + 20
+    # sampling bands (~25% of straight attempts survive the filters, and
+    # turn attempts only ~1-in-30: the per-leg certificate's dead band
+    # dominates — the 2026-07-03 oracle run got 1 turn from 34 attempts
+    # and shipped a 4/5 PARTIAL set at the old 12x+20 cap). Rejected
+    # attempts are nearly free (memoized probes), so the cap is
+    # generous; results are cached.
+    max_attempts = 36 * num_tasks + 40
     for _ in range(max_attempts):
         if len(turns) >= n_turn and len(straights) >= n_straight:
             break
@@ -433,9 +437,13 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
     # corners cost the same block count at both frictions).
     # Leg ranges target the scan's K*=3-vs-believed-2 region; longer legs
     # give K*>=4, which the staging capacity (num_blues=4, so K*<=3 for a
-    # spare blue) cannot host.
-    entry_leg = float(rng.uniform(0.26, 0.34))
-    exit_leg = float(rng.uniform(0.18, 0.26))
+    # spare blue) cannot host. Legs snap to the probe-memo lattice (1 cm,
+    # matching _SPAN_BUCKET): repeats of a shape are guaranteed memo hits
+    # (no bucket-edge double probes), and the drop log becomes a readable
+    # coverage map over the finite (entry, exit) cells — the data for any
+    # future retuning of these bands.
+    entry_leg = round(float(rng.uniform(0.26, 0.34)), 2)
+    exit_leg = round(float(rng.uniform(0.18, 0.26)), 2)
     sx = float(rng.uniform(comp.domino_x_lb, comp.domino_x_ub))
     sy = float(rng.uniform(comp.domino_y_lb, comp.domino_y_ub))
     syaw = float(rng.choice([0.0, np.pi / 2, -np.pi / 2]))
