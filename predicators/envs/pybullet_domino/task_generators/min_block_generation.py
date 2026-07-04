@@ -738,12 +738,20 @@ def _make_heavy_straight_task(
             "Dropping heavy straight task (no believed straight-through "
             "within %d blues, span %.2f).", num_blues, span)
         return None
-    # 2) The true straight-through must be dead (chain dies at the gray).
-    k_dead = heavy_dogleg_k_star(env, c_start, c_target, c_heavy, num_blues)
+    # 2) The true straight-through must be dead AT THE BELIEVED COST: a
+    # block-minimizing planner only builds believed-cheapest (k_bel)
+    # layouts, so a freak jump-over at some other count cannot leak —
+    # restricting the scan to k_bel cuts the sweep ~4x.
+    k_dead = heavy_dogleg_k_star(env,
+                                 c_start,
+                                 c_target,
+                                 c_heavy,
+                                 num_blues,
+                                 only_k=k_bel)
     if k_dead is not None:
         logging.warning(
             "Dropping heavy straight task (true straight-through still "
-            "topples with k=%d).", k_dead)
+            "topples at the believed cost k=%d).", k_dead)
         return None
     # 3) A swerve around the gray must exist, strictly dearer than the
     # lure (structural -- the lure gets the gray link for free -- but
@@ -774,15 +782,20 @@ def _make_heavy_straight_task(
         start_pose = (sx, sy, syaw)
         heavy_pose = (float(h_pt[0]), float(h_pt[1]), syaw)
         target_pose = (float(t_pt[0]), float(t_pt[1]), syaw)
+        # Staging FIRST (pure geometry, no sim): the staging grid is a
+        # single row, so this is the common per-pose failure and must
+        # cost nothing. Only a staged pose pays the sim re-verification.
+        staged = _stage_heavy_scene(gen, comp, num_blues, start_pose,
+                                    target_pose, heavy_pose)
+        if staged is None:
+            continue
         # Re-verify the swerve at THIS pose (real push reachability).
         k_true = swerve_k_star(env, start_pose, target_pose, heavy_pose,
                                num_blues)
         if k_true is None or k_true < 1:
+            staged = None
             continue
-        staged = _stage_heavy_scene(gen, comp, num_blues, start_pose,
-                                    target_pose, heavy_pose)
-        if staged is not None:
-            break
+        break
     if staged is None:
         logging.warning(
             "Dropping heavy straight task (no placement for span %.2f).", span)
@@ -803,6 +816,20 @@ def _make_heavy_straight_task(
 _corner_blueprint_memo: Dict[Any, Optional[Any]] = {}
 
 
+def _mirror_od_about_anchor(
+        od: Dict[Object, Dict[str, Any]]) -> Dict[Object, Dict[str, Any]]:
+    """Reflect a canonical-anchor layout across the anchor's fall line
+    (y = anchor_y): (x, y, yaw) -> (x, 2*ay - y, pi - yaw)."""
+    _, ay = _PROBE_ANCHOR
+    out: Dict[Object, Dict[str, Any]] = {}
+    for obj, pose in od.items():
+        q = dict(pose)
+        q["y"] = 2 * ay - pose["y"]
+        q["yaw"] = _wrap_angle(np.pi - pose["yaw"])
+        out[obj] = q
+    return out
+
+
 def _believed_corner_blueprint(env: "PyBulletDominoComposedEnv", comp: Any,
                                entry: float, exit_leg: float, side: float,
                                num_blues: int) -> Optional[Any]:
@@ -815,18 +842,35 @@ def _believed_corner_blueprint(env: "PyBulletDominoComposedEnv", comp: Any,
     detour must have room to bend before it. If the cheapest believed
     layout is cornerless (straight) or start-adjacent, the shape cannot
     host the lure and is rejected.
+
+    The sweep runs for the LEFT-turning side only and mirrors the result
+    for the other side (chain physics is mirror-symmetric; the caller's
+    gray-substituted lure rollout re-verifies the mirrored geometry, so
+    any residual push asymmetry is caught rather than trusted). This
+    halves the expensive blueprint misses.
     """
     # pylint: disable=protected-access
-    key = (entry, exit_leg, side, num_blues, CFG.domino_planning_friction,
+    key = (entry, exit_leg, num_blues, CFG.domino_planning_friction,
            CFG.domino_true_friction)
-    if key in _corner_blueprint_memo:
-        return _corner_blueprint_memo[key]
     ax, ay = _PROBE_ANCHOR
     c_start = (ax, ay, np.pi / 2)
-    c_target = (ax + entry, ay + side * exit_leg, 0.0 if side > 0 else np.pi)
+    c_target = (ax + entry, ay + exit_leg, 0.0)
     push_opt = mbu._get_push_option(env)
 
     def _probe() -> Optional[Any]:
+        # Cap the sweep: shapes where NO corner layout propagates used to
+        # sweep every candidate at every k (~minutes) before concluding
+        # None. The chord's straight-chain minimum (memoized, ~free)
+        # bounds where a corner plan could plausibly first appear — a
+        # corner path is longer and lossier than the chord, so if
+        # nothing has toppled within two counts past that minimum,
+        # corners don't work for this shape (heuristic: may rarely skip
+        # a viable shape, never keeps a wrong one).
+        chord = float(np.hypot(entry, exit_leg))
+        c_min = straight_span_k_star(env, chord, budget=num_blues + 1)
+        if c_min is None:
+            return None
+        k_hi = min(num_blues + 1, c_min + 2)
         # k_full may exceed the staged blues by one: the gray replaces
         # the corner blue, so the LURE costs k_full - 1 blues. Scan ALL
         # candidates of each k: the gray layout must sit at the family's
@@ -834,7 +878,7 @@ def _believed_corner_blueprint(env: "PyBulletDominoComposedEnv", comp: Any,
         # gray), but within that minimum any mid-chain-corner layout
         # qualifies — the cheapest topplers are often start-adjacent
         # (k1=0) while equally-cheap mid-chain ones follow.
-        for k in range(2, num_blues + 2):
+        for k in range(2, k_hi + 1):
             any_topple = False
             for od, s_, t_ in mbu._candidate_turn_layouts(
                     comp, k, c_start, c_target):
@@ -859,9 +903,15 @@ def _believed_corner_blueprint(env: "PyBulletDominoComposedEnv", comp: Any,
                 return None
         return None
 
-    result = _with_believed_physics(env, _probe)
-    _corner_blueprint_memo[key] = result
-    return result
+    if key in _corner_blueprint_memo:
+        result = _corner_blueprint_memo[key]
+    else:
+        result = _with_believed_physics(env, _probe)
+        _corner_blueprint_memo[key] = result
+    if result is None or side > 0:
+        return result
+    od_bel, corner_obj, k_full = result
+    return _mirror_od_about_anchor(od_bel), corner_obj, k_full
 
 
 def _make_heavy_turn_task(
@@ -951,6 +1001,13 @@ def _make_heavy_turn_task(
                    for px, py in ((target_pose[0], target_pose[1]),
                                   (heavy_pose[0], heavy_pose[1]))):
             continue
+        # Staging FIRST (pure geometry, no sim): the staging grid is a
+        # single row, so this is the common per-pose failure and must
+        # cost nothing. Only a staged pose pays the detour search.
+        staged = _stage_heavy_scene(gen, comp, num_blues, start_pose,
+                                    target_pose, heavy_pose)
+        if staged is None:
+            continue
         gray_scene = {
             heavy_obj:
             comp.place_domino(0,
@@ -967,11 +1024,9 @@ def _make_heavy_turn_task(
                                      budget=num_blues,
                                      extra=gray_scene)
         if k_true is None or k_true < 1:
+            staged = None
             continue
-        staged = _stage_heavy_scene(gen, comp, num_blues, start_pose,
-                                    target_pose, heavy_pose)
-        if staged is not None:
-            break
+        break
     if staged is None:
         logging.warning(
             "Dropping heavy turn task (no placement for entry=%.2f "

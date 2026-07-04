@@ -555,8 +555,12 @@ _DOGLEG_EXIT_GAPS = (0.06, 0.08, 0.10)
 _dogleg_probe_memo: Dict[Tuple[Any, ...], Optional[int]] = {}
 
 
-def heavy_dogleg_k_star(env: Any, start_pose: Any, target_pose: Any,
-                        heavy_pose: Any, budget: int) -> Optional[int]:
+def heavy_dogleg_k_star(env: Any,
+                        start_pose: Any,
+                        target_pose: Any,
+                        heavy_pose: Any,
+                        budget: int,
+                        only_k: Optional[int] = None) -> Optional[int]:
     """Minimum blues whose dogleg chain THROUGH the heavy (gray) block
     topples the target at the env's CURRENT physics, or None.
 
@@ -570,6 +574,11 @@ def heavy_dogleg_k_star(env: Any, start_pose: Any, target_pose: Any,
     callers flip between the believed physics (normal mass — the chain
     runs through) and the true physics (untopple-able — the chain dies
     at the gray).
+
+    ``only_k`` restricts the scan to that single blue count — the
+    true-dead certificate uses it with k = the believed cost: a
+    block-minimizing planner only ever builds a believed-cheapest
+    layout, so other counts cannot leak.
 
     Callers should pass canonical-anchor poses (see ``_PROBE_ANCHOR``):
     results are memoized on the relative geometry, which is only sound
@@ -595,13 +604,14 @@ def heavy_dogleg_k_star(env: Any, start_pose: Any, target_pose: Any,
     h_dir = np.array([np.sin(hyaw), np.cos(hyaw)])
     bend = float((hyaw - syaw + np.pi) % (2 * np.pi) - np.pi)
     memo_key = (round(len1 / _SPAN_BUCKET), round(len2 / _SPAN_BUCKET),
-                round(bend, 2), budget,
+                round(bend, 2), budget, only_k,
                 tuple(sorted(comp._physical_param_override.items())))
     if memo_key in _dogleg_probe_memo:
         return _dogleg_probe_memo[memo_key]
     push_opt = _get_push_option(env)
     result: Optional[int] = None
-    for k in range(budget + 1):
+    k_values = range(budget + 1) if only_k is None else [min(only_k, budget)]
+    for k in k_values:
         for k1 in range(k + 1):
             k2 = k - k1
             gap1 = len1 / (k1 + 1)
