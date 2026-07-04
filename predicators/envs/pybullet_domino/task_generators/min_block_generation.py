@@ -801,9 +801,16 @@ def _make_heavy_straight_task(
                                     target_pose, heavy_pose)
         if staged is None:
             continue
-        # Re-verify the swerve at THIS pose (real push reachability).
-        k_true = swerve_k_star(env, start_pose, target_pose, heavy_pose,
-                               num_blues)
+        # Re-verify the swerve at THIS pose (real push reachability),
+        # demanding TWO independent toppling swerves: a task whose only
+        # solution is one knife-edge layout can flip under a fresh
+        # simulator's contact-solver history.
+        k_true = swerve_k_star(env,
+                               start_pose,
+                               target_pose,
+                               heavy_pose,
+                               num_blues,
+                               min_hits=2)
         if k_true is None or k_true < 1:
             staged = None
             continue
@@ -1030,12 +1037,16 @@ def _make_heavy_turn_task(
                               is_heavy_block=True)
         }
         # The detour must exist at THIS pose (skip around the gray with
-        # an own corner; doubles as the push-reachability check).
+        # an own corner; doubles as the push-reachability check) — with
+        # TWO independent toppling layouts: a task whose only solution
+        # is one knife-edge layout can flip under a fresh simulator's
+        # contact-solver history and become unsolvable at execution.
         k_true = compute_turn_k_star(env,
                                      start_pose,
                                      target_pose,
                                      budget=num_blues,
-                                     extra=gray_scene)
+                                     extra=gray_scene,
+                                     min_hits=2)
         if k_true is None or k_true < 1:
             staged = None
             continue

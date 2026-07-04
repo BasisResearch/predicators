@@ -743,8 +743,12 @@ def _candidate_swerve_layouts(comp: Any, k: int, start_pose: Any,
                 yield od
 
 
-def swerve_k_star(env: Any, start_pose: Any, target_pose: Any, heavy_pose: Any,
-                  budget: int) -> Optional[int]:
+def swerve_k_star(env: Any,
+                  start_pose: Any,
+                  target_pose: Any,
+                  heavy_pose: Any,
+                  budget: int,
+                  min_hits: int = 1) -> Optional[int]:
     """Minimum blues whose half-circle swerve AROUND the collinear gray
     block topples the target at the env's CURRENT physics, or None.
 
@@ -753,6 +757,9 @@ def swerve_k_star(env: Any, start_pose: Any, target_pose: Any, heavy_pose: Any,
     the gray block sideways, and rejoins to hit the target head-on.
     Results are memoized (pose included in the key, so canonical-anchor
     certification and real-pose re-verification never mix).
+    ``min_hits`` demands that many distinct toppling swerves before the
+    first (cheapest) k is returned — the robustness margin against
+    solver-history sensitivity (see ``compute_turn_k_star``).
     """
     comp = env._domino_component
     if comp is None:
@@ -766,19 +773,25 @@ def swerve_k_star(env: Any, start_pose: Any, target_pose: Any, heavy_pose: Any,
                 round(syaw,
                       2), round(np.hypot(tx - sx, ty - sy) / _SPAN_BUCKET),
                 round(np.hypot(hx - sx, hy - sy) / _SPAN_BUCKET), budget,
-                tuple(sorted(comp._physical_param_override.items())))
+                min_hits, tuple(sorted(comp._physical_param_override.items())))
     if memo_key in _swerve_probe_memo:
         return _swerve_probe_memo[memo_key]
     push_opt = _get_push_option(env)
     result: Optional[int] = None
+    hits = 0
     for k in range(2, budget + 1):
         for od in _candidate_swerve_layouts(comp, k, start_pose, target_pose,
                                             heavy_pose):
             if _layout_topples(env, od, doms[0], doms[1], push_opt):
-                result = k
-                break
-        if result is not None:
+                hits += 1
+                if result is None:
+                    result = k
+                if hits >= min_hits:
+                    break
+        if hits >= min_hits:
             break
+    if hits < min_hits:
+        result = None
     _swerve_probe_memo[memo_key] = result
     return result
 
@@ -787,7 +800,8 @@ def compute_turn_k_star(env: Any,
                         start_pose: Any,
                         target_pose: Any,
                         budget: Optional[int] = None,
-                        extra: Optional[dict] = None) -> Optional[int]:
+                        extra: Optional[dict] = None,
+                        min_hits: int = 1) -> Optional[int]:
     """Minimum blues that topple a cornered target, by layout search.
 
     For each k (ascending), simulates every candidate in
@@ -812,6 +826,14 @@ def compute_turn_k_star(env: Any,
     blue overlapping an extra body are pruned without simulation
     (PyBullet resolves spawn penetration explosively, which would fake a
     topple).
+
+    ``min_hits`` is a ROBUSTNESS margin: the scan keeps going until that
+    many distinct layouts (across all k <= budget) have toppled, and
+    returns the first (cheapest) k only then. Knife-edge layouts are
+    sensitive to the simulator's contact-solver history — a task whose
+    only solution toppled once during generation can be unsolvable
+    under a fresh simulator — so shipping tasks should demand >= 2
+    independent topplers.
     """
     comp = env._domino_component
     if comp is None:
@@ -825,6 +847,8 @@ def compute_turn_k_star(env: Any,
     extra_pts = [(d["x"], d["y"]) for d in extra.values()] if extra else []
     clearance = comp.domino_width
     push_opt = _get_push_option(env)
+    first_k: Optional[int] = None
+    hits = 0
     for k in range(budget + 1):
         for od, start, target in _candidate_turn_layouts(
                 comp, k, start_pose, target_pose):
@@ -837,5 +861,9 @@ def compute_turn_k_star(env: Any,
                     continue
                 od.update(extra)
             if _layout_topples(env, od, start, target, push_opt):
-                return k
+                hits += 1
+                if first_k is None:
+                    first_k = k
+                if hits >= min_hits:
+                    return first_k
     return None
