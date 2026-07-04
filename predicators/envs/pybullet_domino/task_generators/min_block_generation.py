@@ -1023,10 +1023,37 @@ def _make_heavy_turn_task(
             continue
         # Staging FIRST (pure geometry, no sim): the staging grid is a
         # single row, so this is the common per-pose failure and must
-        # cost nothing. Only a staged pose pays the detour search.
+        # cost nothing. Only a staged pose pays the sim checks below.
         staged = _stage_heavy_scene(gen, comp, num_blues, start_pose,
                                     target_pose, heavy_pose)
         if staged is None:
+            continue
+        # Re-verify the LURE at THIS pose (2 rollouts): the anchor
+        # checks above are cheap pre-filters, but pose transfer is only
+        # approximately physics-preserving and knife-edge corners can
+        # flip under it — a task whose real-pose lure fails believedly
+        # would not lure the baseline at all.
+        lure_real = {}
+        for lure_obj, lure_p in lure_od.items():
+            rx, ry, ryaw = _to_real_pose(lure_p["x"], lure_p["y"],
+                                         lure_p["yaw"], d_yaw, ax, ay, sx, sy)
+            lure_real[lure_obj] = comp.place_domino(
+                0,
+                rx,
+                ry,
+                ryaw,
+                is_start_block=lure_obj is start,
+                is_target_block=lure_obj is target,
+                is_heavy_block=lure_obj is heavy_obj)
+        ok_real = _with_believed_physics(
+            env, lambda: mbu._layout_topples(env, lure_real, start, target,
+                                             push_opt))
+        if not ok_real:
+            staged = None
+            continue
+        if mbu._layout_topples(env, lure_real, start, target, push_opt):
+            # Jump-over leak at this pose (true physics).
+            staged = None
             continue
         gray_scene = {
             heavy_obj:

@@ -260,6 +260,19 @@ def believed_gray_corner(start, target, gray, s_pose, t_pose, h_pose, k_max):
 
 
 tasks = env.get_test_tasks()
+
+# Derive the panels in a FRESH simulator: generation may have run in
+# this same process, and residual sim context can shift knife-edge
+# outcomes even with per-probe state resets — execution also sees a
+# fresh simulator, so this is the faithful context for re-derivation.
+import pybullet as p
+
+p.disconnect(env._physics_client_id)  # pylint: disable=protected-access
+env = create_new_env('pybullet_domino', do_cache=False, use_gui=False)
+comp = env._domino_component  # pylint: disable=protected-access
+push_opt = mbu._get_push_option(env)
+doms = comp.dominos
+
 n = len(tasks)
 fig, axes = plt.subplots(3, n, figsize=(3.4 * n, 10.2))
 axes = np.atleast_2d(axes).T  # axes[col] = (init, solution, believed)
