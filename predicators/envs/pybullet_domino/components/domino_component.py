@@ -549,6 +549,18 @@ class DominoComponent(DominoEnvComponent):
                                  physicsClientId=self._physics_client_id)
                 self.heavy_domino_ids.append(domino.id)
 
+        # Zero residual velocities on every domino body: pose resets go
+        # through resetBasePositionAndOrientation, which does NOT clear
+        # velocities — a body that was mid-fall when the previous rollout
+        # ended would carry its momentum into this "static" scene. This
+        # was the source of history-dependent probe/episode outcomes
+        # (the same layout toppling or dying depending on what the sim
+        # ran beforehand).
+        for domino in self.dominos:
+            if domino.id is not None:
+                p.resetBaseVelocity(domino.id, [0, 0, 0], [0, 0, 0],
+                                    physicsClientId=self._physics_client_id)
+
         # Re-assert any standing physical-param override: reset just rewrote
         # mass on the (un)glued dominoes above, so the override (if any) must
         # be re-applied to keep this instance's physics diverged.
