@@ -10,9 +10,9 @@ ENVS:
   domino:
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
-  domino_heavy:
-    FLAGS:
-      excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
+  # domino_heavy:
+  #   FLAGS:
+  #     excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
 APPROACHES:
   # # Baseline: agent planning does NOT have a simulator / world model
   # agent_model_free_planning:
