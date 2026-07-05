@@ -78,7 +78,8 @@ Quick start example::
 """
 
 from predicators.ground_truth_models.skill_factories.base import Phase, \
-    PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn, build_params_space
+    PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn, build_params_space, \
+    shared_skill_robot, shared_skill_simulator
 from predicators.ground_truth_models.skill_factories.move_to import \
     create_move_to_skill, make_move_to_phase
 from predicators.ground_truth_models.skill_factories.pick import \
@@ -106,4 +107,6 @@ __all__ = [
     "create_pour_skill",
     "create_push_skill",
     "create_wait_option",
+    "shared_skill_robot",
+    "shared_skill_simulator",
 ]
