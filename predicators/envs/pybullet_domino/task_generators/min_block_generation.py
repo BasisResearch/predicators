@@ -575,8 +575,8 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
     goal_nl = (
         "Move the blue dominoes so that when the green domino is pushed, "
         "the purple domino is toppled -- using AS FEW blue dominoes as "
-        "possible. The chain may need to make a 90-degree turn. Do NOT "
-        "directly push or topple the purple domino yourself.")
+        "possible. Do NOT directly push or topple the purple domino "
+        "yourself.")
     return EnvironmentTask(init_state,
                            goal_atoms,
                            goal_nl=goal_nl,
@@ -703,7 +703,7 @@ def _finish_heavy_task(env: "PyBulletDominoComposedEnv", comp: Any,
 _HEAVY_GOAL_NL = (
     "Move the blue dominoes so that when the green domino is pushed, "
     "the purple domino is toppled -- using AS FEW blue dominoes as "
-    "possible. Only the blue dominoes may be moved. {hint} Do NOT "
+    "possible. Only the blue dominoes may be moved. Do NOT "
     "directly push or topple the purple domino yourself.")
 
 
@@ -822,9 +822,7 @@ def _make_heavy_straight_task(
     logging.info(
         "Heavy straight task differentiates: believed through-gray k=%d, "
         "true dead, swerve K*=%d.", k_bel, k_true)
-    goal_nl = _HEAVY_GOAL_NL.format(
-        hint="The chain may need to curve around obstacles.")
-    return _finish_heavy_task(env, comp, staged, num_blues, goal_nl)
+    return _finish_heavy_task(env, comp, staged, num_blues, _HEAVY_GOAL_NL)
 
 
 # Blueprint memo for the turn variant: the believed-physics corner
@@ -1094,6 +1092,4 @@ def _make_heavy_turn_task(
     logging.info(
         "Heavy turn task differentiates: believed gray-corner k=%d, lure "
         "dead at true physics, detour K*=%d.", k_bel, k_true)
-    goal_nl = _HEAVY_GOAL_NL.format(
-        hint="The chain may need to make a 90-degree turn.")
-    return _finish_heavy_task(env, comp, staged, num_blues, goal_nl)
+    return _finish_heavy_task(env, comp, staged, num_blues, _HEAVY_GOAL_NL)

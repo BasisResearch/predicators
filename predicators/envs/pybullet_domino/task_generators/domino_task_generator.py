@@ -251,7 +251,7 @@ class DominoTaskGenerator(TaskGenerator):
                 goal_atoms.add(GroundAtom(self.domino.Toppled, [domino_obj]))
         goal_nl = (
             "Move the blue dominoes so that when the green domino is pushed, "
-            "the purple domino is toppled — using AS FEW blue dominoes as "
+            "the purple domino is toppled -- using AS FEW blue dominoes as "
             "possible. Do NOT directly push or topple the purple domino "
             "yourself.")
         return EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
