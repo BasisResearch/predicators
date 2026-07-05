@@ -1233,7 +1233,7 @@ class GlobalSettings:
 
     # Code sim-learning parameter fitting settings.
     # Set to 0 to skip MCMC and use initial parameter values directly.
-    code_sim_learning_num_mcmc_steps = 500
+    code_sim_learning_num_mcmc_steps = 0
     # MCMC budget for the free-running-rollout system-identification fit
     # (PHYSICAL_PARAMS, physical_sysid.fit_params_rollout). Each eval is a
     # full PyBullet rollout of every fit trajectory — orders of magnitude
