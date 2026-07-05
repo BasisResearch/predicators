@@ -162,10 +162,10 @@ class DominoTaskGenerator(TaskGenerator):
             target_word, target_verb = "the purple domino", "is"
         else:
             target_word, target_verb = "the purple dominoes", "are"
-        goal_nl = (
-            f"Move the blue dominoes such that when the green domino is "
-            f"pushed, {target_word} {target_verb} toppled. Do NOT directly "
-            f"push or topple {target_word} yourself.")
+        goal_nl = (f"Arrange the blue dominoes as needed (possibly none) such "
+                   f"that when the green domino is pushed, {target_word} "
+                   f"{target_verb} toppled. Do NOT directly "
+                   f"push or topple {target_word} yourself.")
 
         return EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
 
@@ -250,10 +250,10 @@ class DominoTaskGenerator(TaskGenerator):
             if self.domino._TargetDomino_holds(init_state, [domino_obj]):
                 goal_atoms.add(GroundAtom(self.domino.Toppled, [domino_obj]))
         goal_nl = (
-            "Move the blue dominoes so that when the green domino is pushed, "
-            "the purple domino is toppled -- using AS FEW blue dominoes as "
-            "possible. Do NOT directly push or topple the purple domino "
-            "yourself.")
+            "Arrange the blue dominoes so that when the green domino is "
+            "pushed, the purple domino is toppled -- using AS FEW blue "
+            "dominoes as possible (possibly none). Do NOT directly push or "
+            "topple the purple domino yourself.")
         return EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
 
     def _generate_domino_sequence(

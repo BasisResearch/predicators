@@ -573,10 +573,10 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
     init_state = create_state_from_dict(init_dict)
     goal_atoms = {GroundAtom(comp.Toppled, [target])}
     goal_nl = (
-        "Move the blue dominoes so that when the green domino is pushed, "
+        "Arrange the blue dominoes so that when the green domino is pushed, "
         "the purple domino is toppled -- using AS FEW blue dominoes as "
-        "possible. Do NOT directly push or topple the purple domino "
-        "yourself.")
+        "possible (possibly none). Do NOT directly push or topple the "
+        "purple domino yourself.")
     return EnvironmentTask(init_state,
                            goal_atoms,
                            goal_nl=goal_nl,
@@ -701,9 +701,9 @@ def _finish_heavy_task(env: "PyBulletDominoComposedEnv", comp: Any,
 
 
 _HEAVY_GOAL_NL = (
-    "Move the blue dominoes so that when the green domino is pushed, "
+    "Arrange the blue dominoes so that when the green domino is pushed, "
     "the purple domino is toppled -- using AS FEW blue dominoes as "
-    "possible. Only the blue dominoes may be moved. Do NOT "
+    "possible (possibly none). Only the blue dominoes may be moved. Do NOT "
     "directly push or topple the purple domino yourself.")
 
 
