@@ -363,6 +363,88 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         if self._domino_component is not None:
             self._domino_component.set_physical_params(**params)
 
+    def get_physical_param_info(self) -> Dict[str, Dict[str, Any]]:
+        """Tunable domino dynamics params (see BaseEnv docstring).
+
+        These are the parameters ``set_domino_physical_params`` accepts;
+        defaults mirror what ``create_domino_block`` bakes into fresh
+        bodies. All are global scalars shared by every (identical)
+        domino body.
+        """
+        comp = self._domino_component
+        if comp is None:
+            return {}
+        friction = comp.domino_friction
+        return {
+            "friction": {
+                "default":
+                friction,
+                "lo":
+                0.01,
+                "hi":
+                2.0,
+                "description":
+                "Lateral (sliding) friction of each domino against the "
+                "table and other dominoes; governs how far a toppling "
+                "domino slides/rotates and whether a cascade propagates.",
+            },
+            "restitution": {
+                "default":
+                0.02,
+                "lo":
+                0.0,
+                "hi":
+                0.9,
+                "description":
+                "Bounciness of domino-domino impacts (the table's "
+                "restitution is 0, and PyBullet combines them "
+                "multiplicatively, so this only manifests in "
+                "domino-on-domino collisions).",
+            },
+            "mass": {
+                "default":
+                comp.domino_mass,
+                "lo":
+                0.005,
+                "hi":
+                1.0,
+                "description":
+                "Mass of each (non-glued) domino in kg. Largely scales "
+                "out of the topple condition for identical dominoes.",
+            },
+            "rolling_friction": {
+                "default":
+                0.006,
+                "lo":
+                0.0,
+                "hi":
+                0.1,
+                "description":
+                "Rolling-friction coefficient; damps edge-rolling of a "
+                "tipping domino.",
+            },
+            "spinning_friction": {
+                "default":
+                friction,
+                "lo":
+                0.01,
+                "hi":
+                2.0,
+                "description":
+                "Spin (yaw) friction against the table; defaults to the "
+                "lateral friction value at body creation.",
+            },
+        }
+
+    def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
+        """Sticky in-place dynamics override (delegates to the domino
+        component's ``set_physical_params``, which re-applies after every
+        reset and body recreation)."""
+        unknown = set(params) - set(self.get_physical_param_info())
+        if unknown:
+            raise ValueError(f"Unknown physical param(s) {sorted(unknown)}.")
+        self.set_domino_physical_params(**params)
+
     def count_movable_blocks_used(self, state: State) -> int:
         """Count movable (blue) dominoes that have toppled in ``state``."""
         comp = self._domino_component

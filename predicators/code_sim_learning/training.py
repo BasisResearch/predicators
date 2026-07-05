@@ -621,6 +621,7 @@ def _solve_lm(
     param_specs: List[ParamSpec],
     max_nfev: int,
     label: str,
+    diff_step: Optional[float] = None,
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """Shared Levenberg-Marquardt core for the per-transition and recurrent MAP
     fits.
@@ -632,6 +633,15 @@ def _solve_lm(
     raises. ``label`` only tags the log lines (e.g. ``per-transition`` vs
     ``recurrent``). The single residual-vector seam is what lets the
     recurrent fit reuse this unchanged.
+
+    ``diff_step`` overrides the relative finite-difference step for the
+    numerical Jacobian (scipy's default ~sqrt(machine eps)). Residuals
+    produced by a physics *simulation* need a much coarser step: a 1e-8
+    relative perturbation of e.g. a friction coefficient is below the
+    contact solver's sensitivity, the rollout comes back bitwise
+    identical, and the Jacobian is identically zero — LM would stall at
+    init. Analytic-formula residuals (the per-transition and recurrent
+    fits) leave this ``None``.
     """
     from scipy.optimize import \
         least_squares  # pylint: disable=import-outside-toplevel
@@ -658,6 +668,7 @@ def _solve_lm(
                                init,
                                method='trf',
                                bounds=(lo, hi),
+                               diff_step=diff_step,
                                max_nfev=max_nfev)
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning("%s LM fit raised %s; skipping.", label, exc)

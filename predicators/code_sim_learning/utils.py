@@ -358,6 +358,28 @@ def read_latent_init(ns: Mapping[str, Any]) -> Optional[Any]:
     return latent_init
 
 
+def read_physical_param_specs(ns: Mapping[str, Any]) -> Optional[List]:
+    """Pull ``PHYSICAL_PARAMS`` (optional) from a simulator namespace.
+
+    ``PHYSICAL_PARAMS`` declares base-sim physical parameters to identify —
+    a sparse subset of what the env reveals via
+    ``get_physical_param_info()`` — as a list of ``ParamSpec`` (init value
+    = the agent's hypothesis, bounds from the revealed info), **or** a
+    zero-arg callable returning such a list (mirroring the callable
+    ``PARAM_SPECS`` pattern). When present, these are fit *jointly* with
+    ``PARAM_SPECS`` against free-running base-sim rollouts
+    (:mod:`predicators.code_sim_learning.physical_sysid`), and a
+    physics-only artifact (no ``PROCESS_RULES``) becomes valid. Returns
+    ``None`` if absent or malformed.
+    """
+    specs = ns.get("PHYSICAL_PARAMS")
+    if callable(specs):
+        specs = specs()
+    if not isinstance(specs, list) or not specs:
+        return None
+    return specs
+
+
 # ── LearnedSimulator ──────────────────────────────────────────────
 
 

@@ -54,6 +54,31 @@ class BaseEnv(abc.ABC):
         """
         raise NotImplementedError("Override me!")
 
+    def get_physical_param_info(self) -> Dict[str, Dict]:
+        """Physical parameters this env exposes for system identification.
+
+        Maps parameter name to a small info dict with keys ``default``
+        (the built-in value), ``lo``/``hi`` (a reasonable fitting box),
+        and ``description``. Envs whose dynamics can be re-parameterized
+        in place advertise their tunable params here and accept values
+        for them via :meth:`apply_physical_param_overrides`. The base
+        class exposes none.
+        """
+        return {}
+
+    def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
+        """Override this env instance's physical dynamics in place.
+
+        ``params`` keys must be a subset of
+        :meth:`get_physical_param_info`. Implementations must make the
+        override *sticky* (survive state resets and body recreation) so
+        an identified value keeps applying during planning rollouts.
+        """
+        if params:
+            raise NotImplementedError(
+                f"{type(self).__name__} exposes no physical parameters "
+                f"(got {sorted(params)}).")
+
     @abc.abstractmethod
     def _generate_train_tasks(self) -> List[EnvironmentTask]:
         """Create an ordered list of tasks for training."""

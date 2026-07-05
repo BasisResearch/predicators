@@ -255,6 +255,7 @@ def test_exploration_mcmc_does_not_replace_solver_params(monkeypatch):
     approach = object.__new__(AgentSimLearningApproach)
     approach._fitted_params = {}
     approach._param_specs = []
+    approach._physical_param_specs = []
     approach._param_ensemble = []
     approach._last_fit_result = None
     approach._fit_sse = float("inf")

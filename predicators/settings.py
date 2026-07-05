@@ -1234,6 +1234,16 @@ class GlobalSettings:
     # Code sim-learning parameter fitting settings.
     # Set to 0 to skip MCMC and use initial parameter values directly.
     code_sim_learning_num_mcmc_steps = 500
+    # MCMC budget for the free-running-rollout system-identification fit
+    # (PHYSICAL_PARAMS, physical_sysid.fit_params_rollout). Each eval is a
+    # full PyBullet rollout of every fit trajectory — orders of magnitude
+    # costlier than a per-transition rule eval — so this budget is kept
+    # separate from the per-transition one above. Default 0 = LM point
+    # fit only (matching the experiments' code_sim_learning_num_mcmc_steps
+    # convention; identifiability then comes from the Laplace covariance
+    # at the LM MAP); set > 0 to sample a full posterior with emcee,
+    # warm-started from the LM MAP.
+    code_sim_learning_rollout_num_mcmc_steps = 0
     # Diagnostic: log the Hessian eigendecomposition at the MAP to
     # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
     code_sim_learning_log_hessian_identifiability = False
