@@ -35,10 +35,9 @@ ENVS:
   #     span with the reach probe if you change domino_true_friction.
   domino:
     NAME: "pybullet_domino"
-    # Skipped in favour of the heavy-block variant below; set SKIP: False
-    # (or delete the line) to run the friction min-block tasks again,
-    # alongside or instead of it.
-    SKIP: True
+    # Active for the friction sysID experiment (the heavy-block variant
+    # below is parked); set SKIP: True to park this one instead.
+    SKIP: False
     FLAGS:
       max_initial_demos: 0
       excluded_objects_in_state_str: "loc,rot,angle,direction"

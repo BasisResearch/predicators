@@ -1,8 +1,8 @@
 ARGS:
   - "debug"
   # - "use_gui"
-  # - "make_failure_videos"
-  # - "make_test_videos"
+  - "make_failure_videos"
+  - "make_test_videos"
   # - "make_demo_videos"
   # - "make_demo_images"  # support images
   # - "make_failure_images"  # query images
