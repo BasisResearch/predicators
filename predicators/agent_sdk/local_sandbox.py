@@ -183,13 +183,10 @@ class LocalSandboxSessionManager:
         allowed_tools = BUILTIN_TOOLS + mcp_tool_list
 
         extra_hooks = dict(self._tool_context.extra_session_hooks or {})
-        # Cap per-response extended thinking so deliberation can't blow the
-        # harness output-token limit (the 32000-token overflow). Keeps the
-        # model's effort otherwise at its default (high).
-        thinking = ({
-            "type": "enabled",
-            "budget_tokens": CFG.agent_sdk_thinking_budget_tokens
-        } if CFG.agent_sdk_thinking_budget_tokens > 0 else None)
+        # Adaptive thinking: the model decides when and how much to think.
+        # budget_tokens is rejected (400) on claude-sonnet-5 and later;
+        # thinking depth is controlled via `effort` below.
+        thinking = {"type": "adaptive"}
         # Reasoning effort: pass through to the agent when set to one of the
         # SDK's accepted levels; "" / "default" leaves it unset.
         effort = CFG.agent_sdk_reasoning_effort.strip().lower()

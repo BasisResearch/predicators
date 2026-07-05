@@ -72,14 +72,9 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
     mcp_tool_list = get_allowed_tool_list(tool_names)
     allowed_tools = BUILTIN_TOOLS + mcp_tool_list
 
-    # Cap per-response extended thinking so deliberation can't blow the
-    # harness output-token limit (the 32000-token overflow). Fed via
-    # query_input (this runner has no CFG); default mirrors settings.
-    thinking_budget = query_input.get("thinking_budget_tokens", 16000)
-    thinking = ({
-        "type": "enabled",
-        "budget_tokens": thinking_budget
-    } if thinking_budget and thinking_budget > 0 else None)
+    # Adaptive thinking: budget_tokens is rejected (400) on claude-sonnet-5
+    # and later; thinking depth is controlled via reasoning_effort.
+    thinking = {"type": "adaptive"}
     # Reasoning effort: one of the SDK levels, or unset for ""/"default".
     effort = str(query_input.get("reasoning_effort", "")).strip().lower()
     reasoning_effort = (effort if effort in {"low", "medium", "high", "max"}
