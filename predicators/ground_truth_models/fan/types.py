@@ -144,7 +144,9 @@ class PyBulletFanGroundTruthTypeFactory(GroundTruthTypeFactory):
             else:
                 new_goal.add(atom)
 
-        return Task(new_init, new_goal, task.alt_goal)
+        # Preserve goal_nl: the agent-with-grid ablation surfaces it to the
+        # LLM even though the symbolic goal is now the grid BallAtLoc.
+        return Task(new_init, new_goal, task.alt_goal, goal_nl=task.goal_nl)
 
     @staticmethod
     def _get_ball_at_loc_predicate(ball_type: Type,

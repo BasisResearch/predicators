@@ -862,11 +862,12 @@ class GlobalSettings:
     # re-refine from the current state and retry, up to this many times. 0
     # disables replanning (the option failure is terminal, as before).
     process_planning_max_execution_replans = 0
-    # Whether non-oracle process-planning approaches (process/param learning,
-    # predicate invention, etc.) augment with the ground-truth helper types,
-    # predicates, and objects (e.g. the domino grid). The oracle always does;
-    # the others opt in via this flag (e.g. for ExoPredicator).
-    process_planning_use_gt_helpers = False
+    # Whether non-oracle planning approaches augment with the ground-truth
+    # helper types, predicates, and objects (e.g. the domino/fan grid). Shared
+    # by both the process-planning family (process/param learning, predicate
+    # invention, ExoPredicator, ...) and the agent-planning family; the oracle
+    # always does regardless, the others opt in via this flag.
+    use_gt_helpers = False
     process_task_planning_heuristic = 'h_ff'
     wait_option_terminate_on_atom_change = True
     running_no_invent_baseline = False

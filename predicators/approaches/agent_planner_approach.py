@@ -28,6 +28,9 @@ from predicators.approaches import ApproachFailure
 from predicators.approaches.base_approach import BaseApproach
 from predicators.explorers import create_explorer
 from predicators.explorers.base_explorer import BaseExplorer
+from predicators.ground_truth_models import \
+    augment_state_with_helper_objects, augment_task_with_helper_objects, \
+    merge_gt_helper_predicates, merge_gt_helper_types
 from predicators.option_model import _OptionModelBase, create_option_model
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, GroundAtom, \
@@ -54,6 +57,17 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
                  **kwargs: Any) -> None:
         super().__init__(initial_predicates, initial_options, types,
                          action_space, train_tasks, *args, **kwargs)
+        # Optionally hand the agent the ground-truth helper scaffolding (e.g.
+        # the domino/fan grid loc/side types and grid predicates), so an
+        # "agent-with-grid" ablation plans over the same vocabulary the oracle
+        # gets. Opt-in via the shared CFG.use_gt_helpers flag; a no-op for envs
+        # without a helper factory or when the flag is off. Merge here (before
+        # the agent session is initialized below) so the session, the solve-time
+        # abstraction, and _get_all_predicates all see the helpers.
+        if self._use_gt_helpers():
+            self._types = merge_gt_helper_types(self._types, CFG.env)
+            self._initial_predicates = merge_gt_helper_predicates(
+                self._initial_predicates, CFG.env)
         self._offline_dataset = Dataset([])
         self._online_trajectories: List[LowLevelTrajectory] = []
         self._option_model: Optional[_OptionModelBase] = (
@@ -62,12 +76,15 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         # Let the option model terminate Wait on atom change using the
         # approach's predicates (which may include invented ones). Looked
         # up lazily so the lambda picks up predicates invented after
-        # __init__.
+        # __init__. When the grid ablation is on, re-derive the helper
+        # objects first so grid predicates (e.g. BallAtLoc) stay evaluable
+        # on the otherwise helper-free execution states.
         if self._option_model is not None and \
                 CFG.wait_option_terminate_on_atom_change:
             cast(  # pylint: disable=protected-access
                 Any, self._option_model)._abstract_function = (
-                    lambda s: utils.abstract(s, self._get_all_predicates()))
+                    lambda s: utils.abstract(self._maybe_augment_state(s),
+                                             self._get_all_predicates()))
         self._online_learning_cycle = 0
         # Synthesized per-skill samplers (option name -> sampler). Empty for
         # the base planner; learning subclasses that synthesize samplers
@@ -95,8 +112,10 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         # matches the state the agent is actually planning from.
         self._last_scene_image_name: Optional[str] = None
 
-        # Initializes _tool_context and _agent_session_id (see mixin).
-        self._init_agent_session_state(types, initial_predicates,
+        # Initializes _tool_context and _agent_session_id (see mixin). Use the
+        # (possibly helper-augmented) vocabulary so the agent session exposes
+        # the grid types/predicates when CFG.use_gt_helpers is on.
+        self._init_agent_session_state(self._types, self._initial_predicates,
                                        initial_options, train_tasks)
 
         # Capture the underlying env once, at construction time. The
@@ -129,6 +148,29 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
     # ------------------------------------------------------------------ #
     # Overridable helpers (for subclass customisation)
     # ------------------------------------------------------------------ #
+
+    def _use_gt_helpers(self) -> bool:
+        """Whether to hand the agent the ground-truth helper scaffolding.
+
+        Opt-in via the shared ``CFG.use_gt_helpers`` flag (also read by
+        the process-planning approaches). When on, the grid helper
+        types/predicates are merged into the agent's vocabulary and the
+        solved task is augmented with the grid objects + oracle goal
+        (see ``__init__`` / ``_solve``).
+        """
+        return CFG.use_gt_helpers
+
+    def _maybe_augment_state(self, state: State) -> State:
+        """Re-derive GT helper objects on a state when the ablation is on.
+
+        Executed states are helper-free (the grid is injected only into
+        the planning task), so this keeps helper predicates evaluable
+        during execution and Wait-on-atom-change termination. No-op when
+        helpers are disabled or the env has no helper factory.
+        """
+        if self._use_gt_helpers():
+            return augment_state_with_helper_objects(state, CFG.env)
+        return state
 
     def _get_all_options(self) -> Set[ParameterizedOption]:
         """Return the full set of options available for planning."""
@@ -485,6 +527,12 @@ scene, then annotate_scene overlays markers on it."""
 
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
         self._sync_tool_context()
+        # When enabled, plan over the oracle's grid-augmented task: inject the
+        # grid loc/side objects and rewrite the goal to the grid BallAtLoc, so
+        # the agent sees the same scaffolding the oracle does. goal_nl is
+        # preserved by the augmentation. No-op otherwise.
+        if self._use_gt_helpers():
+            task = augment_task_with_helper_objects(task, CFG.env)
         self._tool_context.current_task = task
         # Render the initial state so the agent can see the scene layout.
         self._render_initial_state_image(task)
@@ -495,7 +543,9 @@ scene, then annotate_scene overlays markers on it."""
 
         preds = self._get_all_predicates()
         policy = utils.option_plan_to_policy(
-            option_plan, abstract_function=lambda s: utils.abstract(s, preds))
+            option_plan,
+            abstract_function=lambda s: utils.abstract(
+                self._maybe_augment_state(s), preds))
 
         return self._wrap_option_failures(policy)
 

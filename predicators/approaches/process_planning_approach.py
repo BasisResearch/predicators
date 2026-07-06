@@ -11,7 +11,7 @@ from predicators.approaches.bilevel_planning_approach import \
     BilevelPlanningApproach
 from predicators.ground_truth_models import \
     augment_state_with_helper_objects, augment_task_with_helper_objects, \
-    get_gt_helper_predicates, get_gt_helper_types
+    merge_gt_helper_predicates, merge_gt_helper_types
 from predicators.option_model import _OptionModelBase
 from predicators.planning import PlanningFailure, PlanningTimeout
 from predicators.planning_with_processes import ProcessWorldModel, \
@@ -54,23 +54,9 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
         # process-planning approaches opt in via CFG. No-op for envs without
         # a helper factory.
         if self._use_gt_helpers():
-            self._types = self._types | get_gt_helper_types(CFG.env)
-            # Helper predicates take precedence on name collisions (e.g. the
-            # grid's derived InFront replaces the position-based InFront).
-            # A plain set union does NOT enforce this: the two same-named
-            # predicates are ``==``-equal but hash differently (DerivedPredicate
-            # vs Predicate), so both survive the union and ``abstract`` then
-            # evaluates BOTH -- the looser position-based InFront injects
-            # spurious adjacencies (e.g. the start block "in front of" a staged
-            # movable 0.13 m away), which lets the task planner build a
-            # physically-impossible single-block bridge. Drop any base predicate
-            # whose name a helper predicate already provides, then union.
-            helper_preds = get_gt_helper_predicates(CFG.env)
-            helper_names = {p.name for p in helper_preds}
-            self._initial_predicates = helper_preds | {
-                p
-                for p in self._initial_predicates if p.name not in helper_names
-            }
+            self._types = merge_gt_helper_types(self._types, CFG.env)
+            self._initial_predicates = merge_gt_helper_predicates(
+                self._initial_predicates, CFG.env)
 
         # Conditionally load VLM components if an abstract policy is used.
         self._vlm = None
@@ -94,11 +80,11 @@ class BilevelProcessPlanningApproach(BilevelPlanningApproach):
         types/predicates/objects.
 
         The oracle always uses them (overrides this to return True);
-        other process-planning approaches opt in via
-        ``CFG.process_planning_use_gt_helpers`` (e.g. for
-        ExoPredicator).
+        other process-planning approaches opt in via the shared
+        ``CFG.use_gt_helpers`` flag (also read by the agent-planning
+        approaches, e.g. for ExoPredicator).
         """
-        return CFG.process_planning_use_gt_helpers
+        return CFG.use_gt_helpers
 
     @abc.abstractmethod
     def _get_current_processes(self) -> Set[CausalProcess]:

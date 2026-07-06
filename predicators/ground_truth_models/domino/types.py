@@ -167,5 +167,6 @@ class PyBulletDominoGroundTruthTypeFactory(GroundTruthTypeFactory):
         # Create the new initial state
         new_init = PyBulletState(new_state_data, task.init.simulator_state)
 
-        # Return new task with augmented initial state
-        return Task(new_init, task.goal, task.alt_goal)
+        # Return new task with augmented initial state (preserve goal_nl so an
+        # agent-with-grid ablation still surfaces the NL goal to the LLM).
+        return Task(new_init, task.goal, task.alt_goal, goal_nl=task.goal_nl)
