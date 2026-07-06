@@ -35,13 +35,13 @@ ENVS:
   #     span with the reach probe if you change domino_true_friction.
   domino:
     NAME: "pybullet_domino"
-    # Active for the friction sysID experiment (the heavy-block variant
-    # below is parked); set SKIP: True to park this one instead.
+    # Parked by default; exp_domino.yaml un-skips it for the friction
+    # sysID experiment (the heavy-block variant below stays parked).
     SKIP: True
     FLAGS:
       max_initial_demos: 0
       excluded_objects_in_state_str: "loc,rot,angle,direction"
-      # excluded_predicates is set per-approach: agents.yaml excludes
+      # excluded_predicates is set per-approach: exp_domino.yaml excludes
       # these (test ours); oracle.yaml leaves them in (test oracle).
       horizon: 500
       domino_initialize_at_finished_state: False
@@ -69,7 +69,7 @@ ENVS:
   #   FLAGS:
   #     max_initial_demos: 0
   #     excluded_objects_in_state_str: "loc,rot,angle,direction"
-  #     # excluded_predicates is set per-approach: agents.yaml excludes
+  #     # excluded_predicates is set per-approach: exp_domino.yaml excludes
   #     # these (test ours); oracle.yaml leaves them in (test oracle).
   #     horizon: 500
   #     domino_initialize_at_finished_state: False
@@ -116,6 +116,8 @@ ENVS:
   #     boil_num_jugs_test: [1]
   fan:
     NAME: "pybullet_fan"
+    # Parked by default; exp_fan.yaml and oracle.yaml un-skip it.
+    SKIP: True
     FLAGS:
       max_initial_demos: 1
       excluded_objects_in_state_str: "switch"

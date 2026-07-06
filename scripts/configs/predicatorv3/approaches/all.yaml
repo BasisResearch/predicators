@@ -1,6 +1,6 @@
 # Canonical menu of approaches (the "arms"). Every approach is defined here
 # exactly once and parked with SKIP: True by default. Thin launcher configs
-# (oracle.yaml, agents.yaml, exp_*.yaml) include this file and only flip the
+# (oracle.yaml, exp_*.yaml) include this file and only flip the
 # SKIP of the arm(s) they want to run, plus any per-experiment ENVS overrides.
 #
 # Arms are grouped by how much ground truth (GT) they are handed vs. what they

@@ -1,0 +1,20 @@
+# Thin launcher: run the domino friction-sysID experiment ("ours" arm).
+# Usage: python scripts/local/launch_simp.py -c predicatorv3/exp_domino.yaml --parallel
+# Env definitions live in envs/all.yaml and approach definitions in
+# approaches/all.yaml (all parked by default); this file only un-skips the
+# env + arm(s) it runs and sets agent-specific ENVS overrides.
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+# Agent-only env overrides: deep-merged on top of envs/all.yaml. These
+# excluded_predicates are dropped for "ours" runs but kept for oracle.yaml.
+ENVS:
+  domino:
+    SKIP: False
+    FLAGS:
+      excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
+APPROACHES:
+  agent_po_predicate_invention_al:
+    SKIP: False
