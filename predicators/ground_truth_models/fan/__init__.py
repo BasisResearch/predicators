@@ -1,11 +1,15 @@
-"""Ground-truth models for coffee environment and variants."""
+"""Ground-truth models for the fan environment."""
 
 from .nsrts import PyBulletFanGroundTruthNSRTFactory
 from .options import PyBulletFanGroundTruthOptionFactory
+from .predicates import PyBulletFanGroundTruthPredicateFactory
 from .processes import PyBulletFanGroundTruthProcessFactory
+from .types import PyBulletFanGroundTruthTypeFactory
 
 __all__ = [
     "PyBulletFanGroundTruthNSRTFactory",
     "PyBulletFanGroundTruthOptionFactory",
+    "PyBulletFanGroundTruthPredicateFactory",
     "PyBulletFanGroundTruthProcessFactory",
+    "PyBulletFanGroundTruthTypeFactory",
 ]

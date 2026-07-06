@@ -10,8 +10,8 @@ from predicators import utils
 from predicators.envs import BaseEnv, get_or_create_env
 from predicators.settings import CFG
 from predicators.structs import NSRT, CausalProcess, EndogenousProcess, \
-    LiftedDecisionList, OptionSampler, ParameterizedOption, Predicate, Task, \
-    Type
+    LiftedDecisionList, OptionSampler, ParameterizedOption, Predicate, State, \
+    Task, Type
 
 
 class GroundTruthOptionFactory(abc.ABC):
@@ -161,6 +161,17 @@ class GroundTruthTypeFactory(abc.ABC):
         add environment-specific helper objects to the initial state.
         """
         return task
+
+    @classmethod
+    def augment_state_with_helper_objects(cls, state: State) -> State:
+        """Augment a single state with helper objects and features.
+
+        By default, returns the state unchanged. Override to re-derive
+        helper objects on execution states (e.g. so closed-loop oracle
+        policies can keep evaluating helper predicates when the executed
+        state is otherwise helper-free).
+        """
+        return state
 
 
 class GroundTruthPredicateFactory(abc.ABC):
@@ -369,6 +380,20 @@ def augment_task_with_helper_objects(task: Task, env_name: str) -> Task:
             factory = cls()
             return factory.augment_task_with_helper_objects(task)
     return task
+
+
+def augment_state_with_helper_objects(state: State, env_name: str) -> State:
+    """Augment a state with environment-specific helper objects if defined.
+
+    Returns the state unchanged if no helper augmentation is defined for
+    this environment. Used to re-derive helper objects on execution states
+    so closed-loop oracle policies can keep evaluating helper predicates.
+    """
+    for cls in utils.get_all_subclasses(GroundTruthTypeFactory):
+        if not cls.__abstractmethods__ and env_name in cls.get_env_names():
+            factory = cls()
+            return factory.augment_state_with_helper_objects(state)
+    return state
 
 
 def get_gt_helper_predicates(env_name: str) -> Set[Predicate]:
