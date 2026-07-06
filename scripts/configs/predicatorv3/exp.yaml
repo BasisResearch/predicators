@@ -1,0 +1,26 @@
+# Thin launcher: run the "ours" agent arm.
+# Usage: python scripts/local/launch_simp.py -c predicatorv3/agents.yaml
+# Approach definitions live in approaches/all.yaml; this file only un-skips
+# the arm(s) it runs and sets agent-specific ENVS overrides. To run a
+# baseline sweep, flip additional arms' SKIP to False here (or copy this
+# file to an exp_*.yaml).
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+# Agent-only env overrides: deep-merged on top of envs/all.yaml. These
+# excluded_predicates are dropped for "ours" runs but kept for oracle.yaml.
+ENVS:
+  domino:
+    FLAGS:
+      excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
+  # fan: no agent-specific excluded_predicates. The grid predicates
+  # (BallAtLoc / ClearLoc / SideOf / FanFacingSide / OppositeFan) are now
+  # helper-only (injected for the oracle), so they are not in env.predicates
+  # and the agent already runs grid-free over the physical vocabulary.
+APPROACHES:
+  agent_oracle_hybrid_sim:
+    SKIP: False
+  agent_po_predicate_invention_al:
+    SKIP: True
