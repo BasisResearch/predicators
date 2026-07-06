@@ -447,8 +447,17 @@ def _probe_posterior_widths(
     ``SSE(x±d) - SSE(x) ≈ c·d²`` ⇒ posterior precision ``c/noise²`` ⇒
     ``post_std = noise/sqrt(c)``. A flat direction (no SSE increase over
     the whole prior scale) yields ``inf`` ⇒ contraction ≥ 1 ⇒ "NOT
-    identified". Robust to contact-solver micro-chaos because the probe
-    step is the *prior* scale, not a finite-difference scale.
+    identified".
+
+    The probe is noise-aware: chaotic contact rollouts are not perfectly
+    repeatable (residual sub-tolerance state between evaluations gets
+    amplified), so the SSE at the MAP is evaluated three times and the
+    observed same-theta spread is subtracted from every perturbation's
+    SSE increase before it counts as curvature. Without this, the jitter
+    itself reads as curvature and every parameter is declared identified
+    — the failure mode of run_20260705_203314, where a ~5k prior-scale
+    d_sse sat inside a ~±8k same-theta noise floor yet reported
+    contraction 0.00 on all params.
     """
     point = result.point_estimate
     noise = result.noise_sigma if result.noise_sigma else 0.05
@@ -461,7 +470,14 @@ def _probe_posterior_widths(
         }
     else:
         bounds = {}
-    sse0 = sse_fn(dict(point))
+    sse0_evals = [sse_fn(dict(point)) for _ in range(3)]
+    sse0 = float(np.median(sse0_evals))
+    noise_floor = float(np.max(sse0_evals) - np.min(sse0_evals))
+    if noise_floor > 0:
+        logger.info(
+            "Identifiability probe: same-theta SSE noise floor %.4f "
+            "(MAP evals: %s); curvature below it is discounted.", noise_floor,
+            [f"{v:.4f}" for v in sse0_evals])
     widths: List[float] = []
     for i, name in enumerate(result.names):
         sigma = float(result.prior_sigma[i])
@@ -475,7 +491,7 @@ def _probe_posterior_widths(
                 continue
             pert = dict(point)
             pert[name] = x + sgn * delta
-            d_sse = max(sse_fn(pert) - sse0, 0.0)
+            d_sse = max(sse_fn(pert) - sse0 - noise_floor, 0.0)
             curvatures.append(d_sse / delta**2)
         c = float(np.mean(curvatures)) if curvatures else 0.0
         widths.append(noise / np.sqrt(c) if c > 0 else float("inf"))
