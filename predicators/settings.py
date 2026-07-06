@@ -100,6 +100,10 @@ class GlobalSettings:
     blocks_block_size = 0.045  # use 0.0505 for real with panda
     blocks_high_towers_are_unstable = False
 
+    # hanoi (towers of hanoi) env parameters
+    hanoi_num_disks_train = [3]
+    hanoi_num_disks_test = [3]
+
     # balance env parameters
     balance_num_blocks_train = [2, 4]
     balance_num_blocks_test = [4, 6]
