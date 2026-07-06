@@ -37,7 +37,7 @@ ENVS:
     NAME: "pybullet_domino"
     # Active for the friction sysID experiment (the heavy-block variant
     # below is parked); set SKIP: True to park this one instead.
-    SKIP: False
+    SKIP: True
     FLAGS:
       max_initial_demos: 0
       excluded_objects_in_state_str: "loc,rot,angle,direction"
@@ -114,12 +114,12 @@ ENVS:
   #     boil_water_fill_speed: 0.0015
   #     pybullet_birrt_path_subsample_ratio: 2
   #     boil_num_jugs_test: [1]
-  # fan:
-  #   NAME: "pybullet_fan"
-  #   FLAGS:
-  #     max_initial_demos: 1
-  #     excluded_objects_in_state_str: "switch"
-  #     terminate_on_goal_reached: True
-  #     process_planning_heuristic_weight: 10.0
-  #     horizon: 500
-  #     pybullet_birrt_path_subsample_ratio: 2
+  fan:
+    NAME: "pybullet_fan"
+    FLAGS:
+      max_initial_demos: 1
+      excluded_objects_in_state_str: "switch"
+      terminate_on_goal_reached: True
+      process_planning_heuristic_weight: 10.0
+      horizon: 500
+      pybullet_birrt_path_subsample_ratio: 2
