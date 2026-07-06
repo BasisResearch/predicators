@@ -1244,6 +1244,31 @@ class GlobalSettings:
     # at the LM MAP); set > 0 to sample a full posterior with emcee,
     # warm-started from the LM MAP.
     code_sim_learning_rollout_num_mcmc_steps = 0
+    # Truncate each rollout-fit trajectory once the scored features have
+    # settled (physical_sysid.truncate_settled_tail): keep everything up
+    # to the last observed motion plus a margin, drop the static tail.
+    # Rationale: a free-running rollout diverges chaotically from the
+    # recording over hundreds of contact steps, and a long settled tail
+    # only re-scores that accumulated divergence every step, drowning
+    # the physical-parameter signal (run_20260705_203314: SSE at the
+    # TRUE friction exceeded SSE at the wrong one on full 500-step
+    # trajectories). Domino-style trajectories (push -> cascade ->
+    # long static settle) lose no information to the cut.
+    code_sim_learning_rollout_truncate_settled = True
+    # Per-step observed feature delta that counts as "still moving"
+    # (meters / radians; settled dominoes jitter ~1e-5, a toppling one
+    # moves ~1e-2/step).
+    code_sim_learning_rollout_settle_tol = 1e-3
+    # Steps kept after the last observed motion, so the rollout is still
+    # scored on coming to rest at the right pose.
+    code_sim_learning_rollout_settle_margin = 20
+    # Candidates per physical parameter for the coarse grid sweep that
+    # seeds the rollout LM start (0 disables). Needed because the
+    # rollout SSE can be locally flat at the declared init (domino
+    # topple reach saturates above friction ~0.5), stalling LM's finite
+    # differences even on informative data; the sweep costs
+    # num_points+1 rollout evals per physical param.
+    code_sim_learning_rollout_grid_seed_points = 7
     # Diagnostic: log the Hessian eigendecomposition at the MAP to
     # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
     code_sim_learning_log_hessian_identifiability = False

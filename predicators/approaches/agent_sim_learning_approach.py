@@ -39,7 +39,7 @@ from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     posterior_subsample_ensemble
 from predicators.code_sim_learning.physical_sysid import RolloutTrajectory, \
     compute_rollout_sse, fit_params_rollout, format_identifiability, \
-    identifiability_report
+    identifiability_report, truncate_settled_tail
 from predicators.code_sim_learning.training import FitResult, ParamSpec, \
     compute_sse, compute_sse_recurrent, fit_params, fit_params_recurrent, \
     log_sse_breakdown
@@ -1013,16 +1013,38 @@ the tools."""
                                              skip_process_dynamics=True)
         return self._sysid_env
 
-    def _rollout_fit_trajectories(self) -> List[RolloutTrajectory]:
+    def _rollout_fit_trajectories(
+        self,
+        process_features: Optional[Dict[str, List[str]]] = None,
+    ) -> List[RolloutTrajectory]:
         """Raw observed (states, actions) sequences for rollout matching.
 
         Unlike ``base_pred_triples`` these keep each trajectory whole, so
         momentum can accrue across steps in the free-running rollout.
+        When ``process_features`` is given (the fit's scored features)
+        and ``CFG.code_sim_learning_rollout_truncate_settled`` is on,
+        each trajectory's static tail is cut (see
+        :func:`physical_sysid.truncate_settled_tail`) so the fit scores
+        the active cascade, not hundreds of settled steps of accumulated
+        rollout divergence.
         """
         rollouts: List[RolloutTrajectory] = []
         for traj in self._fit_trajectories:
             if traj.actions and len(traj.states) == len(traj.actions) + 1:
                 rollouts.append((list(traj.states), list(traj.actions)))
+        if (process_features is not None
+                and CFG.code_sim_learning_rollout_truncate_settled
+                and rollouts):
+            truncated = [
+                truncate_settled_tail(r, process_features) for r in rollouts
+            ]
+            logger.info(
+                "Rollout sysID: settled-tail truncation %s (tol=%g, "
+                "margin=%d).", ", ".join(f"{len(r[1])}->{len(t[1])}"
+                                         for r, t in zip(rollouts, truncated)),
+                CFG.code_sim_learning_rollout_settle_tol,
+                CFG.code_sim_learning_rollout_settle_margin)
+            rollouts = truncated
         return rollouts
 
     def _apply_identified_physical_params(
@@ -1063,7 +1085,7 @@ the tools."""
         physical_specs = self._physical_param_specs
         physical_names = [s.name for s in physical_specs]
         fit_env = self._get_rollout_fit_env()
-        rollouts = self._rollout_fit_trajectories()
+        rollouts = self._rollout_fit_trajectories(process_features)
         init_params = {
             s.name: s.init_value
             for s in physical_specs + rule_specs

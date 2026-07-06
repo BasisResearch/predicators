@@ -2855,7 +2855,8 @@ def create_synthesis_tools(
                 f"[{version_tag}] Error: PHYSICAL_PARAMS requires a bound "
                 "approach (raw trajectories + base env) — unavailable in "
                 "this session.")
-        rollouts = approach._rollout_fit_trajectories()  # pylint: disable=protected-access
+        rollouts = approach._rollout_fit_trajectories(  # pylint: disable=protected-access
+            process_features)
         if not rollouts:
             return _text(
                 f"[{version_tag}] Error: no complete (states, actions) "

@@ -102,6 +102,63 @@ def _zero_all_velocities(base_env: Any) -> None:
                               physicsClientId=pcid)
 
 
+def truncate_settled_tail(
+    trajectory: RolloutTrajectory,
+    process_features: Dict[str, List[str]],
+    motion_tol: Optional[float] = None,
+    margin: Optional[int] = None,
+) -> RolloutTrajectory:
+    """Cut a recorded trajectory once its scored features have settled.
+
+    Scans the OBSERVED per-step deltas of the ``process_features`` and
+    keeps everything up to the last step where any of them moved by more
+    than ``motion_tol``, plus a ``margin`` of settle steps (so the
+    rollout is still scored on coming to rest at the right pose). The
+    static remainder is dropped: it contains no physics signal — the
+    scored bodies no longer move — but re-scores whatever pose
+    divergence the free-running rollout has accumulated on every
+    remaining step, which is exactly the chaos-amplification term that
+    drowned the friction signal in run_20260705_203314. Intermediate
+    still phases are safe: the cut is anchored to the LAST motion, so a
+    push -> settle -> second push trajectory keeps both pushes.
+
+    A trajectory whose scored features never move carries no signal at
+    all; it is truncated to the first ``margin`` steps (kept non-empty
+    so callers' trajectory counts stay meaningful) and logged.
+    """
+    if motion_tol is None:
+        motion_tol = CFG.code_sim_learning_rollout_settle_tol
+    if margin is None:
+        margin = CFG.code_sim_learning_rollout_settle_margin
+    states, actions = trajectory
+    last_active = -1
+    for i in range(len(actions)):
+        s_prev, s_next = states[i], states[i + 1]
+        prev_by_name = {o.name: o for o in s_prev}
+        for obj in s_next:
+            feats = process_features.get(obj.type.name, [])
+            prev_obj = prev_by_name.get(obj.name)
+            if not feats or prev_obj is None:
+                continue
+            if any(
+                    abs(
+                        float(s_next.get(obj, f)) -
+                        float(s_prev.get(prev_obj, f))) > motion_tol
+                    for f in feats):
+                last_active = i
+                break
+    if last_active < 0:
+        logger.warning(
+            "truncate_settled_tail: no scored feature ever moved more than "
+            "%g in a %d-step trajectory; keeping only the first %d steps "
+            "(the trajectory carries no physical-parameter signal).",
+            motion_tol, len(actions), margin)
+    keep = min(len(actions), last_active + 1 + margin)
+    if keep >= len(actions):
+        return trajectory
+    return states[:keep + 1], actions[:keep]
+
+
 def rollout_states(base_env: Any, init_state: State, actions: List[Action],
                    physical_params: Dict[str, float]) -> List[State]:
     """Free-run the base sim from ``init_state`` under ``actions``.
@@ -269,6 +326,63 @@ def fit_map_lm_rollout(
                      diff_step=_ROLLOUT_LM_DIFF_STEP)
 
 
+def _grid_seed_physical_specs(
+    base_env: Any,
+    trajectories: List[RolloutTrajectory],
+    physical_specs: Sequence[ParamSpec],
+    process_features: Dict[str, List[str]],
+    rules: Sequence[Any],
+    rule_specs: Sequence[ParamSpec],
+    latent_init: Any,
+) -> List[ParamSpec]:
+    """Relocate each physical param's LM start via a coarse grid sweep.
+
+    The rollout SSE landscape can be flat around the declared init — for
+    the domino env, topple reach saturates above friction ~0.5, so from
+    an init of 0.5 the LM finite differences see no gradient and the fit
+    stalls even on clean, informative data (verified 2026-07-06). One
+    coarse sweep per physical parameter (greedy, in declaration order,
+    other params held at their current values, the declared init always
+    among the candidates) relocates the LM start into the best-scoring
+    basin; LM then polishes locally. This only changes the optimizer's
+    starting point — the Gaussian prior stays centered on the declared
+    init, so the posterior and identifiability semantics are unchanged.
+    Rule params are not swept (they fit fine locally and gridding them
+    would explode combinatorially).
+    """
+    num_points = CFG.code_sim_learning_rollout_grid_seed_points
+    physical_names = [s.name for s in physical_specs]
+    current = {
+        s.name: s.init_value
+        for s in list(physical_specs) + list(rule_specs)
+    }
+    seeded: List[ParamSpec] = []
+    for spec in physical_specs:
+        assert spec.lo is not None and spec.hi is not None, \
+            "Grid seeding needs bounded physical params."
+        candidates = [
+            float(v) for v in np.linspace(spec.lo, spec.hi, num_points)
+        ]
+        candidates.append(float(spec.init_value))
+        best_val, best_sse = float(spec.init_value), float("inf")
+        for cand in candidates:
+            trial = dict(current)
+            trial[spec.name] = cand
+            sse = compute_rollout_sse(base_env, trajectories, trial,
+                                      process_features, physical_names, rules,
+                                      latent_init)
+            if sse < best_sse:
+                best_sse, best_val = sse, cand
+        if best_val != spec.init_value:
+            logger.info(
+                "Rollout grid seed: %s LM start %.4f -> %.4f "
+                "(best of %d candidates, SSE %.4f).", spec.name,
+                spec.init_value, best_val, len(candidates), best_sse)
+        current[spec.name] = best_val
+        seeded.append(ParamSpec(spec.name, best_val, lo=spec.lo, hi=spec.hi))
+    return seeded
+
+
 def fit_params_rollout(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
@@ -314,12 +428,21 @@ def fit_params_rollout(
     lo, hi = _param_bounds(all_specs)
     prior_sigma = _prior_widths(init_values, lo, hi, prior_sigma_scale)
 
+    # Coarse grid sweep to place the LM start in the right basin (the
+    # prior stays centered on the declared inits — see
+    # _grid_seed_physical_specs for why LM alone can stall).
+    lm_physical_specs = list(physical_specs)
+    if (CFG.code_sim_learning_rollout_grid_seed_points > 0 and trajectories):
+        lm_physical_specs = _grid_seed_physical_specs(
+            base_env, trajectories, physical_specs, process_features, rules,
+            rule_specs, latent_init)
+
     # One-shot rollout LM fit (see _lm_prefit for its three uses). With
     # the default rollout MCMC budget of 0 this LM MAP *is* the fit.
     walker_center, lm_theta, lm_jac = _lm_prefit(
         lambda: fit_map_lm_rollout(
-            base_env, trajectories, physical_specs, process_features, rules,
-            rule_specs, latent_init), lambda p: compute_rollout_sse(
+            base_env, trajectories, lm_physical_specs, process_features,
+            rules, rule_specs, latent_init), lambda p: compute_rollout_sse(
                 base_env, trajectories, p, process_features, physical_names,
                 rules, latent_init), names, init_values, noise_sigma,
         prior_sigma, "rollout")
