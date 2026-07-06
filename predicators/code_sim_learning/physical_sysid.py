@@ -75,18 +75,31 @@ _ROLLOUT_LM_DIFF_STEP = 2e-2
 
 
 def _zero_all_velocities(base_env: Any) -> None:
-    """Zero linear+angular velocity of every body in the env's client.
+    """Zero every velocity in the env's client: base velocities of all bodies
+    AND joint velocities of articulated bodies (the robot arm).
 
-    ``_set_state`` rewrites poses but leaves velocities untouched, so without
-    this a rollout would inherit residual momentum from a previous rollout and
-    no longer start at rest. Fixed-base bodies (tables, walls, the robot base)
-    ignore the reset, so blanket-zeroing is safe.
+    ``_set_state`` rewrites poses but leaves velocities untouched, and
+    its per-component diff skips joints whose positions already match
+    the requested state, so without this a rollout inherits residual
+    momentum from the previous rollout and no longer starts at rest. The
+    joint pass matters as much as the base pass: measured up to ~1.8
+    rad/s residual arm-joint velocity between rollouts, which chaotic
+    contact amplifies into a 20-40% same-theta SSE jitter
+    (run_20260705_203314). Fixed-base bodies ignore the base reset and
+    fixed joints ignore the joint reset, so blanket-zeroing is safe.
     """
     pcid = base_env._physics_client_id  # pylint: disable=protected-access
     for i in range(p.getNumBodies(physicsClientId=pcid)):
         bid = p.getBodyUniqueId(i, physicsClientId=pcid)
         p.resetBaseVelocity(bid, [0.0, 0.0, 0.0], [0.0, 0.0, 0.0],
                             physicsClientId=pcid)
+        for j in range(p.getNumJoints(bid, physicsClientId=pcid)):
+            pos = p.getJointState(bid, j, physicsClientId=pcid)[0]
+            p.resetJointState(bid,
+                              j,
+                              pos,
+                              targetVelocity=0.0,
+                              physicsClientId=pcid)
 
 
 def rollout_states(base_env: Any, init_state: State, actions: List[Action],
