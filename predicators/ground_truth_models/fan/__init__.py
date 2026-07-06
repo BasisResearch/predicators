@@ -1,5 +1,6 @@
 """Ground-truth models for the fan environment."""
 
+from .gt_simulator import PyBulletFanGroundTruthSimulatorFactory
 from .nsrts import PyBulletFanGroundTruthNSRTFactory
 from .options import PyBulletFanGroundTruthOptionFactory
 from .predicates import PyBulletFanGroundTruthPredicateFactory
@@ -11,5 +12,6 @@ __all__ = [
     "PyBulletFanGroundTruthOptionFactory",
     "PyBulletFanGroundTruthPredicateFactory",
     "PyBulletFanGroundTruthProcessFactory",
+    "PyBulletFanGroundTruthSimulatorFactory",
     "PyBulletFanGroundTruthTypeFactory",
 ]
