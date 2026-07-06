@@ -38,8 +38,9 @@ from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     mean_bernoulli_entropy, perturbation_ensemble, \
     posterior_subsample_ensemble
 from predicators.code_sim_learning.physical_sysid import RolloutTrajectory, \
-    compute_rollout_sse, fit_params_rollout, format_identifiability, \
-    identifiability_report, truncate_settled_tail
+    compute_rollout_sse, fit_params_rollout, fit_params_rollout_trimmed, \
+    format_identifiability, identifiability_report, \
+    select_trustworthy_params, truncate_settled_tail
 from predicators.code_sim_learning.training import FitResult, ParamSpec, \
     compute_sse, compute_sse_recurrent, fit_params, fit_params_recurrent, \
     log_sse_breakdown
@@ -1110,31 +1111,37 @@ the tools."""
                                       process_features, physical_names, rules,
                                       self._latent_init)
         logger.info("Rollout sysID — pre-SSE: %.6f", pre_sse)
-        result = fit_params_rollout(fit_env,
-                                    rollouts,
-                                    physical_specs,
-                                    process_features,
-                                    rules=rules,
-                                    rule_specs=rule_specs,
-                                    latent_init=self._latent_init,
-                                    num_steps=num_steps)
+        result, survivors, _rms = fit_params_rollout_trimmed(
+            fit_env,
+            rollouts,
+            physical_specs,
+            process_features,
+            rules=rules,
+            rule_specs=rule_specs,
+            latent_init=self._latent_init,
+            num_steps=num_steps)
+        # Post-SSE and the identifiability probe are computed on the
+        # SURVIVING trajectories: a trimmed (unexplainable) recording
+        # would otherwise re-poison the verdicts with its noise. With no
+        # survivors, keep the full set so the probe sees the noise and
+        # reports NOT identified, and the guard below keeps the inits.
+        probe_rollouts = survivors if survivors else rollouts
         fitted = result.point_estimate
-        post_sse = compute_rollout_sse(fit_env, rollouts, fitted,
+        post_sse = compute_rollout_sse(fit_env, probe_rollouts, fitted,
                                        process_features, physical_names, rules,
                                        self._latent_init)
         logger.info("Rollout sysID — post-SSE: %.6f", post_sse)
 
         def rollout_sse_fn(params: Dict[str, float]) -> float:
-            return compute_rollout_sse(fit_env, rollouts, params,
+            return compute_rollout_sse(fit_env, probe_rollouts, params,
                                        process_features, physical_names, rules,
                                        self._latent_init)
 
-        logger.info(
-            "Identifiability (posterior/prior contraction):\n%s",
-            format_identifiability(
-                identifiability_report(result, rollout_sse_fn,
-                                       list(physical_specs) +
-                                       list(rule_specs))))
+        report = identifiability_report(
+            result, rollout_sse_fn,
+            list(physical_specs) + list(rule_specs))
+        logger.info("Identifiability (posterior/prior contraction):\n%s",
+                    format_identifiability(report))
         for name in sorted(fitted):
             init_val = init_params[name]
             fit_val = fitted[name]
@@ -1143,8 +1150,8 @@ the tools."""
             logger.info("  %-30s  %.4f -> %.4f  (Δ=%.4f, %+.1f%%)", name,
                         init_val, fit_val, delta, pct)
         self._apply_identified_physical_params(
-            {n: fitted[n]
-             for n in physical_names})
+            select_trustworthy_params(fitted, init_params, physical_names,
+                                      report))
         return result, post_sse
 
     # ── Partial-observability (latent) support ───────────────────

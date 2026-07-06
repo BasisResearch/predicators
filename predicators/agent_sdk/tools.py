@@ -2718,8 +2718,9 @@ def create_synthesis_tools(
     from predicators.approaches.agent_sim_learning_approach import \
         AgentSimLearningApproach
     from predicators.code_sim_learning.physical_sysid import \
-        compute_rollout_sse, fit_params_rollout, format_identifiability, \
-        identifiability_report
+        compute_rollout_sse, fit_params_rollout_trimmed, \
+        format_identifiability, identifiability_report, \
+        select_trustworthy_params
     from predicators.code_sim_learning.synthesis_validation import \
         run_refinement_for_synthesis
     from predicators.code_sim_learning.training import ParamSpec, \
@@ -2873,22 +2874,41 @@ def create_synthesis_tools(
             pre_sse = compute_rollout_sse(fit_env, rollouts, init_params,
                                           process_features, physical_names,
                                           rules, latent_init)
-            fit_result = fit_params_rollout(fit_env,
-                                            rollouts,
-                                            physical_specs,
-                                            process_features,
-                                            rules=rules,
-                                            rule_specs=rule_specs,
-                                            latent_init=latent_init)
+            fit_result, survivors, traj_rms = fit_params_rollout_trimmed(
+                fit_env,
+                rollouts,
+                physical_specs,
+                process_features,
+                rules=rules,
+                rule_specs=rule_specs,
+                latent_init=latent_init)
+            # Post-SSE and the identifiability probe run on the SURVIVING
+            # trajectories only — a trimmed (unexplainable) recording
+            # would re-poison the verdicts with its noise. With no
+            # survivors, keep the full set so the probe reports NOT
+            # identified and the trustworthiness guard keeps the inits.
+            probe_rollouts = survivors if survivors else rollouts
             fitted = fit_result.point_estimate
-            post_sse = compute_rollout_sse(fit_env, rollouts, fitted,
+            post_sse = compute_rollout_sse(fit_env, probe_rollouts, fitted,
                                            process_features, physical_names,
                                            rules, latent_init)
         except Exception as e:  # pylint: disable=broad-except
             return _text(
                 f"[{version_tag}] Error: rollout system-ID fit failed:\n{e}")
-        identified = {n: fitted[n] for n in physical_names}
-        approach._apply_identified_physical_params(identified)  # pylint: disable=protected-access
+
+        def rollout_sse_fn(params: Dict[str, float]) -> float:
+            return compute_rollout_sse(fit_env, probe_rollouts, params,
+                                       process_features, physical_names, rules,
+                                       latent_init)
+
+        ident_report = identifiability_report(
+            fit_result, rollout_sse_fn,
+            list(physical_specs) + list(rule_specs))
+        applied = select_trustworthy_params(fitted, init_params,
+                                            physical_names, ident_report)
+        approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access
+        kept_at_init = sorted(n for n in physical_names
+                              if applied[n] != fitted[n])
         if pre_sse > 0:
             pct_str = f"({(pre_sse - post_sse) / pre_sse * 100:+.1f}% vs init)"
         else:
@@ -2904,6 +2924,19 @@ def create_synthesis_tools(
             "",
             "Fitted parameters:",
         ]
+        if len(survivors) < len(rollouts):
+            rms_str = ", ".join(f"{r:.4g}" for r in traj_rms)
+            lines.insert(
+                1,
+                f"Goodness-of-fit trimming: {len(rollouts) - len(survivors)}"
+                f" of {len(rollouts)} trajectories were unexplainable at ANY "
+                "candidate params (per-trajectory best-achievable RMS: "
+                f"[{rms_str}]) and were dropped before fitting; the fit "
+                "below used only the explainable ones. If NONE survived, no "
+                "fit ran and the declared inits were kept — collect cleaner "
+                "interaction data (e.g. pushes near the top of the domino, "
+                "which topple cleanly, rather than center-height pushes "
+                "that shove chaotically).")
         for name in sorted(fitted):
             init_val = init_params[name]
             fit_val = fitted[name]
@@ -2913,26 +2946,28 @@ def create_synthesis_tools(
             lines.append(f"  {name:<28} [{kind:<8}] {init_val:.4f} -> "
                          f"{fit_val:.4f}  (delta={delta:+.4f}, {ppct:+.1f}%)")
 
-        def rollout_sse_fn(params: Dict[str, float]) -> float:
-            return compute_rollout_sse(fit_env, rollouts, params,
-                                       process_features, physical_names, rules,
-                                       latent_init)
-
         lines.extend([
             "",
             "Identifiability (posterior_std / prior_std; ~1 means the data "
             "did NOT constrain the parameter — its fitted value is "
             "arbitrary, so remove it from PHYSICAL_PARAMS or collect data "
             "that exercises it):",
-            format_identifiability(
-                identifiability_report(fit_result, rollout_sse_fn,
-                                       list(physical_specs) +
-                                       list(rule_specs))),
+            format_identifiability(ident_report),
             "",
-            "The identified physical params were applied to the planning "
-            "base env; evaluate_plan_refinement now plans against the "
-            "calibrated sim.",
         ])
+        if kept_at_init:
+            lines.append(
+                "Applied to the planning base env: fitted values for the "
+                "identified params only; "
+                f"{', '.join(kept_at_init)} did not contract, so the "
+                "declared init(s) were kept (the fitted values above for "
+                "them are arbitrary). evaluate_plan_refinement now plans "
+                "against the partially calibrated sim.")
+        else:
+            lines.append(
+                "The identified physical params were applied to the "
+                "planning base env; evaluate_plan_refinement now plans "
+                "against the calibrated sim.")
         return _text("\n".join(lines))
 
     # ── run_python ──────────────────────────────────────────

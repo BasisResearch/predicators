@@ -1269,6 +1269,22 @@ class GlobalSettings:
     # differences even on informative data; the sweep costs
     # num_points+1 rollout evals per physical param.
     code_sim_learning_rollout_grid_seed_points = 7
+    # Goodness-of-fit trimming threshold for rollout sysID, as a
+    # multiple of the fit's noise_sigma (0 disables): a trajectory whose
+    # best-achievable RMS over the candidate param grid exceeds
+    # factor*noise_sigma is unexplainable at ANY params (chaotic
+    # recording / model misfit), so it is dropped before fitting.
+    # Explainable vs unexplainable RMS differ by orders of magnitude on
+    # domino data, so the factor is uncritical.
+    code_sim_learning_rollout_trim_rms_factor = 3.0
+    # Consistency requirement among surviving trajectories (0 disables):
+    # at the joint fit, each survivor's RMS must be within this factor
+    # of its own best-achievable RMS. A survivor fitting much worse than
+    # it could means the set disagrees on the params (a recording can be
+    # accidentally explainable at WRONG params and outvote clean data);
+    # the survivor with the largest best-RMS is dropped and the fit
+    # reruns, anchoring on the cleanest data.
+    code_sim_learning_rollout_consistency_factor = 3.0
     # Diagnostic: log the Hessian eigendecomposition at the MAP to
     # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
     code_sim_learning_log_hessian_identifiability = False

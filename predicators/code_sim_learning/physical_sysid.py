@@ -163,10 +163,11 @@ def rollout_states(base_env: Any, init_state: State, actions: List[Action],
                    physical_params: Dict[str, float]) -> List[State]:
     """Free-run the base sim from ``init_state`` under ``actions``.
 
-    Resets once to ``init_state`` (zeroing velocities so the rollout begins at
-    rest, matching how a recorded cascade starts), applies the candidate
-    physics in place, then steps WITHOUT resetting so momentum accrues in-sim.
-    Returns the post-step state after each action (length == ``len(actions)``).
+    Resets once to ``init_state`` (zeroing velocities so the rollout
+    begins at rest, matching how a recorded cascade starts), applies the
+    candidate physics in place, then steps WITHOUT resetting so momentum
+    accrues in-sim. Returns the post-step state after each action
+    (length == ``len(actions)``).
     """
     base_env.apply_physical_param_overrides(physical_params)
     base_env._set_state(init_state)  # pylint: disable=protected-access
@@ -433,16 +434,17 @@ def fit_params_rollout(
     # _grid_seed_physical_specs for why LM alone can stall).
     lm_physical_specs = list(physical_specs)
     if (CFG.code_sim_learning_rollout_grid_seed_points > 0 and trajectories):
-        lm_physical_specs = _grid_seed_physical_specs(
-            base_env, trajectories, physical_specs, process_features, rules,
-            rule_specs, latent_init)
+        lm_physical_specs = _grid_seed_physical_specs(base_env, trajectories,
+                                                      physical_specs,
+                                                      process_features, rules,
+                                                      rule_specs, latent_init)
 
     # One-shot rollout LM fit (see _lm_prefit for its three uses). With
     # the default rollout MCMC budget of 0 this LM MAP *is* the fit.
     walker_center, lm_theta, lm_jac = _lm_prefit(
         lambda: fit_map_lm_rollout(
-            base_env, trajectories, lm_physical_specs, process_features,
-            rules, rule_specs, latent_init), lambda p: compute_rollout_sse(
+            base_env, trajectories, lm_physical_specs, process_features, rules,
+            rule_specs, latent_init), lambda p: compute_rollout_sse(
                 base_env, trajectories, p, process_features, physical_names,
                 rules, latent_init), names, init_values, noise_sigma,
         prior_sigma, "rollout")
@@ -497,6 +499,216 @@ def fit_params_rollout(
                 {k: f"{v:.4f}"
                  for k, v in result.point_estimate.items()})
     return result
+
+
+def per_trajectory_rms(
+        base_env: Any,
+        trajectories: List[RolloutTrajectory],
+        params: Dict[str, float],
+        process_features: Dict[str, List[str]],
+        physical_names: Sequence[str],
+        rules: Sequence[Any] = (),
+        latent_init: Any = None,
+) -> List[float]:
+    """RMS rollout residual of each trajectory separately at ``params``.
+
+    The per-trajectory analogue of :func:`compute_rollout_sse`: how well
+    can the model explain THIS trajectory at these parameters, in the
+    scored features' native units (meters / radians per residual)?
+    """
+    out: List[float] = []
+    for traj in trajectories:
+        res = compute_rollout_residuals(base_env, [traj], params,
+                                        process_features, physical_names,
+                                        rules, latent_init)
+        out.append(float(np.sqrt(np.mean(res**2))) if res.size else 0.0)
+    return out
+
+
+def min_explainable_rms(
+        base_env: Any,
+        trajectories: List[RolloutTrajectory],
+        physical_specs: Sequence[ParamSpec],
+        process_features: Dict[str, List[str]],
+        rules: Sequence[Any] = (),
+        rule_specs: Sequence[ParamSpec] = (),
+        latent_init: Any = None,
+        extra_candidates: Sequence[Dict[str, float]] = (),
+) -> List[float]:
+    """Best achievable RMS of each trajectory over a candidate param grid.
+
+    Explainability must be judged per trajectory against its OWN best
+    parameters, not against a pooled fit: a poisoned pooled fit makes
+    even a clean recording look unexplainable (measured: the clean push
+    scored RMS 0.158 at a chaos-dragged fit vs 3e-4 at the true
+    friction). The candidate set is the declared inits plus the same
+    coordinate sweep the grid seeding uses (one physical param varied at
+    a time) plus any ``extra_candidates`` (e.g. the pooled fit); the
+    minimum RMS over it answers "can ANY reasonable parameter setting
+    explain this recording?" — chaos cannot be explained by any, a clean
+    topple is explained near-perfectly by the right one.
+    """
+    base = {
+        s.name: s.init_value
+        for s in list(physical_specs) + list(rule_specs)
+    }
+    candidates: List[Dict[str, float]] = [dict(base)]
+    num_points = CFG.code_sim_learning_rollout_grid_seed_points
+    if num_points > 0:
+        for spec in physical_specs:
+            assert spec.lo is not None and spec.hi is not None
+            for val in np.linspace(spec.lo, spec.hi, num_points):
+                cand = dict(base)
+                cand[spec.name] = float(val)
+                candidates.append(cand)
+    candidates.extend(dict(c) for c in extra_candidates)
+    physical_names = [s.name for s in physical_specs]
+    best = [float("inf")] * len(trajectories)
+    for params in candidates:
+        rms = per_trajectory_rms(base_env, trajectories, params,
+                                 process_features, physical_names, rules,
+                                 latent_init)
+        best = [min(b, r) for b, r in zip(best, rms)]
+    return best
+
+
+def _init_point_fit_result(all_specs: Sequence[ParamSpec],
+                           noise_sigma: float) -> FitResult:
+    """A single-sample FitResult pinned at the declared init values.
+
+    Returned when trimming rejects every trajectory: no explainable data
+    exists, so no fitted value — not even the pooled fit's — may leak to
+    the caller. The identifiability probe on chaotic data can falsely
+    report "identified" (chaos responds to everything at prior scale),
+    so the guard alone is not sufficient protection; pinning the point
+    estimate at the inits makes application a no-op regardless of the
+    verdicts.
+    """
+    init_values = np.array([s.init_value for s in all_specs], dtype=float)
+    lo, hi = _param_bounds(list(all_specs))
+    prior_sigma = _prior_widths(init_values, lo, hi, 0.75)
+    return FitResult(names=[s.name for s in all_specs],
+                     samples=init_values[None, :],
+                     log_probs=np.zeros(1),
+                     jacobian=None,
+                     noise_sigma=noise_sigma,
+                     prior_sigma=prior_sigma)
+
+
+def fit_params_rollout_trimmed(
+    base_env: Any,
+    trajectories: List[RolloutTrajectory],
+    physical_specs: Sequence[ParamSpec],
+    process_features: Dict[str, List[str]],
+    rules: Sequence[Any] = (),
+    rule_specs: Sequence[ParamSpec] = (),
+    latent_init: Any = None,
+    num_steps: Optional[int] = None,
+    noise_sigma: float = 0.05,
+) -> Tuple[FitResult, List[RolloutTrajectory], List[float]]:
+    """Drop trajectories no parameters can explain, fit on the rest.
+
+    Goodness-of-fit trimming: a chaotic recording (e.g. a center-height
+    scraping push whose 500-step outcome is contact-chaos) has a large
+    rollout residual at EVERY parameter value — it is unexplainable, and
+    pooling it with clean recordings lets its parameter-independent
+    noise outvote their signal (measured on run_20260706_111805: one
+    such trajectory dragged the pooled friction fit to 0.34 vs the true
+    0.1 that the clean trajectory alone recovers). Each trajectory's
+    best-achievable RMS over a candidate param grid
+    (:func:`min_explainable_rms` — judged against its own best params,
+    NOT a pooled fit, which chaos poisons) is compared against
+    ``noise_sigma`` scaled by
+    ``CFG.code_sim_learning_rollout_trim_rms_factor``; unexplainable
+    recordings are dropped before the fit ever sees them.
+
+    Returns ``(fit_result, surviving_trajectories, per_trajectory_rms)``
+    — callers must compute their post-fit SSE / identifiability probe on
+    the SURVIVORS, or a rejected trajectory's noise re-poisons the
+    verdicts. If nothing survives, the survivor list is empty and the
+    returned fit is pinned at the declared inits (see
+    :func:`_init_point_fit_result`), so applying it is a no-op.
+    """
+    factor = CFG.code_sim_learning_rollout_trim_rms_factor
+    all_specs = list(physical_specs) + list(rule_specs)
+    if not trajectories or factor <= 0:
+        result = fit_params_rollout(base_env,
+                                    trajectories,
+                                    physical_specs,
+                                    process_features,
+                                    rules=rules,
+                                    rule_specs=rule_specs,
+                                    latent_init=latent_init,
+                                    num_steps=num_steps,
+                                    noise_sigma=noise_sigma)
+        return result, list(trajectories), []
+    rms = min_explainable_rms(base_env,
+                              trajectories,
+                              physical_specs,
+                              process_features,
+                              rules=rules,
+                              rule_specs=rule_specs,
+                              latent_init=latent_init)
+    threshold = factor * noise_sigma
+    survivors = [t for t, r in zip(trajectories, rms) if r <= threshold]
+    if len(survivors) < len(trajectories):
+        logger.info(
+            "Rollout sysID trimming: per-trajectory best RMS %s vs "
+            "threshold %.4f (%g x noise %.3f) — dropping %d of %d "
+            "unexplainable trajectories.", [f"{r:.4g}" for r in rms],
+            threshold, factor, noise_sigma,
+            len(trajectories) - len(survivors), len(trajectories))
+    if not survivors:
+        logger.warning(
+            "Rollout sysID trimming: NO trajectory is explainable at any "
+            "candidate params; skipping the fit and pinning the result at "
+            "the declared inits.")
+        return _init_point_fit_result(all_specs, noise_sigma), [], rms
+
+    # Consistency loop. Explainability alone is not enough: a chaotic
+    # recording can be ACCIDENTALLY explainable at wrong params (measured:
+    # a quiet center-height shove reached best-RMS 0.034 at friction
+    # ~1.34 while the clean topple's best sits at friction ~0.1), and
+    # pooling two explainable-but-disagreeing recordings drags the fit
+    # to a compromise nobody supports. Invariant on exit: every survivor
+    # fits the FINAL params nearly as well as its own best params. When
+    # violated, the least trustworthy survivor (largest best-achievable
+    # RMS) is dropped and the fit reruns — anchoring the answer on the
+    # cleanest data rather than the loudest.
+    consistency = CFG.code_sim_learning_rollout_consistency_factor
+    physical_names = [s.name for s in physical_specs]
+    best = [r for r in rms if r <= threshold]
+    while True:
+        result = fit_params_rollout(base_env,
+                                    survivors,
+                                    physical_specs,
+                                    process_features,
+                                    rules=rules,
+                                    rule_specs=rule_specs,
+                                    latent_init=latent_init,
+                                    num_steps=num_steps,
+                                    noise_sigma=noise_sigma)
+        if len(survivors) <= 1 or consistency <= 0:
+            break
+        fit_rms = per_trajectory_rms(base_env, survivors,
+                                     result.point_estimate, process_features,
+                                     physical_names, rules, latent_init)
+        violated = [
+            i for i in range(len(survivors))
+            if fit_rms[i] > consistency * best[i] + 1e-3
+        ]
+        if not violated:
+            break
+        drop_idx = max(range(len(survivors)), key=lambda i: best[i])
+        logger.info(
+            "Rollout sysID consistency: survivors disagree (RMS at joint "
+            "fit %s vs own best %s); dropping the least trustworthy "
+            "(index %d, best RMS %.4g) and refitting.",
+            [f"{r:.4g}" for r in fit_rms], [f"{r:.4g}" for r in best],
+            drop_idx, best[drop_idx])
+        survivors.pop(drop_idx)
+        best.pop(drop_idx)
+    return result, survivors, rms
 
 
 def identifiability_report(
@@ -619,6 +831,37 @@ def _probe_posterior_widths(
         c = float(np.mean(curvatures)) if curvatures else 0.0
         widths.append(noise / np.sqrt(c) if c > 0 else float("inf"))
     return np.asarray(widths, dtype=float)
+
+
+def select_trustworthy_params(
+    fitted: Dict[str, float],
+    declared_inits: Dict[str, float],
+    physical_names: Sequence[str],
+    report: Dict[str, Dict[str, Any]],
+) -> Dict[str, float]:
+    """Pick which fitted physical values are safe to apply to the planner.
+
+    A parameter whose posterior did not contract ("NOT identified" /
+    "unknown") has an arbitrary MAP — on uninformative data the grid
+    seed and LM land wherever the rollout noise happened to be lowest —
+    so applying it would move the planner's belief randomly, possibly
+    further from the truth than the declared init. Keep the declared
+    init for those; apply the fitted value only for parameters the data
+    actually constrained (identified / weakly identified).
+    """
+    applied: Dict[str, float] = {}
+    for name in physical_names:
+        verdict = report.get(name, {}).get("verdict", "unknown")
+        if verdict in ("identified", "weakly identified"):
+            applied[name] = fitted[name]
+        else:
+            applied[name] = declared_inits[name]
+            if fitted[name] != declared_inits[name]:
+                logger.info(
+                    "Rollout sysID: NOT applying %s=%.4f (verdict: %s); "
+                    "keeping the declared init %.4f.", name, fitted[name],
+                    verdict, declared_inits[name])
+    return applied
 
 
 def format_identifiability(report: Dict[str, Dict[str, Any]]) -> str:
