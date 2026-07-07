@@ -1814,6 +1814,18 @@ def option_policy_to_policy(
                                   f"Add: {sorted(cur_atoms-prev_atoms)} "
                                   f"Del: {sorted(prev_atoms-cur_atoms)}")
                     wait_terminate = True
+                elif num_cur_option_steps >= CFG.wait_option_max_steps:
+                    # Stranded-Wait bail-out: if the awaited change
+                    # happened DURING the previous option, an
+                    # any-change Wait never fires and the plan stalls
+                    # to the horizon. Terminate and let the plan (or a
+                    # replan, via the next process's necessary-atoms
+                    # check) proceed.
+                    logging.info(
+                        "Wait terminating: no atom change within "
+                        "%d steps (wait_option_max_steps).",
+                        num_cur_option_steps)
+                    wait_terminate = True
 
         last_state = state
 

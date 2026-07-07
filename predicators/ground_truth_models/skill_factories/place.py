@@ -29,7 +29,7 @@ Example::
     )
 """
 
-from typing import Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -53,6 +53,8 @@ def create_place_skill(
     types: Sequence[Type],
     config: SkillConfig,
     use_move_above: bool = False,
+    param_defs: Optional[Sequence[Tuple[str, float, float]]] = None,
+    compensate_held_offset: bool = False,
 ) -> ParameterizedOption:
     """Create a multi-phase place skill that releases a held object.
 
@@ -79,11 +81,28 @@ def create_place_skill(
         types: Ordered object types.  First element must be the robot type.
         config: Shared skill configuration (``config.transport_z`` is used).
         use_move_above: If True, add a MoveAbove phase before descending.
+        param_defs: Optional override for the continuous parameter
+            definitions (``(description, low, high)`` triples). Must keep
+            the canonical order ``(target_x, target_y, release_z,
+            target_yaw)`` -- the phases index params positionally. Use
+            this when an env needs wider bounds (e.g. releasing above a
+            tall structure) than the ``_PLACE_PARAMS`` defaults.
+        compensate_held_offset: If True, shift the EE target xy by the
+            live (EE - held object) offset read from the state, so the
+            HELD OBJECT (not the gripper) lands at ``(target_x,
+            target_y)``. A grasp near the arm's reach limit can leave
+            the object hanging ~2 cm off the EE (IK residual at the
+            grasp pose); without compensation that error transfers
+            verbatim to every placement.
 
     Returns:
         A ``ParameterizedOption`` implementing the place skill.
     """
-    params_space, params_description = build_params_space(_PLACE_PARAMS)
+    if param_defs is None:
+        param_defs = _PLACE_PARAMS
+    assert len(param_defs) == len(_PLACE_PARAMS), \
+        "param_defs must keep the canonical (x, y, release_z, yaw) order"
+    params_space, params_description = build_params_space(param_defs)
 
     def _open_fingers_target(
         state: State,
@@ -98,15 +117,29 @@ def create_place_skill(
         target = cfg.open_fingers_joint
         return current, target
 
+    def _held_xy_offset(state: State,
+                        robot_obj: Object) -> Tuple[float, float]:
+        """(EE - held object) xy offset, or (0, 0) if nothing is held."""
+        if not compensate_held_offset:
+            return 0.0, 0.0
+        for obj in state:
+            if obj == robot_obj or \
+                    "is_held" not in obj.type.feature_names:
+                continue
+            if state.get(obj, "is_held") > 0.5:
+                return (state.get(robot_obj, "x") - state.get(obj, "x"),
+                        state.get(robot_obj, "y") - state.get(obj, "y"))
+        return 0.0, 0.0
+
     def _above_pose(
         state: State,
         objects: Sequence[Object],
         params: Array,
         cfg: SkillConfig,
     ) -> Tuple[float, float, float, float]:
-        del state, objects  # unused
         x, y, yaw = float(params[0]), float(params[1]), float(params[3])
-        return x, y, cfg.transport_z, yaw
+        off_x, off_y = _held_xy_offset(state, objects[0])
+        return x + off_x, y + off_y, cfg.transport_z, yaw
 
     def _drop_pose(
         state: State,
@@ -114,10 +147,11 @@ def create_place_skill(
         params: Array,
         cfg: SkillConfig,
     ) -> Tuple[float, float, float, float]:
-        del state, objects, cfg  # unused
+        del cfg  # unused
         x, y = float(params[0]), float(params[1])
         drop_z, yaw = float(params[2]), float(params[3])
-        return x, y, drop_z, yaw
+        off_x, off_y = _held_xy_offset(state, objects[0])
+        return x + off_x, y + off_y, drop_z, yaw
 
     phases = []
     if use_move_above:

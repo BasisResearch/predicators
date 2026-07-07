@@ -770,6 +770,16 @@ class PhaseSkill:
                 continue
             collision_bodies.add(sim_obj.id)
 
+        # 4a. Exclude bodies weld-attached to the held object (e.g. a glued
+        #     assembly transported as a rigid unit, see pybullet_bridge).
+        #     They travel with the grasped body, so treating them as static
+        #     obstacles would make every transport plan collide immediately.
+        #     Conservative approximation: welded partners sweep unchecked.
+        if held_object is not None:
+            get_welded = getattr(sim, "get_welded_partner_ids", None)
+            if get_welded is not None:
+                collision_bodies -= set(get_welded(held_object))
+
         # 4b. Add tables if present.
         if hasattr(sim, '_table_ids'):
             for tid in sim._table_ids:  # pylint: disable=protected-access
