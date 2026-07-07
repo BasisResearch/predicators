@@ -338,6 +338,26 @@ def build_solve_prompt(
             "You may vet a sketch with `refine_plan_sketch` before finishing; "
             "the backtracking search will find continuous parameters.")
 
+    if require_tool_validation:
+        # Plain text is NOT a submission in this mode; saying "output the
+        # plan lines" as the closing instruction has led agents (especially
+        # right after an SDK context compaction, whose text-only summary
+        # instruction bleeds into the task) to answer with an unvalidated
+        # text sketch and finish, wasting the whole attempt.
+        closing_block = (
+            "Your answer is ONLY accepted from a goal-reaching "
+            "`evaluate_option_plan` run on the CURRENT task; final text "
+            "alone is discarded, so never finish without that validated "
+            "run. Tool calls are permitted on every turn of this "
+            "conversation. If an earlier context summary says a turn was "
+            "text-only, that applied to writing the summary itself, not to "
+            "this task; resume calling tools. After the goal-reaching run, "
+            "repeat its plan lines as your final text.")
+    else:
+        closing_block = (
+            "Output ONLY the plan sketch lines at the end, after any "
+            "analysis.")
+
     prompt = f"""You are solving a task. \
 Generate a plan sketch to achieve the goal.
 {goal_nl_section}{goal_atoms_section}{experiment_section}
@@ -384,7 +404,7 @@ atoms. If you omit `-> {{atoms}}` on a step, the search only checks that the \
 option executed (non-zero actions) and execution monitoring is blind there — \
 omit it only when no available predicate can express the step's effect.
 
-Output ONLY the plan sketch lines at the end, after any analysis."""
+{closing_block}"""
 
     return prompt
 
