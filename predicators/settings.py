@@ -622,8 +622,23 @@ class GlobalSettings:
     # push-throughs.
     boil_mobile_base_align_x = True
 
+    # bridge env
+    # Task sizes: "simple" = 4 blocks (1-block legs, 2-block span, 3 glue
+    # joints); "full" = 7 blocks (2-block leg stacks, 3-block span, 6
+    # glue joints). One spec is drawn per task from these lists.
+    bridge_task_spec_train = ["simple"]
+    bridge_task_spec_test = ["simple"]
+
     # parameters for random options approach
     random_options_max_tries = 100
+
+    # Max steps an any-atom-change Wait may run without seeing a change
+    # before it bails out (see option_policy_to_policy). Infinite by
+    # default (legacy behavior); envs whose plans interleave work with
+    # exogenous delays (e.g. bridge) should set a finite cap, because
+    # the awaited change can complete during the PREVIOUS option and
+    # strand the Wait until the horizon.
+    wait_option_max_steps = float("inf")
 
     # option model parameters
     option_model_terminate_on_repeat = True
@@ -1359,6 +1374,9 @@ class GlobalSettings:
                     "pybullet_laser": 2000,
                     "pybullet_ants": 2000,
                     "pybullet_fan": 2000,
+                    # Bridge plans are long (up to ~27 options in the
+                    # full variant), each option ~60-100 low-level steps.
+                    "pybullet_bridge": 3000,
                     "pybullet_switch": 2000,
                     "pybullet_barrier": 2000,
                     "doors": 1000,

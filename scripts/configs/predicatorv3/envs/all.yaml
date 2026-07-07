@@ -125,3 +125,35 @@ ENVS:
       process_planning_heuristic_weight: 10.0
       horizon: 500
       pybullet_birrt_path_subsample_ratio: 2
+  bridge:
+    NAME: "pybullet_bridge"
+    # Parked by default; exp_bridge.yaml un-skips it.
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 1
+      horizon: 3000
+      # Required for the "full" spec (7 blocks / 6 joints): unweighted
+      # skeleton search times out; with weight 10 plans land in ~1.5 s.
+      process_planning_heuristic_weight: 10.0
+      bridge_task_spec_train: ["simple"]
+      bridge_task_spec_test: ["simple"]
+      # The two seat joints cure a few physics steps apart, but each
+      # Wait ends on the FIRST atom change, so the tail of a multi-cure
+      # plan routinely needs a cheap replan-from-current-state (which
+      # reduces to "Wait until the remaining joint cures").
+      process_planning_max_execution_replans: 3
+      # Bail out of a Wait that sees no atom change (the awaited cure
+      # can complete DURING the previous option, stranding the Wait).
+      # Longest legitimate wait: cure_threshold (25) + cure-start
+      # stagger across the preceding option (~60 steps).
+      wait_option_max_steps: 120
+      # Bridge NEEDS validated IK (common.yaml turns it off): placement
+      # accuracy feeds the cure gates, and lateral placement error is
+      # frozen into the weld.
+      pybullet_ik_validate: True
+      # The packed full-variant staging grid leaves ~1-2 cm clearances
+      # that stochastically dip into 2-3 mm grazes; the default 1 mm
+      # margin turns those into unrecoverable BiRRT start/goal
+      # rejections.
+      pybullet_birrt_contact_margin: -0.005
+      pybullet_birrt_path_subsample_ratio: 2

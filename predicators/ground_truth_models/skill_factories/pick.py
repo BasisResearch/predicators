@@ -42,7 +42,7 @@ Example::
     )
 """
 
-from typing import Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -63,6 +63,10 @@ def create_pick_skill(
     types: Sequence[Type],
     config: SkillConfig,
     get_target_pose_fn: TargetPoseFn,
+    approach_open: bool = False,
+    anchor_lift: bool = False,
+    grasp_finger_tol: Optional[float] = None,
+    lift_dz: float = 0.01,
 ) -> ParameterizedOption:
     """Create a multi-phase pick skill that grasps and lifts an object.
 
@@ -84,6 +88,27 @@ def create_pick_skill(
         config: Shared skill configuration (``config.transport_z`` is used).
         get_target_pose_fn: Callback returning ``(x, y, z, yaw)`` from
             ``(state, objects, params, config)``.  ``params`` will be empty.
+        approach_open: If True, the MoveAbove phase travels with OPEN
+            fingers. The default closed-finger approach reopens the
+            fingers only gradually during the descend, so the still-closed
+            gripper can ram a light object and drag it a few cm before the
+            grasp -- breaking tight downstream placement tolerances.
+        anchor_lift: If True, the LiftSlightly phase lifts straight up
+            from the xy cached at descend time instead of re-reading the
+            (now held) object's xy each step. A held object hangs at a
+            small offset from the EE, so a chasing lift target is
+            unreachable and the lift can spin or fail IK near the reach
+            limit.
+        grasp_finger_tol: Optional override for the Grasp phase's finger
+            terminal tolerance (squared). Needed when the grasped object
+            is wide enough to block the fingers above the default
+            terminal (target + sqrt(config.grasp_tol)).
+        lift_dz: How far LiftSlightly rises above the grasp height.
+            Raise it in cluttered scenes: with the default 1 cm, the
+            just-closed gripper can end the pick still grazing (~1 mm)
+            a neighboring object, which then invalidates the NEXT
+            option's BiRRT start config -- unrecoverable by replanning
+            since the arm physically stays put.
 
     Returns:
         A ``ParameterizedOption`` implementing the pick skill.
@@ -125,6 +150,7 @@ def create_pick_skill(
         x, y, z, yaw = get_target_pose_fn(state, objects, _empty, cfg)
         grasp_z = z + grasp_z_offset
         _shared["grasp_z"] = grasp_z
+        _shared["grasp_xy_yaw"] = (x, y, yaw)
         return x, y, grasp_z, yaw
 
     def _slight_lift_pose(
@@ -134,12 +160,16 @@ def create_pick_skill(
         cfg: SkillConfig,
     ) -> Tuple[float, float, float, float]:
         del params
-        x, y, _, yaw = get_target_pose_fn(state, objects, _empty, cfg)
-        return x, y, _shared["grasp_z"] + 0.01, yaw
+        if anchor_lift:
+            x, y, yaw = _shared["grasp_xy_yaw"]
+        else:
+            x, y, _, yaw = get_target_pose_fn(state, objects, _empty, cfg)
+        return x, y, _shared["grasp_z"] + lift_dz, yaw
 
     phases = []
     phases.extend([
-        make_move_to_phase("MoveAbove", _above_pose, "closed"),
+        make_move_to_phase("MoveAbove", _above_pose,
+                           "open" if approach_open else "closed"),
         # Validate the grasp goal IK: the gripper descends to envelop the
         # target, and an imprecise (unvalidated) IK config can clip the target
         # object, making BiRRT reject a reachable grasp. See Phase.validate_ik.
@@ -153,6 +183,7 @@ def create_pick_skill(
             target_fn=_close_fingers_target,
             terminal_fn=None,
             finger_direction="close",
+            finger_tol=grasp_finger_tol,
         ),
         make_move_to_phase("LiftSlightly",
                            _slight_lift_pose,
