@@ -153,6 +153,7 @@ def build_solve_prompt(
     tool_names: Optional[Sequence[str]] = None,
     experiment_guidance: str = "",
     prior_failures: str = "",
+    scheduled_plans: Optional[Sequence[str]] = None,
     initial_image_section: str = "",
     propose_params: bool = False,
     require_tool_validation: bool = False,
@@ -167,6 +168,13 @@ def build_solve_prompt(
     pointer to the full per-step log in the sandbox). Injected so a
     re-query produces a *different* skeleton instead of re-emitting the
     dead one.
+
+    ``scheduled_plans`` lists sketch-line descriptions of exploration
+    plans already generated this online-learning cycle (all of a cycle's
+    requests are generated before any executes). When given, the prompt
+    asks for a plan that still achieves the goal but differs meaningfully,
+    so the cycle's interaction data is complementary instead of the same
+    plan repeated per request.
 
     ``propose_params`` switches the prompt from "param-free sketch, search
     finds all continuous params" to "propose your best continuous params in
@@ -240,6 +248,23 @@ def build_solve_prompt(
             "the failure — change the step that got stuck (object choice, "
             "ordering, an intermediate step, or its subgoal annotation).\n"
             f"{prior_failures}\n")
+
+    scheduled_plans_section = ""
+    if scheduled_plans:
+        plan_blocks = "\n".join(f"Plan {i + 1}:\n{p}"
+                                for i, p in enumerate(scheduled_plans))
+        scheduled_plans_section = (
+            "\n## Plans Already Scheduled This Cycle\n"
+            "The plan(s) below are already queued to run on this same task "
+            "before any learning happens, so their interaction data will be "
+            "collected regardless of what you propose now.\n"
+            f"{plan_blocks}\n"
+            "\nPropose a plan that still achieves the goal but differs "
+            "meaningfully from the plan(s) above - different continuous "
+            "parameters, different objects, or a different route - so this "
+            "cycle's data is complementary rather than redundant. Only if "
+            "no meaningfully different goal-reaching plan exists, repeat "
+            "the best plan.\n")
 
     goal_nl_section = ""
     if task.goal_nl:
@@ -375,7 +400,7 @@ Generate a plan sketch to achieve the goal.
 
 ## Available Predicates (for subgoal annotations)
 {chr(10).join(pred_strs)}
-{trajectory_summary}{tools_str}{prior_failures_section}
+{trajectory_summary}{tools_str}{prior_failures_section}{scheduled_plans_section}
 ## Instructions
 Use your available tools to inspect the environment before producing the plan.
 

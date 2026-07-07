@@ -209,6 +209,13 @@ class ToolContext:
     # the task goal during refinement? Read by get_interaction_requests to
     # stamp InteractionRequest.mental_model_solved (None ⇒ no verdict).
     last_mental_model_solved: Optional[bool] = None
+    # Sketch-line descriptions of the exploration plans already generated
+    # this online-learning cycle (a cycle's requests are all generated
+    # before any executes). Cleared by get_interaction_requests per cycle,
+    # appended by AgentBilevelExplorer per request, and shown in the next
+    # explore prompt so the agent proposes a complementary plan instead of
+    # repeating the identical one for every request.
+    cycle_scheduled_plans: List[str] = field(default_factory=list)
     # Set by refine_plan_sketch / evaluate_option_plan when a plan is verified
     # to reach the goal on the CURRENT solve task: the simulator-verified plan
     # (grounded options with found params) and the parallel subgoal sketch.
