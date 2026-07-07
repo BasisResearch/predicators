@@ -1652,6 +1652,15 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 f"Captured as the current answer: {len(grounded_plan)} steps, "
                 f"{n_annot} with subgoal annotations for closed-loop "
                 "monitoring.")
+        elif (ctx.capture_goal_reaching_plans and task_idx != "current"
+              and goal_achieved):
+            # Loudly flag a success that cannot count: agents have burned
+            # whole sessions validating on a train task, believing they
+            # were done (run_20260707_112310 test task 0, session 3).
+            lines.append(
+                f"NOTE: this ran on train task {task_idx}, NOT the current "
+                "task, so it is NOT captured as your answer. To submit, "
+                "re-run the plan on the current task (omit task_idx).")
         if result.first_failure_idx is not None:
             fr = result.steps[result.first_failure_idx].failure_reason
             lines.append(

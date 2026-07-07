@@ -481,6 +481,31 @@ def test_option(state):
     assert option.terminal(state.copy())  # should be True on a copy
 
 
+def test_option_ground_clamps_float_precision_boundary():
+    """A boundary param that float32 rounding pushed just past a float64 bound
+    grounds (clamped to the bound) instead of raising; genuinely out-of-range
+    params still raise.
+
+    Regression: an agent-parsed yaw of pi stored as float32 exceeds the
+    float64 pi upper bound (float32(pi) > pi) and crashed
+    refine_plan_sketch with a raw ValueError (run_20260707_112310).
+    """
+    params_space = Box(np.array([-np.pi]), np.array([np.pi]), dtype=np.float64)
+
+    def policy(s, m, o, p):
+        del s, m, o  # unused
+        return Action(p)
+
+    opt = ParameterizedOption("Turn", [], params_space, policy,
+                              lambda s, m, o, p: True, lambda s, m, o, p: True)
+    over_pi = np.array([np.pi], dtype=np.float32)  # float32(pi) > pi
+    assert float(over_pi[0]) > np.pi
+    option = opt.ground([], over_pi)
+    assert option.params[0] <= np.pi  # clamped to the bound
+    with pytest.raises(ValueError, match="outside bounds"):
+        opt.ground([], np.array([np.pi + 0.01]))
+
+
 def test_option_memory_incorrect():
     """Tests for doing option memory the WRONG way.
 

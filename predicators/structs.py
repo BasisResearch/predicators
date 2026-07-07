@@ -1142,10 +1142,21 @@ class ParameterizedOption:
                     f"expected '{t.name}'")
         params = np.array(params, dtype=self.params_space.dtype)
         if not self.params_space.contains(params):
-            raise ValueError(
-                f"Cannot ground '{self.name}': params {params.tolist()} "
-                f"outside bounds low={self.params_space.low.tolist()}, "
-                f"high={self.params_space.high.tolist()}")
+            # Values that passed through float32 (e.g. parsed agent plans)
+            # can round a boundary value just past a float64 bound, since
+            # float32(pi) > pi; treat within-precision violations as the
+            # boundary itself and only reject genuine overshoots.
+            low = self.params_space.low
+            high = self.params_space.high
+            tol = 1e-6 * np.maximum(1.0, np.maximum(np.abs(low), np.abs(high)))
+            if np.all(params >= low - tol) and np.all(params <= high + tol):
+                params = np.clip(params, low,
+                                 high).astype(self.params_space.dtype)
+            else:
+                raise ValueError(
+                    f"Cannot ground '{self.name}': params {params.tolist()} "
+                    f"outside bounds low={self.params_space.low.tolist()}, "
+                    f"high={self.params_space.high.tolist()}")
         memory: Dict = {}  # each option has its own memory dict
         return _Option(
             self.name,
