@@ -305,6 +305,11 @@ class AgentBilevelApproach(AgentPlannerApproach):
                         "long derivations.")
                 logging.warning("Sketch query failed (attempt %d): %s",
                                 sketch_attempt, e)
+                nudge_start = time.perf_counter()
+                policy = self._nudge_final_submission()
+                llm_query_time += time.perf_counter() - nudge_start
+                if policy is not None:
+                    return policy
                 continue
             llm_query_time += time.perf_counter() - query_start
             sketches_tried += 1
@@ -326,11 +331,17 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 logging.info(
                     "[%s] Attempt %d ended without a validated plan; "
                     "re-querying the agent.", self._run_id, sketch_attempt)
+                nudge_start = time.perf_counter()
+                policy = self._nudge_final_submission()
+                llm_query_time += time.perf_counter() - nudge_start
+                if policy is not None:
+                    return policy
                 prior_failures.append(
-                    "You finished without a validated plan. You MUST call "
-                    "refine_plan_sketch (omit task_idx) and iterate until it "
-                    "reports SUCCESS on the current task before finishing; "
-                    "that validated plan is your submitted answer.")
+                    "You finished without a validated plan. You MUST run "
+                    "evaluate_option_plan on the current task (omit task_idx) "
+                    "until it reaches the goal; that captured run is your "
+                    "submitted answer, and a plan given only as text is "
+                    "discarded. refine_plan_sketch SUCCESS also counts.")
                 continue
 
             sketch_lines = []
@@ -720,6 +731,33 @@ class AgentBilevelApproach(AgentPlannerApproach):
             # fall through to pay for a fresh agent sketch.
             logging.info("Suffix replan failed; querying the agent for a "
                          "fresh sketch.")
+        return policy
+
+    _FINAL_SUBMIT_NUDGE = (
+        "You are out of exploration budget for this attempt. Do NOT explore "
+        "further. In as few tool calls as possible, submit your single best "
+        "plan NOW via evaluate_option_plan on the current task (omit "
+        "task_idx), using the best parameters you have already validated. "
+        "If it reaches the goal it is captured as your answer; then finish.")
+
+    def _nudge_final_submission(self) -> Optional[Callable[[State], Action]]:
+        """One short follow-up query after an attempt ended with no captured
+        plan: tell the agent to submit its best plan now.
+
+        A session that hits the turn cap mid-iteration contributes
+        nothing, even when it has a near-working plan in context; this
+        converts that dead end into a submission attempt at the cost of a
+        few turns.
+        """
+        try:
+            self._query_agent_sync(self._FINAL_SUBMIT_NUDGE, kind="test")
+        except Exception as e:  # pylint: disable=broad-except
+            logging.warning("Final-submission nudge failed: %s", e)
+        policy = self._consume_validated_plan()
+        if policy is not None:
+            logging.info(
+                "[%s] Final-submission nudge produced a validated plan.",
+                self._run_id)
         return policy
 
     def _consume_validated_plan(self) -> Optional[Callable[[State], Action]]:
