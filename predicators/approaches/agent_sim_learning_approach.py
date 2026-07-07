@@ -37,13 +37,18 @@ from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     mean_bernoulli_entropy, perturbation_ensemble, \
     posterior_subsample_ensemble
+from predicators.code_sim_learning.physical_sysid import RolloutTrajectory, \
+    compute_rollout_sse, fit_params_rollout, fit_params_rollout_trimmed, \
+    format_identifiability, identifiability_report, \
+    select_trustworthy_params, truncate_settled_tail
 from predicators.code_sim_learning.training import FitResult, ParamSpec, \
     compute_sse, compute_sse_recurrent, fit_params, fit_params_recurrent, \
     log_sse_breakdown
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, apply_rules_with_latent, has_latent_rules, init_latent, \
     iter_feature_residuals, merge_updates, read_latent_init, \
-    read_simulator_components
+    read_physical_param_specs, read_simulator_components, \
+    stamp_physical_spec_scales
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
@@ -168,6 +173,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         # base_pred_triples back into per-trajectory chunks (latent
         # threads within a trajectory, not across).
         self._fit_trajectories: List[LowLevelTrajectory] = []
+        # System identification: PHYSICAL_PARAMS export (agent-declared
+        # sparse subset of self._base_env.get_physical_param_info()),
+        # identified values applied in place to the base env, and the
+        # dedicated headless env the rollout fit mutates (the GUI base env
+        # corrupts its visual-shape state after a few hundred steps).
+        self._physical_param_specs: List[ParamSpec] = []
+        self._identified_physical_params: Dict[str, float] = {}
+        self._sysid_env: Optional[Any] = None
 
     @classmethod
     def get_name(cls) -> str:
@@ -579,7 +592,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
                         np.clip(
                             s.init_value * (1.0 + rng.normal(0, noise_scale)),
                             s.lo, s.hi))
-                    perturbed.append(ParamSpec(s.name, val, lo=s.lo, hi=s.hi))
+                    perturbed.append(
+                        ParamSpec(s.name,
+                                  val,
+                                  lo=s.lo,
+                                  hi=s.hi,
+                                  scale=getattr(s, "scale", "linear")))
                 specs = perturbed
             logger.info("Loaded oracle sim program (%d rules, %d params).",
                         len(rules), len(specs))
@@ -763,6 +781,18 @@ the tools."""
             # leaves every latent path dormant.
             self._latent_init = (read_latent_init(sim_ns) if isinstance(
                 sim_ns, dict) else None)
+            # Optional PHYSICAL_PARAMS export: base-sim parameters to
+            # identify jointly with the rule params (system ID). The fit
+            # scale (log vs linear) is stamped from the env registry —
+            # agents copy name/init/bounds but need not know about it.
+            self._physical_param_specs = stamp_physical_spec_scales(
+                list((read_physical_param_specs(sim_ns) if isinstance(
+                    sim_ns, dict) else None) or []), self._base_env)
+            if self._physical_param_specs:
+                logger.info(
+                    "Agent declared %d physical params for system ID: %s",
+                    len(self._physical_param_specs),
+                    [s.name for s in self._physical_param_specs])
             if rules is None or specs is None:
                 return
             assert declared_features is not None, (
@@ -794,6 +824,11 @@ the tools."""
         if CFG.agent_sim_learn_oracle_sim_params:
             self._fitted_params.clear()
             self._fitted_params.update({s.name: s.init_value for s in specs})
+            if self._physical_param_specs:
+                # Oracle mode: trust the agent-declared physical inits.
+                self._apply_identified_physical_params(
+                    {s.name: s.init_value
+                     for s in self._physical_param_specs})
             # No fit ran — the ensemble falls back to uniform perturbation.
             self._last_fit_result = None
             self._fit_sse = self._oracle_param_sse(rules, base_pred_triples,
@@ -804,7 +839,14 @@ the tools."""
             # CFG.code_sim_learning_num_mcmc_steps; any extra
             # info-seeking MCMC is run below and is not published into
             # _fitted_params.
-            if has_latent_rules(rules):
+            if self._physical_param_specs:
+                # System ID: physical + rule params fit jointly against
+                # free-running rollouts (teacher-forced triples cannot
+                # see physical params — no velocities in State).
+                fit_result, self._fit_sse = (
+                    self._fit_parameters_joint_rollout(rules, specs,
+                                                       process_features))
+            elif has_latent_rules(rules):
                 fit_result, self._fit_sse = self._fit_parameters_recurrent(
                     rules, specs, base_pred_triples, process_features)
             else:
@@ -821,7 +863,12 @@ the tools."""
 
             exploration_fit_num_steps = (
                 self._separate_exploration_fit_num_steps())
-            if exploration_fit_num_steps is not None:
+            if exploration_fit_num_steps is not None and \
+                    self._physical_param_specs:
+                logger.info(
+                    "Skipping separate active-experiment fit: the joint "
+                    "rollout sysID posterior is reused for exploration.")
+            elif exploration_fit_num_steps is not None:
                 if has_latent_rules(rules):
                     exploration_fit_result, exploration_sse = (
                         self._fit_parameters_recurrent(
@@ -846,8 +893,9 @@ the tools."""
 
         # Remember the specs (names + bounds) and rebuild the active-
         # experiment ensemble. Cheap and only consumed when info-seeking
-        # exploration is enabled.
-        self._param_specs = list(specs)
+        # exploration is enabled. Physical specs lead so the ordering
+        # matches the joint rollout fit's theta layout.
+        self._param_specs = list(self._physical_param_specs) + list(specs)
         self._rebuild_param_ensemble()
 
     # ── Parameter fitting ────────────────────────────────────────
@@ -955,6 +1003,163 @@ the tools."""
             logger.info("  %-30s  %.4f -> %.4f  (Δ=%.4f, %+.1f%%)", name,
                         init_val, fit_val, delta, pct)
 
+        return result, post_sse
+
+    # ── System identification (PHYSICAL_PARAMS) support ──────────
+
+    def _get_rollout_fit_env(self) -> Any:
+        """Headless env dedicated to rollout system ID (created lazily).
+
+        The GUI base env corrupts its visual-shape state after a few
+        hundred steps, and the fit mutates dynamics params on every MCMC
+        evaluation, so the fit gets its own DIRECT-mode env instead of
+        sharing ``self._base_env``.
+        """
+        if self._sysid_env is None:
+            self._sysid_env = create_new_env(CFG.env,
+                                             do_cache=False,
+                                             use_gui=False,
+                                             skip_process_dynamics=True)
+        return self._sysid_env
+
+    def _rollout_fit_trajectories(
+        self,
+        process_features: Optional[Dict[str, List[str]]] = None,
+    ) -> List[RolloutTrajectory]:
+        """Raw observed (states, actions) sequences for rollout matching.
+
+        Unlike ``base_pred_triples`` these keep each trajectory whole, so
+        momentum can accrue across steps in the free-running rollout.
+        When ``process_features`` is given (the fit's scored features)
+        and ``CFG.code_sim_learning_rollout_truncate_settled`` is on,
+        each trajectory's static tail is cut (see
+        :func:`physical_sysid.truncate_settled_tail`) so the fit scores
+        the active cascade, not hundreds of settled steps of accumulated
+        rollout divergence.
+        """
+        rollouts: List[RolloutTrajectory] = []
+        for traj in self._fit_trajectories:
+            if traj.actions and len(traj.states) == len(traj.actions) + 1:
+                rollouts.append((list(traj.states), list(traj.actions)))
+        if (process_features is not None
+                and CFG.code_sim_learning_rollout_truncate_settled
+                and rollouts):
+            truncated = [
+                truncate_settled_tail(r, process_features) for r in rollouts
+            ]
+            logger.info(
+                "Rollout sysID: settled-tail truncation %s (tol=%g, "
+                "margin=%d).", ", ".join(f"{len(r[1])}->{len(t[1])}"
+                                         for r, t in zip(rollouts, truncated)),
+                CFG.code_sim_learning_rollout_settle_tol,
+                CFG.code_sim_learning_rollout_settle_margin)
+            rollouts = truncated
+        return rollouts
+
+    def _apply_identified_physical_params(
+            self, identified: Dict[str, float]) -> None:
+        """Publish identified physical params into the planning base env.
+
+        The override is sticky (survives resets), but not env recreation
+        — ``_recreate_base_env`` re-applies from
+        ``self._identified_physical_params``.
+        """
+        self._identified_physical_params = dict(identified)
+        self._base_env.apply_physical_param_overrides(identified)
+        logger.info("Applied identified physical params to base env: %s",
+                    {k: f"{v:.4f}"
+                     for k, v in identified.items()})
+
+    def _fit_parameters_joint_rollout(
+        self,
+        rules: List,
+        rule_specs: List[ParamSpec],
+        process_features: Dict[str, List[str]],
+        num_steps: Optional[int] = None,
+    ) -> Tuple[FitResult, float]:
+        """Joint physical+rule fit against free-running base-sim rollouts.
+
+        Reached when the artifact declares ``PHYSICAL_PARAMS``. Consumes
+        the RAW observed trajectories rather than ``base_pred_triples``:
+        physical parameters only manifest when momentum free-runs, which
+        the teacher-forced triples destroy (``State`` has no
+        velocities). One theta = physical + rule params, one MCMC — so
+        rules cannot silently absorb physics error; with no rules this
+        degenerates to pure identification. The identified physical
+        values are applied in place to the planning base env, and the
+        per-parameter identifiability report (posterior contraction) is
+        logged so null parameters are visible rather than silently
+        trusted.
+        """
+        physical_specs = self._physical_param_specs
+        physical_names = [s.name for s in physical_specs]
+        fit_env = self._get_rollout_fit_env()
+        rollouts = self._rollout_fit_trajectories(process_features)
+        init_params = {
+            s.name: s.init_value
+            for s in physical_specs + rule_specs
+        }
+        if not rollouts:
+            logger.warning(
+                "No complete trajectories for rollout sysID; keeping the "
+                "declared physical-param inits unfitted.")
+            result = fit_params_rollout(fit_env, [],
+                                        physical_specs,
+                                        process_features,
+                                        rules=rules,
+                                        rule_specs=rule_specs,
+                                        latent_init=self._latent_init,
+                                        num_steps=0)
+            self._apply_identified_physical_params(
+                {n: init_params[n]
+                 for n in physical_names})
+            return result, float("nan")
+
+        pre_sse = compute_rollout_sse(fit_env, rollouts, init_params,
+                                      process_features, physical_names, rules,
+                                      self._latent_init)
+        logger.info("Rollout sysID — pre-SSE: %.6f", pre_sse)
+        result, survivors, _rms = fit_params_rollout_trimmed(
+            fit_env,
+            rollouts,
+            physical_specs,
+            process_features,
+            rules=rules,
+            rule_specs=rule_specs,
+            latent_init=self._latent_init,
+            num_steps=num_steps)
+        # Post-SSE and the identifiability probe are computed on the
+        # SURVIVING trajectories: a trimmed (unexplainable) recording
+        # would otherwise re-poison the verdicts with its noise. With no
+        # survivors, keep the full set so the probe sees the noise and
+        # reports NOT identified, and the guard below keeps the inits.
+        probe_rollouts = survivors if survivors else rollouts
+        fitted = result.point_estimate
+        post_sse = compute_rollout_sse(fit_env, probe_rollouts, fitted,
+                                       process_features, physical_names, rules,
+                                       self._latent_init)
+        logger.info("Rollout sysID — post-SSE: %.6f", post_sse)
+
+        def rollout_sse_fn(params: Dict[str, float]) -> float:
+            return compute_rollout_sse(fit_env, probe_rollouts, params,
+                                       process_features, physical_names, rules,
+                                       self._latent_init)
+
+        report = identifiability_report(
+            result, rollout_sse_fn,
+            list(physical_specs) + list(rule_specs))
+        logger.info("Identifiability (posterior/prior contraction):\n%s",
+                    format_identifiability(report))
+        for name in sorted(fitted):
+            init_val = init_params[name]
+            fit_val = fitted[name]
+            delta = fit_val - init_val
+            pct = (delta / init_val * 100) if init_val != 0 else float("nan")
+            logger.info("  %-30s  %.4f -> %.4f  (Δ=%.4f, %+.1f%%)", name,
+                        init_val, fit_val, delta, pct)
+        self._apply_identified_physical_params(
+            select_trustworthy_params(fitted, init_params, physical_names,
+                                      report))
         return result, post_sse
 
     # ── Partial-observability (latent) support ───────────────────
@@ -1377,15 +1582,25 @@ files to see exactly which rules and predicates produced each failed plan.
             return None, None, None, None
 
         rules, specs, features = read_simulator_components(ns)
+        # A physics-only artifact (PHYSICAL_PARAMS with no process rules)
+        # is valid: the base sim carries all the dynamics once its
+        # parameters are identified, so rules/specs default to empty.
+        physics_only = read_physical_param_specs(ns) is not None
         if rules is None:
-            logger.warning("Simulator file %s missing PROCESS_RULES.", path)
-            return None, None, None, ns
+            if not physics_only:
+                logger.warning("Simulator file %s missing PROCESS_RULES.",
+                               path)
+                return None, None, None, ns
+            rules = []
         if specs is None:
-            logger.warning("Simulator file %s missing PARAM_SPECS.", path)
-            return None, None, None, ns
+            if not physics_only:
+                logger.warning("Simulator file %s missing PARAM_SPECS.", path)
+                return None, None, None, ns
+            specs = []
 
-        logger.info("Loaded %d rules, %d param specs from %s.", len(rules),
-                    len(specs), path)
+        logger.info("Loaded %d rules, %d param specs from %s%s.", len(rules),
+                    len(specs), path,
+                    " (physics-only artifact)" if physics_only else "")
         return rules, specs, features, ns
 
     # ── Static helpers ───────────────────────────────────────────
@@ -1447,6 +1662,12 @@ files to see exactly which rules and predicates produced each failed plan.
                                         do_cache=False,
                                         use_gui=CFG.option_model_use_gui,
                                         skip_process_dynamics=True)
+        # A fresh env comes up with built-in physics; re-assert any
+        # identified physical params (the in-place override does not
+        # survive env recreation).
+        if self._identified_physical_params:
+            self._base_env.apply_physical_param_overrides(
+                self._identified_physical_params)
 
     def _restore_unreconstructible_process_features(self, base_state: State,
                                                     prev_state: State) -> None:
@@ -1539,7 +1760,7 @@ scope: only the listed `(type, feature)` pairs are scored against \
 observations, and only those are written on top of the base sim at test \
 time. Be honest — listing features your rules don't actually update \
 inflates the loss without giving MCMC anything to optimise.
-
+__PHYSICAL_PARAMS_SECTION__
 __RULE_SIGNATURE_SECTION__
 
 ### Multiple objects of the same type
@@ -1790,11 +2011,86 @@ re-validate.
                                           self._rule_signature_section())
         base_prompt = base_prompt.replace("__PROCESS_RULE_SIGNATURE__",
                                           self._process_rule_signature())
+        base_prompt = base_prompt.replace(
+            "__PHYSICAL_PARAMS_SECTION__",
+            self._physical_params_prompt_section())
         extra = self._extra_synthesis_system_prompt()
         if extra:
             return base_prompt.replace("__SYNTHESIS_PROMPT_EXTRA__",
                                        "\n" + extra.rstrip() + "\n")
         return base_prompt.replace("__SYNTHESIS_PROMPT_EXTRA__", "")
+
+    def _physical_params_prompt_section(self) -> str:
+        """Markdown for the optional PHYSICAL_PARAMS (system-ID) block.
+
+        Built from the base env's revealed parameter menu
+        (``get_physical_param_info``); empty when the env reveals none,
+        so non-parameterized envs never see the feature mentioned.
+        """
+        info: Dict[str, Dict[str, Any]] = {}
+        # getattr chain (not plain attribute access) so the prompt still
+        # renders on instances without a base env (see the bare-instance
+        # rendering tests in test_agent_sim_prompt_formatting.py).
+        base_env = getattr(self, "_base_env", None)
+        getter = getattr(base_env, "get_physical_param_info", None)
+        if callable(getter):
+            info = getter() or {}
+        if not info:
+            return ""
+        lines = [
+            "",
+            "## Optional: base-sim system identification "
+            "(`PHYSICAL_PARAMS`)",
+            "",
+            "The base sim's rigid-body physics is itself parameterized, "
+            "and its built-in values may be MIS-CALIBRATED (the real "
+            "environment may run different physics). It reveals these "
+            "tunable parameters:",
+            "",
+        ]
+        for name, meta in info.items():
+            scale_note = (", fitted in log-space"
+                          if meta.get("scale") == "log" else "")
+            lines.append(f"- `{name}` (built-in {meta['default']:.4g}, fit "
+                         f"box [{meta['lo']:.4g}, {meta['hi']:.4g}]"
+                         f"{scale_note}): {meta['description']}")
+        lines.extend([
+            "",
+            "If observed trajectories diverge from the base sim on "
+            "*rigid-body motion itself* (not a hidden process layered on "
+            "top of it), declare a fourth export:",
+            "",
+            "```python",
+            "PHYSICAL_PARAMS: List[ParamSpec]  # subset of the names "
+            "above; init = your hypothesis, lo/hi from the box",
+            "```",
+            "",
+            "Guidance:",
+            "",
+            "- **Declare a sparse subset**, not everything: include only "
+            "parameters you hypothesize are both execution-relevant and "
+            "identifiable from the data (a collision parameter cannot be "
+            "identified from trajectories that contain no collisions). "
+            "`evaluate_step_fit` returns a per-parameter identifiability "
+            "report (posterior contraction); drop any parameter reported "
+            "as NOT identified — its fitted value is arbitrary noise.",
+            "- With `PHYSICAL_PARAMS` declared, the fit switches to "
+            "matching **free-running rollouts** of full trajectories "
+            "(momentum accrues in-sim, which the per-step teacher-forced "
+            "fit destroys), and physical + rule parameters are fit "
+            "**jointly** in one posterior, so rules cannot silently "
+            "absorb physics error.",
+            "- A physics-only artifact is valid: `PROCESS_RULES = []` and "
+            "`PARAM_SPECS = []` with a non-empty `PHYSICAL_PARAMS` means "
+            "the calibrated base sim carries all the dynamics. "
+            "`PROCESS_FEATURES` must still be declared — it defines which "
+            "features the rollout is scored on (e.g. the pose features "
+            "of the objects whose motion you are calibrating).",
+            "- After the fit, the identified values are applied to the "
+            "planning base env, so `evaluate_plan_refinement` and "
+            "test-time planning use the calibrated physics.",
+        ])
+        return "\n".join(lines) + "\n"
 
     def _rule_signature_section(self) -> str:
         """Markdown for the '### Rule signature' block.

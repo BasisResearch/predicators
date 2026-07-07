@@ -622,8 +622,23 @@ class GlobalSettings:
     # push-throughs.
     boil_mobile_base_align_x = True
 
+    # bridge env
+    # Task sizes: "simple" = 4 blocks (1-block legs, 2-block span, 3 glue
+    # joints); "full" = 7 blocks (2-block leg stacks, 3-block span, 6
+    # glue joints). One spec is drawn per task from these lists.
+    bridge_task_spec_train = ["simple"]
+    bridge_task_spec_test = ["simple"]
+
     # parameters for random options approach
     random_options_max_tries = 100
+
+    # Max steps an any-atom-change Wait may run without seeing a change
+    # before it bails out (see option_policy_to_policy). Infinite by
+    # default (legacy behavior); envs whose plans interleave work with
+    # exogenous delays (e.g. bridge) should set a finite cap, because
+    # the awaited change can complete during the PREVIOUS option and
+    # strand the Wait until the horizon.
+    wait_option_max_steps = float("inf")
 
     # option model parameters
     option_model_terminate_on_repeat = True
@@ -862,11 +877,12 @@ class GlobalSettings:
     # re-refine from the current state and retry, up to this many times. 0
     # disables replanning (the option failure is terminal, as before).
     process_planning_max_execution_replans = 0
-    # Whether non-oracle process-planning approaches (process/param learning,
-    # predicate invention, etc.) augment with the ground-truth helper types,
-    # predicates, and objects (e.g. the domino grid). The oracle always does;
-    # the others opt in via this flag (e.g. for ExoPredicator).
-    process_planning_use_gt_helpers = False
+    # Whether non-oracle planning approaches augment with the ground-truth
+    # helper types, predicates, and objects (e.g. the domino/fan grid). Shared
+    # by both the process-planning family (process/param learning, predicate
+    # invention, ExoPredicator, ...) and the agent-planning family; the oracle
+    # always does regardless, the others opt in via this flag.
+    use_gt_helpers = False
     process_task_planning_heuristic = 'h_ff'
     wait_option_terminate_on_atom_change = True
     running_no_invent_baseline = False
@@ -1233,7 +1249,58 @@ class GlobalSettings:
 
     # Code sim-learning parameter fitting settings.
     # Set to 0 to skip MCMC and use initial parameter values directly.
-    code_sim_learning_num_mcmc_steps = 500
+    code_sim_learning_num_mcmc_steps = 0
+    # MCMC budget for the free-running-rollout system-identification fit
+    # (PHYSICAL_PARAMS, physical_sysid.fit_params_rollout). Each eval is a
+    # full PyBullet rollout of every fit trajectory — orders of magnitude
+    # costlier than a per-transition rule eval — so this budget is kept
+    # separate from the per-transition one above. Default 0 = LM point
+    # fit only (matching the experiments' code_sim_learning_num_mcmc_steps
+    # convention; identifiability then comes from the Laplace covariance
+    # at the LM MAP); set > 0 to sample a full posterior with emcee,
+    # warm-started from the LM MAP.
+    code_sim_learning_rollout_num_mcmc_steps = 0
+    # Truncate each rollout-fit trajectory once the scored features have
+    # settled (physical_sysid.truncate_settled_tail): keep everything up
+    # to the last observed motion plus a margin, drop the static tail.
+    # Rationale: a free-running rollout diverges chaotically from the
+    # recording over hundreds of contact steps, and a long settled tail
+    # only re-scores that accumulated divergence every step, drowning
+    # the physical-parameter signal (run_20260705_203314: SSE at the
+    # TRUE friction exceeded SSE at the wrong one on full 500-step
+    # trajectories). Domino-style trajectories (push -> cascade ->
+    # long static settle) lose no information to the cut.
+    code_sim_learning_rollout_truncate_settled = True
+    # Per-step observed feature delta that counts as "still moving"
+    # (meters / radians; settled dominoes jitter ~1e-5, a toppling one
+    # moves ~1e-2/step).
+    code_sim_learning_rollout_settle_tol = 1e-3
+    # Steps kept after the last observed motion, so the rollout is still
+    # scored on coming to rest at the right pose.
+    code_sim_learning_rollout_settle_margin = 20
+    # Candidates per physical parameter for the coarse grid sweep that
+    # seeds the rollout LM start (0 disables). Needed because the
+    # rollout SSE can be locally flat at the declared init (domino
+    # topple reach saturates above friction ~0.5), stalling LM's finite
+    # differences even on informative data; the sweep costs
+    # num_points+1 rollout evals per physical param.
+    code_sim_learning_rollout_grid_seed_points = 7
+    # Goodness-of-fit trimming threshold for rollout sysID, as a
+    # multiple of the fit's noise_sigma (0 disables): a trajectory whose
+    # best-achievable RMS over the candidate param grid exceeds
+    # factor*noise_sigma is unexplainable at ANY params (chaotic
+    # recording / model misfit), so it is dropped before fitting.
+    # Explainable vs unexplainable RMS differ by orders of magnitude on
+    # domino data, so the factor is uncritical.
+    code_sim_learning_rollout_trim_rms_factor = 3.0
+    # Consistency requirement among surviving trajectories (0 disables):
+    # at the joint fit, each survivor's RMS must be within this factor
+    # of its own best-achievable RMS. A survivor fitting much worse than
+    # it could means the set disagrees on the params (a recording can be
+    # accidentally explainable at WRONG params and outvote clean data);
+    # the survivor with the largest best-RMS is dropped and the fit
+    # reruns, anchoring on the cleanest data.
+    code_sim_learning_rollout_consistency_factor = 3.0
     # Diagnostic: log the Hessian eigendecomposition at the MAP to
     # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
     code_sim_learning_log_hessian_identifiability = False
@@ -1307,6 +1374,9 @@ class GlobalSettings:
                     "pybullet_laser": 2000,
                     "pybullet_ants": 2000,
                     "pybullet_fan": 2000,
+                    # Bridge plans are long (up to ~27 options in the
+                    # full variant), each option ~60-100 low-level steps.
+                    "pybullet_bridge": 3000,
                     "pybullet_switch": 2000,
                     "pybullet_barrier": 2000,
                     "doors": 1000,

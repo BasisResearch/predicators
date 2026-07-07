@@ -33,12 +33,20 @@ class PyBulletFanEnv(PyBulletEnv):
     table_orn: ClassVar[Quaternion] = p.getQuaternionFromEuler(
         [0.0, 0.0, np.pi / 2.0])
     table_scale: ClassVar[float] = 1.0
+    # Two tables side by side for extra workspace (mirrors pybullet_domino).
+    # The second table is offset by +table_width/2 in y.
+    table_width: ClassVar[float] = 1.0
 
     # Workspace bounds
     x_lb: ClassVar[float] = 0.4
     x_ub: ClassVar[float] = 1.1
     y_lb: ClassVar[float] = 1.1
-    y_ub: ClassVar[float] = 1.6
+    # Two tables span y in [1.1, 2.1]; y_ub is the upper workspace bound used
+    # to clamp the fan-blown ball. Must cover the full grid (up to
+    # loc_y_ub = up_fan_y - 0.05 ~= 1.97), so 2.1 (single-table 1.6 would clip
+    # the ball at the upper cells). robot_init_y / switch_y below are anchored
+    # to the front (y_lb) so they don't drift up into the grid.
+    y_ub: ClassVar[float] = 2.1
     z_lb: ClassVar[float] = table_height
     z_ub: ClassVar[float] = 0.75 + table_height / 2
     init_padding: float = 0.05
@@ -61,7 +69,8 @@ class PyBulletFanEnv(PyBulletEnv):
     # ROBOT CONFIGURATION
     # =========================================================================
     robot_init_x: ClassVar[float] = (x_lb + x_ub) * 0.5
-    robot_init_y: ClassVar[float] = (y_lb + y_ub) * 0.4
+    # Front-anchored (robot only reaches the front switches, not the grid).
+    robot_init_y: ClassVar[float] = y_lb - 0.02
     robot_init_z: ClassVar[float] = z_ub - 0.3
     robot_base_pos: ClassVar[Pose3D] = (0.75, 0.62, 0.0)
     robot_base_orn: ClassVar[Quaternion] = p.getQuaternionFromEuler(
@@ -76,8 +85,8 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     # Fan Count & Layout
     # -------------------------------------------------------------------------
-    num_left_fans: ClassVar[int] = 2
-    num_right_fans: ClassVar[int] = 2
+    num_left_fans: ClassVar[int] = 5
+    num_right_fans: ClassVar[int] = 5
     num_back_fans: ClassVar[int] = 5
     num_front_fans: ClassVar[int] = 5
 
@@ -107,7 +116,12 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     left_fan_x: ClassVar[float] = x_lb - fan_x_len * 5
     right_fan_x: ClassVar[float] = x_ub + fan_x_len * 5
-    up_fan_y: ClassVar[float] = y_ub + fan_x_len / 2
+    # Front (far) fan row sits at the upper edge of the second table. The two
+    # tables together span y in [1.1, 2.1]; keep the fan body just inside that
+    # far edge. Deepening the arena this way gives the left/right sides room
+    # for 5 evenly-spaced fans, and re-centers the grid (loc_y_mid, the
+    # midpoint of down_fan_y/up_fan_y) between the top and bottom fan rows.
+    up_fan_y: ClassVar[float] = 2.02
     down_fan_y: ClassVar[float] = y_lb + fan_x_len / 2 + 0.1
 
     # Fan placement boundaries
@@ -128,9 +142,9 @@ class PyBulletFanEnv(PyBulletEnv):
     switch_x_len: ClassVar[float] = 0.10  # Length of switch
     switch_height: ClassVar[float] = 0.08
 
-    # Switch positioning
-    switch_y: ClassVar[float] = (y_lb +
-                                 y_ub) * 0.5 - 0.25  # Y position of switches
+    # Switch positioning: front-anchored so the switches stay at the near edge
+    # (out of the grid), independent of the workspace upper bound y_ub.
+    switch_y: ClassVar[float] = y_lb  # Y position of switches
     switch_base_x: ClassVar[float] = 0.60  # Base X position for first switch
     switch_x_spacing: ClassVar[float] = 0.08  # Spacing between switches
 
@@ -317,31 +331,18 @@ class PyBulletFanEnv(PyBulletEnv):
                                    self._FanOn_holds)
         self._SwitchOff = Predicate("SwitchOff", [self._switch_type],
                                     lambda s, o: not self._FanOn_holds(s, o))
-        self._BallAtLoc = Predicate("BallAtLoc",
-                                    [self._ball_type, self._location_type],
-                                    self._BallAtLoc_holds,
-                                    natural_language_assertion=lambda os:
-                                    f"ball {os[0]} is at location {os[1]}")
-        self._ClearLoc = Predicate("ClearLoc", [self._location_type],
-                                   self._ClearPos_holds,
-                                   natural_language_assertion=lambda os:
-                                   f"location {os[0]} is clear of objects")
-        self._FanFacingSide = Predicate(
-            "FanFacingSide", [self._fan_type, self._side_type],
-            self._FanFacingSide_holds,
+        # Physical goal predicate: the ball has reached the physical target.
+        # The grid helper predicates (BallAtLoc / ClearLoc / SideOf /
+        # FanFacingSide / OppositeFan) now live in
+        # ground_truth_models/fan/predicates.py and are injected only for the
+        # oracle, so the agent runs grid-free. The target's actual coordinates
+        # are surfaced to the agent through the per-task goal_nl (see
+        # _make_tasks).
+        self._BallAtTarget = Predicate(
+            "BallAtTarget", [self._ball_type, self._target_type],
+            self._BallAtTarget_holds,
             natural_language_assertion=lambda os:
-            f"fan {os[0]} is facing the side {os[1]}")
-        self._OppositeFan = Predicate(
-            "OppositeFan", [self._fan_type, self._fan_type],
-            self._OppositeFan_holds,
-            natural_language_assertion=lambda os:
-            f"fan {os[0]} is facing the opposite side of fan {os[1]}")
-        self._SideOf = Predicate(
-            "SideOf",
-            [self._location_type, self._location_type, self._side_type],
-            self._SideOf_holds,
-            natural_language_assertion=lambda os:
-            f"location {os[0]} is to the {os[2]} side of location {os[1]}")
+            f"ball {os[0]} has reached the target {os[1]}")
         self._Controls = Predicate("Controls",
                                    [self._switch_type, self._fan_type],
                                    self._Controls_holds)
@@ -382,18 +383,16 @@ class PyBulletFanEnv(PyBulletEnv):
 
     @property
     def predicates(self) -> Set[Predicate]:
+        # Physical-only vocabulary (agent runs grid-free). The grid helper
+        # predicates (BallAtLoc / ClearLoc / SideOf / FanFacingSide /
+        # OppositeFan) are provided by
+        # PyBulletFanGroundTruthPredicateFactory and injected only for the
+        # oracle / process-planning approaches.
         predicates = {
             self._FanOn,
             self._FanOff,
-            self._BallAtLoc,
-            # self._LeftOf, self._RightOf, self._UpOf, self._DownOf,
-            # self._LeftFanSwitch, self._RightFanSwitch, self._FrontFanSwitch,
-            # self._BackFanSwitch,
-            self._FanFacingSide,
-            self._SideOf,
+            self._BallAtTarget,
             self._Controls,
-            self._ClearLoc,
-            self._OppositeFan,
         }
         if not CFG.fan_known_controls_relation:
             predicates |= {self._SwitchOn, self._SwitchOff}
@@ -401,22 +400,21 @@ class PyBulletFanEnv(PyBulletEnv):
 
     @property
     def target_predicates(self) -> Set[Predicate]:
-        return {
-            self._FanFacingSide,
-            # self._OppositeFan
-        }
+        return {self._BallAtTarget}
 
     @property
     def types(self) -> Set[Type]:
+        # Physical-only types (agent runs grid-free). The grid helper types
+        # (loc / side) are provided by PyBulletFanGroundTruthTypeFactory and
+        # injected only for the oracle / process-planning approaches.
         return {
             self._robot_type, self._fan_type, self._switch_type,
-            self._wall_type, self._ball_type, self._target_type,
-            self._location_type, self._side_type
+            self._wall_type, self._ball_type, self._target_type
         }
 
     @property
     def goal_predicates(self) -> Set[Predicate]:
-        return {self._BallAtLoc}
+        return {self._BallAtTarget}
 
     # -------------------------------------------------------------------------
     # PyBullet Initialization
@@ -428,7 +426,8 @@ class PyBulletFanEnv(PyBulletEnv):
         physics_client_id, pybullet_robot, bodies = super(
         ).initialize_pybullet(using_gui)
 
-        # Create a table
+        # Two tables side by side for extra workspace (mirrors
+        # pybullet_domino). The second table is offset by +table_width/2 in y.
         table_id = create_object(
             asset_path="urdf/table.urdf",
             position=cls.table_pos,
@@ -438,6 +437,16 @@ class PyBulletFanEnv(PyBulletEnv):
             physics_client_id=physics_client_id,
         )
         bodies["table_id"] = table_id
+        table_id2 = create_object(
+            asset_path="urdf/table.urdf",
+            position=(cls.table_pos[0], cls.table_pos[1] + cls.table_width / 2,
+                      cls.table_pos[2]),
+            orientation=cls.table_orn,
+            scale=cls.table_scale,
+            use_fixed_base=True,
+            physics_client_id=physics_client_id,
+        )
+        bodies["table_id2"] = table_id2
 
         # ---------------------------------------------------------------------
         # Create fans in four groups: left, right, back, front
@@ -571,7 +580,9 @@ class PyBulletFanEnv(PyBulletEnv):
 
     def _store_pybullet_bodies(self, pybullet_bodies: Dict[str, Any]) -> None:
         """Store references to all PyBullet object IDs and their joints."""
-        self._table_ids = [pybullet_bodies["table_id"]]
+        self._table_ids = [
+            pybullet_bodies["table_id"], pybullet_bodies["table_id2"]
+        ]
         # 0 = left, 1 = right, 2 = back, 3 = front
 
         # Store all fan IDs grouped by side
@@ -658,20 +669,18 @@ class PyBulletFanEnv(PyBulletEnv):
         # pylint: disable=attribute-defined-outside-init
         self._boundary_wall_ids = []
 
-        # Get all position objects that are in the state
-        position_objects = state.get_objects(self._location_type)
-        if not position_objects:
+        # Reproduce the original grid-tight arena. The loc objects are no
+        # longer in the (grid-free) state, so derive the grid extent from the
+        # TARGET's position (stationary, on-grid) - NOT the ball, which moves
+        # during execution and would flip the grid phase mid-episode.
+        ref_objs = state.get_objects(self._target_type)
+        if not ref_objs:
+            ref_objs = state.get_objects(self._ball_type)
+        if not ref_objs:
             return
-
-        # Set the xx, yy sim features
-        for pos_obj in position_objects:
-            pos_obj.xx = state.get(pos_obj, "xx")
-            pos_obj.yy = state.get(pos_obj, "yy")
-
-        # Find the bounds of the actual grid positions used in this task
-        x_coords = [state.get(pos_obj, "xx") for pos_obj in position_objects]
-        y_coords = [state.get(pos_obj, "yy") for pos_obj in position_objects]
-
+        ref = ref_objs[0]
+        x_coords, y_coords = self._grid_coords_for_point(
+            state.get(ref, "x"), state.get(ref, "y"))
         grid_x_min, grid_x_max = min(x_coords), max(x_coords)
         grid_y_min, grid_y_max = min(y_coords), max(y_coords)
 
@@ -778,10 +787,46 @@ class PyBulletFanEnv(PyBulletEnv):
 
         return x_coords, y_coords
 
+    @classmethod
+    def _grid_coords_for_point(
+            cls, ref_x: float,
+            ref_y: float) -> Tuple[List[float], List[float]]:
+        """Reproduce the exact task grid, inferred from an on-grid reference.
+
+        The grid is one of the fixed (train / test) sizes centered in the
+        workspace; odd/even sizes land on half-gap-offset phases, so exactly
+        one candidate has a cell coinciding with a point that sits on a real
+        grid cell. This lets the oracle helper injection and the physical
+        boundary walls recover the grid without any loc objects in the
+        (grid-free) state.
+
+        IMPORTANT: pass a STATIONARY on-grid reference (e.g. the target),
+        NOT the moving ball. A ball mid-move sits between cells and can
+        momentarily align to the *other* grid phase (train vs test), which
+        would flip the whole injected grid between steps and desync any
+        closed-loop policy tracking BallAtLoc/SideOf atoms.
+        """
+        candidates = [
+            (CFG.fan_train_num_pos_x, CFG.fan_train_num_pos_y),
+            (CFG.fan_test_num_pos_x, CFG.fan_test_num_pos_y),
+        ]
+        for num_x, num_y in candidates:
+            x_coords, y_coords = cls._generate_grid_coordinates(num_x, num_y)
+            if (any(abs(cx - ref_x) < cls.pos_gap / 2 for cx in x_coords)
+                    and any(
+                        abs(cy - ref_y) < cls.pos_gap / 2 for cy in y_coords)):
+                return x_coords, y_coords
+        # Reference off-grid (shouldn't happen); fall back to the test grid.
+        return cls._generate_grid_coordinates(*candidates[-1])
+
     def _position_fans_on_sides(self) -> None:
         """Position all PyBullet fan bodies correctly on their respective
         sides."""
-        # Calculate positions for each side
+        # Calculate positions for each side. Back/front fans span the arena's
+        # x-extent (fan_x_lb..fan_x_ub); left/right fans span the y-extent
+        # (fan_y_lb..fan_y_ub), i.e. corner-to-corner between the bottom and
+        # top fan rows. With the deepened arena these bands are long enough for
+        # 5 evenly-spaced, non-overlapping fans on every side.
         left_coords = np.linspace(self.fan_y_lb, self.fan_y_ub,
                                   self.num_left_fans)
         right_coords = np.linspace(self.fan_y_lb, self.fan_y_ub,
@@ -867,16 +912,39 @@ class PyBulletFanEnv(PyBulletEnv):
                 tx, ty = target_pos[0], target_pos[1]
                 return 1.0 if self._is_ball_close_to_position(bx, by, tx,
                                                               ty) else 0.0
-        if obj.type == self._location_type:
-            if feature == "xx":
-                return obj.xx
-            if feature == "yy":
-                return obj.yy
-        if obj.type == self._side_type:
-            if feature == "side_idx":
-                return float(obj.side_idx)
+        # loc/side helper objects are injected only for the oracle (see
+        # PyBulletFanGroundTruthTypeFactory) and carry no PyBullet body, so
+        # their feature values are encoded in their names. Reconstruct them
+        # from the name; this lets the _get_state round-trip succeed even
+        # though the env itself is built grid-free.
+        reconstructed = self._reconstruct_helper_feature_from_name(
+            obj, feature)
+        if reconstructed is not None:
+            return reconstructed
 
         raise ValueError(f"Unknown feature {feature} for object {obj}")
+
+    @staticmethod
+    def _reconstruct_helper_feature_from_name(obj: Object,
+                                              feature: str) -> Optional[float]:
+        """Reconstruct an injected loc/side feature from its object name.
+
+        loc names encode coordinates ("loc_<x>_<y>", e.g.
+        "loc_0.4700_1.2800") and side names encode the direction
+        ("left"/"right"/"down"/"up"). Returns None for anything else so
+        the caller can raise its own error.
+        """
+        if obj.type.name == "loc" and feature in ("xx", "yy"):
+            _, x_str, y_str = obj.name.split("_")
+            return float(x_str) if feature == "xx" else float(y_str)
+        if obj.type.name == "side" and feature == "side_idx":
+            return {
+                "left": 1.0,
+                "right": 0.0,
+                "down": 3.0,
+                "up": 2.0
+            }[obj.name]
+        return None
 
     # -------------------------------------------------------------------------
     # Step
@@ -1098,131 +1166,21 @@ class PyBulletFanEnv(PyBulletEnv):
         (fan, ) = objects
         return state.get(fan, "is_on") > 0.5
 
-    def _BallAtLoc_holds(self, state: State,
-                         objects: Sequence[Object]) -> bool:
-        ball, pos = objects
-        # walls = state.get_objects(self._wall_type)
-        # for wall in walls:
-        #     if self._is_ball_close_to_position(state.get(wall, "x"),
-        #                                        state.get(wall, "y"),
-        #                                        state.get(pos, "xx"),
-        #                                        state.get(pos, "yy")):
-        #         return False
+    def _BallAtTarget_holds(self, state: State,
+                            objects: Sequence[Object]) -> bool:
+        """(BallAtTarget ball target).
+
+        True when the ball has reached the physical target cell. This is
+        the grid-free goal predicate the agent plans toward; the grid
+        helper predicates (BallAtLoc / ClearLoc / SideOf / FanFacingSide
+        / OppositeFan) live in ground_truth_models/fan/predicates.py and
+        are injected only for the oracle.
+        """
+        ball, target = objects
         return self._is_ball_close_to_position(state.get(ball, "x"),
                                                state.get(ball, "y"),
-                                               state.get(pos, "xx"),
-                                               state.get(pos, "yy"))
-
-    def _LeftOf_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        pos1, pos2 = objects
-        return self._is_ball_close_to_position(
-            state.get(pos1, "xx") + self.pos_gap, state.get(pos1, "yy"),
-            state.get(pos2, "xx"), state.get(pos2, "yy"))
-
-    def _RightOf_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        pos1, pos2 = objects
-        return self._is_ball_close_to_position(
-            state.get(pos1, "xx") - self.pos_gap, state.get(pos1, "yy"),
-            state.get(pos2, "xx"), state.get(pos2, "yy"))
-
-    def _UpOf_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        pos1, pos2 = objects
-        return self._is_ball_close_to_position(
-            state.get(pos1, "xx"),
-            state.get(pos1, "yy") - self.pos_gap, state.get(pos2, "xx"),
-            state.get(pos2, "yy"))
-
-    def _DownOf_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        """(DownOf pos1 pos2)."""
-        pos1, pos2 = objects
-        return self._is_ball_close_to_position(
-            state.get(pos1, "xx"),
-            state.get(pos1, "yy") + self.pos_gap, state.get(pos2, "xx"),
-            state.get(pos2, "yy"))
-
-    def _ClearPos_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        """If the position is clear of walls."""
-
-        pos, = objects
-        pos_x, pos_y = state.get(pos, "xx"), state.get(pos, "yy")
-        for obj in state.get_objects(self._wall_type):
-            wx, wy = state.get(obj, "x"), state.get(obj, "y")
-            if self._is_ball_close_to_position(pos_x, pos_y, wx, wy):
-                return False
-        return True
-
-    def _LeftFanSwitch_holds(self, state: State,
-                             objects: Sequence[Object]) -> bool:
-        switch, = objects
-        return state.get(switch, "controls_fan") == 0
-
-    def _RightFanSwitch_holds(self, state: State,
-                              objects: Sequence[Object]) -> bool:
-        switch, = objects
-        return state.get(switch, "controls_fan") == 1
-
-    def _FrontFanSwitch_holds(self, state: State,
-                              objects: Sequence[Object]) -> bool:
-        switch, = objects
-        return state.get(switch, "controls_fan") == 3
-
-    def _BackFanSwitch_holds(self, state: State,
-                             objects: Sequence[Object]) -> bool:
-        switch, = objects
-        return state.get(switch, "controls_fan") == 2
-
-    def _FanFacingSide_holds(self, state: State,
-                             objects: Sequence[Object]) -> bool:
-        """Whether the fan is on the specified side of the table.
-
-        True if the fan's side matches the side object's side.
-        """
-        fan, side = objects
-        return state.get(fan, "facing_side") == state.get(side, "side_idx")
-
-    def _OppositeFan_holds(self, state: State,
-                           objects: Sequence[Object]) -> bool:
-        """Whether the fans are on opposite sides of the table."""
-        fan1, fan2 = objects
-        if fan1.name == fan2.name:
-            return False
-        side1 = state.get(fan1, "facing_side")
-        side2 = state.get(fan2, "facing_side")
-        # Check if they are on opposite sides using XOR
-        # Sides 0,1 are opposite (differ by 1), sides 2,3 are opposite (differ
-        # by 1)
-        return abs(side1 - side2) == 1 and (side1 // 2) == (side2 // 2)
-
-    def _SideOf_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        """(SideOf pos1 pos2 side).
-
-        True if pos1 is in the specified side direction relative to
-        pos2. side=0 (left): pos1 is to the left of pos2 side=1 (right):
-        pos1 is to the right of pos2 side=2 (back): pos1 is above pos2
-        side=3 (front): pos1 is below pos2
-        """
-        pos1, pos2, side = objects
-        side_val = state.get(side, "side_idx")
-
-        if side_val == 1:  # left
-            return self._is_ball_close_to_position(
-                state.get(pos1, "xx") + self.pos_gap, state.get(pos1, "yy"),
-                state.get(pos2, "xx"), state.get(pos2, "yy"))
-        if side_val == 0:  # right
-            return self._is_ball_close_to_position(
-                state.get(pos1, "xx") - self.pos_gap, state.get(pos1, "yy"),
-                state.get(pos2, "xx"), state.get(pos2, "yy"))
-        if side_val == 2:  # down
-            return self._is_ball_close_to_position(
-                state.get(pos1, "xx"),
-                state.get(pos1, "yy") - self.pos_gap, state.get(pos2, "xx"),
-                state.get(pos2, "yy"))
-        if side_val == 3:  # up
-            return self._is_ball_close_to_position(
-                state.get(pos1, "xx"),
-                state.get(pos1, "yy") + self.pos_gap, state.get(pos2, "xx"),
-                state.get(pos2, "yy"))
-        return False
+                                               state.get(target, "x"),
+                                               state.get(target, "y"))
 
     def _Controls_holds(self, state: State, objects: Sequence[Object]) -> bool:
         """(Controls fan switch)."""
@@ -1492,11 +1450,11 @@ class PyBulletFanEnv(PyBulletEnv):
                             0.0,
                         }
 
-                    # Sides - add them to the state dictionary
-                    init_dict[self._sides[0]] = {"side_idx": 1.0}
-                    init_dict[self._sides[1]] = {"side_idx": 0.0}
-                    init_dict[self._sides[2]] = {"side_idx": 3.0}
-                    init_dict[self._sides[3]] = {"side_idx": 2.0}
+                    # Note: the loc/side grid helper objects are NOT baked
+                    # into the (agent-visible) state anymore. They are
+                    # injected only for the oracle by
+                    # PyBulletFanGroundTruthTypeFactory, so the agent runs
+                    # grid-free.
 
                     # Walls
                     for i, wall_pos in enumerate(wall_positions):
@@ -1515,8 +1473,6 @@ class PyBulletFanEnv(PyBulletEnv):
                         "z": self.table_height + self.ball_height_offset
                     }
                     init_dict[self._ball] = ball_dict
-
-                    init_dict.update(pos_dict)
                     break
             else:
                 # If we couldn't find a valid configuration after max attempts
@@ -1527,29 +1483,23 @@ class PyBulletFanEnv(PyBulletEnv):
 
             init_state = utils.create_state_from_dict(init_dict)
 
-            # The positions that has the same coord as the target
+            # Grid-free goal: the ball must reach the physical target. Since
+            # the agent no longer sees the loc grid, the target's actual
+            # coordinates are surfaced through goal_nl. The oracle rewrites
+            # this into the grid goal BallAtLoc(ball, target_loc) when it
+            # injects the helper objects (PyBulletFanGroundTruthTypeFactory).
             tx, ty = init_state.get(self._target, "x"), \
-                    init_state.get(self._target, "y")
-            target_pos_obj = None
-            for pos_obj in pos_dict:
-                px, py = init_state.get(pos_obj, "xx"), \
-                    init_state.get(pos_obj, "yy")
-                if np.isclose(px, tx, atol=self.position_tolerance) and \
-                    np.isclose(py, ty, atol=self.position_tolerance):
-                    target_pos_obj = pos_obj
-                    break
-
-            # Ensure we found a target position
-            if target_pos_obj is None:
-                raise ValueError("Could not find target position object")
-
+                init_state.get(self._target, "y")
             goal_atoms = {
-                GroundAtom(self._BallAtLoc, [self._ball, target_pos_obj]),
+                GroundAtom(self._BallAtTarget, [self._ball, self._target]),
             }
             # all fans are off in the goal
             for fan_obj in self._fans:
                 goal_atoms.add(GroundAtom(self._FanOff, [fan_obj]))
-            tasks.append(EnvironmentTask(init_state, goal_atoms))
+            goal_nl = (f"Blow the ball to the target at position "
+                       f"(x={tx:.2f}, y={ty:.2f}); all fans must be off.")
+            tasks.append(
+                EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl))
         return self._add_pybullet_state_to_tasks(tasks)
 
     def _get_strategic_wall_position(  # pylint: disable=redefined-outer-name

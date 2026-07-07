@@ -269,7 +269,7 @@ ENVS:
       # option_model_terminate_on_repeat: False
       domino_initialize_at_finished_state: False
       domino_use_domino_blocks_as_target: True
-      process_planning_use_gt_helpers: True
+      use_gt_helpers: True
       domino_include_connected_predicate: False # necessary to generate valid plan
       domino_prune_actions: False
       domino_num_dominos_max: 3

@@ -2717,13 +2717,18 @@ def create_synthesis_tools(
 
     from predicators.approaches.agent_sim_learning_approach import \
         AgentSimLearningApproach
+    from predicators.code_sim_learning.physical_sysid import \
+        compute_rollout_sse, fit_params_rollout_trimmed, \
+        format_identifiability, identifiability_report, \
+        select_trustworthy_params
     from predicators.code_sim_learning.synthesis_validation import \
         run_refinement_for_synthesis
     from predicators.code_sim_learning.training import ParamSpec, \
         compute_sse, compute_sse_recurrent
     from predicators.code_sim_learning.utils import apply_rules, \
         has_latent_rules, iter_feature_residuals, read_latent_init, \
-        read_simulator_components, rollout_predictions
+        read_physical_param_specs, read_simulator_components, \
+        rollout_predictions, stamp_physical_spec_scales
 
     # pylint: enable=import-outside-toplevel
 
@@ -2769,37 +2774,49 @@ def create_synthesis_tools(
     _text = _make_spilling_text_result(sandbox_dir,
                                        agent_prefix=sandbox_dir_for_agent)
 
-    def _snapshot_and_load(path: str) -> Tuple[Any, Any, Any, Any, Any, Any]:
+    def _snapshot_and_load(
+            path: str) -> Tuple[Any, Any, Any, Any, Any, Any, Any]:
         """Snapshot ``path`` then exec it into a fresh namespace.
 
-        Returns ``(rules, specs, features, latent_init, version_tag,
-        error_msg)``; ``error_msg`` is ``None`` on success.
+        Returns ``(rules, specs, features, latent_init, physical_specs,
+        version_tag, error_msg)``; ``error_msg`` is ``None`` on success.
         ``latent_init`` is the optional ``LATENT_INIT`` export (``None``
         for fully- observable simulators) — the synthesis tools need it
         to score recurrent (5-arg) rules through the latent-threaded
-        path. Snapshots are deduped by SHA256, so repeated calls on
+        path. ``physical_specs`` is the optional ``PHYSICAL_PARAMS``
+        export (system identification); when present, a physics-only
+        artifact is valid and missing rules/specs default to empty
+        lists. Snapshots are deduped by SHA256, so repeated calls on
         unchanged content reuse the prior ``cycle_XXX_vers_YYY`` tag.
         """
         raw, version_tag, err = _snapshotter.snapshot(path)
         if err is not None:
-            return None, None, None, None, None, err
+            return None, None, None, None, None, None, err
         assert raw is not None and version_tag is not None
         ns: Dict[str, Any] = {"np": np, "ParamSpec": ParamSpec}
         try:
             exec(raw.decode("utf-8"), ns)  # pylint: disable=exec-used
         except Exception:  # pylint: disable=broad-except
-            return None, None, None, None, version_tag, (
+            return None, None, None, None, None, version_tag, (
                 f"[{version_tag}] Error executing {path}:\n"
                 f"{traceback.format_exc()}")
         rules, specs, features = read_simulator_components(ns)
         latent_init = read_latent_init(ns)
+        physical_specs = read_physical_param_specs(ns)
         if rules is None:
-            return None, None, None, None, version_tag, (
-                f"[{version_tag}] PROCESS_RULES missing or empty in {path}.")
+            if not physical_specs:
+                return None, None, None, None, None, version_tag, (
+                    f"[{version_tag}] PROCESS_RULES missing or empty in "
+                    f"{path}.")
+            rules = []
         if specs is None:
-            return None, None, None, None, version_tag, (
-                f"[{version_tag}] PARAM_SPECS missing or empty in {path}.")
-        return rules, specs, features, latent_init, version_tag, None
+            if not physical_specs:
+                return None, None, None, None, None, version_tag, (
+                    f"[{version_tag}] PARAM_SPECS missing or empty in "
+                    f"{path}.")
+            specs = []
+        return (rules, specs, features, latent_init, physical_specs,
+                version_tag, None)
 
     def _groups_for(triples: list) -> List[List[Tuple[Any, Any, Any]]]:
         """Slice flat base-pred triples into per-trajectory groups.
@@ -2818,6 +2835,144 @@ def create_synthesis_tools(
             if grouped:
                 return grouped
         return [triples]
+
+    def _evaluate_rollout_fit(rules: list, rule_specs: list,
+                              physical_specs: list, latent_init: Any,
+                              process_features: Dict[str, List[str]],
+                              scope_note: str,
+                              version_tag: str) -> Dict[str, Any]:
+        """Joint physical+rule system-ID fit on free-running rollouts.
+
+        Reached from ``evaluate_step_fit`` when the artifact declares
+        ``PHYSICAL_PARAMS``. Needs the bound approach for the raw
+        (states, actions) trajectories and the dedicated headless fit
+        env. On success the identified physical values are applied in
+        place to the approach's planning base env, so a subsequent
+        ``evaluate_plan_refinement`` call plans against the calibrated
+        sim.
+        """
+        if approach is None:
+            return _text(
+                f"[{version_tag}] Error: PHYSICAL_PARAMS requires a bound "
+                "approach (raw trajectories + base env) — unavailable in "
+                "this session.")
+        # Stamp the fit scale (log vs linear) from the env registry —
+        # the agent's declaration carries name/init/bounds only.
+        physical_specs = stamp_physical_spec_scales(physical_specs,
+                                                    approach._base_env)  # pylint: disable=protected-access
+        rollouts = approach._rollout_fit_trajectories(  # pylint: disable=protected-access
+            process_features)
+        if not rollouts:
+            return _text(
+                f"[{version_tag}] Error: no complete (states, actions) "
+                "trajectories are available, so the rollout system-ID fit "
+                "cannot run. PHYSICAL_PARAMS needs full trajectories, not "
+                "isolated transitions.")
+        fit_env = approach._get_rollout_fit_env()  # pylint: disable=protected-access
+        physical_names = [s.name for s in physical_specs]
+        init_params = {
+            s.name: s.init_value
+            for s in list(physical_specs) + list(rule_specs)
+        }
+        try:
+            pre_sse = compute_rollout_sse(fit_env, rollouts, init_params,
+                                          process_features, physical_names,
+                                          rules, latent_init)
+            fit_result, survivors, traj_rms = fit_params_rollout_trimmed(
+                fit_env,
+                rollouts,
+                physical_specs,
+                process_features,
+                rules=rules,
+                rule_specs=rule_specs,
+                latent_init=latent_init)
+            # Post-SSE and the identifiability probe run on the SURVIVING
+            # trajectories only — a trimmed (unexplainable) recording
+            # would re-poison the verdicts with its noise. With no
+            # survivors, keep the full set so the probe reports NOT
+            # identified and the trustworthiness guard keeps the inits.
+            probe_rollouts = survivors if survivors else rollouts
+            fitted = fit_result.point_estimate
+            post_sse = compute_rollout_sse(fit_env, probe_rollouts, fitted,
+                                           process_features, physical_names,
+                                           rules, latent_init)
+        except Exception as e:  # pylint: disable=broad-except
+            return _text(
+                f"[{version_tag}] Error: rollout system-ID fit failed:\n{e}")
+
+        def rollout_sse_fn(params: Dict[str, float]) -> float:
+            return compute_rollout_sse(fit_env, probe_rollouts, params,
+                                       process_features, physical_names, rules,
+                                       latent_init)
+
+        ident_report = identifiability_report(
+            fit_result, rollout_sse_fn,
+            list(physical_specs) + list(rule_specs))
+        applied = select_trustworthy_params(fitted, init_params,
+                                            physical_names, ident_report)
+        approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access
+        kept_at_init = sorted(n for n in physical_names
+                              if applied[n] != fitted[n])
+        if pre_sse > 0:
+            pct_str = f"({(pre_sse - post_sse) / pre_sse * 100:+.1f}% vs init)"
+        else:
+            pct_str = "(init SSE was 0)"
+        lines = [
+            f"[{version_tag}] JOINT ROLLOUT SYSTEM-ID FIT (PHYSICAL_PARAMS "
+            f"declared) on {len(rollouts)} full trajectories (scope: "
+            f"{scope_note}; {len(physical_names)} physical + "
+            f"{len(list(rule_specs))} rule params).",
+            "",
+            f"At init params:   rollout SSE = {pre_sse:.6f}",
+            f"After joint fit:  rollout SSE = {post_sse:.6f}  {pct_str}",
+            "",
+            "Fitted parameters:",
+        ]
+        if len(survivors) < len(rollouts):
+            rms_str = ", ".join(f"{r:.4g}" for r in traj_rms)
+            lines.insert(
+                1,
+                f"Goodness-of-fit trimming: {len(rollouts) - len(survivors)}"
+                f" of {len(rollouts)} trajectories were unexplainable at ANY "
+                "candidate params (per-trajectory best-achievable RMS: "
+                f"[{rms_str}]) and were dropped before fitting; the fit "
+                "below used only the explainable ones. If NONE survived, no "
+                "fit ran and the declared inits were kept — collect cleaner "
+                "interaction data (e.g. pushes near the top of the domino, "
+                "which topple cleanly, rather than center-height pushes "
+                "that shove chaotically).")
+        for name in sorted(fitted):
+            init_val = init_params[name]
+            fit_val = fitted[name]
+            delta = fit_val - init_val
+            ppct = (delta / init_val * 100) if init_val != 0 else float("nan")
+            kind = "physical" if name in physical_names else "rule"
+            lines.append(f"  {name:<28} [{kind:<8}] {init_val:.4f} -> "
+                         f"{fit_val:.4f}  (delta={delta:+.4f}, {ppct:+.1f}%)")
+
+        lines.extend([
+            "",
+            "Identifiability (posterior_std / prior_std; ~1 means the data "
+            "did NOT constrain the parameter — its fitted value is "
+            "arbitrary, so remove it from PHYSICAL_PARAMS or collect data "
+            "that exercises it):",
+            format_identifiability(ident_report),
+            "",
+        ])
+        if kept_at_init:
+            lines.append(
+                "Applied to the planning base env: fitted values for the "
+                "identified params only; "
+                f"{', '.join(kept_at_init)} did not contract, so the "
+                "declared init(s) were kept (the fitted values above for "
+                "them are arbitrary). evaluate_plan_refinement now plans "
+                "against the partially calibrated sim.")
+        else:
+            lines.append(
+                "The identified physical params were applied to the "
+                "planning base env; evaluate_plan_refinement now plans "
+                "against the calibrated sim.")
+        return _text("\n".join(lines))
 
     # ── run_python ──────────────────────────────────────────
 
@@ -2925,9 +3080,14 @@ def create_synthesis_tools(
         "`simulator.py`) by SSE on the step transitions. Reports SSE "
         "at init_value params from PARAM_SPECS, then fits parameters "
         "and reports the post-fit SSE plus percent improvement and the "
-        "fitted parameter values with their delta from init. Each call "
-        "snapshots the simulator file into simulator_versions/; output "
-        "is tagged [cycle_XXX_vers_YYY].",
+        "fitted parameter values with their delta from init. If the "
+        "file declares PHYSICAL_PARAMS (base-sim system "
+        "identification), the fit instead matches free-running "
+        "base-sim rollouts of full trajectories, fits physical + rule "
+        "params jointly, reports per-parameter identifiability, and "
+        "applies the identified physical values to the planning base "
+        "env. Each call snapshots the simulator file into "
+        "simulator_versions/; output is tagged [cycle_XXX_vers_YYY].",
         {
             "type": "object",
             "properties": {
@@ -2943,8 +3103,8 @@ def create_synthesis_tools(
     )
     async def evaluate_step_fit(args: Dict[str, Any]) -> Dict[str, Any]:
         path = args.get("path") or simulator_file
-        rules, specs, declared, latent_init, version_tag, err = \
-            _snapshot_and_load(path)
+        rules, specs, declared, latent_init, physical_specs, version_tag, \
+            err = _snapshot_and_load(path)
         if err:
             return _text(err)
 
@@ -2952,6 +3112,14 @@ def create_synthesis_tools(
                             inferred_process_features)
         scope_note = ("declared" if isinstance(declared, dict) else
                       "inferred (PROCESS_FEATURES not declared)")
+
+        # PHYSICAL_PARAMS declared -> joint system-identification fit on
+        # free-running rollouts (the per-transition/teacher-forced paths
+        # below cannot see physical params: State carries no velocities).
+        if physical_specs:
+            return _evaluate_rollout_fit(rules, specs, physical_specs,
+                                         latent_init, process_features,
+                                         scope_note, version_tag)
 
         # Dispatch on the rule signature exactly as the fitting engine
         # does: recurrent (5-arg, latent-declaring) rules are scored with
@@ -3075,8 +3243,8 @@ def create_synthesis_tools(
     )
     async def report_residuals(args: Dict[str, Any]) -> Dict[str, Any]:
         path = args.get("path") or simulator_file
-        rules, specs, declared, latent_init, version_tag, err = \
-            _snapshot_and_load(path)
+        rules, specs, declared, latent_init, _physical_specs, version_tag, \
+            err = _snapshot_and_load(path)
         if err:
             return _text(err)
 
@@ -3302,8 +3470,8 @@ def create_synthesis_tools(
                          "(no approach instance bound to the tool).")
 
         path = args.get("path") or simulator_file
-        rules, specs, declared, latent_init, version_tag, err = \
-            _snapshot_and_load(path)
+        rules, specs, declared, latent_init, _physical_specs, version_tag, \
+            err = _snapshot_and_load(path)
         if err:
             return _text(err)
 

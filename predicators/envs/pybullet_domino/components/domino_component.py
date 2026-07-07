@@ -71,7 +71,11 @@ class DominoComponent(DominoEnvComponent):
 
     # Domino thresholds
     domino_roll_threshold: ClassVar[float] = np.deg2rad(5)
-    fallen_threshold: ClassVar[float] = np.pi * 2 / 5  # ~72 degrees
+    # A free-standing domino tips over past atan(depth/height) ~= 5.7 deg,
+    # so any lean beyond 30 deg is only sustained by resting on another
+    # body, i.e. the domino was genuinely knocked over (counts propped
+    # "leaners" that a fully-flat criterion would miss).
+    fallen_threshold: ClassVar[float] = np.pi / 6  # 30 degrees
 
     # Domino colors
     start_domino_color: ClassVar[Tuple[float, float, float,

@@ -10,8 +10,8 @@ from predicators import utils
 from predicators.envs import BaseEnv, get_or_create_env
 from predicators.settings import CFG
 from predicators.structs import NSRT, CausalProcess, EndogenousProcess, \
-    LiftedDecisionList, OptionSampler, ParameterizedOption, Predicate, Task, \
-    Type
+    LiftedDecisionList, OptionSampler, ParameterizedOption, Predicate, State, \
+    Task, Type
 
 
 class GroundTruthOptionFactory(abc.ABC):
@@ -161,6 +161,17 @@ class GroundTruthTypeFactory(abc.ABC):
         add environment-specific helper objects to the initial state.
         """
         return task
+
+    @classmethod
+    def augment_state_with_helper_objects(cls, state: State) -> State:
+        """Augment a single state with helper objects and features.
+
+        By default, returns the state unchanged. Override to re-derive
+        helper objects on execution states (e.g. so closed-loop oracle
+        policies can keep evaluating helper predicates when the executed
+        state is otherwise helper-free).
+        """
+        return state
 
 
 class GroundTruthPredicateFactory(abc.ABC):
@@ -371,6 +382,21 @@ def augment_task_with_helper_objects(task: Task, env_name: str) -> Task:
     return task
 
 
+def augment_state_with_helper_objects(state: State, env_name: str) -> State:
+    """Augment a state with environment-specific helper objects if defined.
+
+    Returns the state unchanged if no helper augmentation is defined for
+    this environment. Used to re-derive helper objects on execution
+    states so closed-loop oracle policies can keep evaluating helper
+    predicates.
+    """
+    for cls in utils.get_all_subclasses(GroundTruthTypeFactory):
+        if not cls.__abstractmethods__ and env_name in cls.get_env_names():
+            factory = cls()
+            return factory.augment_state_with_helper_objects(state)
+    return state
+
+
 def get_gt_helper_predicates(env_name: str) -> Set[Predicate]:
     """Get environment-specific helper predicates if defined.
 
@@ -387,6 +413,36 @@ def get_gt_helper_predicates(env_name: str) -> Set[Predicate]:
             types_dict = {t.name: t for t in all_types}
             return factory.get_helper_predicates(env_name, types_dict)
     return set()
+
+
+def merge_gt_helper_types(base_types: Set[Type], env_name: str) -> Set[Type]:
+    """Union ``base_types`` with the env's GT helper types.
+
+    No-op for envs without a helper factory. Used by both the oracle /
+    process-planning approaches and the (opt-in) agent-planning
+    approaches so the two paths share one definition of the helper
+    vocabulary.
+    """
+    return base_types | get_gt_helper_types(env_name)
+
+
+def merge_gt_helper_predicates(base_preds: Set[Predicate],
+                               env_name: str) -> Set[Predicate]:
+    """Union ``base_preds`` with the env's GT helper predicates.
+
+    Helper predicates take precedence on name collisions (e.g. the
+    domino grid's derived ``InFront`` replaces the position-based
+    ``InFront``). A plain set union does NOT enforce this: two same-
+    named predicates are ``==``-equal but hash differently
+    (DerivedPredicate vs Predicate), so both survive the union and
+    ``abstract`` then evaluates BOTH -- the looser base predicate can
+    inject spurious atoms. Drop any base predicate whose name a helper
+    predicate already provides, then union. No-op for envs without a
+    helper factory.
+    """
+    helper_preds = get_gt_helper_predicates(env_name)
+    helper_names = {p.name for p in helper_preds}
+    return helper_preds | {p for p in base_preds if p.name not in helper_names}
 
 
 def parse_config_included_options(env: BaseEnv) -> Set[ParameterizedOption]:
