@@ -48,8 +48,9 @@ import numpy as np
 import pybullet as p
 
 from predicators.code_sim_learning.training import FitResult, ParamSpec, \
-    _lm_point_fit_result, _lm_prefit, _param_bounds, _prior_widths, \
-    _solve_lm
+    _internal_bounds, _is_log, _lm_point_fit_result, _lm_prefit, \
+    _param_bounds, _prior_widths, _rows_to_external, _solve_lm, _to_external, \
+    _to_internal
 from predicators.settings import CFG
 from predicators.structs import Action, State
 
@@ -327,6 +328,23 @@ def fit_map_lm_rollout(
                      diff_step=_ROLLOUT_LM_DIFF_STEP)
 
 
+def _grid_candidates(spec: ParamSpec, num_points: int) -> np.ndarray:
+    """Sweep values across ``spec``'s box, evenly spaced in its FIT space.
+
+    Linear params get ``linspace``; log params get ``geomspace`` — equal
+    resolution per decade. This matters when the box spans orders of
+    magnitude: ``linspace(0.01, 2.0, 8)`` puts 7 of 8 points above 0.29
+    and NOTHING between 0.01 and 0.29, so a true friction of 0.1 has no
+    nearby candidate and the sweep jumps to the 0.01 endpoint (measured
+    on run_20260706_171526: fitted 0.0114 vs true 0.1). ``geomspace``
+    puts a candidate at ~0.098.
+    """
+    assert spec.lo is not None and spec.hi is not None
+    if _is_log(spec):
+        return np.geomspace(spec.lo, spec.hi, num_points)
+    return np.linspace(spec.lo, spec.hi, num_points)
+
+
 def _grid_seed_physical_specs(
     base_env: Any,
     trajectories: List[RolloutTrajectory],
@@ -361,9 +379,7 @@ def _grid_seed_physical_specs(
     for spec in physical_specs:
         assert spec.lo is not None and spec.hi is not None, \
             "Grid seeding needs bounded physical params."
-        candidates = [
-            float(v) for v in np.linspace(spec.lo, spec.hi, num_points)
-        ]
+        candidates = [float(v) for v in _grid_candidates(spec, num_points)]
         candidates.append(float(spec.init_value))
         best_val, best_sse = float(spec.init_value), float("inf")
         for cand in candidates:
@@ -380,7 +396,12 @@ def _grid_seed_physical_specs(
                 "(best of %d candidates, SSE %.4f).", spec.name,
                 spec.init_value, best_val, len(candidates), best_sse)
         current[spec.name] = best_val
-        seeded.append(ParamSpec(spec.name, best_val, lo=spec.lo, hi=spec.hi))
+        seeded.append(
+            ParamSpec(spec.name,
+                      best_val,
+                      lo=spec.lo,
+                      hi=spec.hi,
+                      scale=spec.scale))
     return seeded
 
 
@@ -420,14 +441,16 @@ def fit_params_rollout(
     assert all_specs, "fit_params_rollout needs at least one ParamSpec."
     physical_names = [s.name for s in physical_specs]
     names = [s.name for s in all_specs]
+    scales = [getattr(s, "scale", "linear") for s in all_specs]
     init_values = np.array([s.init_value for s in all_specs], dtype=float)
     if num_steps is None:
         num_steps = CFG.code_sim_learning_rollout_num_mcmc_steps
     if num_steps < 0:
         raise ValueError("code_sim_learning_rollout_num_mcmc_steps must be "
                          "non-negative.")
-    lo, hi = _param_bounds(all_specs)
-    prior_sigma = _prior_widths(init_values, lo, hi, prior_sigma_scale)
+    lo, hi = _internal_bounds(all_specs)
+    init_int = _to_internal(all_specs, init_values)
+    prior_sigma = _prior_widths(all_specs, prior_sigma_scale)
 
     # Coarse grid sweep to place the LM start in the right basin (the
     # prior stays centered on the declared inits — see
@@ -450,8 +473,14 @@ def fit_params_rollout(
         prior_sigma, "rollout")
 
     if num_steps == 0:
-        return _lm_point_fit_result(walker_center, lm_theta, lm_jac, names,
-                                    noise_sigma, prior_sigma, "rollout")
+        return _lm_point_fit_result(walker_center,
+                                    lm_theta,
+                                    lm_jac,
+                                    names,
+                                    noise_sigma,
+                                    prior_sigma,
+                                    "rollout",
+                                    scales=scales)
 
     import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
 
@@ -460,16 +489,19 @@ def fit_params_rollout(
     burn_in = min(burn_in, max(num_steps - 1, 0))
 
     def log_posterior(theta: np.ndarray) -> float:
+        # theta lives in the FIT space (log for log-scale params).
         if np.any(theta < lo) or np.any(theta > hi):
             return -np.inf
-        params = {n: float(theta[i]) for i, n in enumerate(names)}
-        log_prior = -0.5 * np.sum(((theta - init_values) / prior_sigma)**2)
+        ext = _to_external(all_specs, theta)
+        params = {n: float(ext[i]) for i, n in enumerate(names)}
+        log_prior = -0.5 * np.sum(((theta - init_int) / prior_sigma)**2)
         sse = compute_rollout_sse(base_env, trajectories, params,
                                   process_features, physical_names, rules,
                                   latent_init)
         return float(log_prior - 0.5 * sse / (noise_sigma**2))
 
-    p0 = walker_center + 0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
+    p0 = _to_internal(all_specs, walker_center) + \
+        0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
     p0 = np.clip(p0, lo, hi)
     sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
     logger.info(
@@ -487,14 +519,16 @@ def fit_params_rollout(
             for h in logger.handlers + logging.getLogger().handlers:
                 h.flush()
 
-    samples = sampler.get_chain(discard=burn_in, flat=True)
+    samples = _rows_to_external(all_specs,
+                                sampler.get_chain(discard=burn_in, flat=True))
     log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
     result = FitResult(names=names,
                        samples=samples,
                        log_probs=log_probs,
                        jacobian=lm_jac,
                        noise_sigma=noise_sigma,
-                       prior_sigma=prior_sigma)
+                       prior_sigma=prior_sigma,
+                       scales=scales)
     logger.info("Rollout sysID done. MAP: %s",
                 {k: f"{v:.4f}"
                  for k, v in result.point_estimate.items()})
@@ -557,7 +591,7 @@ def min_explainable_rms(
     if num_points > 0:
         for spec in physical_specs:
             assert spec.lo is not None and spec.hi is not None
-            for val in np.linspace(spec.lo, spec.hi, num_points):
+            for val in _grid_candidates(spec, num_points):
                 cand = dict(base)
                 cand[spec.name] = float(val)
                 candidates.append(cand)
@@ -585,14 +619,14 @@ def _init_point_fit_result(all_specs: Sequence[ParamSpec],
     verdicts.
     """
     init_values = np.array([s.init_value for s in all_specs], dtype=float)
-    lo, hi = _param_bounds(list(all_specs))
-    prior_sigma = _prior_widths(init_values, lo, hi, 0.75)
+    prior_sigma = _prior_widths(list(all_specs), 0.75)
     return FitResult(names=[s.name for s in all_specs],
                      samples=init_values[None, :],
                      log_probs=np.zeros(1),
                      jacobian=None,
                      noise_sigma=noise_sigma,
-                     prior_sigma=prior_sigma)
+                     prior_sigma=prior_sigma,
+                     scales=[getattr(s, "scale", "linear") for s in all_specs])
 
 
 def fit_params_rollout_trimmed(
@@ -739,8 +773,15 @@ def identifiability_report(
     the MCMC ground truth (friction identified / restitution null).
     Without ``sse_fn`` a single-sample result reports "unknown".
     """
+    scales = _result_scales(result, param_specs)
     if result.samples.shape[0] > 1:
-        post_std = result.samples.std(axis=0)
+        # Widths in FIT space (log for log-scale params), so the
+        # contraction against the fit-space prior width is meaningful.
+        arr = np.array(result.samples, dtype=float, copy=True)
+        for j, scale in enumerate(scales):
+            if scale == "log":
+                arr[:, j] = np.log(np.maximum(arr[:, j], 1e-300))
+        post_std = arr.std(axis=0)
     elif sse_fn is not None:
         post_std = _probe_posterior_widths(result, sse_fn, param_specs)
     else:
@@ -767,6 +808,16 @@ def identifiability_report(
             "verdict": verdict,
         }
     return report
+
+
+def _result_scales(result: FitResult,
+                   param_specs: Optional[Sequence[ParamSpec]]) -> List[str]:
+    """Per-column fit scales for ``result``, from specs or the result."""
+    if param_specs:
+        return [getattr(s, "scale", "linear") for s in param_specs]
+    if result.scales is not None:
+        return list(result.scales)
+    return ["linear"] * len(result.names)
 
 
 def _probe_posterior_widths(
@@ -797,6 +848,7 @@ def _probe_posterior_widths(
     point = result.point_estimate
     noise = result.noise_sigma if result.noise_sigma else 0.05
     assert result.prior_sigma is not None
+    scales = _result_scales(result, param_specs)
     if param_specs:
         lo, hi = _param_bounds(list(param_specs))
         bounds = {
@@ -818,14 +870,29 @@ def _probe_posterior_widths(
         sigma = float(result.prior_sigma[i])
         x = point[name]
         lo_i, hi_i = bounds.get(name, (-np.inf, np.inf))
+        # Probe in the FIT space: for a log param the step is
+        # multiplicative (x * e^±delta) and the curvature is measured
+        # against the log-space delta, matching the log-space prior
+        # width. This also stops a bound-hugging MAP from reading as
+        # sharp curvature merely because the linear box ends there —
+        # the flat low-friction basin of run_20260706_171526 spans a
+        # 10x range that a linear probe sees as 4.5% of the box.
+        if scales[i] == "log":
+            x_fit = float(np.log(x))
+            lo_fit = float(np.log(lo_i)) if lo_i > 0 else -np.inf
+            hi_fit = float(np.log(hi_i)) if np.isfinite(hi_i) else np.inf
+        else:
+            x_fit, lo_fit, hi_fit = x, lo_i, hi_i
         curvatures: List[float] = []
         for sgn in (1.0, -1.0):
-            room = (hi_i - x) if sgn > 0 else (x - lo_i)
+            room = (hi_fit - x_fit) if sgn > 0 else (x_fit - lo_fit)
             delta = min(sigma, room)
             if delta <= 1e-9:
                 continue
             pert = dict(point)
-            pert[name] = x + sgn * delta
+            pert_fit = x_fit + sgn * delta
+            pert[name] = (float(np.exp(pert_fit))
+                          if scales[i] == "log" else pert_fit)
             d_sse = max(sse_fn(pert) - sse0 - noise_floor, 0.0)
             curvatures.append(d_sse / delta**2)
         c = float(np.mean(curvatures)) if curvatures else 0.0

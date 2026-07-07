@@ -59,10 +59,13 @@ class BaseEnv(abc.ABC):
 
         Maps parameter name to a small info dict with keys ``default``
         (the built-in value), ``lo``/``hi`` (a reasonable fitting box),
-        and ``description``. Envs whose dynamics can be re-parameterized
-        in place advertise their tunable params here and accept values
-        for them via :meth:`apply_physical_param_overrides`. The base
-        class exposes none.
+        ``description``, and optionally ``scale`` (``"log"`` for
+        positive scale-like params that should be fitted in log-space —
+        see ``ParamSpec.scale``; omit for linear). Envs whose dynamics
+        can be re-parameterized in place advertise their tunable params
+        here and accept values for them via
+        :meth:`apply_physical_param_overrides`. The base class exposes
+        none.
         """
         return {}
 

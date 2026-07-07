@@ -375,6 +375,15 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         if comp is None:
             return {}
         friction = comp.domino_friction
+        # ``scale: "log"`` marks positive scale-like parameters whose
+        # behavioral effect is multiplicative: the sysID fit runs in
+        # log-space for them (geometric grid sweep, relative LM steps,
+        # log-normal prior). A linear parameterization has almost no
+        # resolution at the low end of a box spanning decades —
+        # linspace(0.01, 2, 8) has no candidate between 0.01 and 0.29,
+        # which is how run_20260706_171526 fit friction 0.0114 for a
+        # true 0.1. Params whose lo is 0 (restitution,
+        # rolling_friction) stay linear.
         return {
             "friction": {
                 "default":
@@ -383,6 +392,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 0.01,
                 "hi":
                 2.0,
+                "scale":
+                "log",
                 "description":
                 "Lateral (sliding) friction of each domino against the "
                 "table and other dominoes; governs how far a toppling "
@@ -408,6 +419,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 0.005,
                 "hi":
                 1.0,
+                "scale":
+                "log",
                 "description":
                 "Mass of each (non-glued) domino in kg. Largely scales "
                 "out of the topple condition for identical dominoes.",
@@ -430,6 +443,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 0.01,
                 "hi":
                 2.0,
+                "scale":
+                "log",
                 "description":
                 "Spin (yaw) friction against the table; defaults to the "
                 "lateral friction value at body creation.",

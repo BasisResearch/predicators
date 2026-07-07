@@ -47,7 +47,8 @@ from predicators.code_sim_learning.training import FitResult, ParamSpec, \
 from predicators.code_sim_learning.utils import LearnedSimulator, \
     apply_rules, apply_rules_with_latent, has_latent_rules, init_latent, \
     iter_feature_residuals, merge_updates, read_latent_init, \
-    read_physical_param_specs, read_simulator_components
+    read_physical_param_specs, read_simulator_components, \
+    stamp_physical_spec_scales
 from predicators.envs import create_new_env
 from predicators.ground_truth_models import get_gt_simulator
 from predicators.option_model import _OptionModelBase, _OracleOptionModel
@@ -591,7 +592,12 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
                         np.clip(
                             s.init_value * (1.0 + rng.normal(0, noise_scale)),
                             s.lo, s.hi))
-                    perturbed.append(ParamSpec(s.name, val, lo=s.lo, hi=s.hi))
+                    perturbed.append(
+                        ParamSpec(s.name,
+                                  val,
+                                  lo=s.lo,
+                                  hi=s.hi,
+                                  scale=getattr(s, "scale", "linear")))
                 specs = perturbed
             logger.info("Loaded oracle sim program (%d rules, %d params).",
                         len(rules), len(specs))
@@ -776,10 +782,12 @@ the tools."""
             self._latent_init = (read_latent_init(sim_ns) if isinstance(
                 sim_ns, dict) else None)
             # Optional PHYSICAL_PARAMS export: base-sim parameters to
-            # identify jointly with the rule params (system ID).
-            self._physical_param_specs = list(
-                (read_physical_param_specs(sim_ns)
-                 if isinstance(sim_ns, dict) else None) or [])
+            # identify jointly with the rule params (system ID). The fit
+            # scale (log vs linear) is stamped from the env registry —
+            # agents copy name/init/bounds but need not know about it.
+            self._physical_param_specs = stamp_physical_spec_scales(
+                list((read_physical_param_specs(sim_ns) if isinstance(
+                    sim_ns, dict) else None) or []), self._base_env)
             if self._physical_param_specs:
                 logger.info(
                     "Agent declared %d physical params for system ID: %s",
@@ -2041,9 +2049,11 @@ re-validate.
             "",
         ]
         for name, meta in info.items():
+            scale_note = (", fitted in log-space"
+                          if meta.get("scale") == "log" else "")
             lines.append(f"- `{name}` (built-in {meta['default']:.4g}, fit "
-                         f"box [{meta['lo']:.4g}, {meta['hi']:.4g}]): "
-                         f"{meta['description']}")
+                         f"box [{meta['lo']:.4g}, {meta['hi']:.4g}]"
+                         f"{scale_note}): {meta['description']}")
         lines.extend([
             "",
             "If observed trajectories diverge from the base sim on "

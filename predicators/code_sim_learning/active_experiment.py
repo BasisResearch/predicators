@@ -45,18 +45,29 @@ from predicators.code_sim_learning.training import ParamSpec
 _ENTROPY_EPS = 1e-9
 
 
-def _param_width(spec: ParamSpec) -> float:
-    """A finite perturbation scale for one parameter.
+def _is_log(spec: ParamSpec) -> bool:
+    """Whether ``spec`` fits in log-space (tolerates legacy instances)."""
+    return getattr(spec, "scale", "linear") == "log"
 
-    Prefer the declared box width ``hi - lo``. When a bound is missing
-    or non-finite, fall back to the magnitude of the init value (and
-    finally to 1.0) so every parameter gets a usable, strictly-positive
-    scale.
+
+def _param_width(spec: ParamSpec) -> float:
+    """A finite perturbation scale for one parameter, in its FIT space.
+
+    Prefer the declared box width ``hi - lo`` (``log(hi) - log(lo)`` for
+    a log-scale parameter, so the jitter is multiplicative and covers
+    the box's decades evenly). When a bound is missing or non-finite,
+    fall back to the magnitude of the init value (1.0 in log-space for
+    log params, i.e. a factor of e) so every parameter gets a usable,
+    strictly-positive scale.
     """
     lo, hi = spec.lo, spec.hi
     if lo is not None and hi is not None and np.isfinite(lo) and np.isfinite(
             hi) and hi > lo:
+        if _is_log(spec):
+            return float(np.log(hi) - np.log(lo))
         return float(hi - lo)
+    if _is_log(spec):
+        return 1.0
     mag = abs(float(spec.init_value))
     return mag if mag > 0 else 1.0
 
@@ -102,7 +113,11 @@ def perturbation_ensemble(
             if spec is None:
                 continue
             sigma = perturb_frac * _param_width(spec)
-            member[name] = _clip_to_spec(value + rng.normal(0.0, sigma), spec)
+            if _is_log(spec) and value > 0:
+                perturbed = value * float(np.exp(rng.normal(0.0, sigma)))
+            else:
+                perturbed = value + rng.normal(0.0, sigma)
+            member[name] = _clip_to_spec(perturbed, spec)
         members.append(member)
     return members
 
@@ -176,6 +191,12 @@ def laplace_ensemble(
     supplies the clipping box. Keys of ``point`` not in ``names`` are
     carried through unperturbed. Falls back to returning just the anchor
     if the covariance cannot be formed (degenerate/empty Jacobian).
+
+    ``J`` and ``prior_sigma`` live in the FIT space (``z = log(theta)``
+    for log-scale specs — see ``training._solve_lm``), so the Laplace
+    covariance and the draws are fit-space too; each draw is mapped
+    back to external units (exponentiated for log params) before the
+    box clip.
     """
     if num_members < 1:
         raise ValueError("num_members must be >= 1")
@@ -203,13 +224,21 @@ def laplace_ensemble(
     eigvals, eigvecs = np.linalg.eigh(cov)
     eigvals = np.clip(eigvals, 0.0, None)
     scale = eigvecs * np.sqrt(eigvals)  # (ndim, ndim); scale @ z ~ N(0, cov)
-    mean = np.array([anchor.get(n, 0.0) for n in name_list], dtype=float)
+    log_mask = [
+        n in spec_by_name and _is_log(spec_by_name[n])
+        and anchor.get(n, 0.0) > 0 for n in name_list
+    ]
+    mean = np.array([
+        np.log(anchor[n]) if log_mask[j] else anchor.get(n, 0.0)
+        for j, n in enumerate(name_list)
+    ],
+                    dtype=float)
     for _ in range(num_members - 1):
         draw = mean + scale @ rng.standard_normal(ndim)
         member = dict(anchor)
         for j, name in enumerate(name_list):
             spec = spec_by_name.get(name)
-            value = float(draw[j])
+            value = float(np.exp(draw[j])) if log_mask[j] else float(draw[j])
             member[name] = _clip_to_spec(value, spec) if spec else value
         members.append(member)
     return members

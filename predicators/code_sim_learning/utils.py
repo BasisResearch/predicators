@@ -380,6 +380,34 @@ def read_physical_param_specs(ns: Mapping[str, Any]) -> Optional[List]:
     return specs
 
 
+def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:
+    """Stamp each physical ParamSpec's fit ``scale`` from the env registry.
+
+    The env's ``get_physical_param_info()`` is the source of truth for
+    which parameters are scale-like (fitted in log-space): agents copy
+    name/init/bounds into their ``PHYSICAL_PARAMS`` but may omit
+    ``scale``, and a silently-linear friction fit has no grid
+    resolution at the low end of a decades-spanning box (measured:
+    fitted 0.0114 for a true 0.1 on run_20260706_171526). A registry
+    entry that declares ``scale`` therefore overrides the agent's
+    declaration; parameters the registry does not mark keep whatever
+    the agent declared (default linear).
+    """
+    # pylint: disable=import-outside-toplevel
+    from predicators.code_sim_learning.training import ParamSpec
+
+    # pylint: enable=import-outside-toplevel
+    getter = getattr(base_env, "get_physical_param_info", None)
+    info = getter() if callable(getter) else {}
+    stamped = []
+    for s in specs:
+        scale = (info.get(s.name) or {}).get("scale",
+                                             getattr(s, "scale", "linear"))
+        stamped.append(
+            ParamSpec(s.name, s.init_value, lo=s.lo, hi=s.hi, scale=scale))
+    return stamped
+
+
 # ── LearnedSimulator ──────────────────────────────────────────────
 
 

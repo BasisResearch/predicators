@@ -2728,7 +2728,7 @@ def create_synthesis_tools(
     from predicators.code_sim_learning.utils import apply_rules, \
         has_latent_rules, iter_feature_residuals, read_latent_init, \
         read_physical_param_specs, read_simulator_components, \
-        rollout_predictions
+        rollout_predictions, stamp_physical_spec_scales
 
     # pylint: enable=import-outside-toplevel
 
@@ -2856,6 +2856,10 @@ def create_synthesis_tools(
                 f"[{version_tag}] Error: PHYSICAL_PARAMS requires a bound "
                 "approach (raw trajectories + base env) — unavailable in "
                 "this session.")
+        # Stamp the fit scale (log vs linear) from the env registry —
+        # the agent's declaration carries name/init/bounds only.
+        physical_specs = stamp_physical_spec_scales(physical_specs,
+                                                    approach._base_env)  # pylint: disable=protected-access
         rollouts = approach._rollout_fit_trajectories(  # pylint: disable=protected-access
             process_features)
         if not rollouts:

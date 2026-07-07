@@ -28,12 +28,38 @@ TrajectoryTriples = List[Tuple[State, Action, State]]
 
 @dataclass
 class ParamSpec:
-    """Specification for a single learnable parameter."""
+    """Specification for a single learnable parameter.
+
+    ``scale`` selects the fitting parameterization. ``"linear"`` (the
+    default) fits theta directly. ``"log"`` fits ``z = log(theta)`` —
+    the right choice for positive scale-like parameters (friction,
+    mass) whose behavioral effect is multiplicative: the grid sweep
+    becomes geometric (equal resolution per decade instead of piling
+    every point at the high end), LM finite-difference steps become
+    relative, and the Gaussian prior in z is a log-normal that treats
+    "4x smaller" and "4x larger" as equally plausible. Everything
+    simulator- and caller-facing stays in linear units; only the
+    optimizer's internal coordinates change.
+    """
 
     name: str
     init_value: float
     lo: Optional[float] = None
     hi: Optional[float] = None
+    scale: str = "linear"
+
+    def __post_init__(self) -> None:
+        if self.scale not in ("linear", "log"):
+            raise ValueError(f"ParamSpec scale must be 'linear' or 'log', "
+                             f"got {self.scale!r} for {self.name!r}.")
+        if self.scale == "log":
+            if self.init_value <= 0:
+                raise ValueError(f"log-scale param {self.name!r} needs a "
+                                 f"positive init_value, got "
+                                 f"{self.init_value}.")
+            if self.lo is not None and self.lo <= 0:
+                raise ValueError(f"log-scale param {self.name!r} needs a "
+                                 f"positive lo bound, got {self.lo}.")
 
 
 @dataclass
@@ -48,15 +74,24 @@ class FitResult:
     ``(J^T J / sigma^2 + diag(1/prior^2))^-1`` around the MAP without
     re-deriving it. They stay ``None`` when LM was skipped or failed —
     e.g. MCMC-only runs, where ``samples`` already carries the posterior.
+
+    Space conventions: ``samples`` (and therefore ``point_estimate``)
+    are always in EXTERNAL (linear, simulator-facing) units, while
+    ``jacobian`` and ``prior_sigma`` live in the FIT space — for a
+    log-scale parameter that means d(residual)/d(log theta) and a
+    log-space prior width. ``scales`` records each column's ``ParamSpec
+    .scale`` so consumers (identifiability probe, Laplace ensemble) can
+    map between the two; ``None`` means all-linear (legacy results).
     """
 
     names: List[str]
-    samples: np.ndarray  # (num_samples, num_params)
+    samples: np.ndarray  # (num_samples, num_params) — EXTERNAL units
     log_probs: np.ndarray  # (num_samples,)
     jacobian: Optional[np.ndarray] = None  # (num_residuals, num_params) at MAP
     noise_sigma: Optional[float] = None  # observation-noise sigma used in fit
     prior_sigma: Optional[
-        np.ndarray] = None  # (num_params,) Gaussian-prior std
+        np.ndarray] = None  # (num_params,) Gaussian-prior std, FIT space
+    scales: Optional[List[str]] = None  # per-param ParamSpec.scale
 
     @property
     def point_estimate(self) -> Dict[str, float]:
@@ -70,7 +105,7 @@ class FitResult:
 
 def _param_bounds(
         param_specs: List[ParamSpec]) -> Tuple[np.ndarray, np.ndarray]:
-    """Per-parameter (lo, hi) box from the ParamSpecs.
+    """Per-parameter (lo, hi) box from the ParamSpecs, in EXTERNAL units.
 
     An unspecified bound defaults to a small positive floor (lo) or +inf
     (hi). A parameter that declares a negative ``lo`` -- e.g. a signed
@@ -84,19 +119,72 @@ def _param_bounds(
     return lo, hi
 
 
-def _prior_widths(init_values: np.ndarray, lo: np.ndarray, hi: np.ndarray,
-                  scale: float) -> np.ndarray:
-    """Positive Gaussian-prior width (sigma) per parameter.
+def _is_log(spec: ParamSpec) -> bool:
+    """Whether ``spec`` fits in log-space (tolerates legacy instances)."""
+    return getattr(spec, "scale", "linear") == "log"
 
-    Scales by ``|init|`` so a signed (negative-init) parameter gets a
-    positive width, and falls back to half the (finite) bound range when
-    ``init`` is ~0 so a zero-centred parameter still gets a finite prior
-    and walker spread instead of a degenerate zero-width one.
+
+def _to_internal(param_specs: List[ParamSpec], values: Any) -> np.ndarray:
+    """Map external (linear) parameter values into the fit space."""
+    return np.array([
+        np.log(v) if _is_log(s) else float(v)
+        for s, v in zip(param_specs, values)
+    ],
+                    dtype=float)
+
+
+def _to_external(param_specs: List[ParamSpec], values: Any) -> np.ndarray:
+    """Map fit-space parameter values back to external (linear) units."""
+    return np.array([
+        np.exp(v) if _is_log(s) else float(v)
+        for s, v in zip(param_specs, values)
+    ],
+                    dtype=float)
+
+
+def _rows_to_external(param_specs: List[ParamSpec],
+                      arr: np.ndarray) -> np.ndarray:
+    """Map a (num_rows, num_params) fit-space array to external units."""
+    out = np.array(arr, dtype=float, copy=True)
+    for j, spec in enumerate(param_specs):
+        if _is_log(spec):
+            out[:, j] = np.exp(out[:, j])
+    return out
+
+
+def _internal_bounds(
+        param_specs: List[ParamSpec]) -> Tuple[np.ndarray, np.ndarray]:
+    """The `_param_bounds` box mapped into the fit space."""
+    lo, hi = _param_bounds(param_specs)
+    lo_int = np.array(
+        [np.log(l) if _is_log(s) else l for s, l in zip(param_specs, lo)],
+        dtype=float)
+    hi_int = np.array(
+        [np.log(h) if _is_log(s) else h for s, h in zip(param_specs, hi)],
+        dtype=float)
+    return lo_int, hi_int
+
+
+def _prior_widths(param_specs: List[ParamSpec], scale: float) -> np.ndarray:
+    """Positive Gaussian-prior width (sigma) per parameter, in FIT space.
+
+    Linear parameters scale by ``|init|`` so a signed (negative-init)
+    parameter gets a positive width, falling back to half the (finite)
+    bound range when ``init`` is ~0 so a zero-centred parameter still
+    gets a finite prior and walker spread instead of a degenerate
+    zero-width one. Log parameters get a constant width of ``scale`` in
+    log-space — a log-normal prior whose one-sigma band spans the same
+    multiplicative factor (e.g. 0.75 => x/2.1 .. x2.1) at every init,
+    matching how scale-like physics parameters actually behave.
     """
+    lo, hi = _param_bounds(param_specs)
+    init_values = np.array([s.init_value for s in param_specs], dtype=float)
     sigma = np.abs(init_values) * scale
     finite = np.isfinite(lo) & np.isfinite(hi)
     fallback = np.where(finite, 0.5 * (hi - lo), 1.0)
-    return np.where(sigma > 1e-9, sigma, fallback)
+    linear_sigma = np.where(sigma > 1e-9, sigma, fallback)
+    is_log = np.array([_is_log(s) for s in param_specs], dtype=bool)
+    return np.where(is_log, float(scale), linear_sigma)
 
 
 def _lm_prefit(
@@ -166,6 +254,7 @@ def _lm_point_fit_result(
     noise_sigma: float,
     prior_sigma: np.ndarray,
     label: str,
+    scales: Optional[List[str]] = None,
 ) -> FitResult:
     """Single-point ``FitResult`` for the ``num_steps == 0`` short-circuit.
 
@@ -191,7 +280,8 @@ def _lm_point_fit_result(
                      np.zeros(1),
                      jacobian=lm_jac,
                      noise_sigma=noise_sigma,
-                     prior_sigma=prior_sigma)
+                     prior_sigma=prior_sigma,
+                     scales=scales)
 
 
 def compute_sse(
@@ -336,14 +426,16 @@ def fit_params_recurrent(
       ``active_experiment.laplace_ensemble``).
     """
     names = [s.name for s in param_specs]
+    scales = [getattr(s, "scale", "linear") for s in param_specs]
     init_values = np.array([s.init_value for s in param_specs])
     if num_steps is None:
         num_steps = CFG.code_sim_learning_num_mcmc_steps
     if num_steps < 0:
         raise ValueError("code_sim_learning_num_mcmc_steps must be "
                          "non-negative.")
-    lo, hi = _param_bounds(param_specs)
-    prior_sigma = _prior_widths(init_values, lo, hi, prior_sigma_scale)
+    lo, hi = _internal_bounds(param_specs)
+    init_int = _to_internal(param_specs, init_values)
+    prior_sigma = _prior_widths(param_specs, prior_sigma_scale)
 
     # Optional one-shot recurrent LM fit (see _lm_prefit for its three
     # uses). Each residual eval here is a full set of per-trajectory
@@ -356,8 +448,14 @@ def fit_params_recurrent(
         noise_sigma, prior_sigma, "recurrent")
 
     if num_steps == 0:
-        return _lm_point_fit_result(walker_center, lm_theta, lm_jac, names,
-                                    noise_sigma, prior_sigma, "recurrent")
+        return _lm_point_fit_result(walker_center,
+                                    lm_theta,
+                                    lm_jac,
+                                    names,
+                                    noise_sigma,
+                                    prior_sigma,
+                                    "recurrent",
+                                    scales=scales)
 
     import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
 
@@ -366,15 +464,18 @@ def fit_params_recurrent(
     burn_in = min(burn_in, max(num_steps - 1, 0))
 
     def log_posterior(theta: np.ndarray) -> float:
+        # theta lives in the FIT space (log for log-scale params).
         if np.any(theta < lo) or np.any(theta > hi):
             return -np.inf
-        params = {n: float(theta[i]) for i, n in enumerate(names)}
-        log_prior = -0.5 * np.sum(((theta - init_values) / prior_sigma)**2)
+        ext = _to_external(param_specs, theta)
+        params = {n: float(ext[i]) for i, n in enumerate(names)}
+        log_prior = -0.5 * np.sum(((theta - init_int) / prior_sigma)**2)
         sse = compute_sse_recurrent(rules, trajectories, params, latent_init,
                                     process_features)
         return log_prior + (-0.5 * sse / (noise_sigma**2))
 
-    p0 = walker_center + 0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
+    p0 = _to_internal(param_specs, walker_center) + \
+        0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
     p0 = np.clip(p0, lo, hi)
     sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
     logger.info("Running emcee (recurrent): %d walkers, %d steps, %d burn-in.",
@@ -388,14 +489,16 @@ def fit_params_recurrent(
                         num_steps, best_lp)
             for h in logger.handlers + logging.getLogger().handlers:
                 h.flush()
-    samples = sampler.get_chain(discard=burn_in, flat=True)
+    samples = _rows_to_external(param_specs,
+                                sampler.get_chain(discard=burn_in, flat=True))
     log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
     result = FitResult(names=names,
                        samples=samples,
                        log_probs=log_probs,
                        jacobian=lm_jac,
                        noise_sigma=noise_sigma,
-                       prior_sigma=prior_sigma)
+                       prior_sigma=prior_sigma,
+                       scales=scales)
     logger.info("emcee (recurrent) done. Posterior mean: %s",
                 {k: f"{v:.4f}"
                  for k, v in result.point_estimate.items()})
@@ -642,29 +745,43 @@ def _solve_lm(
     identical, and the Jacobian is identically zero — LM would stall at
     init. Analytic-formula residuals (the per-transition and recurrent
     fits) leave this ``None``.
+
+    The optimizer runs in the FIT space (``z = log(theta)`` for
+    log-scale params): ``residuals_fn`` still receives external theta,
+    the returned MAP is external, but the returned Jacobian is
+    ``dr/dz`` — consistent with the fit-space ``prior_sigma`` every
+    downstream consumer (Hessian diagnostic, Laplace ensemble,
+    identifiability probe) pairs it with. In fit space the relative
+    ``diff_step`` also becomes a *multiplicative* theta perturbation
+    for log params, so the finite-difference gradient stays equally
+    informative across decades instead of vanishing at the low end.
     """
     from scipy.optimize import \
         least_squares  # pylint: disable=import-outside-toplevel
 
     names = [s.name for s in param_specs]
-    init = np.array([s.init_value for s in param_specs], dtype=float)
-    lo, hi = _param_bounds(param_specs)
+    init_ext = np.array([s.init_value for s in param_specs], dtype=float)
+    init = _to_internal(param_specs, init_ext)
+    lo, hi = _internal_bounds(param_specs)
     # Nudge init strictly into the interior so trf doesn't reject it.
     init = np.maximum(init, lo + 1e-9)
     safe_hi = np.where(np.isfinite(hi), hi - 1e-9, np.inf)
     init = np.minimum(init, safe_hi)
 
-    init_residuals = residuals_fn(init)
+    def internal_residuals(z: np.ndarray) -> np.ndarray:
+        return residuals_fn(_to_external(param_specs, z))
+
+    init_residuals = internal_residuals(init)
     if init_residuals.size == 0:
         logger.warning(
             "No residuals to fit (empty process_features); "
             "skipping %s LM fit.", label)
-        return init, None
+        return _to_external(param_specs, init), None
 
     sse_init = float(np.sum(init_residuals**2))
 
     try:
-        result = least_squares(residuals_fn,
+        result = least_squares(internal_residuals,
                                init,
                                method='trf',
                                bounds=(lo, hi),
@@ -672,10 +789,14 @@ def _solve_lm(
                                max_nfev=max_nfev)
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning("%s LM fit raised %s; skipping.", label, exc)
-        return init, None
+        return _to_external(param_specs, init), None
 
     sse_lm = float(2.0 * result.cost)
-    delta = {names[i]: float(result.x[i] - init[i]) for i in range(len(names))}
+    x_ext = _to_external(param_specs, result.x)
+    delta = {
+        names[i]: float(x_ext[i] - init_ext[i])
+        for i in range(len(names))
+    }
     logger.info("%s LM fit: SSE %.4f -> %.4f in %d fn-evals (status=%d, %s).",
                 label, sse_init, sse_lm, result.nfev, result.status,
                 "converged" if result.success else "max-evals")
@@ -685,8 +806,8 @@ def _solve_lm(
 
     jac = np.asarray(result.jac, dtype=float)
     if jac.size == 0:
-        return np.asarray(result.x, dtype=float), None
-    return np.asarray(result.x, dtype=float), jac
+        return x_ext, None
+    return x_ext, jac
 
 
 def fit_map_lm_recurrent(
@@ -826,14 +947,16 @@ def fit_params(
         FitResult with posterior samples and log-probabilities.
     """
     names = [s.name for s in param_specs]
+    scales = [getattr(s, "scale", "linear") for s in param_specs]
     init_values = np.array([s.init_value for s in param_specs])
     if num_steps is None:
         num_steps = CFG.code_sim_learning_num_mcmc_steps
     if num_steps < 0:
         raise ValueError("code_sim_learning_num_mcmc_steps must be "
                          "non-negative.")
-    lo, hi = _param_bounds(param_specs)
-    prior_sigma = _prior_widths(init_values, lo, hi, prior_sigma_scale)
+    lo, hi = _internal_bounds(param_specs)
+    init_int = _to_internal(param_specs, init_values)
+    prior_sigma = _prior_widths(param_specs, prior_sigma_scale)
 
     # Optional one-shot LM fit (see _lm_prefit for its three uses).
     walker_center, lm_theta, lm_jac = _lm_prefit(
@@ -853,8 +976,14 @@ def fit_params(
                                                             "lm-warm-start"))
 
     if num_steps == 0:
-        return _lm_point_fit_result(walker_center, lm_theta, lm_jac, names,
-                                    noise_sigma, prior_sigma, "per-transition")
+        return _lm_point_fit_result(walker_center,
+                                    lm_theta,
+                                    lm_jac,
+                                    names,
+                                    noise_sigma,
+                                    prior_sigma,
+                                    "per-transition",
+                                    scales=scales)
 
     import emcee  # type: ignore[import-untyped]  # pylint: disable=import-outside-toplevel
 
@@ -863,12 +992,14 @@ def fit_params(
     burn_in = min(burn_in, max(num_steps - 1, 0))
 
     def log_posterior(theta: np.ndarray) -> float:
+        # theta lives in the FIT space (log for log-scale params).
         # Reject samples outside the per-parameter [lo, hi] box.
         if np.any(theta < lo) or np.any(theta > hi):
             return -np.inf
-        params = {n: float(theta[i]) for i, n in enumerate(names)}
+        ext = _to_external(param_specs, theta)
+        params = {n: float(ext[i]) for i, n in enumerate(names)}
         # Broad Gaussian prior centered on init values
-        log_prior = -0.5 * np.sum(((theta - init_values) / prior_sigma)**2)
+        log_prior = -0.5 * np.sum(((theta - init_int) / prior_sigma)**2)
         # Likelihood
         sse = compute_sse(simulator_fn, transitions, params, process_features)
         return log_prior + (-0.5 * sse / (noise_sigma**2))
@@ -877,7 +1008,8 @@ def fit_params(
     # width). A tight ball around init traps the chain on flat plateaus
     # of the likelihood (e.g., when threshold-based rules don't fire),
     # because emcee stretch moves scale with the swarm's spread.
-    p0 = walker_center + 0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
+    p0 = _to_internal(param_specs, walker_center) + \
+        0.5 * prior_sigma * np.random.randn(num_walkers, ndim)
     p0 = np.clip(p0, lo, hi)
 
     sampler = emcee.EnsembleSampler(num_walkers, ndim, log_posterior)
@@ -897,8 +1029,9 @@ def fit_params(
             for h in logger.handlers + logging.getLogger().handlers:
                 h.flush()
 
-    # Discard burn-in, flatten chains.
-    samples = sampler.get_chain(discard=burn_in, flat=True)
+    # Discard burn-in, flatten chains (back to external units).
+    samples = _rows_to_external(param_specs,
+                                sampler.get_chain(discard=burn_in, flat=True))
     log_probs = sampler.get_log_prob(discard=burn_in, flat=True)
 
     result = FitResult(names=names,
@@ -906,7 +1039,8 @@ def fit_params(
                        log_probs=log_probs,
                        jacobian=lm_jac,
                        noise_sigma=noise_sigma,
-                       prior_sigma=prior_sigma)
+                       prior_sigma=prior_sigma,
+                       scales=scales)
 
     logger.info("emcee done. Posterior mean: %s",
                 {k: f"{v:.4f}"
