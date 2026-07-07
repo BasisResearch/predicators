@@ -1,10 +1,10 @@
 """Unit tests for pybullet_bridge's glue / cure / weld machinery.
 
-Covers the planner-backtrack invariant that the physical weld
-constraint set always tracks the state's ``attached_*`` features
-through ``_set_state`` (fresh reset tears welds down, restoring a
-post-weld state recreates them), plus glue application, cure ticking,
-and the attachment latch.
+Covers the planner-backtrack invariant that the physical weld constraint
+set always tracks the state's ``attached_*`` features through
+``_set_state`` (fresh reset tears welds down, restoring a post-weld
+state recreates them), plus glue application, cure ticking, and the
+attachment latch.
 """
 # pylint: disable=protected-access
 from __future__ import annotations
@@ -37,8 +37,8 @@ def _hold_action(env):
 
 
 def test_glue_cure_weld_lifecycle(env_and_task):
-    """Wet a face, cure a stacked joint, latch + weld, then check the
-    weld set tracks _set_state in both directions."""
+    """Wet a face, cure a stacked joint, latch + weld, then check the weld set
+    tracks _set_state in both directions."""
     env, task = env_and_task
     env._set_state(task.init)
     state = env._get_state()

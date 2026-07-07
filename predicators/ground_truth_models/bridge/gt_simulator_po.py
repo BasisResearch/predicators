@@ -25,7 +25,7 @@ from predicators.code_sim_learning.utils import History, Params, \
     ProcessUpdate, objs_by_type
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
 from predicators.settings import CFG
-from predicators.structs import State
+from predicators.structs import Object, State
 
 CURE_THRESHOLD = 25.0
 APPLY_GLUE_RADIUS = 0.02
@@ -43,11 +43,12 @@ _BLOCK_ORDER = [f"leg{i}" for i in range(4)] + [f"span{i}" for i in range(3)]
 _BLOCK_IDX = {name: i for i, name in enumerate(_BLOCK_ORDER)}
 
 
-def _half(state: State, blk) -> Tuple[float, float, float]:
+def _half(state: State, blk: Object) -> Tuple[float, float, float]:
     return LEG_HALF if state.get(blk, "upright") > 0.5 else SPAN_HALF
 
 
-def _face_dir(state: State, blk, face: str) -> Tuple[float, float, float]:
+def _face_dir(state: State, blk: Object,
+              face: str) -> Tuple[float, float, float]:
     if face == "top":
         return (0.0, 0.0, 1.0)
     yaw = float(state.get(blk, "rot"))
@@ -55,7 +56,8 @@ def _face_dir(state: State, blk, face: str) -> Tuple[float, float, float]:
     return (sign * float(np.cos(yaw)), sign * float(np.sin(yaw)), 0.0)
 
 
-def _dab_point(state: State, blk, face: str) -> Tuple[float, float, float]:
+def _dab_point(state: State, blk: Object,
+               face: str) -> Tuple[float, float, float]:
     x, y, z = (float(state.get(blk, f)) for f in ("x", "y", "z"))
     hx, _, hz = _half(state, blk)
     if face == "top":
@@ -64,8 +66,8 @@ def _dab_point(state: State, blk, face: str) -> Tuple[float, float, float]:
     return (x + dx * hx, y + dy * hx, z + hz + DAB_MARGIN)
 
 
-def _find_mate(state: State, blocks, blk, face: str,
-               params: Params) -> Optional[object]:
+def _find_mate(state: State, blocks: List[Object], blk: Object, face: str,
+               params: Params) -> Optional[Object]:
     """Hard-gated mate detection mirroring the env's geometry."""
     if state.get(blk, "is_held") > 0.5:
         return None
@@ -105,10 +107,10 @@ def _find_mate(state: State, blocks, blk, face: str,
 
 def _gluing(state: State, latent: Dict[str, Any], history: History,
             updates: ProcessUpdate, params: Params) -> ProcessUpdate:
-    """Recurrent hidden-counter rule: wet faces near the held bottle's
-    tip; tick a hidden per-joint counter while a wet face is in aligned
-    resting contact; emit only the wet-glue flags and the discrete
-    ``attached_*`` latches."""
+    """Recurrent hidden-counter rule: wet faces near the held bottle's tip;
+    tick a hidden per-joint counter while a wet face is in aligned resting
+    contact; emit only the wet-glue flags and the discrete ``attached_*``
+    latches."""
     del history
     cures: Dict[str, float] = latent.setdefault("cure", {})
     objs = objs_by_type(state)

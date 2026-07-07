@@ -1,8 +1,7 @@
-"""Render bridge init states (simple + full specs) to docs/envs/bridge.
+"""Render bridge init states (simple + full specs) to docs/envs/bridge."""
 
-Doc-asset generator; run from the repo root:
-    PYTHONPATH=. python docs/envs/bridge/render_init_states.py
-"""
+# Doc-asset generator; run from the repo root:
+#     PYTHONPATH=. python docs/envs/bridge/render_init_states.py
 
 import os
 

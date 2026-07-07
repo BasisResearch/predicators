@@ -1,5 +1,5 @@
-"""A PyBullet environment where the robot builds an "n"-shaped bridge by
-gluing rectangular blocks with a pickable glue bottle.
+"""A PyBullet environment where the robot builds an "n"-shaped bridge by gluing
+rectangular blocks with a pickable glue bottle.
 
 Motivating the partial-observability + slow-process story of
 ``AgentPOSimPredicateInventionApproach`` with a hidden process whose
@@ -68,15 +68,15 @@ ATTACH_SLOTS = ("top", "bottom", "end_a", "end_b")
 
 
 class PyBulletBridgeEnv(PyBulletEnv):
-    """Build an n-shaped bridge by gluing blocks; cured joints physically
-    weld blocks into rigid assemblies.
+    """Build an n-shaped bridge by gluing blocks; cured joints physically weld
+    blocks into rigid assemblies.
 
     Two block schemas, one logical type: the fully-observable
     ``_block_type`` carries the ``cure_*`` counters as observable
     features, while ``_block_type_po`` drops them. Both keep the
-    counters as ``sim_features`` so the ``block.cure_top`` (etc.)
-    Python attributes -- the internal source of truth -- always drive
-    the dynamics. ``__init__`` swaps the type when
+    counters as ``sim_features`` so the ``block.cure_top`` (etc.) Python
+    attributes -- the internal source of truth -- always drive the
+    dynamics. ``__init__`` swaps the type when
     ``CFG.partially_observable`` is set.
     """
 
@@ -478,8 +478,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     @staticmethod
     def _attr(blk: Object, name: str, default: float) -> float:
-        """Read a sim-feature attribute with an explicit None default
-        (0.0 is a meaningful value for attached_* -- block index 0)."""
+        """Read a sim-feature attribute with an explicit None default (0.0 is a
+        meaningful value for attached_* -- block index 0)."""
         val = getattr(blk, name)
         return float(val) if val is not None else default
 
@@ -505,11 +505,13 @@ class PyBulletBridgeEnv(PyBulletEnv):
     @classmethod
     def _face_dab_point(cls, state: State, blk: Object,
                         face: str) -> Tuple[float, float, float]:
-        """Where the bottle tip must hover to wet this face. Top faces:
-        just above the face center. End faces: just above the top edge
-        of the (vertical) end face, so the dab always comes from above
-        (no sideways IK). Classmethod so the ApplyGlue skill (options.py)
-        can share the exact geometry."""
+        """Where the bottle tip must hover to wet this face.
+
+        Top faces: just above the face center. End faces: just above the
+        top edge of the (vertical) end face, so the dab always comes
+        from above (no sideways IK). Classmethod so the ApplyGlue skill
+        (options.py) can share the exact geometry.
+        """
         x = state.get(blk, "x")
         y = state.get(blk, "y")
         z = state.get(blk, "z")
@@ -608,17 +610,17 @@ class PyBulletBridgeEnv(PyBulletEnv):
                      body_a: int,
                      body_b: int,
                      ideal_dz: Optional[float] = None) -> None:
-        """Create a body-to-body JOINT_FIXED weld at the CURRENT relative
-        pose (see pybullet_coffee's plugged-in constraint).
+        """Create a body-to-body JOINT_FIXED weld at the CURRENT relative pose
+        (see pybullet_coffee's plugged-in constraint).
 
         The relative transform is SNAPPED before freezing: relative
         roll/pitch are zeroed, and when ``ideal_dz`` is given (the
-        joint's nominal vertical offset, known from the attachment
-        slot) the relative z is set to it. An unsnapped weld freezes a
+        joint's nominal vertical offset, known from the attachment slot)
+        the relative z is set to it. An unsnapped weld freezes a
         millimeter-level inconsistency against the resting plane, and
-        the constraint solver then applies steady micro-forces that
-        make the welded assembly CREEP across the table (~2 cm over a
-        few hundred idle steps), drifting it out of the seat gates.
+        the constraint solver then applies steady micro-forces that make
+        the welded assembly CREEP across the table (~2 cm over a few
+        hundred idle steps), drifting it out of the seat gates.
         """
         key = frozenset({body_a, body_b})
         if key in self._weld_constraints:
@@ -655,10 +657,12 @@ class PyBulletBridgeEnv(PyBulletEnv):
             self,
             state: State) -> Dict[FrozenSet[int], Tuple[int, int, float]]:
         """Weld pairs implied by the attachment features, as key ->
-        (parent_body, child_body, ideal_dz). The joint's nominal
-        vertical offset follows from the attachment slot: a ``top``
-        slot means the partner rests on this block, ``bottom`` the
-        reverse, end slots are coplanar."""
+        (parent_body, child_body, ideal_dz).
+
+        The joint's nominal vertical offset follows from the attachment
+        slot: a ``top`` slot means the partner rests on this block,
+        ``bottom`` the reverse, end slots are coplanar.
+        """
         pairs: Dict[FrozenSet[int], Tuple[int, int, float]] = {}
         for blk in state.get_objects(self._block_type):
             for slot in ATTACH_SLOTS:
@@ -722,9 +726,9 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # Domain dynamics
     # -------------------------------------------------------------------------
     def _domain_specific_step(self) -> None:
-        """Advance the glue process one step: wet faces near the held
-        bottle's tip, tick cure counters on wet aligned joints, latch +
-        weld at threshold, and refresh the patch visuals.
+        """Advance the glue process one step: wet faces near the held bottle's
+        tip, tick cure counters on wet aligned joints, latch + weld at
+        threshold, and refresh the patch visuals.
 
         NOTE: no prev-step handshake -- effects apply the moment the
         gate holds (a one-step delay makes the first step after a state
@@ -776,9 +780,11 @@ class PyBulletBridgeEnv(PyBulletEnv):
 
     def _find_mate(self, state: State, blk: Object,
                    face: str) -> Optional[Object]:
-        """The unique block currently in aligned resting contact with
-        ``blk``'s ``face``, or None. Geometry mirrors the OnBlock /
-        SeatedOn / NextToEnd classifiers."""
+        """The unique block currently in aligned resting contact with ``blk``'s
+        ``face``, or None.
+
+        Geometry mirrors the OnBlock / SeatedOn / NextToEnd classifiers.
+        """
         for other in state.get_objects(self._block_type):
             if other == blk:
                 continue
@@ -815,8 +821,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
 
     def _latch_joint(self, state: State, blk: Object, face: str,
                      mate: Object) -> None:
-        """Irreversibly attach ``blk.face`` to ``mate``: record the
-        partnership on both blocks, consume the glue, create the weld."""
+        """Irreversibly attach ``blk.face`` to ``mate``: record the partnership
+        on both blocks, consume the glue, create the weld."""
         if face == "top":
             mate_slot = "bottom"
         else:
@@ -847,10 +853,13 @@ class PyBulletBridgeEnv(PyBulletEnv):
         self._create_weld(blk.id, mate.id, ideal_dz=ideal_dz)
 
     def _update_glue_patches(self, state: State) -> None:
-        """Show a yellow patch on each wet face; park all other patches
-        out of view. Patches are visual-only bodies."""
+        """Show a yellow patch on each wet face; park all other patches out of
+        view.
+
+        Patches are visual-only bodies.
+        """
         oov_x, oov_y = self._out_of_view_xy
-        in_state = {blk for blk in state.get_objects(self._block_type)}
+        in_state = set(state.get_objects(self._block_type))
         for i, blk in enumerate(self._blocks):
             for j, face in enumerate(GLUE_FACES):
                 patch_id = self._glue_patch_ids[blk.name][face]
@@ -924,8 +933,10 @@ class PyBulletBridgeEnv(PyBulletEnv):
 
     def _NextToEnd_holds(self, state: State,
                          objects: Sequence[Object]) -> bool:
-        """``right`` butts against ``left``'s end_b face (row grows in
-        the +local-x direction of the left block)."""
+        """True when ``right`` butts against ``left``'s end_b face.
+
+        The row grows in the +local-x direction of the left block.
+        """
         right, left = objects
         if right == left:
             return False
@@ -935,8 +946,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
         return self._end_adjacent(state, left, "end_b", right)
 
     def _SeatedOn_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        """The span block rests on the leg block's top, with the leg
-        under the span's footprint."""
+        """The span block rests on the leg block's top, with the leg under the
+        span's footprint."""
         span, leg = objects
         if span == leg:
             return False
@@ -957,8 +968,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
         return bool(abs(dz) < self.seat_z_tol)
 
     def _AtSite_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        """The block stands on the table at the site (a stacked upper
-        leg is NOT at the site -- the z check pins the base block)."""
+        """The block stands on the table at the site (a stacked upper leg is
+        NOT at the site -- the z check pins the base block)."""
         blk, site = objects
         if state.get(blk, "upright") <= 0.5:
             return False
@@ -995,8 +1006,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
         return False
 
     def _TopFree_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        """Nothing rests on the block's top face (so the face can be
-        reached by the glue bottle's dab)."""
+        """Nothing rests on the block's top face (so the face can be reached by
+        the glue bottle's dab)."""
         (blk, ) = objects
         for other in state.get_objects(self._block_type):
             if other == blk:
@@ -1007,8 +1018,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
         return True
 
     def _Loose_holds(self, state: State, objects: Sequence[Object]) -> bool:
-        """The block has no cured attachments (it can be individually
-        picked and re-placed without dragging an assembly along)."""
+        """The block has no cured attachments (it can be individually picked
+        and re-placed without dragging an assembly along)."""
         (blk, ) = objects
         return all(
             int(round(state.get(blk, f"attached_{slot}"))) < 0
@@ -1195,11 +1206,13 @@ class PyBulletBridgeEnv(PyBulletEnv):
             self, rng: np.random.Generator, legs: List[Object],
             spans: List[Object],
             site_xs: Tuple[float, float]) -> Dict[Object, Tuple[float, float]]:
-        """Assign every staged object (blocks + bottle) a jittered grid
-        slot. span0 takes the leftmost feasible middle-row slot and the
-        strip [span0_x, span0_x + row_len] on that row is reserved for
+        """Assign every staged object (blocks + bottle) a jittered grid slot.
+
+        span0 takes the leftmost feasible middle-row slot and the strip
+        [span0_x, span0_x + row_len] on that row is reserved for
         assembling the span row; everything else fills the remaining
-        slots in random order."""
+        slots in random order.
+        """
         base_x, base_y = self.robot_base_pos[0], self.robot_base_pos[1]
         row_len = (len(spans) - 1) * (2 * self.span_half_extents[0] +
                                       self.lateral_place_gap)

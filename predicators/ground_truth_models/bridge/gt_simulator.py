@@ -28,7 +28,7 @@ from predicators.code_sim_learning.utils import SOFT_EPS, Params, \
     ProcessUpdate, objs_by_type, sigmoid
 from predicators.ground_truth_models import GroundTruthSimulatorFactory
 from predicators.settings import CFG
-from predicators.structs import State
+from predicators.structs import Object, State
 
 # Physical defaults matching pybullet_bridge.py.
 CURE_THRESHOLD = 25.0
@@ -45,11 +45,12 @@ GLUE_FACES = ("top", "end_a", "end_b")
 ATTACH_SLOTS = ("top", "bottom", "end_a", "end_b")
 
 
-def _half(state: State, blk) -> Tuple[float, float, float]:
+def _half(state: State, blk: Object) -> Tuple[float, float, float]:
     return LEG_HALF if state.get(blk, "upright") > 0.5 else SPAN_HALF
 
 
-def _face_dir(state: State, blk, face: str) -> Tuple[float, float, float]:
+def _face_dir(state: State, blk: Object,
+              face: str) -> Tuple[float, float, float]:
     if face == "top":
         return (0.0, 0.0, 1.0)
     yaw = float(state.get(blk, "rot"))
@@ -57,7 +58,8 @@ def _face_dir(state: State, blk, face: str) -> Tuple[float, float, float]:
     return (sign * float(np.cos(yaw)), sign * float(np.sin(yaw)), 0.0)
 
 
-def _dab_point(state: State, blk, face: str) -> Tuple[float, float, float]:
+def _dab_point(state: State, blk: Object,
+               face: str) -> Tuple[float, float, float]:
     x, y, z = (float(state.get(blk, f)) for f in ("x", "y", "z"))
     hx, _, hz = _half(state, blk)
     if face == "top":
@@ -66,9 +68,10 @@ def _dab_point(state: State, blk, face: str) -> Tuple[float, float, float]:
     return (x + dx * hx, y + dy * hx, z + hz + DAB_MARGIN)
 
 
-def _top_mate_weight(state: State, other, blk, params: Params) -> float:
-    """Soft weight that ``other`` rests on ``blk``'s top face (covers
-    both the leg-stack and the span-seat geometry)."""
+def _top_mate_weight(state: State, other: Object, blk: Object,
+                     params: Params) -> float:
+    """Soft weight that ``other`` rests on ``blk``'s top face (covers both the
+    leg-stack and the span-seat geometry)."""
     if state.get(other, "is_held") > 0.5 or state.get(blk, "is_held") > 0.5:
         return 0.0
     hz_b = _half(state, blk)[2]
@@ -89,7 +92,7 @@ def _top_mate_weight(state: State, other, blk, params: Params) -> float:
     return x_w * y_w
 
 
-def _end_mate_weight(state: State, blk, face: str, other,
+def _end_mate_weight(state: State, blk: Object, face: str, other: Object,
                      params: Params) -> float:
     """Soft weight that ``other`` butts against ``blk``'s end face."""
     if state.get(other, "is_held") > 0.5 or state.get(blk, "is_held") > 0.5:
@@ -109,9 +112,10 @@ def _end_mate_weight(state: State, blk, face: str, other,
     return proj_w * perp_w
 
 
-def _find_mate(state: State, blocks, blk, face: str,
-               params: Params) -> Tuple[Optional[object], float]:
-    best, best_w = None, 0.0
+def _find_mate(state: State, blocks: List[Object], blk: Object, face: str,
+               params: Params) -> Tuple[Optional[Object], float]:
+    best: Optional[Object] = None
+    best_w = 0.0
     for other in blocks:
         if other == blk:
             continue
@@ -124,7 +128,7 @@ def _find_mate(state: State, blocks, blk, face: str,
     return best, best_w
 
 
-def _block_index(blocks) -> Dict[str, int]:
+def _block_index(blocks: List[Object]) -> Dict[str, int]:
     del blocks  # the index is fixed by name, not task contents
     # Fixed name order matching the env: leg0..leg3, span0..span2.
     full = [f"leg{i}" for i in range(4)] + [f"span{i}" for i in range(3)]
@@ -170,8 +174,8 @@ def _glue_application(state: State, updates: ProcessUpdate,
 
 def _curing(state: State, updates: ProcessUpdate,
             params: Params) -> ProcessUpdate:
-    """Tick each wet aligned joint's counter; latch attachment at the
-    threshold (hard latch; the counter accumulation is soft-gated)."""
+    """Tick each wet aligned joint's counter; latch attachment at the threshold
+    (hard latch; the counter accumulation is soft-gated)."""
     objs = objs_by_type(state)
     blocks = objs.get("block", [])
     idx_of = _block_index(blocks)
@@ -236,8 +240,7 @@ PROCESS_FEATURES: Dict[str, List[str]] = {
 
 
 class PyBulletBridgeGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
-    """GT process-dynamics simulator for pybullet_bridge (fully
-    observable)."""
+    """GT process-dynamics simulator for pybullet_bridge (fully observable)."""
 
     @classmethod
     def get_env_names(cls) -> set:

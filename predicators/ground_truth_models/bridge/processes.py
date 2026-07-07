@@ -329,7 +329,7 @@ class PyBulletBridgeGroundTruthProcessFactory(GroundTruthProcessFactory):
                               torch.tensor(1.0), PickBottle, [robot, bottle],
                               _pick_sampler))
 
-        # -- PlaceBottleOnTable ------------------------------------------------
+        # -- PlaceBottleOnTable -----------------------------------------------
         robot = Variable("?robot", robot_type)
         bottle = Variable("?bottle", bottle_type)
         processes.add(
@@ -340,7 +340,7 @@ class PyBulletBridgeGroundTruthProcessFactory(GroundTruthProcessFactory):
                               _delay(3.0), torch.tensor(1.0), Place, [robot],
                               _place_bottle_sampler))
 
-        # -- PlaceLegAtSite -----------------------------------------------------
+        # -- PlaceLegAtSite ---------------------------------------------------
         robot = Variable("?robot", robot_type)
         leg = Variable("?leg", block_type)
         site = Variable("?site", site_type)
@@ -361,7 +361,7 @@ class PyBulletBridgeGroundTruthProcessFactory(GroundTruthProcessFactory):
                 }, _delay(3.0), torch.tensor(1.0), Place, [robot],
                 _place_leg_at_site_sampler))
 
-        # -- StackLegOnLeg (full variant) ---------------------------------------
+        # -- StackLegOnLeg (full variant) -------------------------------------
         robot = Variable("?robot", robot_type)
         top = Variable("?top", block_type)
         bottom = Variable("?bottom", block_type)
@@ -384,7 +384,7 @@ class PyBulletBridgeGroundTruthProcessFactory(GroundTruthProcessFactory):
                 }, _delay(3.0), torch.tensor(1.0), Place, [robot],
                 _stack_leg_sampler))
 
-        # -- PlaceSpanNextTo -----------------------------------------------------
+        # -- PlaceSpanNextTo --------------------------------------------------
         robot = Variable("?robot", robot_type)
         right = Variable("?right", block_type)
         left = Variable("?left", block_type)
@@ -419,7 +419,7 @@ class PyBulletBridgeGroundTruthProcessFactory(GroundTruthProcessFactory):
                 [robot],
                 _place_next_to_sampler))
 
-        # -- PlaceBlockOnTable (staging escape hatch) -----------------------------
+        # -- PlaceBlockOnTable (staging escape hatch) -------------------------
         robot = Variable("?robot", robot_type)
         blk = Variable("?block", block_type)
         processes.add(
@@ -432,7 +432,7 @@ class PyBulletBridgeGroundTruthProcessFactory(GroundTruthProcessFactory):
                               _delay(3.0), torch.tensor(1.0), Place, [robot],
                               _place_block_on_table_sampler))
 
-        # -- ApplyGlueTop / ApplyGlueEndB ------------------------------------------
+        # -- ApplyGlueTop / ApplyGlueEndB -------------------------------------
         # Shape conditions prune groundings to the joints the tasks use:
         # top glue goes on standing legs, end glue on lying spans.
         for glue_pred, shape_pred, option, proc_name in ((GlueTop, Standing,
@@ -455,7 +455,7 @@ class PyBulletBridgeGroundTruthProcessFactory(GroundTruthProcessFactory):
                     _delay(4.0), torch.tensor(1.0), option,
                     [robot, bottle, blk], _apply_glue_sampler))
 
-        # -- SeatSpan2 / SeatSpan3 (place the welded span assembly) ---------------
+        # -- SeatSpan2 / SeatSpan3 (place the welded span assembly) -----------
         # Two arities: a 2-block assembly (simple variant, seated on
         # 1-block legs standing AT SITES) and a 3-block one (full,
         # seated on the upper legs of welded 2-block stacks). The
@@ -522,14 +522,14 @@ class PyBulletBridgeGroundTruthProcessFactory(GroundTruthProcessFactory):
                                   _delay(3.0), torch.tensor(1.0), Place,
                                   [robot], _seat_span_sampler))
 
-        # -- Wait ---------------------------------------------------------------
+        # -- Wait -------------------------------------------------------------
         robot = Variable("?robot", robot_type)
         processes.add(
             EndogenousProcess("Wait", [robot], set(), set(),
                               set(), set(), set(), ConstantDelay(1),
                               torch.tensor(1.0), Wait, [robot], null_sampler))
 
-        # -- Exogenous cure processes (hidden dwell-time dynamics) ---------------
+        # -- Exogenous cure processes (hidden dwell-time dynamics) ------------
         cure_delay = _delay(float(PyBulletBridgeEnv.cure_threshold))
 
         top = Variable("?top", block_type)

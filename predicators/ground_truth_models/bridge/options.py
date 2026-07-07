@@ -15,10 +15,9 @@ from gym.spaces import Box
 
 from predicators.envs.pybullet_bridge import PyBulletBridgeEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
-from predicators.ground_truth_models.skill_factories import Phase, \
-    PhaseSkill, SkillConfig, build_params_space, create_pick_skill, \
-    create_place_skill, create_wait_option, shared_skill_robot, \
-    shared_skill_simulator
+from predicators.ground_truth_models.skill_factories import PhaseSkill, \
+    SkillConfig, build_params_space, create_pick_skill, create_place_skill, \
+    create_wait_option, shared_skill_robot, shared_skill_simulator
 from predicators.ground_truth_models.skill_factories.move_to import \
     make_move_to_phase
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
