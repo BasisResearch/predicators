@@ -333,3 +333,90 @@ def test_mcmc_samples_bypass_probe():
     report = identifiability_report(result)
     assert report["friction"]["verdict"] == "identified"
     assert "NOT identified" in report["restitution"]["verdict"]
+
+
+# ── Stale-override hygiene ────────────────────────────────────────
+
+
+class _FakeStickyEnv:
+    """Env stub with the real API's sticky per-param merge semantics."""
+
+    def __init__(self, info):
+        self._info = info
+        self.overrides = {}
+
+    def get_physical_param_info(self):
+        return self._info
+
+    def apply_physical_param_overrides(self, params):
+        unknown = set(params) - set(self._info)
+        assert not unknown, unknown
+        self.overrides.update(params)
+
+
+_REGISTRY = {
+    "lateral_friction": {
+        "default": 0.5,
+        "lo": 0.01,
+        "hi": 2.0,
+        "scale": "log",
+        "description": "",
+    },
+    "rolling_friction": {
+        "default": 0.006,
+        "lo": 0.0,
+        "hi": 0.1,
+        "description": "",
+    },
+}
+
+
+def test_pin_all_physical_params_reverts_undeclared():
+    """A fit declaring a subset must not inherit an earlier fit's values."""
+    env = _FakeStickyEnv(_REGISTRY)
+    # Earlier fit's eval left lateral_friction at 2.0 on the shared env.
+    physical_sysid._pin_all_physical_params(env, {"lateral_friction": 2.0})
+    assert env.overrides["lateral_friction"] == 2.0
+    # A later fit declares only rolling_friction: lateral_friction must be
+    # pinned back to the env default, not stay at 2.0.
+    physical_sysid._pin_all_physical_params(env, {"rolling_friction": 0.02})
+    assert env.overrides["lateral_friction"] == 0.5
+    assert env.overrides["rolling_friction"] == 0.02
+
+
+def test_pin_all_physical_params_env_without_registry():
+    """Envs without a registry just get the params applied."""
+
+    class _Bare:
+        applied = None
+
+        def apply_physical_param_overrides(self, params):
+            self.applied = dict(params)
+
+    env = _Bare()
+    physical_sysid._pin_all_physical_params(env, {"k": 1.0})
+    assert env.applied == {"k": 1.0}
+
+
+def test_apply_identified_reverts_params_dropped_from_declaration():
+    """Regression for run_20260707_112310: an intermediate artifact applied
+    lateral_friction 1.9993, the final artifact declared only rolling_friction,
+    and the planner silently kept 1.9993."""
+    from predicators.approaches.agent_sim_learning_approach import \
+        AgentSimLearningApproach
+    approach = AgentSimLearningApproach.__new__(AgentSimLearningApproach)
+    env = _FakeStickyEnv(_REGISTRY)
+    approach._base_env = env  # pylint: disable=protected-access
+    approach._identified_physical_params = {}  # pylint: disable=protected-access
+    apply = approach._apply_identified_physical_params  # pylint: disable=protected-access
+
+    apply({"lateral_friction": 1.9993, "rolling_friction": 0.007})
+    assert env.overrides["lateral_friction"] == 1.9993
+
+    apply({"rolling_friction": 0.006})
+    assert env.overrides["lateral_friction"] == 0.5  # reverted to default
+    assert env.overrides["rolling_friction"] == 0.006
+    # The tracked dict mirrors the current declaration exactly, so env
+    # recreation re-applies only what the final artifact declared.
+    # pylint: disable=protected-access
+    assert approach._identified_physical_params == {"rolling_friction": 0.006}

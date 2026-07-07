@@ -160,21 +160,40 @@ def truncate_settled_tail(
     return states[:keep + 1], actions[:keep]
 
 
+def _pin_all_physical_params(base_env: Any,
+                             physical_params: Dict[str, float]) -> None:
+    """Apply ``physical_params`` with every OTHER registry param pinned to its
+    env default.
+
+    The env-side override is sticky per param and the fit env is shared
+    across fits, so a fit declaring a SUBSET of the params (e.g. only
+    rolling_friction after an earlier fit touched lateral_friction)
+    would otherwise silently inherit stale values from previous
+    evaluations.
+    """
+    info: Dict[str, Dict] = getattr(base_env, "get_physical_param_info",
+                                    lambda: {})()
+    full = {name: float(spec["default"]) for name, spec in info.items()}
+    full.update(physical_params)
+    base_env.apply_physical_param_overrides(full)
+
+
 def rollout_states(base_env: Any, init_state: State, actions: List[Action],
                    physical_params: Dict[str, float]) -> List[State]:
     """Free-run the base sim from ``init_state`` under ``actions``.
 
     Resets once to ``init_state`` (zeroing velocities so the rollout
     begins at rest, matching how a recorded cascade starts), applies the
-    candidate physics in place, then steps WITHOUT resetting so momentum
-    accrues in-sim. Returns the post-step state after each action
-    (length == ``len(actions)``).
+    candidate physics in place (undeclared registry params pinned to env
+    defaults, see :func:`_pin_all_physical_params`), then steps WITHOUT
+    resetting so momentum accrues in-sim. Returns the post-step state
+    after each action (length == ``len(actions)``).
     """
-    base_env.apply_physical_param_overrides(physical_params)
+    _pin_all_physical_params(base_env, physical_params)
     base_env._set_state(init_state)  # pylint: disable=protected-access
     _zero_all_velocities(base_env)
     # Re-apply after _set_state in case a reset path ever touches dynamics.
-    base_env.apply_physical_param_overrides(physical_params)
+    _pin_all_physical_params(base_env, physical_params)
     out: List[State] = []
     for action in actions:
         out.append(base_env.step(action))

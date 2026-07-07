@@ -1060,10 +1060,29 @@ the tools."""
             self, identified: Dict[str, float]) -> None:
         """Publish identified physical params into the planning base env.
 
-        The override is sticky (survives resets), but not env recreation
-        — ``_recreate_base_env`` re-applies from
+        The applied set exactly mirrors ``identified``: params applied
+        by an earlier fit but absent here (e.g. dropped from a later
+        artifact's PHYSICAL_PARAMS) are reverted to the env's registry
+        defaults, because the env-side override is sticky per param and
+        a stale value from a superseded fit would otherwise silently
+        keep steering the planner. The override survives resets but not
+        env recreation; ``_recreate_base_env`` re-applies from
         ``self._identified_physical_params``.
         """
+        stale = set(self._identified_physical_params) - set(identified)
+        if stale:
+            info = self._base_env.get_physical_param_info()
+            reverts = {
+                name: float(info[name]["default"])
+                for name in sorted(stale) if name in info
+            }
+            if reverts:
+                self._base_env.apply_physical_param_overrides(reverts)
+                logger.info(
+                    "Reverted physical params dropped from the current "
+                    "declaration to env defaults: %s",
+                    {k: f"{v:.4f}"
+                     for k, v in reverts.items()})
         self._identified_physical_params = dict(identified)
         self._base_env.apply_physical_param_overrides(identified)
         logger.info("Applied identified physical params to base env: %s",
