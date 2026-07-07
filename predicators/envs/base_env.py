@@ -57,11 +57,16 @@ class BaseEnv(abc.ABC):
     def get_physical_param_info(self) -> Dict[str, Dict]:
         """Physical parameters this env exposes for system identification.
 
-        Maps parameter name to a small info dict with keys ``default``
-        (the built-in value), ``lo``/``hi`` (a reasonable fitting box),
-        ``description``, and optionally ``scale`` (``"log"`` for
-        positive scale-like params that should be fitted in log-space —
-        see ``ParamSpec.scale``; omit for linear). Envs whose dynamics
+        Maps parameter name to a small info dict with keys ``default``,
+        ``lo``/``hi`` (a reasonable fitting box), ``description``, and
+        optionally ``scale`` (``"log"`` for positive scale-like params
+        that should be fitted in log-space — see ``ParamSpec.scale``;
+        omit for linear). ``default`` must be THIS instance's believed
+        baseline, including any role-dependent init-time override (e.g.
+        a planning-sim friction differing from the built-in) rather than
+        just the class default, because the sysID machinery restores a
+        param to it when a fit stops declaring that param. Envs whose
+        dynamics
         can be re-parameterized in place advertise their tunable params
         here and accept values for them via
         :meth:`apply_physical_param_overrides`. The base class exposes
