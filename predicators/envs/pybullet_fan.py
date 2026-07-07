@@ -439,8 +439,7 @@ class PyBulletFanEnv(PyBulletEnv):
         bodies["table_id"] = table_id
         table_id2 = create_object(
             asset_path="urdf/table.urdf",
-            position=(cls.table_pos[0],
-                      cls.table_pos[1] + cls.table_width / 2,
+            position=(cls.table_pos[0], cls.table_pos[1] + cls.table_width / 2,
                       cls.table_pos[2]),
             orientation=cls.table_orn,
             scale=cls.table_scale,
@@ -814,8 +813,8 @@ class PyBulletFanEnv(PyBulletEnv):
         for num_x, num_y in candidates:
             x_coords, y_coords = cls._generate_grid_coordinates(num_x, num_y)
             if (any(abs(cx - ref_x) < cls.pos_gap / 2 for cx in x_coords)
-                    and any(abs(cy - ref_y) < cls.pos_gap / 2
-                            for cy in y_coords)):
+                    and any(
+                        abs(cy - ref_y) < cls.pos_gap / 2 for cy in y_coords)):
                 return x_coords, y_coords
         # Reference off-grid (shouldn't happen); fall back to the test grid.
         return cls._generate_grid_coordinates(*candidates[-1])
@@ -918,26 +917,33 @@ class PyBulletFanEnv(PyBulletEnv):
         # their feature values are encoded in their names. Reconstruct them
         # from the name; this lets the _get_state round-trip succeed even
         # though the env itself is built grid-free.
-        reconstructed = self._reconstruct_helper_feature_from_name(obj, feature)
+        reconstructed = self._reconstruct_helper_feature_from_name(
+            obj, feature)
         if reconstructed is not None:
             return reconstructed
 
         raise ValueError(f"Unknown feature {feature} for object {obj}")
 
     @staticmethod
-    def _reconstruct_helper_feature_from_name(
-            obj: Object, feature: str) -> Optional[float]:
+    def _reconstruct_helper_feature_from_name(obj: Object,
+                                              feature: str) -> Optional[float]:
         """Reconstruct an injected loc/side feature from its object name.
 
-        loc names encode coordinates ("loc_<x>_<y>", e.g. "loc_0.4700_1.2800")
-        and side names encode the direction ("left"/"right"/"down"/"up").
-        Returns None for anything else so the caller can raise its own error.
+        loc names encode coordinates ("loc_<x>_<y>", e.g.
+        "loc_0.4700_1.2800") and side names encode the direction
+        ("left"/"right"/"down"/"up"). Returns None for anything else so
+        the caller can raise its own error.
         """
         if obj.type.name == "loc" and feature in ("xx", "yy"):
             _, x_str, y_str = obj.name.split("_")
             return float(x_str) if feature == "xx" else float(y_str)
         if obj.type.name == "side" and feature == "side_idx":
-            return {"left": 1.0, "right": 0.0, "down": 3.0, "up": 2.0}[obj.name]
+            return {
+                "left": 1.0,
+                "right": 0.0,
+                "down": 3.0,
+                "up": 2.0
+            }[obj.name]
         return None
 
     # -------------------------------------------------------------------------
@@ -1166,9 +1172,9 @@ class PyBulletFanEnv(PyBulletEnv):
 
         True when the ball has reached the physical target cell. This is
         the grid-free goal predicate the agent plans toward; the grid
-        helper predicates (BallAtLoc / ClearLoc / SideOf / FanFacingSide /
-        OppositeFan) live in ground_truth_models/fan/predicates.py and are
-        injected only for the oracle.
+        helper predicates (BallAtLoc / ClearLoc / SideOf / FanFacingSide
+        / OppositeFan) live in ground_truth_models/fan/predicates.py and
+        are injected only for the oracle.
         """
         ball, target = objects
         return self._is_ball_close_to_position(state.get(ball, "x"),

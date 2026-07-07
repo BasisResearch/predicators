@@ -60,8 +60,8 @@ def _sphere_overhang(radius: float, wall_height: float) -> float:
     """Horizontal reach of the ball past a wall face at the wall's top.
 
     The walls are lower than the ball's center height, so the sphere
-    overhangs them and its center stops closer to the wall than
-    face + radius would suggest.
+    overhangs them and its center stops closer to the wall than face +
+    radius would suggest.
     """
     if wall_height >= radius:
         return radius

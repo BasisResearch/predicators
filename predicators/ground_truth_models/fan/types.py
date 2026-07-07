@@ -7,7 +7,7 @@ into a task at plan time by the oracle / process-planning approach via
 while the oracle gets the spatial scaffolding it needs.
 """
 
-from typing import Dict, List, Optional, Set
+from typing import Dict, Optional, Set
 
 import numpy as np
 
@@ -34,9 +34,9 @@ class PyBulletFanGroundTruthTypeFactory(GroundTruthTypeFactory):
     def get_helper_types(cls, env_name: str) -> Set[Type]:
         """The grid helper types (``loc`` positions, ``side`` directions).
 
-        Delegates to the env's canonical type objects so there is a single
-        source of truth. Only oracle / process-planning approaches request
-        these; agent approaches run grid-free.
+        Delegates to the env's canonical type objects so there is a
+        single source of truth. Only oracle / process-planning
+        approaches request these; agent approaches run grid-free.
         """
         del env_name  # unused
         from predicators.envs.pybullet_fan import \
@@ -107,11 +107,12 @@ class PyBulletFanGroundTruthTypeFactory(GroundTruthTypeFactory):
         """Inject the grid ``loc``/``side`` objects and re-express the goal.
 
         Injects the grid into the initial state (see
-        ``augment_state_with_helper_objects``) and rewrites the physical goal
-        ``BallAtTarget(ball, target)`` into the grid goal
-        ``BallAtLoc(ball, target_loc)`` where ``target_loc`` is the injected
-        cell nearest the physical target, so the oracle's grid processes can
-        achieve it. Non-grid goal atoms (e.g. FanOff) are preserved.
+        ``augment_state_with_helper_objects``) and rewrites the physical
+        goal ``BallAtTarget(ball, target)`` into the grid goal
+        ``BallAtLoc(ball, target_loc)`` where ``target_loc`` is the
+        injected cell nearest the physical target, so the oracle's grid
+        processes can achieve it. Non-grid goal atoms (e.g. FanOff) are
+        preserved.
         """
         # Locate the ball and target physical objects.
         ball_obj: Optional[Object] = None
@@ -132,10 +133,9 @@ class PyBulletFanGroundTruthTypeFactory(GroundTruthTypeFactory):
         target_x = task.init.get(target_obj, "x")
         target_y = task.init.get(target_obj, "y")
         loc_objs = [o for o in new_init if o.type.name == "loc"]
-        target_loc = min(
-            loc_objs,
-            key=lambda o: (new_init.get(o, "xx") - target_x)**2 +
-            (new_init.get(o, "yy") - target_y)**2)
+        target_loc = min(loc_objs,
+                         key=lambda o: (new_init.get(o, "xx") - target_x)**2 +
+                         (new_init.get(o, "yy") - target_y)**2)
         ball_at_loc = cls._get_ball_at_loc_predicate(ball_obj.type, loc_type)
         new_goal = set()
         for atom in task.goal:
@@ -150,10 +150,10 @@ class PyBulletFanGroundTruthTypeFactory(GroundTruthTypeFactory):
     def _get_ball_at_loc_predicate(ball_type: Type,
                                    loc_type: Type) -> Predicate:
         """Fetch the injected-grid ``BallAtLoc`` predicate for the goal."""
-        from predicators.ground_truth_models.fan.predicates import \
-            PyBulletFanGroundTruthPredicateFactory  # pylint: disable=import-outside-toplevel
         from predicators.envs.pybullet_fan import \
             PyBulletFanEnv  # pylint: disable=import-outside-toplevel
+        from predicators.ground_truth_models.fan.predicates import \
+            PyBulletFanGroundTruthPredicateFactory  # pylint: disable=import-outside-toplevel
         types_dict = {
             "ball": ball_type,
             "fan": PyBulletFanEnv._fan_type,  # pylint: disable=protected-access

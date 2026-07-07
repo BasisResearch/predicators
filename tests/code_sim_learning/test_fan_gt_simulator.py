@@ -59,8 +59,8 @@ def _get_obj(state, type_name, pred=None):
 
 
 def _rollout_pair(fan_setup, switch_sides, n_steps, ball_xy=None):
-    """Roll real and hybrid sims in lockstep; return max ball error and
-    final (real, hybrid) states."""
+    """Roll real and hybrid sims in lockstep; return max ball error and final
+    (real, hybrid) states."""
     real_env, base_env, rules, params, task = fan_setup
     state = task.init.copy()
     ball = _get_obj(state, "ball")
@@ -69,7 +69,8 @@ def _rollout_pair(fan_setup, switch_sides, n_steps, ball_xy=None):
         state.set(ball, "y", ball_xy[1])
     for side in switch_sides:
         switch = _get_obj(
-            state, "switch",
+            state,
+            "switch",
             lambda s, o, _side=side: s.get(o, "controls_fan") == _side)
         state.set(switch, "is_on", 1.0)
 
@@ -102,8 +103,8 @@ def test_fan_gt_simulator_loads():
 
 
 def test_fan_hybrid_free_run_and_boundary(fan_setup):
-    """Fan blows the ball across the grid; both sims park at the
-    boundary wall."""
+    """Fan blows the ball across the grid; both sims park at the boundary
+    wall."""
     # Seed-0 train task: ball (0.75, 1.694), wall (0.75, 1.614), target
     # (0.75, 1.534); grid x {0.67, 0.75, 0.83}, y {1.534, 1.614, 1.694}.
     max_err, s_real, s_hyb = _rollout_pair(fan_setup, [0.0], 45)

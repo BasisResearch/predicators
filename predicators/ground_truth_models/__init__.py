@@ -386,8 +386,9 @@ def augment_state_with_helper_objects(state: State, env_name: str) -> State:
     """Augment a state with environment-specific helper objects if defined.
 
     Returns the state unchanged if no helper augmentation is defined for
-    this environment. Used to re-derive helper objects on execution states
-    so closed-loop oracle policies can keep evaluating helper predicates.
+    this environment. Used to re-derive helper objects on execution
+    states so closed-loop oracle policies can keep evaluating helper
+    predicates.
     """
     for cls in utils.get_all_subclasses(GroundTruthTypeFactory):
         if not cls.__abstractmethods__ and env_name in cls.get_env_names():

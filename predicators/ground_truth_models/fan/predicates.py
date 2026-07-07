@@ -114,21 +114,21 @@ class PyBulletFanGroundTruthPredicateFactory(GroundTruthPredicateFactory):
         loc_type = types["loc"]
         side_type = types["side"]
 
-        BallAtLoc = Predicate(
-            "BallAtLoc", [ball_type, loc_type],
-            functools.partial(_ball_at_loc_holds, pos_gap=pos_gap),
-            natural_language_assertion=lambda os:
-            f"ball {os[0]} is at location {os[1]}")
-        ClearLoc = Predicate(
-            "ClearLoc", [loc_type],
-            functools.partial(_clear_loc_holds, pos_gap=pos_gap),
-            natural_language_assertion=lambda os:
-            f"location {os[0]} is clear of objects")
-        FanFacingSide = Predicate(
-            "FanFacingSide", [fan_type, side_type],
-            functools.partial(_fan_facing_side_holds, pos_gap=pos_gap),
-            natural_language_assertion=lambda os:
-            f"fan {os[0]} is facing the side {os[1]}")
+        BallAtLoc = Predicate("BallAtLoc", [ball_type, loc_type],
+                              functools.partial(_ball_at_loc_holds,
+                                                pos_gap=pos_gap),
+                              natural_language_assertion=lambda os:
+                              f"ball {os[0]} is at location {os[1]}")
+        ClearLoc = Predicate("ClearLoc", [loc_type],
+                             functools.partial(_clear_loc_holds,
+                                               pos_gap=pos_gap),
+                             natural_language_assertion=lambda os:
+                             f"location {os[0]} is clear of objects")
+        FanFacingSide = Predicate("FanFacingSide", [fan_type, side_type],
+                                  functools.partial(_fan_facing_side_holds,
+                                                    pos_gap=pos_gap),
+                                  natural_language_assertion=lambda os:
+                                  f"fan {os[0]} is facing the side {os[1]}")
         OppositeFan = Predicate(
             "OppositeFan", [fan_type, fan_type],
             functools.partial(_opposite_fan_holds, pos_gap=pos_gap),
