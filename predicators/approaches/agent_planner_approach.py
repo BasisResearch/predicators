@@ -553,11 +553,11 @@ scene, then annotate_scene overlays markers on it."""
         return saved_path
 
     def _initial_image_section(self) -> str:
-        """Return a prompt section pointing at the rendered scene image
-        for the current solve, or an empty string if none was rendered.
+        """Return a prompt section pointing at the rendered scene image for the
+        current solve, or an empty string if none was rendered.
 
-        ``_render_initial_state_image`` must have been called first; this
-        references whichever file that call saved (init or replan
+        ``_render_initial_state_image`` must have been called first;
+        this references whichever file that call saved (init or replan
         snapshot), so replan queries point at the current scene rather
         than the stale episode-init image.
         """

@@ -70,8 +70,8 @@ _SHARED_ROBOT_CACHE: Dict[type, Any] = {}
 
 
 def shared_skill_robot(env_cls: Any) -> Any:
-    """Return a process-wide robot handle for ``env_cls`` SkillConfigs,
-    backed by one cached ``initialize_pybullet`` world per env class."""
+    """Return a process-wide robot handle for ``env_cls`` SkillConfigs, backed
+    by one cached ``initialize_pybullet`` world per env class."""
     robot = _SHARED_ROBOT_CACHE.get(env_cls)
     if robot is None:
         _, robot, _ = env_cls.initialize_pybullet(using_gui=False)

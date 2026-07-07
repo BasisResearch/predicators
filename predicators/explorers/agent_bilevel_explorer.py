@@ -339,8 +339,8 @@ class AgentBilevelExplorer(BaseExplorer):
         return getattr(self._agent_session, "tool_names", None)
 
     def _initial_image_section(self, task: Task, train_task_idx: int) -> str:
-        """Render the explore task's initial state and return a prompt
-        section pointing at it, mirroring what test-time solves get.
+        """Render the explore task's initial state and return a prompt section
+        pointing at it, mirroring what test-time solves get.
 
         Saved as ``train_task{N:03d}_initial_state.png`` so train-task
         scenes are inspectable alongside the test-task init images.

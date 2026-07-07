@@ -44,10 +44,10 @@ def save_task_state_image(env: Any, task: Task, save_dir: str,
                           filename: str) -> Optional[str]:
     """Render ``task.init`` in ``env`` and save it under ``save_dir``.
 
-    Shared by the solve-time approaches and the explorer so the agent can
-    see the scene it is planning from. Best-effort by design: any
-    rendering failure logs a warning and returns None instead of raising.
-    Returns the absolute path of the saved image on success.
+    Shared by the solve-time approaches and the explorer so the agent
+    can see the scene it is planning from. Best-effort by design: any
+    rendering failure logs a warning and returns None instead of
+    raising. Returns the absolute path of the saved image on success.
     """
     try:
         # pylint: disable=import-outside-toplevel
