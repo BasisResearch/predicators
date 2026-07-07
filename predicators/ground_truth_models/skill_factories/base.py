@@ -38,6 +38,53 @@ class PhaseAction(Enum):
     CHANGE_FINGERS = auto()
 
 
+# Process-wide cache of the simulator envs that skills use for
+# collision-aware motion planning, one per env class. A PyBullet DIRECT
+# client is never freed (nothing in this codebase calls p.disconnect), so
+# constructing a fresh env per SkillConfig — which happens on every
+# get_gt_options() call — leaks the entire physics world (~145MB for the
+# domino env; the min-block K* probes call get_gt_options per probe and
+# drove a run past 12GB). Sharing one env per class is safe because
+# _plan_with_simulator re-syncs the full state via _set_state before every
+# query. The cache is cleared on config updates (see
+# utils.update_config_with_parser): env construction reads CFG, so a config
+# change is exactly when a cached simulator goes stale. Evicted envs are
+# dropped, not disconnected — SkillConfigs built earlier may still use them.
+_SHARED_SIMULATOR_CACHE: Dict[type, Any] = {}
+
+
+def shared_skill_simulator(env_cls: type) -> Any:
+    """Return the process-wide shared motion-planning env for ``env_cls``."""
+    sim = _SHARED_SIMULATOR_CACHE.get(env_cls)
+    if sim is None:
+        sim = env_cls(use_gui=False)
+        _SHARED_SIMULATOR_CACHE[env_cls] = sim
+    return sim
+
+
+# Same rationale as _SHARED_SIMULATOR_CACHE, for the robot handle that
+# SkillConfig needs: option factories used to call
+# env_cls.initialize_pybullet() per get_options() call, leaking a full
+# physics world each time even with motion planning off.
+_SHARED_ROBOT_CACHE: Dict[type, Any] = {}
+
+
+def shared_skill_robot(env_cls: Any) -> Any:
+    """Return a process-wide robot handle for ``env_cls`` SkillConfigs, backed
+    by one cached ``initialize_pybullet`` world per env class."""
+    robot = _SHARED_ROBOT_CACHE.get(env_cls)
+    if robot is None:
+        _, robot, _ = env_cls.initialize_pybullet(using_gui=False)
+        _SHARED_ROBOT_CACHE[env_cls] = robot
+    return robot
+
+
+def clear_shared_simulator_cache() -> None:
+    """Drop cached skill simulators and robots; called on config changes."""
+    _SHARED_SIMULATOR_CACHE.clear()
+    _SHARED_ROBOT_CACHE.clear()
+
+
 @dataclass(frozen=True)
 class SkillConfig:
     """Configuration shared across all skill factories for one environment.

@@ -11,7 +11,7 @@ from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.skill_factories import SkillConfig, \
     create_pick_skill, create_place_skill, create_push_skill, \
-    create_wait_option
+    create_wait_option, shared_skill_robot, shared_skill_simulator
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, \
@@ -64,8 +64,7 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
         """Option implementation built on skill_factories primitives."""
         del env_name, predicates, action_space  # unused
 
-        _, pybullet_robot, _ = \
-            PyBulletDominoEnv.initialize_pybullet(using_gui=False)
+        pybullet_robot = shared_skill_robot(PyBulletDominoEnv)
 
         robot_type = types["robot"]
         domino_type = types["domino"]
@@ -90,7 +89,7 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
     def _build_skill_config(
             cls, pybullet_robot: SingleArmPyBulletRobot) -> SkillConfig:
         """Build the shared SkillConfig for domino skill_factories options."""
-        simulator = cls.env_cls(use_gui=False) \
+        simulator = shared_skill_simulator(cls.env_cls) \
             if CFG.skill_phase_use_motion_planning else None
         return SkillConfig(
             robot=pybullet_robot,

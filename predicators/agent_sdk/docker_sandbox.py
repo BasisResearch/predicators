@@ -255,7 +255,6 @@ class DockerSessionManager:
                 "system_prompt": self._system_prompt,
                 "model_name": self._model_name,
                 "max_turns": CFG.agent_sdk_max_agent_turns_per_iteration,
-                "thinking_budget_tokens": CFG.agent_sdk_thinking_budget_tokens,
                 "reasoning_effort": CFG.agent_sdk_reasoning_effort,
                 "tool_names": self._tool_names,
                 "cfg_snapshot": dict(CFG.__dict__),

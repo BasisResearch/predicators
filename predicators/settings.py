@@ -1099,19 +1099,12 @@ class GlobalSettings:
     vlm_predicator_num_proposal_batches = 1
 
     # agent SDK online abstraction learning parameters
-    agent_sdk_model_name = "claude-sonnet-4-6"
+    agent_sdk_model_name = "claude-sonnet-5"
     agent_sdk_max_agent_turns_per_iteration = 50
-    # Per-response extended-thinking budget (tokens) for the agent SDK. Bounds
-    # the model's deliberation so a single response's thinking + text stays
-    # under the harness output-token cap (default 32000), preventing the
-    # "exceeded the output token maximum" overflow. 0 ⇒ leave unset (the
-    # model's default adaptive thinking, which can overflow on hard tasks).
-    agent_sdk_thinking_budget_tokens = 16000
     # Reasoning effort for the agent SDK's Claude agent. One of "low",
     # "medium", "high", "max" to set it, or "" / "default" to leave it unset
-    # (the model's own default). Higher effort trades latency/cost for more
-    # deliberate planning; orthogonal to agent_sdk_thinking_budget_tokens,
-    # which caps a single response's extended thinking.
+    # (the model's own default). With adaptive thinking this is the control
+    # for how much the agent deliberates per response.
     agent_sdk_reasoning_effort = ""
     agent_sdk_agent_timeout = 300  # seconds per iteration
     agent_sdk_resume_session = True  # resume previous session if available

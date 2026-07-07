@@ -72,12 +72,9 @@ class AgentSessionManager:
         if self._tool_context is not None:
             extra_hooks = dict(
                 getattr(self._tool_context, "extra_session_hooks", {}) or {})
-        # Cap per-response extended thinking so deliberation can't blow the
-        # harness output-token limit (the 32000-token overflow).
-        thinking = ({
-            "type": "enabled",
-            "budget_tokens": CFG.agent_sdk_thinking_budget_tokens
-        } if CFG.agent_sdk_thinking_budget_tokens > 0 else None)
+        # Adaptive thinking: budget_tokens is rejected (400) on
+        # claude-sonnet-5 and later.
+        thinking = {"type": "adaptive"}
         options = ClaudeAgentOptions(
             allowed_tools=self._allowed_tools or [],
             mcp_servers={"predicator_tools": self._mcp_server},

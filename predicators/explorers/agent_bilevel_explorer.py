@@ -97,6 +97,8 @@ class AgentBilevelExplorer(BaseExplorer):
                 trajectory_summary=self._build_trajectory_summary(),
                 tool_names=self._agent_tool_names(),
                 experiment_guidance=self._build_experiment_guidance(),
+                initial_image_section=self._initial_image_section(
+                    task, train_task_idx),
                 propose_params=CFG.agent_bilevel_use_llm_initial_params,
                 # The explorer refines its own sketch for exploration; it does
                 # not use the approach's tool-validated capture path.
@@ -335,6 +337,29 @@ class AgentBilevelExplorer(BaseExplorer):
     def _agent_tool_names(self) -> Optional[List[str]]:
         """Return tool names exposed by the current session, if any."""
         return getattr(self._agent_session, "tool_names", None)
+
+    def _initial_image_section(self, task: Task, train_task_idx: int) -> str:
+        """Render the explore task's initial state and return a prompt section
+        pointing at it, mirroring what test-time solves get.
+
+        Saved as ``train_task{N:03d}_initial_state.png`` so train-task
+        scenes are inspectable alongside the test-task init images.
+        Empty string when rendering is unavailable (e.g. the sandbox has
+        not been created yet, so ``image_save_dir`` is unset).
+        """
+        env = self._tool_context.env
+        save_dir = self._tool_context.image_save_dir
+        if env is None or save_dir is None:
+            return ""
+        img_name = f"train_task{train_task_idx:03d}_initial_state.png"
+        if bilevel_sketch.save_task_state_image(env, task, save_dir,
+                                                img_name) is None:
+            return ""
+        # cwd of the agent is the sandbox root, so reference test_images/.
+        return ("\n## Initial State Image\n"
+                "A rendering of the initial scene has been saved to "
+                f"`./test_images/{img_name}`. **Read this image first** to "
+                "understand the spatial layout before planning.\n")
 
     def _build_experiment_guidance(self) -> str:
         """LLM-proposal half of active-experiment design.

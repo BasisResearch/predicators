@@ -22,6 +22,7 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
+from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.agent_session_mixin import AgentSessionMixin
 from predicators.approaches import ApproachFailure
 from predicators.approaches.base_approach import BaseApproach
@@ -84,6 +85,15 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         # ``test_task_idx``. Incremented per test solve; threaded into the
         # session-log filename via the ToolContext.
         self._test_task_idx = -1
+        # Scene renders attempted this episode. The first render of an
+        # episode is the true initial state; later ones come from
+        # mid-episode replans and get distinct filenames so they do not
+        # overwrite the init snapshot. Reset in reset_for_new_episode.
+        self._episode_scene_renders = 0
+        # Filename of the most recently saved scene render, consumed by
+        # _initial_image_section so the prompt references the image that
+        # matches the state the agent is actually planning from.
+        self._last_scene_image_name: Optional[str] = None
 
         # Initializes _tool_context and _agent_session_id (see mixin).
         self._init_agent_session_state(types, initial_predicates,
@@ -490,11 +500,19 @@ scene, then annotate_scene overlays markers on it."""
         return self._wrap_option_failures(policy)
 
     def _render_initial_state_image(self, task: Task) -> Optional[str]:
-        """Render the initial state of the task and save to the sandbox.
+        """Render the state this solve starts from and save to the sandbox.
 
-        Returns the sandbox-relative path to the saved image, or None if
-        rendering is not available.
+        The first render of an episode is the true initial state
+        (``task{N:03d}_initial_state.png``); later renders in the same
+        episode come from mid-episode replans and are saved as
+        ``task{N:03d}_replan{K}_state.png`` so they do not overwrite the
+        init snapshot (the replan "task" is rooted at the current,
+        partially-executed state).
+
+        Returns the path to the saved image, or None if rendering is not
+        available.
         """
+        self._last_scene_image_name = None
         env = self._tool_context.env
         if env is None:
             return None
@@ -507,73 +525,54 @@ scene, then annotate_scene overlays markers on it."""
             # dir) exist first. Inside the try so a session-creation hiccup
             # leaves rendering best-effort rather than crashing the solve.
             self._ensure_agent_session()
-            save_dir = self._tool_context.image_save_dir
-            if save_dir is None:
-                return None
-            # pylint: disable=import-outside-toplevel
-            from PIL import Image as PILImage
-
-            # For PyBullet envs, set state then use render() (render_state
-            # raises NotImplementedError for arbitrary states).
-            # For other envs, use render_state directly.
-            try:
-                from predicators.envs.pybullet_env import PyBulletEnv
-                is_pybullet = isinstance(env, PyBulletEnv)
-            except ImportError:
-                is_pybullet = False
-
-            if is_pybullet:
-                env._set_state(task.init)  # pylint: disable=protected-access
-                video = env.render()
-            else:
-                # Build a minimal EnvironmentTask for the render_state API.
-                from predicators.structs import EnvironmentTask
-                env_task = EnvironmentTask(task.init, task.goal)
-                video = env.render_state(task.init, env_task)
-
-            if not video:
-                return None
-
-            rgb_array = np.asarray(video[0], dtype=np.uint8)
-            img = PILImage.fromarray(  # type: ignore[no-untyped-call]
-                rgb_array)
-            os.makedirs(save_dir, exist_ok=True)
-            task_id = self._tool_context.test_task_idx
-            if task_id is not None:
-                filename = f"task{task_id:03d}_initial_state.png"
-            else:
-                filename = "initial_state.png"
-            saved_path = os.path.join(save_dir, filename)
-            img.save(saved_path)
-            logging.info("Saved initial state image to %s", saved_path)
-            return saved_path
         except Exception as e:  # pylint: disable=broad-except
             logging.warning("Failed to render initial state image: %s", e)
             return None
+        save_dir = self._tool_context.image_save_dir
+        if save_dir is None:
+            return None
+        task_id = self._tool_context.test_task_idx
+        replan_idx = self._episode_scene_renders
+        # Count attempts, not successes: if the init render fails, a later
+        # replan render must still not masquerade as the init image.
+        self._episode_scene_renders += 1
+        if task_id is not None:
+            stem = f"task{task_id:03d}"
+        else:
+            stem = ""
+        if replan_idx == 0:
+            filename = f"{stem}_initial_state.png" if stem \
+                else "initial_state.png"
+        else:
+            filename = f"{stem}_replan{replan_idx}_state.png" if stem \
+                else f"replan{replan_idx}_state.png"
+        saved_path = bilevel_sketch.save_task_state_image(
+            env, task, save_dir, filename)
+        if saved_path is not None:
+            self._last_scene_image_name = filename
+        return saved_path
 
     def _initial_image_section(self) -> str:
-        """Return a prompt section pointing at the rendered initial-state
-        image, or an empty string if no image has been rendered.
+        """Return a prompt section pointing at the rendered scene image for the
+        current solve, or an empty string if none was rendered.
 
         ``_render_initial_state_image`` must have been called first;
-        this only references the file (sandbox-relative) if it exists on
-        disk.
+        this references whichever file that call saved (init or replan
+        snapshot), so replan queries point at the current scene rather
+        than the stale episode-init image.
         """
         save_dir = self._tool_context.image_save_dir
-        if not save_dir:
+        img_name = self._last_scene_image_name
+        if not save_dir or img_name is None:
             return ""
-        task_id = self._tool_context.test_task_idx
-        if task_id is not None:
-            img_name = f"task{task_id:03d}_initial_state.png"
-        else:
-            img_name = "initial_state.png"
         if not os.path.exists(os.path.join(save_dir, img_name)):
             return ""
         # cwd of the agent is the sandbox root, so reference test_images/.
         return ("\n## Initial State Image\n"
-                "A rendering of the initial scene has been saved to "
-                f"`./test_images/{img_name}`. **Read this image first** to "
-                "understand the spatial layout before planning.\n")
+                "A rendering of the scene this plan starts from has been "
+                f"saved to `./test_images/{img_name}`. **Read this image "
+                "first** to understand the spatial layout before "
+                "planning.\n")
 
     # ------------------------------------------------------------------ #
     # Test phase lifecycle
@@ -611,6 +610,8 @@ scene, then annotate_scene overlays markers on it."""
         the test phase.
         """
         super().reset_for_new_episode()
+        # New episode -> the next scene render is a true init snapshot.
+        self._episode_scene_renders = 0
         if self._in_test_phase:
             self._test_task_idx += 1
             self._tool_context.test_task_idx = self._test_task_idx

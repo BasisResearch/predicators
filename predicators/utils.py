@@ -4330,6 +4330,14 @@ def update_config_with_parser(parser: ArgumentParser, args: Dict[str,
     for d in [arg_specific_settings, args]:
         for k, v in d.items():
             setattr(CFG, k, v)
+    # Skill-factory simulator envs are built from CFG, so a config change
+    # invalidates them. Clear via sys.modules rather than importing: if the
+    # module was never imported, nothing can be cached, and importing it here
+    # would pull pybullet into processes that never use skills.
+    skill_base = sys.modules.get(
+        "predicators.ground_truth_models.skill_factories.base")
+    if skill_base is not None:
+        skill_base.clear_shared_simulator_cache()
 
 
 def reset_config(args: Optional[Dict[str, Any]] = None,

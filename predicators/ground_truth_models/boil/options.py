@@ -12,7 +12,7 @@ from predicators.envs.pybullet_boil import PyBulletBoilEnv
 from predicators.ground_truth_models import GroundTruthOptionFactory
 from predicators.ground_truth_models.skill_factories import SkillConfig, \
     create_pick_skill, create_place_skill, create_push_skill, \
-    create_wait_option
+    create_wait_option, shared_skill_robot, shared_skill_simulator
 from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, \
     Predicate, State, Type
@@ -60,8 +60,7 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
         """Skill-factory-based option implementations for the boil env."""
         del env_name, action_space, predicates  # unused
 
-        _, pybullet_robot, _ = \
-            PyBulletBoilEnv.initialize_pybullet(using_gui=False)
+        pybullet_robot = shared_skill_robot(PyBulletBoilEnv)
 
         robot_type = types["robot"]
         switch_type = types["switch"]
@@ -71,7 +70,7 @@ class PyBulletBoilGroundTruthOptionFactory(_BoilLegacyOptionsMixin,
 
         env_cls = cls.env_cls
 
-        simulator = env_cls(use_gui=False) \
+        simulator = shared_skill_simulator(env_cls) \
             if CFG.skill_phase_use_motion_planning else None
         config = SkillConfig(
             robot=pybullet_robot,
