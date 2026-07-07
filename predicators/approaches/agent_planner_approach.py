@@ -444,6 +444,10 @@ scene, then annotate_scene overlays markers on it."""
         explorer = self._create_explorer()
         requests: List[InteractionRequest] = []
         self._requests_train_task_idxs = []
+        # A cycle's requests are all generated before any executes, so the
+        # explorer shows each query the plans already scheduled this cycle
+        # and asks for a complementary one. Fresh list per cycle.
+        self._tool_context.cycle_scheduled_plans = []
         for _ in range(CFG.online_nsrt_learning_requests_per_cycle):
             task_idx = self._rng.choice(len(self._train_tasks))
             # Clear so a planning explorer's verdict is read fresh per
