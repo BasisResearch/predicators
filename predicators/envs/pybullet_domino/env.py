@@ -453,8 +453,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
 
     def apply_physical_param_overrides(self, params: Dict[str, float]) -> None:
         """Sticky in-place dynamics override (delegates to the domino
-        component's ``set_physical_params``, which re-applies after every
-        reset and body recreation)."""
+        component's ``set_physical_params``, which re-applies after every reset
+        and body recreation)."""
         unknown = set(params) - set(self.get_physical_param_info())
         if unknown:
             raise ValueError(f"Unknown physical param(s) {sorted(unknown)}.")

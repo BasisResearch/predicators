@@ -171,9 +171,9 @@ def _prior_widths(param_specs: List[ParamSpec], scale: float) -> np.ndarray:
     Linear parameters scale by ``|init|`` so a signed (negative-init)
     parameter gets a positive width, falling back to half the (finite)
     bound range when ``init`` is ~0 so a zero-centred parameter still
-    gets a finite prior and walker spread instead of a degenerate
-    zero-width one. Log parameters get a constant width of ``scale`` in
-    log-space — a log-normal prior whose one-sigma band spans the same
+    gets a finite prior and walker spread instead of a degenerate zero-
+    width one. Log parameters get a constant width of ``scale`` in log-
+    space — a log-normal prior whose one-sigma band spans the same
     multiplicative factor (e.g. 0.75 => x/2.1 .. x2.1) at every init,
     matching how scale-like physics parameters actually behave.
     """

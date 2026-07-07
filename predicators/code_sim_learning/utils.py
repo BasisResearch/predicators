@@ -386,12 +386,12 @@ def stamp_physical_spec_scales(specs: List, base_env: Any) -> List:
     The env's ``get_physical_param_info()`` is the source of truth for
     which parameters are scale-like (fitted in log-space): agents copy
     name/init/bounds into their ``PHYSICAL_PARAMS`` but may omit
-    ``scale``, and a silently-linear friction fit has no grid
-    resolution at the low end of a decades-spanning box (measured:
-    fitted 0.0114 for a true 0.1 on run_20260706_171526). A registry
-    entry that declares ``scale`` therefore overrides the agent's
-    declaration; parameters the registry does not mark keep whatever
-    the agent declared (default linear).
+    ``scale``, and a silently-linear friction fit has no grid resolution
+    at the low end of a decades-spanning box (measured: fitted 0.0114
+    for a true 0.1 on run_20260706_171526). A registry entry that
+    declares ``scale`` therefore overrides the agent's declaration;
+    parameters the registry does not mark keep whatever the agent
+    declared (default linear).
     """
     # pylint: disable=import-outside-toplevel
     from predicators.code_sim_learning.training import ParamSpec

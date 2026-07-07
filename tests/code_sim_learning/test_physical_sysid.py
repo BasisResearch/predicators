@@ -204,8 +204,8 @@ def _patch_fit_and_rms(monkeypatch, fit_thetas, rms_by_count):
     """Stub the heavy PyBullet fit/residual calls for trimming tests.
 
     ``fit_thetas`` maps the number of trajectories passed to the fit to
-    the friction value it "fits"; ``rms_by_count`` maps it to the
-    per-trajectory RMS list returned at those params.
+    the friction value it "fits"; ``rms_by_count`` maps it to the per-
+    trajectory RMS list returned at those params.
     """
 
     def fake_fit(_env, trajectories, *_args, **_kwargs):

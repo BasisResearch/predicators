@@ -25,11 +25,13 @@ from predicators.code_sim_learning.utils import stamp_physical_spec_scales
 
 
 def test_paramspec_rejects_unknown_scale():
+    """A scale that is neither "linear" nor "log" is rejected."""
     with pytest.raises(ValueError, match="linear.*log"):
         ParamSpec("friction", 0.5, lo=0.01, hi=2.0, scale="exp")
 
 
 def test_paramspec_log_requires_positive_init_and_lo():
+    """A log-scale spec requires a positive init_value and lower bound."""
     with pytest.raises(ValueError, match="positive init_value"):
         ParamSpec("friction", -0.5, lo=0.01, hi=2.0, scale="log")
     with pytest.raises(ValueError, match="positive lo"):
@@ -47,6 +49,7 @@ def _mixed_specs():
 
 
 def test_transform_round_trip():
+    """log columns map through log/exp; linear columns pass untouched."""
     specs = _mixed_specs()
     ext = [0.1, -0.2]
     z = _to_internal(specs, ext)
@@ -56,6 +59,7 @@ def test_transform_round_trip():
 
 
 def test_internal_bounds_log_param():
+    """Internal bounds are log-transformed for log params, raw for linear."""
     lo, hi = _internal_bounds(_mixed_specs())
     assert np.isclose(lo[0], np.log(0.01))
     assert np.isclose(hi[0], np.log(2.0))
@@ -63,6 +67,7 @@ def test_internal_bounds_log_param():
 
 
 def test_rows_to_external_only_touches_log_columns():
+    """Batched internal->external conversion exponentiates only log columns."""
     specs = _mixed_specs()
     rows = np.array([[np.log(0.1), -0.2], [np.log(2.0), 0.1]])
     out = _rows_to_external(specs, rows)
@@ -70,6 +75,7 @@ def test_rows_to_external_only_touches_log_columns():
 
 
 def test_prior_widths_log_param_is_constant_in_log_space():
+    """A log param's prior sigma is the scale itself, independent of init."""
     specs = _mixed_specs()
     widths = _prior_widths(specs, 0.75)
     # Log param: sigma = the scale itself, independent of init — one
@@ -95,6 +101,7 @@ def test_grid_candidates_log_covers_low_decades():
 
 
 def test_grid_candidates_linear_unchanged():
+    """A linear param still gets an evenly spaced linspace grid."""
     spec = ParamSpec("offset", 0.0, lo=-0.3, hi=0.3)
     assert np.allclose(_grid_candidates(spec, 7), np.linspace(-0.3, 0.3, 7))
 
@@ -141,8 +148,8 @@ def _point_result(names, values, prior_sigma, scales):
 
 
 def test_probe_flat_low_basin_not_identified_in_log_space():
-    """A bound-hugging MAP inside a flat multiplicative basin must read
-    as NOT identified.
+    """A bound-hugging MAP inside a flat multiplicative basin must read as NOT
+    identified.
 
     SSE is flat for friction < 0.3 and the MAP sits at 0.0114 near the
     0.01 bound. The old linear probe stepped +prior_sigma=0.375 out of
@@ -173,8 +180,8 @@ def test_probe_sharp_log_curvature_identified():
 
 
 def test_mcmc_samples_contraction_measured_in_log_space():
-    """Chain widths for log params compare log-space std to the
-    log-space prior width."""
+    """Chain widths for log params compare log-space std to the log-space prior
+    width."""
     rng = np.random.default_rng(0)
     # Tight multiplicatively (std 0.05 in log) vs prior-wide (std 0.75).
     tight = np.exp(rng.normal(np.log(0.1), 0.05, size=400))
@@ -195,6 +202,7 @@ def test_mcmc_samples_contraction_measured_in_log_space():
 
 
 def test_perturbation_ensemble_log_param_stays_positive_and_boxed():
+    """Multiplicative log-space perturbations stay positive and in-bounds."""
     specs = [ParamSpec("friction", 0.1, lo=0.01, hi=2.0, scale="log")]
     rng = np.random.default_rng(0)
     members = perturbation_ensemble({"friction": 0.1},
@@ -209,8 +217,8 @@ def test_perturbation_ensemble_log_param_stays_positive_and_boxed():
 
 
 def test_laplace_ensemble_log_param_draws_are_multiplicative():
-    """With a fit-space Jacobian/prior, draws exponentiate back to
-    positive external values inside the box."""
+    """With a fit-space Jacobian/prior, draws exponentiate back to positive
+    external values inside the box."""
     specs = [ParamSpec("friction", 0.1, lo=0.01, hi=2.0, scale="log")]
     rng = np.random.default_rng(0)
     # A weakly-informative Jacobian in z: posterior ~ prior (0.75 wide
@@ -232,6 +240,7 @@ def test_laplace_ensemble_log_param_draws_are_multiplicative():
 
 
 def test_laplace_ensemble_stiff_log_direction_barely_moves():
+    """A stiff (informative) log direction gets a tiny posterior spread."""
     specs = [ParamSpec("friction", 0.1, lo=0.01, hi=2.0, scale="log")]
     rng = np.random.default_rng(0)
     # Very informative Jacobian in z -> tiny posterior width.
@@ -253,6 +262,7 @@ def test_laplace_ensemble_stiff_log_direction_barely_moves():
 class _FakeEnv:
 
     def get_physical_param_info(self):
+        """Return a registry with one log-scale and one linear param."""
         return {
             "friction": {
                 "default": 0.5,
@@ -271,6 +281,7 @@ class _FakeEnv:
 
 
 def test_stamp_scales_registry_wins_over_agent_default():
+    """The env registry's scale overrides the agent's default per param."""
     agent_specs = [
         ParamSpec("friction", 0.5, lo=0.01, hi=2.0),  # agent omits scale
         ParamSpec("restitution", 0.02, lo=0.0, hi=0.9),
@@ -286,6 +297,7 @@ def test_stamp_scales_registry_wins_over_agent_default():
 
 
 def test_stamp_scales_env_without_registry_is_identity():
+    """An env lacking a param registry leaves the agent specs unchanged."""
     agent_specs = [ParamSpec("friction", 0.5, lo=0.01, hi=2.0)]
     stamped = stamp_physical_spec_scales(agent_specs, object())
     assert stamped[0].scale == "linear"
