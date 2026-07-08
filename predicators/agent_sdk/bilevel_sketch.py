@@ -260,11 +260,9 @@ def build_solve_prompt(
             "collected regardless of what you propose now.\n"
             f"{plan_blocks}\n"
             "\nPropose a plan that still achieves the goal but differs "
-            "meaningfully from the plan(s) above - different continuous "
-            "parameters, different objects, or a different route - so this "
-            "cycle's data is complementary rather than redundant. Only if "
-            "no meaningfully different goal-reaching plan exists, repeat "
-            "the best plan.\n")
+            "meaningfully from the plan(s) above, so this cycle's data is "
+            "complementary rather than redundant. Only if no meaningfully "
+            "different goal-reaching plan exists, repeat the best plan.\n")
 
     goal_nl_section = ""
     if task.goal_nl:
