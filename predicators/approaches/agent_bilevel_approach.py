@@ -344,17 +344,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
                     "discarded. refine_plan_sketch SUCCESS also counts.")
                 continue
 
-            sketch_lines = []
-            for i, s in enumerate(sketch):
-                objs = ", ".join(o.name for o in s.objects)
-                line = f"  {i}: {s.option.name}({objs})"
-                if s.initial_params is not None and len(s.initial_params):
-                    par = ", ".join(f"{p:.4f}" for p in s.initial_params)
-                    line += f"[{par}]"
-                if s.subgoal_atoms:
-                    atoms = ", ".join(str(a) for a in s.subgoal_atoms)
-                    line += f" -> {{{atoms}}}"
-                sketch_lines.append(line)
+            sketch_lines = bilevel_sketch.format_sketch_lines(sketch)
             logging.info("[%s] Sketch (attempt %d):\n%s", self._run_id,
                          sketch_attempt, "\n".join(sketch_lines))
 
@@ -395,13 +385,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
                         f"{len(sketch)} steps{reason_msg}.")
                     continue
 
-                plan_strs = []
-                for i, o in enumerate(plan):
-                    obj_s = ", ".join(obj.name for obj in o.objects)
-                    par_s = ", ".join(f"{p:.4f}" for p in o.params)
-                    plan_strs.append(f"  {i}: {o.name}({obj_s})"
-                                     f"[{par_s}]")
-                plan_str = "\n".join(plan_strs)
+                plan_str = "\n".join(bilevel_sketch.format_plan_lines(plan))
                 logging.info(f"[{self._run_id}] Refinement succeeded (sketch "
                              f"{sketch_attempt}, refine {refine_attempt}), "
                              f"{len(plan)} steps:\n{plan_str}")
@@ -778,16 +762,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
         # Log the full validated plan (options + continuous params + subgoal
         # annotations), mirroring the per-step plan log the approach-side
         # refinement path emits.
-        lines = []
-        for i, opt in enumerate(plan):
-            objs = ", ".join(o.name for o in opt.objects)
-            par = ", ".join(f"{p:.4f}" for p in opt.params)
-            line = f"  {i}: {opt.name}({objs})[{par}]"
-            step = sketch[i] if sketch and i < len(sketch) else None
-            if step is not None and step.subgoal_atoms:
-                atoms = ", ".join(str(a) for a in step.subgoal_atoms)
-                line += f" -> {{{atoms}}}"
-            lines.append(line)
+        lines = bilevel_sketch.format_plan_lines(plan, sketch=sketch)
         logging.info(
             "[%s] Using agent-validated plan from refine_plan_sketch "
             "(%d steps, simulator-verified):\n%s", self._run_id, len(plan),
