@@ -806,15 +806,8 @@ def _build_inspection_tools(ctx: ToolContext, _text_result: Callable,
         for t_step, state in enumerate(traj.states[:max_timesteps]):
             lines.append(f"\n--- Timestep {t_step} ---")
             if include_states:
-                state_dict = {}
-                for obj in sorted(state, key=str):
-                    obj_feats = {}
-                    for feat in obj.type.feature_names:
-                        val = state.get(obj, feat)
-                        obj_feats[feat] = round(float(val), 4) \
-                            if isinstance(val, (float, int)) else str(val)
-                    state_dict[str(obj)] = obj_feats
-                lines.append(f"State: {json.dumps(state_dict, indent=2)}")
+                lines.append("State:")
+                lines.append(state.dict_str(indent=2, num_decimal_points=4))
             if include_atoms:
                 atoms = utils.abstract(state, ctx.predicates)
                 atoms_str = ", ".join(str(a) for a in sorted(atoms))
@@ -1583,15 +1576,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 step_line += (f"\n  Added:   {{{added_s}}}"
                               f"\n  Deleted: {{{del_s}}}")
             if post is not None and include_states:
-                state_dict = {}
-                for obj in sorted(post, key=str):
-                    obj_feats = {}
-                    for feat in obj.type.feature_names:
-                        val = post.get(obj, feat)
-                        obj_feats[feat] = round(float(val), 4) \
-                            if isinstance(val, (float, int)) else str(val)
-                    state_dict[str(obj)] = obj_feats
-                step_line += f"\n  State: {json.dumps(state_dict, indent=4)}"
+                step_line += ("\n  State:\n" +
+                              post.dict_str(indent=4, num_decimal_points=4))
             lines.append(step_line)
             img_block = _render_scene_image(ctx, f"step_{i}_{opt.name}")
             if img_block and img_block.get("saved_path"):
