@@ -1,18 +1,17 @@
 """Agent sim-learning + predicate-invention approach.
 
 Extends ``AgentSimLearningApproach`` so the synthesizing Claude agent
-can also invent the symbolic predicates used for plan subgoals. The
-env's predicates are stripped down to a primitive allowlist (default:
-``{"Holding"}``), and the agent is asked to define
-``LEARNED_PREDICATES`` in a sandboxed ``predicates.py``. The invented
-predicates flow through ``_get_all_predicates`` so they are visible to
-backtracking refinement, the option model's abstraction function, and
-every other call site that asks the approach for its current
-predicates.
+also invents the symbolic predicates used for plan subgoals. The env's
+predicates are stripped to a primitive allowlist (default
+``{"Holding"}``), and the agent defines ``LEARNED_PREDICATES`` in a
+sandboxed ``predicates.py``. Invented predicates flow through
+``_get_all_predicates`` so they reach backtracking refinement, the
+option model's abstraction function, and every other caller asking the
+approach for its current predicates.
 
-Predicates persist across online learning cycles — ``predicates.py``
-is preserved at the sandbox root, and every version evaluated during
-synthesis (plus a final snapshot of any post-eval edits) is saved to
+Predicates persist across online learning cycles: ``predicates.py`` is
+preserved at the sandbox root, and every version evaluated during
+synthesis (plus a final snapshot of post-eval edits) is saved to
 ``predicates_versions/`` as ``cycle_XXX_vers_YYY_predicates.py``.
 
 Example command::
@@ -51,9 +50,8 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         self._learned_predicates: Set[Predicate] = set()
         self._kept_initial_predicates: Set[Predicate] = (
             self._compute_kept_initial_predicates())
-        # We hide env goal predicate atoms from the agent and only present
-        # goals as natural language; the env therefore owes us a goal_nl
-        # for every train task.
+        # Env goal atoms are hidden from the agent; goals are presented only
+        # as natural language, so every train task must supply a goal_nl.
         missing = [i for i, t in enumerate(self._train_tasks) if not t.goal_nl]
         assert not missing, (
             f"{type(self).__name__} requires every train task to set "
@@ -76,12 +74,12 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         return self._kept_initial_predicates | self._learned_predicates
 
     def _compute_kept_initial_predicates(self) -> Set[Predicate]:
-        """Apply the allowlist + closure-strip on derived predicates.
+        """Apply the allowlist, then closure-strip derived predicates.
 
-        A ``DerivedPredicate`` whose ``auxiliary_predicates`` references
-        any stripped predicate is itself stripped — keeping a derived
-        predicate whose dependencies have been removed would expose a
-        broken classifier to refinement.
+        A ``DerivedPredicate`` whose ``auxiliary_predicates`` reference
+        any stripped predicate is itself stripped: keeping one with
+        removed dependencies would expose a broken classifier to
+        refinement.
         """
         kept_names = self._resolve_kept_names()
         kept = {p for p in self._initial_predicates if p.name in kept_names}
@@ -107,13 +105,11 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
     def _get_solve_tool_names(self) -> Optional[List[str]]:
         """Extend the planner's tool subset with the SCENE tools.
 
-        ``annotate_scene`` and ``visualize_state`` are useful for
-        predicate invention: rendering the scene lets the agent confirm
-        geometry it would otherwise have to infer numerically. The
-        parent (``AgentPlannerApproach``) gates these on
-        ``agent_planner_use_*`` CFG flags, but those names refer to a
-        different use case — for predicate invention we always want them
-        available.
+        ``annotate_scene`` and ``visualize_state`` let the agent confirm
+        geometry it would otherwise infer numerically. The parent
+        (``AgentPlannerApproach``) gates these on ``agent_planner_use_*``
+        CFG flags, but those target a different use case; for predicate
+        invention we always want them available.
         """
         names = super()._get_solve_tool_names()
         if names is None:
@@ -124,13 +120,12 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
         return names
 
     def _get_synthesis_tool_names(self) -> Optional[List[str]]:
-        """Extend the sim-learning synthesis surface with SCENE tools and the
-        predicate-synthesis callable.
+        """Add SCENE tools and the predicate-synthesis callable to the
+        synthesis surface.
 
-        Adds ``visualize_state`` / ``annotate_scene`` (the
-        predicate-invention prompt explicitly tells the agent to call
-        them when verifying geometric thresholds) and
-        ``evaluate_predicate_quality`` (the dynamic tool built by
+        Adds ``visualize_state`` / ``annotate_scene`` (the prompt tells
+        the agent to call them when verifying geometric thresholds) and
+        ``evaluate_predicate_quality`` (built by
         :meth:`_extra_synthesis_tools`).
         """
         names = super()._get_synthesis_tool_names()
@@ -236,12 +231,11 @@ names. Any predicate you reference in a sketch must exist in \
 `predicates.py` first."""
 
     def _format_goal_nl_block(self) -> str:
-        """Render the natural-language goals for the train tasks.
+        """Render the deduped natural-language goals for the train tasks.
 
-        Lists each task's `goal_nl`, deduped (since several tasks often
-        share the same goal description). Returns an empty string only
-        if every task is missing one — but ``__init__`` asserts they're
-        present, so in practice this always returns a non-empty block.
+        Returns an empty string only if every task is missing a
+        ``goal_nl``, but ``__init__`` asserts they're present, so in
+        practice this always returns a non-empty block.
         """
         seen: List[str] = []
         for task in self._train_tasks:
@@ -268,10 +262,9 @@ names. Any predicate you reference in a sketch must exist in \
         predicates_versions_dir = extra_paths["predicates_versions_dir"]
 
         # Seed _fitted_params from init values so predicate lambdas
-        # closing over ``params["..."]`` can be evaluated during
-        # validation. The actual MCMC fit runs later in the base flow
-        # and will overwrite these values. Mutate in place so
-        # _ParamsView holders pick up the seeds.
+        # closing over ``params["..."]`` are evaluable during validation.
+        # The real MCMC fit runs later in the base flow and overwrites
+        # these. Mutate in place so _ParamsView holders pick up the seeds.
         if specs:
             self._fitted_params.clear()
             self._fitted_params.update({s.name: s.init_value for s in specs})

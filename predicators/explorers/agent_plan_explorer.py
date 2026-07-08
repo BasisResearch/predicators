@@ -2,9 +2,8 @@
 
 Produces fully-grounded option plans (including continuous parameters)
 and rolls them out in the real environment. Unlike
-``AgentBilevelExplorer``, it does not run backtracking refinement
-against a learned option model — the agent is expected to provide
-complete parameters itself.
+``AgentBilevelExplorer``, it runs no backtracking refinement against a
+learned option model; the agent must supply complete parameters itself.
 """
 
 import logging
@@ -82,7 +81,6 @@ class AgentPlanExplorer(BaseExplorer):
         task = self._train_tasks[train_task_idx]
         init_state = task.init
 
-        # Collect objects from the initial state
         objects = list(init_state)
         obj_strs = []
         for obj in sorted(objects, key=lambda o: o.name):
@@ -91,7 +89,7 @@ class AgentPlanExplorer(BaseExplorer):
         # Goal atoms
         goal_strs = [str(a) for a in sorted(task.goal, key=str)]
 
-        # Available options with signatures (include any just-proposed options)
+        # Available options with signatures, including just-proposed ones.
         all_options = (self._options
                        |
                        self._tool_context.iteration_proposals.proposed_options)
@@ -198,9 +196,8 @@ Output ONLY the option plan lines at the end, after any analysis."""
                                                              Any]]) -> str:
         """Extract plan text from the last assistant text response.
 
-        Only uses the final assistant message to avoid including
-        intermediate reasoning/tool-call text that precedes the actual
-        option plan.
+        Uses only the final assistant message so intermediate
+        reasoning/tool-call text preceding the plan is excluded.
         """
         last_text_parts: List[str] = []
         for resp in responses:
@@ -229,7 +226,6 @@ Output ONLY the option plan lines at the end, after any analysis."""
             logging.info("Agent explorer: parsed empty option plan.")
             return []
 
-        # Ground options
         grounded = []
         for option, objs, params in parsed:
             try:

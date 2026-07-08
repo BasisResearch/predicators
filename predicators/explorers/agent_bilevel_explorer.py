@@ -1,12 +1,11 @@
-"""Agent bilevel explorer: sketch → refine against mental model → execute real.
+"""Agent bilevel explorer: sketch, refine against mental model, execute real.
 
 Produces a plan *sketch* via a Claude agent, runs backtracking refinement
-against the approach's currently-learned option model (read from
-``tool_context.option_model``), then rolls the refined plan out in the
-real environment. When the mental model disagrees with reality (e.g. a
-subgoal atom the mental model expected after a Wait doesn't actually
-hold), the resulting trajectory provides a targeted learning signal for
-online simulator synthesis.
+against the approach's currently-learned option model (from
+``tool_context.option_model``), then rolls the refined plan out for real.
+When the mental model disagrees with reality (e.g. a subgoal atom it
+expected after a Wait doesn't actually hold), the trajectory is a targeted
+learning signal for online simulator synthesis.
 
 Parallels ``AgentPlanExplorer`` for session plumbing and
 ``AgentBilevelApproach`` for the sketch/refine workflow.
@@ -53,31 +52,30 @@ class AgentBilevelExplorer(BaseExplorer):
     def _get_exploration_strategy(self, train_task_idx: int,
                                   timeout: int) -> ExplorationStrategy:
         task = self._train_tasks[train_task_idx]
-        # The approach syncs tool_context.option_model right before
-        # constructing this explorer, so reading here picks up the most
-        # recently learned model.
+        # The approach syncs tool_context.option_model right before building
+        # this explorer, so reading here picks up the latest learned model.
         option_model = self._tool_context.option_model
         assert option_model is not None, \
             "agent_bilevel explorer needs a synced option_model"
 
-        # Reset the per-request mental-model verdict so a stale value from
-        # the previous request can't leak if refinement below throws or
-        # falls back to random before producing one.
+        # Reset the per-request mental-model verdict so a stale value can't
+        # leak if refinement below throws or falls back to random before
+        # producing one.
         self._tool_context.last_mental_model_solved = None
 
         # Point the agent's interactive tools (refine_plan_sketch,
-        # evaluate_option_plan, visualize_state) at the EXPLORE task. These
-        # tools default to ctx.current_task when the agent omits task_idx,
-        # and the test-time _solve leaves current_task set to the last TEST
-        # task. Without this, the agent tunes/validates its exploration plan
-        # against the wrong task (e.g. a test goal referencing objects this
-        # task doesn't even have), so parameter search is meaningless and
-        # only tasks solvable without tuning get solved.
+        # evaluate_option_plan, visualize_state) at the EXPLORE task. They
+        # default to ctx.current_task when the agent omits task_idx, and
+        # test-time _solve leaves current_task on the last TEST task.
+        # Without this the agent tunes/validates its exploration plan against
+        # the wrong task (e.g. a test goal referencing objects this task
+        # lacks), so parameter search is meaningless and only tasks solvable
+        # without tuning get solved.
         #
         # Enable the capture path too (keyed to current_task == this explore
         # task): the agent often submits + simulator-validates a goal-reaching
-        # plan via evaluate_option_plan / refine_plan_sketch but then ends with
-        # a prose summary whose final text doesn't parse into a sketch. Without
+        # plan via evaluate_option_plan / refine_plan_sketch but ends with a
+        # prose summary whose final text doesn't parse into a sketch. Without
         # capture that productive solve is lost to the random-options fallback;
         # with it we recover the captured plan below (see _sketch_from_capture)
         # and feed its continuous params into the info-gain search. Clear any
@@ -124,14 +122,14 @@ class AgentBilevelExplorer(BaseExplorer):
                 agent_bilevel_use_llm_initial_params,
             )
             if not sketch:
-                # The agent's final message didn't parse into a sketch, but it
-                # may have submitted + simulator-validated a goal-reaching plan
-                # via evaluate_option_plan / refine_plan_sketch (captured into
-                # solved_plan / solved_sketch). Recover that plan as the
-                # sketch, carrying its continuous params as initial_params so
-                # they seed the info-gain search below rather than being
-                # replayed verbatim. This mirrors the test solver's preference
-                # for the tool-validated capture over the final text.
+                # Final message didn't parse into a sketch, but the agent may
+                # have submitted + simulator-validated a goal-reaching plan via
+                # evaluate_option_plan / refine_plan_sketch (captured into
+                # solved_plan / solved_sketch). Recover it as the sketch,
+                # carrying its continuous params as initial_params so they seed
+                # the info-gain search below rather than replaying verbatim.
+                # Mirrors the test solver's preference for the tool-validated
+                # capture over the final text.
                 sketch = self._sketch_from_capture() or []
             if not sketch:
                 raise ValueError("parsed empty plan sketch")
@@ -144,9 +142,8 @@ class AgentBilevelExplorer(BaseExplorer):
             ]
 
             # Log the sketch + subgoal annotations the learner will refine
-            # (mirrors the solver's sketch log) so the explorer's steps are
-            # visible. Subgoal-annotated steps are the ones info-seeking can
-            # turn into boundary probes.
+            # (mirrors the solver's sketch log). Subgoal-annotated steps are
+            # the ones info-seeking can turn into boundary probes.
             sketch_lines = []
             for i, s in enumerate(sketch):
                 objs = ", ".join(o.name for o in s.objects)
@@ -167,32 +164,30 @@ class AgentBilevelExplorer(BaseExplorer):
             self._tool_context.cycle_scheduled_plans.append(
                 "\n".join(sketch_lines))
 
-            # Explorer mode: keep BOTH subgoal and final-goal validation
-            # ON so the mental model reports the deepest step it cannot
-            # predict — a per-step subgoal it can't establish, or (at the
-            # final step) the task goal it predicts won't hold. When that
-            # happens, truncate the plan at the deepest failing step
-            # (inclusive) instead of backtracking past it: steps beyond the
-            # disagreement are built on a false mental-model state. A
-            # final-goal failure captures the *whole* plan as the
-            # experiment — running it in reality and observing whether the
-            # goal actually holds is exactly the disagreement we want to
-            # collect (e.g. a model that predicts WaterBoiled drops after
-            # SwitchBurnerOff, when reality keeps it). `success` now
-            # honestly reflects whether the mental model could reach the
-            # goal, so a model that merely executes-but-mispredicts is no
-            # longer indistinguishable from one that truly solves the task.
+            # Explorer mode: keep BOTH subgoal and final-goal validation ON so
+            # the mental model reports the deepest step it cannot predict - a
+            # per-step subgoal it can't establish, or (at the final step) the
+            # task goal it predicts won't hold. Then truncate the plan at that
+            # deepest failing step (inclusive) instead of backtracking past it:
+            # steps beyond the disagreement are built on a false mental-model
+            # state. A final-goal failure captures the *whole* plan as the
+            # experiment - running it in reality and seeing whether the goal
+            # actually holds is exactly the disagreement we want to collect
+            # (e.g. a model that predicts WaterBoiled drops after
+            # SwitchBurnerOff, when reality keeps it). `success` now honestly
+            # reflects whether the mental model could reach the goal, so a
+            # model that merely executes-but-mispredicts is distinguishable
+            # from one that truly solves the task.
             # Active-experiment design: when info-seeking is on, hand
-            # refinement the ensemble-disagreement scorer so it picks the
-            # most *informative* feasible continuous parameters (those that
-            # straddle the learned model's decision boundaries) instead of
-            # the first feasible sample. Sampling pools feasible candidates
-            # within the step's per-node rollout budget
-            # (max_samples_per_step) and proposes them best-first across
-            # backtracking retries (the ranked remainder is replayed with
-            # no new rollouts), so hard-to-satisfy subgoals yield a real
-            # argmax without multiplying the budget. Off ⇒ info_scorer is
-            # None and refinement behaves exactly as before.
+            # refinement the ensemble-disagreement scorer so it picks the most
+            # *informative* feasible continuous parameters (those straddling
+            # the learned model's decision boundaries) rather than the first
+            # feasible sample. Sampling pools feasible candidates within the
+            # step's per-node rollout budget (max_samples_per_step) and
+            # proposes them best-first across backtracking retries (the ranked
+            # remainder is replayed with no new rollouts), so hard-to-satisfy
+            # subgoals yield a real argmax without multiplying the budget. Off
+            # -> info_scorer is None and refinement behaves as before.
             info_scorer = None
             info_n_feasible_target = 1
             if CFG.agent_explorer_info_seeking:
@@ -231,10 +226,10 @@ class AgentBilevelExplorer(BaseExplorer):
                 info_n_feasible_target=info_n_feasible_target,
                 option_samplers=self._tool_context.option_samplers,
             )
-            # Record the honest verdict so get_interaction_requests can
-            # stamp it onto this request: early stopping should not treat a
-            # task as solved when the mental model couldn't reach its goal,
-            # even if real-env execution of the experiment happens to.
+            # Record the honest verdict so get_interaction_requests can stamp
+            # it onto this request: early stopping must not treat a task as
+            # solved when the mental model couldn't reach its goal, even if
+            # real-env execution of the experiment happens to.
             self._tool_context.last_mental_model_solved = success
             mm_status = ("solved the goal" if success else
                          "did NOT reach the goal — running as experiment")
@@ -277,15 +272,15 @@ class AgentBilevelExplorer(BaseExplorer):
         """Rebuild a sketch from a captured, tool-validated plan, or None.
 
         ``evaluate_option_plan`` / ``refine_plan_sketch`` stash a
-        refined + forward-validated, goal-reaching plan on the explore
-        task into ``solved_plan`` (grounded options with continuous
-        params) and ``solved_sketch`` (the option skeleton plus the
-        subgoals that actually held). We reconstruct a sketch from that
-        skeleton and graft each captured option's continuous params onto
-        the step's ``initial_params``, so the info-gain refinement below
-        seeds them as the first candidate in each step's pool (see
-        ``_sample_info_seeking``) instead of replaying them verbatim.
-        Consume (clear) the capture so it can't be reused.
+        forward-validated, goal-reaching plan on the explore task into
+        ``solved_plan`` (grounded options with continuous params) and
+        ``solved_sketch`` (the option skeleton plus the subgoals that
+        actually held). We reconstruct a sketch from that skeleton and graft
+        each captured option's continuous params onto the step's
+        ``initial_params``, so the info-gain refinement below seeds them as
+        the first candidate in each step's pool (see ``_sample_info_seeking``)
+        rather than replaying them verbatim. Consume (clear) the capture so it
+        can't be reused.
         """
         plan = self._tool_context.solved_plan
         captured_sketch = self._tool_context.solved_sketch
@@ -316,9 +311,9 @@ class AgentBilevelExplorer(BaseExplorer):
                                    Action]) -> Callable[[State], Action]:
         """Convert OptionExecutionFailure into RequestActPolicyFailure.
 
-        This lets the main loop cleanly terminate the episode when the
-        refined plan finishes or fails mid-execution (which is exactly
-        the disagreement signal we want to collect).
+        Lets the main loop cleanly terminate the episode when the refined
+        plan finishes or fails mid-execution (which is exactly the
+        disagreement signal we want to collect).
         """
 
         def _wrapped(state: State) -> Action:
@@ -349,10 +344,10 @@ class AgentBilevelExplorer(BaseExplorer):
         """Render the explore task's initial state and return a prompt section
         pointing at it, mirroring what test-time solves get.
 
-        Saved as ``train_task{N:03d}_initial_state.png`` so train-task
-        scenes are inspectable alongside the test-task init images.
-        Empty string when rendering is unavailable (e.g. the sandbox has
-        not been created yet, so ``image_save_dir`` is unset).
+        Saved as ``train_task{N:03d}_initial_state.png`` so train-task scenes
+        are inspectable alongside the test-task init images. Empty string when
+        rendering is unavailable (e.g. the sandbox isn't created yet, so
+        ``image_save_dir`` is unset).
         """
         env = self._tool_context.env
         save_dir = self._tool_context.image_save_dir
@@ -371,12 +366,11 @@ class AgentBilevelExplorer(BaseExplorer):
     def _build_experiment_guidance(self) -> str:
         """LLM-proposal half of active-experiment design.
 
-        When info-seeking is on, tell the agent that refinement will
-        turn each annotated step into a boundary-probing experiment, and
-        — when an ensemble scorer is wired — point it at the predicates
-        the learned model is currently most internally uncertain about.
-        Empty string when info-seeking is off, so the prompt is
-        unchanged.
+        When info-seeking is on, tell the agent that refinement will turn each
+        annotated step into a boundary-probing experiment, and - when an
+        ensemble scorer is wired - point it at the predicates the learned
+        model is currently most internally uncertain about. Empty string when
+        info-seeking is off, leaving the prompt unchanged.
         """
         if not CFG.agent_explorer_info_seeking:
             return ""
@@ -393,12 +387,11 @@ class AgentBilevelExplorer(BaseExplorer):
     def _build_disagreement_summary(self) -> str:
         """Name the predicates the ensemble disagrees most about.
 
-        Scans a bounded sample of recent-trajectory states, scoring each
+        Scans a bounded sample of recent-trajectory states, scores each
         abstract atom's ensemble disagreement via the wired scorer, and
-        reports the predicates with the highest disagreement. Grounded
-        in the actual ensemble, so it points the agent at genuinely-
-        uncertain dynamics rather than guesses. Empty when no
-        scorer/trajectories.
+        reports the highest-disagreement predicates. Grounded in the actual
+        ensemble, so it points the agent at genuinely-uncertain dynamics
+        rather than guesses. Empty when no scorer/trajectories.
         """
         fn = self._tool_context.atom_disagreement_fn
         if fn is None:
@@ -426,9 +419,9 @@ class AgentBilevelExplorer(BaseExplorer):
                 if d > best.get(name, 0.0):
                     best[name] = d
         # One log line with the full ranking (scope note: abstract() yields
-        # true atoms only, so a predicate absent here was never measured,
-        # not necessarily agreed-upon). All values <= 0.05 ⇒ no guidance —
-        # the ensemble is internally confident (or too tight) everywhere.
+        # true atoms only, so a predicate absent here was never measured, not
+        # necessarily agreed-upon). All values <= 0.05 -> no guidance: the
+        # ensemble is internally confident (or too tight) everywhere.
         all_ranked = sorted(((v, k) for k, v in best.items()), reverse=True)
         logging.info(
             "agent_bilevel explorer: per-predicate max ensemble disagreement "
