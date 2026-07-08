@@ -58,12 +58,11 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         super().__init__(initial_predicates, initial_options, types,
                          action_space, train_tasks, *args, **kwargs)
         # Optionally hand the agent the ground-truth helper scaffolding (e.g.
-        # the domino/fan grid loc/side types and grid predicates), so an
-        # "agent-with-grid" ablation plans over the same vocabulary the oracle
-        # gets. Opt-in via the shared CFG.use_gt_helpers flag; a no-op for envs
-        # without a helper factory or when the flag is off. Merge here (before
-        # the agent session is initialized below) so the session, the solve-time
-        # abstraction, and _get_all_predicates all see the helpers.
+        # the domino/fan grid loc/side types and grid predicates) so an
+        # "agent-with-grid" ablation plans over the oracle's vocabulary. Opt-in
+        # via CFG.use_gt_helpers; no-op for envs without a helper factory or
+        # when off. Merge here (before the agent session inits below) so the
+        # session, solve-time abstraction, and _get_all_predicates see them.
         if self._use_gt_helpers():
             self._types = merge_gt_helper_types(self._types, CFG.env)
             self._initial_predicates = merge_gt_helper_predicates(
@@ -73,12 +72,11 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         self._option_model: Optional[_OptionModelBase] = (
             option_model if option_model is not None else
             self._create_planner_option_model())
-        # Let the option model terminate Wait on atom change using the
-        # approach's predicates (which may include invented ones). Looked
-        # up lazily so the lambda picks up predicates invented after
-        # __init__. When the grid ablation is on, re-derive the helper
-        # objects first so grid predicates (e.g. BallAtLoc) stay evaluable
-        # on the otherwise helper-free execution states.
+        # Terminate Wait on atom change using the approach's predicates (which
+        # may include invented ones), looked up lazily so the lambda picks up
+        # predicates invented after __init__. When the grid ablation is on,
+        # re-derive helper objects first so grid predicates (e.g. BallAtLoc)
+        # stay evaluable on the otherwise helper-free execution states.
         if self._option_model is not None and \
                 CFG.wait_option_terminate_on_atom_change:
             cast(  # pylint: disable=protected-access
@@ -87,10 +85,9 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
                                              self._get_all_predicates()))
         self._online_learning_cycle = 0
         # Synthesized per-skill samplers (option name -> sampler). Empty for
-        # the base planner; learning subclasses that synthesize samplers
-        # populate it. Threaded into bilevel refinement via
-        # _get_all_samplers() so continuous-parameter search can aim at each
-        # step's subgoal instead of drawing uniformly.
+        # the base planner; learning subclasses populate it. Threaded into
+        # bilevel refinement via _get_all_samplers() so continuous-parameter
+        # search aims at each step's subgoal instead of drawing uniformly.
         self._synthesized_samplers: Dict[str, OptionSampler] = {}
         self._requests_train_task_idxs: Optional[List[int]] = None
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -102,14 +99,14 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         # ``test_task_idx``. Incremented per test solve; threaded into the
         # session-log filename via the ToolContext.
         self._test_task_idx = -1
-        # Scene renders attempted this episode. The first render of an
-        # episode is the true initial state; later ones come from
-        # mid-episode replans and get distinct filenames so they do not
-        # overwrite the init snapshot. Reset in reset_for_new_episode.
+        # Scene renders attempted this episode. The first is the true initial
+        # state; later ones come from mid-episode replans and get distinct
+        # filenames so they don't overwrite the init snapshot. Reset in
+        # reset_for_new_episode.
         self._episode_scene_renders = 0
         # Filename of the most recently saved scene render, consumed by
-        # _initial_image_section so the prompt references the image that
-        # matches the state the agent is actually planning from.
+        # _initial_image_section so the prompt references the image matching
+        # the state the agent is actually planning from.
         self._last_scene_image_name: Optional[str] = None
 
         # Initializes _tool_context and _agent_session_id (see mixin). Use the
@@ -118,12 +115,11 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         self._init_agent_session_state(self._types, self._initial_predicates,
                                        initial_options, train_tasks)
 
-        # Capture the underlying env once, at construction time. The
-        # initial option model wraps ``env.simulate`` (a bound method),
-        # so ``__self__`` is the env. Later cycles may rebuild
-        # ``_option_model`` with a plain learned simulator that has no
-        # ``__self__``; pinning the env reference here ensures scene
-        # rendering tools (annotate_scene, visualize_state) keep working
+        # Capture the underlying env once at construction. The initial option
+        # model wraps ``env.simulate`` (a bound method), so ``__self__`` is the
+        # env. Later cycles may rebuild ``_option_model`` with a plain learned
+        # simulator that has no ``__self__``; pinning the env reference here
+        # keeps scene rendering tools (annotate_scene, visualize_state) working
         # in every synthesis/solve cycle.
         env_self = getattr(getattr(self._option_model, '_simulator', None),
                            '__self__', None)
@@ -152,8 +148,8 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
     def _use_gt_helpers(self) -> bool:
         """Whether to hand the agent the ground-truth helper scaffolding.
 
-        Opt-in via the shared ``CFG.use_gt_helpers`` flag (also read by
-        the process-planning approaches). When on, the grid helper
+        Opt-in via ``CFG.use_gt_helpers`` (also read by the
+        process-planning approaches). When on, the grid helper
         types/predicates are merged into the agent's vocabulary and the
         solved task is augmented with the grid objects + oracle goal
         (see ``__init__`` / ``_solve``).
@@ -184,8 +180,8 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         """Return synthesized per-skill samplers (option name -> sampler).
 
         Empty by default; learning subclasses populate the backing
-        field. Threaded into bilevel refinement to aim continuous-
-        parameter search at each step's subgoal.
+        field. Threaded into bilevel refinement to aim continuous-parameter
+        search at each step's subgoal.
         """
         return self._synthesized_samplers
 
@@ -204,9 +200,8 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
           baseline).
         * ``agent_planner_use_base_simulator`` -- when True (and a
           simulator is used), wraps the *base* env
-          (``skip_process_dynamics=True``) so the planner is denied the
-          delayed ``_domain_specific_step`` dynamics; otherwise wraps the
-          real env.
+          (``skip_process_dynamics=True``), denying the planner the delayed
+          ``_domain_specific_step`` dynamics; otherwise wraps the real env.
         """
         if not CFG.agent_planner_use_simulator:
             return None
@@ -417,10 +412,10 @@ scene, then annotate_scene overlays markers on it."""
         ]
         # The remaining tools all require a simulator / live env:
         # evaluate_option_plan rolls fully-specified plans out through the
-        # option model, and visualize_state / annotate_scene render env
-        # states. None are offered when the planner has no simulator.
-        # (refine_plan_sketch, which runs backtracking refinement on a
-        # param-free sketch, is exposed only by AgentBilevelApproach.)
+        # option model; visualize_state / annotate_scene render env states.
+        # None are offered when the planner has no simulator.
+        # (refine_plan_sketch, which backtracking-refines a param-free sketch,
+        # is exposed only by AgentBilevelApproach.)
         if CFG.agent_planner_use_simulator:
             tools.append("evaluate_option_plan")
             if CFG.agent_planner_use_annotate_scene:
@@ -445,13 +440,13 @@ scene, then annotate_scene overlays markers on it."""
         requests: List[InteractionRequest] = []
         self._requests_train_task_idxs = []
         # A cycle's requests are all generated before any executes, so the
-        # explorer shows each query the plans already scheduled this cycle
-        # and asks for a complementary one. Fresh list per cycle.
+        # explorer shows each query the plans already scheduled this cycle and
+        # asks for a complementary one. Fresh list per cycle.
         self._tool_context.cycle_scheduled_plans = []
         for _ in range(CFG.online_nsrt_learning_requests_per_cycle):
             task_idx = self._rng.choice(len(self._train_tasks))
-            # Clear so a planning explorer's verdict is read fresh per
-            # request; non-planning explorers leave it None (no verdict).
+            # Clear so a planning explorer's verdict is read fresh per request;
+            # non-planning explorers leave it None (no verdict).
             self._tool_context.last_mental_model_solved = None
             policy, termination_function = explorer.get_exploration_strategy(
                 task_idx, CFG.timeout)
@@ -468,12 +463,11 @@ scene, then annotate_scene overlays markers on it."""
     def learn_from_interaction_results(
             self, results: Sequence[InteractionResult]) -> None:
         assert self._requests_train_task_idxs is not None
-        # Subclasses (e.g. AgentSimLearningApproach) may track the
-        # snapshot tags of the simulator/predicates files in effect
-        # when the explorer generated these plans. Tag each new
-        # trajectory so the next learn-phase prompt can surface
-        # provenance. ``None`` for any approach that doesn't track
-        # versions.
+        # Subclasses (e.g. AgentSimLearningApproach) may track the snapshot
+        # tags of the simulator/predicates files in effect when the explorer
+        # generated these plans. Tag each new trajectory so the next
+        # learn-phase prompt can surface provenance. ``None`` for approaches
+        # that don't track versions.
         sim_version: Optional[str] = getattr(self,
                                              "_current_simulator_version",
                                              None)
@@ -516,9 +510,9 @@ scene, then annotate_scene overlays markers on it."""
         """Wrap a policy so OptionExecutionFailure surfaces as ApproachFailure.
 
         Bilevel planning and the base open-loop planner both build a
-        low-level policy from a grounded option plan; this adapter gives
-        them a single place to translate the option-execution exception
-        the harness raises into the ApproachFailure CogMan expects.
+        low-level policy from a grounded option plan; this adapter is their
+        single place to translate the harness's option-execution exception
+        into the ApproachFailure CogMan expects.
         """
 
         def _policy(s: State) -> Action:
@@ -532,9 +526,9 @@ scene, then annotate_scene overlays markers on it."""
     def _solve(self, task: Task, timeout: int) -> Callable[[State], Action]:
         self._sync_tool_context()
         # When enabled, plan over the oracle's grid-augmented task: inject the
-        # grid loc/side objects and rewrite the goal to the grid BallAtLoc, so
-        # the agent sees the same scaffolding the oracle does. goal_nl is
-        # preserved by the augmentation. No-op otherwise.
+        # grid loc/side objects and rewrite the goal to the grid BallAtLoc so
+        # the agent sees the oracle's scaffolding. Augmentation preserves
+        # goal_nl. No-op otherwise.
         if self._use_gt_helpers():
             task = augment_task_with_helper_objects(task, CFG.env)
         self._tool_context.current_task = task
@@ -557,27 +551,26 @@ scene, then annotate_scene overlays markers on it."""
         """Render the state this solve starts from and save to the sandbox.
 
         The first render of an episode is the true initial state
-        (``task{N:03d}_initial_state.png``); later renders in the same
-        episode come from mid-episode replans and are saved as
-        ``task{N:03d}_replan{K}_state.png`` so they do not overwrite the
+        (``task{N:03d}_initial_state.png``); later renders come from
+        mid-episode replans and are saved as
+        ``task{N:03d}_replan{K}_state.png`` so they don't overwrite the
         init snapshot (the replan "task" is rooted at the current,
         partially-executed state).
 
-        Returns the path to the saved image, or None if rendering is not
-        available.
+        Returns the saved image path, or None if rendering is unavailable.
         """
         self._last_scene_image_name = None
         env = self._tool_context.env
         if env is None:
             return None
         try:
-            # The session/sandbox is created lazily on the first agent query,
-            # and only then is ``image_save_dir`` populated on the ToolContext.
-            # This render runs *before* that query in ``_solve``, so on the
-            # very first test task the dir would still be None and task0's
-            # image would be silently skipped. Ensure the session (and the
-            # dir) exist first. Inside the try so a session-creation hiccup
-            # leaves rendering best-effort rather than crashing the solve.
+            # The session/sandbox (and thus ``image_save_dir`` on the
+            # ToolContext) is created lazily on the first agent query. This
+            # render runs *before* that query in ``_solve``, so on the very
+            # first test task the dir would still be None and task0's image
+            # would be silently skipped; ensure the session (and dir) exist
+            # first. Inside the try so a session-creation hiccup leaves
+            # rendering best-effort rather than crashing the solve.
             self._ensure_agent_session()
         except Exception as e:  # pylint: disable=broad-except
             logging.warning("Failed to render initial state image: %s", e)
@@ -588,7 +581,7 @@ scene, then annotate_scene overlays markers on it."""
         task_id = self._tool_context.test_task_idx
         replan_idx = self._episode_scene_renders
         # Count attempts, not successes: if the init render fails, a later
-        # replan render must still not masquerade as the init image.
+        # replan render still must not masquerade as the init image.
         self._episode_scene_renders += 1
         if task_id is not None:
             stem = f"task{task_id:03d}"
@@ -607,13 +600,13 @@ scene, then annotate_scene overlays markers on it."""
         return saved_path
 
     def _initial_image_section(self) -> str:
-        """Return a prompt section pointing at the rendered scene image for the
-        current solve, or an empty string if none was rendered.
+        """Return a prompt section pointing at the current solve's rendered
+        scene image, or an empty string if none was rendered.
 
-        ``_render_initial_state_image`` must have been called first;
-        this references whichever file that call saved (init or replan
-        snapshot), so replan queries point at the current scene rather
-        than the stale episode-init image.
+        ``_render_initial_state_image`` must have been called first; this
+        references whichever file that call saved (init or replan snapshot),
+        so replan queries point at the current scene rather than the stale
+        episode-init image.
         """
         save_dir = self._tool_context.image_save_dir
         img_name = self._last_scene_image_name
@@ -656,12 +649,11 @@ scene, then annotate_scene overlays markers on it."""
     def reset_for_new_episode(self) -> None:
         """Advance the test-task counter at each test episode start.
 
-        CogMan calls this exactly once per test task (via
-        ``cogman.reset`` in main.py's ``_solve_task``) and never on mid-
-        episode replans, so the counter stays in lockstep with main.py's
-        ``test_task_idx``. The index is exposed to the sandbox via the
-        ToolContext and lands in the session-log filename. No-op outside
-        the test phase.
+        CogMan calls this exactly once per test task (via ``cogman.reset``
+        in main.py's ``_solve_task``) and never on mid-episode replans, so
+        the counter stays in lockstep with main.py's ``test_task_idx``. The
+        index reaches the sandbox via the ToolContext and lands in the
+        session-log filename. No-op outside the test phase.
         """
         super().reset_for_new_episode()
         # New episode -> the next scene render is a true init snapshot.
@@ -677,7 +669,7 @@ scene, then annotate_scene overlays markers on it."""
         plan_text = self._extract_option_plan_text(responses)
 
         if not plan_text:
-            # Log the raw responses for debugging
+            # Log the raw responses for debugging.
             n_responses = len(responses)
             types = [r.get("type") for r in responses]
             raise ApproachFailure(
@@ -884,7 +876,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
     def _strip_code_fences(text: str) -> str:
         """Strip markdown code fences wrapping the plan text."""
         lines = text.split('\n')
-        # Remove leading/trailing ``` lines (with optional language tag)
+        # Remove leading/trailing ``` lines (with optional language tag).
         while lines and lines[0].strip().startswith('```'):
             lines.pop(0)
         while lines and lines[-1].strip().startswith('```'):
@@ -931,11 +923,11 @@ Output ONLY the option plan lines at the end, after any analysis."""
         # Strip markdown code fences that agents often wrap plans in.
         cleaned_text = self._strip_code_fences(plan_text)
 
-        # Extract Wait target annotations before stripping them
+        # Extract Wait target annotations before stripping them.
         wait_annotations = self._parse_wait_annotations(
             cleaned_text, self._get_all_predicates(), objects)
 
-        # Strip annotations so the option plan parser doesn't choke
+        # Strip annotations so the option plan parser doesn't choke.
         parseable_text = utils.strip_wait_annotations(cleaned_text)
 
         parsed = utils.parse_model_output_into_option_plan(
@@ -954,7 +946,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
             try:
                 params_arr = np.array(params, dtype=np.float32)
                 ground_opt = option.ground(objs, params_arr)
-                # Inject Wait target atoms from annotations
+                # Inject Wait target atoms from annotations.
                 if (ground_opt.name == "Wait" and i < len(wait_annotations)):
                     pos, neg = wait_annotations[i]
                     if pos:
@@ -1000,11 +992,11 @@ Output ONLY the option plan lines at the end, after any analysis."""
         """Push current approach state into the shared ToolContext.
 
         The MCP tools (inspect_options, evaluate_option_plan, etc.) read
-        from the ToolContext dataclass, not from the approach directly.
-        This method keeps them in sync after mutations (e.g. new
-        trajectories collected, options added).  Called before each
-        solve and learning interaction.  Subclasses should call super()
-        and then set any additional fields (e.g. skill_factory_context).
+        from the ToolContext dataclass, not the approach directly. This keeps
+        them in sync after mutations (e.g. new trajectories collected, options
+        added). Called before each solve and learning interaction. Subclasses
+        should call super() and then set additional fields (e.g.
+        skill_factory_context).
         """
         self._tool_context.types = self._types
         self._tool_context.predicates = self._initial_predicates
@@ -1020,13 +1012,13 @@ Output ONLY the option plan lines at the end, after any analysis."""
 
         self._tool_context.log_dir = self._get_log_dir()
         self._tool_context.option_model = self._option_model
-        # Synthesized samplers, so the explorer and synthesis tools thread
-        # the same per-skill samplers into refinement that the approach uses.
+        # Synthesized samplers, so the explorer and synthesis tools thread the
+        # same per-skill samplers into refinement that the approach uses.
         self._tool_context.option_samplers = self._get_all_samplers()
-        # Wire the active-experiment info-gain scorer when a learning
-        # subclass exposes one and info-seeking exploration is on. Syncing
-        # the bound method (not a snapshot) keeps it pointed at the latest
-        # fit/ensemble. getattr guard: non-learning approaches lack it.
+        # Wire the active-experiment info-gain scorer when a learning subclass
+        # exposes one and info-seeking exploration is on. Syncing the bound
+        # method (not a snapshot) keeps it pointed at the latest fit/ensemble.
+        # getattr guard: non-learning approaches lack it.
         if CFG.agent_explorer_info_seeking:
             self._tool_context.atom_disagreement_fn = getattr(
                 self, "score_atom_disagreement", None)
@@ -1037,10 +1029,10 @@ Output ONLY the option plan lines at the end, after any analysis."""
         if all_trajs:
             self._tool_context.example_state = all_trajs[0].states[0]
 
-        # Refresh env from option model only if extraction succeeds.
-        # After sim learning, ``_simulator`` may be a plain lambda with
-        # no ``__self__``; don't clobber the env reference seeded in
-        # ``__init__`` in that case.
+        # Refresh env from the option model only if extraction succeeds. After
+        # sim learning, ``_simulator`` may be a plain lambda with no
+        # ``__self__``; don't clobber the env reference seeded in ``__init__``
+        # in that case.
         if self._option_model is not None and \
                 hasattr(self._option_model, '_simulator'):
             env_self = getattr(
@@ -1108,8 +1100,8 @@ Output ONLY the option plan lines at the end, after any analysis."""
         # (_agent_session_id is initialized via the agent-session mixin.)
         self._agent_session_id = save_dict.get("agent_session_id")
 
-        # Create new run_id for continued execution (each run gets own dir)
-        # but log the original run_id for reference.
+        # New run_id for continued execution (each run gets its own dir), but
+        # log the original run_id for reference.
         original_run_id = save_dict.get("run_id", "unknown")
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -1138,7 +1130,7 @@ def _get_gt_options_module_path(env_name: str) -> Optional[str]:
     ``predicators/ground_truth_models/boil/options.py``).
     """
     # Importing ground_truth_models triggers import_submodules, which
-    # ensures all factory subclasses are registered.
+    # registers all factory subclasses.
     from predicators.ground_truth_models import \
         GroundTruthOptionFactory  # pylint: disable=import-outside-toplevel
     for cls in utils.get_all_subclasses(GroundTruthOptionFactory):

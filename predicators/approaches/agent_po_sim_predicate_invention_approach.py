@@ -1,15 +1,14 @@
 """Partial-observability (PO) sim-learning + predicate-invention approach.
 
-Extends ``AgentSimPredicateInventionApproach`` to handle envs where
-some causally-important features are hidden in the agent-visible
-observation (motivating example: ``jug.heat_level`` in
-``pybullet_boil`` when ``CFG.partially_observable`` is True). The
-synthesizing Claude agent now:
+Extends ``AgentSimPredicateInventionApproach`` to handle envs where some
+causally-important features are hidden from the agent-visible observation
+(motivating example: ``jug.heat_level`` in ``pybullet_boil`` when
+``CFG.partially_observable`` is True). The synthesizing Claude agent now:
 
 * writes rules with a 5-arg signature
-  ``rule(state, latent, history, updates, params)`` so they can carry
-  a ``latent`` state dict across steps and / or read the prior
-  observation history;
+  ``rule(state, latent, history, updates, params)`` so they can carry a
+  ``latent`` state dict across steps and/or read the prior observation
+  history;
 * optionally declares ``LATENT_INIT`` (a dict, or zero-arg callable
   returning one) giving the initial latent block;
 * invents predicates that may be observation-only OR latent-aware
@@ -17,30 +16,29 @@ synthesizing Claude agent now:
 
 Two natural patterns the prompt presents (agent picks per latent):
 
-* **Counter + threshold** — carry a step counter; flip an observable
+* **Counter + threshold** - carry a step counter; flip an observable
   when the counter crosses a learnable threshold.
-* **Physical latent + readout** — carry an estimate of the unobserved
-  physical quantity; map it through a monotone readout to an
-  observable.
+* **Physical latent + readout** - carry an estimate of the unobserved
+  physical quantity; map it through a monotone readout to an observable.
 
-A ``State`` flowing through the simulator is one *sample* of the
-augmented state — observable features in ``State.data`` plus the
-inferred latent dimensions in ``State.latent`` (e.g. ``{"heat": ...}``
-or ``{"streak": ...}``); a belief is the (here point-mass) distribution
-over such samples.
+A ``State`` flowing through the simulator is one *sample* of the augmented
+state - observable features in ``State.data`` plus the inferred latent
+dimensions in ``State.latent`` (e.g. ``{"heat": ...}`` or
+``{"streak": ...}``); a belief is the (here point-mass) distribution over
+such samples.
 
-All the latent *mechanics* — recurrent MCMC fitting
-(``compute_sse_recurrent`` / ``fit_params_recurrent``), the
-latent-threaded combined simulator (the latent rides the opaque
-``State.latent`` field, so the ``(State, Action) -> State`` option-model
-interface is unchanged and backtracking restores the latent at each
-search node), ``LATENT_INIT`` loading, and initial-latent seeding — now
-live in ``AgentSimLearningApproach`` and activate automatically when the
-loaded rules use the 5-arg signature. This subclass therefore only adds
-the synthesis *prompt* that teaches the agent to write such rules (on
-top of predicate invention). Latent-aware predicates work uniformly:
-``Predicate.holds`` auto-reads ``state.latent`` when no explicit kwarg
-is passed, so the same classifier is correct during
+All latent *mechanics* now live in ``AgentSimLearningApproach`` and
+activate automatically when the loaded rules use the 5-arg signature:
+recurrent MCMC fitting (``compute_sse_recurrent`` /
+``fit_params_recurrent``), the latent-threaded combined simulator (the
+latent rides the opaque ``State.latent`` field, so the
+``(State, Action) -> State`` option-model interface is unchanged and
+backtracking restores the latent at each search node), ``LATENT_INIT``
+loading, and initial-latent seeding. This subclass therefore only adds the
+synthesis *prompt* teaching the agent to write such rules (on top of
+predicate invention). Latent-aware predicates work uniformly:
+``Predicate.holds`` auto-reads ``state.latent`` when no explicit kwarg is
+passed, so the same classifier is correct during
 ``evaluate_predicate_quality`` *and* inside
 ``bilevel_sketch.refine_sketch``.
 
@@ -63,13 +61,12 @@ class AgentPOSimPredicateInventionApproach(AgentSimPredicateInventionApproach):
     """Partial-observability variant: rules carry a `latent` block across
     steps.
 
-    All the latent mechanics (recurrent fitting, latent-threaded
-    combined simulator, ``LATENT_INIT`` loading, initial-latent seeding)
-    live in ``AgentSimLearningApproach`` and activate automatically when
-    the loaded rules use the recurrent 5-arg signature. This subclass
-    only adds the synthesis prompt that teaches the agent to write such
-    rules — i.e. predicate invention plus a partial-observability
-    prompt.
+    The latent mechanics (recurrent fitting, latent-threaded combined
+    simulator, ``LATENT_INIT`` loading, initial-latent seeding) live in
+    ``AgentSimLearningApproach`` and activate automatically when the loaded
+    rules use the recurrent 5-arg signature. This subclass only adds the
+    synthesis prompt teaching the agent to write such rules - predicate
+    invention plus a partial-observability prompt.
     """
 
     @classmethod
@@ -81,8 +78,8 @@ class AgentPOSimPredicateInventionApproach(AgentSimPredicateInventionApproach):
     def _rule_signature_section(self) -> str:
         # Present only the recurrent 5-arg signature as canonical, so the
         # PO prompt never advertises the 3-arg form the recurrent engine
-        # rejects. Full latent modelling guidance is in the appended
-        # "## Recurrent rules (partial observability)" section.
+        # rejects. Full latent guidance is in the appended "## Recurrent
+        # rules (partial observability)" section.
         return _PO_RULE_SIGNATURE_SECTION
 
     def _process_rule_signature(self) -> str:
