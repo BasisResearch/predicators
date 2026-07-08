@@ -25,7 +25,7 @@ def _approach_cls():
     return AgentSimLearningApproach
 
 
-def _mk_traj(is_demo, task_idx, sim_v=None, preds_v=None):
+def _mk_traj(is_demo, task_idx, sim_v=None, preds_v=None, rejected=False):
     """Build a 1-action trajectory with the given provenance tags."""
     cup_type = Type("cup_type", ["f"])
     cup = cup_type("cup")
@@ -38,6 +38,7 @@ def _mk_traj(is_demo, task_idx, sim_v=None, preds_v=None):
         _train_task_idx=task_idx,
         _source_simulator_version=sim_v,
         _source_predicates_version=preds_v,
+        _env_rejected=rejected,
     )
 
 
@@ -71,6 +72,25 @@ def test_trajectory_listing_interaction_with_provenance(approach_cls):
     assert "[0] interaction, task 2" in out
     assert "sim cycle_001_vers_004" in out
     assert "predicates cycle_001_vers_003" in out
+
+
+def test_trajectory_listing_supervisor_rejected(approach_cls):
+    """A rejected episode is flagged as supervisor-rejected, nothing more.
+
+    The rules live in the NL goal description, so the agent must infer
+    the violation from its own trajectory rather than be told it.
+    """
+    trajs = [
+        _mk_traj(is_demo=False, task_idx=0),
+        _mk_traj(is_demo=False, task_idx=3, rejected=True),
+    ]
+    out = approach_cls._format_trajectory_listing(trajs)
+    lines = [l for l in out.splitlines() if l.startswith("  [")]
+    assert "REJECTED" not in lines[0]
+    assert "the supervisor REJECTED this episode" in lines[1]
+    # No violation specifics leak into the roster line.
+    assert "domino" not in lines[1]
+    assert "push" not in lines[1].lower()
 
 
 def test_trajectory_listing_partial_provenance(approach_cls):

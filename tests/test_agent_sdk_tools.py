@@ -88,8 +88,18 @@ def _setup(sandbox_dir: str | None = None) -> tuple[Any, Any]:
 
 
 def _run(coro: Any) -> Any:
-    """Run an async coroutine synchronously."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    """Run an async coroutine synchronously.
+
+    Creates (and installs) a fresh event loop when none is current -
+    e.g. after another test module ran ``asyncio.run``, which unsets the
+    thread's loop.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
 
 
 def _make_tools(ctx: Any,

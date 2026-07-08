@@ -2,8 +2,10 @@
 
 import abc
 import json
+import logging
 from pathlib import Path
-from typing import Callable, Collection, Dict, List, Optional, Set
+from typing import Callable, Collection, Dict, List, Optional, Sequence, Set, \
+    Tuple
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -261,6 +263,45 @@ class BaseEnv(abc.ABC):
         assert isinstance(goal, set)
         assert not goal or isinstance(next(iter(goal)), GroundAtom)
         return all(goal_atom.holds(self._current_state) for goal_atom in goal)
+
+    def check_episode_trajectory(
+            self, observations: Sequence[Observation],
+            actions: Sequence[Action]) -> Tuple[bool, str]:
+        """Trajectory-level side-condition on episode success.
+
+        Called once at episode end, after ``goal_reached`` holds, with
+        the full per-step observation/action history. The check itself
+        lives on the task's reward object: a ``reward_fn`` that defines
+        ``certify_trajectory(states, step_options) -> (ok, reason)``
+        constrains HOW the goal may be reached, not just the final
+        state. This glue extracts the per-step States and labels each
+        action with its producing option as ``(option_name, grounded
+        object names)`` (None when the action carries no option).
+        Rewards without the method - and plain atom-set goals - accept
+        every trajectory.
+
+        Returns ``(ok, reason)`` with a human-readable reason when the
+        trajectory is rejected.
+        """
+        certify = getattr(self._current_task.reward_fn, "certify_trajectory",
+                          None)
+        if certify is None:
+            return True, ""
+        states = [obs for obs in observations if isinstance(obs, State)]
+        if len(states) != len(observations):
+            logging.warning(
+                "[trajectory certificate] non-State observations in the "
+                "episode; skipping the trajectory check.")
+            return True, ""
+        step_options: List[Optional[Tuple[str, Tuple[str, ...]]]] = []
+        for act in actions:
+            if act.has_option():
+                option = act.get_option()
+                step_options.append(
+                    (option.name, tuple(o.name for o in option.objects)))
+            else:
+                step_options.append(None)
+        return certify(states, step_options)
 
     def _load_task_from_json(self, json_file: Path) -> EnvironmentTask:
         """Create a task from a JSON file.

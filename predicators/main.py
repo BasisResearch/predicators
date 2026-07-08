@@ -532,8 +532,21 @@ def _generate_interaction_results(
             query_cost += monitor.get_query_cost()
         assert len(traj.states) == len(observed_traj[0])
         assert len(traj.actions) == len(observed_traj[1])
-        result = InteractionResult(traj.states, traj.actions,
-                                   request_responses)
+        # The env's trajectory-level verdict on this episode (e.g. an
+        # illegitimate domino cascade). Only the boolean travels to the
+        # agent side - the agent is told the supervisor rejected the
+        # episode and must infer the violated rule from the task's NL
+        # description; the specific reason stays here in the logs.
+        cert_ok, cert_reason = env.check_episode_trajectory(
+            observed_traj[0], observed_traj[1])
+        if not cert_ok:
+            logging.info(
+                "Interaction episode on train task %d REJECTED by the "
+                "env: %s", request.train_task_idx, cert_reason)
+        result = InteractionResult(traj.states,
+                                   traj.actions,
+                                   request_responses,
+                                   episode_rejected=not cert_ok)
         results.append(result)
         if CFG.make_interaction_videos:
             assert monitor is not None
