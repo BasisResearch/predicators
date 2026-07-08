@@ -131,14 +131,13 @@ def format_step_line(
     params: Optional[Union[Sequence[float], np.ndarray]] = None,
     subgoal_atoms: Optional[Set[GroundAtom]] = None,
 ) -> str:
-    """Format one plan/sketch step as a single indented, readable line.
+    """Format one plan/sketch step as a single indented line.
 
     ``  <idx>: OptName(obj1, obj2)[p0, p1] -> {Atom, Atom}``
 
-    The ``[params]`` slot is omitted when ``params`` is empty/None, and
-    the ``-> {atoms}`` slot when ``subgoal_atoms`` is empty/None. Shared
-    by the sketch- and plan-formatting helpers below so every per-step
-    log/preview line in the bilevel stack reads identically.
+    The ``[params]`` and ``-> {atoms}`` slots are omitted when their
+    argument is empty/None. Shared by the sketch- and plan-formatting
+    helpers below so every per-step line reads identically.
     """
     objs = ", ".join(o.name for o in objects)
     line = f"  {idx}: {option_name}({objs})"
