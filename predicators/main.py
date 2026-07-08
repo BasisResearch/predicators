@@ -387,15 +387,26 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
         test_driven_early_stop = (
             CFG.online_learning_early_stopping_by_test_solve_rate
             and test_solve_rate == 1.0)
+        # On the early-stopping cycle, force a test of the final model UNLESS we
+        # have been testing every cycle AND the user opted into skipping the
+        # redundant re-test. Because learning is skipped on the early-stopping
+        # cycle (see below), the model is identical to the one the previous
+        # cycle already tested, so re-testing only re-samples test-time
+        # stochasticity at full test-set cost. When
+        # skip_test_until_last_ite_or_early_stopping is True the early-stopping
+        # cycle is the model's only test, so we must still run it.
+        force_early_stop_test = not (
+            CFG.online_learning_early_stopping_skip_redundant_test
+            and not CFG.skip_test_until_last_ite_or_early_stopping)
         if train_driven_early_stop:
             logging.info(train_early_stop_msg)
             early_stopping = True
-            should_run_testing = True  # Run testing when early stopping
+            should_run_testing = force_early_stop_test
         elif test_driven_early_stop:
             logging.info("Test solve rate from the previous cycle is 1.0, "
                          "triggering early stopping.\n")
             early_stopping = True
-            should_run_testing = True  # Run testing when early stopping
+            should_run_testing = force_early_stop_test
         # Learn from results if appropriate
         if (not CFG.load_approach or CFG.restart_learning) and \
             not early_stopping:
@@ -416,6 +427,13 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
             })
             _save_test_results(results, online_learning_cycle=i)
             test_solve_rate = results["test_solve_rate"]
+        elif early_stopping:
+            prev_test_label = f"cycle {i - 1}" if i > 0 else "the pre-loop test"
+            logging.info(
+                f"Skipping testing for early-stopping cycle {i}: model is "
+                f"unchanged from {prev_test_label} (learning skipped this "
+                "cycle), which was already tested. See "
+                "online_learning_early_stopping_skip_redundant_test.")
         else:
             logging.info("Skipping testing for cycle "
                          f"{i} due to "
