@@ -107,9 +107,9 @@ class AgentSimPredicateInventionApproach(AgentSimLearningApproach):
 
         ``annotate_scene`` and ``visualize_state`` let the agent confirm
         geometry it would otherwise infer numerically. The parent
-        (``AgentPlannerApproach``) gates these on ``agent_planner_use_*``
-        CFG flags, but those target a different use case; for predicate
-        invention we always want them available.
+        (``AgentPlannerApproach``) gates these on
+        ``agent_planner_use_*`` CFG flags, but those target a different
+        use case; for predicate invention we always want them available.
         """
         names = super()._get_solve_tool_names()
         if names is None:
