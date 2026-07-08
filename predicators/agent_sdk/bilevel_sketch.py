@@ -14,7 +14,7 @@ import logging
 import os
 import re
 from typing import Any, Callable, Collection, Dict, List, Optional, Sequence, \
-    Set, Tuple, cast
+    Set, Tuple, Union, cast
 
 import numpy as np
 
@@ -122,6 +122,72 @@ class SketchStep:
     # refinement tries these first (clipped to the option's box) on the first
     # arrival at this step, then falls back to the sampler/uniform draw.
     initial_params: Optional[np.ndarray] = None
+
+
+def format_step_line(
+    idx: int,
+    option_name: str,
+    objects: Sequence[Object],
+    params: Optional[Union[Sequence[float], np.ndarray]] = None,
+    subgoal_atoms: Optional[Set[GroundAtom]] = None,
+) -> str:
+    """Format one plan/sketch step as a single indented, readable line.
+
+    ``  <idx>: OptName(obj1, obj2)[p0, p1] -> {Atom, Atom}``
+
+    The ``[params]`` slot is omitted when ``params`` is empty/None, and
+    the ``-> {atoms}`` slot when ``subgoal_atoms`` is empty/None. Shared
+    by the sketch- and plan-formatting helpers below so every per-step
+    log/preview line in the bilevel stack reads identically.
+    """
+    objs = ", ".join(o.name for o in objects)
+    line = f"  {idx}: {option_name}({objs})"
+    if params is not None and len(params):
+        par = ", ".join(f"{p:.4f}" for p in params)
+        line += f"[{par}]"
+    if subgoal_atoms:
+        atoms = ", ".join(str(a) for a in subgoal_atoms)
+        line += f" -> {{{atoms}}}"
+    return line
+
+
+def format_sketch_lines(sketch: Sequence[SketchStep]) -> List[str]:
+    """Render a plan sketch as one ``format_step_line`` per step.
+
+    Each step shows its ``initial_params`` (if the LLM proposed any) and
+    its ``subgoal_atoms``.
+    """
+    return [
+        format_step_line(i,
+                         s.option.name,
+                         s.objects,
+                         params=s.initial_params,
+                         subgoal_atoms=s.subgoal_atoms)
+        for i, s in enumerate(sketch)
+    ]
+
+
+def format_plan_lines(
+    plan: Sequence[_Option],
+    sketch: Optional[Sequence[SketchStep]] = None,
+) -> List[str]:
+    """Render a grounded option plan as one ``format_step_line`` per step.
+
+    Each step shows its continuous ``params``. When ``sketch`` is given,
+    the parallel step's ``subgoal_atoms`` are appended so the log mirrors
+    the annotated sketch.
+    """
+    lines = []
+    for i, opt in enumerate(plan):
+        step = sketch[i] if sketch and i < len(sketch) else None
+        subgoals = step.subgoal_atoms if step is not None else None
+        lines.append(
+            format_step_line(i,
+                             opt.name,
+                             opt.objects,
+                             params=opt.params,
+                             subgoal_atoms=subgoals))
+    return lines
 
 
 def strip_code_fences(text: str) -> str:
