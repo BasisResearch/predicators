@@ -1541,6 +1541,8 @@ the tools."""
                 provenance.append(f"predicates {preds_v}")
             tail = (f" — generated using {', '.join(provenance)}"
                     if provenance else "")
+            if traj.env_rejected:
+                tail += "; the supervisor REJECTED this episode"
             lines.append(f"  [{idx}] {kind}, {task_str}{tail}")
         return "\n".join(lines) + "\n"
 

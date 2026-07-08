@@ -9,6 +9,8 @@ from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 import pybullet as p
 
+from predicators.envs.pybullet_domino.cascade_certificate import StepOption, \
+    check_cascade_legitimacy
 from predicators.envs.pybullet_domino.components.ball_component import \
     BallComponent
 from predicators.envs.pybullet_domino.components.base_component import \
@@ -58,6 +60,19 @@ class MinBlockReward:
         if not all(atom.holds(state) for atom in self.goal):
             return False
         return self._env.count_movable_blocks_used(state) <= self.max_blocks
+
+    def certify_trajectory(
+            self, states: Sequence[State],
+            step_options: Optional[Sequence[StepOption]]) -> Tuple[bool, str]:
+        """Min-block episodes must be genuine start-block cascades.
+
+        The final-state check above cannot see HOW the target fell; this
+        rejects episodes where the robot toppled anything other than the
+        green start block (via its Push), so place-knock / push-a-blue /
+        flail-knock exploits fail even when the goal atoms and blue
+        budget hold. Consumed by ``BaseEnv.check_episode_trajectory``.
+        """
+        return check_cascade_legitimacy(states, self.goal, step_options)
 
 
 class PyBulletDominoComposedEnv(PyBulletEnv):
@@ -750,7 +765,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         test_env = sys.argv[1]
 
-    CFG.domino_min_block_tasks = True
+    CFG.domino_min_block_tasks = False
     CFG.domino_true_friction = 0.1
     CFG.domino_min_block_span_lo = 0.13
     CFG.domino_min_block_span_hi = 0.30
@@ -759,10 +774,10 @@ if __name__ == "__main__":
     # Configure environment
     CFG.seed = 1
     CFG.num_train_tasks = 0
-    CFG.num_test_tasks = 5
+    CFG.num_test_tasks = 10
 
     # Domino configuration
-    CFG.domino_initialize_at_finished_state = False
+    CFG.domino_initialize_at_finished_state = True
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_has_glued_dominos = False
     CFG.domino_test_num_dominos = [3]
@@ -827,7 +842,7 @@ if __name__ == "__main__":
         print(task.init.pretty_str())
 
         try:
-            for step in range(100):
+            for step in range(50):
                 # pylint: disable=protected-access
                 cur_action = Action(
                     np.array(demo_env._pybullet_robot.initial_joint_positions))

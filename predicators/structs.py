@@ -1018,9 +1018,12 @@ class EnvironmentTask:
     # when None (every ordinary task), success = all goal_description atoms
     # hold; when set, this callable IS the criterion (typically wrapping the
     # atom check plus conditions atoms can't express, e.g. "the executed
-    # solution toppled at most K* movable dominoes"). Ground truth for
-    # ``BaseEnv.goal_reached`` only — it is deliberately NOT copied into the
-    # agent-facing ``Task``, so approaches can't peek at it.
+    # solution toppled at most K* movable dominoes"). The reward object may
+    # additionally define ``certify_trajectory(states, step_options) ->
+    # (ok, reason)`` to constrain HOW the goal is reached over the whole
+    # episode (consumed by ``BaseEnv.check_episode_trajectory``). Ground
+    # truth for ``BaseEnv.goal_reached`` only — it is deliberately NOT
+    # copied into the agent-facing ``Task``, so approaches can't peek at it.
     reward_fn: Optional[Callable[[State], bool]] = None
 
     @cached_property
@@ -1815,6 +1818,7 @@ class LowLevelTrajectory:
     _source_simulator_version: Optional[str] = field(default=None)
     _source_predicates_version: Optional[str] = field(default=None)
     _source_samplers_version: Optional[str] = field(default=None)
+    _env_rejected: bool = field(default=False)
 
     def __post_init__(self) -> None:
         assert len(self._states) == len(self._actions) + 1
@@ -1862,6 +1866,19 @@ class LowLevelTrajectory:
         """Snapshot tag of the per-skill samplers used to generate the plan
         that collected this trajectory, or ``None`` if not tracked."""
         return self._source_samplers_version
+
+    @property
+    def env_rejected(self) -> bool:
+        """Whether the supervisor (the environment's evaluator) rejected the
+        episode that produced this trajectory for violating the task rules.
+
+        Computed by the env (``BaseEnv.check_episode_trajectory``) and
+        passed through ``InteractionResult``. Deliberately a bare
+        boolean - this object is exposed to the agent's sandbox, and the
+        agent must infer the violated rule from the task's NL goal
+        description and the observed trajectory, not be told it.
+        """
+        return self._env_rejected
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -2309,6 +2326,13 @@ class InteractionResult:
     states: List[State]
     actions: List[Action]
     responses: List[Optional[Response]]
+    # The environment's trajectory-level verdict on the executed episode:
+    # True when the episode violated the env's success rules (see
+    # ``BaseEnv.check_episode_trajectory``). Deliberately a bare boolean:
+    # the agent is told only that the supervisor rejected the episode -
+    # the specific violation stays in the env-side logs, since the rules
+    # themselves are stated in the task's NL goal description.
+    episode_rejected: bool = False
 
     def __post_init__(self) -> None:
         assert len(self.states) == len(self.responses) == len(self.actions) + 1

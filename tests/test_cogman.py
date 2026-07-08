@@ -14,7 +14,7 @@ from predicators.envs.cover import CoverEnv
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options
 from predicators.perception import create_perceiver
-from predicators.structs import Action, DefaultState
+from predicators.structs import Action, DefaultState, EnvironmentTask
 
 
 @pytest.mark.parametrize("exec_monitor_name", ["trivial", "mpc"])
@@ -242,3 +242,156 @@ def test_run_episode_and_get_observations():
     except ValueError:
         pass
     assert monitor.num_observations == 1
+
+
+def test_run_episode_trajectory_certificate():
+    """Goal atoms holding is not enough when the env rejects the episode
+    trajectory via check_episode_trajectory."""
+    utils.reset_config({"env": "cover"})
+    env = CoverEnv()
+    # With no certifying reward on the task, any trajectory is accepted.
+    assert env.check_episode_trajectory([DefaultState], []) == (True, "")
+    task = env.get_task("test", 0)
+    perceiver = create_perceiver("trivial")
+    exec_monitor = create_execution_monitor("trivial")
+
+    class _MockApproach:
+
+        def solve(self, task_, timeout):
+            """Return a constant policy."""
+            del task_, timeout  # unused
+            return lambda _: Action(np.zeros(1, dtype=np.float32))
+
+        @classmethod
+        def get_name(cls) -> str:
+            """Return mock approach name."""
+            return "mock"
+
+        def get_execution_monitoring_info(self) -> List[Any]:
+            """Just return empty list."""
+            return []
+
+        def reset_for_new_episode(self) -> None:
+            """No per-episode state."""
+
+    class _CertifyingEnv:
+        """Goal atoms always hold; the trajectory check decides."""
+
+        predicates = set()
+
+        def __init__(self, ok, reason="", step_raises=False):
+            self._ok = ok
+            self._reason = reason
+            self._step_raises = step_raises
+            self.checked_with = None
+
+        def reset(self, train_or_test, task_idx):
+            """Reset the mock environment."""
+            del train_or_test, task_idx  # unused
+            return DefaultState
+
+        def step(self, action):
+            """Step the mock environment."""
+            del action  # unused
+            if self._step_raises:
+                raise utils.EnvironmentFailure("mock failure")
+            return DefaultState
+
+        def get_observation(self):
+            """Get current observation in mock environment."""
+            return DefaultState
+
+        def goal_reached(self):
+            """Goal atoms always hold."""
+            return True
+
+        def check_episode_trajectory(self, observations, actions):
+            """Record the call and return the configured verdict."""
+            self.checked_with = (len(observations), len(actions))
+            return self._ok, self._reason
+
+    # Rejecting certificate => not solved, despite goal_reached() == True.
+    rejecting_env = _CertifyingEnv(False, "robot knocked the target")
+    cogman = CogMan(_MockApproach(), perceiver, exec_monitor)
+    cogman.reset(task)
+    (states,
+     actions), solved, _ = run_episode_and_get_observations(cogman,
+                                                            rejecting_env,
+                                                            "test",
+                                                            0,
+                                                            max_num_steps=2)
+    assert not solved
+    # The certificate saw the full per-step history.
+    assert rejecting_env.checked_with == (len(states), len(actions))
+
+    # Accepting certificate => solved.
+    accepting_env = _CertifyingEnv(True)
+    cogman = CogMan(_MockApproach(), perceiver, exec_monitor)
+    cogman.reset(task)
+    _, solved, _ = run_episode_and_get_observations(cogman,
+                                                    accepting_env,
+                                                    "test",
+                                                    0,
+                                                    max_num_steps=2)
+    assert solved
+
+    # The keep_failed_demos early-return path is gated too.
+    utils.reset_config({"env": "cover", "keep_failed_demos": True})
+    failing_env = _CertifyingEnv(False, "rejected", step_raises=True)
+    cogman = CogMan(_MockApproach(), perceiver, exec_monitor)
+    cogman.reset(task)
+    _, solved, _ = run_episode_and_get_observations(cogman,
+                                                    failing_env,
+                                                    "test",
+                                                    0,
+                                                    max_num_steps=2)
+    assert not solved
+    assert failing_env.checked_with is not None
+
+
+def test_check_episode_trajectory_delegates_to_reward():
+    """BaseEnv.check_episode_trajectory delegates to the task reward's
+    certify_trajectory, passing the per-step States and per-action option
+    labels."""
+    utils.reset_config({"env": "cover"})
+    env = CoverEnv()
+    task = env.get_task("test", 0)
+
+    class _CertifyingReward:
+        """Final-state reward with a trajectory-level side-condition."""
+
+        def __init__(self, ok, reason=""):
+            self._verdict = (ok, reason)
+            self.seen = None
+
+        def __call__(self, state):
+            """Goal atoms always hold."""
+            del state  # unused
+            return True
+
+        def certify_trajectory(self, states, step_options):
+            """Record the call and return the configured verdict."""
+            self.seen = (list(states), list(step_options))
+            return self._verdict
+
+    reward = _CertifyingReward(False, "robot knocked the target")
+    env._current_task = EnvironmentTask(  # pylint: disable=protected-access
+        task.init_obs,
+        task.goal_description,
+        reward_fn=reward)
+    push = utils.SingletonParameterizedOption(
+        "Push", lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)))
+    act_with_option = Action(np.zeros(1, dtype=np.float32))
+    act_with_option.set_option(push.ground([], np.zeros(0, dtype=np.float32)))
+    act_without_option = Action(np.zeros(1, dtype=np.float32))
+    init = task.init_obs
+    ok, reason = env.check_episode_trajectory(
+        [init, init, init], [act_with_option, act_without_option])
+    assert (ok, reason) == (False, "robot knocked the target")
+    states_seen, options_seen = reward.seen
+    assert len(states_seen) == 3
+    assert options_seen == [("Push", ()), None]
+    # Non-State observations: the check is skipped, not run on garbage.
+    reward.seen = None
+    assert env.check_episode_trajectory(["not a state"], []) == (True, "")
+    assert reward.seen is None

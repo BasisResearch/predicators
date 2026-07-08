@@ -148,11 +148,11 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
     def _use_gt_helpers(self) -> bool:
         """Whether to hand the agent the ground-truth helper scaffolding.
 
-        Opt-in via ``CFG.use_gt_helpers`` (also read by the process-
-        planning approaches). When on, the grid helper types/predicates
-        are merged into the agent's vocabulary and the solved task is
-        augmented with the grid objects + oracle goal (see ``__init__``
-        / ``_solve``).
+        Opt-in via ``CFG.use_gt_helpers`` (the process-planning
+        approaches read it too). When on, the grid helper
+        types/predicates are merged into the agent's vocabulary and the
+        solved task is augmented with the grid objects + oracle goal
+        (see ``__init__`` / ``_solve``).
         """
         return CFG.use_gt_helpers
 
@@ -180,8 +180,8 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         """Return synthesized per-skill samplers (option name -> sampler).
 
         Empty by default; learning subclasses populate the backing
-        field. Threaded into bilevel refinement to aim continuous-
-        parameter search at each step's subgoal.
+        field. Threaded into bilevel refinement so parameter search aims
+        at each step's subgoal.
         """
         return self._synthesized_samplers
 
@@ -486,6 +486,7 @@ scene, then annotate_scene overlays markers on it."""
                 _source_simulator_version=sim_version,
                 _source_predicates_version=preds_version,
                 _source_samplers_version=samplers_version,
+                _env_rejected=result.episode_rejected,
             )
             self._online_trajectories.append(traj)
 
@@ -542,6 +543,7 @@ scene, then annotate_scene overlays markers on it."""
         preds = self._get_all_predicates()
         policy = utils.option_plan_to_policy(
             option_plan,
+            max_option_steps=CFG.max_num_steps_option_rollout,
             abstract_function=lambda s: utils.abstract(
                 self._maybe_augment_state(s), preds))
 
@@ -650,11 +652,11 @@ scene, then annotate_scene overlays markers on it."""
         """Advance the test-task counter at each test episode start.
 
         CogMan calls this exactly once per test task (via
-        ``cogman.reset`` in main.py's ``_solve_task``) and never on mid-
-        episode replans, so the counter stays in lockstep with main.py's
-        ``test_task_idx``. The index reaches the sandbox via the
-        ToolContext and lands in the session-log filename. No-op outside
-        the test phase.
+        ``cogman.reset`` in main.py's ``_solve_task``) and never on a
+        replan inside an episode, so the counter stays in lockstep with
+        main.py's ``test_task_idx``. The index reaches the sandbox via
+        the ToolContext and lands in the session-log filename. No-op
+        outside the test phase.
         """
         super().reset_for_new_episode()
         # New episode -> the next scene render is a true init snapshot.
