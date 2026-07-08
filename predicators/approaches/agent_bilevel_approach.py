@@ -71,11 +71,10 @@ class AgentBilevelApproach(AgentPlannerApproach):
         super().reset_for_new_episode()
         self._exec_status = None
         self._exec_replans_left = CFG.agent_bilevel_max_execution_replans
-        # Optionally give each test solve a fresh agent conversation: close
-        # the session here (once per test task, before its first solve; not
-        # on mid-episode replans, which go through step() not reset()). The
-        # next query lazily rebuilds the session — same sandbox + learned
-        # artifacts, empty chat context. Gated to the test phase so
+        # Optionally give each test solve a fresh agent conversation. reset()
+        # fires once per test task (not on mid-episode replans, which go
+        # through step()); the next query lazily rebuilds the session with the
+        # same sandbox + artifacts but empty chat context. Test-phase only, so
         # exploration episodes keep their shared session.
         if CFG.agent_fresh_session_per_test_task and self._in_test_phase:
             self._close_agent_session()
@@ -94,10 +93,9 @@ class AgentBilevelApproach(AgentPlannerApproach):
         return []
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
-        # Bilevel solving hands continuous refinement to a search procedure,
-        # so the agent gets refine_plan_sketch (backtracking refinement +
-        # forward validation on a param-free sketch) on top of the base
-        # inspection / evaluation tools. Like the others it needs a simulator.
+        # Bilevel solving hands continuous refinement to a search, so the
+        # agent also gets refine_plan_sketch (backtracking refinement +
+        # forward validation on a param-free sketch). Needs a simulator.
         tools = list(super()._get_solve_tool_names() or [])
         if CFG.agent_planner_use_simulator:
             tools.append("refine_plan_sketch")
@@ -290,13 +288,10 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 policy = self._consume_validated_plan()
                 if policy is not None:
                     return policy
-                # If the response blew the output-token limit, tell the next
-                # attempt (same conversation, so it keeps its context) what
-                # happened and to be concise, so it doesn't repeat the
-                # overflow. Note: the agent session continues across retries,
-                # and the SDK auto-compacts the context window on its own; the
-                # overflow is a single over-long RESPONSE, which only brevity
-                # (not compaction) can prevent.
+                # On output-token overflow, tell the next attempt (same
+                # conversation) to be concise. The overflow is one over-long
+                # RESPONSE; the SDK compacts context itself, so only brevity,
+                # not compaction, prevents a repeat.
                 if "output token maximum" in str(e):
                     prior_failures.append(
                         "Your previous response hit the output-token limit and "
@@ -322,12 +317,11 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 return policy
 
             if not CFG.agent_bilevel_refine_fallback:
-                # Default: no approach-side refinement fallback. The agent
-                # itself must reach a refine_plan_sketch SUCCESS (which also
-                # forward-validates), captured above, so we never execute a
-                # plan the agent didn't verify. If it ended without one,
-                # re-query with explicit feedback rather than silently
-                # refining its unvalidated sketch.
+                # Default: no approach-side fallback. The agent must itself
+                # reach a refine_plan_sketch SUCCESS (captured above) so we
+                # never execute a plan it didn't verify; if it ended without
+                # one, re-query with feedback instead of refining its
+                # unvalidated sketch.
                 logging.info(
                     "[%s] Attempt %d ended without a validated plan; "
                     "re-querying the agent.", self._run_id, sketch_attempt)
@@ -678,19 +672,17 @@ class AgentBilevelApproach(AgentPlannerApproach):
         execution monitor.
 
         CogMan calls solve() identically at episode start and on a
-        monitor-triggered replan; the two are distinguished by
-        ``_exec_status``, which is non-None only while a monitored plan
-        is executing (``reset_for_new_episode`` clears it at episode
-        start). On a replan, ``task.init`` is the real state in which
-        the just-finished step's annotation failed. Divergence is
-        usually a continuous-execution problem (a sampled parameter
-        whose real outcome differed from the option-model rollout), not
-        a wrong skeleton, so we first try to resume a suffix of the
-        executed sketch (cheap — no agent query; see
-        :meth:`_replan_suffix`). Returns None to fall through to a
-        fresh agent sketch, and raises ApproachFailure once the
-        per-episode replan budget is exhausted so the episode fails
-        fast instead of burning the horizon open-loop.
+        monitor-triggered replan; ``_exec_status`` distinguishes them (non-None
+        only while a monitored plan executes; reset_for_new_episode clears it
+        at episode start). On a replan ``task.init`` is the real state where
+        the just-finished step's annotation failed. Divergence is usually a
+        continuous-execution problem (a sampled parameter whose real outcome
+        differed from the option-model rollout), not a wrong skeleton, so we
+        first try to resume a suffix of the executed sketch (cheap, no agent
+        query; see :meth:`_replan_suffix`). Returns None to fall through to a
+        fresh agent sketch; raises ApproachFailure once the per-episode replan
+        budget is exhausted so the episode fails fast instead of running the
+        horizon open-loop.
         """
         status = self._exec_status
         if status is None or status.steps_initiated == 0:
@@ -711,8 +703,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
         policy = self._replan_suffix(task.init, task, steps, failed_idx,
                                      timeout)
         if policy is None:
-            # No suffix of the executed skeleton is refinable from here —
-            # fall through to pay for a fresh agent sketch.
+            # No suffix of the executed skeleton refines from here; fall
+            # through to pay for a fresh agent sketch.
             logging.info("Suffix replan failed; querying the agent for a "
                          "fresh sketch.")
         return policy
