@@ -336,7 +336,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         # requested and available for the env) else agent synthesis. GT
         # samplers are static, so install them up front, independent of
         # whether simulator learning runs below (it is skipped when there
-        # are no step transitions, e.g. when every demo failed).
+        # are no step transitions and no oracle sim program to fall
+        # back on, e.g. when every demo failed).
         self._maybe_install_oracle_samplers()
         # Two parallel triple lists drive the rest of this method:
         # * obs_triples       - raw (s_t, a, s_{t+1}) from the data.
@@ -344,22 +345,33 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         #   base sim's one-step prediction. The rules run on top of that
         #   prediction; SSE compares against s_{t+1}.
         obs_triples = self._extract_obs_triples(trajectories)
-        if not obs_triples:
+        if not obs_triples and not CFG.agent_sim_learn_oracle_sim_program:
             logger.warning("No step transitions; skipping simulator learning.")
             return
-        # Headless env for the pre-compute: reusing the GUI base_env
-        # corrupts its visual-shape state after a few hundred steps.
-        fit_env = create_new_env(CFG.env,
-                                 do_cache=False,
-                                 use_gui=False,
-                                 skip_process_dynamics=True)
-        logger.info("Pre-computing base states for %d transitions.",
-                    len(obs_triples))
-        base_pred_triples = self._compute_base_pred_triples(
-            obs_triples, fit_env)
-        inferred_hint = self._infer_process_features_from_residuals(
-            obs_triples, base_pred_triples)
-        logger.info("Process features (data-driven hint): %s", inferred_hint)
+        if obs_triples:
+            # Headless env for the pre-compute: reusing the GUI base_env
+            # corrupts its visual-shape state after a few hundred steps.
+            fit_env = create_new_env(CFG.env,
+                                     do_cache=False,
+                                     use_gui=False,
+                                     skip_process_dynamics=True)
+            logger.info("Pre-computing base states for %d transitions.",
+                        len(obs_triples))
+            base_pred_triples = self._compute_base_pred_triples(
+                obs_triples, fit_env)
+            inferred_hint = self._infer_process_features_from_residuals(
+                obs_triples, base_pred_triples)
+            logger.info("Process features (data-driven hint): %s",
+                        inferred_hint)
+        else:
+            # The oracle sim program is data-free (rules and parameter
+            # inits come from get_gt_simulator), so a run whose every
+            # demo failed still gets a working option model; the fit
+            # below degrades to the declared inits.
+            logger.warning("No step transitions; loading oracle sim "
+                           "program without data.")
+            base_pred_triples = []
+            inferred_hint = {}
 
         self._synthesize_with_agent(trajectories, obs_triples,
                                     base_pred_triples, inferred_hint)
@@ -386,9 +398,13 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         # along in that session and this is skipped.
         if self._do_synthesize_samplers and \
                 CFG.agent_sim_learn_oracle_sim_program:
-            self._synthesize_samplers_standalone(trajectories,
-                                                 base_pred_triples,
-                                                 inferred_hint)
+            if base_pred_triples:
+                self._synthesize_samplers_standalone(trajectories,
+                                                     base_pred_triples,
+                                                     inferred_hint)
+            else:
+                logger.warning("No step transitions; skipping standalone "
+                               "sampler synthesis.")
 
     def _build_option_model(
         self,
@@ -830,9 +846,24 @@ the tools."""
                      for s in self._physical_param_specs})
             # No fit ran; the ensemble falls back to uniform perturbation.
             self._last_fit_result = None
-            self._fit_sse = self._oracle_param_sse(rules, base_pred_triples,
-                                                   process_features,
-                                                   noise_sigma)
+            if base_pred_triples:
+                self._fit_sse = self._oracle_param_sse(rules,
+                                                       base_pred_triples,
+                                                       process_features,
+                                                       noise_sigma)
+            else:
+                logger.info("No transitions; skipping oracle-param SSE.")
+                self._fit_sse = float("inf")
+        elif not base_pred_triples:
+            # No data to fit against (e.g. every demo failed): seed from
+            # the declared inits so the simulator still builds; later
+            # cycles refit once transitions arrive.
+            logger.warning("No transitions to fit; seeding params from "
+                           "declared inits.")
+            self._fitted_params.clear()
+            self._fitted_params.update({s.name: s.init_value for s in specs})
+            self._last_fit_result = None
+            self._fit_sse = float("inf")
         else:
             # This is the solver/test-time fit. It deliberately follows
             # CFG.code_sim_learning_num_mcmc_steps; any extra

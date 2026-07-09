@@ -76,10 +76,10 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
 
         processes: Set[CausalProcess] = set()
 
-        def _make_fan_toggle_process(
-                name: str, start_predicate: Predicate,
-                add_predicate: Predicate,
-                delete_predicate: Predicate) -> EndogenousProcess:
+        def _make_fan_toggle_process(name: str, start_predicate: Predicate,
+                                     add_predicate: Predicate,
+                                     delete_predicate: Predicate,
+                                     delay_mu: float) -> EndogenousProcess:
             """Helper function to create fan on/off toggle processes."""
             robot = Variable("?robot", robot_type)
             if CFG.fan_known_controls_relation:
@@ -97,8 +97,8 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
             delete_effects = {
                 LiftedAtom(delete_predicate, [controled_obj]),
             }
-            delay_distribution = DiscreteGaussianDelay(mu=torch.tensor(2.0),
-                                                       sigma=torch.tensor(0.1))
+            delay_distribution = DiscreteGaussianDelay(
+                mu=torch.tensor(delay_mu), sigma=torch.tensor(0.1))
 
             # Select the appropriate option based on configuration
             if CFG.fan_combine_switch_on_off:
@@ -120,18 +120,50 @@ class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):
         # For the harder setting of having to figure out which switch controls
         # which fan, we can have effects to be turn swtch on/off, and have it
         # to invent Control(fan, switch) predicate.
+        # Delays are calibrated to execution. A switch press runs ~28 env
+        # steps while a MoveToSide cell crossing runs ~35 (mu=4 ticks),
+        # but the wind state flips when the FINGER FLIPS THE SWITCH,
+        # about a quarter into the press, not at press end. The
+        # asymmetry matters for planning:
+        # - TurnFanOn mu=4: the wind starting late is harmless (each
+        #   executed Wait ends on the actual cell crossing, so an early
+        #   real start only makes Waits terminate sooner), and the long
+        #   delay keeps the believed first crossing after the press, in
+        #   line with execution, so the plan's Wait count matches the
+        #   crossings the executor must observe.
+        # - TurnFanOff mu=1: the honest flip time. Modeling it as press
+        #   END (mu=4) lets the planner bank on a full extra cell of
+        #   drift during the off-press; the real press delivers less,
+        #   the ball stops short of the target, and the plan needs an
+        #   execution replan. With mu=1 the planner keeps the fan on
+        #   until the ball has actually entered the target cell and the
+        #   small real off-press drift only recenters it in the cell.
         if CFG.fan_known_controls_relation:
             processes.add(
-                _make_fan_toggle_process("TurnFanOn", FanOff, FanOn, FanOff))
+                _make_fan_toggle_process("TurnFanOn",
+                                         FanOff,
+                                         FanOn,
+                                         FanOff,
+                                         delay_mu=4.0))
             processes.add(
-                _make_fan_toggle_process("TurnFanOff", FanOn, FanOff, FanOn))
+                _make_fan_toggle_process("TurnFanOff",
+                                         FanOn,
+                                         FanOff,
+                                         FanOn,
+                                         delay_mu=1.0))
         else:
             processes.add(
-                _make_fan_toggle_process("TurnSwitchOn", SwitchOff, SwitchOn,
-                                         SwitchOff))
+                _make_fan_toggle_process("TurnSwitchOn",
+                                         SwitchOff,
+                                         SwitchOn,
+                                         SwitchOff,
+                                         delay_mu=4.0))
             processes.add(
-                _make_fan_toggle_process("TurnSwitchOff", SwitchOn, SwitchOff,
-                                         SwitchOn))
+                _make_fan_toggle_process("TurnSwitchOff",
+                                         SwitchOn,
+                                         SwitchOff,
+                                         SwitchOn,
+                                         delay_mu=1.0))
 
         # Wait
         robot = Variable("?robot", robot_type)
