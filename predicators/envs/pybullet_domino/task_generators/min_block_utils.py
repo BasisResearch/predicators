@@ -4,7 +4,7 @@ Used by the ``domino_min_block_tasks`` mode: for a task whose start (green)
 and target (purple) dominoes sit a fixed distance apart, K* is the smallest
 number of evenly-spaced movable (blue) dominoes for which a real robot Push on
 the start topples the target *at the env's true friction*. Because the cascade
-reach depends on friction, K* does too — which is exactly what makes a
+reach depends on friction, K* does too - which is exactly what makes a
 high-friction (no-learning) planner under-build and fail. See
 ``settings.domino_min_block_tasks``.
 
@@ -36,14 +36,15 @@ _SETTLE_STEPS = 40  # no-op steps after the Push to let the cascade settle
 # calibration sweeps); spans up to ~0.35 m stay on the table from here.
 _PROBE_ANCHOR = (0.55, 1.20)
 
-# Turn-K* layout-search family (see compute_turn_k_star). The corner is a
-# SINGLE blue at its natural (chain-facing) yaw — f of the way through the
-# 90-deg turn — the layout style agents actually build (cf. the oracle
-# run's -36 deg corner blue), NOT the generator's mirrored 45-deg pair,
-# which no planner would plausibly propose. Configs (f, g1, g2) = yaw
-# fraction, corner approach gap, corner-exit gap; each propagates at one
-# of the two experiment frictions in the canonical sim sweep (2026-07-03).
-# The corner slides along the entry line via the entry per-gap choices —
+# Turn-K* layout-search family (see _candidate_turn_layouts): a straight
+# diagonal, a SINGLE corner blue leaning f of the way into the 90-deg
+# turn (fall axis rotated toward the exit - the layout style agents
+# actually build, cf. the oracle run's corner blue), and the legacy
+# 45-degree pair corner. Configs (f, g1, g2) = yaw fraction, corner
+# approach gap, corner-exit gap, from the canonical sim sweep
+# (2026-07-03; corner parity fixed 2026-07-09, configs retained - the
+# family is re-certified end-to-end by every generated task's rollout).
+# The corner slides along the entry line via the entry per-gap choices -
 # the "stretched corner" strategy that beats evenly-spaced L-chains.
 _CORNER_CONFIGS = (
     (0.4, 0.08, 0.05),  # topples at friction 0.1
@@ -58,7 +59,7 @@ _MIN_GAP = 0.03  # bodies would spawn overlapping
 
 # Memo for straight-span probes. Straight-chain reach is a step function
 # of span, so results are reused across task attempts after bucketing the
-# span to _SPAN_BUCKET — the turn tasks' per-leg certificate re-probes the
+# span to _SPAN_BUCKET - the turn tasks' per-leg certificate re-probes the
 # same narrow leg bands on every attempt, and uncached this dominated
 # generation time (each probe is a full robot Push rollout). Keyed on the
 # component's live physical-param override so probes at the true and
@@ -114,7 +115,7 @@ def _execute_push(env: Any,
     """Roll out the Push option against the real env; return True if it ran to
     completion.
 
-    Returns False if the push can't be executed here — e.g. the robot
+    Returns False if the push can't be executed here - e.g. the robot
     can't reach behind this start placement (IK failure). K* treats that
     as "this k doesn't topple," so a task whose start is unpushable ends
     up with K*=None and is dropped rather than crashing task generation.
@@ -239,7 +240,7 @@ def build_turn_layout(env: Any, gen: Any, rng: Any, n1: int, n2: int,
     if len(placed) < 3:
         return None
     # Keep the chain on the table (full workspace, not the narrower reachable
-    # placement band — the start is already sampled inside that band, and the
+    # placement band - the start is already sampled inside that band, and the
     # push simulation below filters out any chain the robot can't actually
     # push). The y placement band is very tight (~0.19 m), so requiring the
     # whole L-chain to fit it would reject almost every turn.
@@ -277,7 +278,7 @@ def _layout_topples(env: Any,
     # Pin the arm to its exact initial joints: _set_state reaches the
     # robot pose by IK FROM THE CURRENT configuration, so consecutive
     # probes inherit ~1e-3 rad wrist differences from wherever the
-    # previous rollout parked the arm — enough to flip knife-edge
+    # previous rollout parked the arm - enough to flip knife-edge
     # layouts under motion-planned pushes (observed as the same layout
     # alternating topple/no-topple). Episodes start from the initial
     # joints too, so this also matches execution-time conditions.
@@ -373,7 +374,7 @@ def compute_k_star(env: Any,
             init_state.get(target, "y") - init_state.get(start, "y")))
     for k in range(budget + 1):
         # Geometric prune: a per-gap beyond any topple reach (or below body
-        # overlap) cannot work at any friction — skip the simulation.
+        # overlap) cannot work at any friction - skip the simulation.
         gap = span / (k + 1)
         if not _MIN_GAP < gap < _MAX_GAP:
             continue
@@ -391,7 +392,7 @@ def straight_span_k_star(env: Any,
     Probed with a real Push at a canonical pushable pose. Used by the turn
     tasks' per-leg differentiation certificate: each leg of a turn is a
     straight sub-chain, so "how many blues does this friction believe the
-    leg needs" is measured by an actual rollout of a chain of that length —
+    leg needs" is measured by an actual rollout of a chain of that length -
     independent of any corner (whose cost is the same on both sides of the
     comparison and cancels).
 
@@ -446,19 +447,25 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
 
     Each candidate is ``(obj_dict, start, target)`` using ``comp.dominos[0]``
     as the (green) start, ``dominos[1]`` as the (purple) target and
-    ``dominos[2:2+k]`` as blues — object identity is irrelevant here, only the
-    physics matters. Two sub-families:
+    ``dominos[2:2+k]`` as blues - object identity is irrelevant here, only the
+    physics matters. Three sub-families:
 
-    * straight line: k blues evenly spaced from start to target (covers
-      barely-off-axis targets and the k < 2 cases);
+    * straight line: k blues evenly spaced from start to target with
+      their fall axes ALONG the line - offered only within ~30 degrees
+      of the start's push axis (near-axis targets and the k < 2 cases);
+      beyond that the oblique first hit makes the cascade knife-edge;
     * corner search: k1 entry blues at per-gap ``g in _ENTRY_GAPS`` along
-      the start's fall line, ONE corner blue at its natural (chain-facing)
-      yaw with sim-calibrated approach/exit gaps (``_CORNER_CONFIGS``),
-      then ``k2 = k - 1 - k1`` blues evenly spaced from the corner exit to
-      the target. Sliding the corner via ``g`` realises the "stretched
-      corner" plans an optimising agent would find. Deliberately EXCLUDES
-      the generator's mirrored 45-degree pair: no planner would propose
-      that orientation, so K* must not assume it.
+      the start's push line, ONE corner blue leaning f of the way into
+      the turn with sim-calibrated approach/exit gaps
+      (``_CORNER_CONFIGS``), then ``k2 = k - 1 - k1`` blues evenly spaced
+      from the corner exit to the target. Sliding the corner via ``g``
+      realises the "stretched corner" plans an optimising agent would
+      find;
+    * 45-degree PAIR corner: the legacy (pre-min-block) generator's turn
+      construction - TWO blues stepping the yaw 45 degrees each with
+      half-width inward nudges; it is what the legacy generator's solved
+      turn tasks used at friction 0.5 (the default), and it redirects
+      there where single-corner variants were never observed to.
 
     Layouts with a gap outside ``(_MIN_GAP, _MAX_GAP)`` or blocks off the
     table are pruned without simulation.
@@ -469,7 +476,12 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
     start, target = dominos[0], dominos[1]
     s_pt = np.array([sx, sy])
     t_pt = np.array([tx, ty])
-    u_vec = np.array([np.sin(syaw), np.cos(syaw)])  # start's fall direction
+    # Push line of the start. State yaw is a CCW z-rotation
+    # (getQuaternionFromEuler), so a block's true fall (thin) axis is
+    # (-sin yaw, cos yaw); the samplers only produce axis-aligned starts,
+    # where (sin, cos) is collinear with it, and the Push skill pushes
+    # along this (sin, cos) direction.
+    u_vec = np.array([np.sin(syaw), np.cos(syaw)])
     w_vec = t_pt - s_pt
 
     def _base() -> dict:
@@ -478,12 +490,21 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
             target: comp.place_domino(1, tx, ty, tyaw, is_target_block=True),
         }
 
-    # (a) Straight line start -> target, evenly spaced.
+    # (a) Straight line start -> target, evenly spaced. Only offered when
+    # the line stays within the measured ~33-degree per-knock propagation
+    # tolerance of the start's push axis (the swerve calibration sweep):
+    # beyond it the start's first hit is oblique and the cascade, when it
+    # topples at all, is contact-history knife-edge - a K* budget built
+    # on it is unreproducible in a fresh sim.
     dist = float(np.linalg.norm(w_vec))
     gap = dist / (k + 1)
-    if _MIN_GAP < gap < _MAX_GAP:
+    u_dot_line = float(np.dot(w_vec, u_vec)) / max(dist, 1e-9)
+    if _MIN_GAP < gap < _MAX_GAP and u_dot_line > np.cos(np.radians(30.0)):
         d_vec = w_vec / dist
-        line_yaw = float(np.arctan2(d_vec[0], d_vec[1]))
+        # Fall axis along the line: yaw = arctan2(-dx, dy) makes the thin
+        # axis (-sin, cos) parallel to d_vec (arctan2(dx, dy) would mirror
+        # it across the y-axis for non-axis-aligned lines).
+        line_yaw = float(np.arctan2(-d_vec[0], d_vec[1]))
         od = _base()
         pts = []
         for i in range(k):
@@ -503,8 +524,8 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
 
     # (b) Corner search: k1 entry blues, ONE natural-yaw corner blue, and
     # k2 = k - 1 - k1 exit blues. The corner faces f of the way through
-    # the 90-deg turn (its local travel direction) — the agent-buildable
-    # layout style — with sim-calibrated approach/exit gaps (g1, g2).
+    # the 90-deg turn (its local travel direction) - the agent-buildable
+    # layout style - with sim-calibrated approach/exit gaps (g1, g2).
     for k1 in range(k):
         k2 = k - 1 - k1
         # g_entry only matters when there ARE entry blues to space.
@@ -521,8 +542,12 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
                     pts.append((p_pt[0], p_pt[1]))
                     slot += 1
                 c_pt = s_pt + (k1 * g_entry + g1) * u_vec
-                c_yaw = syaw - t_dir * f_yaw * np.pi / 2
-                c_dir = np.array([np.sin(c_yaw), np.cos(c_yaw)])
+                # Natural mid-turn lean: rotating the block CCW by psi
+                # (yaw + psi) rotates its fall axis CCW by psi, which in
+                # the compass encoding (sin, cos) is angle syaw - psi.
+                psi = t_dir * f_yaw * np.pi / 2
+                c_yaw = syaw + psi
+                c_dir = np.array([np.sin(syaw - psi), np.cos(syaw - psi)])
                 od[dominos[slot]] = comp.place_domino(slot, float(c_pt[0]),
                                                       float(c_pt[1]),
                                                       float(c_yaw))
@@ -543,7 +568,7 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
                     if not _MIN_GAP < per < _MAX_GAP:
                         continue
                     e_dir = e_vec / e_len
-                    e_yaw = float(np.arctan2(e_dir[0], e_dir[1]))
+                    e_yaw = float(np.arctan2(-e_dir[0], e_dir[1]))
                     for j in range(k2):
                         p_pt = b1_pt + j * per * e_dir
                         od[dominos[slot]] = comp.place_domino(
@@ -553,9 +578,87 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
                 if _on_table(comp, pts):
                     yield od, start, target
 
+    # (c) Legacy 45-degree PAIR corner: d1 one corner-gap past the last
+    # entry blue ON the entry fall line, yaw stepped 45 degrees INTO the
+    # bend (fall axis along the mid-turn travel) with a half-width inward
+    # nudge; d2 one corner-gap along the 45-degree travel direction
+    # completing the turn (same nudge); k2 = k - 2 - k1 exit blues evenly
+    # to the target. Position transforms are verbatim from the legacy
+    # generator's turn placement. The entry per-gap is SOLVED so d2 lands
+    # on the target's perpendicular approach line (a sweep would
+    # misalign the exit run).
+    if k >= 3:
+        half_w = comp.domino_width / 2
+        d1_dir = syaw - t_dir * np.pi / 4  # travel one step into the turn
+        d1_dir_vec = np.array([np.sin(d1_dir), np.cos(d1_dir)])
+        d2_rot = syaw - t_dir * np.pi / 2  # post-turn travel direction
+        d1_nudge = t_dir * -half_w * np.array(
+            [np.cos(d1_dir), -np.sin(d1_dir)])
+        d2_nudge = t_dir * -half_w * np.array(
+            [np.cos(d2_rot), -np.sin(d2_rot)])
+        for g_c in (comp.pos_gap, 0.12):
+            # Advance of the whole pair along the entry fall line.
+            pair_adv = g_c * (1.0 + float(np.dot(d1_dir_vec, u_vec))) + \
+                float(np.dot(d1_nudge + d2_nudge, u_vec))
+            for k1 in range(1, k - 1):
+                k2 = k - 2 - k1
+                g_e = (float(np.dot(w_vec, u_vec)) - pair_adv) / k1
+                if not _MIN_GAP < g_e < _MAX_GAP:
+                    continue
+                last_pt = s_pt + k1 * g_e * u_vec
+                d1_pt = last_pt + g_c * u_vec + d1_nudge
+                d2_pt = d1_pt + g_c * d1_dir_vec + d2_nudge
+                e_vec = t_pt - d2_pt
+                e_len = float(np.linalg.norm(e_vec))
+                per = e_len / (k2 + 1)
+                if not _MIN_GAP < per < _MAX_GAP:
+                    continue
+                e_dir = e_vec / e_len
+                # Yaws follow the LEGACY parity exactly, so state yaw
+                # values step smoothly by 45 deg per block through the
+                # turn (e.g. pi/2 -> pi/4 -> 0), matching the
+                # pre-min-block generator's tasks. Because state yaw is
+                # a CCW z-rotation, yaw + t*pi/4 rotates d1's fall axis
+                # INTO the bend (thin axis along the mid-turn travel) --
+                # the natural alignment, and the only parity that
+                # redirects at friction 0.5 (2026-07-08 fresh-process
+                # sweep: the across-bend parity syaw - t*pi/4 dies in
+                # every probed configuration). d2's parity is
+                # outcome-free per the same sweep.
+                e_yaw = float(np.arctan2(-e_dir[0], e_dir[1]))
+                d1_yaw = syaw + t_dir * np.pi / 4
+                d2_yaw = syaw + t_dir * np.pi / 2
+                od = _base()
+                pts = []
+                slot = 2
+                for i in range(k1):
+                    p_pt = s_pt + (i + 1) * g_e * u_vec
+                    od[dominos[slot]] = comp.place_domino(
+                        slot, float(p_pt[0]), float(p_pt[1]), syaw)
+                    pts.append((p_pt[0], p_pt[1]))
+                    slot += 1
+                od[dominos[slot]] = comp.place_domino(slot, float(d1_pt[0]),
+                                                      float(d1_pt[1]),
+                                                      float(d1_yaw))
+                pts.append((d1_pt[0], d1_pt[1]))
+                slot += 1
+                od[dominos[slot]] = comp.place_domino(slot, float(d2_pt[0]),
+                                                      float(d2_pt[1]),
+                                                      float(d2_yaw))
+                pts.append((d2_pt[0], d2_pt[1]))
+                slot += 1
+                for j in range(k2):
+                    p_pt = d2_pt + (j + 1) * per * e_dir
+                    od[dominos[slot]] = comp.place_domino(
+                        slot, float(p_pt[0]), float(p_pt[1]), e_yaw)
+                    pts.append((p_pt[0], p_pt[1]))
+                    slot += 1
+                if _on_table(comp, pts):
+                    yield od, start, target
+
 
 # First-exit-blue gaps swept by the dogleg probe (distance from the gray
-# bend link to the first exit blue along the gray's fall line) — mirrors
+# bend link to the first exit blue along the gray's fall line) - mirrors
 # the corner family's calibrated approach/exit gap treatment.
 _DOGLEG_EXIT_GAPS = (0.06, 0.08, 0.10)
 
@@ -582,11 +685,11 @@ def heavy_dogleg_k_star(env: Any,
     the target). ALL splits are tried, so the result is the best cost a
     planner could commit to within this natural family. Probed at
     whatever friction / ``heavy_block_mass`` the env currently has, so
-    callers flip between the believed physics (normal mass — the chain
-    runs through) and the true physics (untopple-able — the chain dies
+    callers flip between the believed physics (normal mass - the chain
+    runs through) and the true physics (untopple-able - the chain dies
     at the gray).
 
-    ``only_k`` restricts the scan to that single blue count — the
+    ``only_k`` restricts the scan to that single blue count - the
     true-dead certificate uses it with k = the believed cost: a
     block-minimizing planner only ever builds a believed-cheapest
     layout, so other counts cannot leak.
@@ -658,7 +761,7 @@ def heavy_dogleg_k_star(env: Any,
                     if not _MIN_GAP < per < _MAX_GAP:
                         continue
                     e_dir = e_vec / e_len
-                    e_yaw = float(np.arctan2(e_dir[0], e_dir[1]))
+                    e_yaw = float(np.arctan2(-e_dir[0], e_dir[1]))
                     for j in range(k2):
                         p_pt = b1_pt + j * per * e_dir
                         od[doms[slot]] = comp.place_domino(
@@ -758,7 +861,7 @@ def swerve_k_star(env: Any,
     Results are memoized (pose included in the key, so canonical-anchor
     certification and real-pose re-verification never mix).
     ``min_hits`` demands that many distinct toppling swerves before the
-    first (cheapest) k is returned — the robustness margin against
+    first (cheapest) k is returned - the robustness margin against
     solver-history sensitivity (see ``compute_turn_k_star``).
     """
     comp = env._domino_component
@@ -807,14 +910,14 @@ def compute_turn_k_star(env: Any,
     For each k (ascending), simulates every candidate in
     :func:`_candidate_turn_layouts` at the env's CURRENT friction and returns
     the first k with a toppling layout, else ``None``. Unlike the straight
-    :func:`compute_k_star`, even spacing is not optimal around a corner —
+    :func:`compute_k_star`, even spacing is not optimal around a corner -
     sliding the corner toward the start ("stretched corner") can beat the
-    evenly-spaced L by a block — so K* must be a minimum over layouts, not a
+    evenly-spaced L by a block - so K* must be a minimum over layouts, not a
     count of one constructed chain. The family contains only AGENT-BUILDABLE
-    layouts (straight probes + natural-yaw corner blues); the generator's
-    mirrored 45-degree pair is deliberately excluded, so K* never assumes a
-    layout no planner would propose. The family is coarse, so the result is
-    an upper bound on the true minimum over that natural class.
+    layouts (straight lines, single natural corners, and the legacy
+    45-degree pair corner, see :func:`_candidate_turn_layouts`). The
+    family is coarse, so the result is an upper bound on the true
+    minimum over that natural class.
 
     ``start_pose`` = (x, y, yaw) of the green start block, ``target_pose`` =
     (x, y, yaw) of the purple target. ``budget`` caps k (default
@@ -830,9 +933,9 @@ def compute_turn_k_star(env: Any,
     ``min_hits`` is a ROBUSTNESS margin: the scan keeps going until that
     many distinct layouts (across all k <= budget) have toppled, and
     returns the first (cheapest) k only then. Knife-edge layouts are
-    sensitive to the simulator's contact-solver history — a task whose
+    sensitive to the simulator's contact-solver history - a task whose
     only solution toppled once during generation can be unsolvable
-    under a fresh simulator — so shipping tasks should demand >= 2
+    under a fresh simulator - so shipping tasks should demand >= 2
     independent topplers.
     """
     comp = env._domino_component
@@ -867,3 +970,38 @@ def compute_turn_k_star(env: Any,
                 if hits >= min_hits:
                     return first_k
     return None
+
+
+def dual_valid_turn_layout_exists(env: Any, start_pose: Any, target_pose: Any,
+                                  k: int, believed_friction: float,
+                                  true_friction: float) -> bool:
+    """True if some k-blue turn candidate topples at BOTH frictions.
+
+    The differentiation property a mismatch task actually needs is that
+    every believed-valid plan within the K* budget FAILS under true
+    physics (by dying - over-builds fail on budget by themselves). The
+    scalar comparison ``believed K* > true K*`` is sufficient but
+    contact-history knife-edge: a fresh sim can find a k_true-blue
+    believed corner where generation probed k_true + 1. Candidates with
+    FEWER than k_true blues die at the true friction by K*'s definition,
+    so only the k = k_true layer can hide a believed-valid plan that
+    also truly succeeds - this scans exactly that layer.
+    """
+    comp = env._domino_component
+    if comp is None:
+        return False
+    push_opt = _get_push_option(env)
+    found = False
+    try:
+        for od, start, target in _candidate_turn_layouts(
+                comp, k, start_pose, target_pose):
+            env.set_domino_physical_params(lateral_friction=believed_friction)
+            if not _layout_topples(env, od, start, target, push_opt):
+                continue
+            env.set_domino_physical_params(lateral_friction=true_friction)
+            if _layout_topples(env, od, start, target, push_opt):
+                found = True
+                break
+    finally:
+        env.set_domino_physical_params(lateral_friction=true_friction)
+    return found

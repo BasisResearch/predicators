@@ -1,12 +1,13 @@
 """Slide figure: the turn-K* candidate family (agent-buildable layouts).
 
 Renders the REAL candidates yielded by ``_candidate_turn_layouts`` for a
-canonical turn geometry (k=3): the straight-line probe plus the five
-natural-yaw corner configs (``_CORNER_CONFIGS``), and — for contrast —
-the generator's mirrored 45-degree pair, which is deliberately EXCLUDED
-from the search because no planner would propose it. Footprints are
-geometry- exact (poses come from the search code itself); no simulation
-is run.
+canonical turn geometry (k=3): the five single-corner configs
+(``_CORNER_CONFIGS``, fall axis leaning f of the way into the turn) and
+the legacy 45-degree pair corner (sub-family (c), included in the search
+since 2026-07-08). The straight-line probe is gated to lines within ~30
+degrees of the start's push axis, so for this 36-degree-off geometry it
+is (correctly) absent. Footprints are geometry-exact (poses come from
+the search code itself); no simulation is run.
 """
 from pathlib import Path
 
@@ -38,11 +39,11 @@ TARGET = (0.85, 1.42, 0.0)  # one left turn away, faces +y
 
 
 def block(ax, x, y, yaw, color, hl=False):
-    tr = (Affine2D().rotate(-yaw).translate(x, y) + ax.transData)
+    tr = (Affine2D().rotate(yaw).translate(x, y) + ax.transData)
     ax.add_patch(
         Rectangle((-W / 2, -D / 2), W, D, facecolor=color, edgecolor="k",
                   lw=1.0, transform=tr, zorder=3))
-    fx, fy = 0.03 * np.sin(yaw), 0.03 * np.cos(yaw)
+    fx, fy = 0.03 * np.cos(yaw), 0.03 * np.sin(yaw)
     ax.arrow(x, y, fx, fy, head_width=0.009, color=color, lw=1.0, zorder=4)
     if hl:
         ax.add_patch(
@@ -68,61 +69,71 @@ def draw_candidate(ax, od, title, tcolor="k", corner_yaw=None):
 
 
 cands = list(mbu._candidate_turn_layouts(comp, 3, START, TARGET))
+
+
+def blue_yaws(od, s_obj, t_obj):
+    return [float(p["yaw"]) for o, p in od.items() if o not in (s_obj, t_obj)]
+
+
+# Classify candidates: single-corner configs (k1=0 come first in yield
+# order) and the legacy pair (both d1 = syaw + pi/4 and d2 = syaw + pi/2
+# present among the blues).
+def is_pair(od, s_obj, t_obj):
+    ys = {round(y, 3) for y in blue_yaws(od, s_obj, t_obj)}
+    return (round(np.pi / 2 + np.pi / 4, 3) in ys
+            and round(np.pi, 3) in {round(abs(y), 3) for y in ys})
+
+
+corner_cands = cands[:len(mbu._CORNER_CONFIGS)]
+pair_cand = next((c for c in cands if is_pair(*c)), None)
+
 fig, axes = plt.subplots(2, 4, figsize=(14.5, 7.2))
 axes = axes.ravel()
 
-# Panel 0: straight-line probe (first candidate yielded).
-draw_candidate(axes[0], cands[0][0], "straight-line probe\n(corner-cheat check)")
+# Panel 0: the straight-line probe is gated out for this geometry.
+ax = axes[0]
+ax.axis("off")
+ax.text(
+    0.05, 0.5, "straight-line probe:\nGATED OUT here\n\n(line is 36° off "
+    "the start's\npush axis; the probe is only\noffered within ~30° - "
+    "beyond\nit the oblique first hit makes\nthe cascade knife-edge)",
+    fontsize=10, va="center", color="#a01515")
 
-# Panels 1-5: the natural-yaw corner configs (k1=0 candidates follow the
-# straight probe in yield order; label with their (f, g1, g2)).
-corner_cands = cands[1:1 + len(mbu._CORNER_CONFIGS)]
+# Panels 1-5: the single-corner configs (k1=0 candidates lead the yield
+# order; label with their (f, g1, g2)).
 for i, ((od, _s, _t), cfg) in enumerate(zip(corner_cands,
                                             mbu._CORNER_CONFIGS)):
     f_yaw, g1, g2 = cfg
     draw_candidate(
         axes[1 + i], od,
-        f"natural corner\nyaw {int(f_yaw * 90)}° · in {g1:.2f} · out {g2:.2f}",
-        corner_yaw=np.pi / 2 - f_yaw * np.pi / 2)
+        f"single corner\nlean {int(f_yaw * 90)}° · in {g1:.2f} · out "
+        f"{g2:.2f}", corner_yaw=np.pi / 2 + f_yaw * np.pi / 2)
 
-# Panel 6: the generator's mirrored pair — excluded from the search.
+# Panel 6: the legacy 45-degree pair corner (sub-family (c)).
 ax = axes[6]
-sx, sy, syaw = START
-u = np.array([1.0, 0.0])
-td = 1.0
-half_w = W / 2
-g = 0.10
-d1_dir = syaw - td * np.pi / 4
-d1_yaw = syaw + td * np.pi / 4
-d2_rot = syaw - td * np.pi / 2
-s_pt = np.array([sx, sy])
-d1 = s_pt + g * u + np.array(
-    [td * -half_w * np.cos(d1_dir), -td * -half_w * np.sin(d1_dir)])
-d2 = d1 + g * np.array([np.sin(d1_dir), np.cos(d1_dir)]) + np.array(
-    [td * -half_w * np.cos(d2_rot), -td * -half_w * np.sin(d2_rot)])
-block(ax, sx, sy, syaw, "#7fc97f")
-block(ax, *d1, d1_yaw, "#cccccc", hl=True)
-block(ax, *d2, syaw + td * np.pi / 2, "#cccccc")
-block(ax, *TARGET[:2], TARGET[2], "#c599c5")
-ax.set_title("generator's mirrored pair\nEXCLUDED — agents don't build this",
-             fontsize=10, color="#a01515")
-ax.set_xlim(0.47, 0.95)
-ax.set_ylim(1.10, 1.52)
-ax.set_aspect("equal")
-ax.axis("off")
+if pair_cand is not None:
+    od, _s, _t = pair_cand
+    d1_yaw = np.pi / 2 + np.pi / 4
+    draw_candidate(ax, od,
+                   "legacy 45° pair corner\n(the pre-min-block "
+                   "generator's turn)", corner_yaw=d1_yaw)
+else:
+    ax.axis("off")
+    ax.set_title("pair corner: no candidate\nfor this geometry",
+                 fontsize=10, color="#555")
 
 # Panel 7: legend / notes.
 ax = axes[7]
 ax.axis("off")
-ax.text(0.02, 0.85, "k = 3 candidates for one canonical task (k1 = 0 shown)", fontsize=11,
+ax.text(0.02, 0.85, "k = 3 candidates for one canonical task", fontsize=11,
         weight="bold")
 ax.text(
     0.02, 0.12,
     "green = start (pushed)   purple = target\nblue = movable blues; "
-    "dashed circle = corner blue\n\nhigher k adds entry blues\n"
-    "(per-gap ∈ {0.10, 0.13, 0.15} slides the corner)\nand evenly-spaced "
-    "exit blues\n\ncorner configs sim-calibrated: each propagates\nat one "
-    "of the two experiment frictions", fontsize=9.5, va="bottom")
+    "dashed circle = corner blue\narrow = long axis (the 3D top "
+    "triangle);\nthe fall axis is perpendicular to it\n\nhigher k adds "
+    "entry blues\n(per-gap ∈ {0.10, 0.13, 0.15} slides the corner)\nand "
+    "evenly-spaced exit blues", fontsize=9.5, va="bottom")
 
 fig.tight_layout()
 out = Path(__file__).parent / "turn_layouts.png"

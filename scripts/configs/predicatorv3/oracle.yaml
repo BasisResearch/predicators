@@ -19,6 +19,12 @@ ENVS:
   domino:
     FLAGS:
       domino_restricted_push: True
+  domino_low_friction:
+    FLAGS:
+      domino_restricted_push: True
+  domino_high_friction:
+    FLAGS:
+      domino_restricted_push: True
 APPROACHES:
   oracle:
     SKIP: False
