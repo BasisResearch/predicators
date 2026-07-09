@@ -165,11 +165,14 @@ def _pin_all_physical_params(base_env: Any,
     """Apply ``physical_params`` with every OTHER registry param pinned to its
     env default.
 
-    The env-side override is sticky per param and the fit env is shared
-    across fits, so a fit declaring a SUBSET of the params (e.g. only
-    rolling_friction after an earlier fit touched lateral_friction)
-    would otherwise silently inherit stale values from previous
-    evaluations.
+    The env-side override is sticky per param, so on any env that
+    outlives one evaluation (a caller-owned instance rather than a per-
+    rollout factory build) a fit declaring a SUBSET of the params (e.g.
+    only rolling_friction after an earlier fit touched lateral_friction)
+    would silently inherit stale values from previous evaluations.
+    Pinning also anchors undeclared params at the env's believed
+    baseline on fresh builds, so every rollout evaluates the same
+    nuisance physics regardless of env lifetime.
     """
     info: Dict[str, Dict] = getattr(base_env, "get_physical_param_info",
                                     lambda: {})()
@@ -178,9 +181,27 @@ def _pin_all_physical_params(base_env: Any,
     base_env.apply_physical_param_overrides(full)
 
 
+def _dispose_env(env: Any) -> None:
+    """Free a fresh rollout env by disconnecting its PyBullet client."""
+    p.disconnect(env._physics_client_id)  # pylint: disable=protected-access
+
+
 def rollout_states(base_env: Any, init_state: State, actions: List[Action],
                    physical_params: Dict[str, float]) -> List[State]:
     """Free-run the base sim from ``init_state`` under ``actions``.
+
+    ``base_env`` is either an env instance or a zero-arg FACTORY: a
+    factory is invoked to build a fresh env for this single rollout and
+    the fresh env's PyBullet client is disconnected before returning.
+    Fresh per-rollout worlds are what make repeated evaluations of the
+    same theta deterministic - state-level resets on a shared env leave
+    history-dependent residuals (near-matching bodies skipped by the
+    reconstruction diff, auxiliary robot joints no reset touches), and
+    even a bit-identical ``p.restoreState`` world diverges after a
+    heavy-contact rollout via solver-internal state. Measured on
+    run_20260708_213258: same-theta SSE alternated 0.15/78 on a shared
+    env, which corrupted the grid seed and floored the identifiability
+    probe (noise floor 82.9 -> every param "NOT identified").
 
     Resets once to ``init_state`` (zeroing velocities so the rollout
     begins at rest, matching how a recorded cascade starts), applies the
@@ -189,15 +210,21 @@ def rollout_states(base_env: Any, init_state: State, actions: List[Action],
     resetting so momentum accrues in-sim. Returns the post-step state
     after each action (length == ``len(actions)``).
     """
-    _pin_all_physical_params(base_env, physical_params)
-    base_env._set_state(init_state)  # pylint: disable=protected-access
-    _zero_all_velocities(base_env)
-    # Re-apply after _set_state in case a reset path ever touches dynamics.
-    _pin_all_physical_params(base_env, physical_params)
-    out: List[State] = []
-    for action in actions:
-        out.append(base_env.step(action))
-    return out
+    env = base_env() if callable(base_env) else base_env
+    try:
+        _pin_all_physical_params(env, physical_params)
+        env._set_state(init_state)  # pylint: disable=protected-access
+        _zero_all_velocities(env)
+        # Re-apply after _set_state in case a reset path ever touches
+        # dynamics.
+        _pin_all_physical_params(env, physical_params)
+        out: List[State] = []
+        for action in actions:
+            out.append(env.step(action))
+        return out
+    finally:
+        if env is not base_env:
+            _dispose_env(env)
 
 
 def compute_rollout_sse(
@@ -453,8 +480,10 @@ def fit_params_rollout(
     rules, and theta concatenates ``physical_specs`` with
     ``rule_specs``.
 
-    Serial only: the shared ``base_env`` is mutated per evaluation, so no
-    multiprocessing pool may be used.
+    Serial only: a shared ``base_env`` instance is mutated per
+    evaluation (and a factory-built fresh env lives inside one
+    :func:`rollout_states` call), so no multiprocessing pool may be
+    used.
     """
     all_specs = list(physical_specs) + list(rule_specs)
     assert all_specs, "fit_params_rollout needs at least one ParamSpec."

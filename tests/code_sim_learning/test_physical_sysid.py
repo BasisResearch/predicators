@@ -1,12 +1,14 @@
 """Tests for the rollout system-ID pure-Python pieces.
 
-The rollout engine itself (PyBullet resets, velocity zeroing) is
+The rollout engine's physics (PyBullet resets, velocity zeroing) is
 exercised end-to-end by the domino experiments; here we unit-test the
-noise-aware curvature probe (given an ``sse_fn``) and the settled-tail
-trajectory truncation.
+noise-aware curvature probe (given an ``sse_fn``), the settled-tail
+trajectory truncation, and the fresh-env-per-rollout plumbing.
 """
+# pylint: disable=protected-access,import-outside-toplevel
 
 import numpy as np
+import pybullet as p
 
 import predicators.approaches  # noqa: F401  # pylint: disable=unused-import
 from predicators.code_sim_learning import physical_sysid
@@ -346,9 +348,11 @@ class _FakeStickyEnv:
         self.overrides = {}
 
     def get_physical_param_info(self):
+        """Return the per-param registry this stub was built with."""
         return self._info
 
     def apply_physical_param_overrides(self, params):
+        """Merge overrides in, rejecting any undeclared param name."""
         unknown = set(params) - set(self._info)
         assert not unknown, unknown
         self.overrides.update(params)
@@ -391,6 +395,7 @@ def test_pin_all_physical_params_env_without_registry():
         applied = None
 
         def apply_physical_param_overrides(self, params):
+            """Record whatever params get applied."""
             self.applied = dict(params)
 
     env = _Bare()
@@ -406,9 +411,9 @@ def test_apply_identified_reverts_params_dropped_from_declaration():
         AgentSimLearningApproach
     approach = AgentSimLearningApproach.__new__(AgentSimLearningApproach)
     env = _FakeStickyEnv(_REGISTRY)
-    approach._base_env = env  # pylint: disable=protected-access
-    approach._identified_physical_params = {}  # pylint: disable=protected-access
-    apply = approach._apply_identified_physical_params  # pylint: disable=protected-access
+    approach._base_env = env
+    approach._identified_physical_params = {}
+    apply = approach._apply_identified_physical_params
 
     apply({"lateral_friction": 1.9993, "rolling_friction": 0.007})
     assert env.overrides["lateral_friction"] == 1.9993
@@ -418,5 +423,92 @@ def test_apply_identified_reverts_params_dropped_from_declaration():
     assert env.overrides["rolling_friction"] == 0.006
     # The tracked dict mirrors the current declaration exactly, so env
     # recreation re-applies only what the final artifact declared.
-    # pylint: disable=protected-access
     assert approach._identified_physical_params == {"rolling_friction": 0.006}
+
+
+# ── Fresh-env-per-rollout plumbing ────────────────────────────────
+
+
+class _FreshRolloutEnv:
+    """Env stub owning a real DIRECT PyBullet client (empty world), so velocity
+    zeroing and client disposal exercise the real API."""
+
+    def __init__(self, log):
+        self._physics_client_id = p.connect(p.DIRECT)
+        log.append(self)
+        self.reset_to = None
+        self.steps = 0
+
+    def apply_physical_param_overrides(self, params):
+        """No-op: this stub carries no physical params."""
+        del params
+
+    def _set_state(self, state):
+        self.reset_to = state
+
+    def step(self, action):
+        """Advance the step counter and return a marker of progress."""
+        del action
+        self.steps += 1
+        return f"post_{self.steps}"
+
+    @property
+    def connected(self):
+        """Whether this stub's PyBullet client is still connected."""
+        info = p.getConnectionInfo(self._physics_client_id)
+        return bool(info["isConnected"])
+
+
+def test_rollout_states_factory_builds_and_disposes_fresh_env():
+    """A factory ``base_env`` gets one fresh env per rollout, disposed after.
+
+    Regression for run_20260708_213258: rollouts on a reused env are
+    nondeterministic (same-theta SSE alternated 0.15/78).
+    """
+    states, actions = _trajectory([0.0, 0.1, 0.2])
+    built = []
+
+    def factory():
+        return _FreshRolloutEnv(built)
+
+    out1 = physical_sysid.rollout_states(factory, states[0], actions,
+                                         {"k": 1.0})
+    out2 = physical_sysid.rollout_states(factory, states[0], actions,
+                                         {"k": 1.0})
+    assert out1 == ["post_1", "post_2"] == out2
+    assert len(built) == 2  # one fresh env per rollout
+    assert all(not env.connected for env in built)  # both disposed
+    assert all(env.reset_to is states[0] for env in built)
+
+
+def test_rollout_states_factory_disposes_on_rollout_error():
+    """The fresh env is disconnected even when a step raises."""
+    states, actions = _trajectory([0.0, 0.1, 0.2])
+    built = []
+
+    class _ExplodingEnv(_FreshRolloutEnv):
+
+        def step(self, action):
+            raise RuntimeError("mid-rollout failure")
+
+    def factory():
+        return _ExplodingEnv(built)
+
+    try:
+        physical_sysid.rollout_states(factory, states[0], actions, {})
+        assert False, "expected the step error to propagate"
+    except RuntimeError:
+        pass
+    assert len(built) == 1
+    assert not built[0].connected
+
+
+def test_rollout_states_env_instance_is_not_disposed():
+    """Passing an env instance keeps the caller-owned-env behavior."""
+    states, actions = _trajectory([0.0, 0.1, 0.2])
+    built = []
+    env = _FreshRolloutEnv(built)
+    out = physical_sysid.rollout_states(env, states[0], actions, {"k": 1.0})
+    assert out == ["post_1", "post_2"]
+    assert env.connected  # caller-owned env stays alive
+    p.disconnect(env._physics_client_id)  # pylint: disable=protected-access
