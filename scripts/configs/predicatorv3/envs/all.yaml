@@ -102,7 +102,11 @@ ENVS:
       domino_use_skill_factories: True
       # -- real-execution flags (registered in settings.py in Phase 4;
       #    the env subclass + bridge that consume them land in Phases 2/3/5) --
-      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator-real-env/pose_estimation/scenes/domino_real_0000_3blue.json"
+      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_real_0000.json"
+      # Raw capture has no per-domino role; assign by id (green=start,
+      # purple=target, rest movable). Ignored if the scene carries 'role'.
+      domino_real_start_id: 6
+      domino_real_target_id: 5
       domino_real_execute_real: False
       domino_real_bridge_host: "127.0.0.1"
       domino_real_bridge_port: 5555

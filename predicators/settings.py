@@ -465,8 +465,14 @@ class GlobalSettings:
     # The reconstructed-scene JSON (robot_base frame) the pybullet_domino_real
     # env builds its single train/test task from; the env sizes its domino
     # component from this scene's role counts.
-    domino_real_scene = ("/home/amberli/babyrobot/BabyRobotPredicator-real-env/"
-                         "pose_estimation/scenes/domino_real_0000_3blue.json")
+    domino_real_scene = ("/home/amberli/babyrobot/BabyRobotPredicator/"
+                         "scenes/domino_real_0000.json")
+    # Raw capture JSONs have no per-domino role, so roles are keyed by domino
+    # id: the id of the start (green) domino and of the target (purple) domino;
+    # every other domino is movable (blue). Ignored if the scene already carries
+    # an explicit 'role' field per domino.
+    domino_real_start_id = 6
+    domino_real_target_id = 5
     # When True the env's TEST-mode rollout executes option boundaries on the
     # real Franka (via the robot-side bridge) and re-perceives; default False =
     # safe dry-run (build segments + replay-perceive, no arm motion).
