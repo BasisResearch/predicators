@@ -2870,6 +2870,7 @@ def create_synthesis_tools(
                 "trajectories are available, so the rollout system-ID fit "
                 "cannot run. PHYSICAL_PARAMS needs full trajectories, not "
                 "isolated transitions.")
+        # Factory, not an instance: every rollout runs in a fresh env.
         fit_env = approach._get_rollout_fit_env()  # pylint: disable=protected-access
         physical_names = [s.name for s in physical_specs]
         init_params = {
