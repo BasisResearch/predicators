@@ -227,6 +227,11 @@ ENVS:
       process_planning_heuristic_weight: 10.0
       horizon: 500
       pybullet_birrt_path_subsample_ratio: 2
+      # Safety net only: with the asymmetric toggle delays in
+      # fan/processes.py (TurnFanOff mu=1) the oracle solves 5/5 and
+      # demos generate with zero replans; keep a small budget for the
+      # agent arms, whose learned models can still misjudge drift.
+      process_planning_max_execution_replans: 3
   bridge:
     NAME: "pybullet_bridge"
     # Parked by default; exp_bridge.yaml un-skips it.

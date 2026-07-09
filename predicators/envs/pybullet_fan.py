@@ -183,8 +183,15 @@ class PyBulletFanEnv(PyBulletEnv):
     wall_color: ClassVar[Tuple[float, float, float,
                                float]] = (0.5, 0.5, 0.5, 1.0)
 
-    # Boundary walls around grid
-    boundary_wall_height: ClassVar[float] = 0.03
+    # Boundary walls around grid. The walls must clear the ball's
+    # equator (center sits ball_radius above the table): with lower
+    # walls the ball leans on the wall's TOP EDGE while traveling along
+    # a wall-adjacent row, and the slanted edge contact carries part of
+    # its weight like a rail - measured 2.3x the free-rolling wind speed
+    # (5.35 vs 2.28 mm/step), which breaks the constant-speed process
+    # model and the GT simulator. At 0.06 the contact is a plain side
+    # touch at the equator and travel speed matches free rolling.
+    boundary_wall_height: ClassVar[float] = 0.06
     boundary_wall_thickness: ClassVar[float] = 0.002
     boundary_wall_color: ClassVar[Tuple[float, float, float,
                                         float]] = (0.9, 0.9, 0.9, 1)
@@ -194,7 +201,13 @@ class PyBulletFanEnv(PyBulletEnv):
     # -------------------------------------------------------------------------
     target_thickness: ClassVar[float] = 0.00001
     target_mass: ClassVar[float] = 0.0
-    target_friction: ClassVar[float] = 0.04
+    # Match the table's lateral friction: the pad covers a full grid
+    # cell that every final approach rolls across, and a slick pad
+    # (0.04, vs the table's 0.5) let the ball slide over it at ~2.2x
+    # the free-rolling wind speed (5.0 vs 2.28 mm/step), breaking the
+    # constant-speed process model and making the ball ping-pong across
+    # the target instead of resting on it.
+    target_friction: ClassVar[float] = 0.5
     target_color: ClassVar[Tuple[float, float, float, float]] = (0, 1, 0, 1.0)
 
     # =========================================================================
@@ -563,6 +576,15 @@ class PyBulletFanEnv(PyBulletEnv):
             position=(0, 0, cls.table_height),
             orientation=p.getQuaternionFromEuler([0, 0, 0]),
             physics_client_id=physics_client_id)
+        # Match the table's rolling friction (create_pybullet_block only
+        # sets lateral). The pad covers the full target cell and the
+        # ball ROLLS ON TOP of it; with zero rolling resistance its
+        # steady-state wind speed triples there (6.7 vs 2.28 mm/step),
+        # so it shoots across the target instead of resting on it.
+        p.changeDynamics(target_id,
+                         -1,
+                         rollingFriction=0.001,
+                         physicsClientId=physics_client_id)
         bodies["target_id"] = target_id
 
         return physics_client_id, pybullet_robot, bodies

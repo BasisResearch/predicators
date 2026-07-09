@@ -293,7 +293,11 @@ def test_exploration_mcmc_does_not_replace_solver_params(monkeypatch):
         "code_sim_learning_num_mcmc_steps": 0,
     })
     specs = [ParamSpec("a", 1.0, lo=0.0, hi=5.0)]
-    approach._fit_params_after_synthesis([], specs, [], {})
+    # Non-empty triples: with no data the method seeds from the declared
+    # inits instead of fitting (the oracle-sim-program no-demos path).
+    s = State({_block: np.array([0.0])})
+    triples = [(s, Action(np.zeros(1, dtype=np.float32)), s)]
+    approach._fit_params_after_synthesis([], specs, triples, {})
     assert calls == [None, 300]
     assert approach._fitted_params == {"a": 1.0}
     assert approach._fit_sse == 10.0
@@ -301,6 +305,42 @@ def test_exploration_mcmc_does_not_replace_solver_params(monkeypatch):
     assert approach._param_ensemble[0] == {"a": 4.0}
     assert {m["a"]
             for m in approach._param_ensemble[1:]}.issubset({2.0, 3.0, 4.0})
+
+
+def test_fit_params_no_data_seeds_declared_inits(monkeypatch):
+    """With no transitions, params seed from inits and no fit runs.
+
+    This is the oracle-sim-program no-demos path: every demo failed, so
+    ``_learn_simulator`` reaches the fit with empty
+    ``base_pred_triples`` and must fall back to the declared init values
+    instead of fitting.
+    """
+    from predicators.code_sim_learning.training import ParamSpec
+
+    approach = object.__new__(AgentSimLearningApproach)
+    approach._fitted_params = {}
+    approach._param_specs = []
+    approach._physical_param_specs = []
+    approach._param_ensemble = []
+    approach._last_fit_result = None
+    approach._fit_sse = 0.0
+    approach._rng = np.random.default_rng(0)
+
+    def _fail_fit(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("fit must not run with no data")
+
+    monkeypatch.setattr(AgentSimLearningApproach, "_fit_parameters",
+                        staticmethod(_fail_fit))
+    utils.reset_config({
+        "agent_sim_learn_oracle_sim_params": False,
+        "agent_explorer_info_seeking": False,
+    })
+    specs = [ParamSpec("a", 1.5, lo=0.0, hi=5.0)]
+    approach._fit_params_after_synthesis([], specs, [], {})
+    assert approach._fitted_params == {"a": 1.5}
+    assert approach._last_fit_result is None
+    assert approach._fit_sse == float("inf")
 
 
 def test_fit_parameters_num_steps_override_runs_mcmc():
