@@ -461,6 +461,24 @@ class GlobalSettings:
     domino_restricted_push = False
     # Use skill_factories-based option implementations
     domino_use_skill_factories = True
+    # --- real-world domino bench (pybullet_domino_real env) ------------------
+    # The reconstructed-scene JSON (robot_base frame) the pybullet_domino_real
+    # env builds its single train/test task from; the env sizes its domino
+    # component from this scene's role counts.
+    domino_real_scene = ("/home/amberli/babyrobot/BabyRobotPredicator-real-env/"
+                         "pose_estimation/scenes/domino_real_0000_3blue.json")
+    # When True the env's TEST-mode rollout executes option boundaries on the
+    # real Franka (via the robot-side bridge) and re-perceives; default False =
+    # safe dry-run (build segments + replay-perceive, no arm motion).
+    domino_real_execute_real = False
+    # Robot-side bridge server (holds the ZED provider + RobotInterface); the
+    # env holds a thin client. Only connected when domino_real_execute_real.
+    domino_real_bridge_host = "127.0.0.1"
+    domino_real_bridge_port = 5555
+    # babyrobot worktree root put on sys.path so the env can import babyrobot /
+    # pose_estimation from the stock predicators cwd.
+    domino_real_repo_root = \
+        "/home/amberli/babyrobot/BabyRobotPredicator-real-env"
     # Reach-limited "minimum-blocks" task mode: generate start/target pairs
     # spaced so that toppling requires bridging near the reach limit, and
     # attach each task a ``MinBlockReward`` with budget K* (the minimum blues

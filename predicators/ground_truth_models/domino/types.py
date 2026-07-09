@@ -17,7 +17,7 @@ class PyBulletDominoGroundTruthTypeFactory(GroundTruthTypeFactory):
 
     @classmethod
     def get_env_names(cls) -> Set[str]:
-        return {"pybullet_domino"}
+        return {"pybullet_domino", "pybullet_domino_real"}
 
     @classmethod
     def get_helper_types(cls, env_name: str) -> Set[Type]:

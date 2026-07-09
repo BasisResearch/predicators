@@ -38,7 +38,7 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
 
     @classmethod
     def get_env_names(cls) -> Set[str]:
-        return {"pybullet_domino_grid", "pybullet_domino"}
+        return {"pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real"}
 
     @classmethod
     def get_options(cls, env_name: str, types: Dict[str, Type],
