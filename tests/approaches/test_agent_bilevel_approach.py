@@ -1338,11 +1338,13 @@ class TestScheduledPlansPromptSection:
         )
 
     def test_section_absent_without_scheduled_plans(self):
+        """No scheduled-plans section is emitted when none were scheduled."""
         for empty in (None, []):
             prompt = self._prompt(empty)
             assert "Plans Already Scheduled This Cycle" not in prompt
 
     def test_section_lists_plans_and_asks_for_different_one(self):
+        """Scheduled plans are listed so the agent proposes a different one."""
         plans = [
             "  0: Pick(block0)[0.5000]",
             "  0: Place(block0, block1)[0.1000, 0.2000]",

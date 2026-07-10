@@ -148,11 +148,11 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
     def _use_gt_helpers(self) -> bool:
         """Whether to hand the agent the ground-truth helper scaffolding.
 
-        Opt-in via ``CFG.use_gt_helpers`` (also read by the
-        process-planning approaches). When on, the grid helper
-        types/predicates are merged into the agent's vocabulary and the
-        solved task is augmented with the grid objects + oracle goal
-        (see ``__init__`` / ``_solve``).
+        Opt-in via ``CFG.use_gt_helpers`` (also read by the process-
+        planning approaches). When on, the grid helper types/predicates
+        are merged into the agent's vocabulary and the solved task is
+        augmented with the grid objects + oracle goal (see ``__init__``
+        / ``_solve``).
         """
         return CFG.use_gt_helpers
 
@@ -180,8 +180,8 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         """Return synthesized per-skill samplers (option name -> sampler).
 
         Empty by default; learning subclasses populate the backing
-        field. Threaded into bilevel refinement to aim continuous-parameter
-        search at each step's subgoal.
+        field. Threaded into bilevel refinement to aim continuous-
+        parameter search at each step's subgoal.
         """
         return self._synthesized_samplers
 
@@ -510,9 +510,9 @@ scene, then annotate_scene overlays markers on it."""
         """Wrap a policy so OptionExecutionFailure surfaces as ApproachFailure.
 
         Bilevel planning and the base open-loop planner both build a
-        low-level policy from a grounded option plan; this adapter is their
-        single place to translate the harness's option-execution exception
-        into the ApproachFailure CogMan expects.
+        low-level policy from a grounded option plan; this adapter is
+        their single place to translate the harness's option-execution
+        exception into the ApproachFailure CogMan expects.
         """
 
         def _policy(s: State) -> Action:
@@ -603,10 +603,10 @@ scene, then annotate_scene overlays markers on it."""
         """Return a prompt section pointing at the current solve's rendered
         scene image, or an empty string if none was rendered.
 
-        ``_render_initial_state_image`` must have been called first; this
-        references whichever file that call saved (init or replan snapshot),
-        so replan queries point at the current scene rather than the stale
-        episode-init image.
+        ``_render_initial_state_image`` must have been called first;
+        this references whichever file that call saved (init or replan
+        snapshot), so replan queries point at the current scene rather
+        than the stale episode-init image.
         """
         save_dir = self._tool_context.image_save_dir
         img_name = self._last_scene_image_name
@@ -649,11 +649,12 @@ scene, then annotate_scene overlays markers on it."""
     def reset_for_new_episode(self) -> None:
         """Advance the test-task counter at each test episode start.
 
-        CogMan calls this exactly once per test task (via ``cogman.reset``
-        in main.py's ``_solve_task``) and never on mid-episode replans, so
-        the counter stays in lockstep with main.py's ``test_task_idx``. The
-        index reaches the sandbox via the ToolContext and lands in the
-        session-log filename. No-op outside the test phase.
+        CogMan calls this exactly once per test task (via
+        ``cogman.reset`` in main.py's ``_solve_task``) and never on mid-
+        episode replans, so the counter stays in lockstep with main.py's
+        ``test_task_idx``. The index reaches the sandbox via the
+        ToolContext and lands in the session-log filename. No-op outside
+        the test phase.
         """
         super().reset_for_new_episode()
         # New episode -> the next scene render is a true init snapshot.
@@ -992,11 +993,11 @@ Output ONLY the option plan lines at the end, after any analysis."""
         """Push current approach state into the shared ToolContext.
 
         The MCP tools (inspect_options, evaluate_option_plan, etc.) read
-        from the ToolContext dataclass, not the approach directly. This keeps
-        them in sync after mutations (e.g. new trajectories collected, options
-        added). Called before each solve and learning interaction. Subclasses
-        should call super() and then set additional fields (e.g.
-        skill_factory_context).
+        from the ToolContext dataclass, not the approach directly. This
+        keeps them in sync after mutations (e.g. new trajectories
+        collected, options added). Called before each solve and learning
+        interaction. Subclasses should call super() and then set
+        additional fields (e.g. skill_factory_context).
         """
         self._tool_context.types = self._types
         self._tool_context.predicates = self._initial_predicates

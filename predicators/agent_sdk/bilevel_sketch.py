@@ -173,8 +173,8 @@ def format_plan_lines(
     """Render a grounded option plan as one ``format_step_line`` per step.
 
     Each step shows its continuous ``params``. When ``sketch`` is given,
-    the parallel step's ``subgoal_atoms`` are appended so the log mirrors
-    the annotated sketch.
+    the parallel step's ``subgoal_atoms`` are appended so the log
+    mirrors the annotated sketch.
     """
     lines = []
     for i, opt in enumerate(plan):

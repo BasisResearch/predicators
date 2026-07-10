@@ -275,12 +275,12 @@ class AgentBilevelExplorer(BaseExplorer):
         forward-validated, goal-reaching plan on the explore task into
         ``solved_plan`` (grounded options with continuous params) and
         ``solved_sketch`` (the option skeleton plus the subgoals that
-        actually held). We reconstruct a sketch from that skeleton and graft
-        each captured option's continuous params onto the step's
-        ``initial_params``, so the info-gain refinement below seeds them as
-        the first candidate in each step's pool (see ``_sample_info_seeking``)
-        rather than replaying them verbatim. Consume (clear) the capture so it
-        can't be reused.
+        actually held). We reconstruct a sketch from that skeleton and
+        graft each captured option's continuous params onto the step's
+        ``initial_params``, so the info-gain refinement below seeds them
+        as the first candidate in each step's pool (see
+        ``_sample_info_seeking``) rather than replaying them verbatim.
+        Consume (clear) the capture so it can't be reused.
         """
         plan = self._tool_context.solved_plan
         captured_sketch = self._tool_context.solved_sketch
@@ -311,9 +311,9 @@ class AgentBilevelExplorer(BaseExplorer):
                                    Action]) -> Callable[[State], Action]:
         """Convert OptionExecutionFailure into RequestActPolicyFailure.
 
-        Lets the main loop cleanly terminate the episode when the refined
-        plan finishes or fails mid-execution (which is exactly the
-        disagreement signal we want to collect).
+        Lets the main loop cleanly terminate the episode when the
+        refined plan finishes or fails mid-execution (which is exactly
+        the disagreement signal we want to collect).
         """
 
         def _wrapped(state: State) -> Action:
@@ -344,10 +344,10 @@ class AgentBilevelExplorer(BaseExplorer):
         """Render the explore task's initial state and return a prompt section
         pointing at it, mirroring what test-time solves get.
 
-        Saved as ``train_task{N:03d}_initial_state.png`` so train-task scenes
-        are inspectable alongside the test-task init images. Empty string when
-        rendering is unavailable (e.g. the sandbox isn't created yet, so
-        ``image_save_dir`` is unset).
+        Saved as ``train_task{N:03d}_initial_state.png`` so train-task
+        scenes are inspectable alongside the test-task init images.
+        Empty string when rendering is unavailable (e.g. the sandbox
+        isn't created yet, so ``image_save_dir`` is unset).
         """
         env = self._tool_context.env
         save_dir = self._tool_context.image_save_dir
@@ -389,9 +389,9 @@ class AgentBilevelExplorer(BaseExplorer):
 
         Scans a bounded sample of recent-trajectory states, scores each
         abstract atom's ensemble disagreement via the wired scorer, and
-        reports the highest-disagreement predicates. Grounded in the actual
-        ensemble, so it points the agent at genuinely-uncertain dynamics
-        rather than guesses. Empty when no scorer/trajectories.
+        reports the highest-disagreement predicates. Grounded in the
+        actual ensemble, so it points the agent at genuinely-uncertain
+        dynamics rather than guesses. Empty when no scorer/trajectories.
         """
         fn = self._tool_context.atom_disagreement_fn
         if fn is None:

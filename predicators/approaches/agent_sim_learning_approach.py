@@ -1307,8 +1307,8 @@ the tools."""
         """Oracle-param SSE via the recurrent (latent-threaded) rollout.
 
         Latent counterpart to :meth:`_oracle_param_sse`'s per-transition
-        body. The per-feature ``log_sse_breakdown`` is per-transition and
-        so omitted; the recurrent rollout already reports its SSE.
+        body. The per-feature ``log_sse_breakdown`` is per-transition
+        and so omitted; the recurrent rollout already reports its SSE.
         """
         groups = self._group_triples_by_trajectory(base_pred_triples)
         if not groups:
