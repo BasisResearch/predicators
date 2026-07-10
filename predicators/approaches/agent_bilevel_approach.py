@@ -672,17 +672,18 @@ class AgentBilevelApproach(AgentPlannerApproach):
         execution monitor.
 
         CogMan calls solve() identically at episode start and on a
-        monitor-triggered replan; ``_exec_status`` distinguishes them (non-None
-        only while a monitored plan executes; reset_for_new_episode clears it
-        at episode start). On a replan ``task.init`` is the real state where
-        the just-finished step's annotation failed. Divergence is usually a
-        continuous-execution problem (a sampled parameter whose real outcome
-        differed from the option-model rollout), not a wrong skeleton, so we
-        first try to resume a suffix of the executed sketch (cheap, no agent
-        query; see :meth:`_replan_suffix`). Returns None to fall through to a
-        fresh agent sketch; raises ApproachFailure once the per-episode replan
-        budget is exhausted so the episode fails fast instead of running the
-        horizon open-loop.
+        monitor-triggered replan; ``_exec_status`` distinguishes them
+        (non-None only while a monitored plan executes;
+        reset_for_new_episode clears it at episode start). On a replan
+        ``task.init`` is the real state where the just-finished step's
+        annotation failed. Divergence is usually a continuous-execution
+        problem (a sampled parameter whose real outcome differed from
+        the option-model rollout), not a wrong skeleton, so we first try
+        to resume a suffix of the executed sketch (cheap, no agent
+        query; see :meth:`_replan_suffix`). Returns None to fall through
+        to a fresh agent sketch; raises ApproachFailure once the per-
+        episode replan budget is exhausted so the episode fails fast
+        instead of running the horizon open-loop.
         """
         status = self._exec_status
         if status is None or status.steps_initiated == 0:
