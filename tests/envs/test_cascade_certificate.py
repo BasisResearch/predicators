@@ -5,12 +5,13 @@ function roll profiles, so each domino's topple onset is exactly the
 step where its roll jumps past the fallen threshold.
 """
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from predicators.envs.pybullet_domino.cascade_certificate import \
-    CASCADE_WINDOW_STEPS, check_cascade_legitimacy
+    CASCADE_WINDOW_STEPS, check_cascade_legitimacy, \
+    count_movable_blocks_used
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.structs import GroundAtom, Object, Predicate, State, Type
@@ -374,13 +375,13 @@ def test_restricted_push_counts_as_green_push():
     assert ok, reason
 
 
-def test_min_block_reward_certify_trajectory():
-    """MinBlockReward.certify_trajectory applies the cascade rules to its own
-    goal (the reward-object seam consumed by
-    BaseEnv.check_episode_trajectory)."""
+def test_domino_evaluator_certify():
+    """DominoEvaluator._certify applies the cascade rules to its own goal (the
+    evaluator seam consumed by BaseEnv.check_episode_trajectory /
+    BaseEnv.evaluate_episode)."""
     # Local import: pulls in PyBullet, which the rest of this file avoids.
     from predicators.envs.pybullet_domino.env import \
-        MinBlockReward  # pylint: disable=import-outside-toplevel
+        DominoEvaluator  # pylint: disable=import-outside-toplevel
     objs = _make_objects(["green", "blue1", "target"])
     states = _build_states(objs,
                            30, {
@@ -393,11 +394,67 @@ def test_min_block_reward_certify_trajectory():
                                "blue1": (0.7, 1.098),
                                "target": (0.7, 1.196)
                            })
-    reward = MinBlockReward(cast(Any, None), _goal(objs), max_blocks=1)
+    evaluator = DominoEvaluator(_goal(objs))
     honest = _options([("Push", ("robot", "green"), 0, 7)], 30)
-    ok, reason = reward.certify_trajectory(states, honest)
+    ok, reason = evaluator._certify(states, honest)  # pylint: disable=protected-access
     assert ok, reason
     hacked = _options([("Push", ("robot", "blue1"), 0, 7)], 30)
-    ok, reason = reward.certify_trajectory(states, hacked)
+    ok, reason = evaluator._certify(states, hacked)  # pylint: disable=protected-access
     assert not ok
     assert "green" in reason
+
+
+def test_domino_evaluator_reward_decomposition():
+    """The DominoEvaluator's reward is the certified-success bonus minus the
+    per-block cost; termination is purely physical (an illegitimate topple
+    still terminates), and no oracle K* lives on the evaluator."""
+    # Local import: pulls in PyBullet, which the rest of this file avoids.
+    from predicators.envs.pybullet_domino.env import \
+        DominoEvaluator  # pylint: disable=import-outside-toplevel
+    from predicators.settings import \
+        CFG  # pylint: disable=import-outside-toplevel
+    from predicators.utils import \
+        reset_config  # pylint: disable=import-outside-toplevel
+    reset_config({"domino_block_cost": 0.05, "domino_min_block_num_blues": 4})
+
+    # Toppled with a real classifier so terminated() reflects the states.
+    toppled = Predicate(
+        "Toppled", [_DOMINO_TYPE],
+        lambda s, o: float(s.get(o[0], "roll")) >= _FALLEN_ROLL)
+    objs = _make_objects(["green", "blue1", "target"])
+    goal = {GroundAtom(toppled, [objs["target"]])}
+    states = _build_states(objs,
+                           30, {
+                               "green": 5,
+                               "blue1": 10,
+                               "target": 14
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "blue1": (0.7, 1.098),
+                               "target": (0.7, 1.196)
+                           })
+    # The pure block count sees exactly one toppled BLUE in the final
+    # state (green also fell but is filtered by color; target is purple).
+    assert count_movable_blocks_used(states[-1]) == 1
+    evaluator = DominoEvaluator(goal)
+    honest = _options([("Push", ("robot", "green"), 0, 7)], 30)
+    hacked = _options([("Push", ("robot", "blue1"), 0, 7)], 30)
+    # Legitimate topple: bonus minus one block's cost.
+    assert evaluator.terminated(states[-1])
+    assert abs(
+        evaluator.reward(states, honest) -
+        (1.0 - CFG.domino_block_cost)) < 1e-9
+    # Illegitimate topple: still terminated, bonus gated, cost still paid.
+    assert evaluator.terminated(states[-1])
+    assert abs(evaluator.reward(states, hacked) -
+               (-CFG.domino_block_cost)) < 1e-9
+    # The evaluator ships on the agent-facing Task, so no oracle
+    # quantity may live on it: K* travels env-side via
+    # EnvironmentTask.offline_task_metrics instead.
+    assert evaluator.offline_metrics(states, honest) == {"k_used": 1.0}
+    assert not hasattr(evaluator, "k_star")
+    # The stated objective is public and K*-free.
+    description = evaluator.objective_description()
+    assert str(CFG.domino_block_cost) in description
+    assert "K*" not in description

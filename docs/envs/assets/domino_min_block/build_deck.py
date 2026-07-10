@@ -183,8 +183,8 @@ HTML = r"""<!doctype html>
   <aside class="notes">Read left to right: sample, measure, filter, arm,
   cache. Step 2 is honest physics — real Push rollouts with the push agents
   actually use, not geometry arithmetic. Step 3 is the differentiation
-  filter, direction-aware for over/under-reach. Step 4 is the MinBlockReward
-  budget. Step 5: the cache key hashes every domino_/pybullet_/skill_phase_
+  filter, direction-aware for over/under-reach. Step 4 arms the
+  DominoEvaluator (offline K*). Step 5: the cache key hashes every domino_/pybullet_/skill_phase_
   flag, the seed, task counts, and a digest of the domino env + skill source
   — cold gen ~45 s for 5 tasks, warm reload ~0.01 s.</aside>
 </section>
@@ -192,26 +192,25 @@ HTML = r"""<!doctype html>
 <!-- 8 ─ The reward -->
 <section>
   <h2>The minimum-block reward</h2>
-  <blockquote><b>success ⇔ Toppled(target) ∧ blocks_used ≤ K*</b><br>
-  K* = true minimum #blues that topple the target — computed <b>by simulation at the true friction</b></blockquote>
+  <blockquote><b>reward = 1[Toppled(target) ∧ legitimate cascade] − c · blocks_used</b><br>
+  K* = true minimum #blues that topple the target — computed <b>by simulation at the true friction</b>, kept <b>offline-only</b> (metrics, never the criterion)</blockquote>
   <table>
     <tr><th>blues used</th><th>outcome (verified in sim)</th></tr>
-    <tr><td>K* − 1</td><td class="bad">chain dies short — no topple ✗</td></tr>
-    <tr><td>K*</td><td class="good">topples, within budget ✓ reward</td></tr>
-    <tr><td>K* + 1</td><td class="bad">topples but over budget ✗</td></tr>
+    <tr><td>K* − 1</td><td class="bad">chain dies short — no topple, no bonus ✗</td></tr>
+    <tr><td>K*</td><td class="good">topples ✓ reward 1 − c·K* (max)</td></tr>
+    <tr><td>K* + 1</td><td class="bad">topples but wasteful — reward 1 − c·(K*+1)</td></tr>
   </table>
   <ul>
-    <li>Toppling needs ≥ K* ⇒ “≤ K*” ≡ “exactly K*” — <b>two-sided</b></li>
-    <li>Hitting K* ⇔ having a <b>calibrated reach model</b> — that's the whole point</li>
+    <li>Under-build fails on physics; over-build pays the per-block cost — <b>two-sided</b>, no K* in the reward</li>
+    <li>Maximizing reward ⇔ having a <b>calibrated reach model</b> — that's the whole point</li>
     <li><code>blocks_used</code> = toppled movable blues in the final state (plan-free, state-based)</li>
   </ul>
-  <aside class="notes">Implemented as a per-task binary reward function
-  (EnvironmentTask.reward_fn, a MinBlockReward carrying the K* budget) that
-  BaseEnv.goal_reached evaluates in place of the plain atom check — the
-  atom-set goal is its special case. Verified with a j-sweep: under/exact/
-  over give exactly the table. Because we plan via a learned simulator (not
-  reward optimization), the agent can't game the count — it must derive it
-  from a physics model.</aside>
+  <aside class="notes">Implemented as a per-task evaluator
+  (EnvironmentTask.evaluator, a DominoEvaluator in the standard RL
+  (reward, terminated) shape; terminated = the atom check, the legitimacy
+  certificate gates the bonus). K* stays out of everything agent-visible,
+  so the reward channel can't leak "fewer would have sufficed" — the agent
+  must derive spacing from a physics model.</aside>
 </section>
 
 

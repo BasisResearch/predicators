@@ -14,7 +14,7 @@ import pytest
 
 # Bootstrap circular imports before pulling from predicators.approaches.
 import predicators.utils  # noqa: F401
-from predicators.structs import Action, LowLevelTrajectory, State, Type
+from predicators.structs import Action, LowLevelTrajectory, State, Task, Type
 
 
 @pytest.fixture(name="approach_cls")
@@ -25,7 +25,12 @@ def _approach_cls():
     return AgentSimLearningApproach
 
 
-def _mk_traj(is_demo, task_idx, sim_v=None, preds_v=None, rejected=False):
+def _mk_traj(is_demo,
+             task_idx,
+             sim_v=None,
+             preds_v=None,
+             reward=None,
+             terminated=None):
     """Build a 1-action trajectory with the given provenance tags."""
     cup_type = Type("cup_type", ["f"])
     cup = cup_type("cup")
@@ -38,7 +43,8 @@ def _mk_traj(is_demo, task_idx, sim_v=None, preds_v=None, rejected=False):
         _train_task_idx=task_idx,
         _source_simulator_version=sim_v,
         _source_predicates_version=preds_v,
-        _env_rejected=rejected,
+        _env_reward=reward,
+        _env_terminated=terminated,
     )
 
 
@@ -77,12 +83,14 @@ def test_trajectory_listing_interaction_with_provenance(approach_cls):
 def test_trajectory_listing_supervisor_rejected(approach_cls):
     """A rejected episode is flagged as supervisor-rejected, nothing more.
 
-    The rules live in the NL goal description, so the agent must infer
-    the violation from its own trajectory rather than be told it.
+    Rejection is derived from the (reward, terminated) pair (terminated
+    without a positive reward); the rules live in the NL goal
+    description, so the agent must infer the violation from its own
+    trajectory rather than be told it.
     """
     trajs = [
         _mk_traj(is_demo=False, task_idx=0),
-        _mk_traj(is_demo=False, task_idx=3, rejected=True),
+        _mk_traj(is_demo=False, task_idx=3, reward=-0.05, terminated=True),
     ]
     out = approach_cls._format_trajectory_listing(trajs)
     lines = [l for l in out.splitlines() if l.startswith("  [")]
@@ -91,6 +99,22 @@ def test_trajectory_listing_supervisor_rejected(approach_cls):
     # No violation specifics leak into the roster line.
     assert "domino" not in lines[1]
     assert "push" not in lines[1].lower()
+
+
+def test_trajectory_listing_env_reward(approach_cls):
+    """Evaluated episodes show the env reward with a success flag; a rejected
+    topple counts as success=0 even though it terminated."""
+    trajs = [
+        _mk_traj(is_demo=False, task_idx=0, reward=0.85, terminated=True),
+        _mk_traj(is_demo=False, task_idx=1, reward=-0.05, terminated=True),
+        _mk_traj(is_demo=False, task_idx=2),  # never evaluated
+    ]
+    out = approach_cls._format_trajectory_listing(trajs)
+    lines = [l for l in out.splitlines() if l.startswith("  [")]
+    assert "env reward=0.85 (success=1)" in lines[0]
+    assert "env reward=-0.05 (success=0)" in lines[1]
+    assert "the supervisor REJECTED this episode" in lines[1]
+    assert "reward" not in lines[2]
 
 
 def test_trajectory_listing_partial_provenance(approach_cls):
@@ -247,3 +271,92 @@ def test_po_prompt_uses_five_arg_signature_only():
     headers = re.findall(r"(?m)^## Recurrent rules \(partial observability\)$",
                          prompt)
     assert len(headers) == 1
+
+
+# ── _make_evaluate_trajectory_fn / _format_objective_block ──────────
+
+
+def test_evaluate_trajectory_helper(approach_cls):
+    """The exec-ns evaluate_trajectory helper returns verdict dicts (never the
+    evaluator), labels Action inputs by their producing options, and rejects
+    bad task indices."""
+    from types import SimpleNamespace
+
+    from predicators import utils
+    from predicators.structs import TaskEvaluator
+
+    class _RecordingEvaluator(TaskEvaluator):
+        """Rejecting evaluator that records the labels it saw."""
+
+        def __init__(self):
+            super().__init__(set())  # empty goal: terminated is True
+            self.seen_options = None
+
+        def _certify(self, states, step_options):
+            self.seen_options = step_options
+            return False, "nope"
+
+    evaluator = _RecordingEvaluator()
+
+    cup_type = Type("cup_type", ["f"])
+    cup = cup_type("cup")
+    states = [State({cup: [0.0]}), State({cup: [1.0]})]
+    stub = SimpleNamespace(_train_tasks=[
+        Task(states[0], set(), evaluator=evaluator),
+        Task(states[0], set()),
+    ])
+    fn = approach_cls._make_evaluate_trajectory_fn(stub)
+    push = utils.SingletonParameterizedOption(
+        "Push", lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)))
+    act = Action(np.zeros(1, dtype=np.float32))
+    act.set_option(push.ground([], np.zeros(0, dtype=np.float32)))
+
+    verdict = fn(states, [act], task_idx=0)
+    assert verdict == {
+        "terminated": True,
+        "reward": 0.0,  # bonus gated by the rejection
+        "legitimate": False,
+        "reason": "nope",
+    }
+    assert evaluator.seen_options == [("Push", ())]
+    # Pre-built labels pass through unchanged.
+    fn(states, [("Push", ("robot", ))], task_idx=0)
+    assert evaluator.seen_options == [("Push", ("robot", ))]
+    with pytest.raises(ValueError, match="no task evaluator"):
+        fn(states, None, task_idx=1)
+    with pytest.raises(ValueError, match="out of range"):
+        fn(states, None, task_idx=2)
+    with pytest.raises(ValueError, match="non-empty"):
+        fn([], None, task_idx=0)
+
+
+def test_format_objective_block(approach_cls):
+    """The objective block renders the first stated objective and is empty when
+    no evaluator states one."""
+    from types import SimpleNamespace
+
+    from predicators.structs import TaskEvaluator
+
+    class _StatingEvaluator(TaskEvaluator):
+        """Evaluator with a public objective statement."""
+
+        def objective_description(self):
+            return "Topple the target legitimately; each blue costs 0.05."
+
+    cup_type = Type("cup_type", ["f"])
+    init = State({cup_type("cup"): [0.0]})
+
+    def _task(evaluator=None):
+        return Task(init, set(), evaluator=evaluator)
+
+    fmt = approach_cls._format_objective_block
+    assert fmt(SimpleNamespace(_train_tasks=[])) == ""
+    assert fmt(SimpleNamespace(_train_tasks=[_task()])) == ""
+    assert fmt(
+        SimpleNamespace(_train_tasks=[_task(TaskEvaluator(set()))])) == ""
+    out = fmt(
+        SimpleNamespace(
+            _train_tasks=[_task(), _task(_StatingEvaluator(set()))]))
+    assert "## Task objective (env ground-truth reward)" in out
+    assert "each blue costs 0.05" in out
+    assert "evaluate_trajectory" in out

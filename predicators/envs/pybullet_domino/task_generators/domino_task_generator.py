@@ -178,12 +178,13 @@ class DominoTaskGenerator(TaskGenerator):
         apart (``CFG.domino_min_block_span_range``), with a generous
         pile of staged blue blocks. The span is chosen so bridging
         start->target must happen near the topple-reach limit; the per-
-        task ``MinBlockReward`` (budget = K*) is attached afterwards
-        with physics in the loop — see
+        task ``DominoEvaluator`` (offline k_star = K*) is attached
+        afterwards with physics in the loop — see
         ``min_block_generation._assign_min_blocks``. The goal is simply
-        to topple the target, but the reward additionally caps the blues
-        used at K*, so a solver that over-estimates reach under-builds
-        and fails. Returns ``None`` if no in-bounds placement is found.
+        to topple the target; each blue toppled costs reward, so a
+        solver that over-estimates reach under-builds and fails while an
+        over-builder pays the cost. Returns ``None`` if no in-bounds
+        placement is found.
         """
         dominos = self.domino.dominos
         num_blues = min(CFG.domino_min_block_num_blues, len(dominos) - 2)

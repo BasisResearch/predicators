@@ -29,8 +29,9 @@ ENVS:
   # NEW: reach-limited "minimum-blocks" domino tasks for the system-ID
   # experiment. Same base flags as the old config, plus the min-block flags:
   #   - domino_min_block_tasks: start/target pairs bridged near the reach
-  #     limit; each task carries a MinBlockReward with budget K* (min blues
-  #     to topple at the true friction): topple AND blues used <= K*.
+  #     limit; each task carries a DominoEvaluator: reward = 1[toppled via
+  #     a legitimate cascade] - domino_block_cost * blues used. K* (min
+  #     blues to topple at the true friction) is offline-metrics only.
   #   - domino_true_friction: the real env's friction (K* computed at it).
   #   - span_lo/hi + num_blues: task geometry / blue budget. Recalibrate the
   #     span with the reach probe if you change domino_true_friction.
@@ -91,10 +92,11 @@ ENVS:
       domino_min_block_tasks: True
       # REVERSE (under-reach) condition of domino_low_friction: planning
       # friction below true, so an uncalibrated planner under-estimates
-      # reach, OVER-builds, and the target topples but blues used exceeds
-      # the K* (max_blocks) budget. K* is recomputed at the new true
-      # friction, and the generator's under_reach filter keeps only tasks
-      # where the believed build over-spends within the staged budget.
+      # reach, OVER-builds, and the target topples but the extra blues
+      # pay the per-block reward cost (k_used > K* in the offline
+      # metrics). K* is recomputed at the new true friction, and the
+      # generator's under_reach filter keeps only tasks where the
+      # believed build over-spends within the staged budget.
       # Geometry recalibrated at true friction 0.5 (anchor reach probes
       # 2026-07-08; yaw-parity fix + fresh-process re-validation
       # 2026-07-09). Straight spans: 0.44-0.49 gives K*=2 vs believed 3

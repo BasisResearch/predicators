@@ -1,16 +1,18 @@
 """Min-block / system-ID task generation for the domino environment.
 
 Builds the reach-limited "minimum-blocks" tasks: start/target pairs whose
-gap sits near the topple-reach limit, each carrying a ``MinBlockReward``
-with budget K* (the simulated minimum number of movable blues that topple
-the target at the true friction). A differentiation filter keeps only
+gap sits near the topple-reach limit, each carrying a ``DominoEvaluator``
+plus an env-side-only ``offline_task_metrics["k_star"]`` recording the
+simulated minimum number of movable blues that topple the target at the
+true friction (metrics only - K* never enters the success criterion or
+anything agent-reachable). A differentiation filter keeps only
 tasks that separate a friction-calibrated planner from a miscalibrated
 one. Finished tasks are cached on disk, keyed by config + seed + a source
 digest.
 
 Every function takes the composed domino env as its first argument; this
 module owns the generation pipeline while the env owns the physics and
-reward semantics (``MinBlockReward``, ``count_movable_blocks_used``).
+reward semantics (``DominoEvaluator``, ``count_movable_blocks_used``).
 """
 
 import functools
@@ -190,7 +192,7 @@ def _load_min_block_cache(
         path: Optional[Path]) -> Optional[List[EnvironmentTask]]:
     """Rebuild cached tasks, or None on a cache miss."""
     # pylint: disable=import-outside-toplevel,protected-access
-    from predicators.envs.pybullet_domino.env import MinBlockReward
+    from predicators.envs.pybullet_domino.env import DominoEvaluator
     if path is None or not path.exists():
         return None
     raw = json.loads(path.read_text())
@@ -218,13 +220,15 @@ def _load_min_block_cache(
             GroundAtom(pred_map[pname], [objs[oname] for oname in onames])
             for pname, onames in entry["goal"]
         }
-        max_blocks = entry["max_blocks"]
+        k_star = entry["k_star"]
         plain = EnvironmentTask(
             state,
             goal,
             goal_nl=entry["goal_nl"],
-            reward_fn=(MinBlockReward(env, goal, max_blocks)
-                       if max_blocks is not None else None))
+            evaluator=DominoEvaluator(goal) if k_star is not None else None,
+            offline_task_metrics=({
+                "k_star": float(k_star)
+            } if k_star is not None else {}))
         # Re-run the standard PyBullet conversion (joints, optional
         # rendering) instead of caching simulator state.
         tasks.extend(env._add_pybullet_state_to_tasks([plain]))
@@ -243,20 +247,17 @@ def _save_min_block_cache(path: Optional[Path], tasks: List[EnvironmentTask],
                           num_requested: int) -> None:
     """Serialize finished tasks (init data, goal, K*) to the cache.
 
-    The reward function itself isn't serializable; its K* budget is
-    stored and the ``MinBlockReward`` is rebuilt on load.
-    ``num_requested`` is stored alongside so a partial set (the quota
-    loop hit its attempt cap) is flagged loudly on every reload instead
-    of silently shrinking the eval.
+    Only the offline K* is stored; the ``DominoEvaluator`` is rebuilt on
+    load. ``num_requested`` is stored alongside so a partial set (the
+    quota loop hit its attempt cap) is flagged loudly on every reload
+    instead of silently shrinking the eval.
     """
-    # pylint: disable=import-outside-toplevel
-    from predicators.envs.pybullet_domino.env import MinBlockReward
     if path is None:
         return
     payload = []
     for env_task in tasks:
         init = env_task.init
-        reward = env_task.reward_fn
+        k_star = env_task.offline_task_metrics.get("k_star")
         payload.append({
             "objects": [(o.name, o.type.name) for o in init],
             "data": {o.name: [float(v) for v in init.data[o]]
@@ -265,8 +266,8 @@ def _save_min_block_cache(path: Optional[Path], tasks: List[EnvironmentTask],
                      for a in env_task.goal],
             "goal_nl":
             env_task.goal_nl,
-            "max_blocks":
-            reward.max_blocks if isinstance(reward, MinBlockReward) else None,
+            "k_star":
+            k_star,
         })
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -282,8 +283,8 @@ def _save_min_block_cache(path: Optional[Path], tasks: List[EnvironmentTask],
 
 def _assign_min_blocks(env: "PyBulletDominoComposedEnv",
                        tasks: List[EnvironmentTask]) -> List[EnvironmentTask]:
-    """Attach each min-block task's ``MinBlockReward`` (budget = K*,
-    computed by simulation).
+    """Attach each min-block task's ``DominoEvaluator`` and its env-side
+    ``offline_task_metrics["k_star"]`` (K*, computed by simulation).
 
     K* is the minimum number of blues whose evenly-spaced chain lets a real
     Push on the start topple the target at this env's true friction (see
@@ -294,7 +295,7 @@ def _assign_min_blocks(env: "PyBulletDominoComposedEnv",
     runs before any episode and every episode re-sets state.
     """
     # pylint: disable=import-outside-toplevel
-    from predicators.envs.pybullet_domino.env import MinBlockReward
+    from predicators.envs.pybullet_domino.env import DominoEvaluator
     out: List[EnvironmentTask] = []
     for env_task in tasks:
         k_star = compute_k_star(env, env_task.init)
@@ -316,7 +317,8 @@ def _assign_min_blocks(env: "PyBulletDominoComposedEnv",
         #     (chain dies, target never topples);
         #   * planning < true (under-reach): keep only believed > true
         #     (and expressible within the staged blues) - the planner
-        #     OVER-builds, topples the target, but exceeds max_blocks.
+        #     OVER-builds, topples the target, but pays the per-block
+        #     reward cost.
         # Dead-band spans where both frictions agree cannot separate the
         # calibrated from the uncalibrated model and are dropped.
         direction = _planning_mismatch_direction()
@@ -333,8 +335,8 @@ def _assign_min_blocks(env: "PyBulletDominoComposedEnv",
                             env_task.goal_description,
                             alt_goal_desc=env_task.alt_goal_desc,
                             goal_nl=env_task.goal_nl,
-                            reward_fn=MinBlockReward(env, env_task.goal,
-                                                     k_star)))
+                            evaluator=DominoEvaluator(env_task.goal),
+                            offline_task_metrics={"k_star": float(k_star)}))
     logging.info("Min-block tasks: kept %d/%d with K* assigned.", len(out),
                  len(tasks))
     return out
@@ -364,8 +366,8 @@ def _believed_k_differentiates(direction: str, k_true: int,
       under-builds and the chain dies short of the target);
     * under_reach: the planner must believe MORE blues are needed - but
       no more than the staged budget, so its over-built plan is
-      physically expressible and fails on the ``max_blocks`` cap rather
-      than on a muddled "can't build my plan" path.
+      physically expressible and pays the per-block reward cost rather
+      than failing on a muddled "can't build my plan" path.
     """
     if k_believed is None:
         return False
@@ -445,10 +447,11 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
        corner K* to over-spend within the staged budget (the strong
        certificate, feasible at planning friction 0.1).
     4. Stage ``domino_min_block_num_blues`` blues (more than K*), so
-       over-building is possible and penalized by the ``max_blocks`` cap.
+       over-building is possible and penalized by the per-block reward
+       cost.
     """
     # pylint: disable=import-outside-toplevel
-    from predicators.envs.pybullet_domino.env import MinBlockReward
+    from predicators.envs.pybullet_domino.env import DominoEvaluator
     from predicators.utils import create_state_from_dict
     comp = env._domino_component  # pylint: disable=protected-access
     if comp is None:
@@ -699,7 +702,8 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
     return EnvironmentTask(init_state,
                            goal_atoms,
                            goal_nl=goal_nl,
-                           reward_fn=MinBlockReward(env, goal_atoms, k_true))
+                           evaluator=DominoEvaluator(goal_atoms),
+                           offline_task_metrics={"k_star": float(k_true)})
 
 
 # ── Heavy-block (immovable obstacle) tasks ───────────────────
@@ -789,18 +793,18 @@ def _finish_heavy_task(env: "PyBulletDominoComposedEnv", comp: Any,
                        goal_nl: str) -> EnvironmentTask:
     """Assemble the EnvironmentTask from a staged heavy-block scene.
 
-    The reward budget is the STAGED blue count, not the searched K*:
-    heavy tasks differentiate on topple-vs-not (the believing planner
-    never topples the target), and the corner/swerve minima are solver-
-    history sensitive at the margin - a layout that barely topples
-    during generation can need one more blue under a fresh simulator's
-    contact state (and vice versa). Binding the reward to the exact K*
-    would make such tasks unsolvable-within-budget at execution; the K*
-    searches remain as solvability certificates (a within-staged-blues
-    solution exists).
+    The offline ``k_star`` metric is the STAGED blue count (a
+    display value), not the searched K*: heavy tasks differentiate on
+    topple-vs-not (the believing planner never topples the target), and
+    the corner/swerve minima are solver-history sensitive at the margin
+    - a layout that barely topples during generation can need one more
+    blue under a fresh simulator's contact state (and vice versa). The
+    K* searches remain as solvability certificates (a
+    within-staged-blues solution exists); the per-block reward cost
+    penalizes over-building either way.
     """
     # pylint: disable=import-outside-toplevel,protected-access
-    from predicators.envs.pybullet_domino.env import MinBlockReward
+    from predicators.envs.pybullet_domino.env import DominoEvaluator
     from predicators.utils import create_state_from_dict
     robot_init = {
         "x": env.robot_init_x,
@@ -818,8 +822,8 @@ def _finish_heavy_task(env: "PyBulletDominoComposedEnv", comp: Any,
     return EnvironmentTask(init_state,
                            goal_atoms,
                            goal_nl=goal_nl,
-                           reward_fn=MinBlockReward(env, goal_atoms,
-                                                    num_blues))
+                           evaluator=DominoEvaluator(goal_atoms),
+                           offline_task_metrics={"k_star": float(num_blues)})
 
 
 _HEAVY_GOAL_NL = (

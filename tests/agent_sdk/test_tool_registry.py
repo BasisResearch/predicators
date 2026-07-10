@@ -119,3 +119,29 @@ def test_get_allowed_tool_list_passes_dynamic_names_through() -> None:
         f"{prefix}run_python",
         f"{prefix}evaluate_predicate_quality",
     ]
+
+
+def test_resolve_task_evaluator_reads_task_field() -> None:
+    """``_resolve_task_evaluator`` reads ``Task.evaluator`` off the context's
+    train tasks / current task (the evaluator rides on the Task itself)."""
+    import numpy as np
+
+    from predicators.agent_sdk.tools import _resolve_task_evaluator
+    from predicators.structs import State, Task, TaskEvaluator, Type
+
+    cup_type = Type("cup_type", ["f"])
+    init = State({cup_type("cup"): np.array([0.0])})
+    evaluator = TaskEvaluator(set())
+    with_eval = Task(init, set(), evaluator=evaluator)
+    without_eval = Task(init, set())
+
+    ctx = ToolContext()
+    ctx.train_tasks = [with_eval, without_eval]
+    ctx.current_task = with_eval
+    assert _resolve_task_evaluator(ctx, 0) is evaluator
+    assert _resolve_task_evaluator(ctx, 1) is None
+    assert _resolve_task_evaluator(ctx, 2) is None  # out of range
+    assert _resolve_task_evaluator(ctx, "current") is evaluator
+    assert _resolve_task_evaluator(ctx, None) is evaluator
+    ctx.current_task = None
+    assert _resolve_task_evaluator(ctx, None) is None

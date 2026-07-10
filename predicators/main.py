@@ -514,21 +514,21 @@ def _generate_interaction_results(
             query_cost += monitor.get_query_cost()
         assert len(traj.states) == len(observed_traj[0])
         assert len(traj.actions) == len(observed_traj[1])
-        # The env's trajectory-level verdict on this episode (e.g. an
-        # illegitimate domino cascade). Only the boolean travels to the
-        # agent side - the agent is told the supervisor rejected the
-        # episode and must infer the violated rule from the task's NL
-        # description; the specific reason stays here in the logs.
-        cert_ok, cert_reason = env.check_episode_trajectory(
-            observed_traj[0], observed_traj[1])
-        if not cert_ok:
+        # The env evaluator's verdict on this episode. Only the (reward,
+        # terminated) pair travels to the agent side (rejection is
+        # decodable from it) - the agent must infer the violated rule
+        # from the task's NL description; the specific reason stays here
+        # in the logs.
+        episode_eval = env.evaluate_episode(observed_traj[0], observed_traj[1])
+        if episode_eval.rejected:
             logging.info(
                 "Interaction episode on train task %d REJECTED by the "
-                "env: %s", request.train_task_idx, cert_reason)
+                "env: %s", request.train_task_idx, episode_eval.reason)
         result = InteractionResult(traj.states,
                                    traj.actions,
                                    request_responses,
-                                   episode_rejected=not cert_ok)
+                                   episode_reward=episode_eval.reward,
+                                   episode_terminated=episode_eval.terminated)
         results.append(result)
         if CFG.make_interaction_videos:
             assert monitor is not None
@@ -773,6 +773,19 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         # Record execution metrics
         metrics[f"PER_TASK_task{test_task_idx}_exec_time"] = exec_time
         metrics[f"PER_TASK_task{test_task_idx}_options_executed"] = num_opts
+
+        # Task-evaluator verdict + offline metrics (e.g. domino k_used),
+        # plus per-task oracle quantities (e.g. domino k_star) stored on
+        # the EnvironmentTask. Offline-only: reported in results, never
+        # agent-visible.
+        if traj[0]:
+            episode_eval = env.evaluate_episode(traj[0], traj[1])
+            metrics[
+                f"PER_TASK_task{test_task_idx}_reward"] = episode_eval.reward
+            for metric_name, value in episode_eval.offline_metrics.items():
+                metrics[f"PER_TASK_task{test_task_idx}_{metric_name}"] = value
+            for metric_name, value in env_task.offline_task_metrics.items():
+                metrics[f"PER_TASK_task{test_task_idx}_{metric_name}"] = value
 
         # Add cost for low-level actions if configured
         if CFG.refinement_data_include_execution_cost:

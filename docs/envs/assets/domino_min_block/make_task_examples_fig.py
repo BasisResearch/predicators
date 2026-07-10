@@ -67,9 +67,13 @@ NUM_BLUES = ARM["num_blues"]
 OVER_REACH = ARM["planning_friction"] > ARM["true_friction"]
 
 utils.reset_config({
-    'env': 'pybullet_domino', 'seed': 0, 'num_train_tasks': 1,
-    'num_test_tasks': 5, 'test_env_seed_offset': 10000,
-    'max_initial_demos': 0, 'horizon': 500,
+    'env': 'pybullet_domino',
+    'seed': 0,
+    'num_train_tasks': 1,
+    'num_test_tasks': 5,
+    'test_env_seed_offset': 10000,
+    'max_initial_demos': 0,
+    'horizon': 500,
     'domino_initialize_at_finished_state': False,
     'domino_use_domino_blocks_as_target': True,
     'domino_use_continuous_place': True,
@@ -93,14 +97,25 @@ doms = comp.dominos
 def block(ax, x, y, yaw, color, hl=False):
     tr = (Affine2D().rotate(yaw).translate(x, y) + ax.transData)
     ax.add_patch(
-        Rectangle((-W / 2, -D / 2), W, D, facecolor=color, edgecolor="k",
-                  lw=0.9, transform=tr, zorder=3))
+        Rectangle((-W / 2, -D / 2),
+                  W,
+                  D,
+                  facecolor=color,
+                  edgecolor="k",
+                  lw=0.9,
+                  transform=tr,
+                  zorder=3))
     fx, fy = 0.025 * np.cos(yaw), 0.025 * np.sin(yaw)
     ax.arrow(x, y, fx, fy, head_width=0.008, color=color, lw=0.9, zorder=4)
     if hl:
         ax.add_patch(
-            Circle((x, y), 0.042, fill=False, edgecolor="#d62728", lw=1.6,
-                   linestyle="--", zorder=5))
+            Circle((x, y),
+                   0.042,
+                   fill=False,
+                   edgecolor="#d62728",
+                   lw=1.6,
+                   linestyle="--",
+                   zorder=5))
 
 
 def draw_state(ax, poses, title, tcolor="k"):
@@ -120,8 +135,8 @@ def draw_state(ax, poses, title, tcolor="k"):
 def od_poses(od, start, target):
     out = []
     for obj, pose in od.items():
-        role = ("start" if obj is start else
-                "target" if obj is target else "blue")
+        role = ("start"
+                if obj is start else "target" if obj is target else "blue")
         out.append((pose["x"], pose["y"], pose["yaw"], role))
     return out
 
@@ -132,8 +147,8 @@ def state_poses(state):
         # pylint: disable=protected-access
         role = ("start" if comp._StartBlock_holds(state, [d]) else
                 "target" if comp._TargetDomino_holds(state, [d]) else "blue")
-        out.append((state.get(d, "x"), state.get(d, "y"),
-                    state.get(d, "yaw"), role))
+        out.append(
+            (state.get(d, "x"), state.get(d, "y"), state.get(d, "yaw"), role))
     return out
 
 
@@ -155,10 +170,10 @@ def winning_layout(state, k_max, friction):
     dominoes = state.get_objects(comp.domino_type)
     start = next(d for d in dominoes if comp._StartBlock_holds(state, [d]))
     target = next(d for d in dominoes if comp._TargetDomino_holds(state, [d]))
-    s_pose = (state.get(start, "x"), state.get(start, "y"),
-              state.get(start, "yaw"))
-    t_pose = (state.get(target, "x"), state.get(target, "y"),
-              state.get(target, "yaw"))
+    s_pose = (state.get(start, "x"), state.get(start,
+                                               "y"), state.get(start, "yaw"))
+    t_pose = (state.get(target, "x"), state.get(target,
+                                                "y"), state.get(target, "yaw"))
     env.set_domino_physical_params(lateral_friction=friction)
     try:
         for k in range(k_max + 1):
@@ -201,12 +216,11 @@ axes = np.atleast_2d(axes).T  # axes[col] = (init, true, believed) per task
 
 for row, ti in enumerate(picks):
     task = tasks[ti]
-    k_star = task.reward_fn.max_blocks
+    k_star = int(task.offline_task_metrics["k_star"])
     turn = is_turn(task.init)
     kind = "turn" if turn else "straight"
-    draw_state(
-        axes[row][0], state_poses(task.init),
-        f"task {ti} ({kind}) · K*={k_star}\nstaged init")
+    draw_state(axes[row][0], state_poses(task.init),
+               f"task {ti} ({kind}) · K*={k_star}\nstaged init")
 
     # Search up to the full blue budget: staged poses drift a little
     # through the PyBullet round-trip, so the regenerated minimal layout
@@ -214,16 +228,16 @@ for row, ti in enumerate(picks):
     true_win = winning_layout(task.init, NUM_BLUES, CFG.domino_true_friction)
     if true_win is None:
         axes[row][1].axis("off")
-        axes[row][1].set_title(
-            "layout not reproducible from staged poses",
-            fontsize=9.5, color="#555")
+        axes[row][1].set_title("layout not reproducible from staged poses",
+                               fontsize=9.5,
+                               color="#555")
         axes[row][2].axis("off")
         continue
     od, s_, t_, k_t = true_win
-    draw_state(
-        axes[row][1], od_poses(od, s_, t_),
-        f"calibrated: {k_t} blues\n→ TOPPLES ✓",
-        tcolor="#1a7a1a")
+    draw_state(axes[row][1],
+               od_poses(od, s_, t_),
+               f"calibrated: {k_t} blues\n→ TOPPLES ✓",
+               tcolor="#1a7a1a")
 
     # Believed side: what the miscalibrated planning model builds.
     if not turn:
@@ -238,7 +252,8 @@ for row, ti in enumerate(picks):
             axes[row][2].set_title(
                 f"no {'cheaper' if OVER_REACH else 'dearer'} chain at "
                 f"µ={CFG.domino_planning_friction:g}",
-                fontsize=9.5, color="#555")
+                fontsize=9.5,
+                color="#555")
             continue
         d_dir = (t_xy - s_xy) / span
         # Fall axis (-sin, cos) along the chain line.
@@ -262,7 +277,8 @@ for row, ti in enumerate(picks):
             axes[row][2].set_title(
                 f"no believed corner plan at "
                 f"µ={CFG.domino_planning_friction:g}",
-                fontsize=9.5, color="#555")
+                fontsize=9.5,
+                color="#555")
             continue
         odb, _, _, n_bel = bel_win
         label = f"believed corner: {n_bel} blues"
@@ -325,17 +341,25 @@ for row, ti in enumerate(picks):
             verdict, tcolor = "→ DIES SHORT ✗", "#a01515"
         else:
             verdict, tcolor = "→ DIES SHORT (leak!)", "#b3541e"
-    draw_state(axes[row][2], od_poses(odb, s_, t_), f"{label}\n{verdict}",
+    draw_state(axes[row][2],
+               od_poses(odb, s_, t_),
+               f"{label}\n{verdict}",
                tcolor=tcolor)
 
 true_mu = CFG.domino_true_friction
 plan_mu = CFG.domino_planning_friction
-for label, y in (("staged init", 0.86),
-                 (f"calibrated solution\n@ true µ={true_mu:g}", 0.53),
+for label, y in (("staged init",
+                  0.86), (f"calibrated solution\n@ true µ={true_mu:g}", 0.53),
                  (f"µ={plan_mu:g} model's build\nrun @ true µ={true_mu:g}",
                   0.19)):
-    fig.text(0.005, y, label, fontsize=11, rotation=90, va="center",
-             weight="bold", color="#333")
+    fig.text(0.005,
+             y,
+             label,
+             fontsize=11,
+             rotation=90,
+             va="center",
+             weight="bold",
+             color="#333")
 fig.tight_layout(rect=(0.03, 0, 1, 1))
 out = Path(__file__).parent / ARM["out_name"]
 fig.savefig(out, dpi=140, bbox_inches="tight")

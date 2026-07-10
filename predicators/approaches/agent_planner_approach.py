@@ -486,7 +486,8 @@ scene, then annotate_scene overlays markers on it."""
                 _source_simulator_version=sim_version,
                 _source_predicates_version=preds_version,
                 _source_samplers_version=samplers_version,
-                _env_rejected=result.episode_rejected,
+                _env_reward=result.episode_reward,
+                _env_terminated=result.episode_terminated,
             )
             self._online_trajectories.append(traj)
 
@@ -1012,7 +1013,6 @@ Output ONLY the option plan lines at the end, after any analysis."""
         self._tool_context.offline_trajectories = \
             self._offline_dataset.trajectories
         self._tool_context.online_trajectories = self._online_trajectories
-
         self._tool_context.log_dir = self._get_log_dir()
         self._tool_context.option_model = self._option_model
         # Synthesized samplers, so the explorer and synthesis tools thread the

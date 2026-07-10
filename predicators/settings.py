@@ -463,11 +463,15 @@ class GlobalSettings:
     domino_use_skill_factories = True
     # Reach-limited "minimum-blocks" task mode: generate start/target pairs
     # spaced so that toppling requires bridging near the reach limit, and
-    # attach each task a ``MinBlockReward`` with budget K* (the minimum blues
-    # needed to topple at the true friction). Success then requires toppling
-    # the target AND using no more than K* blues, so a solver with a
-    # miscalibrated (too-high) reach model over-reaches and fails. Off by
-    # default (existing behavior).
+    # attach each task a ``DominoEvaluator``. Success = toppling the target
+    # via a legitimate cascade; each toppled blue costs domino_block_cost
+    # reward, so a solver with a miscalibrated (too-high) reach model
+    # over-reaches and fails, while an over-builder succeeds at lower
+    # reward. K* (the minimum blues needed at the true friction) is stored
+    # env-side on each EnvironmentTask (offline_task_metrics) for offline
+    # metrics only - it never enters the criterion the solver is scored
+    # against, and never reaches the agent-facing Task. Off by default
+    # (existing behavior).
     domino_min_block_tasks = False
     # The "real" domino lateral friction the env runs at. Applied to the live
     # PyBullet bodies at env init via set_domino_physical_params and used when
@@ -484,7 +488,8 @@ class GlobalSettings:
     #   * ABOVE true friction: planner over-estimates reach -> UNDER-builds
     #     -> chain dies short of the target;
     #   * BELOW true friction: planner under-estimates reach -> OVER-builds
-    #     -> target topples but blocks_used exceeds the max_blocks (K*) cap.
+    #     -> target topples but the per-block reward cost (or, when the
+    #     staged blue budget binds, an under-reaching build) penalizes it.
     # A sysID learner must recover the true value either way. None (default)
     # = planning sim uses domino_true_friction (no mismatch).
     domino_planning_friction: Optional[float] = None
@@ -496,8 +501,17 @@ class GlobalSettings:
     domino_min_block_span_hi = 0.30
     # How many blue (movable) blocks to stage per min-block task. Must exceed
     # the largest expected K* so over-building is possible (and thus penalized
-    # by the max_blocks cap) rather than budget-limited.
+    # by the per-block reward cost) rather than budget-limited.
     domino_min_block_num_blues = 4
+    # Per-blue-block cost in the DominoEvaluator's reward:
+    # reward = 1.0 * (terminated AND certified) - cost * blues_toppled.
+    # Must satisfy domino_block_cost * domino_min_block_num_blues < 1 so a
+    # legitimate success always outscores any failure (the reward's sign
+    # alone then separates them). Public by design - the agent is told the
+    # reward form; only the dynamics stay hidden. NOTE: as a domino_* flag
+    # this enters the min-block task cache key, so tuning it regenerates
+    # the cached tasks.
+    domino_block_cost = 0.05
     # Directory for caching generated min-block tasks (with their simulated
     # K*). The cache key hashes the task-relevant CFG flags, the seed, AND
     # the domino env/skill source code, so tasks regenerate automatically
@@ -527,10 +541,10 @@ class GlobalSettings:
     # dies against it at execution. Run WITHOUT domino_planning_friction:
     # corners never propagate at friction 0.5, which would kill the turn
     # lure — this task type isolates the MASS dimension. Reuses the
-    # min-block machinery (MinBlockReward with budget = the STAGED blues:
-    # heavy tasks differentiate on topple-vs-not, and the searched K*
-    # certifies solvability only — corner minima are solver-history
-    # sensitive at the margin; quota loop, disk cache,
+    # min-block machinery (DominoEvaluator; the offline k_star = the
+    # STAGED blues: heavy tasks differentiate on topple-vs-not, and the
+    # searched K* certifies solvability only — corner minima are
+    # solver-history sensitive at the margin; quota loop, disk cache,
     # domino_min_block_num_blues); domino_min_block_tasks does not also
     # need to be set.
     domino_heavy_block_tasks = False

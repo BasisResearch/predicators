@@ -281,7 +281,7 @@ fig, axes = plt.subplots(3, n, figsize=(3.4 * n, 10.2))
 axes = np.atleast_2d(axes).T  # axes[col] = (init, solution, believed)
 
 for col, task in enumerate(tasks):
-    budget = task.reward_fn.max_blocks
+    budget = int(task.offline_task_metrics["k_star"])
     init = task.init
     start, target, gray, s_pose, t_pose, h_pose = task_geometry(init)
     is_straight = abs(wrap(h_pose[2] - s_pose[2])) < 0.1

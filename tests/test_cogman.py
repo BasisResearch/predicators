@@ -14,7 +14,8 @@ from predicators.envs.cover import CoverEnv
 from predicators.execution_monitoring import create_execution_monitor
 from predicators.ground_truth_models import get_gt_options
 from predicators.perception import create_perceiver
-from predicators.structs import Action, DefaultState, EnvironmentTask
+from predicators.structs import Action, DefaultState, EnvironmentTask, \
+    TaskEvaluator
 
 
 @pytest.mark.parametrize("exec_monitor_name", ["trivial", "mpc"])
@@ -349,36 +350,36 @@ def test_run_episode_trajectory_certificate():
     assert failing_env.checked_with is not None
 
 
-def test_check_episode_trajectory_delegates_to_reward():
-    """BaseEnv.check_episode_trajectory delegates to the task reward's
-    certify_trajectory, passing the per-step States and per-action option
-    labels."""
+def test_check_episode_trajectory_delegates_to_evaluator():
+    """BaseEnv.check_episode_trajectory delegates to the task evaluator's
+    _certify, passing the per-step States and per-action option labels."""
     utils.reset_config({"env": "cover"})
     env = CoverEnv()
     task = env.get_task("test", 0)
 
-    class _CertifyingReward:
-        """Final-state reward with a trajectory-level side-condition."""
+    class _CertifyingEvaluator(TaskEvaluator):
+        """Evaluator with a recording trajectory-level side-condition."""
 
-        def __init__(self, ok, reason=""):
+        def __init__(self, goal, ok, reason=""):
+            super().__init__(goal)
             self._verdict = (ok, reason)
             self.seen = None
 
-        def __call__(self, state):
+        def terminated(self, state):
             """Goal atoms always hold."""
             del state  # unused
             return True
 
-        def certify_trajectory(self, states, step_options):
+        def _certify(self, states, step_options):
             """Record the call and return the configured verdict."""
             self.seen = (list(states), list(step_options))
             return self._verdict
 
-    reward = _CertifyingReward(False, "robot knocked the target")
+    evaluator = _CertifyingEvaluator(set(), False, "robot knocked the target")
     env._current_task = EnvironmentTask(  # pylint: disable=protected-access
         task.init_obs,
         task.goal_description,
-        reward_fn=reward)
+        evaluator=evaluator)
     push = utils.SingletonParameterizedOption(
         "Push", lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)))
     act_with_option = Action(np.zeros(1, dtype=np.float32))
@@ -388,10 +389,20 @@ def test_check_episode_trajectory_delegates_to_reward():
     ok, reason = env.check_episode_trajectory(
         [init, init, init], [act_with_option, act_without_option])
     assert (ok, reason) == (False, "robot knocked the target")
-    states_seen, options_seen = reward.seen
+    states_seen, options_seen = evaluator.seen
     assert len(states_seen) == 3
     assert options_seen == [("Push", ()), None]
+    # The full episode verdict: terminated (goal atoms hold, however
+    # reached) but uncertified, so the default reward carries no bonus
+    # and the episode is rejected (terminated without a positive reward).
+    evaluation = env.evaluate_episode([init, init, init],
+                                      [act_with_option, act_without_option])
+    assert evaluation.terminated
+    assert evaluation.rejected
+    assert evaluation.reason == "robot knocked the target"
+    assert evaluation.reward == 0.0
+    assert evaluation.offline_metrics == {}
     # Non-State observations: the check is skipped, not run on garbage.
-    reward.seen = None
+    evaluator.seen = None
     assert env.check_episode_trajectory(["not a state"], []) == (True, "")
-    assert reward.seen is None
+    assert evaluator.seen is None

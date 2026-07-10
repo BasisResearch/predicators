@@ -1,8 +1,9 @@
 """Trajectory-level legitimacy certificate for min-block cascade tasks.
 
-The min-block reward (``MinBlockReward``) is a function of the final
-state only (goal atoms + toppled-blue budget), which is blind to HOW the
-target fell. Observed reward hacks all bypass the intended causal chain
+The min-block evaluator's terminated/success checks (``DominoEvaluator``)
+are functions of the final state only (goal atoms + toppled-blue count),
+which are blind to HOW the target fell. Observed reward hacks all bypass
+the intended causal chain
 "push the green start block -> dominoes knock each other over -> target
 falls": pushing a placed blue directly, sweeping the target with the
 gripper or a carried block during Place, and knocking the target while
@@ -22,7 +23,7 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
-from predicators.structs import GroundAtom, Object, State
+from predicators.structs import GroundAtom, Object, State, StepOption
 
 # A toppling domino knocks its successor within a fraction of a second;
 # one env step is CFG.pybullet_sim_steps_per_action (20) PyBullet
@@ -35,9 +36,23 @@ CASCADE_WINDOW_STEPS = 24
 # the green start block.
 _PUSH_OPTION_NAME = "Push"
 
-# (option_name, grounded object names) for one executed low-level
-# action; None when the producing option is unknown.
-StepOption = Optional[Tuple[str, Tuple[str, ...]]]
+
+def count_movable_blocks_used(state: State) -> int:
+    """Count movable (blue) dominoes that have toppled in ``state``.
+
+    A pure function of the state (roles recovered from color features,
+    topple from the roll angle) so ``DominoEvaluator`` needs no live env
+    handle and stays picklable.
+    """
+    count = 0
+    for obj in state:
+        if obj.type.name != "domino":
+            continue
+        # pylint: disable=protected-access
+        if DominoComponent._MovableBlock_holds(state, [obj]) and \
+                abs(state.get(obj, "roll")) >= DominoComponent.fallen_threshold:
+            count += 1
+    return count
 
 
 def _cascade_reach() -> float:
