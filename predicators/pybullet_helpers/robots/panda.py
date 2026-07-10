@@ -5,6 +5,7 @@ from predicators import utils
 from predicators.pybullet_helpers.ikfast import IKFastInfo
 from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot
+from predicators.settings import CFG
 
 
 class PandaPyBulletRobot(SingleArmPyBulletRobot):
@@ -51,7 +52,6 @@ class PandaPyBulletRobot(SingleArmPyBulletRobot):
     def closed_fingers(self) -> float:
         # Allow a config override so a thin object can be clamped;
         # None keeps the Panda default.
-        from predicators.settings import CFG  # local: avoid import cycle
         if CFG.pybullet_closed_fingers is not None:
             return float(CFG.pybullet_closed_fingers)
         return 0.03
