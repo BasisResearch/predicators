@@ -2,10 +2,9 @@
 Franka robot."""
 from __future__ import annotations
 
-import dataclasses
 import json
 import math
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pybullet as p
@@ -20,7 +19,7 @@ from predicators.envs.pybullet_domino.real_geometry import Pose6D, \
 from predicators.pybullet_helpers.objects import create_object, \
     create_pybullet_block
 from predicators.settings import CFG
-from predicators.structs import EnvironmentTask, GroundAtom, State
+from predicators.structs import EnvironmentTask, GroundAtom
 
 
 class PyBulletDominoRealEnv(PyBulletDominoEnv):
@@ -172,9 +171,8 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         Places each perceived domino at its transplanted world (x, y)
         with the upright heading, colored by role (green=start,
         purple=target, blue=movable) via the component's
-        ``place_domino``. Goal = Toppled(target); attaches the
-        undisturbed reward so goal_reached rejects cheats that touch the
-        target early.
+        ``place_domino``. Goal = Toppled(target), matching the base
+        ``pybullet_domino`` env's default atom-set goal reward.
         """
         scene_path = CFG.domino_real_scene
         z_off = self._z_off
@@ -273,73 +271,4 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
             "the purple domino is toppled. Do NOT directly push or topple the "
             "purple domino yourself.")
         task = EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
-        pyb_task = self._add_pybullet_state_to_tasks([task])[0]
-        # Strict success: target must stay in its initial pose until the start
-        # is pushed. Attach on the FINAL task so it survives
-        # _add_pybullet_state_to_tasks; goal_reached reads it.
-        reward_fn = self._make_undisturbed_reward_fn(comp, pyb_task.init)
-        return dataclasses.replace(pyb_task, reward_fn=reward_fn)
-
-    # -- reward -------------------------------------------------------------
-    @staticmethod
-    def _make_undisturbed_reward_fn(
-            comp: Any, init_obs: State) -> Callable[[State], bool]:
-        """Strict success: the target (purple) must be UNMOVED from its initial
-        pose until the start (green) is pushed, and toppled at the end.
-
-        A plain Toppled(target) goal is a final-state check with no history, so
-        it would also reward the agent shoving / relocating the target itself.
-        The only legitimate topple is the chain reaction, which begins strictly
-        AFTER the start moves. So we watch the physics: if the target ever
-        leaves its initial pose while the start is still unmoved, the agent
-        touched it
-        -> disturbed -> that episode does not count, even if the target ends
-        toppled.
-
-        NOTE (Phase 3): this per-step guard assumes continuous sim
-        monitoring; in real (test) mode ground truth exists only at option
-        boundaries, so the
-        touch-before-push cheat becomes boundary-granular on hardware.
-        """
-        ROLL_TOL = math.radians(10.0)  # a domino tilted past this has moved
-        POS_TOL = 0.02  # ...or shifted past this (m); ignore jitter
-
-        dominoes = list(init_obs.get_objects(comp.domino_type))
-        # pylint: disable=protected-access
-        targets = [
-            d for d in dominoes if comp._TargetDomino_holds(init_obs, [d])
-        ]
-        starts = [d for d in dominoes if comp._StartBlock_holds(init_obs, [d])]
-        # pylint: enable=protected-access
-        init_pose = {
-            d: (init_obs.get(d,
-                             "x"), init_obs.get(d,
-                                                "y"), init_obs.get(d, "roll"))
-            for d in dominoes
-        }
-        assert targets, "no target (purple) domino to guard"
-        assert starts, "no start (green) domino to reference the push"
-
-        def _moved(state: State, d: Any) -> bool:
-            x0, y0, r0 = init_pose[d]
-            return (math.hypot(state.get(d, "x") - x0,
-                               state.get(d, "y") - y0) > POS_TOL
-                    or abs(state.get(d, "roll") - r0) > ROLL_TOL)
-
-        flag = {"disturbed": False}
-
-        def reward_fn(state: State) -> bool:
-            s_moved = any(_moved(state, s) for s in starts)
-            t_moved = any(_moved(state, t) for t in targets)
-            if not s_moved and not t_moved:
-                flag[
-                    "disturbed"] = False  # episode start / undisturbed pre-push
-            elif t_moved and not s_moved:
-                flag["disturbed"] = True  # target moved before start -> cheat
-            # else s_moved: push has begun; later target motion is the cascade.
-            toppled = all(
-                comp._Toppled_holds(state, [t])  # pylint: disable=protected-access
-                for t in targets)
-            return bool(toppled and not flag["disturbed"])
-
-        return reward_fn
+        return self._add_pybullet_state_to_tasks([task])[0]
