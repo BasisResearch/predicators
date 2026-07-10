@@ -54,4 +54,4 @@ class PyBulletDominoGroundTruthSimulatorFactory(GroundTruthSimulatorFactory):
 
     @classmethod
     def get_env_names(cls) -> set:
-        return {"pybullet_domino"}
+        return {"pybullet_domino", "pybullet_domino_real"}

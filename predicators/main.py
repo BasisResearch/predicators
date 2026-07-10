@@ -206,7 +206,7 @@ def _run_pipeline(env: BaseEnv,
         # Run initial evaluation if needed
         if CFG.skip_until_cycle < 0 and \
            not CFG.skip_test_until_last_ite_or_early_stopping:
-            results = _run_testing(env, cogman)
+            results = _run_testing(env, cogman, online_learning_cycle=None)
             results.update({
                 "num_offline_transitions": num_offline_trans,
                 "num_online_transitions": num_online_trans,
@@ -221,7 +221,7 @@ def _run_pipeline(env: BaseEnv,
                                   learning_time, offline_metrics)
     else:
         # Handle non-learning case
-        results = _run_testing(env, cogman)
+        results = _run_testing(env, cogman, online_learning_cycle=None)
         results.update({
             "num_offline_transitions": 0,
             "num_online_transitions": 0,
@@ -417,7 +417,7 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
 
         # Evaluate if needed
         if should_run_testing:
-            results = _run_testing(env, cogman)
+            results = _run_testing(env, cogman, online_learning_cycle=i)
             results.update({
                 "num_offline_transitions": num_offline_transitions,
                 "num_online_transitions": num_online_transitions,
@@ -545,10 +545,18 @@ def _generate_interaction_results(
     return results, query_cost, task_solved_status
 
 
-def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
+def _run_testing(env: BaseEnv,
+                 cogman: CogMan,
+                 online_learning_cycle: Optional[int] = None) -> Metrics:
     """Run testing on the environment's test tasks using the cogman approach,
     measuring both solve and execution metrics, and recording
     successes/failures.
+
+    ``online_learning_cycle`` is the cycle this test round belongs to (``None``
+    for the pre-learning baseline, ``i`` for the test after cycle ``i``). It is
+    woven into the saved image/video filenames so successive test rounds do NOT
+    overwrite each other -- matching how ``_save_test_results`` already suffixes
+    the metrics pkl with the cycle.
 
     Returns a Metrics object populated with aggregated statistics.
     """
@@ -559,6 +567,8 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
     # Initialize counters and per-run metrics
     cogman.reset_metrics()
     save_prefix = utils.get_config_path_str()
+    # Per-cycle tag so each test round's rendered artifacts are distinct.
+    cycle_tag = f"__cycle{online_learning_cycle}"
     metrics: Metrics = defaultdict(float)
 
     num_found_policy = 0
@@ -589,7 +599,7 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             suffix = ""
         else:
             suffix = "_failure" if is_failure else ""
-        outfile = f"{save_prefix}__task{task_idx+1}{suffix}.mp4"
+        outfile = f"{save_prefix}__task{task_idx+1}{suffix}{cycle_tag}.mp4"
         utils.save_video(outfile, video)
 
     def _save_images(monitor: Optional[utils.VideoMonitor], is_failure: bool,
@@ -600,10 +610,11 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
         video = monitor.get_video()
         if CFG.use_counterfactual_dataset_path_name:
             experiment_id = CFG.experiment_id.split("-")[0]
-            outfile = f"{experiment_id}/seed{CFG.seed}/query/task{task_idx+1}/"
+            outfile = (f"{experiment_id}/seed{CFG.seed}/query/"
+                       f"cycle{online_learning_cycle}/task{task_idx+1}/")
         else:
             suffix = "_failure" if is_failure else ""
-            outfile = f"{save_prefix}__task{task_idx+1}{suffix}"
+            outfile = f"{save_prefix}__task{task_idx+1}{suffix}{cycle_tag}"
         utils.save_images(outfile, video)
 
     def _handle_solve_exception(
@@ -629,10 +640,11 @@ def _run_testing(env: BaseEnv, cogman: CogMan) -> Metrics:
             if CFG.make_failure_images:
                 experiment_id = CFG.experiment_id.split("-")[0]
                 outfile = f"{experiment_id}/seed{CFG.seed}/query/"+\
-                            f"task{task_idx+1}/"
+                            f"cycle{online_learning_cycle}/task{task_idx+1}/"
                 utils.save_images(outfile, video)
             if CFG.make_failure_videos:
-                outfile = f"{save_prefix}__task{task_idx+1}_failure.mp4"
+                outfile = (f"{save_prefix}__task{task_idx+1}_failure"
+                           f"{cycle_tag}.mp4")
                 utils.save_video(outfile, video)
 
         if CFG.crash_on_failure:

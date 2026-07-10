@@ -86,6 +86,7 @@ async def _run_query(query_input: Dict[str, Any]) -> Dict[str, Any]:
         system_prompt=query_input["system_prompt"],
         model=query_input["model_name"],
         max_turns=query_input.get("max_turns", 20),
+        max_buffer_size=query_input.get("max_buffer_size", 20 * 1024 * 1024),
         thinking=thinking,  # type: ignore[arg-type]
         effort=reasoning_effort,  # type: ignore[arg-type]
     )

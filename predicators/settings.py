@@ -199,6 +199,10 @@ class GlobalSettings:
     pybullet_max_ik_iters = 100
     pybullet_ik_tol = 1e-3
     pybullet_robot = "fetch"
+    # Override the sim gripper's closed-finger joint value (metres). None keeps
+    # each robot's built-in default (Panda: 0.03). Lower it to clamp a thin
+    # object the default gap is wider than (e.g. the real 0.029 m domino).
+    pybullet_closed_fingers = None
     pybullet_birrt_num_attempts = 10
     pybullet_birrt_num_iters = 100
     pybullet_birrt_smooth_amt = 50
@@ -469,6 +473,34 @@ class GlobalSettings:
     domino_restricted_push = False
     # Use skill_factories-based option implementations
     domino_use_skill_factories = True
+    # --- real-world domino bench (pybullet_domino_real env) ------------------
+    # The reconstructed-scene JSON (robot_base frame) the pybullet_domino_real
+    # env builds its single train/test task from; the env sizes its domino
+    # component from this scene's role counts.
+    domino_real_scene = ("/home/amberli/babyrobot/BabyRobotPredicator/"
+                         "scenes/domino_real_0000.json")
+    # Raw capture JSONs have no per-domino role, so roles are keyed by domino
+    # id: the id of the start (green) domino and of the target (purple) domino;
+    # every other domino is movable (blue). Ignored if the scene already carries
+    # an explicit 'role' field per domino.
+    domino_real_start_id = 6
+    domino_real_target_id = 5
+    # Real-bench geometry.
+    domino_real_table_z = -0.041  # real table height in the robot base frame
+    domino_real_robot_init_tilt = np.pi
+    domino_real_robot_init_wrist = 0.0
+    domino_real_robot_init_z = 0.65  # reachable top-down home EE height
+    domino_real_domino_dims = [0.15, 0.07,
+                               0.029]  # (L, W, H) -> height,width,depth
+    domino_real_decorate = True  # spawn extended-table tile + robot pedestal
+    # When True the env's TEST-mode rollout executes option boundaries on the
+    # real Franka; default False = safe dry-run (build segments +
+    # replay-perceive).
+    domino_real_execute_real = False
+    # Robot-side bridge server (holds the ZED provider + RobotInterface); the
+    # env holds a thin client. Only connected when domino_real_execute_real.
+    domino_real_bridge_host = "127.0.0.1"
+    domino_real_bridge_port = 5555
     # Reach-limited "minimum-blocks" task mode: generate start/target pairs
     # spaced so that toppling requires bridging near the reach limit, and
     # attach each task a ``MinBlockReward`` with budget K* (the minimum blues
@@ -1131,6 +1163,12 @@ class GlobalSettings:
     # for how much the agent deliberates per response.
     agent_sdk_reasoning_effort = ""
     agent_sdk_agent_timeout = 300  # seconds per iteration
+    # Max size (bytes) of a single newline-delimited JSON message the agent SDK
+    # subprocess transport will buffer. The SDK default is 1 MB, which a tool
+    # result embedding a base64 scene image (e.g. inspect_train_tasks with
+    # include_image=True at 900x900) can exceed -> "JSON message exceeded
+    # maximum buffer size". 20 MB comfortably fits full-res scene images.
+    agent_sdk_max_buffer_size = 20 * 1024 * 1024
     agent_sdk_resume_session = True  # resume previous session if available
     agent_sdk_propose_types = True
     agent_sdk_propose_predicates = True

@@ -111,16 +111,22 @@ class DominoComponent(DominoEnvComponent):
     @property
     def domino_width(self) -> float:
         """Domino width."""
+        if self._dim_override["width"] is not None:
+            return self._dim_override["width"]
         return self._get_env_class().domino_width
 
     @property
     def domino_depth(self) -> float:
         """Domino depth."""
+        if self._dim_override["depth"] is not None:
+            return self._dim_override["depth"]
         return self._get_env_class().domino_depth
 
     @property
     def domino_height(self) -> float:
         """Domino height."""
+        if self._dim_override["height"] is not None:
+            return self._dim_override["height"]
         return self._get_env_class().domino_height
 
     @property
@@ -148,7 +154,10 @@ class DominoComponent(DominoEnvComponent):
                  num_dominos_max: int = 9,
                  num_targets_max: int = 3,
                  num_pivots_max: int = 3,
-                 workspace_bounds: Optional[Dict[str, float]] = None) -> None:
+                 workspace_bounds: Optional[Dict[str, float]] = None,
+                 domino_width: Optional[float] = None,
+                 domino_depth: Optional[float] = None,
+                 domino_height: Optional[float] = None) -> None:
         """Initialize the domino component.
 
         Args:
@@ -156,12 +165,20 @@ class DominoComponent(DominoEnvComponent):
             num_targets_max: Maximum number of target objects.
             num_pivots_max: Maximum number of pivot objects.
             workspace_bounds: Dict with x/y/z lower/upper bounds.
+            domino_width/depth/height: per-component dimension overrides (m).
+                None (default) falls back to the shared
+                PyBulletDominoComposedEnv ClassVars.
         """
         super().__init__()
 
         self.num_dominos_max = num_dominos_max
         self.num_targets_max = num_targets_max
         self.num_pivots_max = num_pivots_max
+        self._dim_override = {
+            "width": domino_width,
+            "depth": domino_depth,
+            "height": domino_height
+        }
 
         # Workspace bounds (will be set by composed env if not provided)
         if workspace_bounds is None:

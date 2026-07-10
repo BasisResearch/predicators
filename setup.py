@@ -6,9 +6,6 @@ setup(
     version="0.1.0",
     packages=find_packages(include=["predicators", "predicators.*"]),
     install_requires=[
-        # setuptools 81 removed the bundled ``pkg_resources``, which several
-        # runtime dependencies still import; pin below that so a fresh install
-        # keeps it available.
         "setuptools<81",
         "numpy==1.23.5",
         "pytest==7.1.3",

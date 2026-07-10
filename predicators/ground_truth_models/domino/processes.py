@@ -109,7 +109,9 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
 
     @classmethod
     def get_env_names(cls) -> Set[str]:
-        return {"pybullet_domino_grid", "pybullet_domino"}
+        return {
+            "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real"
+        }
 
     @classmethod
     def get_processes(
@@ -575,7 +577,9 @@ class PyBulletDominoGroundTruthSamplerFactory(GroundTruthSamplerFactory):
 
     @classmethod
     def get_env_names(cls) -> Set[str]:
-        return {"pybullet_domino_grid", "pybullet_domino"}
+        return {
+            "pybullet_domino_grid", "pybullet_domino", "pybullet_domino_real"
+        }
 
     @classmethod
     def get_samplers(cls, env_name: str) -> Dict[str, OptionSampler]:

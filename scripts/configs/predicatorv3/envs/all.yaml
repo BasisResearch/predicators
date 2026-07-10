@@ -63,6 +63,56 @@ ENVS:
       domino_min_block_span_lo: 0.13
       domino_min_block_span_hi: 0.30
       domino_min_block_num_blues: 4
+  # Real-world domino: Learning + exploration stay in sim on
+  # the reconstructed real scene; testing moves to the real Franka inside the
+  # env (test mode only). un-skipped by exp_domino_real.yaml. Flags are
+  # sourced from run_online_learning._build_flags MINUS what common.yaml / the
+  # AL approach block already provide, MINUS the min-block task flags. The env
+  # sizes its domino component from the scene JSON, so DO NOT set
+  # domino_{train,test}_num_dominos/targets/pivots here.
+  domino_real:
+    NAME: "pybullet_domino_real"
+    SKIP: True
+    # store_true flags must go in ARGS (emitted bare as --flag); putting them in
+    # FLAGS emits "--flag True", and the stray "True" desyncs the override
+    # pair-parser (utils.parse_args_with_parser).
+    ARGS:
+      - "make_test_images"
+      - "make_failure_images"
+    FLAGS:
+      # -- overrides on common.yaml --
+      num_test_tasks: 1  # one reconstructed scene (common defaults to 5)
+      # -- base domino env (from run_online_learning._build_flags) --
+      max_initial_demos: 0  # no grid-oracle demos (can't solve the real scene)
+      excluded_objects_in_state_str: "loc,rot,angle,direction"
+      horizon: 400
+      domino_initialize_at_finished_state: False
+      domino_use_domino_blocks_as_target: True
+      domino_use_continuous_place: True
+      process_planning_heuristic_weight: 2.0
+      domino_has_glued_dominos: False
+      keep_failed_demos: True
+      predicate_invent_invent_derived_predicates: True
+      pybullet_birrt_extend_num_interp: 20
+      pybullet_birrt_path_subsample_ratio: 2
+      # -- defaults NOT provided by the AL approach block --
+      option_model_use_gui: False
+      agent_bilevel_log_state: False
+      agent_sim_learn_oracle_sim_program: False
+      agent_sim_learn_oracle_sim_params: False
+      code_sim_learning_num_mcmc_steps: 0
+      # -- real-world specifics --
+      pybullet_robot: "panda"
+      domino_use_skill_factories: True
+      # -- real-bench scene + roles (bench geometry defaults live in settings.py;
+      #    override there or here if the bench is re-calibrated) --
+      domino_real_scene: "/home/amberli/babyrobot/BabyRobotPredicator/scenes/domino_real_0000.json"
+      # Raw capture has no per-domino role; assign by id (green=start,
+      # purple=target, rest movable). Ignored if the scene carries 'role'.
+      domino_real_start_id: 6
+      domino_real_target_id: 5
+      pybullet_closed_fingers: 0.02  # clamp the 0.029m real domino
+      domino_real_execute_real: False
   # # heavy-block (immovable obstacle) domino tasks — MASS-only mismatch.
   # domino_heavy:
   #   NAME: "pybullet_domino"

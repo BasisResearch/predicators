@@ -1299,8 +1299,8 @@ class PyBulletEnv(BaseEnv):
 
         # Define the initial normal vectors for the fingers
         if CFG.pybullet_robot == "panda":
-            # gripper rotated 90deg so parallel to x-axis
-            normal = np.array([1., 0., 0.], dtype=np.float32)
+            # Fingers close along EE-frame y.
+            normal = np.array([0., 1., 0.], dtype=np.float32)
         elif CFG.pybullet_robot in {"fetch", "mobile_fetch"}:
             # gripper parallel to y-axis
             normal = np.array([0., 1., 0.], dtype=np.float32)
