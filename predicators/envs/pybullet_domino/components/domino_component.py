@@ -404,14 +404,14 @@ class DominoComponent(DominoEnvComponent):
     # -------------------------------------------------------------------------
 
     _PHYSICAL_PARAM_KEYS = frozenset({
-        "mass", "friction", "restitution", "rolling_friction",
+        "mass", "lateral_friction", "restitution", "rolling_friction",
         "spinning_friction", "heavy_block_mass"
     })
 
     # Map override keys -> p.changeDynamics kwarg names. ``mass`` is handled
     # separately (skipped for glued/fixed dominoes carrying the 1e10 sentinel).
     _CHANGE_DYNAMICS_KW = {
-        "friction": "lateralFriction",
+        "lateral_friction": "lateralFriction",
         "restitution": "restitution",
         "rolling_friction": "rollingFriction",
         "spinning_friction": "spinningFriction",
@@ -420,7 +420,8 @@ class DominoComponent(DominoEnvComponent):
     def set_physical_params(self, **params: Optional[float]) -> None:
         """Override PyBullet contact/inertial params on the live domino bodies.
 
-        Accepts any of ``mass``, ``friction``, ``restitution``,
+        Accepts any of ``mass``, ``lateral_friction`` (PyBullet's
+        ``lateralFriction``, i.e. sliding friction), ``restitution``,
         ``rolling_friction``, ``spinning_friction``, ``heavy_block_mass``
         (pass ``None`` to leave a param at its current value).
         ``heavy_block_mass`` applies only to heavy (gray) blocks — it is a
@@ -450,6 +451,11 @@ class DominoComponent(DominoEnvComponent):
         """Drop the override (bodies keep their last-set values until
         reset)."""
         self._physical_param_override = {}
+
+    @property
+    def physical_param_override(self) -> Dict[str, float]:
+        """Copy of the standing override (see ``set_physical_params``)."""
+        return dict(self._physical_param_override)
 
     def _apply_physical_param_override(self) -> None:
         """Push the stored override onto the live domino bodies."""

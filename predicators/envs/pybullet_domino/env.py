@@ -185,7 +185,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             friction = CFG.domino_planning_friction
         if self._domino_component is not None and abs(
                 friction - self._domino_component.domino_friction) > 1e-9:
-            self.set_domino_physical_params(friction=friction)
+            self.set_domino_physical_params(lateral_friction=friction)
         # Heavy-block tasks: planning sims BELIEVE the heavy gray blocks
         # are ordinary dominoes (normal mass), so their rollouts propagate
         # a chain straight through one. The eval env (and the oracle-
@@ -195,6 +195,14 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 and self._skip_domain_specific_dynamics \
                 and not CFG.agent_sim_learn_oracle_sim_params:
             self.set_domino_physical_params(heavy_block_mass=self.domino_mass)
+        # Snapshot the believed baseline AFTER the role adjustments above:
+        # ``get_physical_param_info`` reports these values as the defaults,
+        # and the sysID revert path restores dropped params to them (the
+        # instance attrs alone miss init-time overrides such as a planning
+        # friction that differs from the built-in).
+        self._physical_param_baseline: Dict[str, float] = (
+            self._domino_component.physical_param_override
+            if self._domino_component is not None else {})
 
     def _create_robot_predicates(self) -> None:
         """Create robot-specific predicates."""
@@ -353,7 +361,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         """Override this env instance's domino PyBullet dynamics params.
 
         Thin delegate to ``DominoComponent.set_physical_params``
-        (accepts ``mass``, ``friction``, ``restitution``,
+        (accepts ``mass``, ``lateral_friction``, ``restitution``,
         ``rolling_friction``, ``spinning_friction``). Lets a caller run
         two env instances with divergent physics in one process — e.g. a
         miscalibrated planning sim vs. the "real" env — for system-ID /
@@ -374,7 +382,14 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         comp = self._domino_component
         if comp is None:
             return {}
-        friction = comp.domino_friction
+        # Defaults report the believed BASELINE of this instance: the
+        # post-init override snapshot when present (e.g. a planning
+        # friction differing from the built-in), else the built-in value.
+        # The sysID revert path restores dropped params to these defaults,
+        # so they must be the values the env would have without any fit.
+        baseline = getattr(self, "_physical_param_baseline", {})
+        lateral_friction = baseline.get("lateral_friction",
+                                        comp.domino_friction)
         # ``scale: "log"`` marks positive scale-like parameters whose
         # behavioral effect is multiplicative: the sysID fit runs in
         # log-space for them (geometric grid sweep, relative LM steps,
@@ -385,9 +400,9 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         # true 0.1. Params whose lo is 0 (restitution,
         # rolling_friction) stay linear.
         return {
-            "friction": {
+            "lateral_friction": {
                 "default":
-                friction,
+                lateral_friction,
                 "lo":
                 0.01,
                 "hi":
@@ -396,12 +411,13 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
                 "log",
                 "description":
                 "Lateral (sliding) friction of each domino against the "
-                "table and other dominoes; governs how far a toppling "
-                "domino slides/rotates and whether a cascade propagates.",
+                "table and other dominoes (PyBullet lateralFriction); "
+                "governs how far a toppling domino slides/rotates and "
+                "whether a cascade propagates.",
             },
             "restitution": {
                 "default":
-                0.02,
+                baseline.get("restitution", 0.02),
                 "lo":
                 0.0,
                 "hi":
@@ -414,7 +430,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             },
             "mass": {
                 "default":
-                comp.domino_mass,
+                baseline.get("mass", comp.domino_mass),
                 "lo":
                 0.005,
                 "hi":
@@ -427,7 +443,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             },
             "rolling_friction": {
                 "default":
-                0.006,
+                baseline.get("rolling_friction", 0.006),
                 "lo":
                 0.0,
                 "hi":
@@ -438,7 +454,10 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             },
             "spinning_friction": {
                 "default":
-                friction,
+                # Bodies are created with spinningFriction = the built-in
+                # lateral value; a lateral_friction override does NOT
+                # retouch it, so the baseline follows the ClassVar.
+                baseline.get("spinning_friction", comp.domino_friction),
                 "lo":
                 0.01,
                 "hi":
