@@ -111,9 +111,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
                  *args: Any,
                  option_model: Optional[_OptionModelBase] = None,
                  **kwargs: Any) -> None:
-        # Build the base env and pass the option model in so the parent
-        # __init__ doesn't spin up its own full-process env, which
-        # would fight this one for the PyBullet GUI client.
+        # Pass the option model in so the parent __init__ doesn't spin up
+        # its own full-process env, which would fight this one for the
+        # PyBullet GUI client.
         self._base_env = create_new_env(CFG.env,
                                         do_cache=False,
                                         use_gui=CFG.option_model_use_gui,
@@ -133,10 +133,10 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         # Loss-scope mask for parameter fitting (compute_sse).
         self._process_features: Dict[str, List[str]] = {}
         self._process_rules: Optional[List] = None
-        # Always the same dict object — fits update it in place via
+        # Always the same dict object: fits update it in place via
         # clear()+update() so _ParamsView (held by invented predicate
-        # classifiers) picks up new values without holding a reference
-        # to ``self``. Truthy iff a fit has populated it.
+        # classifiers) picks up new values without holding a reference to
+        # ``self``. Truthy iff a fit has populated it.
         self._fitted_params: Dict[str, float] = {}
         # ParamSpecs of the most recently fitted simulator (names + bounds);
         # kept so the active-experiment ensemble can perturb each param
@@ -155,9 +155,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         self._fit_sse: float = float("inf")
         self._learning_mode: bool = False
         # Snapshot tags of the most recent simulator / predicates files
-        # committed by the synthesis agent — used to stamp newly
-        # collected online trajectories with their source-version
-        # provenance (consumed in the next learn-phase prompt).
+        # committed by the synthesis agent, used to stamp newly collected
+        # online trajectories with their source-version provenance
+        # (consumed in the next learn-phase prompt).
         self._current_simulator_version: Optional[str] = None
         self._current_predicates_version: Optional[str] = None
         self._init_sampler_learning_state()
@@ -196,7 +196,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         """Complete tool surface for the synthesis agent.
 
         Combines the static MCP tools the agent may call (the inspect
-        family — used to read off option/predicate/type signatures when
+        family, used to read off option/predicate/type signatures when
         writing rules) with the names of the dynamic synthesis callables
         (``run_python``, ``evaluate_step_fit``, ``report_residuals``,
         ``evaluate_plan_refinement``) attached to
@@ -334,15 +334,15 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         self._fit_trajectories = list(trajectories)
         # Decide how samplers are obtained this cycle: ground-truth (if
         # requested and available for the env) else agent synthesis. GT
-        # samplers are static, so install them up front — independent of
+        # samplers are static, so install them up front, independent of
         # whether simulator learning runs below (it is skipped when there
         # are no step transitions, e.g. when every demo failed).
         self._maybe_install_oracle_samplers()
         # Two parallel triple lists drive the rest of this method:
-        # * obs_triples       — raw (s_t, a, s_{t+1}) from the data.
-        # * base_pred_triples — same triples but s_t replaced by the
-        #   base sim's one-step prediction. The rules run on top of
-        #   that prediction; SSE compares against s_{t+1}.
+        # * obs_triples       - raw (s_t, a, s_{t+1}) from the data.
+        # * base_pred_triples - same triples but s_t replaced by the
+        #   base sim's one-step prediction. The rules run on top of that
+        #   prediction; SSE compares against s_{t+1}.
         obs_triples = self._extract_obs_triples(trajectories)
         if not obs_triples:
             logger.warning("No step transitions; skipping simulator learning.")
@@ -380,7 +380,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
 
         # When the simulator came from the oracle short-circuit no agent
         # session ran above, so per-skill samplers (if enabled) get their
-        # own session here — after the option model is built, so the
+        # own session here, after the option model is built so the
         # session's evaluate_plan_refinement has a working simulator. When
         # the agent *did* synthesize the simulator, samplers already rode
         # along in that session and this is skipped.
@@ -415,14 +415,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         The synthesis tools (``evaluate_step_fit``, ``report_residuals``)
         share the fit statics and run repeatedly inside the agent loop,
         so they always use the global
-        ``CFG.code_sim_learning_num_mcmc_steps`` (typically 0 — LM +
+        ``CFG.code_sim_learning_num_mcmc_steps`` (typically 0 - LM +
         Laplace only). The solver/test-time fit also uses that global
         setting. The exploration posterior fit is different: it runs
         once per learning cycle, only when it needs more MCMC than the
         solver fit already ran, and its posterior feeds only the
         info-seeking ensemble. With real posterior samples,
         ``_select_param_ensemble`` upgrades from the Laplace draw to a
-        posterior subsample — calibrating ensemble spread for
+        posterior subsample, calibrating ensemble spread for
         gate/threshold params whose flat likelihood has a near-zero
         Jacobian column at the MAP (invisible to Laplace).
 
@@ -474,13 +474,13 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
 
         Dispatch, most- to least-calibrated:
 
-        * ``posterior`` — when MCMC ran (``num_mcmc_steps > 0``), subsample
+        * ``posterior`` - when MCMC ran (``num_mcmc_steps > 0``), subsample
           the real posterior ``samples`` (works for both per-transition and
           recurrent fits).
-        * ``laplace`` — else, when the fit attached an LM Jacobian
+        * ``laplace`` - else, when the fit attached an LM Jacobian
           (``num_mcmc_steps == 0``, per-transition or recurrent), draw
           from the Laplace covariance at the MAP.
-        * ``uniform`` — otherwise (oracle params, LM skipped/failed, or
+        * ``uniform`` - otherwise (oracle params, LM skipped/failed, or
           calibration disabled), fall back to box-relative jitter.
         """
         fit = self._last_fit_result
@@ -523,13 +523,13 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         member by swapping ``_fitted_params`` (which the learned
         predicate classifiers read through ``_ParamsView``) to each
         member in turn, then restoring it. High disagreement marks a
-        state that straddles a learned predicate's decision boundary —
+        state that straddles a learned predicate's decision boundary,
         i.e. an informative experiment. Returns 0.0 when the ensemble is
         trivial (<=1 member) or no atoms are given.
 
-        This is intended to be wired into refinement as the info-scorer
-        for the agent_bilevel explorer; it is a read-only query and
-        leaves ``_fitted_params`` unchanged on return.
+        Wired into refinement as the info-scorer for the agent_bilevel
+        explorer; a read-only query that leaves ``_fitted_params``
+        unchanged on return.
         """
         atom_list = list(atoms)
         if len(self._param_ensemble) <= 1 or not atom_list:
@@ -568,7 +568,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         if CFG.agent_sim_learn_oracle_sim_program:
             # get_gt_simulator dispatches by observability: in
             # partially-observable mode it returns the PO GT simulator
-            # (gt_simulator_po.py — latent heat threaded across steps,
+            # (gt_simulator_po.py - latent heat threaded across steps,
             # surfaced as the observable bubbling_level), which predicts
             # only observable features; otherwise it returns the
             # fully-observable gt_simulator.py (which reads/writes
@@ -651,7 +651,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
             # tool context *before* opening the session. The attached
             # set is filtered against ``_get_synthesis_tool_names`` so
             # that method is the single source of truth for what the
-            # agent sees — anything a builder constructs but the names
+            # agent sees: anything a builder constructs but the names
             # list omits is dropped here. The ``finally`` block below
             # clears the attachment.
             tools = create_synthesis_tools(
@@ -782,7 +782,7 @@ the tools."""
                 sim_ns, dict) else None)
             # Optional PHYSICAL_PARAMS export: base-sim parameters to
             # identify jointly with the rule params (system ID). The fit
-            # scale (log vs linear) is stamped from the env registry —
+            # scale (log vs linear) is stamped from the env registry;
             # agents copy name/init/bounds but need not know about it.
             self._physical_param_specs = stamp_physical_spec_scales(
                 list((read_physical_param_specs(sim_ns) if isinstance(
@@ -828,7 +828,7 @@ the tools."""
                 self._apply_identified_physical_params(
                     {s.name: s.init_value
                      for s in self._physical_param_specs})
-            # No fit ran — the ensemble falls back to uniform perturbation.
+            # No fit ran; the ensemble falls back to uniform perturbation.
             self._last_fit_result = None
             self._fit_sse = self._oracle_param_sse(rules, base_pred_triples,
                                                    process_features,
@@ -841,7 +841,7 @@ the tools."""
             if self._physical_param_specs:
                 # System ID: physical + rule params fit jointly against
                 # free-running rollouts (teacher-forced triples cannot
-                # see physical params — no velocities in State).
+                # see physical params - no velocities in State).
                 fit_result, self._fit_sse = (
                     self._fit_parameters_joint_rollout(rules, specs,
                                                        process_features))
@@ -949,8 +949,8 @@ the tools."""
         precomputing avoids re-running it inside the MCMC inner loop.
 
         ``num_steps`` overrides the global MCMC budget for this fit
-        (``None`` falls back to ``CFG.code_sim_learning_num_mcmc_steps``)
-        — see :meth:`_exploration_fit_num_steps`.
+        (``None`` falls back to ``CFG.code_sim_learning_num_mcmc_steps``);
+        see :meth:`_exploration_fit_num_steps`.
 
         Returns the full :class:`FitResult` (so callers can reach the
         posterior ``samples`` / Laplace ``jacobian`` for ensemble
@@ -1111,7 +1111,7 @@ the tools."""
         the RAW observed trajectories rather than ``base_pred_triples``:
         physical parameters only manifest when momentum free-runs, which
         the teacher-forced triples destroy (``State`` has no
-        velocities). One theta = physical + rule params, one MCMC — so
+        velocities). One theta = physical + rule params, one MCMC, so
         rules cannot silently absorb physics error; with no rules this
         degenerates to pure identification. The identified physical
         values are applied in place to the planning base env, and the
@@ -1263,8 +1263,8 @@ the tools."""
         with groups derived from ``self._fit_trajectories`` and
         ``self._latent_init``; the synthesis tools call it with groups
         they regroup and ``LATENT_INIT`` read fresh from
-        ``simulator.py``. Both therefore score latent rules identically
-        — no tool/engine drift in the rule call convention.
+        ``simulator.py``. Both therefore score latent rules identically,
+        with no tool/engine drift in the rule call convention.
 
         ``num_steps`` overrides the global MCMC budget (``None`` falls
         back to ``CFG.code_sim_learning_num_mcmc_steps``). The tools
@@ -1308,7 +1308,7 @@ the tools."""
 
         Latent counterpart to :meth:`_oracle_param_sse`'s per-transition
         body. The per-feature ``log_sse_breakdown`` is per-transition
-        and so omitted — the recurrent rollout already reports its SSE.
+        and so omitted; the recurrent rollout already reports its SSE.
         """
         groups = self._group_triples_by_trajectory(base_pred_triples)
         if not groups:
@@ -1704,13 +1704,13 @@ files to see exactly which rules and predicates produced each failed plan.
 
         When the option model backtracks (jumps to a non-current node), the
         base PyBullet env reconstructs the State from observables only, so a
-        feature derived from a hidden sim-feature — e.g. ``bubbling_level``,
-        projected from a hidden ``heat_level`` — comes back at its default
+        feature derived from a hidden sim-feature (e.g. ``bubbling_level``,
+        projected from a hidden ``heat_level``) comes back at its default
         (0) instead of its carried value. The learned model *owns* those
         features, so the base value is meaningless; overwrite ``base_state``
         with the value carried in ``prev_state`` before the rules read it.
 
-        Scoping is the key to not breaking co-owned features: we restore only
+        Scoping is the key to not breaking co-owned features: restore only
         the intersection of (a) the env's reported unreconstructible set for
         this step and (b) the declared ``PROCESS_FEATURES``. A kinematic,
         base-reconstructible feature that a robot legitimately moves (e.g. a

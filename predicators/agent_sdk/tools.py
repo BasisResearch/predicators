@@ -209,6 +209,13 @@ class ToolContext:
     # the task goal during refinement? Read by get_interaction_requests to
     # stamp InteractionRequest.mental_model_solved (None ⇒ no verdict).
     last_mental_model_solved: Optional[bool] = None
+    # Sketch-line descriptions of the exploration plans already generated
+    # this online-learning cycle (a cycle's requests are all generated
+    # before any executes). Cleared by get_interaction_requests per cycle,
+    # appended by AgentBilevelExplorer per request, and shown in the next
+    # explore prompt so the agent proposes a complementary plan instead of
+    # repeating the identical one for every request.
+    cycle_scheduled_plans: List[str] = field(default_factory=list)
     # Set by refine_plan_sketch / evaluate_option_plan when a plan is verified
     # to reach the goal on the CURRENT solve task: the simulator-verified plan
     # (grounded options with found params) and the parallel subgoal sketch.
@@ -799,15 +806,8 @@ def _build_inspection_tools(ctx: ToolContext, _text_result: Callable,
         for t_step, state in enumerate(traj.states[:max_timesteps]):
             lines.append(f"\n--- Timestep {t_step} ---")
             if include_states:
-                state_dict = {}
-                for obj in sorted(state, key=str):
-                    obj_feats = {}
-                    for feat in obj.type.feature_names:
-                        val = state.get(obj, feat)
-                        obj_feats[feat] = round(float(val), 4) \
-                            if isinstance(val, (float, int)) else str(val)
-                    state_dict[str(obj)] = obj_feats
-                lines.append(f"State: {json.dumps(state_dict, indent=2)}")
+                lines.append("State:")
+                lines.append(state.dict_str(indent=2, num_decimal_points=4))
             if include_atoms:
                 atoms = utils.abstract(state, ctx.predicates)
                 atoms_str = ", ".join(str(a) for a in sorted(atoms))
@@ -1576,15 +1576,8 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 step_line += (f"\n  Added:   {{{added_s}}}"
                               f"\n  Deleted: {{{del_s}}}")
             if post is not None and include_states:
-                state_dict = {}
-                for obj in sorted(post, key=str):
-                    obj_feats = {}
-                    for feat in obj.type.feature_names:
-                        val = post.get(obj, feat)
-                        obj_feats[feat] = round(float(val), 4) \
-                            if isinstance(val, (float, int)) else str(val)
-                    state_dict[str(obj)] = obj_feats
-                step_line += f"\n  State: {json.dumps(state_dict, indent=4)}"
+                step_line += ("\n  State:\n" +
+                              post.dict_str(indent=4, num_decimal_points=4))
             lines.append(step_line)
             img_block = _render_scene_image(ctx, f"step_{i}_{opt.name}")
             if img_block and img_block.get("saved_path"):
@@ -1652,6 +1645,15 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 f"Captured as the current answer: {len(grounded_plan)} steps, "
                 f"{n_annot} with subgoal annotations for closed-loop "
                 "monitoring.")
+        elif (ctx.capture_goal_reaching_plans and task_idx != "current"
+              and goal_achieved):
+            # Loudly flag a success that cannot count: agents have burned
+            # whole sessions validating on a train task, believing they
+            # were done (run_20260707_112310 test task 0, session 3).
+            lines.append(
+                f"NOTE: this ran on train task {task_idx}, NOT the current "
+                "task, so it is NOT captured as your answer. To submit, "
+                "re-run the plan on the current task (omit task_idx).")
         if result.first_failure_idx is not None:
             fr = result.steps[result.first_failure_idx].failure_reason
             lines.append(

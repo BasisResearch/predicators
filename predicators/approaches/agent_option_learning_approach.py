@@ -163,11 +163,11 @@ Also available: `Phase`, `PhaseSkill`, `PhaseAction`,
     # ------------------------------------------------------------------ #
 
     def _get_all_options(self) -> Set[ParameterizedOption]:
-        # Include tool_context.options so newly proposed options (added by
-        # propose_options tool during the agent query) are visible to the
-        # parser before _agent_proposed_options is snapshotted.
-        # Also include iteration_proposals.proposed_options as a fallback
-        # in case the Docker sync to tool_context.options was incomplete.
+        # Include tool_context.options so options proposed during the query
+        # (via propose_options) reach the parser before
+        # _agent_proposed_options is snapshotted. iteration_proposals is a
+        # fallback for when the Docker sync to tool_context.options was
+        # incomplete.
         proposal_opts = self._tool_context.iteration_proposals.proposed_options
         result = (self._initial_options | self._agent_proposed_options
                   | self._tool_context.options | proposal_opts)

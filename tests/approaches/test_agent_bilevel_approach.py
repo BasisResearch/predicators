@@ -1306,3 +1306,54 @@ class TestExecutionReplanning:
         # Tried failed step (suffix len 1) first, then one step back
         # (len 2); never walked past the holding annotation at step 0.
         assert tried == [1, 2]
+
+
+# ---------------------------------------------------------------------------
+# Tests: scheduled-plans section in the solve/explore prompt
+# ---------------------------------------------------------------------------
+
+
+class TestScheduledPlansPromptSection:
+    """The explore prompt shows plans already generated this cycle so the next
+    request proposes a complementary plan instead of repeating the identical
+    one (run_20260707_112310 emitted the same 1-step plan for both of a cycle's
+    requests)."""
+
+    @staticmethod
+    def _prompt(scheduled_plans):
+        from predicators.agent_sdk import bilevel_sketch
+        utils.reset_config({
+            "env": "cover",
+            "approach": "agent_bilevel",
+            "seed": 42,
+        })
+        state = _make_state()
+        task = Task(state, {GroundAtom(_On, [_block0, _block1])})
+        return bilevel_sketch.build_solve_prompt(
+            task,
+            all_predicates=_ALL_PREDICATES,
+            all_options=_ALL_OPTIONS,
+            scheduled_plans=scheduled_plans,
+            propose_params=True,
+        )
+
+    def test_section_absent_without_scheduled_plans(self):
+        """No scheduled-plans section is emitted when none were scheduled."""
+        for empty in (None, []):
+            prompt = self._prompt(empty)
+            assert "Plans Already Scheduled This Cycle" not in prompt
+
+    def test_section_lists_plans_and_asks_for_different_one(self):
+        """Scheduled plans are listed so the agent proposes a different one."""
+        plans = [
+            "  0: Pick(block0)[0.5000]",
+            "  0: Place(block0, block1)[0.1000, 0.2000]",
+        ]
+        prompt = self._prompt(plans)
+        assert "## Plans Already Scheduled This Cycle" in prompt
+        assert "Plan 1:\n  0: Pick(block0)[0.5000]" in prompt
+        assert "Plan 2:\n  0: Place(block0, block1)[0.1000, 0.2000]" in prompt
+        assert "still achieves the goal but differs meaningfully" in prompt
+        # The instruction must keep the request goal-directed (this is what
+        # preserves the train-solve early-stopping semantics).
+        assert "repeat the best plan" in " ".join(prompt.split())

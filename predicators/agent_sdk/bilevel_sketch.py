@@ -14,7 +14,7 @@ import logging
 import os
 import re
 from typing import Any, Callable, Collection, Dict, List, Optional, Sequence, \
-    Set, Tuple, cast
+    Set, Tuple, Union, cast
 
 import numpy as np
 
@@ -124,6 +124,71 @@ class SketchStep:
     initial_params: Optional[np.ndarray] = None
 
 
+def format_step_line(
+    idx: int,
+    option_name: str,
+    objects: Sequence[Object],
+    params: Optional[Union[Sequence[float], np.ndarray]] = None,
+    subgoal_atoms: Optional[Set[GroundAtom]] = None,
+) -> str:
+    """Format one plan/sketch step as a single indented line.
+
+    ``  <idx>: OptName(obj1, obj2)[p0, p1] -> {Atom, Atom}``
+
+    The ``[params]`` and ``-> {atoms}`` slots are omitted when their
+    argument is empty/None. Shared by the sketch- and plan-formatting
+    helpers below so every per-step line reads identically.
+    """
+    objs = ", ".join(o.name for o in objects)
+    line = f"  {idx}: {option_name}({objs})"
+    if params is not None and len(params):
+        par = ", ".join(f"{p:.4f}" for p in params)
+        line += f"[{par}]"
+    if subgoal_atoms:
+        atoms = ", ".join(str(a) for a in subgoal_atoms)
+        line += f" -> {{{atoms}}}"
+    return line
+
+
+def format_sketch_lines(sketch: Sequence[SketchStep]) -> List[str]:
+    """Render a plan sketch as one ``format_step_line`` per step.
+
+    Each step shows its ``initial_params`` (if the LLM proposed any) and
+    its ``subgoal_atoms``.
+    """
+    return [
+        format_step_line(i,
+                         s.option.name,
+                         s.objects,
+                         params=s.initial_params,
+                         subgoal_atoms=s.subgoal_atoms)
+        for i, s in enumerate(sketch)
+    ]
+
+
+def format_plan_lines(
+    plan: Sequence[_Option],
+    sketch: Optional[Sequence[SketchStep]] = None,
+) -> List[str]:
+    """Render a grounded option plan as one ``format_step_line`` per step.
+
+    Each step shows its continuous ``params``. When ``sketch`` is given,
+    the parallel step's ``subgoal_atoms`` are appended so the log
+    mirrors the annotated sketch.
+    """
+    lines = []
+    for i, opt in enumerate(plan):
+        step = sketch[i] if sketch and i < len(sketch) else None
+        subgoals = step.subgoal_atoms if step is not None else None
+        lines.append(
+            format_step_line(i,
+                             opt.name,
+                             opt.objects,
+                             params=opt.params,
+                             subgoal_atoms=subgoals))
+    return lines
+
+
 def strip_code_fences(text: str) -> str:
     """Strip markdown code fences wrapping plan text."""
     lines = text.split('\n')
@@ -153,6 +218,7 @@ def build_solve_prompt(
     tool_names: Optional[Sequence[str]] = None,
     experiment_guidance: str = "",
     prior_failures: str = "",
+    scheduled_plans: Optional[Sequence[str]] = None,
     initial_image_section: str = "",
     propose_params: bool = False,
     require_tool_validation: bool = False,
@@ -167,6 +233,13 @@ def build_solve_prompt(
     pointer to the full per-step log in the sandbox). Injected so a
     re-query produces a *different* skeleton instead of re-emitting the
     dead one.
+
+    ``scheduled_plans`` lists sketch-line descriptions of exploration
+    plans already generated this online-learning cycle (all of a cycle's
+    requests are generated before any executes). When given, the prompt
+    asks for a plan that still achieves the goal but differs meaningfully,
+    so the cycle's interaction data is complementary instead of the same
+    plan repeated per request.
 
     ``propose_params`` switches the prompt from "param-free sketch, search
     finds all continuous params" to "propose your best continuous params in
@@ -240,6 +313,21 @@ def build_solve_prompt(
             "the failure — change the step that got stuck (object choice, "
             "ordering, an intermediate step, or its subgoal annotation).\n"
             f"{prior_failures}\n")
+
+    scheduled_plans_section = ""
+    if scheduled_plans:
+        plan_blocks = "\n".join(f"Plan {i + 1}:\n{p}"
+                                for i, p in enumerate(scheduled_plans))
+        scheduled_plans_section = (
+            "\n## Plans Already Scheduled This Cycle\n"
+            "The plan(s) below are already queued to run on this same task "
+            "before any learning happens, so their interaction data will be "
+            "collected regardless of what you propose now.\n"
+            f"{plan_blocks}\n"
+            "\nPropose a plan that still achieves the goal but differs "
+            "meaningfully from the plan(s) above, so this cycle's data is "
+            "complementary rather than redundant. Only if no meaningfully "
+            "different goal-reaching plan exists, repeat the best plan.\n")
 
     goal_nl_section = ""
     if task.goal_nl:
@@ -338,6 +426,26 @@ def build_solve_prompt(
             "You may vet a sketch with `refine_plan_sketch` before finishing; "
             "the backtracking search will find continuous parameters.")
 
+    if require_tool_validation:
+        # Plain text is NOT a submission in this mode; saying "output the
+        # plan lines" as the closing instruction has led agents (especially
+        # right after an SDK context compaction, whose text-only summary
+        # instruction bleeds into the task) to answer with an unvalidated
+        # text sketch and finish, wasting the whole attempt.
+        closing_block = (
+            "Your answer is ONLY accepted from a goal-reaching "
+            "`evaluate_option_plan` run on the CURRENT task; final text "
+            "alone is discarded, so never finish without that validated "
+            "run. Tool calls are permitted on every turn of this "
+            "conversation. If an earlier context summary says a turn was "
+            "text-only, that applied to writing the summary itself, not to "
+            "this task; resume calling tools. After the goal-reaching run, "
+            "repeat its plan lines as your final text.")
+    else:
+        closing_block = (
+            "Output ONLY the plan sketch lines at the end, after any "
+            "analysis.")
+
     prompt = f"""You are solving a task. \
 Generate a plan sketch to achieve the goal.
 {goal_nl_section}{goal_atoms_section}{experiment_section}
@@ -355,7 +463,7 @@ Generate a plan sketch to achieve the goal.
 
 ## Available Predicates (for subgoal annotations)
 {chr(10).join(pred_strs)}
-{trajectory_summary}{tools_str}{prior_failures_section}
+{trajectory_summary}{tools_str}{prior_failures_section}{scheduled_plans_section}
 ## Instructions
 Use your available tools to inspect the environment before producing the plan.
 
@@ -384,7 +492,7 @@ atoms. If you omit `-> {{atoms}}` on a step, the search only checks that the \
 option executed (non-zero actions) and execution monitoring is blind there — \
 omit it only when no available predicate can express the step's effect.
 
-Output ONLY the plan sketch lines at the end, after any analysis."""
+{closing_block}"""
 
     return prompt
 

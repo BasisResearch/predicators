@@ -439,3 +439,14 @@ def test_fallback_disabled_raises():
     explorer, _ = _make_explorer(option_model, failing_query)
     with pytest.raises(utils.RequestActPolicyFailure):
         explorer._get_exploration_strategy(0, timeout=5)
+
+
+def test_experiment_guidance_gated_by_info_seeking():
+    """Experiment guidance appears iff info-seeking is on."""
+    _reset_config(agent_explorer_info_seeking=True)
+    explorer, _ = _make_explorer(MagicMock(), MagicMock())
+    guidance = explorer._build_experiment_guidance()  # pylint: disable=protected-access
+    assert "straddle the learned model's decision boundaries" in guidance
+    # Off => section absent entirely.
+    _reset_config(agent_explorer_info_seeking=False)
+    assert explorer._build_experiment_guidance() == ""  # pylint: disable=protected-access

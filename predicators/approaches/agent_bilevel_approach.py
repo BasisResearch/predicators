@@ -71,11 +71,10 @@ class AgentBilevelApproach(AgentPlannerApproach):
         super().reset_for_new_episode()
         self._exec_status = None
         self._exec_replans_left = CFG.agent_bilevel_max_execution_replans
-        # Optionally give each test solve a fresh agent conversation: close
-        # the session here (once per test task, before its first solve; not
-        # on mid-episode replans, which go through step() not reset()). The
-        # next query lazily rebuilds the session — same sandbox + learned
-        # artifacts, empty chat context. Gated to the test phase so
+        # Optionally give each test solve a fresh agent conversation. reset()
+        # fires once per test task (not on mid-episode replans, which go
+        # through step()); the next query lazily rebuilds the session with the
+        # same sandbox + artifacts but empty chat context. Test-phase only, so
         # exploration episodes keep their shared session.
         if CFG.agent_fresh_session_per_test_task and self._in_test_phase:
             self._close_agent_session()
@@ -94,10 +93,9 @@ class AgentBilevelApproach(AgentPlannerApproach):
         return []
 
     def _get_solve_tool_names(self) -> Optional[List[str]]:
-        # Bilevel solving hands continuous refinement to a search procedure,
-        # so the agent gets refine_plan_sketch (backtracking refinement +
-        # forward validation on a param-free sketch) on top of the base
-        # inspection / evaluation tools. Like the others it needs a simulator.
+        # Bilevel solving hands continuous refinement to a search, so the
+        # agent also gets refine_plan_sketch (backtracking refinement +
+        # forward validation on a param-free sketch). Needs a simulator.
         tools = list(super()._get_solve_tool_names() or [])
         if CFG.agent_planner_use_simulator:
             tools.append("refine_plan_sketch")
@@ -290,13 +288,10 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 policy = self._consume_validated_plan()
                 if policy is not None:
                     return policy
-                # If the response blew the output-token limit, tell the next
-                # attempt (same conversation, so it keeps its context) what
-                # happened and to be concise, so it doesn't repeat the
-                # overflow. Note: the agent session continues across retries,
-                # and the SDK auto-compacts the context window on its own; the
-                # overflow is a single over-long RESPONSE, which only brevity
-                # (not compaction) can prevent.
+                # On output-token overflow, tell the next attempt (same
+                # conversation) to be concise. The overflow is one over-long
+                # RESPONSE; the SDK compacts context itself, so only brevity,
+                # not compaction, prevents a repeat.
                 if "output token maximum" in str(e):
                     prior_failures.append(
                         "Your previous response hit the output-token limit and "
@@ -305,6 +300,11 @@ class AgentBilevelApproach(AgentPlannerApproach):
                         "long derivations.")
                 logging.warning("Sketch query failed (attempt %d): %s",
                                 sketch_attempt, e)
+                nudge_start = time.perf_counter()
+                policy = self._nudge_final_submission()
+                llm_query_time += time.perf_counter() - nudge_start
+                if policy is not None:
+                    return policy
                 continue
             llm_query_time += time.perf_counter() - query_start
             sketches_tried += 1
@@ -317,33 +317,28 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 return policy
 
             if not CFG.agent_bilevel_refine_fallback:
-                # Default: no approach-side refinement fallback. The agent
-                # itself must reach a refine_plan_sketch SUCCESS (which also
-                # forward-validates), captured above, so we never execute a
-                # plan the agent didn't verify. If it ended without one,
-                # re-query with explicit feedback rather than silently
-                # refining its unvalidated sketch.
+                # Default: no approach-side fallback. The agent must itself
+                # reach a refine_plan_sketch SUCCESS (captured above) so we
+                # never execute a plan it didn't verify; if it ended without
+                # one, re-query with feedback instead of refining its
+                # unvalidated sketch.
                 logging.info(
                     "[%s] Attempt %d ended without a validated plan; "
                     "re-querying the agent.", self._run_id, sketch_attempt)
+                nudge_start = time.perf_counter()
+                policy = self._nudge_final_submission()
+                llm_query_time += time.perf_counter() - nudge_start
+                if policy is not None:
+                    return policy
                 prior_failures.append(
-                    "You finished without a validated plan. You MUST call "
-                    "refine_plan_sketch (omit task_idx) and iterate until it "
-                    "reports SUCCESS on the current task before finishing; "
-                    "that validated plan is your submitted answer.")
+                    "You finished without a validated plan. You MUST run "
+                    "evaluate_option_plan on the current task (omit task_idx) "
+                    "until it reaches the goal; that captured run is your "
+                    "submitted answer, and a plan given only as text is "
+                    "discarded. refine_plan_sketch SUCCESS also counts.")
                 continue
 
-            sketch_lines = []
-            for i, s in enumerate(sketch):
-                objs = ", ".join(o.name for o in s.objects)
-                line = f"  {i}: {s.option.name}({objs})"
-                if s.initial_params is not None and len(s.initial_params):
-                    par = ", ".join(f"{p:.4f}" for p in s.initial_params)
-                    line += f"[{par}]"
-                if s.subgoal_atoms:
-                    atoms = ", ".join(str(a) for a in s.subgoal_atoms)
-                    line += f" -> {{{atoms}}}"
-                sketch_lines.append(line)
+            sketch_lines = bilevel_sketch.format_sketch_lines(sketch)
             logging.info("[%s] Sketch (attempt %d):\n%s", self._run_id,
                          sketch_attempt, "\n".join(sketch_lines))
 
@@ -384,13 +379,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
                         f"{len(sketch)} steps{reason_msg}.")
                     continue
 
-                plan_strs = []
-                for i, o in enumerate(plan):
-                    obj_s = ", ".join(obj.name for obj in o.objects)
-                    par_s = ", ".join(f"{p:.4f}" for p in o.params)
-                    plan_strs.append(f"  {i}: {o.name}({obj_s})"
-                                     f"[{par_s}]")
-                plan_str = "\n".join(plan_strs)
+                plan_str = "\n".join(bilevel_sketch.format_plan_lines(plan))
                 logging.info(f"[{self._run_id}] Refinement succeeded (sketch "
                              f"{sketch_attempt}, refine {refine_attempt}), "
                              f"{len(plan)} steps:\n{plan_str}")
@@ -683,19 +672,18 @@ class AgentBilevelApproach(AgentPlannerApproach):
         execution monitor.
 
         CogMan calls solve() identically at episode start and on a
-        monitor-triggered replan; the two are distinguished by
-        ``_exec_status``, which is non-None only while a monitored plan
-        is executing (``reset_for_new_episode`` clears it at episode
-        start). On a replan, ``task.init`` is the real state in which
-        the just-finished step's annotation failed. Divergence is
-        usually a continuous-execution problem (a sampled parameter
-        whose real outcome differed from the option-model rollout), not
-        a wrong skeleton, so we first try to resume a suffix of the
-        executed sketch (cheap — no agent query; see
-        :meth:`_replan_suffix`). Returns None to fall through to a
-        fresh agent sketch, and raises ApproachFailure once the
-        per-episode replan budget is exhausted so the episode fails
-        fast instead of burning the horizon open-loop.
+        monitor-triggered replan; ``_exec_status`` distinguishes them
+        (non-None only while a monitored plan executes;
+        reset_for_new_episode clears it at episode start). On a replan
+        ``task.init`` is the real state where the just-finished step's
+        annotation failed. Divergence is usually a continuous-execution
+        problem (a sampled parameter whose real outcome differed from
+        the option-model rollout), not a wrong skeleton, so we first try
+        to resume a suffix of the executed sketch (cheap, no agent
+        query; see :meth:`_replan_suffix`). Returns None to fall through
+        to a fresh agent sketch; raises ApproachFailure once the per-
+        episode replan budget is exhausted so the episode fails fast
+        instead of running the horizon open-loop.
         """
         status = self._exec_status
         if status is None or status.steps_initiated == 0:
@@ -716,10 +704,37 @@ class AgentBilevelApproach(AgentPlannerApproach):
         policy = self._replan_suffix(task.init, task, steps, failed_idx,
                                      timeout)
         if policy is None:
-            # No suffix of the executed skeleton is refinable from here —
-            # fall through to pay for a fresh agent sketch.
+            # No suffix of the executed skeleton refines from here; fall
+            # through to pay for a fresh agent sketch.
             logging.info("Suffix replan failed; querying the agent for a "
                          "fresh sketch.")
+        return policy
+
+    _FINAL_SUBMIT_NUDGE = (
+        "You are out of exploration budget for this attempt. Do NOT explore "
+        "further. In as few tool calls as possible, submit your single best "
+        "plan NOW via evaluate_option_plan on the current task (omit "
+        "task_idx), using the best parameters you have already validated. "
+        "If it reaches the goal it is captured as your answer; then finish.")
+
+    def _nudge_final_submission(self) -> Optional[Callable[[State], Action]]:
+        """One short follow-up query after an attempt ended with no captured
+        plan: tell the agent to submit its best plan now.
+
+        A session that hits the turn cap mid-iteration contributes
+        nothing, even when it has a near-working plan in context; this
+        converts that dead end into a submission attempt at the cost of a
+        few turns.
+        """
+        try:
+            self._query_agent_sync(self._FINAL_SUBMIT_NUDGE, kind="test")
+        except Exception as e:  # pylint: disable=broad-except
+            logging.warning("Final-submission nudge failed: %s", e)
+        policy = self._consume_validated_plan()
+        if policy is not None:
+            logging.info(
+                "[%s] Final-submission nudge produced a validated plan.",
+                self._run_id)
         return policy
 
     def _consume_validated_plan(self) -> Optional[Callable[[State], Action]]:
@@ -740,16 +755,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
         # Log the full validated plan (options + continuous params + subgoal
         # annotations), mirroring the per-step plan log the approach-side
         # refinement path emits.
-        lines = []
-        for i, opt in enumerate(plan):
-            objs = ", ".join(o.name for o in opt.objects)
-            par = ", ".join(f"{p:.4f}" for p in opt.params)
-            line = f"  {i}: {opt.name}({objs})[{par}]"
-            step = sketch[i] if sketch and i < len(sketch) else None
-            if step is not None and step.subgoal_atoms:
-                atoms = ", ".join(str(a) for a in step.subgoal_atoms)
-                line += f" -> {{{atoms}}}"
-            lines.append(line)
+        lines = bilevel_sketch.format_plan_lines(plan, sketch=sketch)
         logging.info(
             "[%s] Using agent-validated plan from refine_plan_sketch "
             "(%d steps, simulator-verified):\n%s", self._run_id, len(plan),
