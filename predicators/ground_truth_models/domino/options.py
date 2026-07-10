@@ -20,6 +20,17 @@ from predicators.structs import Array, Object, ParameterizedOption, \
 from .options_legacy import _DominoLegacyOptionsMixin
 
 
+def _skill_robot_env_cls(env_name: str) -> TypingType[PyBulletEnv]:
+    """The env class registered under ``env_name``, so the shared skill robot is
+    built with THAT env's geometry. Falls back to ``PyBulletDominoEnv``."""
+    from predicators.envs.base_env import BaseEnv  # local: avoid import cycle
+    from predicators.utils import get_all_subclasses
+    for c in get_all_subclasses(BaseEnv):
+        if not c.__abstractmethods__ and c.get_name() == env_name:
+            return c  # type: ignore[return-value]
+    return PyBulletDominoEnv
+
+
 class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
                                              GroundTruthOptionFactory):
     """Ground-truth options for the grow environment."""
@@ -62,14 +73,17 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
                                                                     Predicate],
             action_space: Box) -> Set[ParameterizedOption]:
         """Option implementation built on skill_factories primitives."""
-        del env_name, predicates, action_space  # unused
+        del predicates, action_space  # unused
 
-        pybullet_robot = shared_skill_robot(PyBulletDominoEnv)
+        # Resolve the ACTUAL env class for env_name so the skill robot + sim +
+        # home pose all use the running env's geometry.
+        env_cls = _skill_robot_env_cls(env_name)
+        pybullet_robot = shared_skill_robot(env_cls)
 
         robot_type = types["robot"]
         domino_type = types["domino"]
 
-        cfg = cls._build_skill_config(pybullet_robot)
+        cfg = cls._build_skill_config(pybullet_robot, env_cls)
 
         options: Set[ParameterizedOption] = set()
 
@@ -87,9 +101,17 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
 
     @classmethod
     def _build_skill_config(
-            cls, pybullet_robot: SingleArmPyBulletRobot) -> SkillConfig:
-        """Build the shared SkillConfig for domino skill_factories options."""
-        simulator = shared_skill_simulator(cls.env_cls) \
+            cls,
+            pybullet_robot: SingleArmPyBulletRobot,
+            env_cls: TypingType[PyBulletEnv] = None) -> SkillConfig:
+        """Build the shared SkillConfig for domino skill_factories options.
+
+        ``env_cls`` is the env class whose geometry the skills plan in (the
+        running env, resolved from env_name); defaults to the base
+        ``cls.env_cls`` for callers that don't pass it."""
+        if env_cls is None:
+            env_cls = cls.env_cls
+        simulator = shared_skill_simulator(env_cls) \
             if CFG.skill_phase_use_motion_planning else None
         return SkillConfig(
             robot=pybullet_robot,
@@ -101,9 +123,9 @@ class PyBulletDominoGroundTruthOptionFactory(_DominoLegacyOptionsMixin,
             max_vel_norm=CFG.pybullet_max_vel_norm,
             grasp_tol=PyBulletEnv.grasp_tol_small,
             ik_validate=CFG.pybullet_ik_validate,
-            robot_init_tilt=cls.env_cls.robot_init_tilt,
-            robot_home_pos=(cls.env_cls.robot_init_x, cls.env_cls.robot_init_y,
-                            cls.env_cls.robot_init_z),
+            robot_init_tilt=env_cls.robot_init_tilt,
+            robot_home_pos=(env_cls.robot_init_x, env_cls.robot_init_y,
+                            env_cls.robot_init_z),
             transport_z=cls._transport_z,
             simulator=simulator,
         )

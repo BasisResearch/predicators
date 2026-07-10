@@ -191,6 +191,10 @@ class GlobalSettings:
     pybullet_max_ik_iters = 100
     pybullet_ik_tol = 1e-3
     pybullet_robot = "fetch"
+    # Override the sim gripper's closed-finger joint value (metres). None keeps
+    # each robot's built-in default (Panda: 0.03). Lower it to clamp a thin
+    # object the default gap is wider than (e.g. the real 0.029 m domino).
+    pybullet_closed_fingers = None
     pybullet_birrt_num_attempts = 10
     pybullet_birrt_num_iters = 100
     pybullet_birrt_smooth_amt = 50
@@ -473,18 +477,20 @@ class GlobalSettings:
     # an explicit 'role' field per domino.
     domino_real_start_id = 6
     domino_real_target_id = 5
+    # Real-bench geometry.
+    domino_real_table_z = -0.041      # real table height in the robot base frame
+    domino_real_robot_init_tilt = np.pi
+    domino_real_robot_init_wrist = 0.0
+    domino_real_robot_init_z = 0.65   # reachable top-down home EE height
+    domino_real_domino_dims = [0.15, 0.07, 0.029]  # (L, W, H) -> height,width,depth
+    domino_real_decorate = True       # spawn extended-table tile + robot pedestal
     # When True the env's TEST-mode rollout executes option boundaries on the
-    # real Franka (via the robot-side bridge) and re-perceives; default False =
-    # safe dry-run (build segments + replay-perceive, no arm motion).
+    # real Franka; default False = safe dry-run (build segments + replay-perceive).
     domino_real_execute_real = False
     # Robot-side bridge server (holds the ZED provider + RobotInterface); the
     # env holds a thin client. Only connected when domino_real_execute_real.
     domino_real_bridge_host = "127.0.0.1"
     domino_real_bridge_port = 5555
-    # babyrobot worktree root put on sys.path so the env can import babyrobot /
-    # pose_estimation from the stock predicators cwd.
-    domino_real_repo_root = \
-        "/home/amberli/babyrobot/BabyRobotPredicator-real-env"
     # Reach-limited "minimum-blocks" task mode: generate start/target pairs
     # spaced so that toppling requires bridging near the reach limit, and
     # attach each task a ``MinBlockReward`` with budget K* (the minimum blues

@@ -1,117 +1,107 @@
-"""Real-world domino env: the ``pybullet_domino`` env retargeted to the
-real Franka robot.
-
-This subclass applies the babyrobot geometry + grasp patches, sizes the domino component from a
-reconstructed-scene JSON, and builds the single train/test task from that scene.
-
-Runs in the ``robot-ml`` conda env. The babyrobot / pose_estimation packages are
-put on ``sys.path`` from ``CFG.domino_real_repo_root`` (the babyrobot worktree),
-lazily, so this module imports without them present (env registration scans it).
+"""Real-world domino env: the ``pybullet_domino`` env retargeted to the real
+Franka robot.
 """
 from __future__ import annotations
 
 import dataclasses
 import json
 import math
-import sys
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
+import pybullet as p
 
 from predicators import utils
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
-from predicators.envs.pybullet_domino.env import PyBulletDominoEnv
+from predicators.envs.pybullet_domino.env import (PyBulletDominoComposedEnv,
+                                                  PyBulletDominoEnv)
+from predicators.envs.pybullet_domino.real_geometry import (
+    Pose6D, domino_upright_yaw, domino_world_z_offset, pose_base_to_world)
+from predicators.pybullet_helpers.objects import (create_object,
+                                                  create_pybullet_block)
 from predicators.settings import CFG
 from predicators.structs import EnvironmentTask, GroundAtom, State
-
-# The bench_setup option-factory / bidirectional-push patches mutate process-
-# global classmethods, so they STACK if re-run across the several env instances
-# the pipeline builds (entry, option-model, sysid, ...). Apply them exactly once.
-_PATCHES_APPLIED = False
-
-
-def _bootstrap_babyrobot() -> None:
-    """Put the babyrobot worktree root on sys.path so ``babyrobot`` /
-    ``pose_estimation`` import from the stock predicators cwd. Idempotent."""
-    root = CFG.domino_real_repo_root
-    if root and root not in sys.path:
-        sys.path.insert(0, root)
 
 
 class PyBulletDominoRealEnv(PyBulletDominoEnv):
     """``pybullet_domino`` on the real bench, sized/tasked from a scene JSON."""
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
-        _bootstrap_babyrobot()
-        from babyrobot.backends import bench_setup
-        from babyrobot.config import SkillConfig
-
-        req = self._build_bench_req(SkillConfig())
-        z_off = float(req["z_offset"])
-        # BEFORE the env/robot is built: retarget the env ClassVars to the real
-        # bench geometry and tighten the sim gripper (both consumed at build).
-        bench_setup.apply_bench_geometry_from_req(req)
-        bench_setup.apply_closed_fingers(req)
-
-        # Builds the domino component (our _make_domino_component reads the
-        # scene) + robot + pybullet world with the geometry above applied.
+        self._z_off = domino_world_z_offset(CFG.domino_real_table_z)
         super().__init__(use_gui=use_gui, **kwargs)
-        self._bench_req = req
-        self._z_off = z_off
-
-        # Decorate THIS instance's sim (solid extended-table tile + robot
-        # pedestal) so the env the agent renders / simulates through is
-        # real-bench-identical. Every pipeline env is an instance of this class
-        # built via create_new_env, so decorating in __init__ covers all of them.
-        if req.get("decorate_scene", False):
-            from babyrobot.backends.birrt import _decorate_scene
-            _decorate_scene(type(self),
-                            self._pybullet_robot.physics_client_id, z_off)
-
-        # Process-global patches: apply once (stack if re-run per instance).
-        global _PATCHES_APPLIED  # pylint: disable=global-statement
-        if not _PATCHES_APPLIED:
-            bench_setup.apply_grasp_patches(req)
-            bench_setup.apply_bidirectional_push(req)
-            _PATCHES_APPLIED = True
 
     @classmethod
     def get_name(cls) -> str:
         return "pybullet_domino_real"
 
-    # -- bench request ------------------------------------------------------
-    @staticmethod
-    def _build_bench_req(sc: Any) -> Dict[str, Any]:
-        """The ``bench_setup`` request dict, built from babyrobot ``SkillConfig``
-        (the calibrated bench numbers). Relocated verbatim from
-        ``run_online_learning._bench_req`` so both entry points build it
-        identically."""
-        return {
-            "z_offset": sc.z_offset,
-            "robot_init_tilt": sc.robot_init_tilt,
-            "robot_init_wrist": sc.robot_init_wrist,
-            "robot_init_z": sc.robot_init_z,
-            "domino_dims": list(sc.domino_dims),
-            "pybullet_closed_fingers": sc.pybullet_closed_fingers,
-            "skip_domino_collision": sc.skip_domino_collision,
-            "place_move_above": sc.place_move_above,
-            "pick_lift_to_carry": sc.pick_lift_to_carry,
-            "pick_open_approach": sc.pick_open_approach,
-            "grasp_close_before_lift": sc.grasp_close_before_lift,
-            "decorate_scene": sc.decorate_scene,
-            "bidirectional_push": True,
-        }
+    # -- geometry + pybullet build + decoration -----------------------------
+    @classmethod
+    def _apply_real_geometry(cls) -> None:
+        """Set THIS subclass's robot geometry ClassVars from CFG (raise the base
+        to the real bench, lower the home EE). Applied in ``initialize_pybullet``
+        so it takes effect on BOTH the normal env build AND the skill factory's
+        direct ``initialize_pybullet`` call (which bypasses ``__init__``). Reads
+        the base xy from the untouched shared class, so it is idempotent. Only
+        this subclass is configured -- the shared base is never mutated."""
+        z_off = domino_world_z_offset(CFG.domino_real_table_z)
+        base_xy = PyBulletDominoComposedEnv.robot_base_pos[:2]
+        cls.robot_base_pos = (base_xy[0], base_xy[1], float(z_off))
+        cls.robot_init_tilt = float(CFG.domino_real_robot_init_tilt)
+        cls.robot_init_wrist = float(CFG.domino_real_robot_init_wrist)
+        cls.robot_init_z = float(CFG.domino_real_robot_init_z)
+
+    @classmethod
+    def initialize_pybullet(cls, using_gui: bool) -> Tuple[Any, Any, Any]:
+        """Apply the real-bench geometry, build the world, then decorate this
+        instance's sim (extended-table tile + robot pedestal). Every pipeline
+        env is an instance of this class, so each configures + decorates itself."""
+        cls._apply_real_geometry()
+        physics_client_id, pybullet_robot, bodies = super().initialize_pybullet(
+            using_gui)
+        if CFG.domino_real_decorate:
+            cls._decorate(physics_client_id,
+                          domino_world_z_offset(CFG.domino_real_table_z))
+        return physics_client_id, pybullet_robot, bodies
+
+    @classmethod
+    def _decorate(cls, pcid: int, z_off: float) -> None:
+        """Add the extended-table tile + robot pedestal (ported from
+        ``birrt._decorate_scene``) with predicators' own body helpers."""
+        def yq(yaw: float) -> Tuple[float, float, float, float]:
+            return tuple(p.getQuaternionFromEuler([0.0, 0.0, yaw]))
+
+        # Extra table tile toward the robot (world y=0.85), table top z=0.4.
+        tile_id = create_object("urdf/table.urdf", position=(0.75, 0.85, 0.2),
+                                orientation=yq(np.pi / 2), scale=1.0,
+                                use_fixed_base=True, physics_client_id=pcid)
+        # Match the env's studio wood texture if this env uses studio visuals.
+        if getattr(cls, "_use_studio_visuals", False) and \
+                getattr(cls, "table_texture_path", None) and \
+                isinstance(tile_id, int):
+            texid = p.loadTexture(
+                utils.get_env_asset_path(cls.table_texture_path),
+                physicsClientId=pcid)
+            p.changeVisualShape(tile_id, -1, textureUniqueId=texid,
+                                rgbaColor=(1, 1, 1, 1), physicsClientId=pcid)
+        # Robot mount pedestal: fill the table top (0.4) up to the base (z_off).
+        riser_h = z_off - 0.4
+        if riser_h > 1e-3:
+            create_pybullet_block(
+                color=(0.3, 0.3, 0.3, 1.0),
+                half_extents=(0.10, 0.10, riser_h / 2), mass=0.0, friction=0.5,
+                position=(0.75, 0.72, 0.4 + riser_h / 2),
+                orientation=yq(0.0), physics_client_id=pcid)
 
     # -- roles --------------------------------------------------------------
     @staticmethod
     def _domino_role(d: Dict[str, Any]) -> str:
         """Role ('start' / 'target' / 'movable') for a scene domino.
 
-        Prefers an explicit ``role`` field if the scene carries one; raw
-        capture JSONs (``reconstruct_dominoes_markers.py`` output) do not, so
-        they are keyed by domino ``id`` via ``CFG.domino_real_{start,target}_id``
-        and everything else is ``movable``."""
+        Prefers an explicit ``role`` field if the scene carries one; raw capture
+        JSONs (``reconstruct_dominoes_markers.py`` output) do not, so they are
+        keyed by domino ``id`` via ``CFG.domino_real_{start,target}_id`` and
+        everything else is ``movable``."""
         if "role" in d:
             return d["role"]
         if d["id"] == CFG.domino_real_start_id:
@@ -120,15 +110,10 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
             return "target"
         return "movable"
 
-    # -- component sizing ---------------------------------------------------
+    # -- component sizing + dims --------------------------------------------
     @classmethod
-    def _scene_role_counts(cls) -> tuple:
-        """(num_target, num_nontarget) domino counts from the scene JSON.
-
-        With ``domino_use_domino_blocks_as_target`` the component makes
-        (num_dominos + num_targets) domino slots, so we split the scene's
-        dominoes into non-target (start + movable) vs target and feed those
-        back -- staying in lockstep as the scene's domino count changes."""
+    def _scene_role_counts(cls) -> Tuple[int, int]:
+        """(num_target, num_nontarget) domino counts from the scene JSON."""
         with open(CFG.domino_real_scene) as f:
             roles = [cls._domino_role(d) for d in json.load(f)["dominoes"]]
         n_target = sum(1 for r in roles if r == "target")
@@ -138,13 +123,22 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
     def _make_domino_component(cls,
                                workspace_bounds: Dict[str, float]
                                ) -> DominoComponent:
-        """Allocate exactly the scene's counts (overrides the base, which reads
-        the CFG.domino_{train,test}_num_* ranges we intentionally do not set)."""
+        """Allocate the scene's counts and the real perceived dimensions,
+        passing dims through the component ctor (not a base ClassVar mutation).
+
+        ``domino_real_domino_dims`` is (L, W, H): a standing domino has body-x
+        (L) vertical, so env height=L, width=W (broad face), depth=H (thickness).
+        """
         n_target, n_nontarget = cls._scene_role_counts()
+        length, width, thickness = (float(v)
+                                    for v in CFG.domino_real_domino_dims)
         return DominoComponent(num_dominos_max=n_nontarget,
                                num_targets_max=n_target,
                                num_pivots_max=0,
-                               workspace_bounds=workspace_bounds)
+                               workspace_bounds=workspace_bounds,
+                               domino_width=width,
+                               domino_depth=thickness,
+                               domino_height=length)
 
     # -- task generation ----------------------------------------------------
     def _generate_train_tasks(self) -> List[EnvironmentTask]:
@@ -157,13 +151,10 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         """Build the reconstructed-scene task with attached pybullet state.
 
         Places each perceived domino at its transplanted world (x, y) with the
-        upright heading (matching ``birrt._build_state``), colored by role
-        (green=start, purple=target, blue=movable) via the component's
-        ``place_domino``. Goal = Toppled(target); attaches the undisturbed
-        reward so goal_reached rejects cheats that touch the target early."""
-        from babyrobot.geometry import (Pose6D, domino_upright_yaw,
-                                        pose_base_to_world)
-
+        upright heading, colored by role (green=start, purple=target,
+        blue=movable) via the component's ``place_domino``. Goal = Toppled(target);
+        attaches the undisturbed reward so goal_reached rejects cheats that touch
+        the target early."""
         scene_path = CFG.domino_real_scene
         z_off = self._z_off
         with open(scene_path) as f:
@@ -212,11 +203,10 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
             role = self._domino_role(d)
             yaw = domino_upright_yaw(world)
             # Canonicalize the START domino's yaw so its single push topples it
-            # in the intended direction. A domino is 180-deg symmetric, so
-            # perception's yaw branch is arbitrary; flip it by pi if its push
-            # facing points away from the desired direction (explicit
-            # start_push_dir_base if given, else the DEFAULT of "toward the
-            # purple target"). Keeps yaw == push-direction consistent.
+            # in the intended direction (a domino is 180-deg symmetric, so
+            # perception's yaw branch is arbitrary); flip by pi if its push
+            # facing points away from the desired direction -- an explicit
+            # start_push_dir_base if given, else the DEFAULT "toward the target".
             if role == "start":
                 pdir = push_dir_world
                 if pdir is None and target_xy is not None:
@@ -230,9 +220,8 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
             entry = comp.place_domino(i, world.xyz[0], world.xyz[1], yaw,
                                       is_start_block=(role == "start"),
                                       is_target_block=(role == "target"))
-            # Match birrt._build_state's placement: perceived world (x, y, z),
-            # (canonicalized) upright heading, roll flat. Keep place_domino's
-            # role color / is_held; override the pose.
+            # Perceived world (x, y, z), (canonicalized) upright heading, roll
+            # flat. Keep place_domino's role color / is_held; override the pose.
             entry["x"], entry["y"], entry["z"] = world.xyz
             entry["yaw"] = yaw
             entry["roll"] = 0.0
@@ -256,8 +245,8 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         task = EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
         pyb_task = self._add_pybullet_state_to_tasks([task])[0]
         # Strict success: target must stay in its initial pose until the start
-        # is pushed (else the agent cheated by touching it). Attach on the FINAL
-        # task so it survives _add_pybullet_state_to_tasks; goal_reached reads it.
+        # is pushed. Attach on the FINAL task so it survives
+        # _add_pybullet_state_to_tasks; goal_reached reads it.
         reward_fn = self._make_undisturbed_reward_fn(comp, pyb_task.init)
         return dataclasses.replace(pyb_task, reward_fn=reward_fn)
 
@@ -274,7 +263,7 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
         AFTER the start moves. So we watch the physics: if the target ever leaves
         its initial pose while the start is still unmoved, the agent touched it
         -> disturbed -> that episode does not count, even if the target ends
-        toppled. Relocated verbatim from run_online_learning.
+        toppled.
 
         NOTE (Phase 3): this per-step guard assumes continuous sim monitoring; in
         real (test) mode ground truth exists only at option boundaries, so the
