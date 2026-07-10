@@ -385,11 +385,12 @@ def _planning_k_star(env: "PyBulletDominoComposedEnv",
     planning = CFG.domino_planning_friction
     if planning is None or abs(planning - CFG.domino_true_friction) < 1e-9:
         return None
-    env.set_domino_physical_params(friction=planning)
+    env.set_domino_physical_params(lateral_friction=planning)
     try:
         return compute_k_star(env, init_state)
     finally:
-        env.set_domino_physical_params(friction=CFG.domino_true_friction)
+        env.set_domino_physical_params(
+            lateral_friction=CFG.domino_true_friction)
 
 
 # ── Turn tasks ───────────────────────────────────────────────
@@ -493,14 +494,16 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
         # many blues each friction needs for a straight chain of each
         # leg's length (real rollouts). The corner's own cost is the
         # same on both sides of the comparison and cancels.
-        env.set_domino_physical_params(friction=CFG.domino_planning_friction)
+        env.set_domino_physical_params(
+            lateral_friction=CFG.domino_planning_friction)
         try:
             bel_legs = [
                 straight_span_k_star(env, leg, budget=num_blues)
                 for leg in legs
             ]
         finally:
-            env.set_domino_physical_params(friction=CFG.domino_true_friction)
+            env.set_domino_physical_params(
+                lateral_friction=CFG.domino_true_friction)
         bel_counts = [v for v in bel_legs if v is not None]
         if len(bel_counts) < len(legs):
             logging.warning(
@@ -599,13 +602,13 @@ def _with_believed_physics(env: "PyBulletDominoComposedEnv",
     assert comp is not None
     believed: Dict[str, float] = {"heavy_block_mass": comp.domino_mass}
     if CFG.domino_planning_friction is not None:
-        believed["friction"] = CFG.domino_planning_friction
+        believed["lateral_friction"] = CFG.domino_planning_friction
     env.set_domino_physical_params(**believed)
     try:
         return probe()
     finally:
         env.set_domino_physical_params(
-            friction=CFG.domino_true_friction,
+            lateral_friction=CFG.domino_true_friction,
             heavy_block_mass=comp.heavy_block_true_mass)
 
 

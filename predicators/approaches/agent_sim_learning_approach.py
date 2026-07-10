@@ -175,12 +175,11 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         self._fit_trajectories: List[LowLevelTrajectory] = []
         # System identification: PHYSICAL_PARAMS export (agent-declared
         # sparse subset of self._base_env.get_physical_param_info()),
-        # identified values applied in place to the base env, and the
-        # dedicated headless env the rollout fit mutates (the GUI base env
-        # corrupts its visual-shape state after a few hundred steps).
+        # identified values applied in place to the base env. The rollout
+        # fit itself builds a fresh headless env per rollout (see
+        # _get_rollout_fit_env), never touching the planning base env.
         self._physical_param_specs: List[ParamSpec] = []
         self._identified_physical_params: Dict[str, float] = {}
-        self._sysid_env: Optional[Any] = None
 
     @classmethod
     def get_name(cls) -> str:
@@ -1008,19 +1007,29 @@ the tools."""
     # ── System identification (PHYSICAL_PARAMS) support ──────────
 
     def _get_rollout_fit_env(self) -> Any:
-        """Headless env dedicated to rollout system ID (created lazily).
+        """Factory for the headless envs the rollout fit rolls out in.
 
-        The GUI base env corrupts its visual-shape state after a few
-        hundred steps, and the fit mutates dynamics params on every MCMC
-        evaluation, so the fit gets its own DIRECT-mode env instead of
-        sharing ``self._base_env``.
+        Returns a zero-arg callable; ``rollout_states`` invokes it once
+        per rollout and disconnects the fresh env's PyBullet client
+        afterwards. A fresh DIRECT-mode world per rollout is required
+        for the fit to be deterministic at all: on a reused env the same
+        theta produced SSE alternating 0.15/78 (run_20260708_213258),
+        corrupting the grid seed and flooring the identifiability
+        probe's same-theta noise floor - state-level resets cannot flush
+        PyBullet solver internals (see ``rollout_states``). Measured
+        overhead ~0.15 s per rollout on the domino env. It also keeps
+        the fit's dynamics mutations away from the planning
+        ``self._base_env`` (whose GUI variant additionally corrupts
+        visual-shape state after a few hundred steps).
         """
-        if self._sysid_env is None:
-            self._sysid_env = create_new_env(CFG.env,
-                                             do_cache=False,
-                                             use_gui=False,
-                                             skip_process_dynamics=True)
-        return self._sysid_env
+
+        def _make() -> Any:
+            return create_new_env(CFG.env,
+                                  do_cache=False,
+                                  use_gui=False,
+                                  skip_process_dynamics=True)
+
+        return _make
 
     def _rollout_fit_trajectories(
         self,
@@ -1060,10 +1069,29 @@ the tools."""
             self, identified: Dict[str, float]) -> None:
         """Publish identified physical params into the planning base env.
 
-        The override is sticky (survives resets), but not env recreation
-        — ``_recreate_base_env`` re-applies from
+        The applied set exactly mirrors ``identified``: params applied
+        by an earlier fit but absent here (e.g. dropped from a later
+        artifact's PHYSICAL_PARAMS) are reverted to the env's registry
+        defaults, because the env-side override is sticky per param and
+        a stale value from a superseded fit would otherwise silently
+        keep steering the planner. The override survives resets but not
+        env recreation; ``_recreate_base_env`` re-applies from
         ``self._identified_physical_params``.
         """
+        stale = set(self._identified_physical_params) - set(identified)
+        if stale:
+            info = self._base_env.get_physical_param_info()
+            reverts = {
+                name: float(info[name]["default"])
+                for name in sorted(stale) if name in info
+            }
+            if reverts:
+                self._base_env.apply_physical_param_overrides(reverts)
+                logger.info(
+                    "Reverted physical params dropped from the current "
+                    "declaration to env defaults: %s",
+                    {k: f"{v:.4f}"
+                     for k, v in reverts.items()})
         self._identified_physical_params = dict(identified)
         self._base_env.apply_physical_param_overrides(identified)
         logger.info("Applied identified physical params to base env: %s",
@@ -1093,6 +1121,7 @@ the tools."""
         """
         physical_specs = self._physical_param_specs
         physical_names = [s.name for s in physical_specs]
+        # Factory, not an instance: every rollout runs in a fresh env.
         fit_env = self._get_rollout_fit_env()
         rollouts = self._rollout_fit_trajectories(process_features)
         init_params = {
