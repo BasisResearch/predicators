@@ -28,6 +28,14 @@ class GlobalSettings:
     # per task) must succeed before early stopping is triggered. Catches
     # "lucky single-sample" successes that mask a buggy learned model.
     online_learning_early_stopping_require_all_attempts = False
+    # When True, the early-stopping cycle does NOT re-run testing, provided
+    # every cycle is already being tested (skip_test_until_last_ite_or_early
+    # _stopping is False). On the early-stopping cycle learning is skipped, so
+    # the model is identical to the one the previous cycle already tested;
+    # re-testing it only re-measures test-time stochasticity at full test-set
+    # cost. Has no effect when skip_test_until_last_ite_or_early_stopping is
+    # True, since then the early-stopping cycle is the model's only test.
+    online_learning_early_stopping_skip_redundant_test = False
     # Maximum number of training tasks to give a demonstration for, if the
     # offline_data_method is demo-based.
     max_initial_demos = float("inf")

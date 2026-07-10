@@ -12,6 +12,7 @@ FLAGS:
   num_online_learning_cycles: 10
   online_learning_early_stopping: True
   online_learning_early_stopping_require_all_attempts: True
+  online_learning_early_stopping_skip_redundant_test: True
   online_nsrt_learning_requests_per_cycle: 2
   skill_phase_use_motion_planning: True
   max_num_steps_interaction_request: 500
