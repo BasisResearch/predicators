@@ -203,6 +203,7 @@ class LocalSandboxSessionManager:
             system_prompt=self._system_prompt,
             model=self._model_name,
             max_turns=CFG.agent_sdk_max_agent_turns_per_iteration,
+            max_buffer_size=CFG.agent_sdk_max_buffer_size,
             thinking=thinking,  # type: ignore[arg-type]
             effort=reasoning_effort,  # type: ignore[arg-type]
             cwd=self._sandbox_dir,

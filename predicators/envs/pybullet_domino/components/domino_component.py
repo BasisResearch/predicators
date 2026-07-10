@@ -174,8 +174,11 @@ class DominoComponent(DominoEnvComponent):
         self.num_dominos_max = num_dominos_max
         self.num_targets_max = num_targets_max
         self.num_pivots_max = num_pivots_max
-        self._dim_override = {"width": domino_width, "depth": domino_depth,
-                              "height": domino_height}
+        self._dim_override = {
+            "width": domino_width,
+            "depth": domino_depth,
+            "height": domino_height
+        }
 
         # Workspace bounds (will be set by composed env if not provided)
         if workspace_bounds is None:

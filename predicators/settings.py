@@ -478,14 +478,16 @@ class GlobalSettings:
     domino_real_start_id = 6
     domino_real_target_id = 5
     # Real-bench geometry.
-    domino_real_table_z = -0.041      # real table height in the robot base frame
+    domino_real_table_z = -0.041  # real table height in the robot base frame
     domino_real_robot_init_tilt = np.pi
     domino_real_robot_init_wrist = 0.0
-    domino_real_robot_init_z = 0.65   # reachable top-down home EE height
-    domino_real_domino_dims = [0.15, 0.07, 0.029]  # (L, W, H) -> height,width,depth
-    domino_real_decorate = True       # spawn extended-table tile + robot pedestal
+    domino_real_robot_init_z = 0.65  # reachable top-down home EE height
+    domino_real_domino_dims = [0.15, 0.07,
+                               0.029]  # (L, W, H) -> height,width,depth
+    domino_real_decorate = True  # spawn extended-table tile + robot pedestal
     # When True the env's TEST-mode rollout executes option boundaries on the
-    # real Franka; default False = safe dry-run (build segments + replay-perceive).
+    # real Franka; default False = safe dry-run (build segments +
+    # replay-perceive).
     domino_real_execute_real = False
     # Robot-side bridge server (holds the ZED provider + RobotInterface); the
     # env holds a thin client. Only connected when domino_real_execute_real.
@@ -1153,6 +1155,12 @@ class GlobalSettings:
     # for how much the agent deliberates per response.
     agent_sdk_reasoning_effort = ""
     agent_sdk_agent_timeout = 300  # seconds per iteration
+    # Max size (bytes) of a single newline-delimited JSON message the agent SDK
+    # subprocess transport will buffer. The SDK default is 1 MB, which a tool
+    # result embedding a base64 scene image (e.g. inspect_train_tasks with
+    # include_image=True at 900x900) can exceed -> "JSON message exceeded
+    # maximum buffer size". 20 MB comfortably fits full-res scene images.
+    agent_sdk_max_buffer_size = 20 * 1024 * 1024
     agent_sdk_resume_session = True  # resume previous session if available
     agent_sdk_propose_types = True
     agent_sdk_propose_predicates = True

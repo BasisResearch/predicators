@@ -73,11 +73,15 @@ ENVS:
   domino_real:
     NAME: "pybullet_domino_real"
     SKIP: True
+    # store_true flags must go in ARGS (emitted bare as --flag); putting them in
+    # FLAGS emits "--flag True", and the stray "True" desyncs the override
+    # pair-parser (utils.parse_args_with_parser).
+    ARGS:
+      - "make_test_images"
+      - "make_failure_images"
     FLAGS:
       # -- overrides on common.yaml --
       num_test_tasks: 1  # one reconstructed scene (common defaults to 5)
-      make_test_images: True
-      make_failure_images: True
       # -- base domino env (from run_online_learning._build_flags) --
       max_initial_demos: 0  # no grid-oracle demos (can't solve the real scene)
       excluded_objects_in_state_str: "loc,rot,angle,direction"
