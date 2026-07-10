@@ -1606,9 +1606,11 @@ class PyBulletEnv(BaseEnv):
                 init.data.copy(), simulator_state=joint_positions)
             pybullet_init = self.get_observation(render=CFG.render_init_state)
             pybullet_init.option_history = []
-            pybullet_task = EnvironmentTask(pybullet_init,
-                                            task.goal,
-                                            goal_nl=task.goal_nl,
-                                            reward_fn=task.reward_fn)
+            pybullet_task = EnvironmentTask(
+                pybullet_init,
+                task.goal,
+                goal_nl=task.goal_nl,
+                evaluator=task.evaluator,
+                offline_task_metrics=task.offline_task_metrics)
             pybullet_tasks.append(pybullet_task)
         return pybullet_tasks

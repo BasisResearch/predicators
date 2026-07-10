@@ -6,7 +6,8 @@ import os
 import re
 import traceback
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, \
+    Union
 
 import numpy as np
 
@@ -576,6 +577,109 @@ def _format_object_poses(state: State) -> str:
         if len(parts) > 1:  # has at least one spatial feature
             pose_lines.append("  " + " ".join(parts))
     return "\n".join(pose_lines)
+
+
+def evaluate_states_with(
+        evaluator: Any, states: Sequence[State],
+        step_options: Optional[Sequence[Any]]) -> Dict[str, Any]:
+    """Score a state/option-label sequence with a task's ``TaskEvaluator``.
+
+    The single verdict surface for every agent-facing consumer (plan
+    reports, the ``run_python`` helper): only booleans/scalars/reasons
+    leave this function, never the evaluator object. Both functions are
+    physics-independent, so verdicts on belief-sim rollouts are exactly
+    as trustworthy as the belief sim itself.
+    """
+    ok, reason = evaluator._certify(states, step_options)  # pylint: disable=protected-access
+    return {
+        "terminated": evaluator.terminated(states[-1]),
+        "reward": evaluator.reward(states, step_options),
+        "legitimate": ok,
+        "reason": reason,
+    }
+
+
+def _format_evaluator_verdict(verdict: Dict[str, Any],
+                              *,
+                              coarse: bool = False) -> str:
+    """One report line for an evaluator verdict on a belief-sim rollout."""
+    legit = verdict["legitimate"]
+    legit_str = "True" if legit else f"False ({verdict['reason']})"
+    line = (f"Task evaluator (belief-sim rollout - trustworthy only insofar "
+            f"as your simulator is): terminated={verdict['terminated']}, "
+            f"legitimate={legit_str}, reward={verdict['reward']:.2f}")
+    if coarse:
+        line += ("\n  NOTE: per-step states were unavailable for part of the "
+                 "rollout, so the legitimacy verdict is coarse (computed on "
+                 "option-boundary states only).")
+    return line
+
+
+def _resolve_task_evaluator(ctx: ToolContext, task_idx: Union[int, str,
+                                                              None]) -> Any:
+    """The evaluator of a tool's referenced task (``Task.evaluator``), or None.
+
+    ``task_idx`` follows the tools' convention: an int indexes the train
+    tasks; ``"current"``/None means the current solve/explore task.
+    """
+    if isinstance(task_idx, int):
+        if 0 <= task_idx < len(ctx.train_tasks):
+            return ctx.train_tasks[task_idx].evaluator
+        return None
+    if ctx.current_task is not None:
+        return ctx.current_task.evaluator
+    return None
+
+
+def _belief_rollout_verdict_line(ctx: ToolContext, task: Task,
+                                 task_idx: Union[int, str, None],
+                                 grounded_plan: List[Any],
+                                 predicates: Set[Predicate]) -> Optional[str]:
+    """Execute ``grounded_plan`` in the belief sim and score it with the task's
+    evaluator, returning a report line (or None).
+
+    Used by ``refine_plan_sketch``, whose internal refinement rollouts
+    don't expose per-step states; costs one extra plan rollout. Fully
+    failure-tolerant: any problem returns None.
+    """
+    evaluator = _resolve_task_evaluator(ctx, task_idx)
+    if evaluator is None or not grounded_plan or ctx.option_model is None:
+        return None
+    # pylint: disable-next=import-outside-toplevel
+    from predicators.agent_sdk import bilevel_sketch
+    states: List[State] = [task.init]
+    labels: List[Any] = []
+    coarse = False
+
+    def _collect(_i: int, outcome: Any) -> None:
+        nonlocal coarse
+        if outcome.post_state is None:
+            return
+        opt = outcome.option
+        label = (opt.name, tuple(o.name for o in opt.objects))
+        step_traj = getattr(ctx.option_model, "last_trajectory", None)
+        if step_traj is not None and len(step_traj.states) >= 2:
+            states.extend(step_traj.states[1:])
+            labels.extend([label] * len(step_traj.actions))
+        else:
+            states.append(outcome.post_state)
+            labels.append(label)
+            coarse = True
+
+    try:
+        bilevel_sketch.execute_plan_forward(task,
+                                            grounded_plan,
+                                            ctx.option_model,
+                                            predicates=predicates,
+                                            on_step=_collect,
+                                            stop_on_failure=True)
+        if len(states) < 2:
+            return None
+        verdict = evaluate_states_with(evaluator, states, labels)
+        return _format_evaluator_verdict(verdict, coarse=coarse)
+    except Exception as e:  # pylint: disable=broad-except
+        logging.debug("Belief-rollout evaluator verdict failed: %s", e)
+        return None
 
 
 def _save_option_to_sandbox(ctx: ToolContext, option_name: str,
@@ -1550,8 +1654,33 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 return _error_result(f"Failed to ground step {step_idx} "
                                      f"({st.option.name}): {e}")
 
+        # Per-low-level-step states + option labels for the task-evaluator
+        # verdict below. The cascade certificate needs per-step states
+        # (topple-onset analysis); option-boundary states give garbage
+        # verdicts, so prefer the option model's last_trajectory and flag
+        # the verdict as coarse when it is unavailable.
+        eval_states: List[State] = [task.init]
+        eval_labels: List[Any] = []
+        eval_coarse = False
+
+        def _collect_eval_steps(outcome: Any) -> None:
+            nonlocal eval_coarse
+            if outcome.post_state is None:
+                return
+            opt = outcome.option
+            label = (opt.name, tuple(o.name for o in opt.objects))
+            step_traj = getattr(ctx.option_model, "last_trajectory", None)
+            if step_traj is not None and len(step_traj.states) >= 2:
+                eval_states.extend(step_traj.states[1:])
+                eval_labels.extend([label] * len(step_traj.actions))
+            else:
+                eval_states.append(outcome.post_state)
+                eval_labels.append(label)
+                eval_coarse = True
+
         # Per-step report callback, driven by the shared forward executor.
         def _report_step(i: int, outcome: Any) -> None:
+            _collect_eval_steps(outcome)
             opt = outcome.option
             sig = f"{opt.name}({[o.name for o in opt.objects]})"
             if not outcome.initiable:
@@ -1666,6 +1795,18 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             goal_str = ", ".join(str(g) for g in sorted(task.goal))
             lines.append(f"Goal: {{{goal_str}}}")
         lines.append(f"Goal achieved: {goal_achieved}")
+        # Task-evaluator verdict on this belief-sim rollout
+        # (reward/terminated/legitimacy). Failure-tolerant: skipped
+        # silently when the task has no evaluator or nothing executed.
+        evaluator = _resolve_task_evaluator(ctx, task_idx)
+        if evaluator is not None and len(eval_states) > 1:
+            try:
+                verdict = evaluate_states_with(evaluator, eval_states,
+                                               eval_labels)
+                lines.append(
+                    _format_evaluator_verdict(verdict, coarse=eval_coarse))
+            except Exception as e:  # pylint: disable=broad-except
+                logging.debug("Task-evaluator verdict failed: %s", e)
         # Goal atoms hold but the plan needs more low-level steps than the
         # episode horizon allows: say so and that it was NOT captured, so the
         # agent shortens the plan instead of stopping on a false positive.
@@ -2092,6 +2233,10 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                 param_lines.append(f"  {i}: {gopt.name}({objs})[{par}]")
             report += ("\n\nParameters found (submit these exact values via "
                        "evaluate_option_plan):\n" + "\n".join(param_lines))
+            verdict_line = _belief_rollout_verdict_line(
+                ctx, task, task_idx, plan, all_predicates)
+            if verdict_line is not None:
+                report += "\n" + verdict_line
 
         return _text_result(f"Task {task_idx}:\n{report}")
 
@@ -2986,7 +3131,10 @@ def create_synthesis_tools(
         "`is_demo`, `train_task_idx`, `states`, `actions`), train_tasks "
         "(List[Task]; each has `init`, `goal`, `goal_holds(state)`), "
         "is_goal_state (callable: state, task_idx -> bool — a "
-        "ground-truth black-box reward), np, ParamSpec. print() output "
+        "ground-truth black-box reward), np, ParamSpec, and (when the "
+        "env defines task evaluators) evaluate_trajectory(states, "
+        "actions=None, task_idx=0) -> {terminated, reward, legitimate, "
+        "reason} — the env's ground-truth episode scoring. print() output "
         "is returned. The namespace persists across calls. If output "
         "exceeds ~30k chars it is saved to "
         "`tool_outputs/run_python/call_NNNN.txt` in the sandbox and only "

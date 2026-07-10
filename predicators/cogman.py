@@ -224,6 +224,18 @@ def run_episode_and_get_observations(
         obs = env.get_observation()
     observations = [obs]
     actions: List[Action] = []
+
+    def _certified_solved() -> bool:
+        """Goal atoms/reward hold AND the env accepts the trajectory."""
+        if not env.goal_reached():
+            return False
+        ok, reason = env.check_episode_trajectory(observations, actions)
+        if not ok:
+            logging.info(
+                "[CogMan] Goal atoms hold but the trajectory was "
+                "REJECTED: %s", reason)
+        return ok
+
     curr_option: Optional[_Option] = None
     metrics: Metrics = defaultdict(float)
     metrics["policy_call_time"] = 0.0
@@ -282,7 +294,7 @@ def run_episode_and_get_observations(
                 if CFG.keep_failed_demos:
                     cogman.finish_episode(obs)
                     traj = (observations, actions)
-                    solved = env.goal_reached()
+                    solved = _certified_solved()
                     return traj, solved, metrics
                 raise e
             if terminate_on_goal_reached and env.goal_reached():
@@ -302,7 +314,7 @@ def run_episode_and_get_observations(
         monitor.observe(obs, None)
     cogman.finish_episode(obs)
     traj = (observations, actions)
-    solved = env.goal_reached()
+    solved = _certified_solved()
     return traj, solved, metrics
 
 

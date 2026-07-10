@@ -960,6 +960,15 @@ class Task:
     # *intent* behind the goal atoms (e.g. "arrange dominoes so the chain
     # reaction topples the targets" rather than just Toppled(target0)).
     goal_nl: Optional[str] = None
+    # Optional per-task ground truth in the standard RL (reward, terminated)
+    # shape, propagated from EnvironmentTask.evaluator. Safe to hand to
+    # approaches because a TaskEvaluator is by contract a pure,
+    # physics-independent function of a state trajectory holding no env
+    # handle and no oracle quantities (agent surfaces still expose only
+    # VERDICTS, never this object). Dropped by replace_goal_with_alt_goal:
+    # its ``goal`` holds the original goal atoms, which alt-goal replacement
+    # exists to hide.
+    evaluator: Optional[TaskEvaluator] = None
 
     def __post_init__(self) -> None:
         # Verify types.
@@ -987,13 +996,125 @@ class Task:
         exists."""
         # We may not want the agent to access the goal predicates given to the
         # demonstrator. To prevent leakage of this information, we discard the
-        # original goal.
+        # original goal - and the evaluator, whose ``goal`` holds it.
         if self.alt_goal:
             return Task(self.init, goal=self.alt_goal, goal_nl=self.goal_nl)
         return self
 
 
 DefaultTask = Task(DefaultState, set())
+
+# A per-step option label: (option name, grounded object names), or None when
+# the action carries no option. Trajectory-level evaluator inputs use these
+# instead of raw options so evaluators stay picklable and comparison-friendly.
+StepOption = Optional[Tuple[str, Tuple[str, ...]]]
+
+
+def step_option_labels(actions: Sequence[Action]) -> List[StepOption]:
+    """Label each action with its producing option as a ``StepOption``."""
+    labels: List[StepOption] = []
+    for act in actions:
+        if act.has_option():
+            option = act.get_option()
+            labels.append((option.name, tuple(o.name for o in option.objects)))
+        else:
+            labels.append(None)
+    return labels
+
+
+class TaskEvaluator:
+    """Per-task success/legitimacy/reward: the environment-side ground truth
+    for an ``EnvironmentTask``, in the standard RL (reward, terminated) shape.
+
+    ``terminated`` is purely physical: the goal atoms hold in the given
+    state, however that came about (an illegitimate topple still
+    terminates). Legitimacy (``_certify``) gates only the success bonus
+    inside ``reward``, so a rule-violating episode terminates with no
+    bonus rather than "not counting" as terminal. ``_certify`` is
+    private by design: the agent contract is the (reward, terminated)
+    pair plus roster verdicts; env-side code (BaseEnv, logging) is the
+    sanctioned reader.
+
+    The evaluator rides on the agent-facing ``Task``, so instances must
+    be leak-free by construction: pure functions of the state
+    trajectory, no live env handle, and NO oracle quantity anywhere on
+    the object (not even in ``offline_metrics`` - per-task oracle
+    numbers like the domino K* belong in
+    ``EnvironmentTask.offline_task_metrics``, which never reaches a
+    ``Task``).
+
+    Subclasses override ``_certify`` for trajectory-level legitimacy
+    rules, ``reward`` for cost terms, ``offline_metrics`` for
+    experimenter-only episode statistics, and ``objective_description``
+    for an agent-showable NL statement of the reward. Defaults
+    reproduce the plain atom-set-goal semantics. Reward contract: a
+    certified success must yield strictly positive reward and anything
+    else at most zero (the domino evaluator asserts this), so success
+    and rejection are decodable from the (reward, terminated) pair
+    alone - see ``EpisodeEvaluation.rejected``.
+    """
+
+    def __init__(self, goal: Set[GroundAtom]) -> None:
+        self.goal = goal
+
+    def terminated(self, state: State) -> bool:
+        """Absorbing-state check: do the goal atoms hold?"""
+        return all(atom.holds(state) for atom in self.goal)
+
+    def reward(self, states: Sequence[State],
+               step_options: Optional[Sequence[StepOption]]) -> float:
+        """Episode reward: certified-success bonus (no cost by default)."""
+        ok, _ = self._certify(states, step_options)
+        return float(self.terminated(states[-1]) and ok)
+
+    def _certify(
+            self, states: Sequence[State],
+            step_options: Optional[Sequence[StepOption]]) -> Tuple[bool, str]:
+        """Trajectory-level legitimacy: (ok, human-readable reason)."""
+        del states, step_options  # unused in the default
+        return True, ""
+
+    def offline_metrics(
+            self, states: Sequence[State],
+            step_options: Optional[Sequence[StepOption]]) -> Dict[str, float]:
+        """Experimenter-only episode metrics (never shown to agents)."""
+        del states, step_options  # unused in the default
+        return {}
+
+    def objective_description(self) -> str:
+        """Agent-showable NL statement of the reward; '' = nothing to
+        show."""
+        return ""
+
+
+@dataclass(frozen=True)
+class EpisodeEvaluation:
+    """A ``TaskEvaluator``'s verdict on one executed episode, as computed by
+    ``BaseEnv.evaluate_episode``.
+
+    ``reward``/``terminated`` are agent-visible by design; ``reason``
+    and ``offline_metrics`` are env-side only (the agent gets at most
+    the boolean rejection flag). There is deliberately no separate
+    ``certified`` field: certification only gates the success bonus, so
+    it carries information only when the episode terminated - and there
+    the evaluator contract (a certified success strictly outscores any
+    failure) makes it decodable as ``reward > 0``.
+    """
+    reward: float
+    terminated: bool
+    reason: str
+    offline_metrics: Dict[str, float]
+
+    @property
+    def rejected(self) -> bool:
+        """Terminated without the certified-success bonus: the goal atoms hold,
+        but the episode broke the task rules (e.g. a reward-hacked topple).
+
+        A non-terminated episode is never "rejected" - it is just a
+        failure; whether its trajectory also broke rules is irrelevant
+        because certification only gates the bonus.
+        """
+        return self.terminated and self.reward <= 0.0
 
 
 @dataclass(frozen=True, eq=False)
@@ -1013,15 +1134,23 @@ class EnvironmentTask:
     alt_goal_desc: Optional[GoalDescription] = field(default=None)
     # Optional natural language goal description (passed through to Task).
     goal_nl: Optional[str] = None
-    # Optional binary reward: the environment-side success criterion as a
-    # function of the current State. A generalization of the atom-set goal:
-    # when None (every ordinary task), success = all goal_description atoms
-    # hold; when set, this callable IS the criterion (typically wrapping the
-    # atom check plus conditions atoms can't express, e.g. "the executed
-    # solution toppled at most K* movable dominoes"). Ground truth for
-    # ``BaseEnv.goal_reached`` only — it is deliberately NOT copied into the
-    # agent-facing ``Task``, so approaches can't peek at it.
-    reward_fn: Optional[Callable[[State], bool]] = None
+    # Optional per-task ground truth in the standard RL (reward, terminated)
+    # shape. When None (every ordinary task), success = all goal_description
+    # atoms hold and every trajectory is accepted. When set,
+    # ``evaluator.terminated`` IS the success criterion consumed by
+    # ``BaseEnv.goal_reached`` (purely physical: goal atoms, however
+    # reached), while ``evaluator._certify`` constrains HOW the goal may be
+    # reached and gates the success bonus inside ``evaluator.reward``
+    # (consumed by ``BaseEnv.check_episode_trajectory`` /
+    # ``BaseEnv.evaluate_episode``). Propagated into the agent-facing
+    # ``Task`` (see Task.evaluator for why that is leak-free) and dropped
+    # by replace_goal_with_alt_goal.
+    evaluator: Optional[TaskEvaluator] = None
+    # Experimenter-only per-task oracle quantities (e.g. the domino K*, the
+    # searched minimum block count at the true physics), merged into the
+    # PER_TASK results by main.py. Kept OFF the evaluator and never
+    # propagated into ``Task``, so nothing agent-reachable encodes them.
+    offline_task_metrics: Dict[str, float] = field(default_factory=dict)
 
     @cached_property
     def task(self) -> Task:
@@ -1031,7 +1160,10 @@ class EnvironmentTask:
         # goal exists, then there's nothing particular to set the task's
         # alt_goal field to.
         if self.alt_goal_desc is None:
-            return Task(self.init, self.goal, goal_nl=self.goal_nl)
+            return Task(self.init,
+                        self.goal,
+                        goal_nl=self.goal_nl,
+                        evaluator=self.evaluator)
         # If we turn the environment task into a task before replacing the goal
         # with the alternative goal, we have to set the task's alt_goal field
         # accordingly to leave open the possibility of doing that replacement
@@ -1044,7 +1176,8 @@ class EnvironmentTask:
         return Task(self.init,
                     self.goal,
                     alt_goal=self.alt_goal_desc,
-                    goal_nl=self.goal_nl)
+                    goal_nl=self.goal_nl,
+                    evaluator=self.evaluator)
 
     @cached_property
     def init(self) -> State:
@@ -1067,10 +1200,14 @@ class EnvironmentTask:
         See Task.replace_goal_with_alt_goal for the reason for this
         function.
         """
+        # The evaluator is dropped along with the original goal: its
+        # ``goal`` field holds exactly the atoms this replacement hides.
+        # The env-side offline metrics stay (they never reach a Task).
         if self.alt_goal_desc is not None:
-            return EnvironmentTask(self.init_obs,
-                                   goal_description=self.alt_goal_desc,
-                                   reward_fn=self.reward_fn)
+            return EnvironmentTask(
+                self.init_obs,
+                goal_description=self.alt_goal_desc,
+                offline_task_metrics=self.offline_task_metrics)
         return self
 
 
@@ -1815,6 +1952,8 @@ class LowLevelTrajectory:
     _source_simulator_version: Optional[str] = field(default=None)
     _source_predicates_version: Optional[str] = field(default=None)
     _source_samplers_version: Optional[str] = field(default=None)
+    _env_reward: Optional[float] = field(default=None)
+    _env_terminated: Optional[bool] = field(default=None)
 
     def __post_init__(self) -> None:
         assert len(self._states) == len(self._actions) + 1
@@ -1862,6 +2001,40 @@ class LowLevelTrajectory:
         """Snapshot tag of the per-skill samplers used to generate the plan
         that collected this trajectory, or ``None`` if not tracked."""
         return self._source_samplers_version
+
+    @property
+    def env_rejected(self) -> bool:
+        """Whether the supervisor (the environment's evaluator) rejected the
+        episode that produced this trajectory: the goal atoms held but the
+        episode broke the task rules, so the success bonus was withheld.
+
+        Derived from the stored (reward, terminated) pair - see
+        ``EpisodeEvaluation.rejected`` for the decode contract; no
+        separate flag is stored. Deliberately a bare boolean - this
+        object is exposed to the agent's sandbox, and the agent must
+        infer the violated rule from the task's NL goal description and
+        the observed trajectory, not be told it.
+        """
+        return bool(self.env_terminated) and self.env_reward is not None \
+            and self.env_reward <= 0.0
+
+    @property
+    def env_reward(self) -> Optional[float]:
+        """The env evaluator's episode reward, or ``None`` if not evaluated.
+
+        Computed by ``BaseEnv.evaluate_episode`` and passed through
+        ``InteractionResult``. Agent-visible by design: the reward form
+        is public and physics-independent, so the value leaks nothing
+        about true dynamics. ``getattr`` guards keep pre-field pickles
+        loadable.
+        """
+        return getattr(self, "_env_reward", None)
+
+    @property
+    def env_terminated(self) -> Optional[bool]:
+        """The env evaluator's terminated verdict (goal atoms held in the final
+        state, however reached), or ``None`` if not evaluated."""
+        return getattr(self, "_env_terminated", None)
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -2309,6 +2482,16 @@ class InteractionResult:
     states: List[State]
     actions: List[Action]
     responses: List[Optional[Response]]
+    # The env evaluator's (reward, terminated) verdict on the executed
+    # episode (see ``BaseEnv.evaluate_episode``); ``None`` when the env
+    # defines no evaluator. Agent-visible by design: both are
+    # physics-independent functions of the observed trajectory, and the
+    # supervisor-rejection boolean is decodable from the pair (see
+    # ``EpisodeEvaluation.rejected``) - the specific violation stays in
+    # the env-side logs, since the rules themselves are stated in the
+    # task's NL goal description.
+    episode_reward: Optional[float] = None
+    episode_terminated: Optional[bool] = None
 
     def __post_init__(self) -> None:
         assert len(self.states) == len(self.responses) == len(self.actions) + 1
