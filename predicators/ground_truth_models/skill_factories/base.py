@@ -491,6 +491,14 @@ class PhaseSkill:
     # ``OptionExecutionFailure`` instead of flailing until the episode
     # horizon (where the thrashing arm bulldozes the scene).
     _ik_stall_window: ClassVar[int] = 25
+    # Random in-limit IK restarts for the BiRRT goal solve, tried after
+    # the current-joints and home seeds (see _solve_goal_ik).
+    _goal_ik_num_restarts: ClassVar[int] = 8
+    # Joint-limit violations below this are solver epsilon: clamping
+    # them does not measurably move the config, so such candidates are
+    # accepted without an FK accuracy check (preserving the behavior of
+    # unclamped goal IK for every in-limit branch).
+    _goal_ik_limit_violation_tol: ClassVar[float] = 1e-2  # radians
     _ik_stall_min_progress: ClassVar[float] = 2e-3  # meters
 
     def _maybe_drive_base(self, phase: Phase, state: State, memory: Dict,
@@ -856,8 +864,9 @@ class PhaseSkill:
         validate_goal_ik = self._config.ik_validate or (phase is not None
                                                         and phase.validate_ik)
         try:
-            target_joints: JointPositions = planning_robot.inverse_kinematics(
-                target_pose, validate=validate_goal_ik, set_joints=True)
+            target_joints: JointPositions = self._solve_goal_ik(
+                planning_robot, target_pose, pb_state.joint_positions,
+                validate_goal_ik)
         except InverseKinematicsError:
             pos = target_pose.position
             logging.warning(
@@ -924,6 +933,69 @@ class PhaseSkill:
                 phase_name)
 
         return traj
+
+    def _solve_goal_ik(self, planning_robot: SingleArmPyBulletRobot,
+                       target_pose: Pose, current_joints: JointPositions,
+                       validate: bool) -> JointPositions:
+        """Goal-config IK that is accurate AFTER joint-limit clamping.
+
+        PyBullet IK ignores joint limits and follows the branch of its
+        seed configuration; a bad seed (e.g. the previous option's
+        retreat pose) can land on a limit-violating branch. Position
+        control clamps to the limits at execution, so BiRRT would plan
+        to a configuration whose executed end effector misses the target
+        pose and the distance-based phase terminal never fires, stalling
+        the option. A candidate is accepted when it is essentially
+        within the limits (execution tracks it as-is, and incremental IK
+        closes any small FK residue on an in-limit branch - the
+        long-standing behavior), or when its limit-clamped version still
+        hits the pose within ``move_to_pose_tol``. Otherwise retry: the
+        home configuration, then deterministic random in-limit restarts
+        (a good branch exists whenever execution's incremental IK could
+        converge). Raise ``InverseKinematicsError`` when no attempt
+        produces an acceptable config.
+        """
+        limits = list(
+            zip(planning_robot.joint_lower_limits,
+                planning_robot.joint_upper_limits))
+        seeds: List[JointPositions] = [
+            list(current_joints),
+            list(planning_robot.initial_joint_positions),
+        ]
+        rng = np.random.default_rng(CFG.seed)
+        for _ in range(self._goal_ik_num_restarts):
+            seeds.append([
+                float(rng.uniform(lo, hi))
+                if np.isfinite(lo) and np.isfinite(hi) and lo <= hi else float(
+                    rng.uniform(cur - np.pi, cur + np.pi))
+                for (lo, hi), cur in zip(limits, current_joints)
+            ])
+        best_err = float("inf")
+        for seed in seeds:
+            planning_robot.set_joints(seed)
+            try:
+                candidate = planning_robot.inverse_kinematics(
+                    target_pose, validate=validate, set_joints=True)
+            except InverseKinematicsError:
+                continue
+            clamped = [
+                float(np.clip(v, lo, hi)) if lo <= hi else float(v)
+                for v, (lo, hi) in zip(candidate, limits)
+            ]
+            violation = max(abs(c - v) for c, v in zip(clamped, candidate))
+            if violation < self._goal_ik_limit_violation_tol:
+                return clamped
+            ee_position = planning_robot.forward_kinematics(clamped).position
+            err = float(
+                np.sum(
+                    np.square(np.subtract(ee_position, target_pose.position))))
+            if err < self._config.move_to_pose_tol:
+                return clamped
+            best_err = min(best_err, err)
+        raise InverseKinematicsError(
+            f"Goal IK landed on a limit-violating branch from all "
+            f"{len(seeds)} seeds "
+            f"(best squared FK error after limit clamping {best_err:.6f}).")
 
     def _log_collision_diagnostics(
         self,
