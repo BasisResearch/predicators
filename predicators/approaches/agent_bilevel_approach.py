@@ -681,8 +681,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
         the option-model rollout), not a wrong skeleton, so we first try
         to resume a suffix of the executed sketch (cheap, no agent
         query; see :meth:`_replan_suffix`). Returns None to fall through
-        to a fresh agent sketch; raises ApproachFailure once the per-
-        episode replan budget is exhausted so the episode fails fast
+        to a fresh agent sketch; raises ApproachFailure when the
+        episode's replan budget is exhausted so the episode fails fast
         instead of running the horizon open-loop.
         """
         status = self._exec_status
@@ -810,8 +810,10 @@ class AgentBilevelApproach(AgentPlannerApproach):
                          next_option)
             return option
 
-        inner = utils.option_policy_to_policy(_option_policy,
-                                              abstract_function=_abstract)
+        inner = utils.option_policy_to_policy(
+            _option_policy,
+            max_option_steps=CFG.max_num_steps_option_rollout,
+            abstract_function=_abstract)
         return self._wrap_option_failures(inner)
 
     def _replan_suffix(

@@ -8,32 +8,37 @@ ENVS:
   #     grow_weak_pour_terminate_condition: True
   #     grow_place_option_no_sampler: True
   #     horizon: 400
-  # OLD domino config (standard chain tasks). Commented out in favour of the
-  # min-block variant below; uncomment (and comment the new block) to revert.
-  # domino:
-  #   NAME: "pybullet_domino"
-  #   FLAGS:
-  #     max_initial_demos: 0
-  #     excluded_objects_in_state_str: "loc,rot,angle,direction"
-  #     horizon: 500
-  #     domino_initialize_at_finished_state: False
-  #     domino_use_domino_blocks_as_target: True
-  #     domino_use_continuous_place: True
-  #     process_planning_heuristic_weight: 2.0
-  #     domino_has_glued_dominos: False
-  #     keep_failed_demos: True
-  #     predicate_invent_invent_derived_predicates: True
-  #     pybullet_birrt_extend_num_interp: 20
-  #     pybullet_birrt_path_subsample_ratio: 2
+  # OLD domino config (standard chain tasks), superseded by the min-block
+  # variants below. Parked by default.
+  domino:
+    NAME: "pybullet_domino"
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: "loc,rot,angle,direction"
+      horizon: 500
+      domino_initialize_at_finished_state: False
+      domino_use_domino_blocks_as_target: True
+      domino_use_continuous_place: True
+      process_planning_heuristic_weight: 2.0
+      domino_has_glued_dominos: False
+      keep_failed_demos: True
+      predicate_invent_invent_derived_predicates: True
+      pybullet_birrt_extend_num_interp: 20
+      pybullet_birrt_path_subsample_ratio: 2
   # NEW: reach-limited "minimum-blocks" domino tasks for the system-ID
   # experiment. Same base flags as the old config, plus the min-block flags:
   #   - domino_min_block_tasks: start/target pairs bridged near the reach
-  #     limit; each task carries a MinBlockReward with budget K* (min blues
-  #     to topple at the true friction): topple AND blues used <= K*.
+  #     limit; each task carries a DominoEvaluator: reward = 1[toppled via
+  #     a legitimate cascade] - domino_block_cost * blues used. K* (min
+  #     blues to topple at the true friction) is offline-metrics only.
   #   - domino_true_friction: the real env's friction (K* computed at it).
   #   - span_lo/hi + num_blues: task geometry / blue budget. Recalibrate the
   #     span with the reach probe if you change domino_true_friction.
-  domino:
+  # Two mismatch directions, one env block each (low/high = the TRUE
+  # friction); the task generator's differentiation filter is
+  # direction-aware, so both reuse the same generation machinery.
+  domino_low_friction:
     NAME: "pybullet_domino"
     # Parked by default; exp_domino.yaml un-skips it for the friction
     # sysID experiment (the heavy-block variant below stays parked).
@@ -63,6 +68,53 @@ ENVS:
       domino_min_block_span_lo: 0.13
       domino_min_block_span_hi: 0.30
       domino_min_block_num_blues: 4
+  domino_high_friction:
+    NAME: "pybullet_domino"
+    # Parked by default; exp_domino.yaml un-skips it for the friction
+    # sysID experiment.
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: "loc,rot,angle,direction"
+      # excluded_predicates is set per-approach: exp_domino.yaml excludes
+      # these (test ours); oracle.yaml leaves them in (test oracle).
+      horizon: 500
+      domino_initialize_at_finished_state: False
+      domino_use_domino_blocks_as_target: True
+      domino_use_continuous_place: True
+      process_planning_heuristic_weight: 2.0
+      domino_has_glued_dominos: False
+      keep_failed_demos: True
+      predicate_invent_invent_derived_predicates: True
+      pybullet_birrt_extend_num_interp: 20 # increase this to avoid collisions when placing dominoes
+      pybullet_birrt_path_subsample_ratio: 2
+      # --- min-block / system-ID experiment ---
+      domino_min_block_tasks: True
+      # REVERSE (under-reach) condition of domino_low_friction: planning
+      # friction below true, so an uncalibrated planner under-estimates
+      # reach, OVER-builds, and the target topples but the extra blues
+      # pay the per-block reward cost (k_used > K* in the offline
+      # metrics). K* is recomputed at the new true friction, and the
+      # generator's under_reach filter keeps only tasks where the
+      # believed build over-spends within the staged budget.
+      # Geometry recalibrated at true friction 0.5 (anchor reach probes
+      # 2026-07-08; yaw-parity fix + fresh-process re-validation
+      # 2026-07-09). Straight spans: 0.44-0.49 gives K*=2 vs believed 3
+      # and 0.59-0.65 gives K*=3 vs believed 4 (the 0.50-0.58 middle
+      # agrees at both frictions and is rejected per task). Turns: the
+      # 45-degree corner (legacy pair or natural single) costs an extra
+      # blue at planning friction 0.1 on long-leg cells around
+      # (entry 0.34, exit 0.28) - true K*=3 vs believed 4, stable
+      # across fresh sims; shorter legs tie 3v3 and (0.42, 0.24) is
+      # dual-valid knife-edge.
+      # Five staged blues give the believed 4-blue builds a spare blue
+      # (at 4 staged they need every blue and flip to unbuildable
+      # across the PyBullet settle round-trip).
+      domino_true_friction: 0.5
+      domino_planning_friction: 0.1
+      domino_min_block_span_lo: 0.44
+      domino_min_block_span_hi: 0.65
+      domino_min_block_num_blues: 5
   # Real-world domino: Learning + exploration stay in sim on
   # the reconstructed real scene; testing moves to the real Franka inside the
   # env (test mode only). un-skipped by exp_domino_real.yaml. Flags are
@@ -113,7 +165,7 @@ ENVS:
       domino_real_target_id: 5
       pybullet_closed_fingers: 0.02  # clamp the 0.029m real domino
       domino_real_execute_real: False
-  # # heavy-block (immovable obstacle) domino tasks — MASS-only mismatch.
+  # # heavy-block (immovable obstacle) domino tasks - MASS-only mismatch.
   # domino_heavy:
   #   NAME: "pybullet_domino"
   #   FLAGS:

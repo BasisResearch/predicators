@@ -9,6 +9,8 @@ from typing import Any, ClassVar, Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 import pybullet as p
 
+from predicators.envs.pybullet_domino.cascade_certificate import StepOption, \
+    check_cascade_legitimacy, count_movable_blocks_used
 from predicators.envs.pybullet_domino.components.ball_component import \
     BallComponent
 from predicators.envs.pybullet_domino.components.base_component import \
@@ -32,32 +34,69 @@ from predicators.pybullet_helpers.objects import create_object
 from predicators.pybullet_helpers.robots import SingleArmPyBulletRobot
 from predicators.settings import CFG
 from predicators.structs import Action, EnvironmentTask, GroundAtom, Object, \
-    Predicate, State, Type
+    Predicate, State, TaskEvaluator, Type
 
 
-class MinBlockReward:
-    """Binary task reward for min-block / system-ID tasks.
+class DominoEvaluator(TaskEvaluator):
+    """Task evaluator for min-block / system-ID tasks.
 
-    Generalizes the atom-set goal (see ``EnvironmentTask.reward_fn``):
-    success = every goal atom holds AND the solution used at most
-    ``max_blocks`` movable (blue) dominoes. "Used" is measured on the
-    final state as the number of movable dominoes that toppled — for a
-    successful cascade these are exactly the blues bridging start to
-    target, so an over-built (denser-than-needed) chain exceeds the
-    budget and fails, while an under-built one fails to topple the
-    target and is already rejected by the atom check.
+    ``terminated`` is the inherited goal-atom check (the target
+    toppled, however that happened). The success bonus is gated on
+    cascade legitimacy, and each toppled movable (blue) domino costs
+    ``CFG.domino_block_cost`` reward, so an over-built
+    (denser-than-needed) chain succeeds at lower reward while an
+    under-built one fails to topple the target. The oracle K* (the
+    searched minimum blues at the true friction) deliberately does NOT
+    live here: this object ships on the agent-facing ``Task``, so it
+    must hold no oracle quantity - K* travels env-side via
+    ``EnvironmentTask.offline_task_metrics``. Both reward and
+    certificate are physics-independent pure functions of the state
+    trajectory (``count_movable_blocks_used`` reads roll angles, no
+    physics stepping) and the evaluator holds no env handle, which is
+    what makes shipping it on the ``Task`` leak-free.
     """
 
-    def __init__(self, env: "PyBulletDominoComposedEnv", goal: Set[GroundAtom],
-                 max_blocks: int) -> None:
-        self._env = env
-        self.goal = goal
-        self.max_blocks = max_blocks
+    def __init__(self, goal: Set[GroundAtom]) -> None:
+        super().__init__(goal)
+        assert CFG.domino_block_cost * CFG.domino_min_block_num_blues < 1.0, \
+            "A legitimate success must outscore any failure."
 
-    def __call__(self, state: State) -> bool:
-        if not all(atom.holds(state) for atom in self.goal):
-            return False
-        return self._env.count_movable_blocks_used(state) <= self.max_blocks
+    def reward(self, states: Sequence[State],
+               step_options: Optional[Sequence[StepOption]]) -> float:
+        ok, _ = self._certify(states, step_options)
+        bonus = float(self.terminated(states[-1]) and ok)
+        return bonus - CFG.domino_block_cost * \
+            count_movable_blocks_used(states[-1])
+
+    def _certify(
+            self, states: Sequence[State],
+            step_options: Optional[Sequence[StepOption]]) -> Tuple[bool, str]:
+        """Min-block episodes must be genuine start-block cascades.
+
+        The final-state checks cannot see HOW the target fell; this
+        rejects episodes where the robot toppled anything other than the
+        green start block (via its Push), so place-knock / push-a-blue /
+        flail-knock exploits earn no bonus even when the goal atoms
+        hold. Consumed by ``BaseEnv.check_episode_trajectory`` /
+        ``BaseEnv.evaluate_episode``.
+        """
+        return check_cascade_legitimacy(states, self.goal, step_options)
+
+    def offline_metrics(
+            self, states: Sequence[State],
+            step_options: Optional[Sequence[StepOption]]) -> Dict[str, float]:
+        del step_options  # unused
+        return {"k_used": float(count_movable_blocks_used(states[-1]))}
+
+    def objective_description(self) -> str:
+        return (
+            "Success (+1 reward) = the target domino topples via a "
+            "legitimate cascade seeded by pushing the green start block "
+            "(the robot may push only the green block; knocking any other "
+            "domino directly, or toppling the target by any other means, "
+            "voids the bonus - the episode still terminates). Each movable "
+            f"(blue) domino that topples costs {CFG.domino_block_cost} "
+            "reward, so use as few blues as possible.")
 
 
 class PyBulletDominoComposedEnv(PyBulletEnv):
@@ -479,20 +518,6 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             raise ValueError(f"Unknown physical param(s) {sorted(unknown)}.")
         self.set_domino_physical_params(**params)
 
-    def count_movable_blocks_used(self, state: State) -> int:
-        """Count movable (blue) dominoes that have toppled in ``state``."""
-        comp = self._domino_component
-        if comp is None:
-            return 0
-        thresh = comp.fallen_threshold
-        count = 0
-        for d in state.get_objects(comp.domino_type):
-            # pylint: disable=protected-access
-            if comp._MovableBlock_holds(state, [d]) and \
-                    abs(state.get(d, "roll")) >= thresh:
-                count += 1
-        return count
-
     # =========================================================================
     # PREDICATE HOLD FUNCTIONS
     # =========================================================================
@@ -632,7 +657,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
         # the whole pipeline (quota loop, K* searches, differentiation
         # filters, disk cache) lives in
         # task_generators.min_block_generation. Imported lazily: that
-        # module constructs MinBlockReward from this one.
+        # module constructs DominoEvaluator from this one.
         # pylint: disable-next=import-outside-toplevel,line-too-long
         from predicators.envs.pybullet_domino.task_generators.min_block_generation import \
             make_min_block_tasks
@@ -750,7 +775,7 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         test_env = sys.argv[1]
 
-    CFG.domino_min_block_tasks = True
+    CFG.domino_min_block_tasks = False
     CFG.domino_true_friction = 0.1
     CFG.domino_min_block_span_lo = 0.13
     CFG.domino_min_block_span_hi = 0.30
@@ -759,10 +784,10 @@ if __name__ == "__main__":
     # Configure environment
     CFG.seed = 1
     CFG.num_train_tasks = 0
-    CFG.num_test_tasks = 5
+    CFG.num_test_tasks = 10
 
     # Domino configuration
-    CFG.domino_initialize_at_finished_state = False
+    CFG.domino_initialize_at_finished_state = True
     CFG.domino_use_domino_blocks_as_target = True
     CFG.domino_has_glued_dominos = False
     CFG.domino_test_num_dominos = [3]
@@ -827,7 +852,7 @@ if __name__ == "__main__":
         print(task.init.pretty_str())
 
         try:
-            for step in range(100):
+            for step in range(50):
                 # pylint: disable=protected-access
                 cur_action = Action(
                     np.array(demo_env._pybullet_robot.initial_joint_positions))

@@ -2857,7 +2857,8 @@ def strip_task(task: Task, included_predicates: Set[Predicate]) -> Task:
     return Task(task.init,
                 stripped_goal,
                 alt_goal=task.alt_goal,
-                goal_nl=task.goal_nl)
+                goal_nl=task.goal_nl,
+                evaluator=task.evaluator)
 
 
 def create_vlm_predicate(

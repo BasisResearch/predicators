@@ -204,6 +204,8 @@ ChangeFingersTargetFn = Callable[[State, Sequence[Object], Array, SkillConfig],
 _BIRRT_TRAJ_KEY = "birrt_traj_{}"  # stores List[JointPositions] or None
 _BIRRT_STEP_KEY = "birrt_step_{}"  # stores int index into trajectory
 _BIRRT_FINGER_KEY = "birrt_finger_{}"  # stores finger_status str
+_IK_STALL_BEST_KEY = "ik_stall_best_{}"  # best EE-to-target distance seen
+_IK_STALL_COUNT_KEY = "ik_stall_count_{}"  # steps since last improvement
 
 
 @dataclass
@@ -416,6 +418,37 @@ class PhaseSkill:
                                   target_pose.position)))
         return bool(squared_dist < self._config.move_to_pose_tol)
 
+    def _check_ik_stall(self, phase: Phase, state: State, memory: Dict,
+                        objects: Sequence[Object], params: Array) -> None:
+        """Abort the option when incremental IK stops making progress.
+
+        Tracks the best end-effector-to-target distance in the option's
+        memory; ``_ik_stall_window`` consecutive steps without improving
+        it by ``_ik_stall_min_progress`` raise
+        ``OptionExecutionFailure`` (the incremental-IK distance terminal
+        can otherwise never fire, leaving the arm thrashing until the
+        episode horizon).
+        """
+        current_pose, target_pose, _ = phase.target_fn(state, objects, params,
+                                                       self._config)
+        dist = float(
+            np.linalg.norm(
+                np.subtract(current_pose.position, target_pose.position)))
+        pid = id(phase)
+        best_key = _IK_STALL_BEST_KEY.format(pid)
+        count_key = _IK_STALL_COUNT_KEY.format(pid)
+        best = memory.get(best_key)
+        if best is None or dist < best - self._ik_stall_min_progress:
+            memory[best_key] = dist
+            memory[count_key] = 0
+            return
+        memory[count_key] = memory.get(count_key, 0) + 1
+        if memory[count_key] >= self._ik_stall_window:
+            raise utils.OptionExecutionFailure(
+                f"[{self._name}/{phase.name}] incremental-IK stalled: no "
+                f"end-effector progress in {self._ik_stall_window} steps "
+                f"({dist:.3f} m from target); aborting option.")
+
     # ------------------------------------------------------------------
     # Phase execution
     # ------------------------------------------------------------------
@@ -449,6 +482,16 @@ class PhaseSkill:
     # for fixed bases.
     _base_pos_tol: ClassVar[float] = 0.02  # xy tol to call the base positioned
     _base_step: ClassVar[float] = 0.08  # max base xy move per step (smooth)
+
+    # Incremental-IK stall abort: when a phase is running on incremental IK
+    # (BiRRT-failed fallback, or converging after a consumed trajectory) and
+    # the end effector gets no closer to the phase target than its best
+    # distance so far (by at least ``_ik_stall_min_progress``) for
+    # ``_ik_stall_window`` consecutive steps, the option aborts with an
+    # ``OptionExecutionFailure`` instead of flailing until the episode
+    # horizon (where the thrashing arm bulldozes the scene).
+    _ik_stall_window: ClassVar[int] = 25
+    _ik_stall_min_progress: ClassVar[float] = 2e-3  # meters
 
     def _maybe_drive_base(self, phase: Phase, state: State, memory: Dict,
                           objects: Sequence[Object],
@@ -614,6 +657,7 @@ class PhaseSkill:
         traj = memory[traj_key]
         if traj is None:
             # BiRRT failed — fall back to incremental IK.
+            self._check_ik_stall(phase, state, memory, objects, params)
             return self._execute_move_ik(phase, state, objects, params)
 
         # --- Pop next waypoint from cached trajectory. ---
@@ -623,6 +667,7 @@ class PhaseSkill:
             # Trajectory fully consumed — use incremental IK to converge
             # to the exact target pose (BiRRT's IK solution may be slightly
             # off from the target Cartesian pose).
+            self._check_ik_stall(phase, state, memory, objects, params)
             return self._execute_move_ik(phase, state, objects, params)
 
         target_joints = traj[step]

@@ -1095,3 +1095,59 @@ class TestCreatePushSkill:
         action = grounded.policy(state)
         assert isinstance(action, Action)
         assert robot.action_space.contains(action.arr)
+
+
+class TestIkStallAbort:
+    """Incremental-IK stall detection (_check_ik_stall)."""
+
+    def _make_skill_and_phase(self, robot, target_pos):
+        config = _make_config(robot)
+        robot_obj = _make_robot_obj()
+
+        def target_fn(state, _objects, _params, _cfg):
+            x = state.get(robot_obj, "x")
+            y = state.get(robot_obj, "y")
+            z = state.get(robot_obj, "z")
+            orn = p.getQuaternionFromEuler([0, np.pi / 2, -np.pi])
+            return Pose((x, y, z), orn), Pose(target_pos, orn), "open"
+
+        phase = Phase(
+            name="Waypoint",
+            action_type=PhaseAction.MOVE_TO_POSE,
+            target_fn=target_fn,
+            use_motion_planning=True,
+            expect_contact=True,
+        )
+        skill = PhaseSkill("Push", [_ROBOT_TYPE], Box(0, 1, (0, )), config,
+                           [phase])
+        return skill, phase, robot_obj
+
+    def test_stall_raises_after_window(self, robot_scene):
+        """No end-effector progress for a full window aborts the option."""
+        _, robot = robot_scene
+        target = (_EE_HOME[0] + 0.5, _EE_HOME[1], _EE_HOME[2])
+        skill, phase, robot_obj = self._make_skill_and_phase(robot, target)
+        state = _build_state(robot_obj, robot, *_EE_HOME)
+        memory: dict = {}
+        params = np.zeros(0, dtype=np.float32)
+        # First call initializes the best distance; the next window-1
+        # no-progress calls only count up.
+        for _ in range(PhaseSkill._ik_stall_window):  # pylint: disable=protected-access
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+        with pytest.raises(utils.OptionExecutionFailure) as e:
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access
+        assert "incremental-IK stalled" in str(e.value)
+
+    def test_progress_resets_counter(self, robot_scene):
+        """Steady progress toward the target never trips the abort."""
+        _, robot = robot_scene
+        target = (_EE_HOME[0] + 0.5, _EE_HOME[1], _EE_HOME[2])
+        skill, phase, robot_obj = self._make_skill_and_phase(robot, target)
+        memory: dict = {}
+        params = np.zeros(0, dtype=np.float32)
+        # 5 mm of progress per step (> _ik_stall_min_progress) for three
+        # windows' worth of steps: no abort.
+        for i in range(3 * PhaseSkill._ik_stall_window):  # pylint: disable=protected-access
+            state = _build_state(robot_obj, robot, _EE_HOME[0] + 0.005 * i,
+                                 _EE_HOME[1], _EE_HOME[2])
+            skill._check_ik_stall(phase, state, memory, [robot_obj], params)  # pylint: disable=protected-access

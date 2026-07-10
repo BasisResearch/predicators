@@ -2,8 +2,10 @@
 
 import abc
 import json
+import logging
 from pathlib import Path
-from typing import Callable, Collection, Dict, List, Optional, Set
+from typing import Callable, Collection, Dict, List, Optional, Sequence, Set, \
+    Tuple
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -14,8 +16,8 @@ from predicators import utils
 from predicators.pretrained_model_interface import OpenAILLM
 from predicators.settings import CFG
 from predicators.structs import Action, DefaultEnvironmentTask, \
-    EnvironmentTask, GroundAtom, Object, Observation, Predicate, State, Task, \
-    Type, Video
+    EnvironmentTask, EpisodeEvaluation, GroundAtom, Object, Observation, \
+    Predicate, State, StepOption, Task, Type, Video, step_option_labels
 
 
 class BaseEnv(abc.ABC):
@@ -248,10 +250,11 @@ class BaseEnv(abc.ABC):
 
         Subclasses may override.
         """
-        # A task's binary reward function, when present, is the success
-        # criterion — the atom-set check below is its special case.
-        if self._current_task.reward_fn is not None:
-            return self._current_task.reward_fn(self._current_state)
+        # A task's evaluator, when present, is the success criterion — its
+        # terminated() is purely physical (goal atoms hold, however
+        # reached), so the atom-set check below is its special case.
+        if self._current_task.evaluator is not None:
+            return self._current_task.evaluator.terminated(self._current_state)
         # NOTE: this is a convenience hack because most environments that are
         # currently implemented have goal descriptions that are simply sets of
         # ground atoms. In the future, it may be better to implement this on a
@@ -261,6 +264,76 @@ class BaseEnv(abc.ABC):
         assert isinstance(goal, set)
         assert not goal or isinstance(next(iter(goal)), GroundAtom)
         return all(goal_atom.holds(self._current_state) for goal_atom in goal)
+
+    @staticmethod
+    def _extract_episode(
+        observations: Sequence[Observation], actions: Sequence[Action]
+    ) -> Tuple[Optional[List[State]], List[StepOption]]:
+        """Extract per-step States and option labels from an episode.
+
+        Returns ``(None, [])`` (with a warning) when the observations
+        are not all States, so trajectory-level checks are skipped.
+        """
+        states = [obs for obs in observations if isinstance(obs, State)]
+        if len(states) != len(observations):
+            logging.warning(
+                "[trajectory certificate] non-State observations in the "
+                "episode; skipping the trajectory check.")
+            return None, []
+        return states, step_option_labels(actions)
+
+    def check_episode_trajectory(
+            self, observations: Sequence[Observation],
+            actions: Sequence[Action]) -> Tuple[bool, str]:
+        """Trajectory-level side-condition on episode success.
+
+        Called once at episode end, after ``goal_reached`` holds, with
+        the full per-step observation/action history. Delegates to the
+        task evaluator's ``_certify(states, step_options)``, which
+        constrains HOW the goal may be reached, not just the final
+        state. Tasks without an evaluator - every plain atom-set goal -
+        accept every trajectory.
+
+        Returns ``(ok, reason)`` with a human-readable reason when the
+        trajectory is rejected.
+        """
+        evaluator = self._current_task.evaluator
+        if evaluator is None:
+            return True, ""
+        states, step_options = self._extract_episode(observations, actions)
+        if states is None:
+            return True, ""
+        # The env is the sanctioned reader of the private certify: agents
+        # only ever see the (reward, terminated) pair plus the boolean
+        # rejection flag.
+        # pylint: disable-next=protected-access
+        return evaluator._certify(states, step_options)
+
+    def evaluate_episode(self, observations: Sequence[Observation],
+                         actions: Sequence[Action]) -> EpisodeEvaluation:
+        """The task evaluator's full verdict on one executed episode.
+
+        Falls back to plain goal-atom semantics (binary reward, no
+        offline metrics) when the task has no evaluator or the
+        observations are not States.
+        """
+        evaluator = self._current_task.evaluator
+        if evaluator is not None:
+            states, step_options = self._extract_episode(observations, actions)
+            if states is not None:
+                # pylint: disable-next=protected-access
+                _, reason = evaluator._certify(states, step_options)
+                return EpisodeEvaluation(
+                    reward=evaluator.reward(states, step_options),
+                    terminated=evaluator.terminated(states[-1]),
+                    reason=reason,
+                    offline_metrics=evaluator.offline_metrics(
+                        states, step_options))
+        terminated = self.goal_reached()
+        return EpisodeEvaluation(reward=float(terminated),
+                                 terminated=terminated,
+                                 reason="",
+                                 offline_metrics={})
 
     def _load_task_from_json(self, json_file: Path) -> EnvironmentTask:
         """Create a task from a JSON file.

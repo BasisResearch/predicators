@@ -31,7 +31,8 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk.tools import SAMPLER_SYNTHESIS_TOOL_NAMES, \
     SYNTHESIS_TOOL_NAMES, _SnapshotTarget, create_synthesis_tools, \
-    finalize_versioned_snapshot, make_write_snapshot_hook
+    evaluate_states_with, finalize_versioned_snapshot, \
+    make_write_snapshot_hook
 from predicators.approaches.agent_bilevel_approach import AgentBilevelApproach
 from predicators.approaches.sampler_learning_mixin import SamplerLearningMixin
 from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
@@ -55,7 +56,7 @@ from predicators.option_model import _OptionModelBase, _OracleOptionModel
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, GroundAtom, \
     InteractionResult, LowLevelTrajectory, ParameterizedOption, Predicate, \
-    State, Task, Type
+    State, Task, Type, step_option_labels
 
 logger = logging.getLogger(__name__)
 
@@ -646,6 +647,14 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
                 "ParamSpec":
                 ParamSpec,
             }
+            # Env ground-truth scoring, next to is_goal_state (see
+            # Task.evaluator). Verdict-only surface: dict of
+            # terminated/reward/legitimate/reason on a concrete state
+            # sequence - real trajectories or the agent's own simulator
+            # rollouts (there the verdict is only as good as the sim).
+            if any(t.evaluator is not None for t in self._train_tasks):
+                exec_ns["evaluate_trajectory"] = \
+                    self._make_evaluate_trajectory_fn()
 
             # Build dynamic synthesis tools and attach them to the
             # tool context *before* opening the session. The attached
@@ -702,6 +711,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
                 self._get_all_predicates())
             trajectory_listing = self._format_trajectory_listing(trajectories)
             prior_state_block = self._format_prior_state_block(base)
+            objective_block = self._format_objective_block()
             message = f"""\
 Synthesize a process dynamics simulator for this environment. \
 There are {n_trajs} trajectories ({len(obs_triples)} step \
@@ -719,7 +729,8 @@ which trajectories reached the goal and (2) treat failed \
 interaction trajectories as counterexamples — places where your \
 predicate or rule said "this should work" but the env disagreed.
 
-{prior_state_block}Data-structure source code is at: {structs_ref}
+{objective_block}{prior_state_block}Data-structure source code is at: \
+{structs_ref}
 
 A residual scan between the base simulator's prediction and the \
 observed next state suggests these features carry process dynamics \
@@ -737,7 +748,8 @@ will reject parameter samples that look correct on paper.
 
 Read the data-structures file first, then explore the trajectory \
 data with `run_python` (variables: `trajectories`, `train_tasks`, \
-`is_goal_state`, `np`, `ParamSpec`). Write your simulator to \
+`is_goal_state`, `np`, `ParamSpec`, plus `evaluate_trajectory` when a \
+task objective is stated above). Write your simulator to \
 `{simulator_file_for_agent}` — define PROCESS_RULES, PARAM_SPECS, \
 and PROCESS_FEATURES there. Every successful Write/Edit of \
 `{simulator_file_for_agent}` is snapshotted to `simulator_versions/` as \
@@ -1513,6 +1525,43 @@ the tools."""
             lines.append(line)
         return "\n".join(lines)
 
+    def _make_evaluate_trajectory_fn(self) -> Any:
+        """Build the ``evaluate_trajectory`` helper exposed in the synthesis
+        exec namespace (next to ``is_goal_state``).
+
+        The returned function scores a concrete state sequence with the
+        task's env-defined ``TaskEvaluator`` and returns only verdicts
+        (dict of terminated/reward/legitimate/reason) - never the
+        evaluator itself. ``actions`` may be ``Action`` objects (labeled
+        via their producing options), pre-built ``(option_name,
+        object_names)`` labels, or ``None`` (kinematics-only legitimacy
+        rules).
+        """
+        tasks = self._train_tasks
+
+        def evaluate_trajectory(states: Sequence[State],
+                                actions: Optional[Sequence[Any]] = None,
+                                task_idx: int = 0) -> Dict[str, Any]:
+            if not 0 <= task_idx < len(tasks):
+                raise ValueError(f"task_idx {task_idx} out of range "
+                                 f"(0-{len(tasks) - 1}).")
+            evaluator = tasks[task_idx].evaluator
+            if evaluator is None:
+                raise ValueError(
+                    f"Train task {task_idx} defines no task evaluator.")
+            if not states:
+                raise ValueError("`states` must be a non-empty sequence.")
+            step_options: Optional[Sequence[Any]] = None
+            if actions is not None:
+                acts = list(actions)
+                if acts and isinstance(acts[0], Action):
+                    step_options = step_option_labels(acts)
+                else:
+                    step_options = acts
+            return evaluate_states_with(evaluator, list(states), step_options)
+
+        return evaluate_trajectory
+
     @staticmethod
     def _format_trajectory_listing(
             trajectories: List[LowLevelTrajectory]) -> str:
@@ -1541,8 +1590,43 @@ the tools."""
                 provenance.append(f"predicates {preds_v}")
             tail = (f" — generated using {', '.join(provenance)}"
                     if provenance else "")
+            if traj.env_reward is not None:
+                success = int(
+                    bool(traj.env_terminated) and not traj.env_rejected)
+                tail += (f" — env reward={traj.env_reward:.2f} "
+                         f"(success={success})")
+            if traj.env_rejected:
+                tail += "; the supervisor REJECTED this episode"
             lines.append(f"  [{idx}] {kind}, {task_str}{tail}")
         return "\n".join(lines) + "\n"
+
+    def _format_objective_block(self) -> str:
+        """The env's public task objective (reward form), or empty.
+
+        Emitted when a train task's evaluator states an objective. The
+        statement is public by design: it contains the reward FORM
+        (success condition + costs), never oracle quantities like the
+        true minimum block count.
+        """
+        description = next(
+            (t.evaluator.objective_description()
+             for t in self._train_tasks if t.evaluator is not None
+             and t.evaluator.objective_description()), "")
+        if not description:
+            return ""
+        return f"""\
+## Task objective (env ground-truth reward)
+{description}
+
+The trajectory roster above shows each interaction episode's \
+env-computed reward. In `run_python`, \
+`evaluate_trajectory(states, actions=None, task_idx=0)` scores any \
+state sequence with the same ground-truth evaluator - a collected \
+trajectory's `states`/`actions`, or a rollout of YOUR simulator \
+(there the verdict is only as trustworthy as your simulator). It \
+returns {{terminated, reward, legitimate, reason}}.
+
+"""
 
     def _format_prior_state_block(self, base: str) -> str:
         """Tell the agent about any simulator/predicates left over from a
@@ -1925,7 +2009,11 @@ their output with `[cycle_XXX_vers_YYY]` so you and reviewers can diff \
 iterations.
 
 - `run_python(code)` — ad-hoc data exploration. `trajectories`, `np`, \
-`ParamSpec` in scope. **Does not** define rules.
+`ParamSpec` in scope; when the learn message states a task objective, \
+`evaluate_trajectory(states, actions=None, task_idx=0)` scores a state \
+sequence with the env's ground-truth evaluator (returns terminated / \
+reward / legitimate / reason; on your own simulator's rollouts the \
+verdict is only as good as the simulator). **Does not** define rules.
 - `evaluate_step_fit` — per-step prediction accuracy: SSE on the step \
 transitions at `init_value` params, plus post-fit SSE and fitted \
 parameters from a parameter fit. Cheap; the inner-loop signal.

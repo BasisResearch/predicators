@@ -1,4 +1,4 @@
-"""Slide figure: heavy-block tasks — believed plan vs calibrated solution.
+"""Slide figure: heavy-block tasks - believed plan vs calibrated solution.
 
 For each cached heavy-block test task, three rows (same style as
 make_task_examples_fig.py):
@@ -10,7 +10,7 @@ make_task_examples_fig.py):
      (straight variant) or the skip-around detour with an own corner
      (turn variant);
   3. the miscalibrated plan: the cheapest layout THROUGH the gray that
-     the BELIEVED physics accepts (normal gray mass — the same families
+     the BELIEVED physics accepts (normal gray mass - the same families
      the generation certificates scan), then EXECUTED at the true
      physics: it dies against the gray block.
 
@@ -84,7 +84,7 @@ def wrap(a):
 
 
 def block(ax, x, y, yaw, color):
-    tr = (Affine2D().rotate(-yaw).translate(x, y) + ax.transData)
+    tr = (Affine2D().rotate(yaw).translate(x, y) + ax.transData)
     ax.add_patch(
         Rectangle((-W / 2, -D / 2),
                   W,
@@ -94,7 +94,7 @@ def block(ax, x, y, yaw, color):
                   lw=0.9,
                   transform=tr,
                   zorder=3))
-    fx, fy = 0.025 * np.sin(yaw), 0.025 * np.cos(yaw)
+    fx, fy = 0.025 * np.cos(yaw), 0.025 * np.sin(yaw)
     ax.arrow(x, y, fx, fy, head_width=0.008, color=color, lw=0.9, zorder=4)
 
 
@@ -266,7 +266,7 @@ tasks = env.get_test_tasks()
 
 # Derive the panels in a FRESH simulator: generation may have run in
 # this same process, and residual sim context can shift knife-edge
-# outcomes even with per-probe state resets — execution also sees a
+# outcomes even with per-probe state resets - execution also sees a
 # fresh simulator, so this is the faithful context for re-derivation.
 import pybullet as p
 
@@ -281,7 +281,7 @@ fig, axes = plt.subplots(3, n, figsize=(3.4 * n, 10.2))
 axes = np.atleast_2d(axes).T  # axes[col] = (init, solution, believed)
 
 for col, task in enumerate(tasks):
-    budget = task.reward_fn.max_blocks
+    budget = int(task.offline_task_metrics["k_star"])
     init = task.init
     start, target, gray, s_pose, t_pose, h_pose = task_geometry(init)
     is_straight = abs(wrap(h_pose[2] - s_pose[2])) < 0.1

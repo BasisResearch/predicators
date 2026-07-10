@@ -6,12 +6,12 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.structs import NSRT, PNAD, Action, DefaultState, \
-    DemonstrationQuery, DummyOption, EnvironmentTask, GroundAtom, \
-    GroundMacro, ImageOptionTrajectory, InteractionRequest, \
+    DemonstrationQuery, DummyOption, EnvironmentTask, EpisodeEvaluation, \
+    GroundAtom, GroundMacro, ImageOptionTrajectory, InteractionRequest, \
     InteractionResult, LDLRule, LiftedAtom, LiftedDecisionList, \
     LowLevelTrajectory, Macro, Object, ParameterizedOption, Predicate, Query, \
-    Segment, State, STRIPSOperator, Task, Type, Variable, _Atom, _GroundNSRT, \
-    _GroundSTRIPSOperator, _Option
+    Segment, State, STRIPSOperator, Task, TaskEvaluator, Type, Variable, \
+    _Atom, _GroundNSRT, _GroundSTRIPSOperator, _Option, step_option_labels
 
 
 def test_object_type():
@@ -373,9 +373,18 @@ def test_task(state):
     pred3 = Predicate("AlternativeOn", [cup_type, plate_type],
                       lambda s, o: True)
     goal3 = {pred3([cup, plate])}
-    task3 = Task(state, goal=goal, alt_goal=goal3)
+    task3 = Task(state,
+                 goal=goal,
+                 alt_goal=goal3,
+                 evaluator=TaskEvaluator(goal))
     alt_task = task3.replace_goal_with_alt_goal()
     assert alt_task.goal == goal3
+    # The evaluator is dropped with the original goal (its `goal` holds
+    # exactly the atoms the replacement hides).
+    assert alt_task.evaluator is None
+    # Without an alt goal, the task (and its evaluator) is unchanged.
+    task4 = Task(state, goal=goal, evaluator=task3.evaluator)
+    assert task4.replace_goal_with_alt_goal().evaluator is task3.evaluator
 
 
 def test_environment_task(state):
@@ -398,6 +407,74 @@ def test_environment_task(state):
     alt_env_task = env_task.replace_goal_with_alt_goal()
     assert alt_env_task.goal_description == alt_goal
     assert alt_env_task.alt_goal_desc is None
+    # The evaluator propagates into the agent-facing Task but is dropped
+    # by the alt-goal replacement (its `goal` holds the hidden atoms).
+    evaluator = TaskEvaluator(goal)
+    env_task_with_eval = EnvironmentTask(state,
+                                         goal_description=goal,
+                                         alt_goal_desc=alt_goal,
+                                         evaluator=evaluator)
+    assert env_task_with_eval.task.evaluator is evaluator
+    assert env_task_with_eval.task.replace_goal_with_alt_goal().evaluator \
+        is None
+    assert env_task_with_eval.replace_goal_with_alt_goal().evaluator is None
+    # Without an alt goal, the evaluator reaches the Task untouched.
+    plain_env_task = EnvironmentTask(state,
+                                     goal_description=goal,
+                                     evaluator=evaluator)
+    assert plain_env_task.task.evaluator is evaluator
+
+
+def test_task_evaluator(state):
+    """The TaskEvaluator defaults reproduce plain atom-set-goal semantics:
+
+    terminated = goal atoms hold, every trajectory certified, binary reward,
+    no offline metrics, no stated objective.
+    """
+    cup_type = Type("cup_type", ["feat1"])
+    cup = cup_type("cup")
+    plate_type = Type("plate_type", ["feat1"])
+    plate = plate_type("plate")
+    pred_true = Predicate("On", [cup_type, plate_type], lambda s, o: True)
+    pred_false = Predicate("Off", [cup_type, plate_type], lambda s, o: False)
+    reached = TaskEvaluator({pred_true([cup, plate])})
+    unreached = TaskEvaluator({pred_false([cup, plate])})
+    assert reached.terminated(state)
+    assert not unreached.terminated(state)
+    # pylint: disable=protected-access
+    assert reached._certify([state], None) == (True, "")
+    assert reached.reward([state], None) == 1.0
+    assert unreached.reward([state], None) == 0.0
+    assert not reached.offline_metrics([state], None)
+    assert reached.objective_description() == ""
+    # step_option_labels: option-carrying actions get (name, objects)
+    # labels, bare actions get None.
+    push = utils.SingletonParameterizedOption(
+        "Push", lambda s, m, o, p: Action(np.zeros(1, dtype=np.float32)))
+    act_with_option = Action(np.zeros(1, dtype=np.float32))
+    act_with_option.set_option(push.ground([], np.zeros(0, dtype=np.float32)))
+    act_without_option = Action(np.zeros(1, dtype=np.float32))
+    assert step_option_labels([act_with_option, act_without_option]) == \
+        [("Push", ()), None]
+    # EpisodeEvaluation.rejected decodes rejection from the (reward,
+    # terminated) pair: terminated without a positive reward = a
+    # rule-breaking "success"; a non-terminated episode is never
+    # rejected, whatever its trajectory did.
+    hacked = EpisodeEvaluation(reward=-0.05,
+                               terminated=True,
+                               reason="pushed a blue",
+                               offline_metrics={})
+    legit = EpisodeEvaluation(reward=0.95,
+                              terminated=True,
+                              reason="",
+                              offline_metrics={})
+    failed = EpisodeEvaluation(reward=-0.05,
+                               terminated=False,
+                               reason="pushed a blue",
+                               offline_metrics={})
+    assert hacked.rejected
+    assert not legit.rejected
+    assert not failed.rejected
 
 
 def test_option(state):
