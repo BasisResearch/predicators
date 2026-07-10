@@ -401,7 +401,7 @@ def test_check_episode_trajectory_delegates_to_evaluator():
     assert evaluation.rejected
     assert evaluation.reason == "robot knocked the target"
     assert evaluation.reward == 0.0
-    assert evaluation.offline_metrics == {}
+    assert not evaluation.offline_metrics
     # Non-State observations: the check is skipped, not run on garbage.
     evaluator.seen = None
     assert env.check_episode_trajectory(["not a state"], []) == (True, "")

@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 # Bootstrap circular imports before pulling from predicators.approaches.
-import predicators.utils  # noqa: F401
+from predicators import utils
 from predicators.structs import Action, LowLevelTrajectory, State, Task, Type
 
 
@@ -282,7 +282,6 @@ def test_evaluate_trajectory_helper(approach_cls):
     bad task indices."""
     from types import SimpleNamespace
 
-    from predicators import utils
     from predicators.structs import TaskEvaluator
 
     class _RecordingEvaluator(TaskEvaluator):

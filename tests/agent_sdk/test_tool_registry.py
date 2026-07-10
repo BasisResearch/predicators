@@ -5,7 +5,7 @@ inside the factory functions and the name tuples exported from
 ``predicators.agent_sdk.tools``.  If a new tool is added (or renamed)
 without updating the constants, these tests fail.
 """
-# pylint: disable=protected-access
+# pylint: disable=protected-access,import-outside-toplevel
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -127,10 +127,10 @@ def test_resolve_task_evaluator_reads_task_field() -> None:
     import numpy as np
 
     from predicators.agent_sdk.tools import _resolve_task_evaluator
-    from predicators.structs import State, Task, TaskEvaluator, Type
+    from predicators.structs import Object, State, Task, TaskEvaluator, Type
 
     cup_type = Type("cup_type", ["f"])
-    init = State({cup_type("cup"): np.array([0.0])})
+    init = State({Object("cup", cup_type): np.array([0.0])})
     evaluator = TaskEvaluator(set())
     with_eval = Task(init, set(), evaluator=evaluator)
     without_eval = Task(init, set())
