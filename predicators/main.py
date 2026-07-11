@@ -538,10 +538,21 @@ def _generate_interaction_results(
         # from the task's NL description; the specific reason stays here
         # in the logs.
         episode_eval = env.evaluate_episode(observed_traj[0], observed_traj[1])
+        accepted = episode_eval.terminated and not episode_eval.rejected
+        logging.info(
+            "Interaction episode on train task %d: reward=%.2f, "
+            "terminated=%s, accepted=%s", request.train_task_idx,
+            episode_eval.reward, episode_eval.terminated, accepted)
         if episode_eval.rejected:
             logging.info(
                 "Interaction episode on train task %d REJECTED by the "
                 "env: %s", request.train_task_idx, episode_eval.reason)
+            # A rule-breaking episode must never count as solved for the
+            # early-stopping criterion, regardless of how the cogman solve
+            # gate scored it (today the gate runs the same certificate, so
+            # this is belt-and-braces; it keeps the invariant local and
+            # explicit).
+            task_solved_status[-1] = False
         result = InteractionResult(traj.states,
                                    traj.actions,
                                    request_responses,
