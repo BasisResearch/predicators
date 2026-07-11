@@ -840,7 +840,20 @@ function loadHash() {
   content.innerHTML = '<p class="muted">Loading…</p>';
   fetch(url).then(function(r) { return r.text(); }).then(function(html) {
     content.innerHTML = html;
-    content.parentElement.scrollTop = 0;
+    var r = window._restore;
+    window._restore = null;
+    if (r && r.open) {
+      var ds = $all('details', content);
+      r.open.forEach(function(i) { if (ds[i]) ds[i].open = true; });
+    }
+    var want = (r && typeof r.content === 'number') ? r.content : 0;
+    content.scrollTop = want;
+    if (want) {
+      // Lazy images may not have expanded the pane yet; re-apply once.
+      setTimeout(function() {
+        if (content.scrollTop < want) content.scrollTop = want;
+      }, 400);
+    }
     $all('.sidebar .nav a').forEach(function(a) {
       a.classList.toggle('active', a.getAttribute('href') === '#' + h);
     });
@@ -848,6 +861,39 @@ function loadHash() {
 }
 window.addEventListener('hashchange', loadHash);
 document.addEventListener('DOMContentLoaded', loadHash);
+
+// Preserve scroll positions (and open sections) across reloads. The
+// scrollable panes are inner divs, so native scroll restoration does not
+// cover them.
+function scrollKey() {
+  return 'lv-scroll:' + location.pathname + location.search + location.hash;
+}
+function saveScroll() {
+  var state = {};
+  var c = $('#content');
+  var p = $('.content');
+  if (c) {
+    state.content = c.scrollTop;
+    state.open = $all('details', c)
+      .map(function(d, i) { return d.open ? i : -1; })
+      .filter(function(i) { return i >= 0; });
+  } else if (p) {
+    state.page = p.scrollTop;
+  }
+  var sb = $('.sidebar');
+  if (sb) state.sidebar = sb.scrollTop;
+  try { sessionStorage.setItem(scrollKey(), JSON.stringify(state)); }
+  catch (e) {}
+}
+window.addEventListener('beforeunload', saveScroll);
+window.addEventListener('pagehide', saveScroll);
+window._restore = (function() {
+  var raw = null;
+  try { raw = sessionStorage.getItem(scrollKey()); } catch (e) {}
+  if (!raw) return null;
+  sessionStorage.removeItem(scrollKey());
+  try { return JSON.parse(raw); } catch (e) { return null; }
+})();
 
 // Auto-refresh: poll /stamp every 10s; reload only when logs changed.
 var REFRESH_MS = 10000;
@@ -889,6 +935,16 @@ document.addEventListener('DOMContentLoaded', function() {
   if (f) {
     f.value = sessionStorage.getItem('lv-filter') || '';
     if (f.value) filterRuns(f.value);
+  }
+  var r = window._restore;
+  if (r) {
+    var sb = $('.sidebar');
+    if (sb && typeof r.sidebar === 'number') sb.scrollTop = r.sidebar;
+    var p = $('.content');
+    if (!$('#content') && p && typeof r.page === 'number') {
+      p.scrollTop = r.page;
+      window._restore = null;
+    }
   }
 });
 
