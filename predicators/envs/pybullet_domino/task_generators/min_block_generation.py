@@ -59,6 +59,18 @@ def _domino_code_digest() -> str:
     return digest.hexdigest()
 
 
+def _early_stop_bar(k_star: float) -> float:
+    """Reward of an optimal legitimate solve: the early-stopping bar.
+
+    Mirrors ``DominoEvaluator.reward`` at ``k_used == K*``, so a
+    training episode counts toward early stopping only when it solves
+    with the oracle-minimal block count (modulo the run's configured
+    slack). Computed at task-construction time, never cached, so
+    ``domino_block_cost`` stays a run-time knob.
+    """
+    return 1.0 - CFG.domino_block_cost * k_star
+
+
 def make_min_block_tasks(env: "PyBulletDominoComposedEnv",
                          generator: "DominoTaskGenerator",
                          generate_batch: Callable[[int],
@@ -228,7 +240,9 @@ def _load_min_block_cache(
             evaluator=DominoEvaluator(goal) if k_star is not None else None,
             offline_task_metrics=({
                 "k_star": float(k_star)
-            } if k_star is not None else {}))
+            } if k_star is not None else {}),
+            early_stop_min_reward=(_early_stop_bar(float(k_star))
+                                   if k_star is not None else None))
         # Re-run the standard PyBullet conversion (joints, optional
         # rendering) instead of caching simulator state.
         tasks.extend(env._add_pybullet_state_to_tasks([plain]))
@@ -336,7 +350,8 @@ def _assign_min_blocks(env: "PyBulletDominoComposedEnv",
                             alt_goal_desc=env_task.alt_goal_desc,
                             goal_nl=env_task.goal_nl,
                             evaluator=DominoEvaluator(env_task.goal),
-                            offline_task_metrics={"k_star": float(k_star)}))
+                            offline_task_metrics={"k_star": float(k_star)},
+                            early_stop_min_reward=_early_stop_bar(k_star)))
     logging.info("Min-block tasks: kept %d/%d with K* assigned.", len(out),
                  len(tasks))
     return out
@@ -703,7 +718,8 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
                            goal_atoms,
                            goal_nl=goal_nl,
                            evaluator=DominoEvaluator(goal_atoms),
-                           offline_task_metrics={"k_star": float(k_true)})
+                           offline_task_metrics={"k_star": float(k_true)},
+                           early_stop_min_reward=_early_stop_bar(k_true))
 
 
 # ── Heavy-block (immovable obstacle) tasks ───────────────────
@@ -823,7 +839,8 @@ def _finish_heavy_task(env: "PyBulletDominoComposedEnv", comp: Any,
                            goal_atoms,
                            goal_nl=goal_nl,
                            evaluator=DominoEvaluator(goal_atoms),
-                           offline_task_metrics={"k_star": float(num_blues)})
+                           offline_task_metrics={"k_star": float(num_blues)},
+                           early_stop_min_reward=_early_stop_bar(num_blues))
 
 
 _HEAVY_GOAL_NL = (

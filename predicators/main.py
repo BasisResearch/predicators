@@ -465,6 +465,27 @@ def _run_online_learning_loop(
             break
 
 
+def _early_stop_below_bar_msg(episode_reward: float,
+                              env_task: EnvironmentTask) -> Optional[str]:
+    """Check a solved episode's reward against the task's early-stopping bar.
+
+    Returns a log-ready description when the episode reward falls short
+    of ``env_task.early_stop_min_reward`` (minus the configured slack),
+    meaning the solve must NOT count toward early stopping; returns None
+    when the task sets no bar or the reward clears it. The comparison
+    carries a small tolerance so a reward computed exactly at the bar is
+    never rejected on float rounding.
+    """
+    bar = env_task.early_stop_min_reward
+    if bar is None:
+        return None
+    slack = CFG.online_learning_early_stopping_reward_slack
+    if episode_reward >= bar - slack - 1e-9:
+        return None
+    return (f"below the early-stop reward bar (reward={episode_reward:g} < "
+            f"min_reward={bar:g} - slack {slack:g})")
+
+
 def _generate_interaction_results(
     cogman: CogMan,
     env: BaseEnv,
@@ -574,6 +595,15 @@ def _generate_interaction_results(
             # this is belt-and-braces; it keeps the invariant local and
             # explicit).
             task_solved_status[-1] = False
+        if task_solved_status[-1]:
+            below_bar_msg = _early_stop_below_bar_msg(episode_eval.reward,
+                                                      env_task)
+            if below_bar_msg is not None:
+                logging.info(
+                    "Interaction episode on train task %d solved but %s: "
+                    "does NOT count as solved for early stopping.",
+                    request.train_task_idx, below_bar_msg)
+                task_solved_status[-1] = False
         result = InteractionResult(traj.states,
                                    traj.actions,
                                    request_responses,
@@ -954,8 +984,7 @@ def _format_per_task_rewards(results: Metrics) -> str:
 
 
 def _format_test_results_line(results: Metrics) -> str:
-    """One-line summary of a test round: solve rate, average reward, and
-    per-task rewards."""
+    """Summarize a test round: solve rate, average reward, per-task rewards."""
     num_solved = int(results["num_solved"])
     num_total = int(results["num_total"])
     rate = num_solved / num_total if num_total else 0.0

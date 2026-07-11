@@ -1611,6 +1611,7 @@ class PyBulletEnv(BaseEnv):
                 task.goal,
                 goal_nl=task.goal_nl,
                 evaluator=task.evaluator,
-                offline_task_metrics=task.offline_task_metrics)
+                offline_task_metrics=task.offline_task_metrics,
+                early_stop_min_reward=task.early_stop_min_reward)
             pybullet_tasks.append(pybullet_task)
         return pybullet_tasks
