@@ -555,9 +555,11 @@ class GlobalSettings:
     domino_min_block_num_blues = 4
     # Per-blue-block cost in the DominoEvaluator's reward:
     # reward = 1.0 * (terminated AND certified) - cost * blues_toppled.
-    # Must satisfy domino_block_cost * domino_min_block_num_blues < 1 so a
+    # Must satisfy domino_block_cost * num_staged_blues < 1 so a
     # legitimate success always outscores any failure (the reward's sign
-    # alone then separates them). Public by design - the agent is told the
+    # alone then separates them); the evaluator asserts this against the
+    # min-block budget flag or, for plain chain tasks, the scene's actual
+    # movable count. Public by design - the agent is told the
     # reward form; only the dynamics stay hidden. NOTE: as a domino_* flag
     # this enters the min-block task cache key, so tuning it regenerates
     # the cached tasks.
