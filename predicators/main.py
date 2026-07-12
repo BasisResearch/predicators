@@ -204,8 +204,10 @@ def _run_pipeline(env: BaseEnv,
             _handle_offline_learning(cogman, offline_dataset)
 
         # Run initial evaluation if needed
+        initial_test_summary: Optional[Tuple[str, Metrics]] = None
         if CFG.skip_until_cycle < 0 and \
-           not CFG.skip_test_until_last_ite_or_early_stopping:
+           not CFG.skip_test_until_last_ite_or_early_stopping and \
+           not CFG.skip_initial_test:
             results = _run_testing(env, cogman, online_learning_cycle=None)
             results.update({
                 "num_offline_transitions": num_offline_trans,
@@ -215,10 +217,12 @@ def _run_pipeline(env: BaseEnv,
                 **offline_metrics
             })
             _save_test_results(results, online_learning_cycle=None)
+            initial_test_summary = ("the pre-loop test", results)
 
         # Run online learning loop
         _run_online_learning_loop(env, cogman, train_tasks, num_offline_trans,
-                                  learning_time, offline_metrics)
+                                  learning_time, offline_metrics,
+                                  initial_test_summary)
     else:
         # Handle non-learning case
         results = _run_testing(env, cogman, online_learning_cycle=None)
@@ -253,15 +257,27 @@ def _handle_offline_learning(
     return num_offline_transitions, 0.0, learning_time, offline_learning_metrics
 
 
-def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
-                              train_tasks: List[Task],
-                              num_offline_transitions: int,
-                              learning_time: float,
-                              offline_learning_metrics: dict) -> None:
-    """Run the online learning loop."""
+def _run_online_learning_loop(
+        env: BaseEnv,
+        cogman: CogMan,
+        train_tasks: List[Task],
+        num_offline_transitions: int,
+        learning_time: float,
+        offline_learning_metrics: dict,
+        initial_test_summary: Optional[Tuple[str, Metrics]] = None) -> None:
+    """Run the online learning loop.
+
+    ``initial_test_summary`` is ``(label, results)`` from the pre-loop
+    test, if one ran; it seeds the last-test summary that gets logged
+    when early stopping triggers.
+    """
     num_online_transitions = 0
     total_query_cost = 0.0
     test_solve_rate = 0.0
+    # (label, results) of the most recent test evaluation, re-logged on
+    # early stopping so the final solve rate and rewards are visible at
+    # the end of the log instead of cycles back.
+    last_test_summary = initial_test_summary
 
     # Create teacher if needed
     teacher = Teacher(train_tasks) if get_allowed_query_type_names() else None
@@ -427,6 +443,7 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
             })
             _save_test_results(results, online_learning_cycle=i)
             test_solve_rate = results["test_solve_rate"]
+            last_test_summary = (f"cycle {i}", results)
         elif early_stopping:
             prev_test_label = f"cycle {i - 1}" if i > 0 else "the pre-loop test"
             logging.info(
@@ -441,7 +458,33 @@ def _run_online_learning_loop(env: BaseEnv, cogman: CogMan,
                          "_early_stopping flag")
 
         if early_stopping:
+            if last_test_summary is not None:
+                label, test_results = last_test_summary
+                logging.info(
+                    f"Early stopping: last test evaluation ({label}): "
+                    f"{_format_test_results_line(test_results)}")
             break
+
+
+def _early_stop_below_bar_msg(episode_reward: float,
+                              env_task: EnvironmentTask) -> Optional[str]:
+    """Check a solved episode's reward against the task's early-stopping bar.
+
+    Returns a log-ready description when the episode reward falls short
+    of ``env_task.early_stop_min_reward`` (minus the configured slack),
+    meaning the solve must NOT count toward early stopping; returns None
+    when the task sets no bar or the reward clears it. The comparison
+    carries a small tolerance so a reward computed exactly at the bar is
+    never rejected on float rounding.
+    """
+    reward_bar = env_task.early_stop_min_reward
+    if reward_bar is None:
+        return None
+    slack = CFG.online_learning_early_stopping_reward_slack
+    if episode_reward >= reward_bar - slack - 1e-9:
+        return None
+    return (f"below the early-stop reward bar (reward={episode_reward:g} < "
+            f"min_reward={reward_bar:g} - slack {slack:g})")
 
 
 def _generate_interaction_results(
@@ -538,10 +581,30 @@ def _generate_interaction_results(
         # from the task's NL description; the specific reason stays here
         # in the logs.
         episode_eval = env.evaluate_episode(observed_traj[0], observed_traj[1])
+        accepted = episode_eval.terminated and not episode_eval.rejected
+        logging.info(
+            "Interaction episode on train task %d: reward=%.2f, "
+            "terminated=%s, accepted=%s", request.train_task_idx,
+            episode_eval.reward, episode_eval.terminated, accepted)
         if episode_eval.rejected:
             logging.info(
                 "Interaction episode on train task %d REJECTED by the "
                 "env: %s", request.train_task_idx, episode_eval.reason)
+            # A rule-breaking episode must never count as solved for the
+            # early-stopping criterion, regardless of how the cogman solve
+            # gate scored it (today the gate runs the same certificate, so
+            # this is belt-and-braces; it keeps the invariant local and
+            # explicit).
+            task_solved_status[-1] = False
+        if task_solved_status[-1]:
+            below_bar_msg = _early_stop_below_bar_msg(episode_eval.reward,
+                                                      env_task)
+            if below_bar_msg is not None:
+                logging.info(
+                    "Interaction episode on train task %d solved but %s: "
+                    "does NOT count as solved for early stopping.",
+                    request.train_task_idx, below_bar_msg)
+                task_solved_status[-1] = False
         result = InteractionResult(traj.states,
                                    traj.actions,
                                    request_responses,
@@ -586,6 +649,10 @@ def _run_testing(env: BaseEnv,
 
     num_found_policy = 0
     num_solved = 0
+    # Sum of per-task episode rewards. Tasks that never execute (solve
+    # failure/timeout) contribute 0.0, so the average below is over ALL
+    # test tasks.
+    total_test_reward = 0.0
     total_suc_time = 0.0
     total_low_level_action_cost = 0.0
 
@@ -812,6 +879,7 @@ def _run_testing(env: BaseEnv,
             episode_eval = env.evaluate_episode(traj[0], traj[1])
             metrics[
                 f"PER_TASK_task{test_task_idx}_reward"] = episode_eval.reward
+            total_test_reward += episode_eval.reward
             for metric_name, value in episode_eval.offline_metrics.items():
                 metrics[f"PER_TASK_task{test_task_idx}_{metric_name}"] = value
             for metric_name, value in env_task.offline_task_metrics.items():
@@ -864,6 +932,8 @@ def _run_testing(env: BaseEnv,
     # --------------------------------------------------------------------------
     metrics["num_solved"] = num_solved
     metrics["num_total"] = len(test_tasks)
+    metrics["avg_test_reward"] = (total_test_reward /
+                                  len(test_tasks) if test_tasks else 0.0)
     metrics["avg_suc_time"] = (total_suc_time /
                                num_solved if num_solved > 0 else float("inf"))
     metrics["avg_ref_cost"] = ((total_low_level_action_cost +
@@ -900,12 +970,38 @@ def _run_testing(env: BaseEnv,
     return metrics
 
 
+def _format_per_task_rewards(results: Metrics) -> str:
+    """Comma-joined per-task episode rewards of one test round.
+
+    Tasks that never executed (solve failure/timeout) have no reward
+    entry and show as ``n/a``.
+    """
+    parts = []
+    for i in range(int(results["num_total"])):
+        reward = results.get(f"PER_TASK_task{i}_reward")
+        parts.append(
+            f"task{i}={reward:.2f}" if reward is not None else f"task{i}=n/a")
+    return ", ".join(parts)
+
+
+def _format_test_results_line(results: Metrics) -> str:
+    """Summarize a test round: solve rate, average reward, per-task rewards."""
+    num_solved = int(results["num_solved"])
+    num_total = int(results["num_total"])
+    rate = num_solved / num_total if num_total else 0.0
+    return (f"solve rate {rate:.3f} ({num_solved} / {num_total}), "
+            f"avg reward {results['avg_test_reward']:.3f}, "
+            f"per-task rewards: {_format_per_task_rewards(results)}")
+
+
 def _save_test_results(results: Metrics,
                        online_learning_cycle: Optional[int]) -> None:
     num_solved = results["num_solved"]
     num_total = results["num_total"]
     avg_suc_time = results["avg_suc_time"]
     logging.info(f"Tasks solved: {num_solved} / {num_total}")
+    logging.info(f"Average test reward: {results['avg_test_reward']:.3f}")
+    logging.info(f"Per-task rewards: {_format_per_task_rewards(results)}")
     logging.info(f"Average time for successes: {avg_suc_time:.5f} seconds")
     os.makedirs(CFG.results_dir, exist_ok=True)
     outfile = (f"{CFG.results_dir}/{utils.get_config_path_str()}__"

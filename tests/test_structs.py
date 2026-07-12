@@ -413,11 +413,16 @@ def test_environment_task(state):
     env_task_with_eval = EnvironmentTask(state,
                                          goal_description=goal,
                                          alt_goal_desc=alt_goal,
-                                         evaluator=evaluator)
+                                         evaluator=evaluator,
+                                         early_stop_min_reward=0.85)
     assert env_task_with_eval.task.evaluator is evaluator
     assert env_task_with_eval.task.replace_goal_with_alt_goal().evaluator \
         is None
-    assert env_task_with_eval.replace_goal_with_alt_goal().evaluator is None
+    alt_with_eval = env_task_with_eval.replace_goal_with_alt_goal()
+    assert alt_with_eval.evaluator is None
+    # The early-stop reward bar is dropped alongside the evaluator (its
+    # value is only meaningful under the dropped evaluator's reward).
+    assert alt_with_eval.early_stop_min_reward is None
     # Without an alt goal, the evaluator reaches the Task untouched.
     plain_env_task = EnvironmentTask(state,
                                      goal_description=goal,

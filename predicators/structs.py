@@ -1151,6 +1151,17 @@ class EnvironmentTask:
     # PER_TASK results by main.py. Kept OFF the evaluator and never
     # propagated into ``Task``, so nothing agent-reachable encodes them.
     offline_task_metrics: Dict[str, float] = field(default_factory=dict)
+    # Env-side early-stopping bar: when set, a solved training episode
+    # counts toward online-learning early stopping only if its episode
+    # reward reaches this value (minus
+    # CFG.online_learning_early_stopping_reward_slack). Domains express
+    # "solved well enough to stop training" in the one domain-general
+    # currency, reward - e.g. domino min-block tasks set the optimal
+    # reward 1 - block_cost * K*, so an over-built solve keeps training
+    # going. May encode oracle quantities, so like offline_task_metrics
+    # it never reaches the agent-facing ``Task``. None (the default)
+    # keeps the plain solved criterion.
+    early_stop_min_reward: Optional[float] = None
 
     @cached_property
     def task(self) -> Task:
@@ -1202,7 +1213,9 @@ class EnvironmentTask:
         """
         # The evaluator is dropped along with the original goal: its
         # ``goal`` field holds exactly the atoms this replacement hides.
-        # The env-side offline metrics stay (they never reach a Task).
+        # The early-stop reward bar goes with it (its value is only
+        # meaningful under the dropped evaluator's reward). The env-side
+        # offline metrics stay (they never reach a Task).
         if self.alt_goal_desc is not None:
             return EnvironmentTask(
                 self.init_obs,

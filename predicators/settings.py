@@ -22,12 +22,26 @@ class GlobalSettings:
     online_learning_max_transitions = float("inf")
     online_learning_early_stopping = False
     skip_test_until_last_ite_or_early_stopping = False
+    # When True, skip only the pre-loop (cycle-0) test that evaluates the
+    # offline-learned model before any online learning. Per-cycle testing is
+    # unaffected, so the learning-progression curve is still measured; only
+    # the (usually predictable) evaluation of the uncalibrated initial model
+    # is saved. Subsumed by skip_test_until_last_ite_or_early_stopping.
+    skip_initial_test = False
     # just for plotting
     online_learning_early_stopping_by_test_solve_rate = False
     # When True, every interaction request in the cycle (not just the first
     # per task) must succeed before early stopping is triggered. Catches
     # "lucky single-sample" successes that mask a buggy learned model.
     online_learning_early_stopping_require_all_attempts = False
+    # Slack (in reward units) below a task's ``early_stop_min_reward`` bar
+    # that still counts as solved for early stopping. Only tasks that set
+    # ``EnvironmentTask.early_stop_min_reward`` are affected (e.g. domino
+    # min-block tasks set it to the optimal reward, 1 - block_cost * K*):
+    # with the default 0.0, training continues until the agent solves at
+    # the bar (or cycles run out) instead of stopping on an inefficient
+    # solve. Tasks that leave the bar None keep the plain solved criterion.
+    online_learning_early_stopping_reward_slack = 0.0
     # When True, the early-stopping cycle does NOT re-run testing, provided
     # every cycle is already being tested (skip_test_until_last_ite_or_early
     # _stopping is False). On the early-stopping cycle learning is skipped, so
