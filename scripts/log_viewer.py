@@ -699,6 +699,9 @@ table.grid { border-collapse: collapse; margin: 10px 0; }
 table.grid th, table.grid td { border: 1px solid var(--border);
   padding: 4px 10px; text-align: left; font-size: 13px; }
 table.grid th { background: var(--panel); }
+table.epgrid { border-collapse: collapse; margin: 0; }
+table.epgrid td { border: none; padding: 1px 10px 1px 0;
+  vertical-align: top; white-space: nowrap; }
 .sidebar .nav a { display: block; padding: 3px 6px; border-radius: 4px;
   color: var(--fg); font-size: 13px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
@@ -1010,21 +1013,42 @@ def test_mark(ep: Dict[str, Any]) -> Tuple[str, str, str]:
     return "", "", ""
 
 
-def episode_chips(episodes: List[Dict[str, Any]]) -> str:
-    out = []
+def episode_grid(episodes: List[Dict[str, Any]]) -> str:
+    """Chips laid out one row per test round, one column per task.
+
+    Vertical alignment makes it easy to compare a task's outcome against
+    earlier rounds; retries within a round stack in the cell.
+    """
+    tests: Dict[int, Dict[int, List[str]]] = {}
+    misc: Dict[int, List[str]] = {}
     for ep in episodes:
+        rnd = ep.get("round", 0)
         label = "%03d" % ep["num"]
-        cls, title = "", ""
-        if ep["kind"] == "test":
+        if ep["kind"] == "test" and ep["task"] is not None:
             mark, cls, title = test_mark(ep)
             label += " t%s" % ep["task"]
             if mark:
                 label += " " + mark
+            by_task = tests.setdefault(rnd, {})
+            by_task.setdefault(ep["task"], []).append(chip(label, cls, title))
         else:
             label += " " + ep["kind"]
-            cls = "kind-" + ep["kind"]
-        out.append(chip(label, cls, title))
-    return "".join(out)
+            misc.setdefault(rnd, []).append(chip(label, "kind-" + ep["kind"]))
+    if not tests and not misc:
+        return ""
+    n_rounds = max(list(tests) + list(misc)) + 1
+    tasks = sorted({t for by_task in tests.values() for t in by_task})
+    rows = []
+    for rnd in range(n_rounds):
+        cells = []
+        if n_rounds > 1:
+            cells.append("<td class='muted'>r%d</td>" % (rnd + 1))
+        for t in tasks:
+            cells.append("<td>%s</td>" %
+                         "<br>".join(tests.get(rnd, {}).get(t, [])))
+        cells.append("<td>%s</td>" % "".join(misc.get(rnd, [])))
+        rows.append("<tr>%s</tr>" % "".join(cells))
+    return "<table class='epgrid'>%s</table>" % "".join(rows)
 
 
 # ----------------------------------------------------------------- pages
@@ -1045,7 +1069,7 @@ def run_row(r: Dict[str, Any]) -> str:
             "<td>%s</td><td>%s</td><td>%s</td>"
             "<td class='muted'>%s</td></tr>" %
             (esc(key), esc(r["rel"]), q(
-                r["rel"]), esc(r["name"]), esc(r["seed"]), episode_chips(eps),
+                r["rel"]), esc(r["name"]), esc(r["seed"]), episode_grid(eps),
              esc(tr_str), "$%.2f" % cost if cost else "-", mstr))
 
 
