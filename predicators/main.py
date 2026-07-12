@@ -477,14 +477,14 @@ def _early_stop_below_bar_msg(episode_reward: float,
     carries a small tolerance so a reward computed exactly at the bar is
     never rejected on float rounding.
     """
-    bar = env_task.early_stop_min_reward
-    if bar is None:
+    reward_bar = env_task.early_stop_min_reward
+    if reward_bar is None:
         return None
     slack = CFG.online_learning_early_stopping_reward_slack
-    if episode_reward >= bar - slack - 1e-9:
+    if episode_reward >= reward_bar - slack - 1e-9:
         return None
     return (f"below the early-stop reward bar (reward={episode_reward:g} < "
-            f"min_reward={bar:g} - slack {slack:g})")
+            f"min_reward={reward_bar:g} - slack {slack:g})")
 
 
 def _generate_interaction_results(
