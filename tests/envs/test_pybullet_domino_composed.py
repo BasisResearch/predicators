@@ -130,6 +130,53 @@ def test_unfinished_state_avoids_staging_collisions() -> None:
     assert moved[movable]["x"] != pytest.approx(first_staging_x)
 
 
+def test_plain_task_attaches_domino_evaluator() -> None:
+    """The plain chain generator attaches a DominoEvaluator (cascade
+    certificate + per-toppled-blue reward cost) exactly when targets are domino
+    blocks and dominoes are the only dynamic component; composed variants with
+    extra components keep evaluator=None."""
+    workspace_bounds = {
+        "x_lb": 0.4,
+        "x_ub": 1.1,
+        "y_lb": 1.1,
+        "y_ub": 1.6,
+        "z_lb": 0.4,
+        "z_ub": 0.95,
+    }
+    CFG.domino_use_domino_blocks_as_target = True
+    CFG.domino_has_glued_dominos = False
+    CFG.domino_min_block_tasks = False
+    CFG.domino_initialize_at_finished_state = True
+    comp = DominoComponent(num_dominos_max=5,
+                           num_targets_max=2,
+                           num_pivots_max=1,
+                           workspace_bounds=workspace_bounds)
+    robot = Object("robot", Type("robot", ["x", "y", "z"]))
+    robot_init = {"x": 0.75, "y": 0.72, "z": 0.9}
+    generator = dtg.DominoTaskGenerator(comp, robot, robot_init)
+
+    # pylint: disable=protected-access
+    task = generator._generate_single_task(0, np.random.default_rng(0), [3],
+                                           [1], [0])
+    assert task is not None
+    from predicators.envs.pybullet_domino.env import \
+        DominoEvaluator  # pylint: disable=import-outside-toplevel
+    assert isinstance(task.evaluator, DominoEvaluator)
+    assert "as few blue dominoes as possible" in task.goal_nl
+
+    # A ball/fan-style extra component can topple dominoes without a
+    # robot Push, which the certificate would falsely reject - so its
+    # presence must disable the evaluator.
+    composed = dtg.DominoTaskGenerator(comp,
+                                       robot,
+                                       robot_init,
+                                       additional_components=[object()])
+    task = composed._generate_single_task(0, np.random.default_rng(0), [3],
+                                          [1], [0])
+    assert task is not None
+    assert task.evaluator is None
+
+
 class TestGridComponent:
     """Tests for GridComponent."""
 

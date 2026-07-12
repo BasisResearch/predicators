@@ -56,9 +56,17 @@ class DominoEvaluator(TaskEvaluator):
     what makes shipping it on the ``Task`` leak-free.
     """
 
-    def __init__(self, goal: Set[GroundAtom]) -> None:
+    def __init__(self,
+                 goal: Set[GroundAtom],
+                 num_movables: Optional[int] = None) -> None:
+        """``num_movables`` is the number of movable (blue) dominoes staged in
+        the task's scene, bounding the worst-case toppled-blue cost; it
+        defaults to the min-block budget flag for the min-block / heavy task
+        families, and the plain chain generator passes its actual count."""
         super().__init__(goal)
-        assert CFG.domino_block_cost * CFG.domino_min_block_num_blues < 1.0, \
+        if num_movables is None:
+            num_movables = CFG.domino_min_block_num_blues
+        assert CFG.domino_block_cost * num_movables < 1.0, \
             "A legitimate success must outscore any failure."
 
     def reward(self, states: Sequence[State],

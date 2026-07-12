@@ -8,6 +8,7 @@ step where its roll jumps past the fallen threshold.
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+import pytest
 
 from predicators.envs.pybullet_domino.cascade_certificate import \
     CASCADE_WINDOW_STEPS, check_cascade_legitimacy, \
@@ -553,3 +554,20 @@ def test_domino_evaluator_reward_decomposition():
     description = evaluator.objective_description()
     assert str(CFG.domino_block_cost) in description
     assert "K*" not in description
+
+
+def test_domino_evaluator_budget_assert():
+    """A scene whose staged movables could out-cost the success bonus is a
+    config error, caught at construction against the scene's actual count
+    (``num_movables``); omitting it falls back to the min-block budget flag."""
+    # Local import: pulls in PyBullet, which the rest of this file avoids.
+    from predicators.envs.pybullet_domino.env import \
+        DominoEvaluator  # pylint: disable=import-outside-toplevel
+    from predicators.utils import \
+        reset_config  # pylint: disable=import-outside-toplevel
+    reset_config({"domino_block_cost": 0.05, "domino_min_block_num_blues": 4})
+    goal = _goal(_make_objects(["green", "target"]))
+    DominoEvaluator(goal)  # flag default: 0.05 * 4 < 1
+    DominoEvaluator(goal, num_movables=19)  # 0.05 * 19 < 1
+    with pytest.raises(AssertionError):
+        DominoEvaluator(goal, num_movables=20)  # 0.05 * 20 == 1
