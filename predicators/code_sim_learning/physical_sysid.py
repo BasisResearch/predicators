@@ -896,12 +896,14 @@ def fit_params_rollout(
     (:func:`fit_map_lm_rollout`), so data-flat directions stay at their
     anchors instead of drifting on rollout noise.
 
-    When ``code_sim_learning_rollout_sensitivity_factor`` > 0 and the
-    grid sweep ran, a pre-fit sensitivity screen compares each physical
-    param's sweep SSE span against the same-theta SSE noise floor
-    (3 repeated evaluations at the anchor point); the verdicts are
-    attached as ``FitResult.sensitivity`` and an insensitive param's
-    fitted value is withheld by :func:`select_trustworthy_params`.
+    When the grid sweep ran, each physical param's sweep diagnostics
+    (SSE span, same-theta noise floor from 3 repeated evaluations at
+    the anchor point, and the data-equivalent ``flat_interval``) are
+    attached as ``FitResult.sensitivity``. With
+    ``code_sim_learning_rollout_sensitivity_factor`` > 0 they also
+    drive the pre-fit sensitivity screen: a param whose span does not
+    clear the noise floor is "insensitive" and its fitted value is
+    withheld by :func:`select_trustworthy_params`.
 
     Serial only: a shared ``base_env`` instance is mutated per
     evaluation (and a factory-built fresh env lives inside one
