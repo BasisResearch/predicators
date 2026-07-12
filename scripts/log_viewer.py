@@ -1060,17 +1060,19 @@ def run_row(r: Dict[str, Any]) -> str:
     tr = summary.get("test_results", [])
     tr_str = " → ".join("%d/%d" % t for t in tr) or "-"
     cost = summary.get("total_cost", 0.0)
-    mstr = datetime.datetime.fromtimestamp(
-        r["mtime"]).strftime("%Y-%m-%d %H:%M")
+    fmt = "%Y-%m-%d %H:%M"
+    sstr = datetime.datetime.fromtimestamp(_run_start_ts(
+        r["name"], r["mtime"])).strftime(fmt)
+    mstr = datetime.datetime.fromtimestamp(r["mtime"]).strftime(fmt)
     key = ("%s %s %s" % (r["exp"], r["seed"], r["name"])).lower()
     return ("<tr class='runrow' data-key='%s'>"
             "<td><input type='checkbox' class='cmp' value='%s'></td>"
             "<td><a href='/run?d=%s'>%s</a></td><td>%s</td>"
             "<td>%s</td><td>%s</td><td>%s</td>"
-            "<td class='muted'>%s</td></tr>" %
+            "<td class='muted'>%s</td><td class='muted'>%s</td></tr>" %
             (esc(key), esc(r["rel"]), q(
                 r["rel"]), esc(r["name"]), esc(r["seed"]), episode_grid(eps),
-             esc(tr_str), "$%.2f" % cost if cost else "-", mstr))
+             esc(tr_str), "$%.2f" % cost if cost else "-", sstr, mstr))
 
 
 def index_page() -> str:
@@ -1088,7 +1090,7 @@ def index_page() -> str:
                     esc(LOGS_ROOT))
     table_head = ("<tr><th></th><th>run</th><th>seed</th><th>episodes"
                   "</th><th>test results (info.log)</th><th>cost</th>"
-                  "<th>modified</th></tr>")
+                  "<th>started</th><th>modified</th></tr>")
     for fam in sorted(families):
         exps = families[fam]
         n_runs = sum(len(v) for v in exps.values())
