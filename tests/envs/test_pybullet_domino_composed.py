@@ -162,6 +162,7 @@ def test_plain_task_attaches_domino_evaluator() -> None:
     from predicators.envs.pybullet_domino.env import \
         DominoEvaluator  # pylint: disable=import-outside-toplevel
     assert isinstance(task.evaluator, DominoEvaluator)
+    assert task.goal_nl is not None
     assert "as few blue dominoes as possible" in task.goal_nl
 
     # A ball/fan-style extra component can topple dominoes without a
