@@ -89,14 +89,16 @@ class DominoEvaluator(TaskEvaluator):
         return {"k_used": float(count_movable_blocks_used(states[-1]))}
 
     def objective_description(self) -> str:
-        return (
-            "Success (+1 reward) = the target domino topples via a "
-            "legitimate cascade seeded by pushing the green start block "
-            "(the robot may push only the green block; knocking any other "
-            "domino directly, or toppling the target by any other means, "
-            "voids the bonus - the episode still terminates). Each movable "
-            f"(blue) domino that topples costs {CFG.domino_block_cost} "
-            "reward, so use as few blues as possible.")
+        return ("Success (+1 reward) = the target domino topples via a "
+                "legitimate cascade seeded by pushing the green start block "
+                "(the robot may push only the green block; knocking any other "
+                "domino directly, or toppling the target by any other means, "
+                "voids the bonus - the episode still terminates). The green "
+                "block must be pushed where it stands: picking it up or "
+                "sliding it away from its staged pose voids the bonus, so the "
+                "cascade must bridge the gap with blue dominoes. Each movable "
+                f"(blue) domino that topples costs {CFG.domino_block_cost} "
+                "reward, so use as few blues as possible.")
 
 
 class PyBulletDominoComposedEnv(PyBulletEnv):
