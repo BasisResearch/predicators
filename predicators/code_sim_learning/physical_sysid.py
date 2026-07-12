@@ -238,7 +238,7 @@ def compute_residual_scaling(
                     val = float(state.get(obj, feat))
                     lo[key] = min(lo.get(key, val), val)
                     hi[key] = max(hi.get(key, val), val)
-    scales = {key: max(hi[key] - lo[key], floor) for key in lo}
+    scales = {key: max(hi[key] - lo_val, floor) for key, lo_val in lo.items()}
     for key in angular:
         scales[key] = float(np.pi)
     return ResidualScaling(angular=frozenset(angular), scales=scales)

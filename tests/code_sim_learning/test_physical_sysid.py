@@ -642,7 +642,7 @@ def test_split_at_rest_points_static_trajectory_yields_nothing():
                                                    motion_tol=1e-3,
                                                    min_rest_steps=10,
                                                    margin=5)
-    assert segments == []
+    assert not segments
 
 
 # ── Verdict hardening ──────────────────────────────────────────────
