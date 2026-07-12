@@ -305,3 +305,25 @@ def test_env_failure():
     exec_monitor = create_execution_monitor("trivial")
     cogman = CogMan(approach, perceiver, exec_monitor)
     _run_testing(env, cogman)
+
+
+def test_skip_initial_test():
+    """--skip_initial_test skips only the pre-loop test; per-cycle tests
+    still run and save results."""
+    utils.reset_config()
+    parent_dir = os.path.dirname(__file__)
+    results_dir = os.path.join(parent_dir, "_fake_results_skip_initial")
+    sys.argv = [
+        "dummy", "--env", "cover", "--approach", "interactive_learning",
+        "--seed", "123", "--num_online_learning_cycles", "1",
+        "--excluded_predicates", "Covers",
+        "--interactive_num_ensemble_members", "1", "--num_train_tasks", "3",
+        "--num_test_tasks", "1", "--predicate_mlp_classifier_max_itr",
+        "lambda n: n * 50", "--skip_initial_test", "True", "--results_dir",
+        results_dir
+    ]
+    main()
+    saved = os.listdir(results_dir)
+    assert not any(f.endswith("__None.pkl") for f in saved)
+    assert any(f.endswith("__0.pkl") for f in saved)
+    shutil.rmtree(results_dir)

@@ -22,6 +22,12 @@ class GlobalSettings:
     online_learning_max_transitions = float("inf")
     online_learning_early_stopping = False
     skip_test_until_last_ite_or_early_stopping = False
+    # When True, skip only the pre-loop (cycle-0) test that evaluates the
+    # offline-learned model before any online learning. Per-cycle testing is
+    # unaffected, so the learning-progression curve is still measured; only
+    # the (usually predictable) evaluation of the uncalibrated initial model
+    # is saved. Subsumed by skip_test_until_last_ite_or_early_stopping.
+    skip_initial_test = False
     # just for plotting
     online_learning_early_stopping_by_test_solve_rate = False
     # When True, every interaction request in the cycle (not just the first

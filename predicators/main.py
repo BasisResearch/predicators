@@ -206,7 +206,8 @@ def _run_pipeline(env: BaseEnv,
         # Run initial evaluation if needed
         initial_test_summary: Optional[Tuple[str, Metrics]] = None
         if CFG.skip_until_cycle < 0 and \
-           not CFG.skip_test_until_last_ite_or_early_stopping:
+           not CFG.skip_test_until_last_ite_or_early_stopping and \
+           not CFG.skip_initial_test:
             results = _run_testing(env, cogman, online_learning_cycle=None)
             results.update({
                 "num_offline_transitions": num_offline_trans,
