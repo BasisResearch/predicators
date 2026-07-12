@@ -114,9 +114,27 @@ def read_text(path: str, max_bytes: Optional[int] = None) -> Tuple[str, bool]:
 
 # ---------------------------------------------------------------- scanning
 
+_RUN_NAME_TS_RE = re.compile(r"^run_(\d{8})_(\d{6})$")
+
+
+def _run_start_ts(name: str, mtime: float) -> float:
+    """Start time from the run dir name; dir mtime as a fallback.
+
+    The dir mtime moves whenever a file inside is added or touched, so
+    only the name timestamp gives a stable newest-first ordering.
+    """
+    m = _RUN_NAME_TS_RE.match(name)
+    if not m:
+        return mtime
+    try:
+        return datetime.datetime.strptime(
+            m.group(1) + m.group(2), "%Y%m%d%H%M%S").timestamp()
+    except ValueError:
+        return mtime
+
 
 def find_runs() -> List[Dict[str, Any]]:
-    """Return run dicts sorted by experiment then mtime (newest first)."""
+    """Return run dicts sorted by experiment, then newest first."""
     runs: List[Dict[str, Any]] = []
     for dirpath, dirnames, _ in os.walk(LOGS_ROOT):
         rel = os.path.relpath(dirpath, LOGS_ROOT)
@@ -144,7 +162,8 @@ def find_runs() -> List[Dict[str, Any]]:
                     os.path.getmtime(os.path.join(dirpath, d)),
                 })
                 dirnames.remove(d)  # do not descend into run dirs
-    runs.sort(key=lambda r: (r["exp"], r["seed"], -r["mtime"]))
+    runs.sort(key=lambda r:
+              (r["exp"], r["seed"], -_run_start_ts(r["name"], r["mtime"])))
     return runs
 
 
