@@ -14,7 +14,7 @@ Format contracts this viewer relies on:
   * episode filenames {query:03d}_{kind}[_task{K}]_{YYYYMMDD_HHMMSS}.md from
     session_log_filename() in predicators/agent_sdk/tools.py
   * markdown layout (## sections, ### Turn N, trailing "**Result:** ..." line)
-    from format_conversation_markdown() in predicators/agent_sdk/log_formatter.py
+    from format_conversation_markdown() in agent_sdk/log_formatter.py
   * "Goal achieved: True|False" lines inside tool-result blocks (tools.py)
   * "Test results: defaultdict(..., {...})" lines in info.log
 
@@ -66,11 +66,13 @@ _parse_cache: Dict[str, Tuple[Tuple[float, int], Any]] = {}
 
 
 def esc(text: str) -> str:
+    """HTML-escape &, <, >, and double quotes in text."""
     return (text.replace("&", "&amp;").replace("<", "&lt;").replace(
         ">", "&gt;").replace('"', "&quot;"))
 
 
 def q(text: str) -> str:
+    """URL-encode text for a query string, escaping every character."""
     return urllib.parse.quote(text, safe="")
 
 
@@ -100,6 +102,10 @@ def _cached(path: str, fn: Callable[[str], Any]) -> Any:
 
 
 def read_text(path: str, max_bytes: Optional[int] = None) -> Tuple[str, bool]:
+    """Read a UTF-8 file, keeping only its last max_bytes if given.
+
+    Returns (text, truncated).
+    """
     try:
         size = os.path.getsize(path)
         with open(path, "rb") as f:
@@ -109,7 +115,7 @@ def read_text(path: str, max_bytes: Optional[int] = None) -> Tuple[str, bool]:
                 return data.decode("utf-8", "replace"), True
             return f.read().decode("utf-8", "replace"), False
     except OSError as e:
-        return "(error reading file: %s)" % e, False
+        return f"(error reading file: {e})", False
 
 
 # ---------------------------------------------------------------- scanning
@@ -243,6 +249,7 @@ def _parse_info_log(path: str) -> Dict[str, Any]:
 
 
 def run_summary(run_rel: str) -> Optional[Dict[str, Any]]:
+    """Episodes, env-side test outcomes, rounds, and total cost for a run."""
     run_abs = safe_join(run_rel)
     if not run_abs or not os.path.isdir(run_abs):
         return None
@@ -286,7 +293,7 @@ def run_stamp(run_rel: str) -> str:
             count += 1
             total += st.st_size
             max_mtime = max(max_mtime, st.st_mtime)
-    return "%d-%d-%d" % (count, int(max_mtime), total)
+    return f"{int(count)}-{int(max_mtime)}-{int(total)}"
 
 
 def index_stamp() -> str:
@@ -302,8 +309,8 @@ def index_stamp() -> str:
             info_size = os.path.getsize(info) if os.path.exists(info) else 0
         except OSError:
             continue
-        parts.append("%s:%d:%d" % (r["rel"], int(st.st_mtime), info_size))
-    return "%d:%d" % (len(parts), hash(tuple(parts)) & 0xffffffff)
+        parts.append(f"{r['rel']}:{int(st.st_mtime)}:{int(info_size)}")
+    return f"{len(parts)}:{int(hash(tuple(parts)) & 4294967295)}"
 
 
 # ------------------------------------------------------------ asset lookup
@@ -341,18 +348,19 @@ def resolve_asset(ref: str, run_rel: str) -> Optional[str]:
 
 
 def thumbs_for_paths(text: str, run_rel: str, cap: int = 24) -> str:
+    """Row of thumbnail links for up to cap image paths found in text."""
     seen, out = set(), []
     for m in PATH_IN_TEXT_RE.finditer(text):
         url = resolve_asset(m.group(0), run_rel)
         if url and url not in seen:
             seen.add(url)
-            out.append('<a class="thumb" href="%s" target="_blank">'
-                       '<img loading="lazy" src="%s"></a>' % (url, url))
+            out.append(f'<a class="thumb" href="{url}" target="_blank">'
+                       f'<img loading="lazy" src="{url}"></a>')
         if len(out) >= cap:
             break
     if not out:
         return ""
-    return '<div class="thumbs">%s</div>' % "".join(out)
+    return f"<div class=\"thumbs\">{''.join(out)}</div>"
 
 
 # --------------------------------------------------------------- markdown
@@ -369,29 +377,29 @@ def render_inline(line: str, run_rel: str) -> str:
 
     def stash(html_frag: str) -> str:
         tokens.append(html_frag)
-        return "\x00%d\x00" % (len(tokens) - 1)
+        return f"\x00{int(len(tokens) - 1)}\x00"
 
     def sub_code(m: re.Match[str]) -> str:
         content = m.group(1)
-        frag = "<code>%s</code>" % esc(content)
+        frag = f"<code>{esc(content)}</code>"
         url = resolve_asset(content, run_rel)
         if url and os.path.splitext(content)[1].lower() in IMG_EXTS:
-            frag += (' <a class="thumb inline" href="%s" target="_blank">'
-                     '<img loading="lazy" src="%s"></a>' % (url, url))
+            frag += (f' <a class="thumb inline" href="{url}" target="_blank">'
+                     f'<img loading="lazy" src="{url}"></a>')
         return stash(frag)
 
     def sub_img(m: re.Match[str]) -> str:
         alt, src = m.group(1), m.group(2)
         url = resolve_asset(src, run_rel) or esc(src)
-        return stash('<img class="mdimg" loading="lazy" alt="%s" src="%s">' %
-                     (esc(alt), url))
+        return stash(f'<img class="mdimg" loading="lazy" '
+                     f'alt="{esc(alt)}" src="{url}">')
 
     def sub_link(m: re.Match[str]) -> str:
         label, href = m.group(1), m.group(2)
         url = resolve_asset(href, run_rel) if not href.startswith(
             ("http://", "https://")) else esc(href)
-        return stash('<a href="%s" target="_blank">%s</a>' %
-                     (url or esc(href), esc(label)))
+        return stash(f'<a href="{url or esc(href)}" '
+                     f'target="_blank">{esc(label)}</a>')
 
     line = INLINE_CODE_RE.sub(sub_code, line)
     line = IMG_MD_RE.sub(sub_img, line)
@@ -399,7 +407,7 @@ def render_inline(line: str, run_rel: str) -> str:
     line = esc(line)
     line = BOLD_RE.sub(r"<strong>\1</strong>", line)
     for i, frag in enumerate(tokens):
-        line = line.replace("\x00%d\x00" % i, frag)
+        line = line.replace(f"\x00{int(i)}\x00", frag)
     return line
 
 
@@ -412,14 +420,14 @@ def render_md_chunk(lines: List[str], run_rel: str) -> str:
 
     def flush_para() -> None:
         if para:
-            out.append("<p>%s</p>" %
-                       "<br>".join(render_inline(l, run_rel) for l in para))
+            joined = "<br>".join(render_inline(l, run_rel) for l in para)
+            out.append(f"<p>{joined}</p>")
             del para[:]
 
     def close_list() -> None:
         nonlocal list_tag
         if list_tag:
-            out.append("</%s>" % list_tag)
+            out.append(f"</{list_tag}>")
             list_tag = None
 
     while i < n:
@@ -436,8 +444,8 @@ def render_md_chunk(lines: List[str], run_rel: str) -> str:
                 i += 1
             i += 1  # skip closing fence
             code = "\n".join(block)
-            out.append('<pre class="code" data-lang="%s"><code>%s</code>'
-                       "</pre>" % (esc(lang), esc(code)))
+            out.append(f'<pre class="code" data-lang="{esc(lang)}"><code>'
+                       f"{esc(code)}</code></pre>")
             out.append(thumbs_for_paths(code, run_rel))
             continue
         if not stripped:
@@ -450,8 +458,8 @@ def render_md_chunk(lines: List[str], run_rel: str) -> str:
             flush_para()
             close_list()
             level = min(len(m.group(1)) + 1, 6)  # demote: page owns h1
-            out.append("<h%d>%s</h%d>" %
-                       (level, render_inline(m.group(2), run_rel), level))
+            heading = render_inline(m.group(2), run_rel)
+            out.append(f"<h{level}>{heading}</h{level}>")
             i += 1
             continue
         if re.match(r"^(-{3,}|\*{3,})$", stripped):
@@ -467,7 +475,7 @@ def render_md_chunk(lines: List[str], run_rel: str) -> str:
                 close_list()
                 out.append("<ul>")
                 list_tag = "ul"
-            out.append("<li>%s</li>" % render_inline(m.group(1), run_rel))
+            out.append(f"<li>{render_inline(m.group(1), run_rel)}</li>")
             i += 1
             continue
         m = re.match(r"^\d+\.\s+(.*)$", stripped)
@@ -477,14 +485,14 @@ def render_md_chunk(lines: List[str], run_rel: str) -> str:
                 close_list()
                 out.append("<ol>")
                 list_tag = "ol"
-            out.append("<li>%s</li>" % render_inline(m.group(1), run_rel))
+            out.append(f"<li>{render_inline(m.group(1), run_rel)}</li>")
             i += 1
             continue
         if stripped.startswith(">"):
             flush_para()
             close_list()
-            out.append("<blockquote>%s</blockquote>" %
-                       render_inline(stripped.lstrip("> "), run_rel))
+            quoted = render_inline(stripped.lstrip("> "), run_rel)
+            out.append(f"<blockquote>{quoted}</blockquote>")
             i += 1
             continue
         # Indented pseudo-code blocks (state dumps) keep their spacing.
@@ -500,7 +508,7 @@ def render_md_chunk(lines: List[str], run_rel: str) -> str:
                 block.append(lines[i])
                 i += 1
             code = "\n".join(block)
-            out.append('<pre class="code"><code>%s</code></pre>' % esc(code))
+            out.append(f'<pre class="code"><code>{esc(code)}</code></pre>')
             out.append(thumbs_for_paths(code, run_rel))
             continue
         para.append(line)
@@ -519,17 +527,17 @@ def split_fence_aware(
     """
     head: List[str] = []
     sections: List[Tuple[re.Match[str], List[str]]] = []
-    current: Optional[Tuple[re.Match[str], List[str]]] = None
+    current_body: Optional[List[str]] = None
     in_fence = False
     for line in lines:
         if line.strip().startswith("```"):
             in_fence = not in_fence
         m = None if in_fence else pattern.match(line)
         if m:
-            current = (m, [])
-            sections.append(current)
-        elif current is not None:
-            current[1].append(line)
+            current_body = []
+            sections.append((m, current_body))
+        elif current_body is not None:
+            current_body.append(line)
         else:
             head.append(line)
     return head, sections
@@ -539,7 +547,8 @@ H2_RE = re.compile(r"^##\s+(.*)$")
 TURN_RE = re.compile(r"^###\s+(Turn\s+\d+.*)$")
 
 
-def turn_hint(body_lines: List[str], run_rel: str) -> str:
+def turn_hint(body_lines: List[str]) -> str:
+    """First non-decorative line of a turn body, as a short escaped hint."""
     for line in body_lines:
         s = line.strip()
         if s.startswith("```"):
@@ -564,11 +573,11 @@ def render_md_document(text: str, run_rel: str) -> str:
         inner = [render_md_chunk(sub_head, run_rel)]
         for j, (tm, tbody) in enumerate(turns):
             is_last = j == len(turns) - 1
-            inner.append(
-                '<details class="turn"%s><summary>%s '
-                '<span class="hint">%s</span></summary>%s</details>' %
-                (" open" if is_last else "", esc(tm.group(1)),
-                 turn_hint(tbody, run_rel), render_md_chunk(tbody, run_rel)))
+            open_attr = " open" if is_last else ""
+            inner.append(f'<details class="turn"{open_attr}><summary>'
+                         f'{esc(tm.group(1))} <span class="hint">'
+                         f'{turn_hint(tbody)}</span></summary>'
+                         f'{render_md_chunk(tbody, run_rel)}</details>')
         default_open = (turns or title.lower().startswith(
             ("goal", "conversation", "prompt")))
         out.append(
@@ -600,6 +609,7 @@ ANSI_COLORS = {
 
 
 def ansi_to_html(text: str) -> str:
+    """Convert ANSI color/bold escape codes in text to HTML spans."""
     out, pos, open_span = [], 0, False
     for m in ANSI_RE.finditer(text):
         out.append(esc(text[pos:m.start()]))
@@ -611,11 +621,11 @@ def ansi_to_html(text: str) -> str:
         styles = []
         for c in codes:
             if c in ANSI_COLORS:
-                styles.append("color:%s" % ANSI_COLORS[c])
+                styles.append(f"color:{ANSI_COLORS[c]}")
             elif c == "1":
                 styles.append("font-weight:bold")
         if styles:
-            out.append('<span style="%s">' % ";".join(styles))
+            out.append(f"<span style=\"{';'.join(styles)}\">")
             open_span = True
     out.append(esc(text[pos:]))
     if open_span:
@@ -982,17 +992,20 @@ function filterLog() {
 
 
 def page(title: str, topbar_extra: str, body: str) -> str:
-    return ("<!doctype html><html><head><meta charset='utf-8'>"
-            "<title>%s</title><style>%s</style><script>%s</script></head>"
-            "<body><div class='topbar'><h1><a href='/'>log viewer</a></h1>"
-            "%s<button id='arbtn' onclick='toggleAuto()'></button>"
-            "</div>%s</body></html>" %
-            (esc(title), CSS, JS, topbar_extra, body))
+    """Wrap body in the full HTML page shell (topbar, CSS, and JS)."""
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        f"<title>{esc(title)}</title><style>{CSS}</style>"
+        f"<script>{JS}</script></head>"
+        "<body><div class='topbar'><h1><a href='/'>log viewer</a></h1>"
+        f"{topbar_extra}<button id='arbtn' onclick='toggleAuto()'></button>"
+        f"</div>{body}</body></html>")
 
 
 def chip(label: Any, cls: str = "", title: str = "") -> str:
-    return '<span class="chip %s" title="%s">%s</span>' % (cls, esc(title),
-                                                           esc(str(label)))
+    """Small labeled span with an optional CSS class and tooltip."""
+    return (f'<span class="chip {cls}" title="{esc(title)}">'
+            f'{esc(str(label))}</span>')
 
 
 def test_mark(ep: Dict[str, Any]) -> Tuple[str, str, str]:
@@ -1023,10 +1036,10 @@ def episode_grid(episodes: List[Dict[str, Any]]) -> str:
     misc: Dict[int, List[str]] = {}
     for ep in episodes:
         rnd = ep.get("round", 0)
-        label = "%03d" % ep["num"]
+        label = f"{int(ep['num']):03}"
         if ep["kind"] == "test" and ep["task"] is not None:
             mark, cls, title = test_mark(ep)
-            label += " t%s" % ep["task"]
+            label += f" t{ep['task']}"
             if mark:
                 label += " " + mark
             by_task = tests.setdefault(rnd, {})
@@ -1042,40 +1055,44 @@ def episode_grid(episodes: List[Dict[str, Any]]) -> str:
     for rnd in range(n_rounds):
         cells = []
         if n_rounds > 1:
-            cells.append("<td class='muted'>r%d</td>" % (rnd + 1))
+            cells.append(f"<td class='muted'>r{int(rnd + 1)}</td>")
         for t in tasks:
-            cells.append("<td>%s</td>" %
-                         "".join(tests.get(rnd, {}).get(t, [])))
-        cells.append("<td>%s</td>" % "".join(misc.get(rnd, [])))
-        rows.append("<tr>%s</tr>" % "".join(cells))
-    return "<table class='epgrid'>%s</table>" % "".join(rows)
+            cells.append(f"<td>{''.join(tests.get(rnd, {}).get(t, []))}</td>")
+        cells.append(f"<td>{''.join(misc.get(rnd, []))}</td>")
+        rows.append(f"<tr>{''.join(cells)}</tr>")
+    return f"<table class='epgrid'>{''.join(rows)}</table>"
 
 
 # ----------------------------------------------------------------- pages
 
 
 def run_row(r: Dict[str, Any]) -> str:
+    """Table row summarizing one run for the index page."""
     summary = run_summary(r["rel"]) or {}
     eps = summary.get("episodes", [])
     tr = summary.get("test_results", [])
-    tr_str = " → ".join("%d/%d" % t for t in tr) or "-"
+    tr_str = " → ".join(f"{t[0]}/{t[1]}" for t in tr) or "-"
     cost = summary.get("total_cost", 0.0)
     fmt = "%Y-%m-%d %H:%M"
     sstr = datetime.datetime.fromtimestamp(_run_start_ts(
         r["name"], r["mtime"])).strftime(fmt)
     mstr = datetime.datetime.fromtimestamp(r["mtime"]).strftime(fmt)
-    key = ("%s %s %s" % (r["exp"], r["seed"], r["name"])).lower()
-    return ("<tr class='runrow' data-key='%s'>"
-            "<td><input type='checkbox' class='cmp' value='%s'></td>"
-            "<td><a href='/run?d=%s'>%s</a></td><td>%s</td>"
-            "<td>%s</td><td>%s</td><td>%s</td>"
-            "<td class='muted'>%s</td><td class='muted'>%s</td></tr>" %
-            (esc(key), esc(r["rel"]), q(
-                r["rel"]), esc(r["name"]), esc(r["seed"]), episode_grid(eps),
-             esc(tr_str), "$%.2f" % cost if cost else "-", sstr, mstr))
+    key = f"{r['exp']} {r['seed']} {r['name']}".lower()
+    cost_str = f"${cost:.2f}" if cost else "-"
+    return ("<tr class='runrow' "
+            f"data-key='{esc(key)}'>"
+            f"<td><input type='checkbox' class='cmp' value='{esc(r['rel'])}'>"
+            "</td>"
+            f"<td><a href='/run?d={q(r['rel'])}'>{esc(r['name'])}</a></td>"
+            f"<td>{esc(r['seed'])}</td>"
+            f"<td>{episode_grid(eps)}</td><td>{esc(tr_str)}</td>"
+            f"<td>{cost_str}</td>"
+            f"<td class='muted'>{sstr}</td>"
+            f"<td class='muted'>{mstr}</td></tr>")
 
 
 def index_page() -> str:
+    """Runs overview page grouped by family and experiment."""
     runs = find_runs()
     families: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
     for r in runs:
@@ -1086,26 +1103,26 @@ def index_page() -> str:
         "overflow-y:auto'>"
     ]
     if not runs:
-        body.append("<p>No run_* directories found under %s.</p>" %
-                    esc(LOGS_ROOT))
+        body.append(
+            f"<p>No run_* directories found under {esc(LOGS_ROOT)}.</p>")
     table_head = ("<tr><th></th><th>run</th><th>seed</th><th>episodes"
                   "</th><th>test results (info.log)</th><th>cost</th>"
                   "<th>started</th><th>modified</th></tr>")
     for fam in sorted(families):
         exps = families[fam]
         n_runs = sum(len(v) for v in exps.values())
-        body.append("<details class='grp family' data-key='fam:%s' open>"
-                    "<summary>%s <span class='muted'>(%d experiments, %d runs)"
-                    "</span></summary>" %
-                    (esc(fam), esc(fam), len(exps), n_runs))
+        body.append(f"<details class='grp family' data-key='fam:{esc(fam)}' "
+                    f"open><summary>{esc(fam)} <span class='muted'>"
+                    f"({len(exps)} experiments, {n_runs} runs)"
+                    "</span></summary>")
         for expname in sorted(exps):
             rows = "".join(run_row(r) for r in exps[expname])
-            body.append(
-                "<details class='grp exp' data-key='exp:%s/%s'>"
-                "<summary>%s <span class='muted'>(%d runs)</span>"
-                "</summary><table class='grid'>%s%s</table></details>" %
-                (esc(fam), esc(expname), esc(expname), len(
-                    exps[expname]), table_head, rows))
+            body.append(f"<details class='grp exp' data-key='exp:{esc(fam)}/"
+                        f"{esc(expname)}'>"
+                        f"<summary>{esc(expname)} <span class='muted'>"
+                        f"({len(exps[expname])} runs)</span>"
+                        f"</summary><table class='grid'>{table_head}{rows}"
+                        "</table></details>")
         body.append("</details>")
     body.append("</div>")
     topbar = ("<input id='runfilter' placeholder='filter runs…' "
@@ -1113,7 +1130,7 @@ def index_page() -> str:
               "<button onclick='setAllGroups(true)'>expand all</button>"
               "<button onclick='setAllGroups(false)'>collapse all</button>"
               "<button onclick='compareSelected()'>Compare selected"
-              "</button><span class='crumb'>%s</span>" % esc(LOGS_ROOT))
+              f"</button><span class='crumb'>{esc(LOGS_ROOT)}</span>")
     return page("runs - log viewer", topbar, "".join(body))
 
 
@@ -1137,27 +1154,29 @@ def file_tree_html(run_abs: str, run_rel: str, rel: str = "") -> str:
         n_imgs = sum(1 for c in child_entries
                      if os.path.splitext(c)[1].lower() in IMG_EXTS)
         if n_imgs > 20 and n_imgs > len(child_entries) * 0.8:
-            out.append("<div class='nav'><a href='#gallery=%s'>%s/ "
-                       "<span class='muted'>(%d images, gallery)</span>"
-                       "</a></div>" % (q(child_rel), esc(d), n_imgs))
+            out.append(f"<div class='nav'><a href='#gallery={q(child_rel)}'>"
+                       f"{esc(d)}/ <span class='muted'>"
+                       f"({n_imgs} images, gallery)</span>"
+                       "</a></div>")
             continue
-        out.append("<details><summary>%s/ <span class='muted'>(%d)</span>"
-                   "</summary>%s</details>" %
-                   (esc(d), len(child_entries),
-                    file_tree_html(run_abs, run_rel, child_rel)))
+        out.append(f"<details><summary>{esc(d)}/ <span class='muted'>"
+                   f"({len(child_entries)})</span>"
+                   "</summary>"
+                   f"{file_tree_html(run_abs, run_rel, child_rel)}</details>")
     shown = files[:200]
     out.append("<div class='nav'>")
     for f in shown:
         child_rel = (rel + "/" + f) if rel else f
-        out.append("<a href='#f=%s'>%s</a>" % (q(child_rel), esc(f)))
+        out.append(f"<a href='#f={q(child_rel)}'>{esc(f)}</a>")
     if len(files) > 200:
-        out.append("<span class='muted'>… %d more files</span>" %
-                   (len(files) - 200))
+        out.append(f"<span class='muted'>… {int(len(files) - 200)} "
+                   "more files</span>")
     out.append("</div>")
     return "".join(out)
 
 
 def run_page(run_rel: str) -> Optional[str]:
+    """Single-run page: episode sidebar, file tree, and content pane."""
     run_abs = safe_join(run_rel)
     if not run_abs or not os.path.isdir(run_abs):
         return None
@@ -1171,49 +1190,49 @@ def run_page(run_rel: str) -> Optional[str]:
             mark, cls, title = "", "", ""
             if ep["kind"] == "test":
                 mark, cls, title = test_mark(ep)
-            cost = ("  $%.2f" % ep["solve_cost"] if "solve_cost" in ep else "")
-            label = "%03d %s%s" % (
-                ep["num"], ep["kind"] +
-                (" task%d" % ep["task"] if ep["task"] is not None else ""),
-                " " + mark if mark else "")
-            side.append(
-                "<a href='#f=%s'><span class='chip %s' title='%s'>"
-                "%s</span><span class='muted'>%s</span></a>" %
-                (q(ep["file"]), cls, esc(title), esc(label), esc(cost)))
+            cost = (f"  ${ep['solve_cost']:.2f}" if "solve_cost" in ep else "")
+            task_str = (f" task{ep['task']}" if ep["task"] is not None else "")
+            mark_str = " " + mark if mark else ""
+            label = f"{ep['num']:03d} {ep['kind'] + task_str}{mark_str}"
+            side.append(f"<a href='#f={q(ep['file'])}'>"
+                        f"<span class='chip {cls}' title='{esc(title)}'>"
+                        f"{esc(label)}</span>"
+                        f"<span class='muted'>{esc(cost)}</span></a>")
         side.append("</div>")
     other_md = sorted(f for f in os.listdir(run_abs)
                       if f.endswith(".md") and not EPISODE_RE.match(f))
     logs = sorted(f for f in os.listdir(run_abs) if f.endswith(".log"))
     if other_md:
         side.append("<h3>Prompts</h3><div class='nav'>")
-        side += ["<a href='#f=%s'>%s</a>" % (q(f), esc(f)) for f in other_md]
+        side += [f"<a href='#f={q(f)}'>{esc(f)}</a>" for f in other_md]
         side.append("</div>")
     if logs:
         side.append("<h3>Logs</h3><div class='nav'>")
-        side += ["<a href='#f=%s'>%s</a>" % (q(f), esc(f)) for f in logs]
+        side += [f"<a href='#f={q(f)}'>{esc(f)}</a>" for f in logs]
         side.append("</div>")
     side.append("<h3>All files</h3>")
     side.append(file_tree_html(run_abs, run_rel))
     side.append("</div>")
     default = q(eps[0]["file"]) if eps else ""
     tr = summary["test_results"]
-    tr_str = " → ".join("%d/%d" % t for t in tr)
-    banner = ("<span>%s</span><span>%s</span>" %
-              (("test results: " + esc(tr_str)) if tr_str else "",
-               ("total cost: $%.2f" %
-                summary["total_cost"]) if summary["total_cost"] else ""))
-    body = ("<div class='layout'>%s"
+    tr_str = " → ".join(f"{t[0]}/{t[1]}" for t in tr)
+    results_span = ("test results: " + esc(tr_str)) if tr_str else ""
+    cost_span = (f"total cost: ${summary['total_cost']:.2f}"
+                 if summary["total_cost"] else "")
+    banner = f"<span>{results_span}</span><span>{cost_span}</span>"
+    side_html = "".join(side)
+    body = (f"<div class='layout'>{side_html}"
             "<div style='flex:1;display:flex;flex-direction:column;"
             "overflow:hidden'>"
-            "<div class='banner' style='margin:8px 16px 0'>%s"
+            f"<div class='banner' style='margin:8px 16px 0'>{banner}"
             "<span style='margin-left:auto'>"
             "<button onclick='setAllDetails(true)'>expand all</button> "
             "<button onclick='setAllDetails(false)'>collapse all</button>"
             "</span></div>"
-            "<div class='content' id='content' data-run='%s' "
-            "data-default='%s'><p class='muted'>Select a file.</p></div>"
-            "</div></div>" % ("".join(side), banner, esc(run_rel), default))
-    topbar = "<span class='crumb'>%s</span>" % esc(run_rel)
+            f"<div class='content' id='content' data-run='{esc(run_rel)}' "
+            f"data-default='{default}'><p class='muted'>Select a file.</p>"
+            "</div></div></div>")
+    topbar = f"<span class='crumb'>{esc(run_rel)}</span>"
     return page(run_rel + " - log viewer", topbar, body)
 
 
@@ -1221,14 +1240,15 @@ def run_page(run_rel: str) -> Optional[str]:
 
 
 def episode_banner(ep: Dict[str, Any], n_rounds: int = 0) -> str:
+    """Header banner summarizing an episode's verdict, cost, and turns."""
     parts = []
     if ep["kind"] == "test":
         if "env_solved" in ep:
             if ep["env_solved"]:
                 parts.append("<span class='ok'>SOLVED ✓ (env eval)</span>")
             else:
-                parts.append("<span class='bad'>FAILED ✗ (env eval: %s)"
-                             "</span>" % esc(ep.get("env_msg", "")))
+                parts.append("<span class='bad'>FAILED ✗ (env eval: "
+                             f"{esc(ep.get('env_msg', ''))})</span>")
         else:
             parts.append("<span class='muted'>no env verdict in info.log"
                          "</span>")
@@ -1239,17 +1259,17 @@ def episode_banner(ep: Dict[str, Any], n_rounds: int = 0) -> str:
         parts.append("<span class='muted'>agent-reported: goal NOT achieved"
                      "</span>")
     if ep.get("task") is not None:
-        parts.append("task %d" % ep["task"])
+        parts.append(f"task {int(ep['task'])}")
     if n_rounds > 1 and "round" in ep:
-        parts.append("round %d" % ep["round"])
-    parts.append("kind: %s" % ep["kind"])
+        parts.append(f"round {int(ep['round'])}")
+    parts.append(f"kind: {ep['kind']}")
     if "turns" in ep:
-        parts.append("%d turns" % ep["turns"])
+        parts.append(f"{int(ep['turns'])} turns")
     if "solve_cost" in ep:
-        parts.append("$%.2f this solve / $%.2f total" %
-                     (ep["solve_cost"], ep["total_cost"]))
-    banner = "<div class='banner'>%s</div>" % "".join("<span>%s</span>" % p
-                                                      for p in parts)
+        parts.append(f"${ep['solve_cost']:.2f} this solve / "
+                     f"${ep['total_cost']:.2f} total")
+    spans = "".join(f"<span>{p}</span>" for p in parts)
+    banner = f"<div class='banner'>{spans}</div>"
     if ep.get("env_solved") is False and ep.get("goal") is True:
         banner += ("<div class='banner warn'>⚠ The transcript claims the "
                    "goal was achieved, but the env-side evaluation says "
@@ -1261,7 +1281,7 @@ def episode_banner(ep: Dict[str, Any], n_rounds: int = 0) -> str:
     return banner
 
 
-def versions_nav(run_abs: str, run_rel: str, file_rel: str) -> str:
+def versions_nav(run_abs: str, file_rel: str) -> str:
     """Prev/diff links when the file sits in a *_versions directory."""
     d = os.path.dirname(file_rel)
     if not d.endswith("_versions"):
@@ -1277,39 +1297,41 @@ def versions_nav(run_abs: str, run_rel: str, file_rel: str) -> str:
     idx = siblings.index(name)
     links = []
     if idx > 0:
-        links.append("<a href='#diff=%s'>diff vs %s</a>" %
-                     (q(file_rel), esc(siblings[idx - 1])))
-        links.append("<a href='#f=%s'>← %s</a>" %
-                     (q(d + "/" + siblings[idx - 1]), esc(siblings[idx - 1])))
+        links.append(f"<a href='#diff={q(file_rel)}'>"
+                     f"diff vs {esc(siblings[idx - 1])}</a>")
+        links.append(f"<a href='#f={q(d + '/' + siblings[idx - 1])}'>"
+                     f"← {esc(siblings[idx - 1])}</a>")
     if idx < len(siblings) - 1:
-        links.append("<a href='#f=%s'>%s →</a>" %
-                     (q(d + "/" + siblings[idx + 1]), esc(siblings[idx + 1])))
-    return ("<div class='banner'>version %d/%d &nbsp; %s</div>" %
-            (idx + 1, len(siblings), " &nbsp;|&nbsp; ".join(links)))
+        links.append(f"<a href='#f={q(d + '/' + siblings[idx + 1])}'>"
+                     f"{esc(siblings[idx + 1])} →</a>")
+    links_str = " &nbsp;|&nbsp; ".join(links)
+    return (f"<div class='banner'>version {idx + 1}/{len(siblings)} &nbsp; "
+            f"{links_str}</div>")
 
 
 def view_fragment(run_rel: str, file_rel: str) -> str:
+    """HTML fragment rendering one file (markdown, log, image, code, ...)."""
     run_abs = safe_join(run_rel)
     file_abs = safe_join(run_rel + "/" + file_rel)
     if not run_abs or not file_abs:
         return "<p>Not found.</p>"
     if os.path.isdir(file_abs):
-        return ("<h2>%s/</h2>%s" %
-                (esc(file_rel), file_tree_html(run_abs, run_rel, file_rel)))
+        tree = file_tree_html(run_abs, run_rel, file_rel)
+        return f"<h2>{esc(file_rel)}/</h2>{tree}"
     if not os.path.isfile(file_abs):
         return "<p>Not found.</p>"
     name = os.path.basename(file_rel)
     ext = os.path.splitext(name)[1].lower()
     raw_rel = os.path.relpath(file_abs, os.path.realpath(LOGS_ROOT))
     raw_url = "/raw?p=" + q(raw_rel.replace(os.sep, "/"))
-    header = ("<h2>%s <a class='muted' style='font-size:12px' href='%s' "
-              "target='_blank'>raw</a></h2>" % (esc(file_rel), raw_url))
+    header = (f"<h2>{esc(file_rel)} <a class='muted' style='font-size:12px' "
+              f"href='{raw_url}' target='_blank'>raw</a></h2>")
     if ext in IMG_EXTS:
-        return header + "<img class='mdimg' style='max-width:96%%' src='%s'>" \
-            % raw_url
+        return header + (f"<img class='mdimg' style='max-width:96%' "
+                         f"src='{raw_url}'>")
     if ext in VIDEO_EXTS:
-        return header + ("<video controls style='max-width:96%%' src='%s'>"
-                         "</video>" % raw_url)
+        return header + (f"<video controls style='max-width:96%' "
+                         f"src='{raw_url}'></video>")
     if ext == ".md":
         banner = ""
         if EPISODE_RE.match(name):
@@ -1327,29 +1349,30 @@ def view_fragment(run_rel: str, file_rel: str) -> str:
     if ext == ".log" or name in ("info.log", "debug.log"):
         text, truncated = read_text(file_abs, max_bytes=4 * 1024 * 1024)
         note = ("<p class='muted'>(showing last 4MB)</p>" if truncated else "")
-        lines = "".join("<span class='logline'>%s\n</span>" % ansi_to_html(l)
+        lines = "".join(f"<span class='logline'>{ansi_to_html(l)}\n</span>"
                         for l in text.splitlines())
         return (header + note +
                 "<input id='logfilter' placeholder='filter lines…' "
                 "oninput='filterLog()' style='width:300px;padding:4px 10px;"
                 "border:1px solid var(--border);border-radius:6px;"
                 "background:var(--bg);color:var(--fg)'>" +
-                "<pre class='code logview' id='logview'>%s</pre>" % lines)
+                f"<pre class='code logview' id='logview'>{lines}</pre>")
     if ext in CODE_EXTS or ext in TEXT_EXTS or ext == "":
         text, truncated = read_text(file_abs, max_bytes=4 * 1024 * 1024)
         note = ("<p class='muted'>(truncated to last 4MB)</p>"
                 if truncated else "")
-        extra = versions_nav(run_abs, run_rel, file_rel)
-        body = "<pre class='code'><code>%s</code></pre>" % esc(text)
+        extra = versions_nav(run_abs, file_rel)
+        body = f"<pre class='code'><code>{esc(text)}</code></pre>"
         if ext == ".txt":
             body += thumbs_for_paths(text, run_rel)
         return header + extra + note + body
     size = os.path.getsize(file_abs)
-    return header + ("<p><a href='%s'>download</a> (%.1f KB)</p>" %
-                     (raw_url, size / 1024.0))
+    return header + (f"<p><a href='{raw_url}'>download</a> "
+                     f"({size / 1024.0:.1f} KB)</p>")
 
 
 def diff_fragment(run_rel: str, file_rel: str) -> str:
+    """Unified diff of a versioned file against its previous sibling."""
     run_abs = safe_join(run_rel)
     file_abs = safe_join(run_rel + "/" + file_rel)
     if not run_abs or not file_abs or not os.path.isfile(file_abs):
@@ -1372,24 +1395,24 @@ def diff_fragment(run_rel: str, file_rel: str) -> str:
     out = []
     for line in diff:
         if line.startswith("+") and not line.startswith("+++"):
-            out.append("<span class='add'>%s</span>" % esc(line))
+            out.append(f"<span class='add'>{esc(line)}</span>")
         elif line.startswith("-") and not line.startswith("---"):
-            out.append("<span class='del'>%s</span>" % esc(line))
+            out.append(f"<span class='del'>{esc(line)}</span>")
         elif line.startswith("@@"):
-            out.append("<span class='hunk'>%s</span>" % esc(line))
+            out.append(f"<span class='hunk'>{esc(line)}</span>")
         else:
             out.append(esc(line) + "\n")
-    header = ("<h2>diff: %s → %s</h2>"
-              "<p><a href='#f=%s'>view %s</a> &nbsp; "
-              "<a href='#f=%s'>view %s</a></p>" %
-              (esc(prev), esc(name), q(d + "/" + prev), esc(prev), q(file_rel),
-               esc(name)))
+    header = (f"<h2>diff: {esc(prev)} → {esc(name)}</h2>"
+              f"<p><a href='#f={q(d + '/' + prev)}'>view {esc(prev)}</a> "
+              "&nbsp; "
+              f"<a href='#f={q(file_rel)}'>view {esc(name)}</a></p>")
     if len(out) == 0:
         return header + "<p class='muted'>Files are identical.</p>"
-    return header + "<pre class='code diff'>%s</pre>" % "".join(out)
+    return header + f"<pre class='code diff'>{''.join(out)}</pre>"
 
 
 def gallery_fragment(run_rel: str, dir_rel: str) -> str:
+    """Grouped image gallery for a directory of screenshots."""
     dir_abs = safe_join(run_rel + "/" + dir_rel)
     if not dir_abs or not os.path.isdir(dir_abs):
         return "<p>Not found.</p>"
@@ -1401,8 +1424,8 @@ def gallery_fragment(run_rel: str, dir_rel: str) -> str:
         m = re.match(r"^(iter\d+_test\d+|task\d+)", f)
         groups.setdefault(m.group(1) if m else "(other)", []).append(f)
     out = [
-        "<h2>%s/ <span class='muted'>(%d images)</span></h2>" %
-        (esc(dir_rel), len(images))
+        f"<h2>{esc(dir_rel)}/ <span class='muted'>"
+        f"({len(images)} images)</span></h2>"
     ]
     for gname in sorted(groups):
         imgs = groups[gname]
@@ -1410,17 +1433,19 @@ def gallery_fragment(run_rel: str, dir_rel: str) -> str:
         for f in imgs:
             rel = os.path.relpath(os.path.join(dir_abs, f), root)
             url = "/raw?p=" + q(rel.replace(os.sep, "/"))
-            cells.append("<a class='shot' href='%s' target='_blank'>"
-                         "<img loading='lazy' src='%s'><br>%s</a>" %
-                         (url, url, esc(f)))
-        out.append("<details%s><summary>%s <span class='muted'>(%d)"
-                   "</span></summary><div class='gallery'>%s</div>"
-                   "</details>" % (" open" if len(groups) == 1 else "",
-                                   esc(gname), len(imgs), "".join(cells)))
+            cells.append(f"<a class='shot' href='{url}' target='_blank'>"
+                         f"<img loading='lazy' src='{url}'><br>{esc(f)}</a>")
+        open_attr = " open" if len(groups) == 1 else ""
+        cells_html = "".join(cells)
+        out.append(f"<details{open_attr}><summary>{esc(gname)} "
+                   f"<span class='muted'>({len(imgs)})"
+                   f"</span></summary><div class='gallery'>{cells_html}</div>"
+                   "</details>")
     return "".join(out)
 
 
 def compare_page(run_rels: List[str]) -> str:
+    """Side-by-side comparison table across several runs."""
     summaries: List[Tuple[str, Dict[str, Any]]] = []
     for rel in run_rels:
         s = run_summary(rel)
@@ -1436,9 +1461,8 @@ def compare_page(run_rels: List[str]) -> str:
         if ep["kind"] == "test" and ep["task"] is not None
     })
     head = "".join(
-        "<th><a href='/run?d=%s'>%s</a><br>"
-        "<span class='muted'>%s</span></th>" %
-        (q(rel), esc(rel.split("/")[-1]), esc("/".join(rel.split("/")[:-1])))
+        f"<th><a href='/run?d={q(rel)}'>{esc(rel.split('/')[-1])}</a><br>"
+        f"<span class='muted'>{esc('/'.join(rel.split('/')[:-1]))}</span></th>"
         for rel, _ in summaries)
     rows = []
     for task in all_tasks:
@@ -1447,48 +1471,53 @@ def compare_page(run_rels: List[str]) -> str:
             verdicts = [r[task] for r in s.get("rounds", []) if task in r]
             if verdicts:
                 marks = " → ".join(
-                    "<span class='%s' title='%s'>%s</span>" %
-                    (("ok", esc(v["msg"]),
-                      "✓") if v["solved"] else ("bad", esc(v["msg"]), "✗"))
-                    for v in verdicts)
+                    f"<span class='{'ok' if v['solved'] else 'bad'}' "
+                    f"title='{esc(v['msg'])}'>"
+                    f"{'✓' if v['solved'] else '✗'}</span>" for v in verdicts)
             else:
                 attempts = [
                     ep for ep in s["episodes"]
                     if ep["kind"] == "test" and ep["task"] == task
                 ]
-                marks = "".join(
-                    "<span class='%s'>%s</span>" %
-                    (("ok", "(✓)") if ep.get("goal") else (
-                        ("bad", "(✗)") if ep.get("goal") is False else
-                        ("muted", "?"))) for ep in attempts)
+                mark_parts = []
+                for ep in attempts:
+                    if ep.get("goal"):
+                        cls, mk = "ok", "(✓)"
+                    elif ep.get("goal") is False:
+                        cls, mk = "bad", "(✗)"
+                    else:
+                        cls, mk = "muted", "?"
+                    mark_parts.append(f"<span class='{cls}'>{mk}</span>")
+                marks = "".join(mark_parts)
                 if marks:
                     marks += " <span class='muted'>agent-reported</span>"
-            cells.append("<td>%s</td>" % (marks or "-"))
-        rows.append("<tr><th>task %d</th>%s</tr>" % (task, "".join(cells)))
+            cells.append(f"<td>{marks or '-'}</td>")
+        rows.append(f"<tr><th>task {int(task)}</th>{''.join(cells)}</tr>")
 
     def stat_row(label: str, fn: Callable[[Dict[str, Any]], str]) -> str:
-        return ("<tr><th>%s</th>%s</tr>" %
-                (label, "".join("<td>%s</td>" % fn(s) for _, s in summaries)))
+        cols = "".join(f"<td>{fn(s)}</td>" for _, s in summaries)
+        return f"<tr><th>{label}</th>{cols}</tr>"
 
     rows.append(
         stat_row(
             "test results",
-            lambda s: esc(" → ".join("%d/%d" % t
+            lambda s: esc(" → ".join(f"{t[0]}/{t[1]}"
                                      for t in s["test_results"]) or "-")))
     rows.append(stat_row("episodes", lambda s: str(len(s["episodes"]))))
     rows.append(
         stat_row(
-            "explore / learn", lambda s: "%d / %d" %
-            (sum(1 for e in s["episodes"] if e["kind"] == "explore"),
-             sum(1 for e in s["episodes"] if e["kind"] == "learn"))))
+            "explore / learn", lambda s:
+            f"{sum(1 for e in s['episodes'] if e['kind'] == 'explore')} / "
+            f"{sum(1 for e in s['episodes'] if e['kind'] == 'learn')}"))
     rows.append(
         stat_row(
-            "total cost", lambda s: ("$%.2f" % s["total_cost"])
+            "total cost", lambda s: (f"${s['total_cost']:.2f}")
             if s["total_cost"] else "-"))
+    rows_html = "".join(rows)
     body = ("<div class='content' style='height:calc(100vh - 45px);"
             "overflow-y:auto'><h2>Run comparison</h2>"
-            "<table class='grid'><tr><th></th>%s</tr>%s</table></div>" %
-            (head, "".join(rows)))
+            "<table class='grid'><tr><th></th>"
+            f"{head}</tr>{rows_html}</table></div>")
     return page("compare - log viewer", "", body)
 
 
@@ -1496,6 +1525,7 @@ def compare_page(run_rels: List[str]) -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
+    """HTTP handler serving the log-viewer pages, fragments, and raw files."""
 
     def log_message(
             self,
@@ -1504,6 +1534,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def send_html(self, html_text: str, status: int = 200) -> None:
+        """Send an HTML response with the given status code."""
         data = html_text.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1512,6 +1543,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def send_raw(self, path: str) -> None:
+        """Stream a file to the client, honoring HTTP Range requests."""
         ctype = mimetypes.guess_type(path)[0]
         if not ctype or os.path.splitext(path)[1].lower() in (
             {".md", ".log", ".py"} | TEXT_EXTS):
@@ -1529,12 +1561,12 @@ class Handler(BaseHTTPRequestHandler):
                 start = max(size - int(m.group(2)), 0)
             if start > end:
                 self.send_response(416)
-                self.send_header("Content-Range", "bytes */%d" % size)
+                self.send_header("Content-Range", f"bytes */{int(size)}")
                 self.end_headers()
                 return
             self.send_response(206)
             self.send_header("Content-Range",
-                             "bytes %d-%d/%d" % (start, end, size))
+                             f"bytes {int(start)}-{int(end)}/{int(size)}")
         else:
             self.send_response(200)
         self.send_header("Content-Type", ctype)
@@ -1552,6 +1584,7 @@ class Handler(BaseHTTPRequestHandler):
                 remaining -= len(chunk)
 
     def do_GET(self) -> None:
+        """Dispatch a GET request, rendering a 500 page on errors."""
         try:
             self.route()
         except (BrokenPipeError, ConnectionResetError):
@@ -1559,11 +1592,12 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # pylint: disable=broad-except
             traceback.print_exc()
             try:
-                self.send_html("<pre>%s</pre>" % esc(str(e)), status=500)
+                self.send_html(f"<pre>{esc(str(e))}</pre>", status=500)
             except OSError:
                 pass
 
     def route(self) -> None:
+        """Map the request path to the matching page or fragment handler."""
         parsed = urllib.parse.urlparse(self.path)
         params = {
             k: v[0]
@@ -1610,8 +1644,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    global LOGS_ROOT
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    """Parse args, set LOGS_ROOT, and serve the viewer until interrupted."""
+    global LOGS_ROOT  # pylint: disable=global-statement
+    parser = argparse.ArgumentParser(
+        description=__doc__.split("\n", maxsplit=1)[0])
     parser.add_argument("--logs",
                         default="logs",
                         help="logs root directory (default: logs)")
@@ -1620,9 +1656,9 @@ def main() -> None:
     args = parser.parse_args()
     LOGS_ROOT = os.path.abspath(args.logs)
     if not os.path.isdir(LOGS_ROOT):
-        sys.exit("logs directory not found: %s" % LOGS_ROOT)
+        sys.exit(f"logs directory not found: {LOGS_ROOT}")
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print("Serving %s at http://%s:%d/" % (LOGS_ROOT, args.host, args.port))
+    print(f"Serving {LOGS_ROOT} at http://{args.host}:{int(args.port)}/")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
