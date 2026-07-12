@@ -297,6 +297,10 @@ class PhaseSkill:
         #   "diag"        keep base x at home, move forward in y (diagonal carry
         #                 that clears an adjacent jug / the faucet body).
         self._base_mode = base_mode
+        # Collision diagnostics from the most recent failed BiRRT plan,
+        # attached to the OptionExecutionFailure so agents learn which
+        # object blocked the motion plan.
+        self._last_plan_diagnostics: List[str] = []
 
     def build(self) -> ParameterizedOption:
         """Build and return the ParameterizedOption."""
@@ -627,6 +631,7 @@ class PhaseSkill:
                 state, objects, params, self._config)
             memory[finger_key] = finger_status
 
+            self._last_plan_diagnostics = []
             if self._config.simulator is not None:
                 traj = self._plan_with_simulator(pb_state, target_pose,
                                                  phase.name,
@@ -643,9 +648,14 @@ class PhaseSkill:
                         "incremental IK.", self._name, phase.name)
                     memory[traj_key] = None
                 else:
+                    detail = ""
+                    if self._last_plan_diagnostics:
+                        detail = (" Blocking contacts: " +
+                                  "; ".join(self._last_plan_diagnostics) + ".")
                     raise utils.OptionExecutionFailure(
                         f"[{self._name}/{phase.name}] BiRRT collision: "
-                        f"motion planning failed (no collision-free path).")
+                        f"motion planning failed (no collision-free path)."
+                        f"{detail}")
             else:
                 # Skip the first waypoint — BiRRT includes the start
                 # position (current joints) as traj[0].  Commanding the
@@ -809,6 +819,7 @@ class PhaseSkill:
         # 4. Collect collision body IDs (exclude held objects and
         #    non-physical types) and find the held object.
         collision_bodies: set = set()
+        body_names: Dict[int, str] = {}
         held_object: Optional[int] = None
         for orig_obj in pb_state:
             if orig_obj.type.name in self._SKIP_TYPES or \
@@ -817,6 +828,7 @@ class PhaseSkill:
             sim_obj = sim_obj_map.get(orig_obj.name)
             if sim_obj is None or sim_obj.id is None:
                 continue
+            body_names[sim_obj.id] = orig_obj.name
             if "is_held" in orig_obj.type.feature_names and \
                     pb_state.get(orig_obj, "is_held") > 0.5:
                 held_object = sim_obj.id
@@ -922,7 +934,7 @@ class PhaseSkill:
                     target_joints = validated_target_joints
 
         if traj is None and not expect_contact:
-            self._log_collision_diagnostics(
+            self._last_plan_diagnostics = self._log_collision_diagnostics(
                 planning_robot,
                 sim._physics_client_id,  # pylint: disable=protected-access
                 pb_state.joint_positions,
@@ -930,7 +942,8 @@ class PhaseSkill:
                 collision_bodies,
                 held_object,
                 base_link_to_held_obj,
-                phase_name)
+                phase_name,
+                body_names=body_names)
 
         return traj
 
@@ -1007,10 +1020,29 @@ class PhaseSkill:
         held_object: Optional[int],
         base_link_to_held_obj: Optional[Any],
         phase_name: str,
-    ) -> None:
-        """Log which collision bodies cause start/goal collisions."""
+        body_names: Optional[Dict[int, str]] = None,
+    ) -> List[str]:
+        """Log which collision bodies cause start/goal collisions.
+
+        Returns the diagnostic strings so callers can attach them to the
+        ``OptionExecutionFailure`` - in the agent's sandbox that message
+        is the only channel through which it learns WHICH object blocked
+        the motion plan (and hence how to adjust its target pose).
+        """
         from predicators.pybullet_helpers.link import \
             get_link_state  # pylint: disable=import-outside-toplevel
+        diagnostics: List[str] = []
+
+        def _body_label(body: int) -> str:
+            if body_names and body in body_names:
+                return body_names[body]
+            body_name = ""
+            try:
+                body_name = p.getBodyInfo(
+                    body, physicsClientId=physics_client_id)[1].decode()
+            except Exception:  # pylint: disable=broad-except
+                pass
+            return f"body {body} ({body_name})"
 
         def _check(joints: JointPositions, label: str) -> None:
             planning_robot.set_joints(joints)
@@ -1028,35 +1060,35 @@ class PhaseSkill:
                     wt_ho[1],
                     physicsClientId=physics_client_id)
             p.performCollisionDetection(physicsClientId=physics_client_id)
-            margin = CFG.pybullet_birrt_contact_margin
+            # Report against the wider of the two thresholds so that
+            # bystander-clearance failures (positive separations) are
+            # explained, not just hard penetrations.
+            margin = max(CFG.pybullet_birrt_contact_margin,
+                         CFG.pybullet_birrt_bystander_clearance)
             for body in collision_bodies:
-                body_name = ""
-                try:
-                    body_name = p.getBodyInfo(
-                        body, physicsClientId=physics_client_id)[1].decode()
-                except Exception:  # pylint: disable=broad-except
-                    pass
                 contacts = p.getContactPoints(
                     planning_robot.robot_id,
                     body,
                     physicsClientId=physics_client_id)
                 if any(c[8] < margin for c in contacts):
                     min_dist = min(c[8] for c in contacts)
-                    logging.error(f"[{self._name}/{phase_name}] {label} ROBOT "
-                                  f"collision with body {body} ({body_name}); "
-                                  f"min contact distance {min_dist:.6f}")
+                    diagnostics.append(
+                        f"{label}: robot within {min_dist:.4f} m of "
+                        f"{_body_label(body)}")
                 if held_object is not None:
                     contacts = p.getContactPoints(
                         held_object, body, physicsClientId=physics_client_id)
                     if any(c[8] < margin for c in contacts):
                         min_dist = min(c[8] for c in contacts)
-                        logging.error(
-                            f"[{self._name}/{phase_name}] {label} HELD "
-                            f"collision with body {body} ({body_name}); "
-                            f"min contact distance {min_dist:.6f}")
+                        diagnostics.append(
+                            f"{label}: held object within {min_dist:.4f} m "
+                            f"of {_body_label(body)}")
 
         _check(start_joints, "START")
         _check(goal_joints, "GOAL")
+        for diag in diagnostics:
+            logging.error(f"[{self._name}/{phase_name}] {diag}")
+        return diagnostics
 
     def _execute_move_ik(self, phase: Phase, state: State,
                          objects: Sequence[Object], params: Array) -> Action:

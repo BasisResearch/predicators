@@ -213,6 +213,16 @@ class GlobalSettings:
     # penetration from grasp settling. Allow escaping these initial contacts
     # only up to this depth; deeper penetration remains a collision.
     pybullet_birrt_shallow_held_contact_margin = -0.003
+    # Required separation (metres) from "bystander" bodies during BiRRT -
+    # bodies the plan neither starts nor deliberately ends in proximity of.
+    # The hard contact margin above tolerates ~1mm of penetration (needed
+    # for resting contacts), which lets a planned path physically graze a
+    # bystander; against knife-edge objects (dominoes) that graze topples
+    # them and voids the episode (run_20260712_122549 test task1). Bodies
+    # already within this clearance of the robot/held object at the start
+    # or goal configuration are treated as intended contact partners and
+    # keep the hard margin. 0 disables the clearance entirely.
+    pybullet_birrt_bystander_clearance = 0.003
     pybullet_control_mode = "position"
     pybullet_max_vel_norm = 0.05
     # env -> robot -> quaternion
