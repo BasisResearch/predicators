@@ -24,6 +24,7 @@ from gym.spaces import Box
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.agent_session_mixin import AgentSessionMixin
+from predicators.agent_sdk.tools import agent_render_resolution
 from predicators.approaches import ApproachFailure
 from predicators.approaches.base_approach import BaseApproach
 from predicators.explorers import create_explorer
@@ -596,8 +597,9 @@ scene, then annotate_scene overlays markers on it."""
         else:
             filename = f"{stem}_replan{replan_idx}_state.png" if stem \
                 else f"replan{replan_idx}_state.png"
-        saved_path = bilevel_sketch.save_task_state_image(
-            env, task, save_dir, filename)
+        with agent_render_resolution():
+            saved_path = bilevel_sketch.save_task_state_image(
+                env, task, save_dir, filename)
         if saved_path is not None:
             self._last_scene_image_name = filename
         return saved_path

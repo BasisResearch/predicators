@@ -145,3 +145,47 @@ def test_resolve_task_evaluator_reads_task_field() -> None:
     assert _resolve_task_evaluator(ctx, None) is evaluator
     ctx.current_task = None
     assert _resolve_task_evaluator(ctx, None) is None
+
+
+def test_agent_render_resolution() -> None:
+    """Agent-facing renders are capped at agent_sdk_image_max_px on the long
+    side by scoping down the camera resolution."""
+    from predicators import utils
+    from predicators.agent_sdk.tools import agent_render_resolution
+    from predicators.settings import CFG
+
+    utils.reset_config({
+        "agent_sdk_image_max_px": 512,
+        "pybullet_camera_width": 900,
+        "pybullet_camera_height": 450,
+    })
+    with agent_render_resolution():
+        # Longest side capped, aspect ratio preserved.
+        assert CFG.pybullet_camera_width == 512
+        assert CFG.pybullet_camera_height == 256
+    # Restored on exit.
+    assert CFG.pybullet_camera_width == 900
+    assert CFG.pybullet_camera_height == 450
+    # Restored even when the body raises.
+    try:
+        with agent_render_resolution():
+            raise RuntimeError
+    except RuntimeError:
+        pass
+    assert CFG.pybullet_camera_width == 900
+    # Cameras already within the cap are untouched (never upscales).
+    utils.reset_config({
+        "agent_sdk_image_max_px": 512,
+        "pybullet_camera_width": 300,
+        "pybullet_camera_height": 300,
+    })
+    with agent_render_resolution():
+        assert CFG.pybullet_camera_width == 300
+    # 0 disables the cap.
+    utils.reset_config({
+        "agent_sdk_image_max_px": 0,
+        "pybullet_camera_width": 900,
+        "pybullet_camera_height": 900,
+    })
+    with agent_render_resolution():
+        assert CFG.pybullet_camera_width == 900
