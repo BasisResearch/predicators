@@ -21,7 +21,7 @@ from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.session_manager import AgentSessionManager, \
     run_query_sync
-from predicators.agent_sdk.tools import ToolContext
+from predicators.agent_sdk.tools import ToolContext, agent_render_resolution
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.settings import CFG
 from predicators.structs import Action, ExplorationStrategy, \
@@ -356,8 +356,10 @@ class AgentBilevelExplorer(BaseExplorer):
         if env is None or save_dir is None:
             return ""
         img_name = f"train_task{train_task_idx:03d}_initial_state.png"
-        if bilevel_sketch.save_task_state_image(env, task, save_dir,
-                                                img_name) is None:
+        with agent_render_resolution():
+            saved = bilevel_sketch.save_task_state_image(
+                env, task, save_dir, img_name)
+        if saved is None:
             return ""
         # cwd of the agent is the sandbox root, so reference test_images/.
         return ("\n## Initial State Image\n"

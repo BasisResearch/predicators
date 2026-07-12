@@ -1,4 +1,5 @@
 """Custom MCP tool definitions for the agent SDK approach."""
+import contextlib
 import hashlib
 import json
 import logging
@@ -6,8 +7,8 @@ import os
 import re
 import traceback
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, \
-    Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, \
+    Set, Tuple, Union
 
 import numpy as np
 
@@ -418,6 +419,34 @@ def _render_scene_image(ctx: ToolContext,
     return _render_pybullet_image(ctx, step_label)
 
 
+@contextlib.contextmanager
+def agent_render_resolution() -> Iterator[None]:
+    """Scoped camera-resolution cap for agent-facing scene renders.
+
+    While inside the block, pybullet_camera_width/height are scaled so
+    the longest side is CFG.agent_sdk_image_max_px (0 disables; never
+    upscales). Every image the agent views stays in its conversation for
+    the rest of the session, so pixel count directly drives per-turn
+    cost - and rendering at the capped size is cheaper than rendering
+    full-res and resampling. Videos render outside this scope and keep
+    the full camera resolution.
+    """
+    max_px = CFG.agent_sdk_image_max_px
+    old_w = CFG.pybullet_camera_width
+    old_h = CFG.pybullet_camera_height
+    if not max_px or max(old_w, old_h) <= max_px:
+        yield
+        return
+    scale = max_px / max(old_w, old_h)
+    CFG.pybullet_camera_width = max(1, round(old_w * scale))
+    CFG.pybullet_camera_height = max(1, round(old_h * scale))
+    try:
+        yield
+    finally:
+        CFG.pybullet_camera_width = old_w
+        CFG.pybullet_camera_height = old_h
+
+
 def _render_pybullet_image(
     ctx: ToolContext,
     step_label: str,
@@ -450,7 +479,8 @@ def _render_pybullet_image(
         if state is not None:
             ctx.env._set_state(state)  # pylint: disable=protected-access
 
-        video = ctx.env.render()
+        with agent_render_resolution():
+            video = ctx.env.render()
         if not video:
             return None
         rgb_array = np.asarray(video[0], dtype=np.uint8)
