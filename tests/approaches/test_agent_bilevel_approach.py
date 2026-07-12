@@ -1357,3 +1357,129 @@ class TestScheduledPlansPromptSection:
         # The instruction must keep the request goal-directed (this is what
         # preserves the train-solve early-stopping semantics).
         assert "repeat the best plan" in " ".join(prompt.split())
+
+
+# ---------------------------------------------------------------------------
+# Tests: turn-cap exhaustion handling in _solve
+# ---------------------------------------------------------------------------
+
+
+class TestTurnCapHandling:
+    """Hitting agent_sdk_max_agent_turns_per_iteration ends the attempt with a
+    best-effort submission instead of burning the sketch retries."""
+
+    @staticmethod
+    def _cap_result(subtype=None, num_turns=None):
+        return {
+            "type": "result",
+            "subtype": subtype,
+            "num_turns": num_turns,
+            "total_cost_usd": 1.0,
+        }
+
+    def test_responses_hit_turn_cap(self):
+        """Cap detection: subtype is authoritative, num_turns is fallback."""
+        approach, _, _ = _make_approach()
+        cap = approach._responses_hit_turn_cap
+        assert cap([self._cap_result(subtype="error_max_turns")])
+        max_turns = 50
+        utils.update_config(
+            {"agent_sdk_max_agent_turns_per_iteration": max_turns})
+        assert cap([self._cap_result(subtype="success", num_turns=max_turns)])
+        assert not cap(
+            [self._cap_result(subtype="success", num_turns=max_turns - 1)])
+        assert not cap([{"type": "assistant", "content": []}])
+        assert not cap([])
+
+    def test_sketch_query_records_turn_cap(self):
+        """A capped session with no final text still marks the cap before the
+        empty-plan-text failure propagates."""
+        from predicators.approaches import ApproachFailure
+        approach, _, task = _make_approach()
+        responses = [self._cap_result(subtype="error_max_turns")]
+        with patch.object(approach,
+                          '_query_agent_sync',
+                          return_value=responses):
+            with pytest.raises(ApproachFailure, match="empty plan text"):
+                approach._query_agent_for_plan_sketch(task)
+        assert approach._last_sketch_query_hit_turn_cap
+
+    def test_solve_no_retry_on_turn_cap(self):
+        """A capped attempt takes the best-effort nudge and stops; the sketch
+        retries stay reserved for real errors."""
+        from predicators.approaches import ApproachFailure
+        approach, _, task = _make_approach()
+        utils.update_config({"agent_bilevel_max_retries": 3})
+        query = MagicMock(
+            return_value=[self._cap_result(subtype="error_max_turns")])
+        nudge = MagicMock(return_value=None)
+        with patch.object(approach, '_query_agent_sync', query), \
+                patch.object(approach, '_nudge_final_submission', nudge):
+            with pytest.raises(ApproachFailure, match="Bilevel solve failed"):
+                approach._solve(task, timeout=10)
+        assert query.call_count == 1  # no full-budget retries
+        nudge.assert_called_once_with(accept_best_effort=True)
+
+    def test_solve_retries_on_non_cap_failure(self):
+        """A non-cap failure (e.g. unparseable output) still retries."""
+        from predicators.approaches import ApproachFailure
+        approach, _, task = _make_approach()
+        utils.update_config({"agent_bilevel_max_retries": 3})
+        # Well under the cap, but no plan text: a real error, not budget end.
+        query = MagicMock(
+            return_value=[self._cap_result(subtype="success", num_turns=5)])
+        nudge = MagicMock(return_value=None)
+        with patch.object(approach, '_query_agent_sync', query), \
+                patch.object(approach, '_nudge_final_submission', nudge):
+            with pytest.raises(ApproachFailure, match="Bilevel solve failed"):
+                approach._solve(task, timeout=10)
+        assert query.call_count == 3
+        assert nudge.call_count == 3
+        for call in nudge.call_args_list:
+            assert call.kwargs == {"accept_best_effort": False}
+
+    def test_nudge_best_effort_flag_set_and_cleared(self):
+        """The nudge exposes best-effort capture to the tools only for the
+        duration of its own query."""
+        approach, _, _ = _make_approach()
+        seen = {}
+
+        def _fake_query(message, **kwargs):
+            del kwargs  # unused
+            seen["flag"] = approach._tool_context.capture_best_effort_plan
+            seen["message"] = message
+            return []
+
+        with patch.object(approach, '_query_agent_sync', _fake_query):
+            policy = approach._nudge_final_submission(accept_best_effort=True)
+        assert policy is None
+        assert seen["flag"] is True
+        assert "even if it does not fully reach the goal" in seen["message"]
+        assert not approach._tool_context.capture_best_effort_plan
+
+        with patch.object(approach, '_query_agent_sync', _fake_query):
+            approach._nudge_final_submission(accept_best_effort=False)
+        assert seen["flag"] is False
+        assert "If it reaches the goal it is captured" in seen["message"]
+
+    def test_nudge_returns_captured_best_effort_plan(self):
+        """The nudge consumes a captured plan into a policy even when the
+        rollout did not reach the goal."""
+        approach, _, _ = _make_approach()
+        plan = [_Pick.ground([_block0], np.array([0.5], dtype=np.float32))]
+        sketch = [_SketchStep(_Pick, [_block0], None)]
+
+        def _fake_query(message, **kwargs):
+            del message, kwargs  # unused
+            # Simulate evaluate_option_plan's best-effort capture.
+            assert approach._tool_context.capture_best_effort_plan
+            approach._tool_context.solved_plan = plan
+            approach._tool_context.solved_sketch = sketch
+            approach._tool_context.solved_plan_reached_goal = False
+            return []
+
+        with patch.object(approach, '_query_agent_sync', _fake_query):
+            policy = approach._nudge_final_submission(accept_best_effort=True)
+        assert policy is not None
+        assert approach._tool_context.solved_plan is None
+        assert approach._tool_context.solved_plan_reached_goal is None

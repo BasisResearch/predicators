@@ -8,6 +8,7 @@ step where its roll jumps past the fallen threshold.
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+import pytest
 
 from predicators.envs.pybullet_domino.cascade_certificate import \
     CASCADE_WINDOW_STEPS, check_cascade_legitimacy, \
@@ -48,6 +49,8 @@ def _build_states(
     onsets: Dict[str, int],
     *,
     positions: Optional[Dict[str, Tuple[float, float]]] = None,
+    position_profiles: Optional[Dict[str, Sequence[Tuple[float,
+                                                         float]]]] = None,
     roll_profiles: Optional[Dict[str, Sequence[float]]] = None,
     held_spans: Optional[Dict[str, Tuple[int, int]]] = None,
 ) -> List[State]:
@@ -55,14 +58,17 @@ def _build_states(
 
     ``onsets[name] = t`` gives a step-function roll: 0 before ``t``,
     fallen after. ``roll_profiles`` overrides the roll sequence for a
-    domino entirely; ``held_spans[name] = (a, b)`` sets is_held on
-    state indices [a, b].
+    domino entirely; ``position_profiles`` gives a per-step (x, y)
+    sequence for a domino (e.g. a relocation); ``held_spans[name] =
+    (a, b)`` sets is_held on state indices [a, b].
     """
     states = []
     for t in range(num_steps + 1):
         data = {}
         for name, obj in objs.items():
-            if positions is not None and name in positions:
+            if position_profiles is not None and name in position_profiles:
+                x, y = position_profiles[name][t]
+            elif positions is not None and name in positions:
                 x, y = positions[name]
             else:
                 x, y = 0.7, _CHAIN_Y[name]
@@ -130,6 +136,96 @@ def test_k0_pure_push_passes():
                                "target": (0.7, 1.098)
                            })
     step_options = _options([("Push", ("robot", "green"), 0, 7)], 20)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason
+
+
+def test_green_relocation_fails():
+    """Picking up green and placing it next to the target: rejected.
+
+    The zero-blue exploit from run_20260712_122549: relocate the green
+    start block adjacent to the target, push it, topple the target with
+    no chain at all. Rule (a2) rejects the pick regardless of where the
+    block ends up.
+    """
+    objs = _make_objects(["green", "target"])
+    staged = (0.7, 1.0)
+    relocated = (0.7, 1.28)  # adjacent to the target at (0.7, 1.378)
+    green_xy = [staged] * 3 + [relocated] * 28
+    states = _build_states(objs,
+                           30, {
+                               "green": 14,
+                               "target": 18
+                           },
+                           positions={"target": (0.7, 1.378)},
+                           position_profiles={"green": green_xy},
+                           held_spans={"green": (3, 8)})
+    step_options = _options([("Pick", ("robot", "green"), 0, 3),
+                             ("Place", ("robot", ), 4, 8),
+                             ("Push", ("robot", "green"), 10, 13)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "picked up" in reason
+
+
+def test_green_slide_relocation_fails():
+    """Sliding green next to the target without ever holding it: rejected.
+
+    Rule (a3): at its topple onset the green block must be within the
+    stage tolerance of its initial pose, so a gripper-sweep relocation
+    earns no bonus even though is_held never fires.
+    """
+    objs = _make_objects(["green", "target"])
+    green_xy = [(0.7, 1.0)] * 5 + [(0.7, 1.28)] * 26
+    states = _build_states(objs,
+                           30, {
+                               "green": 14,
+                               "target": 18
+                           },
+                           positions={"target": (0.7, 1.378)},
+                           position_profiles={"green": green_xy})
+    step_options = _options([("Push", ("robot", "green"), 10, 13)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "staged pose" in reason
+
+
+def test_green_pickup_after_cascade_passes():
+    """Picking the fallen green up after the cascade stays legal.
+
+    Episodes run past the goal (terminate_on_goal_reached=False), and
+    exploration routinely fiddles with fallen blocks afterwards - that
+    must not void an already-legitimate cascade (real case: the two
+    reward-0.75 train episodes of run_20260712_122549, green picked up
+    at steps 360/287 of 500).
+    """
+    objs = _make_objects(["green", "blue1", "blue2", "target"])
+    states = _build_states(objs,
+                           30, {
+                               "green": 5,
+                               "blue1": 10,
+                               "blue2": 14,
+                               "target": 18
+                           },
+                           held_spans={"green": (24, 28)})
+    step_options = _options([("Push", ("robot", "green"), 0, 7),
+                             ("Pick", ("robot", "green"), 23, 27)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason
+
+
+def test_green_push_jitter_passes():
+    """Small base slide during the push itself stays within tolerance."""
+    objs = _make_objects(["green", "target"])
+    green_xy = [(0.7, 1.0)] * 11 + [(0.7, 1.02)] * 20
+    states = _build_states(objs,
+                           30, {
+                               "green": 12,
+                               "target": 16
+                           },
+                           positions={"target": (0.7, 1.098)},
+                           position_profiles={"green": green_xy})
+    step_options = _options([("Push", ("robot", "green"), 10, 13)], 30)
     ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
     assert ok, reason
 
@@ -458,3 +554,20 @@ def test_domino_evaluator_reward_decomposition():
     description = evaluator.objective_description()
     assert str(CFG.domino_block_cost) in description
     assert "K*" not in description
+
+
+def test_domino_evaluator_budget_assert():
+    """A scene whose staged movables could out-cost the success bonus is a
+    config error, caught at construction against the scene's actual count
+    (``num_movables``); omitting it falls back to the min-block budget flag."""
+    # Local import: pulls in PyBullet, which the rest of this file avoids.
+    from predicators.envs.pybullet_domino.env import \
+        DominoEvaluator  # pylint: disable=import-outside-toplevel
+    from predicators.utils import \
+        reset_config  # pylint: disable=import-outside-toplevel
+    reset_config({"domino_block_cost": 0.05, "domino_min_block_num_blues": 4})
+    goal = _goal(_make_objects(["green", "target"]))
+    DominoEvaluator(goal)  # flag default: 0.05 * 4 < 1
+    DominoEvaluator(goal, num_movables=19)  # 0.05 * 19 < 1
+    with pytest.raises(AssertionError):
+        DominoEvaluator(goal, num_movables=20)  # 0.05 * 20 == 1
