@@ -9,7 +9,10 @@ ENVS:
   #     grow_place_option_no_sampler: True
   #     horizon: 400
   # OLD domino config (standard chain tasks), superseded by the min-block
-  # variants below. Parked by default.
+  # variants below. Parked by default. These tasks now also carry a
+  # DominoEvaluator (cascade-legitimacy certificate + per-toppled-blue
+  # reward cost), attached automatically because targets are domino
+  # blocks and no ball/fan component is present.
   domino:
     NAME: "pybullet_domino"
     SKIP: True

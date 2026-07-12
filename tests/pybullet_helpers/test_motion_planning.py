@@ -132,6 +132,62 @@ def test_run_motion_planning(physics_client_id):
     p.removeBody(block_id, physicsClientId=physics_client_id)
 
 
+def test_bystander_clearance(physics_client_id):
+    """A planned path keeps positive clearance from bystander bodies.
+
+    The hard contact margin alone tolerates ~1mm of penetration, which
+    lets a "collision-free" path physically graze an obstacle (enough to
+    topple a knife-edge object). With the bystander clearance, every
+    checked configuration must keep the clearance from bodies the plan
+    neither starts nor ends near.
+    """
+    ee_home_position = (1.35, 0.75, 0.75)
+    ee_orn = p.getQuaternionFromEuler([0.0, np.pi / 2, -np.pi])
+    ee_home_pose = Pose(ee_home_position, ee_orn)
+    robot = create_single_arm_pybullet_robot("fetch", physics_client_id,
+                                             ee_home_pose)
+    robot_init_state = tuple(ee_home_position) + tuple(
+        ee_orn, ) + (robot.open_fingers, )
+    robot.reset_state(robot_init_state)
+    joint_initial = robot.get_joints()
+    # Thin wall between the start and the target.
+    block_id = create_pybullet_block(color=(1.0, 0.0, 0.0, 1.0),
+                                     half_extents=(0.2, 0.01, 0.3),
+                                     mass=0,
+                                     friction=1,
+                                     orientation=[0., 0., 0., 1.],
+                                     physics_client_id=physics_client_id)
+    p.resetBasePositionAndOrientation(block_id, (1.35, 0.6, 0.5),
+                                      [0., 0., 0., 1.],
+                                      physicsClientId=physics_client_id)
+    ee_target = Pose((1.35, 0.4, 0.6), ee_orn)
+    joint_target = robot.inverse_kinematics(ee_target, validate=True)
+    clearance = 0.005
+    utils.reset_config({"pybullet_birrt_bystander_clearance": clearance})
+    path = None
+    # Motion planning is non-deterministic (RRT); try multiple seeds.
+    for seed in [123, 456, 789]:
+        robot.set_joints(joint_initial)
+        path = run_motion_planning(robot,
+                                   joint_initial,
+                                   joint_target,
+                                   collision_bodies={block_id},
+                                   seed=seed,
+                                   physics_client_id=physics_client_id)
+        if path is not None:
+            break
+    assert path is not None
+    # Neither endpoint is within the clearance of the wall, so the wall
+    # is a bystander: every waypoint must keep the full clearance.
+    for pt in path:
+        robot.set_joints(pt)
+        assert not p.getClosestPoints(robot.robot_id,
+                                      block_id,
+                                      clearance - 1e-6,
+                                      physicsClientId=physics_client_id)
+    p.removeBody(block_id, physicsClientId=physics_client_id)
+
+
 def test_move_to_shelf():
     """Test for Panda robot moving to put a held block into a shelf.
 

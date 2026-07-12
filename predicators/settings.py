@@ -227,6 +227,16 @@ class GlobalSettings:
     # penetration from grasp settling. Allow escaping these initial contacts
     # only up to this depth; deeper penetration remains a collision.
     pybullet_birrt_shallow_held_contact_margin = -0.003
+    # Required separation (metres) from "bystander" bodies during BiRRT -
+    # bodies the plan neither starts nor deliberately ends in proximity of.
+    # The hard contact margin above tolerates ~1mm of penetration (needed
+    # for resting contacts), which lets a planned path physically graze a
+    # bystander; against knife-edge objects (dominoes) that graze topples
+    # them and voids the episode (run_20260712_122549 test task1). Bodies
+    # already within this clearance of the robot/held object at the start
+    # or goal configuration are treated as intended contact partners and
+    # keep the hard margin. 0 disables the clearance entirely.
+    pybullet_birrt_bystander_clearance = 0.003
     pybullet_control_mode = "position"
     pybullet_max_vel_norm = 0.05
     # env -> robot -> quaternion
@@ -559,9 +569,11 @@ class GlobalSettings:
     domino_min_block_num_blues = 4
     # Per-blue-block cost in the DominoEvaluator's reward:
     # reward = 1.0 * (terminated AND certified) - cost * blues_toppled.
-    # Must satisfy domino_block_cost * domino_min_block_num_blues < 1 so a
+    # Must satisfy domino_block_cost * num_staged_blues < 1 so a
     # legitimate success always outscores any failure (the reward's sign
-    # alone then separates them). Public by design - the agent is told the
+    # alone then separates them); the evaluator asserts this against the
+    # min-block budget flag or, for plain chain tasks, the scene's actual
+    # movable count. Public by design - the agent is told the
     # reward form; only the dynamics stay hidden. NOTE: as a domino_* flag
     # this enters the min-block task cache key, so tuning it regenerates
     # the cached tasks.
@@ -1191,6 +1203,15 @@ class GlobalSettings:
     # for how much the agent deliberates per response.
     agent_sdk_reasoning_effort = ""
     agent_sdk_agent_timeout = 300  # seconds per iteration
+    # Longest side (px) of scene images rendered for the agent (saved to the
+    # sandbox and, rarely, returned inline). Every image the agent Reads
+    # stays in its conversation for the rest of the session, and vision
+    # tokens scale with pixel count (~(w*h)/750), so 900px renders cost
+    # ~1100 tokens per view vs ~350 at 512px. Agent-facing renders scope
+    # pybullet_camera_width/height down to this cap at generation time
+    # (see agent_render_resolution), which also makes the render itself
+    # cheaper; 0 disables the cap. Videos are unaffected.
+    agent_sdk_image_max_px = 512
     # Max size (bytes) of a single newline-delimited JSON message the agent SDK
     # subprocess transport will buffer. The SDK default is 1 MB, which a tool
     # result embedding a base64 scene image (e.g. inspect_train_tasks with

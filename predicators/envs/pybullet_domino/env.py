@@ -56,9 +56,17 @@ class DominoEvaluator(TaskEvaluator):
     what makes shipping it on the ``Task`` leak-free.
     """
 
-    def __init__(self, goal: Set[GroundAtom]) -> None:
+    def __init__(self,
+                 goal: Set[GroundAtom],
+                 num_movables: Optional[int] = None) -> None:
+        """``num_movables`` is the number of movable (blue) dominoes staged in
+        the task's scene, bounding the worst-case toppled-blue cost; it
+        defaults to the min-block budget flag for the min-block / heavy task
+        families, and the plain chain generator passes its actual count."""
         super().__init__(goal)
-        assert CFG.domino_block_cost * CFG.domino_min_block_num_blues < 1.0, \
+        if num_movables is None:
+            num_movables = CFG.domino_min_block_num_blues
+        assert CFG.domino_block_cost * num_movables < 1.0, \
             "A legitimate success must outscore any failure."
 
     def reward(self, states: Sequence[State],
@@ -89,14 +97,16 @@ class DominoEvaluator(TaskEvaluator):
         return {"k_used": float(count_movable_blocks_used(states[-1]))}
 
     def objective_description(self) -> str:
-        return (
-            "Success (+1 reward) = the target domino topples via a "
-            "legitimate cascade seeded by pushing the green start block "
-            "(the robot may push only the green block; knocking any other "
-            "domino directly, or toppling the target by any other means, "
-            "voids the bonus - the episode still terminates). Each movable "
-            f"(blue) domino that topples costs {CFG.domino_block_cost} "
-            "reward, so use as few blues as possible.")
+        return ("Success (+1 reward) = the target domino topples via a "
+                "legitimate cascade seeded by pushing the green start block "
+                "(the robot may push only the green block; knocking any other "
+                "domino directly, or toppling the target by any other means, "
+                "voids the bonus - the episode still terminates). The green "
+                "block must be pushed where it stands: picking it up or "
+                "sliding it away from its staged pose voids the bonus, so the "
+                "cascade must bridge the gap with blue dominoes. Each movable "
+                f"(blue) domino that topples costs {CFG.domino_block_cost} "
+                "reward, so use as few blues as possible.")
 
 
 class PyBulletDominoComposedEnv(PyBulletEnv):
