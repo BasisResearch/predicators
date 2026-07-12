@@ -28,6 +28,12 @@ def run_motion_planning(
 ) -> Optional[Sequence[JointPositions]]:
     """Run BiRRT to find a collision-free sequence of joint positions.
 
+    Collision bodies near the robot or held object at the start or goal
+    configuration are treated as intended contact partners and checked
+    against ``CFG.pybullet_birrt_contact_margin``; all other bodies are
+    bystanders from which the path must keep
+    ``CFG.pybullet_birrt_bystander_clearance`` of separation.
+
     Note that this function changes the state of the robot.
     """
     rng = np.random.default_rng(seed)
@@ -69,12 +75,14 @@ def run_motion_planning(
                 world_to_held_obj[1],
                 physicsClientId=physics_client_id)
 
+    hard_margin = CFG.pybullet_birrt_contact_margin
+    shallow_margin = CFG.pybullet_birrt_shallow_held_contact_margin
+    bystander_clearance = CFG.pybullet_birrt_bystander_clearance
+
     allowed_shallow_held_collision_bodies = set()
     if allow_shallow_held_object_contacts and held_object is not None:
         _set_state(initial_positions)
         p.performCollisionDetection(physicsClientId=physics_client_id)
-        shallow_margin = CFG.pybullet_birrt_shallow_held_contact_margin
-        hard_margin = CFG.pybullet_birrt_contact_margin
         for body in collision_bodies:
             contacts = p.getContactPoints(held_object,
                                           body,
@@ -82,6 +90,33 @@ def run_motion_planning(
             penetrating = [c[8] for c in contacts if c[8] < hard_margin]
             if penetrating and min(penetrating) >= shallow_margin:
                 allowed_shallow_held_collision_bodies.add(body)
+
+    # Bodies the robot or held object starts or deliberately ends within
+    # the clearance of are intended contact partners (support surfaces,
+    # grasp targets, placement neighbors) and keep the hard margin;
+    # every other body is a bystander from which the whole path must
+    # keep ``bystander_clearance`` of separation, so that a "collision-
+    # free" path cannot physically graze it (the hard margin tolerates
+    # ~1mm of penetration, enough to topple a knife-edge object).
+    contact_partners: set = set(collision_bodies)
+    if bystander_clearance > hard_margin:
+        contact_partners = set()
+        for pt in (initial_positions, target_positions):
+            _set_state(pt)
+            for body in collision_bodies:
+                if body in contact_partners:
+                    continue
+                if p.getClosestPoints(robot.robot_id,
+                                      body,
+                                      bystander_clearance,
+                                      physicsClientId=physics_client_id):
+                    contact_partners.add(body)
+                elif held_object is not None and p.getClosestPoints(
+                        held_object,
+                        body,
+                        bystander_clearance,
+                        physicsClientId=physics_client_id):
+                    contact_partners.add(body)
 
     def _extend_fn(pt1: JointPositions,
                    pt2: JointPositions) -> Iterator[JointPositions]:
@@ -101,9 +136,14 @@ def run_motion_planning(
         # table, or a gripper touching a just-released object).
         # getContactPoints returns tuples where index 8 is contactDistance:
         # negative = penetration, ~0 = touching, positive = separation.
-        # Only penetration deeper than the margin counts as a collision.
-        margin = CFG.pybullet_birrt_contact_margin
+        # Contact partners fail only on penetration deeper than the hard
+        # margin; bystanders additionally fail on separations below the
+        # clearance (Bullet generates contact points out to its
+        # contactBreakingThreshold, 0.02 by default, so millimetre-scale
+        # positive distances are reported here).
         for body in collision_bodies:
+            margin = hard_margin if body in contact_partners \
+                else bystander_clearance
             contacts = p.getContactPoints(robot.robot_id,
                                           body,
                                           physicsClientId=physics_client_id)
@@ -114,8 +154,6 @@ def run_motion_planning(
                     held_object, body, physicsClientId=physics_client_id)
                 contact_distances = [c[8] for c in contacts]
                 if body in allowed_shallow_held_collision_bodies:
-                    shallow_margin = \
-                        CFG.pybullet_birrt_shallow_held_contact_margin
                     if any(d < shallow_margin for d in contact_distances):
                         return True
                     continue

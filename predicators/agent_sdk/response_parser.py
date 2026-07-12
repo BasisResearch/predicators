@@ -77,6 +77,9 @@ def parse_result_message(msg: Any) -> Dict[str, Any]:
     """Convert a ``ResultMessage`` to a serializable dict."""
     return {
         "type": "result",
+        # "success" or an error marker such as "error_max_turns" (the
+        # session ended because it hit ClaudeAgentOptions.max_turns).
+        "subtype": getattr(msg, "subtype", None),
         "num_turns": getattr(msg, "num_turns", None),
         "total_cost_usd": getattr(msg, "total_cost_usd", None),
     }
