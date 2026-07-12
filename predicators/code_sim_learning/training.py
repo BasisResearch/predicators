@@ -92,6 +92,12 @@ class FitResult:
     prior_sigma: Optional[
         np.ndarray] = None  # (num_params,) Gaussian-prior std, FIT space
     scales: Optional[List[str]] = None  # per-param ParamSpec.scale
+    # Pre-fit sensitivity screen (physical_sysid): per-param
+    # {"sse_span": ..., "noise_floor": ..., "sensitive": bool}. A param
+    # whose grid-sweep SSE span stays within the same-theta noise floor
+    # does not affect the rollouts at all on this data; its fitted value
+    # is noise and must not be applied. None = screen not run.
+    sensitivity: Optional[Dict[str, Dict[str, Any]]] = None
 
     @property
     def point_estimate(self) -> Dict[str, float]:

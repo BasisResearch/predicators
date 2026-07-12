@@ -218,6 +218,13 @@ class ToolContext:
     # explore prompt so the agent proposes a complementary plan instead of
     # repeating the identical one for every request.
     cycle_scheduled_plans: List[str] = field(default_factory=list)
+    # Digest of the latest rollout system-ID fit's weak spots
+    # (unexplainable segments, unidentified/insensitive params,
+    # cross-cycle conflicts), synced from the sim-learning approach.
+    # The agent_bilevel explorer appends it to its experiment guidance
+    # so the next exploration targets the gaps. None ⇒ no fit ran yet
+    # (or it had no weak spots).
+    sysid_diagnostics: Optional[str] = None
     # Set by refine_plan_sketch / evaluate_option_plan when a plan is verified
     # to reach the goal on the CURRENT solve task: the simulator-verified plan
     # (grounded options with found params) and the parallel subgoal sketch.
@@ -2915,8 +2922,9 @@ def create_synthesis_tools(
     from predicators.approaches.agent_sim_learning_approach import \
         AgentSimLearningApproach
     from predicators.code_sim_learning.physical_sysid import \
-        compute_rollout_sse, fit_params_rollout_trimmed, \
-        format_identifiability, identifiability_report, \
+        compute_residual_scaling, compute_rollout_sse, \
+        fit_params_rollout_trimmed, format_identifiability, \
+        identifiability_report, physical_param_anchors, \
         select_trustworthy_params
     from predicators.code_sim_learning.synthesis_validation import \
         run_refinement_for_synthesis
@@ -3072,10 +3080,16 @@ def create_synthesis_tools(
             s.name: s.init_value
             for s in list(physical_specs) + list(rule_specs)
         }
+        anchors = physical_param_anchors(
+            approach._base_env,  # pylint: disable=protected-access
+            physical_specs)
         try:
+            # One scaling object per fit: every SSE/RMS below must share
+            # it or their values are incomparable.
+            scaling = compute_residual_scaling(rollouts, process_features)
             pre_sse = compute_rollout_sse(fit_env, rollouts, init_params,
                                           process_features, physical_names,
-                                          rules, latent_init)
+                                          rules, latent_init, scaling)
             fit_result, survivors, traj_rms = fit_params_rollout_trimmed(
                 fit_env,
                 rollouts,
@@ -3083,17 +3097,38 @@ def create_synthesis_tools(
                 process_features,
                 rules=rules,
                 rule_specs=rule_specs,
-                latent_init=latent_init)
-            # Post-SSE and the identifiability probe run on the SURVIVING
-            # trajectories only — a trimmed (unexplainable) recording
-            # would re-poison the verdicts with its noise. With no
-            # survivors, keep the full set so the probe reports NOT
-            # identified and the trustworthiness guard keeps the inits.
-            probe_rollouts = survivors if survivors else rollouts
+                latent_init=latent_init,
+                scaling=scaling,
+                anchors=anchors,
+                rms_cache=getattr(approach, "_explainability_cache", None))
+            if not survivors:
+                # Honest empty-data output: no fit ran, nothing was
+                # applied - do NOT print fitted values or identifiability
+                # verdicts computed on zero surviving data (chaos makes
+                # the probe report "identified" for everything).
+                rms_str = ", ".join(f"{r:.4g}" for r in traj_rms)
+                return _text("\n".join([
+                    f"[{version_tag}] NO FIT RAN: all {len(rollouts)} "
+                    "recorded motion segments were unexplainable at ANY "
+                    "candidate physical parameters (per-segment "
+                    f"best-achievable RMS [{rms_str}] all above the "
+                    "trimming threshold).",
+                    "",
+                    "Parameters were left at their baselines; nothing was "
+                    "applied to the planning base env.",
+                    "",
+                    "This usually means the recorded interactions are not "
+                    "repeatable under replay (prolonged scraping/jamming "
+                    "robot-object contact is chaotic). Collect experiments "
+                    "whose outcome is dominated by object dynamics: actuate "
+                    "one or two objects cleanly, then let the scene evolve "
+                    "and settle on its own.",
+                ]))
+            probe_rollouts = survivors
             fitted = fit_result.point_estimate
             post_sse = compute_rollout_sse(fit_env, probe_rollouts, fitted,
                                            process_features, physical_names,
-                                           rules, latent_init)
+                                           rules, latent_init, scaling)
         except Exception as e:  # pylint: disable=broad-except
             return _text(
                 f"[{version_tag}] Error: rollout system-ID fit failed:\n{e}")
@@ -3101,14 +3136,21 @@ def create_synthesis_tools(
         def rollout_sse_fn(params: Dict[str, float]) -> float:
             return compute_rollout_sse(fit_env, probe_rollouts, params,
                                        process_features, physical_names, rules,
-                                       latent_init)
+                                       latent_init, scaling)
 
-        ident_report = identifiability_report(
-            fit_result, rollout_sse_fn,
-            list(physical_specs) + list(rule_specs))
+        ident_report = identifiability_report(fit_result,
+                                              rollout_sse_fn,
+                                              list(physical_specs) +
+                                              list(rule_specs),
+                                              num_explainable=len(survivors))
         applied = select_trustworthy_params(fitted, init_params,
-                                            physical_names, ident_report)
+                                            physical_names, ident_report,
+                                            anchors)
         approach._apply_identified_physical_params(applied)  # pylint: disable=protected-access
+        if hasattr(approach, "_record_sysid_diagnostics"):
+            approach._record_sysid_diagnostics(  # pylint: disable=protected-access
+                ident_report, physical_names, len(survivors), len(rollouts),
+                traj_rms)
         kept_at_init = sorted(n for n in physical_names
                               if applied[n] != fitted[n])
         if pre_sse > 0:
@@ -3117,9 +3159,11 @@ def create_synthesis_tools(
             pct_str = "(init SSE was 0)"
         lines = [
             f"[{version_tag}] JOINT ROLLOUT SYSTEM-ID FIT (PHYSICAL_PARAMS "
-            f"declared) on {len(rollouts)} full trajectories (scope: "
+            f"declared) on {len(rollouts)} motion segments (scope: "
             f"{scope_note}; {len(physical_names)} physical + "
-            f"{len(list(rule_specs))} rule params).",
+            f"{len(list(rule_specs))} rule params). Residuals are "
+            "per-feature normalized (angles wrapped), so SSE/RMS are "
+            "dimensionless fractions of typical motion.",
             "",
             f"At init params:   rollout SSE = {pre_sse:.6f}",
             f"After joint fit:  rollout SSE = {post_sse:.6f}  {pct_str}",
@@ -3131,14 +3175,13 @@ def create_synthesis_tools(
             lines.insert(
                 1,
                 f"Goodness-of-fit trimming: {len(rollouts) - len(survivors)}"
-                f" of {len(rollouts)} trajectories were unexplainable at ANY "
-                "candidate params (per-trajectory best-achievable RMS: "
+                f" of {len(rollouts)} motion segments were unexplainable at "
+                "ANY candidate params (per-segment best-achievable RMS: "
                 f"[{rms_str}]) and were dropped before fitting; the fit "
-                "below used only the explainable ones. If NONE survived, no "
-                "fit ran and the declared inits were kept — collect cleaner "
-                "interaction data (e.g. pushes near the top of the domino, "
-                "which topple cleanly, rather than center-height pushes "
-                "that shove chaotically).")
+                "below used only the explainable ones. Unexplainable "
+                "segments are not repeatable under replay - prefer "
+                "experiments whose outcome is dominated by object dynamics "
+                "rather than prolonged robot-object contact.")
         for name in sorted(fitted):
             init_val = init_params[name]
             fit_val = fitted[name]
@@ -3161,10 +3204,11 @@ def create_synthesis_tools(
             lines.append(
                 "Applied to the planning base env: fitted values for the "
                 "identified params only; "
-                f"{', '.join(kept_at_init)} did not contract, so the "
-                "declared init(s) were kept (the fitted values above for "
-                "them are arbitrary). evaluate_plan_refinement now plans "
-                "against the partially calibrated sim.")
+                f"{', '.join(kept_at_init)} did not contract (or failed "
+                "the sensitivity screen), so their baseline values were "
+                "kept (the fitted values above for them are arbitrary). "
+                "evaluate_plan_refinement now plans against the partially "
+                "calibrated sim.")
         else:
             lines.append(
                 "The identified physical params were applied to the "

@@ -171,7 +171,8 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
 
     # Type definitions
     _robot_type = Type("robot",
-                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"],
+                       angular_features=["roll", "tilt", "wrist"])
     _out_of_view_xy: ClassVar[Sequence[float]] = [10.0, 10.0]
 
     def __init__(self,

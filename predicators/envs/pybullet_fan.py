@@ -239,7 +239,8 @@ class PyBulletFanEnv(PyBulletEnv):
     # Types
     # -------------------------------------------------------------------------
     _robot_type = Type("robot",
-                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"],
+                       angular_features=["roll", "tilt", "wrist"])
     _fan_type = Type(
         "fan",
         [
@@ -250,7 +251,8 @@ class PyBulletFanEnv(PyBulletEnv):
             "facing_side",  # 0=left,1=right,2=back,3=front
             "is_on",  # whether the controlling switch is on
         ],
-        sim_features=["id", "side_idx", "fan_ids", "joint_ids"])
+        sim_features=["id", "side_idx", "fan_ids", "joint_ids"],
+        angular_features=["rot"])
     # New separate switch type:
     _switch_type = Type(
         "switch",
@@ -262,10 +264,12 @@ class PyBulletFanEnv(PyBulletEnv):
             "controls_fan",  # matches fan side
             "is_on",  # is this switch on
         ],
-        sim_features=["id", "joint_id", "side_idx"])
-    _wall_type = Type("wall", ["x", "y", "z", "rot"])
+        sim_features=["id", "joint_id", "side_idx"],
+        angular_features=["rot"])
+    _wall_type = Type("wall", ["x", "y", "z", "rot"], angular_features=["rot"])
     _ball_type = Type("ball", ["x", "y", "z"])
-    _target_type = Type("target", ["x", "y", "z", "rot", "is_hit"])
+    _target_type = Type("target", ["x", "y", "z", "rot", "is_hit"],
+                        angular_features=["rot"])
     _location_type = Type("loc", ["xx", "yy"], sim_features=["id", "xx", "yy"])
     _side_type = Type("side", ["side_idx"], sim_features=["id", "side_idx"])
 
