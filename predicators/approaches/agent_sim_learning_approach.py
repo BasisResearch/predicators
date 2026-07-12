@@ -39,9 +39,10 @@ from predicators.code_sim_learning.active_experiment import laplace_ensemble, \
     mean_bernoulli_entropy, perturbation_ensemble, \
     posterior_subsample_ensemble
 from predicators.code_sim_learning.physical_sysid import RolloutTrajectory, \
-    compute_rollout_sse, fit_params_rollout, fit_params_rollout_trimmed, \
-    format_identifiability, identifiability_report, \
-    select_trustworthy_params, truncate_settled_tail
+    compute_residual_scaling, compute_rollout_sse, fit_params_rollout, \
+    fit_params_rollout_trimmed, format_identifiability, \
+    identifiability_report, physical_param_anchors, \
+    select_trustworthy_params, split_at_rest_points, truncate_settled_tail
 from predicators.code_sim_learning.training import FitResult, ParamSpec, \
     compute_sse, compute_sse_recurrent, fit_params, fit_params_recurrent, \
     log_sse_breakdown
@@ -181,6 +182,22 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         # _get_rollout_fit_env), never touching the planning base env.
         self._physical_param_specs: List[ParamSpec] = []
         self._identified_physical_params: Dict[str, float] = {}
+        # Explainability (trimming) verdicts are memoized per learn phase
+        # (cleared when _fit_trajectories is refreshed): repeated
+        # evaluate_step_fit calls with the same declaration signature
+        # reuse the sweep instead of re-rolling it, which both saves
+        # rollouts and pins the verdict for identical inputs.
+        self._explainability_cache: Dict[Tuple, List[float]] = {}
+        # Final per-cycle fit history for the cross-cycle consistency
+        # check: name -> (map_value, posterior_std_fit_space, scale).
+        # Mutually-incompatible confident fits across cycles are the
+        # signature of an overconfident probe; flagged, and the verdict
+        # downgraded, rather than silently trusted.
+        self._sysid_fit_history: Dict[str, Tuple[float, float, str]] = {}
+        # Agent-facing digest of the latest rollout fit (unexplainable
+        # segments, unidentified/insensitive params, cross-cycle
+        # conflicts); surfaced to the explorer as experiment objectives.
+        self._last_sysid_diagnostics: str = ""
 
     @classmethod
     def get_name(cls) -> str:
@@ -333,6 +350,8 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
         # (latent threads within a trajectory, not across). Harmless for
         # fully-observable (legacy) simulators, which never regroup.
         self._fit_trajectories = list(trajectories)
+        # New data invalidates the memoized explainability verdicts.
+        self._explainability_cache.clear()
         # Decide how samplers are obtained this cycle: ground-truth (if
         # requested and available for the env) else agent synthesis. GT
         # samplers are static, so install them up front, independent of
@@ -1106,6 +1125,26 @@ the tools."""
                 CFG.code_sim_learning_rollout_settle_tol,
                 CFG.code_sim_learning_rollout_settle_margin)
             rollouts = truncated
+        if (process_features is not None
+                and CFG.code_sim_learning_rollout_segment_on_rest
+                and rollouts):
+            # Multiple shooting: re-anchor at observed rest points so
+            # chaotic divergence cannot compound across manipulation
+            # phases, and trimming can drop a chaotic phase without
+            # discarding the clean cascade next to it.
+            segments: List[RolloutTrajectory] = []
+            for r in rollouts:
+                segments.extend(split_at_rest_points(r, process_features))
+            logger.info(
+                "Rollout sysID: rest-point segmentation %d trajectories -> "
+                "%d segments (lengths %s).", len(rollouts), len(segments),
+                [len(a) for _s, a in segments])
+            if segments:
+                rollouts = segments
+            else:
+                logger.warning(
+                    "Rollout sysID: segmentation found no scored motion; "
+                    "keeping the whole trajectories.")
         return rollouts
 
     def _apply_identified_physical_params(
@@ -1171,6 +1210,7 @@ the tools."""
             s.name: s.init_value
             for s in physical_specs + rule_specs
         }
+        anchors = physical_param_anchors(self._base_env, physical_specs)
         if not rollouts:
             logger.warning(
                 "No complete trajectories for rollout sysID; keeping the "
@@ -1181,17 +1221,21 @@ the tools."""
                                         rules=rules,
                                         rule_specs=rule_specs,
                                         latent_init=self._latent_init,
-                                        num_steps=0)
+                                        num_steps=0,
+                                        anchors=anchors)
             self._apply_identified_physical_params(
                 {n: init_params[n]
                  for n in physical_names})
             return result, float("nan")
 
+        # One scaling object per fit: every SSE/RMS below must share it
+        # or their values are incomparable.
+        scaling = compute_residual_scaling(rollouts, process_features)
         pre_sse = compute_rollout_sse(fit_env, rollouts, init_params,
                                       process_features, physical_names, rules,
-                                      self._latent_init)
+                                      self._latent_init, scaling)
         logger.info("Rollout sysID — pre-SSE: %.6f", pre_sse)
-        result, survivors, _rms = fit_params_rollout_trimmed(
+        result, survivors, rms = fit_params_rollout_trimmed(
             fit_env,
             rollouts,
             physical_specs,
@@ -1199,27 +1243,43 @@ the tools."""
             rules=rules,
             rule_specs=rule_specs,
             latent_init=self._latent_init,
-            num_steps=num_steps)
+            num_steps=num_steps,
+            scaling=scaling,
+            anchors=anchors,
+            rms_cache=self._explainability_cache)
         # Post-SSE and the identifiability probe are computed on the
         # SURVIVING trajectories: a trimmed (unexplainable) recording
-        # would otherwise re-poison the verdicts with its noise. With no
-        # survivors, keep the full set so the probe sees the noise and
-        # reports NOT identified, and the guard below keeps the inits.
-        probe_rollouts = survivors if survivors else rollouts
+        # would otherwise re-poison the verdicts with its noise.
+        if not survivors:
+            # NO fit ran (result is pinned at the declared inits).
+            # Apply nothing: the planner keeps its standing belief -
+            # the previous cycle's applied values - rather than being
+            # reverted to baselines (or moved to this call's declared
+            # inits) by data that supports neither.
+            logger.warning(
+                "Rollout sysID: no explainable segments this cycle; "
+                "leaving the planner's physical params untouched.")
+            self._record_sysid_diagnostics({}, physical_names, 0,
+                                           len(rollouts), rms)
+            return result, float("nan")
+        probe_rollouts = survivors
         fitted = result.point_estimate
         post_sse = compute_rollout_sse(fit_env, probe_rollouts, fitted,
                                        process_features, physical_names, rules,
-                                       self._latent_init)
+                                       self._latent_init, scaling)
         logger.info("Rollout sysID — post-SSE: %.6f", post_sse)
 
         def rollout_sse_fn(params: Dict[str, float]) -> float:
             return compute_rollout_sse(fit_env, probe_rollouts, params,
                                        process_features, physical_names, rules,
-                                       self._latent_init)
+                                       self._latent_init, scaling)
 
-        report = identifiability_report(
-            result, rollout_sse_fn,
-            list(physical_specs) + list(rule_specs))
+        report = identifiability_report(result,
+                                        rollout_sse_fn,
+                                        list(physical_specs) +
+                                        list(rule_specs),
+                                        num_explainable=len(survivors))
+        self._check_cross_cycle_consistency(result, report, physical_names)
         logger.info("Identifiability (posterior/prior contraction):\n%s",
                     format_identifiability(report))
         for name in sorted(fitted):
@@ -1231,8 +1291,120 @@ the tools."""
                         init_val, fit_val, delta, pct)
         self._apply_identified_physical_params(
             select_trustworthy_params(fitted, init_params, physical_names,
-                                      report))
+                                      report, anchors))
+        self._record_sysid_diagnostics(report, physical_names, len(survivors),
+                                       len(rollouts), rms)
         return result, post_sse
+
+    def _check_cross_cycle_consistency(self, result: FitResult,
+                                       report: Dict[str, Dict[str, Any]],
+                                       physical_names: Sequence[str]) -> None:
+        """Flag params whose confident MAP jumped since the previous cycle.
+
+        The curvature probe measures local *precision*: a biased
+        objective yields precisely-wrong values that the probe still
+        stamps "identified" (observed: per-cycle friction fits 0.0585,
+        0.0614, 0.0919, 0.0794, each with posterior_std ~0.003 -
+        mutually incompatible by many sigmas). Comparing successive
+        final fits in FIT space (log for log-scale params) catches
+        exactly this: a jump above
+        ``CFG.code_sim_learning_rollout_cross_cycle_sigma`` combined
+        sigmas downgrades "identified" to weakly identified with an
+        explicit note (the value is still applied - the new fit has
+        strictly more data - but the planner-facing confidence is
+        honest, and the explorer diagnostics pick it up). History
+        records only these final per-cycle fits, not the agent's
+        in-session tool fits, whose param sets churn.
+        """
+        k = CFG.code_sim_learning_rollout_cross_cycle_sigma
+        fitted = result.point_estimate
+        scales = result.scales or ["linear"] * len(result.names)
+        for i, name in enumerate(result.names):
+            if name not in physical_names:
+                continue
+            post = float(
+                report.get(name, {}).get("posterior_std", float("nan")))
+            scale = scales[i]
+            value = fitted[name]
+            prev = self._sysid_fit_history.get(name)
+            if (k > 0 and prev is not None and np.isfinite(post)
+                    and np.isfinite(prev[1])):
+                prev_val, prev_std, prev_scale = prev
+                if prev_scale == scale:
+                    if scale == "log":
+                        dist = abs(
+                            np.log(max(value, 1e-300)) -
+                            np.log(max(prev_val, 1e-300)))
+                    else:
+                        dist = abs(value - prev_val)
+                    combined = float(np.sqrt(post**2 + prev_std**2))
+                    if combined > 0 and dist / combined > k:
+                        n_sigma = dist / combined
+                        logger.warning(
+                            "Rollout sysID cross-cycle consistency: %s "
+                            "moved %.4f -> %.4f (%.1f combined sigmas > "
+                            "%g) since the previous cycle; the posterior "
+                            "is overconfident.", name, prev_val, value,
+                            n_sigma, k)
+                        entry = report.get(name)
+                        if entry is not None and entry["verdict"].startswith(
+                                "identified"):
+                            entry["verdict"] = (
+                                "weakly identified (INCONSISTENT across "
+                                f"cycles: {prev_val:.4f} -> {value:.4f} is "
+                                f"{n_sigma:.1f} combined sigmas)")
+            self._sysid_fit_history[name] = (value, post, scale)
+
+    def _record_sysid_diagnostics(self, report: Dict[str, Dict[str, Any]],
+                                  physical_names: Sequence[str],
+                                  num_survivors: int, num_segments: int,
+                                  rms: List[float]) -> None:
+        """Digest the fit's weak spots for the next explore phase.
+
+        Generic (domain-free) statements of what the data could not
+        support - unexplainable segments, parameters the rollouts do not
+        constrain, cross-cycle conflicts - phrased as experiment
+        objectives. The explorer appends this to its guidance so the
+        agent designs interactions that fill the gaps, instead of
+        relying on whatever manipulation data the tasks happen to
+        produce.
+        """
+        lines: List[str] = []
+        dropped = num_segments - num_survivors
+        if dropped > 0:
+            lines.append(
+                f"- {dropped} of {num_segments} recorded motion segments "
+                "were unexplainable at ANY physical parameters (best RMS "
+                f"{[f'{r:.3g}' for r in rms]}): their dynamics are not "
+                "repeatable under replay. Prefer experiments whose outcome "
+                "is dominated by object dynamics rather than prolonged "
+                "robot-object contact: actuate cleanly, then let the scene "
+                "evolve and settle on its own.")
+        for name in physical_names:
+            entry = report.get(name, {})
+            verdict = entry.get("verdict", "unknown")
+            if verdict.startswith("identified"):
+                if entry.get("flat_wide"):
+                    interval = entry["flat_interval"]
+                    lines.append(
+                        f"- physical param '{name}': the data cannot "
+                        f"distinguish values in [{interval[0]:.4g}, "
+                        f"{interval[1]:.4g}] (the applied value is the "
+                        "interval edge nearest the baseline belief). An "
+                        "experiment whose observable outcome DIFFERS across "
+                        "this interval would pin it down.")
+                continue
+            lines.append(
+                f"- physical param '{name}': {verdict}. An experiment whose "
+                "observable outcome CHANGES when this parameter changes "
+                "would identify it; if none exists, drop it from "
+                "PHYSICAL_PARAMS.")
+        self._last_sysid_diagnostics = ("\n".join(lines) if lines else "")
+
+    def _sync_tool_context(self) -> None:
+        super()._sync_tool_context()
+        self._tool_context.sysid_diagnostics = (self._last_sysid_diagnostics
+                                                or None)
 
     # ── Partial-observability (latent) support ───────────────────
     # Reached only when the loaded rules use the recurrent 5-arg

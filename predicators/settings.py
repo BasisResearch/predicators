@@ -1345,14 +1345,48 @@ class GlobalSettings:
     # differences even on informative data; the sweep costs
     # num_points+1 rollout evals per physical param.
     code_sim_learning_rollout_grid_seed_points = 7
+    # Coordinate-sweep passes for the grid seeding. One pass sweeps each
+    # physical param in declaration order with the others held fixed, so
+    # a param swept early is stuck with its neighbors' pre-sweep values;
+    # later passes re-sweep in the updated context, and the loop stops
+    # early once a full pass moves nothing. Deterministic rollouts are
+    # memoized within one seeding call, so a converged extra pass costs
+    # no new rollouts; 3 passes (vs 2) buys a final sweep whose pools
+    # were all evaluated in the settled context whenever pass 2 still
+    # moved something.
+    code_sim_learning_rollout_grid_sweep_passes = 3
+    # Relative SSE tolerance defining the sweep's "data-equivalent" flat
+    # set: candidates whose SSE is within max(same-theta noise floor,
+    # frac * best SSE) of the best candidate are indistinguishable on
+    # this data, and the value chosen among them is the one nearest the
+    # anchor (the prior belief) in fit space. This keeps a compensating
+    # param at its anchor instead of chasing insignificant SSE gains
+    # (run_20260711_224624: spinning_friction was dragged 0.5 -> 0.024,
+    # true 0.5, for a 1.6% SSE gain after lateral_friction over-moved),
+    # and resolves a saturated landscape to its anchor-side edge instead
+    # of an arbitrary interior grid point. 0 disables the flat set (the
+    # raw per-candidate argmin wins, the legacy behavior).
+    code_sim_learning_rollout_grid_flat_frac = 0.05
+    # Bisection evaluations per moved param that refine the anchor-side
+    # edge of its flat set to sub-grid resolution (0 disables). The
+    # 7-point log grid has ~2.4x spacing, so a true value mid-gap is
+    # unrepresentable: on run_20260711_224624 true lateral friction 0.5
+    # sat between candidates 0.342 and 0.827 and the fit reported the
+    # 0.827 grid point (+65%) every cycle, LM being unable to descend
+    # a chaotic replay landscape from a coarse seed.
+    code_sim_learning_rollout_grid_refine_evals = 4
     # Goodness-of-fit trimming threshold for rollout sysID, as a
-    # multiple of the fit's noise_sigma (0 disables): a trajectory whose
+    # multiple of the fit's noise_sigma (0 disables): a segment whose
     # best-achievable RMS over the candidate param grid exceeds
     # factor*noise_sigma is unexplainable at ANY params (chaotic
     # recording / model misfit), so it is dropped before fitting.
-    # Explainable vs unexplainable RMS differ by orders of magnitude on
-    # domino data, so the factor is uncritical.
-    code_sim_learning_rollout_trim_rms_factor = 3.0
+    # With normalized residuals the clean vs chaotic clusters sit at
+    # <=0.012 vs >=0.074 dimensionless RMS on domino replay data
+    # (run_20260711_141026): factor 2.0 (threshold 0.10) separates
+    # them, while 3.0 (0.15) admits robot-scraping segments that drag
+    # the friction fit 40% low on sparse early-cycle data (measured:
+    # cycle-1 replay fits 0.0564 at 3.0 vs 0.0988 at 2.0, true 0.1).
+    code_sim_learning_rollout_trim_rms_factor = 2.0
     # Consistency requirement among surviving trajectories (0 disables):
     # at the joint fit, each survivor's RMS must be within this factor
     # of its own best-achievable RMS. A survivor fitting much worse than
@@ -1361,6 +1395,49 @@ class GlobalSettings:
     # the survivor with the largest best-RMS is dropped and the fit
     # reruns, anchoring on the cleanest data.
     code_sim_learning_rollout_consistency_factor = 3.0
+    # Normalize rollout residuals per (type, feature): each residual is
+    # divided by the feature's observed motion span over the fit data
+    # (floored below), and residuals of features marked angular on their
+    # Type are wrapped to [-pi, pi] first and scaled by pi. Without
+    # this, raw angle errors dominate the SSE (a settled domino at roll
+    # -pi vs +pi reads as a (2*pi)^2 error per step; measured on
+    # run_20260711_141026: roll+yaw were 83% of the post-fit SSE with
+    # max errors of exactly 2*pi and pi) and position information is
+    # drowned. With normalization the SSE and every RMS threshold below
+    # are dimensionless fractions of typical motion.
+    code_sim_learning_rollout_scale_residuals = True
+    # Floor for the per-feature motion span used in residual
+    # normalization, so a feature that never moves in the fit data does
+    # not blow up its (noise) residuals. Units: the feature's own
+    # (meters / radians / ...).
+    code_sim_learning_rollout_feature_scale_floor = 0.05
+    # Split each rollout-fit trajectory at rest points (all scored
+    # features quiescent for at least segment_min_rest_steps) into
+    # independently-scored segments, each re-anchored at an observed
+    # at-rest state (multiple shooting). Free-running an entire
+    # manipulation trajectory lets chaotic contact divergence compound
+    # across phases and shifts the SSE minimum away from the true
+    # parameters (replay-divergence bias, both directions observed);
+    # segments bound the compounding horizon and let trimming drop only
+    # the chaotic phase of a trajectory instead of the whole recording.
+    # Rest anchoring keeps the zero-velocity reset exact.
+    code_sim_learning_rollout_segment_on_rest = True
+    # Consecutive settled steps (per settle_tol) required for a rest
+    # point to become a segment boundary.
+    code_sim_learning_rollout_segment_min_rest_steps = 10
+    # Pre-fit sensitivity screen: a physical param whose SSE span over
+    # its own grid sweep does not exceed factor * the same-theta SSE
+    # noise floor is "insensitive" on this data - the rollouts do not
+    # respond to it, so its fitted value is noise. It is reported as
+    # such and its anchor (env-registry baseline) is kept instead of
+    # the fitted value. 0 disables the screen.
+    code_sim_learning_rollout_sensitivity_factor = 2.0
+    # Cross-cycle consistency check on the final per-cycle fit: a param
+    # whose MAP moved more than this many combined posterior sigmas
+    # since the previous cycle's fit is flagged (and its "identified"
+    # verdict downgraded) - mutually-incompatible confident fits are
+    # the signature of an overconfident probe. 0 disables.
+    code_sim_learning_rollout_cross_cycle_sigma = 3.0
     # Diagnostic: log the Hessian eigendecomposition at the MAP to
     # spot unidentifiable parameter combinations. Adds ~5-15s per fit.
     code_sim_learning_log_hessian_identifiability = False

@@ -382,7 +382,19 @@ class AgentBilevelExplorer(BaseExplorer):
             "exercise the geometry/timing you are least sure the learned "
             "model has right.")
         disagreement = self._build_disagreement_summary()
-        return base + (f"\n\n{disagreement}" if disagreement else "")
+        parts = [base]
+        if disagreement:
+            parts.append(disagreement)
+        # System-ID gaps from the previous learn phase (synced by the
+        # sim-learning approach): what the collected data could NOT
+        # support, phrased as experiment objectives. Exploration is the
+        # only place those gaps can be filled.
+        sysid = getattr(self._tool_context, "sysid_diagnostics", None)
+        if sysid:
+            parts.append(
+                "The previous system-identification fit left gaps that "
+                "only new interaction data can close:\n" + sysid)
+        return "\n\n".join(parts)
 
     def _build_disagreement_summary(self) -> str:
         """Name the predicates the ensemble disagrees most about.

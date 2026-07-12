@@ -210,15 +210,20 @@ class DominoComponent(DominoEnvComponent):
         self.domino_x_lb = self.x_lb
         self.domino_x_ub = self.x_ub
 
-        # Create types
+        # Create types. yaw/roll are radians: marking them angular lets
+        # consumers that difference states (sysID residuals) wrap errors
+        # to [-pi, pi] instead of scoring -pi vs +pi as a 2*pi mistake.
         self._domino_type = Type(
             "domino",
             ["x", "y", "z", "yaw", "roll", "r", "g", "b", "is_held"],
+            angular_features=["yaw", "roll"],
         )
         self._target_type = Type("target", ["x", "y", "z", "yaw"],
-                                 sim_features=["id", "joint_id"])
+                                 sim_features=["id", "joint_id"],
+                                 angular_features=["yaw"])
         self._pivot_type = Type("pivot", ["x", "y", "z", "yaw"],
-                                sim_features=["id", "joint_id"])
+                                sim_features=["id", "joint_id"],
+                                angular_features=["yaw"])
 
         # Create objects
         use_domino_as_target = CFG.domino_use_domino_blocks_as_target

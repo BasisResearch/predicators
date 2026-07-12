@@ -218,7 +218,8 @@ class PyBulletBridgeEnv(PyBulletEnv):
     # Types
     # -------------------------------------------------------------------------
     _robot_type = Type("robot",
-                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"])
+                       ["x", "y", "z", "fingers", "roll", "tilt", "wrist"],
+                       angular_features=["roll", "tilt", "wrist"])
     # `glue_*` (wet-glue flags) and `attached_*` (partner block index,
     # -1 if none) are observable in both modes. `cure_*` are the hidden
     # per-joint dwell counters: observable in FO mode, dropped in the PO
@@ -241,12 +242,15 @@ class PyBulletBridgeEnv(PyBulletEnv):
                        _block_features_common +
                        ["cure_top", "cure_end_a", "cure_end_b"] +
                        _block_features_tail,
-                       sim_features=_block_sim_features)
+                       sim_features=_block_sim_features,
+                       angular_features=["rot"])
     _block_type_po = Type("block",
                           _block_features_common + _block_features_tail,
-                          sim_features=_block_sim_features)
+                          sim_features=_block_sim_features,
+                          angular_features=["rot"])
     _bottle_type = Type("bottle", ["x", "y", "z", "rot", "is_held"],
-                        sim_features=["id"])
+                        sim_features=["id"],
+                        angular_features=["rot"])
     _site_type = Type("site", ["x", "y", "z"], sim_features=["id"])
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:

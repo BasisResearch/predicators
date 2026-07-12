@@ -50,6 +50,13 @@ class Type:
     locations. One might think they could reset any feature at when reset is
     called. But this would require the information is first stored in the State
     object.
+
+    angular_features marks features that are angles in radians (yaw, roll,
+    joint angles, ...). Consumers that compare feature values across states
+    (e.g. system-identification residuals) wrap differences of these
+    features to [-pi, pi] so that equivalent orientations (roll -pi vs +pi)
+    do not read as a 2*pi error. Declaring it is optional metadata; the
+    default (no angular features) preserves plain arithmetic differences.
     """
     name: str
     feature_names: Sequence[str] = field(repr=False)
@@ -57,6 +64,9 @@ class Type:
     sim_features: Sequence[str] = field(default_factory=lambda: ["id"],
                                         repr=False,
                                         compare=False)
+    angular_features: Sequence[str] = field(default_factory=tuple,
+                                            repr=False,
+                                            compare=False)
 
     @property
     def dim(self) -> int:
