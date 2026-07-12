@@ -1045,7 +1045,7 @@ def episode_grid(episodes: List[Dict[str, Any]]) -> str:
             cells.append("<td class='muted'>r%d</td>" % (rnd + 1))
         for t in tasks:
             cells.append("<td>%s</td>" %
-                         "<br>".join(tests.get(rnd, {}).get(t, [])))
+                         "".join(tests.get(rnd, {}).get(t, [])))
         cells.append("<td>%s</td>" % "".join(misc.get(rnd, [])))
         rows.append("<tr>%s</tr>" % "".join(cells))
     return "<table class='epgrid'>%s</table>" % "".join(rows)
