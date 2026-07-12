@@ -1,4 +1,5 @@
 """Custom MCP tool definitions for the agent SDK approach."""
+import contextlib
 import hashlib
 import json
 import logging
@@ -6,8 +7,8 @@ import os
 import re
 import traceback
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple, \
-    Union
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, \
+    Set, Tuple, Union
 
 import numpy as np
 
@@ -232,10 +233,21 @@ class ToolContext:
     # nothing captured this query.
     solved_plan: Optional[Any] = None
     solved_sketch: Optional[Any] = None
+    # Whether the captured solved_plan reached the goal in its belief-sim
+    # rollout. False ⇒ it was a best-effort capture (see below). Cleared
+    # together with solved_plan.
+    solved_plan_reached_goal: Optional[bool] = None
     # Gate for the above: only approaches that consume captured plans
     # (AgentBilevelApproach) set this True. Keeps the open-loop planner, which
     # also uses evaluate_option_plan, from recording spurious captures.
     capture_goal_reaching_plans: bool = False
+    # Set (with capture_goal_reaching_plans) only for the final-submission
+    # nudge after an attempt exhausted its turn budget: evaluate_option_plan
+    # then captures the agent's submitted plan on the current task even if it
+    # does not reach the goal, so the approach executes the best-effort plan
+    # instead of paying for another full-budget attempt. A best-effort capture
+    # never displaces a goal-reaching one.
+    capture_best_effort_plan: bool = False
 
 
 def session_log_filename(query_count: int,
@@ -414,6 +426,34 @@ def _render_scene_image(ctx: ToolContext,
     return _render_pybullet_image(ctx, step_label)
 
 
+@contextlib.contextmanager
+def agent_render_resolution() -> Iterator[None]:
+    """Scoped camera-resolution cap for agent-facing scene renders.
+
+    While inside the block, pybullet_camera_width/height are scaled so
+    the longest side is CFG.agent_sdk_image_max_px (0 disables; never
+    upscales). Every image the agent views stays in its conversation for
+    the rest of the session, so pixel count directly drives per-turn
+    cost - and rendering at the capped size is cheaper than rendering
+    full-res and resampling. Videos render outside this scope and keep
+    the full camera resolution.
+    """
+    max_px = CFG.agent_sdk_image_max_px
+    old_w = CFG.pybullet_camera_width
+    old_h = CFG.pybullet_camera_height
+    if not max_px or max(old_w, old_h) <= max_px:
+        yield
+        return
+    scale = max_px / max(old_w, old_h)
+    CFG.pybullet_camera_width = max(1, round(old_w * scale))
+    CFG.pybullet_camera_height = max(1, round(old_h * scale))
+    try:
+        yield
+    finally:
+        CFG.pybullet_camera_width = old_w
+        CFG.pybullet_camera_height = old_h
+
+
 def _render_pybullet_image(
     ctx: ToolContext,
     step_label: str,
@@ -446,7 +486,8 @@ def _render_pybullet_image(
         if state is not None:
             ctx.env._set_state(state)  # pylint: disable=protected-access
 
-        video = ctx.env.render()
+        with agent_render_resolution():
+            video = ctx.env.render()
         if not video:
             return None
         rgb_array = np.asarray(video[0], dtype=np.uint8)
@@ -1748,8 +1789,13 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # Capture a goal-reaching plan on the current task with a sketch that
         # keeps only the subgoals that actually held (so the closed-loop
         # monitor won't flag a spurious divergence on a wrong annotation).
+        # With capture_best_effort_plan (final-submission nudge after turn-cap
+        # exhaustion) also capture a non-goal-reaching plan, but never let it
+        # displace a goal-reaching capture.
+        best_effort_capture = (ctx.capture_best_effort_plan
+                               and not ctx.solved_plan_reached_goal)
         if (ctx.capture_goal_reaching_plans and task_idx == "current"
-                and goal_achieved and grounded_plan):
+                and (goal_achieved or best_effort_capture) and grounded_plan):
             captured_sketch = []
             for i, st in enumerate(sketch_steps):
                 post = (result.steps[i].post_state
@@ -1775,12 +1821,16 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                                               or None))
             ctx.solved_plan = grounded_plan
             ctx.solved_sketch = captured_sketch
+            ctx.solved_plan_reached_goal = goal_achieved
             n_annot = sum(1 for s in captured_sketch
                           if s.subgoal_atoms or s.subgoal_neg_atoms)
-            lines.append(
-                f"Captured as the current answer: {len(grounded_plan)} steps, "
-                f"{n_annot} with subgoal annotations for closed-loop "
-                "monitoring.")
+            best_effort_note = ("" if goal_achieved else
+                                " (best-effort: goal NOT reached, accepted "
+                                "because the attempt budget is exhausted)")
+            lines.append(f"Captured as the current answer{best_effort_note}: "
+                         f"{len(grounded_plan)} steps, "
+                         f"{n_annot} with subgoal annotations for closed-loop "
+                         "monitoring.")
         elif (ctx.capture_goal_reaching_plans and task_idx != "current"
               and goal_achieved):
             # Loudly flag a success that cannot count: agents have burned

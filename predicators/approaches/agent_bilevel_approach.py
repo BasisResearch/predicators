@@ -16,7 +16,7 @@ import logging
 import os
 import time
 from collections import Counter
-from typing import Any, Callable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
@@ -58,6 +58,12 @@ class AgentBilevelApproach(AgentPlannerApproach):
         self._exec_status: Optional[SubgoalExecutionStatus] = None
         # Per-episode replan budget, refreshed by reset_for_new_episode.
         self._exec_replans_left = 0
+        # Whether the most recent sketch query ended because the agent hit
+        # agent_sdk_max_agent_turns_per_iteration. Set by
+        # _query_agent_for_plan_sketch, read by _solve to decide between
+        # retrying (a real error) and accepting the nudged best-effort
+        # submission (budget exhaustion).
+        self._last_sketch_query_hit_turn_cap = False
 
     @classmethod
     def get_name(cls) -> str:
@@ -277,6 +283,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
             # Clear any prior capture so we only act on this query's result.
             self._tool_context.solved_plan = None
             self._tool_context.solved_sketch = None
+            self._tool_context.solved_plan_reached_goal = None
+            self._last_sketch_query_hit_turn_cap = False
             query_start = time.perf_counter()
             try:
                 sketch = self._query_agent_for_plan_sketch(
@@ -300,11 +308,20 @@ class AgentBilevelApproach(AgentPlannerApproach):
                         "long derivations.")
                 logging.warning("Sketch query failed (attempt %d): %s",
                                 sketch_attempt, e)
+                hit_cap = self._last_sketch_query_hit_turn_cap
                 nudge_start = time.perf_counter()
-                policy = self._nudge_final_submission()
+                policy = self._nudge_final_submission(
+                    accept_best_effort=hit_cap)
                 llm_query_time += time.perf_counter() - nudge_start
                 if policy is not None:
                     return policy
+                if hit_cap:
+                    # The turn cap is a budget end, not a retryable error:
+                    # a fresh full-budget attempt re-explores from scratch
+                    # at full cost with no new information. The nudge above
+                    # already accepted the agent's best-effort submission;
+                    # with nothing captured even then, give up on this task.
+                    break
                 continue
             llm_query_time += time.perf_counter() - query_start
             sketches_tried += 1
@@ -325,11 +342,18 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 logging.info(
                     "[%s] Attempt %d ended without a validated plan; "
                     "re-querying the agent.", self._run_id, sketch_attempt)
+                hit_cap = self._last_sketch_query_hit_turn_cap
                 nudge_start = time.perf_counter()
-                policy = self._nudge_final_submission()
+                policy = self._nudge_final_submission(
+                    accept_best_effort=hit_cap)
                 llm_query_time += time.perf_counter() - nudge_start
                 if policy is not None:
                     return policy
+                if hit_cap:
+                    # See the identical break in the exception path: turn-cap
+                    # exhaustion is not retryable, and the best-effort nudge
+                    # already captured whatever the agent could submit.
+                    break
                 prior_failures.append(
                     "You finished without a validated plan. You MUST run "
                     "evaluate_option_plan on the current task (omit task_idx) "
@@ -454,6 +478,11 @@ class AgentBilevelApproach(AgentPlannerApproach):
             prompt = self._build_solve_prompt(task,
                                               prior_failures=prior_failures)
             responses = self._query_agent_sync(prompt, kind="test")
+            # Record cap-exhaustion before parsing: a capped session usually
+            # has no final text, so the "empty plan text" failure below must
+            # still be attributable to the turn cap by _solve.
+            self._last_sketch_query_hit_turn_cap = \
+                self._responses_hit_turn_cap(responses)
             plan_text = self._extract_option_plan_text(responses)
 
         if not plan_text:
@@ -479,6 +508,25 @@ class AgentBilevelApproach(AgentPlannerApproach):
                      f"{sum(1 for s in sketch if s.subgoal_atoms)} "
                      f"with subgoals.")
         return sketch
+
+    @staticmethod
+    def _responses_hit_turn_cap(responses: List[Dict[str, Any]]) -> bool:
+        """Whether a query's response stream ended on the SDK turn cap.
+
+        The SDK reports the cap as result subtype ``error_max_turns``;
+        the num_turns comparison is a fallback for backends whose result
+        entries lack the subtype field.
+        """
+        max_turns = CFG.agent_sdk_max_agent_turns_per_iteration
+        for entry in responses:
+            if entry.get("type") != "result":
+                continue
+            if entry.get("subtype") == "error_max_turns":
+                return True
+            num_turns = entry.get("num_turns")
+            if num_turns is not None and num_turns >= max_turns:
+                return True
+        return False
 
     @staticmethod
     def _make_step_fail_recorder(
@@ -717,7 +765,18 @@ class AgentBilevelApproach(AgentPlannerApproach):
         "task_idx), using the best parameters you have already validated. "
         "If it reaches the goal it is captured as your answer; then finish.")
 
-    def _nudge_final_submission(self) -> Optional[Callable[[State], Action]]:
+    _FINAL_SUBMIT_NUDGE_BEST_EFFORT = (
+        "You are out of exploration budget for this attempt. Do NOT explore "
+        "further. In as few tool calls as possible, submit your single best "
+        "plan NOW via evaluate_option_plan on the current task (omit "
+        "task_idx), using the best parameters you have already validated. "
+        "It is captured as your answer even if it does not fully reach the "
+        "goal; then finish.")
+
+    def _nudge_final_submission(
+        self,
+        accept_best_effort: bool = False,
+    ) -> Optional[Callable[[State], Action]]:
         """One short follow-up query after an attempt ended with no captured
         plan: tell the agent to submit its best plan now.
 
@@ -725,11 +784,22 @@ class AgentBilevelApproach(AgentPlannerApproach):
         nothing, even when it has a near-working plan in context; this
         converts that dead end into a submission attempt at the cost of a
         few turns.
+
+        With ``accept_best_effort`` (set when the attempt ended on the
+        turn cap rather than an error) the submitted plan is captured
+        and executed even if its belief rollout does not reach the goal:
+        the budget is spent, and a partial plan beats forfeiting the
+        task after more full-budget retries.
         """
+        nudge = (self._FINAL_SUBMIT_NUDGE_BEST_EFFORT
+                 if accept_best_effort else self._FINAL_SUBMIT_NUDGE)
+        self._tool_context.capture_best_effort_plan = accept_best_effort
         try:
-            self._query_agent_sync(self._FINAL_SUBMIT_NUDGE, kind="test")
+            self._query_agent_sync(nudge, kind="test")
         except Exception as e:  # pylint: disable=broad-except
             logging.warning("Final-submission nudge failed: %s", e)
+        finally:
+            self._tool_context.capture_best_effort_plan = False
         policy = self._consume_validated_plan()
         if policy is not None:
             logging.info(
@@ -748,17 +818,21 @@ class AgentBilevelApproach(AgentPlannerApproach):
         """
         plan = self._tool_context.solved_plan
         sketch = self._tool_context.solved_sketch
+        reached_goal = self._tool_context.solved_plan_reached_goal
         self._tool_context.solved_plan = None
         self._tool_context.solved_sketch = None
+        self._tool_context.solved_plan_reached_goal = None
         if not plan:
             return None
         # Log the full validated plan (options + continuous params + subgoal
         # annotations), mirroring the per-step plan log the approach-side
         # refinement path emits.
         lines = bilevel_sketch.format_plan_lines(plan, sketch=sketch)
+        verdict = ("simulator-verified" if reached_goal is not False else
+                   "best-effort: belief rollout did NOT reach the goal")
         logging.info(
             "[%s] Using agent-validated plan from refine_plan_sketch "
-            "(%d steps, simulator-verified):\n%s", self._run_id, len(plan),
+            "(%d steps, %s):\n%s", self._run_id, len(plan), verdict,
             "\n".join(lines))
         return self._plan_to_policy(plan, sketch=sketch)
 

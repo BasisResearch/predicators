@@ -167,7 +167,32 @@ class DominoTaskGenerator(TaskGenerator):
                    f"{target_verb} toppled. Do NOT directly "
                    f"push or topple {target_word} yourself.")
 
-        return EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
+        # Cascade-legitimacy evaluator (reward = certified success minus a
+        # per-toppled-blue cost), same as the min-block tasks. Attached only
+        # where its causal model is valid: targets must be roll-tracked
+        # dominoes (the separate ``target_type`` has no roll feature, so the
+        # certificate is blind to a direct robot knock on such a target and
+        # would certify it at zero blue cost), and dominoes must be the only
+        # dynamic component (ball/fan variants topple dominoes legitimately
+        # without a robot Push, which the certificate would reject).
+        evaluator = None
+        if CFG.domino_use_domino_blocks_as_target and \
+                not self.additional_components:
+            # Imported lazily: env.py imports this module at load time.
+            # pylint: disable-next=import-outside-toplevel
+            from predicators.envs.pybullet_domino.env import DominoEvaluator
+            num_movables = sum(
+                1 for obj in init_state.get_objects(self.domino.domino_type)
+                # pylint: disable-next=protected-access
+                if DominoComponent._MovableBlock_holds(init_state, [obj]))
+            evaluator = DominoEvaluator(goal_atoms, num_movables)
+            goal_nl += (" Use as few blue dominoes as possible: each blue "
+                        "domino that topples costs reward.")
+
+        return EnvironmentTask(init_state,
+                               goal_atoms,
+                               goal_nl=goal_nl,
+                               evaluator=evaluator)
 
     def _generate_min_block_task(
             self, task_idx: int,

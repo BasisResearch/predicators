@@ -68,6 +68,21 @@ def _cascade_reach() -> float:
             2 * PyBulletDominoComposedEnv.domino_depth)
 
 
+def _stage_tolerance() -> float:
+    """Max xy drift of the green start block from its staged pose before its
+    topple onset that still counts as "pushed where it stands".
+
+    A legitimate push tips the block about its base edge, so the base
+    slides at most a couple of centimeters before the block leaves the
+    upright band; relocating the block anywhere useful (next to the
+    target, or even one chain gap over) moves it by at least ``pos_gap``
+    ~= 0.098 m. One domino width sits safely between the two regimes.
+    """
+    from predicators.envs.pybullet_domino.env import \
+        PyBulletDominoComposedEnv  # pylint: disable=import-outside-toplevel
+    return PyBulletDominoComposedEnv.domino_width
+
+
 def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
     """State index where ``domino``'s final fall began, or None.
 
@@ -151,6 +166,14 @@ def check_cascade_legitimacy(
       (a1) the green block's own fall begins during (or within one
            cascade window after) a Push on it - not during a Pick/Place
            sweep;
+      (a2) the green block is never held before its topple onset:
+           picking it up (even to put it back) is not part of seeding a
+           legitimate cascade (holds after the cascade has started are
+           post-success fiddling and stay legal);
+      (a3) the green block is pushed where it stands: at its topple
+           onset it must be within ``_stage_tolerance()`` of its staged
+           (initial) xy - relocating it next to the target to skip the
+           chain earns no bonus;
       (a)  the green block is the first domino to start falling (ties
            allowed);
       (b)  every other topple onset is attributable to an
@@ -186,6 +209,39 @@ def check_cascade_legitimacy(
         toppled = sorted(d.name for d in onsets)
         return False, (f"{', '.join(toppled)} toppled but there is no green "
                        "start block in the scene to seed a cascade")
+
+    # Rule (a2): the green start block is never held before its topple
+    # onset. Holds after the cascade has started cannot have seeded it
+    # (a re-stand-and-re-tip of the fallen green fails rule (b)'s onset
+    # window), so they stay legal - episodes routinely continue past
+    # the goal (terminate_on_goal_reached=False) and post-success
+    # fiddling must not void an already-legitimate cascade.
+    for g in greens:
+        # Scan up to this green's own onset; a green that never falls
+        # is held to the cascade's start (holding it afterwards cannot
+        # have seeded anything).
+        horizon = onsets[g] + 1 if g in onsets else min(onsets.values())
+        for t in range(horizon):
+            if states[t].get(g, "is_held") > 0.5:
+                return False, (
+                    f"the green start block {g.name} was picked up (held at "
+                    f"step {t}, before its cascade began) - it must be "
+                    "toppled by a Push at its staged pose, not relocated")
+
+    # Rule (a3): the green start block is pushed where it stands.
+    stage_tol = _stage_tolerance()
+    for g in greens:
+        if g not in onsets:
+            continue
+        onset_state = states[min(onsets[g], len(states) - 1)]
+        drift = math.hypot(
+            onset_state.get(g, "x") - states[0].get(g, "x"),
+            onset_state.get(g, "y") - states[0].get(g, "y"))
+        if drift > stage_tol:
+            return False, (
+                f"the green start block {g.name} moved {drift:.2f} m from "
+                "its staged pose before falling - the cascade must be "
+                "seeded by pushing it where it stands")
 
     # Action rules (a0)/(a1).
     if step_options is not None:
