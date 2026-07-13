@@ -1,12 +1,14 @@
 """Task generator for domino-based tasks."""
 
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 
 from predicators import utils
+from predicators.envs.pybullet_domino import geometry
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent, PlacementResult
+from predicators.envs.pybullet_domino.task_generators import goal_text
 from predicators.envs.pybullet_domino.task_generators.base_generator import \
     TaskGenerator
 from predicators.settings import CFG
@@ -123,7 +125,7 @@ class DominoTaskGenerator(TaskGenerator):
             # keep it inside the attempt loop and resample the solved chain.
             if not CFG.domino_initialize_at_finished_state:
                 candidate_obj_dict = \
-                    self._move_intermediate_objects_to_unfinished_state(
+                    self.stage_movable_blocks(
                         candidate_obj_dict)
                 if candidate_obj_dict is None:
                     continue
@@ -262,7 +264,7 @@ class DominoTaskGenerator(TaskGenerator):
             obj_dict[dominos[2 + i]] = self.domino.place_domino(
                 2 + i, sx, sy, rotation, rng=rng, task_idx=task_idx)
 
-        staged = self._move_intermediate_objects_to_unfinished_state(obj_dict)
+        staged = self.stage_movable_blocks(obj_dict)
         if staged is None:
             return None
 
@@ -276,12 +278,9 @@ class DominoTaskGenerator(TaskGenerator):
             # pylint: disable=protected-access
             if self.domino._TargetDomino_holds(init_state, [domino_obj]):
                 goal_atoms.add(GroundAtom(self.domino.Toppled, [domino_obj]))
-        goal_nl = (
-            "Arrange the blue dominoes so that when the green domino is "
-            "pushed, the purple domino is toppled -- using AS FEW blue "
-            "dominoes as possible (possibly none). Do NOT directly push or "
-            "topple the purple domino yourself.")
-        return EnvironmentTask(init_state, goal_atoms, goal_nl=goal_nl)
+        return EnvironmentTask(init_state,
+                               goal_atoms,
+                               goal_nl=goal_text.MIN_BLOCK_GOAL_NL)
 
     def _generate_domino_sequence(
             self,
@@ -771,9 +770,15 @@ class DominoTaskGenerator(TaskGenerator):
                                domino_count=domino_count,
                                target_count=target_count + 1)
 
-    def _move_intermediate_objects_to_unfinished_state(
-            self, obj_dict: Dict) -> Optional[Dict]:
-        """Move intermediate dominoes and pivots to unfinished positions."""
+    def stage_movable_blocks(self, obj_dict: Dict) -> Optional[Dict]:
+        """Scatter the movable (blue) dominoes and pivots onto pickable staging
+        spots, leaving start/target/heavy blocks in place; None if the staging
+        grid can't fit them all clear of collisions and grasp footprints.
+
+        Public: the min-block / heavy generators (``min_block_utils`` /
+        ``min_block_generation``) call this to stage their scenes, so it is
+        part of this generator's layout API rather than an internal helper.
+        """
         intermediate_objects = []
         eps = 1e-3
 
@@ -896,8 +901,9 @@ class DominoTaskGenerator(TaskGenerator):
         """Check whether ``candidate`` overlaps any occupied object."""
         candidate_rect = self._placement_rect(obj, candidate)
         for other_obj, other_data in occupied.items():
-            other_rect = self._placement_rect(other_obj, other_data)
-            if self._rectangles_overlap(candidate_rect, other_rect):
+            if geometry.rects_overlap(
+                    candidate_rect,
+                    self._placement_rect(other_obj, other_data)):
                 return True
         return False
 
@@ -908,41 +914,24 @@ class DominoTaskGenerator(TaskGenerator):
         overlap another object, leaving the staged domino un-pickable.
 
         ``half_hand``/``half_finger`` are the gripper footprint half-
-        extents along the domino's long axis (local x) and depth/finger-
-        span axis (local y). The check is the same oriented-rectangle
-        overlap test used for placement, but against the larger gripper
-        footprint.
+        extents along the domino's width axis (``(cos, sin)``) and
+        depth/finger-span axis (``(-sin, cos)``). The check is the same
+        oriented-rectangle overlap test used for placement, but against
+        the larger gripper footprint.
         """
-        clear_rect = self._oriented_rect_corners(candidate["x"],
-                                                 candidate["y"],
-                                                 candidate.get("yaw", 0.0),
-                                                 half_hand, half_finger)
+        clear_rect = geometry.domino_footprint(candidate["x"], candidate["y"],
+                                               candidate.get("yaw", 0.0),
+                                               half_hand, half_finger)
         for other_obj, other_data in occupied.items():
-            if self._rectangles_overlap(
+            if geometry.rects_overlap(
                     clear_rect, self._placement_rect(other_obj, other_data)):
                 return True
         return False
 
-    @staticmethod
-    def _oriented_rect_corners(x: float, y: float, yaw: float, half_w: float,
-                               half_d: float) -> Tuple[np.ndarray, np.ndarray]:
-        """Return (center, corners) of an oriented rectangle with the given
-        half-extents along its local x (``half_w``) and y (``half_d``) axes."""
-        center = np.array([x, y], dtype=np.float64)
-        local = np.array(
-            [[-half_w, -half_d], [-half_w, half_d], [half_w, half_d],
-             [half_w, -half_d]],
-            dtype=np.float64,
-        )
-        rot = np.array([[np.cos(yaw), -np.sin(yaw)],
-                        [np.sin(yaw), np.cos(yaw)]],
-                       dtype=np.float64)
-        return center, center + local @ rot.T
-
-    def _placement_rect(
-            self, obj: Object,
-            data: Dict[str, float]) -> Tuple[np.ndarray, np.ndarray]:
-        """Return center and corners for an object's conservative footprint."""
+    def _placement_rect(self, obj: Object, data: Dict[str,
+                                                      float]) -> geometry.Rect:
+        """Conservative oriented footprint (corner list) for collision
+        checks."""
         if obj.type == self.domino.domino_type:
             width = self.domino.domino_width
             depth = self.domino.domino_depth
@@ -954,34 +943,6 @@ class DominoTaskGenerator(TaskGenerator):
             depth = self.domino.domino_width
 
         padding = 0.003
-        half_w = width / 2 + padding
-        half_d = depth / 2 + padding
-        yaw = data["yaw"]
-        center = np.array([data["x"], data["y"]], dtype=np.float64)
-        local = np.array(
-            [[-half_w, -half_d], [-half_w, half_d], [half_w, half_d],
-             [half_w, -half_d]],
-            dtype=np.float64,
-        )
-        rot = np.array([[np.cos(yaw), -np.sin(yaw)],
-                        [np.sin(yaw), np.cos(yaw)]],
-                       dtype=np.float64)
-        return center, center + local @ rot.T
-
-    @staticmethod
-    def _rectangles_overlap(rect1: Tuple[np.ndarray, np.ndarray],
-                            rect2: Tuple[np.ndarray, np.ndarray]) -> bool:
-        """Separating-axis overlap test for two oriented rectangles."""
-
-        def _axes(corners: np.ndarray) -> List[np.ndarray]:
-            edges = [corners[1] - corners[0], corners[2] - corners[1]]
-            return [edge / np.linalg.norm(edge) for edge in edges]
-
-        _, corners1 = rect1
-        _, corners2 = rect2
-        for axis in _axes(corners1) + _axes(corners2):
-            proj1 = corners1 @ axis
-            proj2 = corners2 @ axis
-            if max(proj1) <= min(proj2) or max(proj2) <= min(proj1):
-                return False
-        return True
+        return geometry.domino_footprint(data["x"], data["y"], data["yaw"],
+                                         width / 2 + padding,
+                                         depth / 2 + padding)

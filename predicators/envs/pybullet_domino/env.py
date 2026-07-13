@@ -613,6 +613,19 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             rng=self._test_rng,
             cache_tag="test")
 
+    def robot_init_state_dict(self) -> Dict[str, float]:
+        """The robot's initial feature dict, shared by every task scene (the
+        task generators stage the robot at this pose)."""
+        return {
+            "x": self.robot_init_x,
+            "y": self.robot_init_y,
+            "z": self.robot_init_z,
+            "fingers": self.open_fingers,
+            "roll": self.robot_init_roll,
+            "tilt": self.robot_init_tilt,
+            "wrist": self.robot_init_wrist,
+        }
+
     def _make_tasks(self,
                     num_tasks: int,
                     possible_num_dominos: List[int],
@@ -626,15 +639,7 @@ class PyBulletDominoComposedEnv(PyBulletEnv):
             raise ValueError("Cannot generate tasks without domino component")
 
         # Create task generator
-        robot_init_state = {
-            "x": self.robot_init_x,
-            "y": self.robot_init_y,
-            "z": self.robot_init_z,
-            "fingers": self.open_fingers,
-            "roll": self.robot_init_roll,
-            "tilt": self.robot_init_tilt,
-            "wrist": self.robot_init_wrist,
-        }
+        robot_init_state = self.robot_init_state_dict()
 
         # Collect additional components for init dict (all except domino)
         additional_components = []

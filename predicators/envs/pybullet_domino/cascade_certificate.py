@@ -28,6 +28,7 @@ import logging
 import math
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
+from predicators.envs.pybullet_domino import geometry
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.structs import GroundAtom, Object, State, StepOption
@@ -224,44 +225,16 @@ def _fall_direction(states: Sequence[State], domino: Object,
         return dx / norm, dy / norm
     yaw = states[onset].get(domino, "yaw")
     sign = -1.0 if states[settle].get(domino, "roll") > 0 else 1.0
-    return -math.sin(yaw) * sign, math.cos(yaw) * sign
-
-
-def _rect_corners(cx: float, cy: float, ax: float, ay: float, half_len: float,
-                  half_wid: float) -> List[Tuple[float, float]]:
-    """Corners of an oriented rectangle centered at (cx, cy) whose long axis is
-    the unit vector (ax, ay)."""
-    px, py = -ay, ax
-    return [(cx + sl * half_len * ax + sw * half_wid * px,
-             cy + sl * half_len * ay + sw * half_wid * py)
-            for sl, sw in ((1, 1), (1, -1), (-1, -1), (-1, 1))]
-
-
-def _rects_gap(rect_a: List[Tuple[float, float]],
-               rect_b: List[Tuple[float, float]]) -> float:
-    """Signed separation between two oriented rectangles (SAT over their edge
-    normals): positive is the clearance between them, negative means they
-    overlap in plan view."""
-    best = -math.inf
-    for rect, other in ((rect_a, rect_b), (rect_b, rect_a)):
-        for i in range(2):
-            ex = rect[i + 1][0] - rect[i][0]
-            ey = rect[i + 1][1] - rect[i][1]
-            norm = math.hypot(ex, ey)
-            nx, ny = -ey / norm, ex / norm
-            proj = [c[0] * nx + c[1] * ny for c in rect]
-            proj_other = [c[0] * nx + c[1] * ny for c in other]
-            sep = max(min(proj_other) - max(proj), min(proj) - max(proj_other))
-            best = max(best, sep)
-    return best
+    return geometry.fall_axis(yaw, sign)
 
 
 def _footprint(state: State, domino: Object) -> List[Tuple[float, float]]:
     """Plan-view base rectangle of ``domino`` in ``state``."""
     _, width, depth = _domino_dims()
     yaw = state.get(domino, "yaw")
-    return _rect_corners(state.get(domino, "x"), state.get(domino, "y"),
-                         math.cos(yaw), math.sin(yaw), width / 2, depth / 2)
+    return geometry.domino_footprint(state.get(domino, "x"),
+                                     state.get(domino, "y"), yaw, width / 2,
+                                     depth / 2)
 
 
 def _leaning_footprint(state: State,
@@ -278,11 +251,11 @@ def _leaning_footprint(state: State,
     roll = state.get(domino, "roll")
     proj = height * math.sin(min(abs(roll), math.pi / 2))
     sign = -1.0 if roll > 0 else 1.0
-    tilt_x, tilt_y = -math.sin(yaw) * sign, math.cos(yaw) * sign
-    return _rect_corners(
+    tilt_x, tilt_y = geometry.fall_axis(yaw, sign)
+    return geometry.domino_footprint(
         state.get(domino, "x") + tilt_x * proj / 2,
-        state.get(domino, "y") + tilt_y * proj / 2, math.cos(yaw),
-        math.sin(yaw), width / 2, depth / 2 + proj / 2)
+        state.get(domino, "y") + tilt_y * proj / 2, yaw, width / 2,
+        depth / 2 + proj / 2)
 
 
 def _knock_gap(states: Sequence[State], predecessor: Object, onset_p: int,
@@ -302,9 +275,10 @@ def _knock_gap(states: Sequence[State], predecessor: Object, onset_p: int,
     base_x = states[onset_p].get(predecessor, "x")
     base_y = states[onset_p].get(predecessor, "y")
     reach = _cascade_reach()
-    corridor = _rect_corners(base_x + fx * reach / 2, base_y + fy * reach / 2,
-                             fx, fy, reach / 2, width / 2)
-    return _rects_gap(corridor, _footprint(onset_state, domino))
+    corridor = geometry.rect_corners(base_x + fx * reach / 2,
+                                     base_y + fy * reach / 2, fx, fy,
+                                     reach / 2, width / 2)
+    return geometry.rect_gap(corridor, _footprint(onset_state, domino))
 
 
 def _robot_strike_nearby(states: Sequence[State], robot: Object,
@@ -377,8 +351,8 @@ def _best_relay_attribution(
             for s in window:
                 contact_gap = min(
                     contact_gap,
-                    _rects_gap(_leaning_footprint(states[s], relay),
-                               footprint_d))
+                    geometry.rect_gap(_leaning_footprint(states[s], relay),
+                                      footprint_d))
                 if slide_start == onset and math.hypot(
                         states[s].get(relay, "x") - start_x, states[s].get(
                             relay, "y") - start_y) >= RELAY_MIN_SLIDE:

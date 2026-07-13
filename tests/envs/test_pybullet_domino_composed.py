@@ -118,7 +118,7 @@ def test_unfinished_state_avoids_staging_collisions() -> None:
     }
 
     # pylint: disable=protected-access
-    moved = generator._move_intermediate_objects_to_unfinished_state(obj_dict)
+    moved = generator.stage_movable_blocks(obj_dict)
 
     assert moved is not None
     movable = comp.dominos[2]
