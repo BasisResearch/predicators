@@ -356,31 +356,32 @@ class PyBulletEnv(BaseEnv):
         else:
             base_pose = Pose(cls.robot_base_pos, cls.robot_base_orn)
 
-        cls._sync_robot_init_pos_with_home(base_pose)
+        home_position = get_robot_home_ee_position(CFG.pybullet_robot,
+                                                   base_pose)
+        cls._sync_robot_init_pos_with_home(home_position)
         ee_home = Pose((cls.robot_init_x, cls.robot_init_y, cls.robot_init_z),
-                       cls.get_robot_ee_init_orn())
+                       cls.get_robot_ee_init_orn(home_position is not None))
 
         return create_single_arm_pybullet_robot(CFG.pybullet_robot,
                                                 physics_client_id, ee_home,
                                                 base_pose)
 
     @classmethod
-    def get_robot_ee_init_orn(cls) -> Quaternion:
-        """The end-effector orientation the robot's initial state encodes.
+    def get_robot_ee_init_orn(cls, has_home_config: bool) -> Quaternion:
+        """The end-effector orientation to home the robot to.
 
-        The robot must home to the orientation its initial state describes.
-        Otherwise it homes to one orientation and every state reset runs IK to
-        another: reaching the same position under a rolled orientation puts
-        the arm in a different IK branch, which for the Panda means a
-        contorted one (the wrist roll costs more than a shoulder swing under
-        IK's closest-solution metric, so it swings the shoulder).
+        A robot with a home configuration must home to the orientation its
+        initial state describes. Otherwise it homes to one orientation and
+        every state reset runs IK to another.
 
-        Mirrors how _extract_robot_state builds the orientation, per angle:
-        from the robot's roll/tilt/wrist features where it has them, and from
-        get_robot_ee_home_orn() where it does not.
+        Robots without a home configuration (the Fetch) keep homing to
+        get_robot_ee_home_orn(). Their home orientation can likewise disagree
+        with their initial state's, but they have no canonical branch to
+        protect, and their initial_joint_positions seed the oracle's motion
+        planning -- so moving their home perturbs plans that work today.
         """
         robot_type = getattr(cls, "_robot_type", None)
-        if robot_type is None:
+        if not has_home_config or robot_type is None:
             return cls.get_robot_ee_home_orn()
         names = robot_type.feature_names
         default_roll, default_tilt, default_wrist = p.getEulerFromQuaternion(
@@ -391,27 +392,19 @@ class PyBulletEnv(BaseEnv):
         return p.getQuaternionFromEuler([roll, tilt, wrist])
 
     @classmethod
-    def _sync_robot_init_pos_with_home(cls, base_pose: Optional[Pose]) -> None:
+    def _sync_robot_init_pos_with_home(
+            cls, home_position: Optional[Pose3D]) -> None:
         """Point robot_init_{x,y,z} at the robot's home configuration, for
-        robots that have one.
+        robots that have one (home_position is None for robots that do not).
 
         Envs specify robot_init_{x,y,z} for the Fetch, whose reach is much
-        longer than the Panda's: those positions leave the Panda stretched to
-        the edge of its workspace, and in several envs they are outside it
-        entirely, so IK fails and the Panda cannot be built at all. A robot
-        with a home configuration ignores them and starts where it rests
-        instead, in the same configuration in every env.
-
-        Robots without a home configuration (the Fetch) keep the env's
-        positions, which is why the env's values are restored rather than
-        merely left alone -- the same env class is reused across robots
-        within a process.
+        longer than the Panda's. A robot with a home configuration ignores
+        them and starts where it rests instead. Robots without a home 
+        configuration (the Fetch) keep the env's positions.
         """
         if cls not in _ENV_TO_ROBOT_INIT_POS:
             _ENV_TO_ROBOT_INIT_POS[cls] = (cls.robot_init_x, cls.robot_init_y,
                                            cls.robot_init_z)
-        home_position = get_robot_home_ee_position(CFG.pybullet_robot,
-                                                   base_pose)
         if home_position is None:
             home_position = _ENV_TO_ROBOT_INIT_POS[cls]
         cls.robot_init_x, cls.robot_init_y, cls.robot_init_z = home_position
