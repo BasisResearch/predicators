@@ -187,7 +187,8 @@ class DominoTaskGenerator(TaskGenerator):
                 if DominoComponent._MovableBlock_holds(init_state, [obj]))
             evaluator = DominoEvaluator(goal_atoms, num_movables)
             goal_nl += (" Use as few blue dominoes as possible: each blue "
-                        "domino that topples costs reward.")
+                        "domino the cascade topples or shoves out of place "
+                        "costs reward.")
 
         return EnvironmentTask(init_state,
                                goal_atoms,
@@ -206,10 +207,10 @@ class DominoTaskGenerator(TaskGenerator):
         task ``DominoEvaluator`` (offline k_star = K*) is attached
         afterwards with physics in the loop — see
         ``min_block_generation._assign_min_blocks``. The goal is simply
-        to topple the target; each blue toppled costs reward, so a
-        solver that over-estimates reach under-builds and fails while an
-        over-builder pays the cost. Returns ``None`` if no in-bounds
-        placement is found.
+        to topple the target; each blue the cascade consumes costs
+        reward, so a solver that over-estimates reach under-builds and
+        fails while an over-builder pays the cost. Returns ``None`` if
+        no in-bounds placement is found.
         """
         dominos = self.domino.dominos
         num_blues = min(CFG.domino_min_block_num_blues, len(dominos) - 2)

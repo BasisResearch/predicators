@@ -42,8 +42,9 @@ class DominoEvaluator(TaskEvaluator):
 
     ``terminated`` is the inherited goal-atom check (the target
     toppled, however that happened). The success bonus is gated on
-    cascade legitimacy, and each toppled movable (blue) domino costs
-    ``CFG.domino_block_cost`` reward, so an over-built
+    cascade legitimacy, and each movable (blue) domino the cascade
+    consumes - toppled, or shoved off its stand as a slide-relay -
+    costs ``CFG.domino_block_cost`` reward, so an over-built
     (denser-than-needed) chain succeeds at lower reward while an
     under-built one fails to topple the target. The oracle K* (the
     searched minimum blues at the true friction) deliberately does NOT
@@ -51,9 +52,10 @@ class DominoEvaluator(TaskEvaluator):
     must hold no oracle quantity - K* travels env-side via
     ``EnvironmentTask.offline_task_metrics``. Both reward and
     certificate are physics-independent pure functions of the state
-    trajectory (``count_movable_blocks_used`` reads roll angles, no
-    physics stepping) and the evaluator holds no env handle, which is
-    what makes shipping it on the ``Task`` leak-free.
+    trajectory (``count_movable_blocks_used`` reads roll angles and
+    not-held displacements, no physics stepping) and the evaluator
+    holds no env handle, which is what makes shipping it on the
+    ``Task`` leak-free.
     """
 
     def __init__(self,
@@ -74,7 +76,7 @@ class DominoEvaluator(TaskEvaluator):
         ok, _ = self._certify(states, step_options)
         bonus = float(self.terminated(states[-1]) and ok)
         return bonus - CFG.domino_block_cost * \
-            count_movable_blocks_used(states[-1])
+            count_movable_blocks_used(states)
 
     def _certify(
             self, states: Sequence[State],
@@ -94,7 +96,7 @@ class DominoEvaluator(TaskEvaluator):
             self, states: Sequence[State],
             step_options: Optional[Sequence[StepOption]]) -> Dict[str, float]:
         del step_options  # unused
-        return {"k_used": float(count_movable_blocks_used(states[-1]))}
+        return {"k_used": float(count_movable_blocks_used(states))}
 
     def objective_description(self) -> str:
         return ("Success (+1 reward) = the target domino topples via a "
@@ -105,8 +107,9 @@ class DominoEvaluator(TaskEvaluator):
                 "block must be pushed where it stands: picking it up or "
                 "sliding it away from its staged pose voids the bonus, so the "
                 "cascade must bridge the gap with blue dominoes. Each movable "
-                f"(blue) domino that topples costs {CFG.domino_block_cost} "
-                "reward, so use as few blues as possible.")
+                "(blue) domino the cascade consumes - toppled, or shoved off "
+                f"its stand - costs {CFG.domino_block_cost} reward, so use "
+                "as few blues as possible.")
 
 
 class PyBulletDominoComposedEnv(PyBulletEnv):

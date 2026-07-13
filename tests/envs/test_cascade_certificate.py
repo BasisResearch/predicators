@@ -342,6 +342,225 @@ def test_reach_violation_fails():
     assert "target" in reason
 
 
+def _slide_profile(start: Tuple[float, float], stops: Dict[int, Tuple[float,
+                                                                      float]],
+                   num_steps: int) -> List[Tuple[float, float]]:
+    """Step-function xy profile: at ``start`` until each ``stops[t]`` takes
+    over from step ``t`` on."""
+    profile = []
+    pos = start
+    for t in range(num_steps + 1):
+        if t in stops:
+            pos = stops[t]
+        profile.append(pos)
+    return profile
+
+
+def test_slide_relay_passes():
+    """A rammed block that slides into the target without toppling is a genuine
+    cascade link (rule (b)'s one-hop relay attribution).
+
+    The run_20260713_133936 task-3 false rejection: the green fell onto
+    a staged blue, which never toppled - it slid 0.12 m into the purple
+    and knocked it over (then rocked back upright). The target is
+    beyond the green's swept corridor, so direct attribution fails, but
+    the swept relay's slide explains the topple.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    num = 30
+    # blue1 starts inside green's corridor and slides to contact range
+    # of the target between the green's onset (10) and the target's
+    # onset (18).
+    profile = _slide_profile((0.7, 1.10), {
+        11: (0.7, 1.13),
+        12: (0.7, 1.17),
+        13: (0.7, 1.21),
+        14: (0.7, 1.254)
+    }, num)
+    states = _build_states(objs,
+                           num, {
+                               "green": 10,
+                               "target": 18
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "target": (0.7, 1.27)
+                           },
+                           position_profiles={"blue1": profile})
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], num)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason
+    # The relay was consumed even though it never toppled: it costs the
+    # same as a toppled blue, so staying upright earns no discount.
+    assert count_movable_blocks_used(states) == 1
+
+
+def test_slide_relay_stationary_bystander_fails():
+    """A swept block that never moved explains nothing: the target's topple
+    stays unattributable (proximity alone is not causality)."""
+    objs = _make_objects(["green", "blue1", "target"])
+    num = 30
+    states = _build_states(objs,
+                           num, {
+                               "green": 10,
+                               "target": 18
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "blue1": (0.7, 1.10),
+                               "target": (0.7, 1.27)
+                           })
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], num)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "target" in reason and "relay" in reason
+
+
+def test_slide_relay_unswept_fails():
+    """A block that slid into the target unrammed is not a cascade relay.
+
+    Its staged footprint sits outside every falling domino's corridor,
+    so its slide is robot work, however it was produced.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    num = 30
+    # blue1 approaches from the side, well clear of green's corridor.
+    profile = _slide_profile((0.85, 1.10), {
+        11: (0.80, 1.15),
+        13: (0.75, 1.20),
+        15: (0.7, 1.254)
+    }, num)
+    states = _build_states(objs,
+                           num, {
+                               "green": 10,
+                               "target": 18
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "target": (0.7, 1.27)
+                           },
+                           position_profiles={"blue1": profile})
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], num)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "target" in reason
+
+
+def test_slide_relay_held_fails():
+    """A held block sliding into the target is the robot's tool, never a
+    relay."""
+    objs = _make_objects(["green", "blue1", "target"])
+    num = 30
+    profile = _slide_profile((0.7, 1.10), {
+        11: (0.7, 1.13),
+        12: (0.7, 1.17),
+        13: (0.7, 1.21),
+        14: (0.7, 1.254)
+    }, num)
+    states = _build_states(objs,
+                           num, {
+                               "green": 10,
+                               "target": 18
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "target": (0.7, 1.27)
+                           },
+                           position_profiles={"blue1": profile},
+                           held_spans={"blue1": (11, 15)})
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], num)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "target" in reason
+
+
+def test_slide_relay_graze_with_robot_adjacent_fails():
+    """A relay whose contact with the target is only a graze, with the EE in
+    strike range of the target at its onset, is charged to the robot (rule (c)
+    applied at the relay-to-block seam)."""
+    objs = _make_objects(["green", "blue1", "target"])
+    num = 30
+    # Slide stops 0.010 m short of the target's footprint (grazing band).
+    profile = _slide_profile((0.7, 1.10), {
+        11: (0.7, 1.13),
+        12: (0.7, 1.17),
+        13: (0.7, 1.21),
+        14: (0.7, 1.245)
+    }, num)
+    states = _build_states(objs,
+                           num, {
+                               "green": 10,
+                               "target": 18
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "target": (0.7, 1.27)
+                           },
+                           position_profiles={"blue1": profile},
+                           robot_xyz=(0.70, 1.30, 0.5))
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], num)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "target" in reason and "robot" in reason
+
+
+def test_slide_relay_robot_shoved_fails():
+    """A relay the cascade only GRAZES, whose slide begins with the EE in
+    strike range of the relay, is charged to the robot (rule (c) applied at the
+    corridor-to-relay seam): the arm, not the graze, supplied the slide."""
+    objs = _make_objects(["green", "blue1", "target"])
+    num = 30
+    # blue1 sits just past the corridor end (grazing attribution) and
+    # slides to solid contact with the target; the EE hovers next to
+    # blue1 when the slide begins.
+    profile = _slide_profile((0.7, 1.195), {
+        11: (0.7, 1.215),
+        12: (0.7, 1.235),
+        13: (0.7, 1.254)
+    }, num)
+    states = _build_states(objs,
+                           num, {
+                               "green": 10,
+                               "target": 18
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "target": (0.7, 1.27)
+                           },
+                           position_profiles={"blue1": profile},
+                           robot_xyz=(0.70, 1.15, 0.5))
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], num)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "blue1" in reason and "robot" in reason
+
+
+def test_count_used_includes_displaced_blues():
+    """count_movable_blocks_used charges toppled blues AND blues the cascade
+    shoved (not-held displacement), but never robot-transported ones."""
+    objs = _make_objects(["green", "blue1", "blue2", "blue3", "blue4"])
+    num = 20
+    # blue2 is shoved 0.05 m while free; blue4 moves only while held.
+    shoved = _slide_profile((0.9, 1.2), {12: (0.9, 1.25)}, num)
+    carried = _slide_profile((1.0, 1.2), {8: (1.0, 1.4)}, num)
+    states = _build_states(objs,
+                           num, {
+                               "green": 5,
+                               "blue1": 10
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "blue1": (0.7, 1.098),
+                               "blue3": (0.8, 1.2)
+                           },
+                           position_profiles={
+                               "blue2": shoved,
+                               "blue4": carried
+                           },
+                           held_spans={"blue4": (6, 15)})
+    assert count_movable_blocks_used(states) == 2
+
+
 def test_arm_topple_beside_fallen_green_fails():
     """The gripper toppling a block the fallen green missed: rejected.
 
@@ -652,9 +871,10 @@ def test_domino_evaluator_reward_decomposition():
                                "blue1": (0.7, 1.098),
                                "target": (0.7, 1.196)
                            })
-    # The pure block count sees exactly one toppled BLUE in the final
-    # state (green also fell but is filtered by color; target is purple).
-    assert count_movable_blocks_used(states[-1]) == 1
+    # The pure block count sees exactly one consumed BLUE (blue1
+    # toppled; green also fell but is filtered by color; target is
+    # purple).
+    assert count_movable_blocks_used(states) == 1
     evaluator = DominoEvaluator(goal)
     honest = _options([("Push", ("robot", "green"), 0, 7)], 30)
     hacked = _options([("Push", ("robot", "blue1"), 0, 7)], 30)
