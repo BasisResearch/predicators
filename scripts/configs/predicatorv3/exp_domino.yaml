@@ -10,12 +10,12 @@ includes:
   - approaches/all.yaml
 ENVS:
   domino:
-    SKIP: True
+    SKIP: False
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
   # Forward (over-reach) arm: true friction 0.1, planner believes 0.5.
   domino_low_friction:
-    SKIP: True
+    SKIP: False
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
   # Reverse (under-reach) arm: true friction 0.5, planner believes 0.1.
@@ -27,6 +27,6 @@ APPROACHES:
   agent_oracle_hybrid_sim:
     SKIP: False
   agent_po_predicate_invention_al:
-    SKIP: False
+    SKIP: True
     FLAGS:
       skip_initial_test: True
