@@ -498,7 +498,10 @@ def _render_pybullet_image(
         if ctx.image_save_dir:
             os.makedirs(ctx.image_save_dir, exist_ok=True)
             safe_label = step_label.replace(" ", "_").replace("/", "_")
+            task_tag = (f"_task{ctx.test_task_idx:03d}"
+                        if ctx.test_task_idx is not None else "")
             filename = (f"iter{ctx.iteration_id:03d}"
+                        f"{task_tag}"
                         f"_test{ctx.test_call_id:03d}"
                         f"_{safe_label}.png")
             saved_path = os.path.join(ctx.image_save_dir, filename)
