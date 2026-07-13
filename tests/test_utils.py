@@ -3600,3 +3600,94 @@ def test_parse_model_output_into_option_plan():
     assert len(
         utils.parse_model_output_into_option_plan(prose, objs, types, options,
                                                   False)) == 0
+    # A 0-argument option with empty parens is a valid line, not a
+    # malformed object-type pair.
+    cover_options = get_gt_options("cover")
+    zero_arg = utils.parse_model_output_into_option_plan(
+        "PickPlace()[0.5]", [], [], cover_options, True)
+    assert len(zero_arg) == 1
+    assert zero_arg[0][0].name == "PickPlace"
+    assert zero_arg[0][2] == [0.5]
+
+
+def test_parse_model_output_into_option_plan_strict():
+    """``strict=True`` turns silently-dropped/truncated lines into
+    ``ValueError``s naming the offending line.
+
+    A malformed line in an agent tool's plan argument used to be dropped
+    with only an INFO log, so the tool executed a different plan than
+    the agent wrote and the agent burned turns confused
+    (run_20260712_185741 task 1: wrong-arity Place lines silently
+    ignored for most of a session).
+    """
+    utils.reset_config()
+    options = get_gt_options("blocks")
+    pick_opt = next(o for o in options if o.name == "Pick")
+    robot_type, block_type = pick_opt.types
+    robby = Object("robby", robot_type)
+    b0 = Object("b0", block_type)
+    types = [robot_type, block_type]
+    objs = [robby, b0]
+    good = "Pick(robby:robot, b0:block)"
+    bad_extra_arg = "Pick(robby:robot, b0:block, b0:block)"
+    # Non-strict (freeform LLM output): the malformed middle line is
+    # silently dropped and the surrounding lines still parse - the
+    # historical hazard, kept for callers parsing prose-embedded plans.
+    dropped = utils.parse_model_output_into_option_plan(
+        "\n".join([good, bad_extra_arg, good]), objs, types, options, False)
+    assert len(dropped) == 2
+    # Strict: the same text is an error naming the problem.
+    with pytest.raises(ValueError, match="too many object arguments"):
+        utils.parse_model_output_into_option_plan("\n".join(
+            [good, bad_extra_arg, good]),
+                                                  objs,
+                                                  types,
+                                                  options,
+                                                  False,
+                                                  strict=True)
+    # Too FEW arguments previously had no log at all.
+    with pytest.raises(ValueError, match="expects 2"):
+        utils.parse_model_output_into_option_plan("Pick(robby:robot)",
+                                                  objs,
+                                                  types,
+                                                  options,
+                                                  False,
+                                                  strict=True)
+    # A typo'd option name after the plan starts: non-strict truncates
+    # everything after it; strict raises.
+    typo = "\n".join([good, "Plaace(robby:robot, b0:block)", good])
+    assert len(
+        utils.parse_model_output_into_option_plan(typo, objs, types, options,
+                                                  False)) == 1
+    with pytest.raises(ValueError, match="valid option name"):
+        utils.parse_model_output_into_option_plan(typo,
+                                                  objs,
+                                                  types,
+                                                  options,
+                                                  False,
+                                                  strict=True)
+    # Strict also refuses preamble prose: tool plan text is plan-only.
+    with pytest.raises(ValueError, match="valid option name"):
+        utils.parse_model_output_into_option_plan("here is my plan:\n" + good,
+                                                  objs,
+                                                  types,
+                                                  options,
+                                                  False,
+                                                  strict=True)
+    # Continuous parameters under strict: a count mismatch errors, but an
+    # explicit empty `[]` passes through as "no seed" (the refine sketch
+    # grammar; the caller decides how to interpret it).
+    cover_options = get_gt_options("cover")
+    with pytest.raises(ValueError, match="continuous parameter"):
+        utils.parse_model_output_into_option_plan("PickPlace()[0.5, 0.5]", [],
+                                                  [],
+                                                  cover_options,
+                                                  True,
+                                                  strict=True)
+    no_seed = utils.parse_model_output_into_option_plan("PickPlace()[]", [],
+                                                        [],
+                                                        cover_options,
+                                                        True,
+                                                        strict=True)
+    assert len(no_seed) == 1
+    assert no_seed[0][2] == []

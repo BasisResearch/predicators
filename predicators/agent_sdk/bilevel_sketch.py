@@ -601,12 +601,19 @@ def parse_sketch_from_text(
     options: Set[ParameterizedOption],
     types: Set[Type],
     parse_continuous_params: bool = False,
+    strict: bool = False,
 ) -> List[SketchStep]:
     """Parse plan-sketch text into ``SketchStep``s.
 
     Applies ``strip_code_fences`` first, then delegates option-plan
     parsing to ``utils.parse_model_output_into_option_plan`` and subgoal
     annotation parsing to ``parse_subgoal_annotations``.
+
+    ``strict`` is for tool inputs that are pure plan text: any line that
+    fails to parse raises ``ValueError`` naming the line, instead of the
+    default freeform tolerance (skip preamble, drop malformed lines,
+    truncate at the first non-option line). Without it, a dropped line
+    also silently misaligns the per-line subgoal annotations below.
 
     When ``parse_continuous_params`` is set, each step's ``[p0, p1, ...]``
     block is parsed by the SAME canonical parser the open-loop planner
@@ -629,7 +636,8 @@ def parse_sketch_from_text(
         objects,
         types,
         options,
-        parse_continuous_params=parse_continuous_params)
+        parse_continuous_params=parse_continuous_params,
+        strict=strict)
 
     if not parsed:
         return []
@@ -642,6 +650,12 @@ def parse_sketch_from_text(
         sg = subgoals[i] if i < len(subgoals) else None
         ip = (np.asarray(params, dtype=np.float32)
               if parse_continuous_params else None)
+        if ip is not None and ip.size == 0 and \
+                option.params_space.shape[0] > 0:
+            # Explicit `[]` on a parametrized option: "no seed" - let the
+            # refinement search sample the parameters (strict parsing lets
+            # the empty list through for exactly this case).
+            ip = None
         if sg is not None:
             pos, neg = sg
             sketch.append(
