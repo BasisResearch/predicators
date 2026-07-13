@@ -19,13 +19,17 @@ from predicators.structs import GroundAtom, Object, Predicate, State, Type
 
 _DOMINO_TYPE = Type("domino",
                     ["x", "y", "z", "yaw", "roll", "r", "g", "b", "is_held"])
+_ROBOT_TYPE = Type("robot", ["x", "y", "z"])
 _TOPPLED = Predicate("Toppled", [_DOMINO_TYPE], lambda s, o: False)
 
 _GREEN = DominoComponent.start_domino_color
 _BLUE = DominoComponent.domino_color
 _PURPLE = DominoComponent.target_domino_color
 
-_FALLEN_ROLL = 0.6  # past fallen_threshold (pi/6 ~= 0.524)
+# Past fallen_threshold (pi/6 ~= 0.524). Negative: with the env's yaw
+# convention a NEGATIVE roll falls along (-sin yaw, cos yaw), i.e. +y at
+# yaw 0, which is the direction the synthetic chains below progress.
+_FALLEN_ROLL = -0.6
 
 # A straight chain along y with hops well inside the 0.18 m reach.
 _CHAIN_Y = {"green": 1.0, "blue1": 1.098, "blue2": 1.196, "target": 1.294}
@@ -53,6 +57,8 @@ def _build_states(
                                                          float]]]] = None,
     roll_profiles: Optional[Dict[str, Sequence[float]]] = None,
     held_spans: Optional[Dict[str, Tuple[int, int]]] = None,
+    yaws: Optional[Dict[str, float]] = None,
+    robot_xyz: Optional[Tuple[float, float, float]] = None,
 ) -> List[State]:
     """Build a trajectory of ``num_steps + 1`` states.
 
@@ -60,8 +66,11 @@ def _build_states(
     fallen after. ``roll_profiles`` overrides the roll sequence for a
     domino entirely; ``position_profiles`` gives a per-step (x, y)
     sequence for a domino (e.g. a relocation); ``held_spans[name] =
-    (a, b)`` sets is_held on state indices [a, b].
+    (a, b)`` sets is_held on state indices [a, b]; ``yaws`` overrides
+    the default 0 yaw; ``robot_xyz`` adds a robot object parked at that
+    end-effector position for the whole episode.
     """
+    robot = Object("robot", _ROBOT_TYPE) if robot_xyz is not None else None
     states = []
     for t in range(num_steps + 1):
         data = {}
@@ -82,9 +91,12 @@ def _build_states(
             if held_spans is not None and name in held_spans:
                 lo, hi = held_spans[name]
                 held = 1.0 if lo <= t <= hi else 0.0
+            yaw = yaws.get(name, 0.0) if yaws is not None else 0.0
             data[obj] = np.array(
-                [x, y, 0.475, 0.0, roll, *_color_for(name)[:3], held],
+                [x, y, 0.475, yaw, roll, *_color_for(name)[:3], held],
                 dtype=np.float32)
+        if robot is not None:
+            data[robot] = np.array(robot_xyz, dtype=np.float32)
         states.append(State(data))
     return states
 
@@ -330,6 +342,116 @@ def test_reach_violation_fails():
     assert "target" in reason
 
 
+def test_arm_topple_beside_fallen_green_fails():
+    """The gripper toppling a block the fallen green missed: rejected.
+
+    The run_20260713_000327 task-2 hack: the agent pushes the green
+    (satisfying rules a0-a3), the green falls flat WITHOUT reaching the
+    staged relay (its fall line clears the relay's footprint by ~2 cm),
+    and the Push option's closing descent knocks the relay over instead.
+    The old isotropic reach check attributed the relay to the green
+    (onset 4 steps later, centers 0.09 m apart); the directional
+    corridor rule must not. Geometry below reproduces the recorded onset
+    states: green at (1.026, 1.285) yaw 0 falling +y, relay at its onset
+    pose (0.934, 1.379) yaw 1.05.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    states = _build_states(objs,
+                           30, {
+                               "green": 8,
+                               "blue1": 12
+                           },
+                           positions={
+                               "green": (1.026, 1.285),
+                               "blue1": (0.934, 1.379),
+                               "target": (0.846, 1.515)
+                           },
+                           yaws={
+                               "blue1": 1.05,
+                               "target": 1.5708
+                           })
+    step_options = _options([("Push", ("robot", "green"), 5, 9)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "blue1" in reason and "sweep missed" in reason
+
+
+def test_graze_with_robot_adjacent_fails():
+    """A grazing-only attribution with the end-effector in strike range is
+    charged to the robot (rule c).
+
+    The believed-arm bystander case (run_20260713_115630 task 3): the
+    legitimate chain completes, and the poker's post-push descent tips a
+    bystander blue that every falling domino's corridor only grazes.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    states = _build_states(
+        objs,
+        30,
+        {
+            "green": 5,
+            "target": 11,
+            "blue1": 16
+        },
+        positions={
+            "green": (0.7, 1.0),
+            "target": (0.7, 1.098),
+            # Lateral offset 0.08 from the chain line: corridor
+            # clearance ~+0.01, inside the grazing band.
+            "blue1": (0.78, 1.09)
+        },
+        # EE 0.06 m from the bystander, at block height.
+        robot_xyz=(0.84, 1.09, 0.5))
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "blue1" in reason and "robot" in reason
+
+
+def test_graze_with_robot_clear_passes():
+    """The same grazing knock with the end-effector far away is a legitimate
+    corner-style graze (real corner chains measure up to +0.014 m of modeled
+    clearance) and must pass."""
+    objs = _make_objects(["green", "blue1", "target"])
+    states = _build_states(objs,
+                           30, {
+                               "green": 5,
+                               "target": 11,
+                               "blue1": 16
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "target": (0.7, 1.098),
+                               "blue1": (0.78, 1.09)
+                           },
+                           robot_xyz=(1.2, 1.5, 0.9))
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason
+
+
+def test_tight_chain_with_robot_adjacent_passes():
+    """A solid corridor-overlap knock stays legitimate even when the EE is
+    centimeters away: pushing the green in a tightly staged chain necessarily
+    ends the push with the EE next to the first relay."""
+    objs = _make_objects(["green", "blue1", "target"])
+    states = _build_states(objs,
+                           30, {
+                               "green": 5,
+                               "blue1": 9,
+                               "target": 14
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "blue1": (0.7, 1.098),
+                               "target": (0.7, 1.196)
+                           },
+                           robot_xyz=(0.7, 1.05, 0.5))
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason
+
+
 def test_held_block_roll_excursion_ignored():
     """A carried blue tilts freely; only unheld topples count."""
     objs = _make_objects(["green", "blue1", "target"])
@@ -516,7 +638,7 @@ def test_domino_evaluator_reward_decomposition():
     # Toppled with a real classifier so terminated() reflects the states.
     toppled = Predicate(
         "Toppled", [_DOMINO_TYPE],
-        lambda s, o: float(s.get(o[0], "roll")) >= _FALLEN_ROLL)
+        lambda s, o: abs(float(s.get(o[0], "roll"))) >= abs(_FALLEN_ROLL))
     objs = _make_objects(["green", "blue1", "target"])
     goal = {GroundAtom(toppled, [objs["target"]])}
     states = _build_states(objs,
