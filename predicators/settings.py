@@ -598,6 +598,17 @@ class GlobalSettings:
     # K* = the verified reach-limited blue count of the L-chain. 0.0 = all
     # straight (original min-block behaviour).
     domino_min_block_turn_ratio = 0.5
+    # Turn-task leg bands: entry/exit leg lengths (metres) sampled uniformly
+    # from [lo, hi] per attempt. None (default) = the legacy over_reach band
+    # hardcoded in _make_turn_task (the low-friction arm); under_reach arms
+    # MUST set these explicitly - the legacy under_reach band shipped
+    # agent-intractable pair-corner tasks. Probe candidate bands with
+    # scripts/domino_debug/probe_min_block_bands.py whenever the friction
+    # pair changes (the differentiating cells move with the frictions).
+    domino_min_block_turn_entry_lo: Optional[float] = None
+    domino_min_block_turn_entry_hi: Optional[float] = None
+    domino_min_block_turn_exit_lo: Optional[float] = None
+    domino_min_block_turn_exit_hi: Optional[float] = None
     # Heavy-block (immovable obstacle) task type — the single switch for the
     # variant. A HEAVY gray domino-shaped block sits with natural alignment
     # in one of two shapes (mixed per domino_min_block_turn_ratio):

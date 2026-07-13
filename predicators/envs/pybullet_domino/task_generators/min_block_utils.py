@@ -443,12 +443,24 @@ def _on_table(comp: Any, pts: List[Any]) -> bool:
 
 def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
                             target_pose: Any) -> Any:
-    """Yield candidate k-blue layouts for a cornered target.
+    """``_candidate_turn_layouts_labeled`` without the family label."""
+    for _fam, od, start, target in _candidate_turn_layouts_labeled(
+            comp, k, start_pose, target_pose):
+        yield od, start, target
 
-    Each candidate is ``(obj_dict, start, target)`` using ``comp.dominos[0]``
-    as the (green) start, ``dominos[1]`` as the (purple) target and
-    ``dominos[2:2+k]`` as blues - object identity is irrelevant here, only the
-    physics matters. Three sub-families:
+
+def _candidate_turn_layouts_labeled(comp: Any, k: int, start_pose: Any,
+                                    target_pose: Any) -> Any:
+    """Yield labeled candidate k-blue layouts for a cornered target.
+
+    Each candidate is ``(family, obj_dict, start, target)`` using
+    ``comp.dominos[0]`` as the (green) start, ``dominos[1]`` as the (purple)
+    target and ``dominos[2:2+k]`` as blues - object identity is irrelevant
+    here, only the physics matters. ``family`` names the sub-family below
+    (``"straight"`` / ``"corner"`` / ``"pair"``) so probe tooling can report
+    WHICH layout style topples - single natural corners are the style agents
+    actually build, so a task family whose only true-physics solution is the
+    knife-edge pair corner is agent-intractable. Three sub-families:
 
     * straight line: k blues evenly spaced from start to target with
       their fall axes ALONG the line - offered only within ~30 degrees
@@ -513,7 +525,7 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
                                                    float(p_pt[1]), line_yaw)
             pts.append((p_pt[0], p_pt[1]))
         if _on_table(comp, pts):
-            yield od, start, target
+            yield "straight", od, start, target
 
     if k < 2:
         return
@@ -576,7 +588,7 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
                         pts.append((p_pt[0], p_pt[1]))
                         slot += 1
                 if _on_table(comp, pts):
-                    yield od, start, target
+                    yield "corner", od, start, target
 
     # (c) Legacy 45-degree PAIR corner: d1 one corner-gap past the last
     # entry blue ON the entry fall line, yaw stepped 45 degrees INTO the
@@ -654,7 +666,7 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
                     pts.append((p_pt[0], p_pt[1]))
                     slot += 1
                 if _on_table(comp, pts):
-                    yield od, start, target
+                    yield "pair", od, start, target
 
 
 # First-exit-blue gaps swept by the dogleg probe (distance from the gray

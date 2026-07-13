@@ -50,15 +50,22 @@ ARMS = {
         "out_name": "task_examples.png",
     },
     # Under-reach: planner under-estimates reach, over-builds, topples
-    # but exceeds the K* budget. Turns redirect via 45-degree corner
-    # builds (legacy pair or natural single); 5 staged blues give the
-    # believed 4-blue builds a spare (see envs/all.yaml).
+    # but exceeds the K* budget. Short-leg geometry (retune 2026-07-12,
+    # see envs/all.yaml): straights K*=1 vs believed 2 on spans
+    # 0.29-0.31; turns K*=2 via a NATURAL single-corner blue vs believed
+    # 3 on legs 0.21-0.24 x 0.17-0.20; 4 staged blues give the believed
+    # 3-blue builds a spare.
     "high": {
         "true_friction": 0.5,
         "planning_friction": 0.1,
-        "span_lo": 0.44,
-        "span_hi": 0.65,
-        "num_blues": 5,
+        "span_lo": 0.29,
+        "span_hi": 0.31,
+        "num_blues": 4,
+        "turn_entry_lo": 0.21,
+        "turn_entry_hi": 0.24,
+        "turn_exit_lo": 0.17,
+        "turn_exit_hi": 0.20,
+        "block_cost": 0.1,
         "out_name": "task_examples_high_friction.png",
     },
 }
@@ -84,6 +91,13 @@ utils.reset_config({
     'domino_min_block_span_lo': ARM["span_lo"],
     'domino_min_block_span_hi': ARM["span_hi"],
     'domino_min_block_num_blues': NUM_BLUES,
+    # Arm-specific turn-leg bands / block cost (retuned high arm); the
+    # low arm keeps the generator's legacy direction defaults.
+    'domino_min_block_turn_entry_lo': ARM.get("turn_entry_lo"),
+    'domino_min_block_turn_entry_hi': ARM.get("turn_entry_hi"),
+    'domino_min_block_turn_exit_lo': ARM.get("turn_exit_lo"),
+    'domino_min_block_turn_exit_hi': ARM.get("turn_exit_hi"),
+    'domino_block_cost': ARM.get("block_cost", 0.05),
     'pybullet_birrt_extend_num_interp': 20,
     'pybullet_birrt_path_subsample_ratio': 2,
 })

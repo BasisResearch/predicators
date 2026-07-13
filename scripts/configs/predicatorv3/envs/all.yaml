@@ -100,24 +100,105 @@ ENVS:
       # metrics). K* is recomputed at the new true friction, and the
       # generator's under_reach filter keeps only tasks where the
       # believed build over-spends within the staged budget.
-      # Geometry recalibrated at true friction 0.5 (anchor reach probes
-      # 2026-07-08; yaw-parity fix + fresh-process re-validation
-      # 2026-07-09). Straight spans: 0.44-0.49 gives K*=2 vs believed 3
-      # and 0.59-0.65 gives K*=3 vs believed 4 (the 0.50-0.58 middle
-      # agrees at both frictions and is rejected per task). Turns: the
-      # 45-degree corner (legacy pair or natural single) costs an extra
-      # blue at planning friction 0.1 on long-leg cells around
-      # (entry 0.34, exit 0.28) - true K*=3 vs believed 4, stable
-      # across fresh sims; shorter legs tie 3v3 and (0.42, 0.24) is
-      # dual-valid knife-edge.
-      # Five staged blues give the believed 4-blue builds a spare blue
-      # (at 4 staged they need every blue and flip to unbuildable
-      # across the PyBullet settle round-trip).
+      # Geometry retuned 2026-07-12 (anchor probe sweeps; reproduce
+      # with scripts/domino_debug/probe_min_block_bands.py). The old
+      # geometry (spans 0.44-0.65, turn legs ~(0.34, 0.28), K*=2-3)
+      # made the true turn solution the knife-edge 45-degree PAIR
+      # corner, which the LLM oracle arm could not discover within its
+      # session budget (run_20260712_173955 failed exactly its two turn
+      # tasks). Short legs fix this: at true 0.5 a SINGLE natural-yaw
+      # corner blue redirects robustly (2-5 independent corner topplers
+      # per probed cell).
+      #   * Straight spans 0.29-0.31: true K*=1 vs believed 2 (stable
+      #     across probe rounds; 0.28 ties 1v1, 0.32+ is edge).
+      #   * Turn legs entry 0.21-0.24 x exit 0.17-0.20: true K*=2 via a
+      #     natural single corner vs believed 3 (believed k=2 layer dead
+      #     at friction 0.1 on these cells; exit<=0.16 neighbours tie
+      #     2v2 believed-side and sit outside the band - the per-task
+      #     certificates would drop them anyway).
+      # Four staged blues give the believed 3-blue builds a spare blue
+      # (strict k_bel < num_blues, same rationale as the old 5-for-4).
       domino_true_friction: 0.5
       domino_planning_friction: 0.1
-      domino_min_block_span_lo: 0.44
-      domino_min_block_span_hi: 0.65
-      domino_min_block_num_blues: 5
+      domino_min_block_span_lo: 0.29
+      domino_min_block_span_hi: 0.31
+      domino_min_block_turn_entry_lo: 0.21
+      domino_min_block_turn_entry_hi: 0.24
+      domino_min_block_turn_exit_lo: 0.17
+      domino_min_block_turn_exit_hi: 0.20
+      domino_min_block_num_blues: 4
+      # Double the default per-blue cost: with K* at 1-2, the baseline's
+      # one-extra-blue over-build shows as a 0.10 reward gap per task
+      # instead of 0.05 (0.1 * 4 staged blues < 1, so a certified
+      # success still outscores any failure).
+      domino_block_cost: 0.1
+  # BONUS under-reach arms (probe sweep 2026-07-12,
+  # scripts/domino_debug/probe_min_block_bands.py): same experiment at
+  # gentler true frictions, sharing the retuned short-leg geometry. Both
+  # differentiate against planning friction 0.1 in the anchor probes
+  # (straights 1v2 on spans 0.29-0.31; turns 2v3 via natural single
+  # corners) and both generation-verified 5/5 (2 turns K*=2 + 3
+  # straights K*=1) in fresh processes.
+  domino_mid_friction:
+    NAME: "pybullet_domino"
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: "loc,rot,angle,direction"
+      horizon: 500
+      domino_initialize_at_finished_state: False
+      domino_use_domino_blocks_as_target: True
+      domino_use_continuous_place: True
+      process_planning_heuristic_weight: 2.0
+      domino_has_glued_dominos: False
+      keep_failed_demos: True
+      predicate_invent_invent_derived_predicates: True
+      pybullet_birrt_extend_num_interp: 20
+      pybullet_birrt_path_subsample_ratio: 2
+      domino_min_block_tasks: True
+      # True 0.3 vs believed 0.1: corner viability at 0.3 is narrower
+      # than at 0.5 (entry 0.24+ cells probe true K*=3 and tie
+      # believed-side), so the turn band stays at short entries.
+      domino_true_friction: 0.3
+      domino_planning_friction: 0.1
+      domino_min_block_span_lo: 0.29
+      domino_min_block_span_hi: 0.31
+      domino_min_block_turn_entry_lo: 0.20
+      domino_min_block_turn_entry_hi: 0.22
+      domino_min_block_turn_exit_lo: 0.17
+      domino_min_block_turn_exit_hi: 0.19
+      domino_min_block_num_blues: 4
+      domino_block_cost: 0.1
+  domino_midhigh_friction:
+    NAME: "pybullet_domino"
+    SKIP: True
+    FLAGS:
+      max_initial_demos: 0
+      excluded_objects_in_state_str: "loc,rot,angle,direction"
+      horizon: 500
+      domino_initialize_at_finished_state: False
+      domino_use_domino_blocks_as_target: True
+      domino_use_continuous_place: True
+      process_planning_heuristic_weight: 2.0
+      domino_has_glued_dominos: False
+      keep_failed_demos: True
+      predicate_invent_invent_derived_predicates: True
+      pybullet_birrt_extend_num_interp: 20
+      pybullet_birrt_path_subsample_ratio: 2
+      domino_min_block_tasks: True
+      # True 0.4 vs believed 0.1: k=2 natural corners on short entries;
+      # entry 0.24 probes true K*=3 at exits 0.18-0.20 (unlike the 0.5
+      # arm), so the band stops at 0.23.
+      domino_true_friction: 0.4
+      domino_planning_friction: 0.1
+      domino_min_block_span_lo: 0.29
+      domino_min_block_span_hi: 0.31
+      domino_min_block_turn_entry_lo: 0.21
+      domino_min_block_turn_entry_hi: 0.23
+      domino_min_block_turn_exit_lo: 0.17
+      domino_min_block_turn_exit_hi: 0.20
+      domino_min_block_num_blues: 4
+      domino_block_cost: 0.1
   # Real-world domino: Learning + exploration stay in sim on
   # the reconstructed real scene; testing moves to the real Franka inside the
   # env (test mode only). un-skipped by exp_domino_real.yaml. Flags are

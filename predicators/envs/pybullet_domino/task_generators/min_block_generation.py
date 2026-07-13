@@ -490,19 +490,33 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
     # probes), and the drop log becomes a readable coverage map over the
     # finite (entry, exit) cells - the data for any future retuning.
     direction = _planning_mismatch_direction()
-    if direction == "under_reach":
-        # Band validated across FRESH sims 2026-07-09 (post yaw-parity
-        # fix): true corner K*=3 vs believed full corner 4 around
-        # (entry 0.34, exit 0.28) - clean in every cross-process probe.
-        # Rejected neighbours: entry ~0.38 probes true K*=4 and ties;
-        # shorter legs (entry 0.28-0.33) tie at 3v3 believed-side in a
-        # fresh sim; (entry 0.42, exit 0.24) certified in-process but a
-        # fresh process later found a dual-valid 3-blue corner there
-        # (the knife-edge that dual_valid_turn_layout_exists samples
-        # but cannot exhaust). Leg sums sit in the straight 3v4
-        # differential window (~0.60-0.64).
-        entry_leg = round(float(rng.uniform(0.33, 0.35)), 2)
-        exit_leg = round(float(rng.uniform(0.27, 0.29)), 2)
+    if CFG.domino_min_block_turn_entry_lo is not None:
+        # Explicitly configured bands - probe with
+        # scripts/domino_debug/probe_min_block_bands.py when the
+        # friction pair changes (the differentiating cells move with the
+        # frictions). The shipping under_reach arm's bands live in
+        # scripts/configs/predicatorv3/envs/all.yaml.
+        assert CFG.domino_min_block_turn_entry_hi is not None
+        assert CFG.domino_min_block_turn_exit_lo is not None
+        assert CFG.domino_min_block_turn_exit_hi is not None
+        entry_leg = round(
+            float(
+                rng.uniform(CFG.domino_min_block_turn_entry_lo,
+                            CFG.domino_min_block_turn_entry_hi)), 2)
+        exit_leg = round(
+            float(
+                rng.uniform(CFG.domino_min_block_turn_exit_lo,
+                            CFG.domino_min_block_turn_exit_hi)), 2)
+    elif direction == "under_reach":
+        # No silent fallback for under_reach: the legacy hardcoded band
+        # (entry 0.34, exit 0.28, K*=3) ships tasks whose only true-
+        # physics turn solution is the knife-edge 45-degree pair corner,
+        # which LLM planner arms cannot discover (retune 2026-07-12).
+        raise ValueError(
+            "under_reach turn tasks require explicit "
+            "domino_min_block_turn_{entry,exit}_{lo,hi} flags (probe with "
+            "scripts/domino_debug/probe_min_block_bands.py; see the "
+            "domino_high_friction block in envs/all.yaml).")
     else:
         entry_leg = round(float(rng.uniform(0.26, 0.34)), 2)
         exit_leg = round(float(rng.uniform(0.18, 0.26)), 2)
@@ -667,35 +681,45 @@ def _make_turn_task(env: "PyBulletDominoComposedEnv",
     if staged is None:
         return None
     if direction == "under_reach":
-        # Re-run the strong believed certificate AFTER the staging pass:
-        # staging's own rollouts perturb the contact-solver history,
-        # which is the variance a fresh evaluation sim exhibits. A
-        # believed corner that only over-spends under the pre-staging
-        # history is knife-edge (observed: believed full K* flipping
-        # 4 -> 3 between processes, which would let the miscalibrated
-        # planner fit the budget and erase the task's signal).
-        k_bel_recheck = _planning_turn_k_star(env, start_pose, target_pose,
-                                              num_blues)
-        if k_bel_recheck is None or not k_true < k_bel_recheck < num_blues:
-            logging.warning(
-                "Dropping turn task (believed full K* recheck=%s, first "
-                "probe=%s, true K*=%d): believed margin is contact-history "
-                "knife-edge.", k_bel_recheck, k_bel_full, k_true)
-            return None
-        # Final, history-robust certificate: no K*-blue candidate may
-        # topple at BOTH frictions. Then whichever cheap plan a fresh
-        # believed planner knife-edges onto, executing it still fails
-        # truly (death), while believed over-builds fail on budget.
+        # Re-run the strong believed certificate AFTER the staging pass,
+        # TWICE: staging's own rollouts perturb the contact-solver
+        # history, which is the variance a fresh evaluation sim
+        # exhibits. A believed corner that only over-spends under some
+        # histories is knife-edge (observed: believed full K* flipping
+        # 4 -> 3 between processes, and - short-leg retune probes,
+        # 2026-07-12 - believed k=2 corners toppling in 1-of-3 repeat
+        # probes on band cells). Each independent repetition roughly
+        # halves the odds of shipping a task whose believed side flips
+        # in the miscalibrated planner's fresh sim (which would let it
+        # match the true K* and erase the task's signal - a lost
+        # differentiation, not a correctness hole).
         assert CFG.domino_planning_friction is not None
-        if dual_valid_turn_layout_exists(env, start_pose, target_pose, k_true,
-                                         CFG.domino_planning_friction,
-                                         CFG.domino_true_friction):
-            logging.warning(
-                "Dropping turn task (true K*=%d): a K*-blue layout "
-                "validates at the planning friction AND topples at the "
-                "true friction - the believed planner could truly "
-                "succeed within budget.", k_true)
-            return None
+        for recheck_round in range(2):
+            k_bel_recheck = _planning_turn_k_star(env, start_pose, target_pose,
+                                                  num_blues)
+            if k_bel_recheck is None or not k_true < k_bel_recheck < num_blues:
+                logging.warning(
+                    "Dropping turn task (believed full K* recheck %d=%s, "
+                    "first probe=%s, true K*=%d): believed margin is "
+                    "contact-history knife-edge.", recheck_round,
+                    k_bel_recheck, k_bel_full, k_true)
+                return None
+            # History-robust certificate, interleaved so each scan runs
+            # under a different solver history: no K*-blue candidate may
+            # topple at BOTH frictions. Then whichever cheap plan a
+            # fresh believed planner knife-edges onto, executing it
+            # still fails truly (death), while believed over-builds
+            # fail on budget.
+            if dual_valid_turn_layout_exists(env, start_pose, target_pose,
+                                             k_true,
+                                             CFG.domino_planning_friction,
+                                             CFG.domino_true_friction):
+                logging.warning(
+                    "Dropping turn task (true K*=%d, round %d): a K*-blue "
+                    "layout validates at the planning friction AND topples "
+                    "at the true friction - the believed planner could "
+                    "truly succeed within budget.", k_true, recheck_round)
+                return None
     robot_init = {
         "x": env.robot_init_x,
         "y": env.robot_init_y,
