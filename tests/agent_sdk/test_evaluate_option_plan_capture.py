@@ -8,7 +8,10 @@ covering the two gates in front of ``ctx.solved_plan``:
   one of ``CFG.agent_plan_validation_rollouts`` rollouts succeeds; a
   flaky plan is reported to the agent instead of captured;
 * task-evaluator legitimacy - a goal-reaching but ``legitimate=False``
-  rollout is refused (the real evaluator applies the same certificate).
+  rollout is refused as a reward hack (the real evaluator applies the
+  same certificate), while an honest best-effort shortfall
+  (``terminated=False``) is captured despite also being
+  ``legitimate=False``.
 """
 
 import asyncio
@@ -44,6 +47,9 @@ _Move = ParameterizedOption(
 )
 
 _PLAN_TEXT = "Move(block0:block)[0.95] -> {ReachedHi(block0:block)}"
+# A plan that lands short of the goal (x=0.5 < 0.9), so ReachedHi never
+# holds: an honest shortfall, not a reward hack.
+_SHORTFALL_PLAN_TEXT = "Move(block0:block)[0.5]"
 
 
 class _Model:
@@ -86,7 +92,11 @@ class _StubEvaluator(TaskEvaluator):
         return False, "stub: the cascade was staged, not pushed"
 
 
-def _run_tool(model, evaluator=None, rollouts=3):
+def _run_tool(model,
+              evaluator=None,
+              rollouts=3,
+              plan_text=_PLAN_TEXT,
+              best_effort=False):
     utils.reset_config({"agent_plan_validation_rollouts": rollouts})
     init = State({_block: np.array([0.0], dtype=np.float32)})
     goal = {GroundAtom(_ReachedHi, [_block])}
@@ -102,6 +112,7 @@ def _run_tool(model, evaluator=None, rollouts=3):
         current_task=task,
     )
     ctx.capture_goal_reaching_plans = True
+    ctx.capture_best_effort_plan = best_effort
     tools = {
         t.name: t.handler
         for t in create_mcp_tools(ctx, tool_names=["evaluate_option_plan"])
@@ -113,7 +124,7 @@ def _run_tool(model, evaluator=None, rollouts=3):
         asyncio.set_event_loop(loop)
     result: Any = loop.run_until_complete(tools["evaluate_option_plan"]({
         "plan":
-        _PLAN_TEXT
+        plan_text
     }))
     return result["content"][0]["text"], ctx
 
@@ -180,3 +191,44 @@ def test_legitimate_plan_passes_both_gates():
     assert "legitimate=True" in text
     assert ctx.solved_plan is not None
     assert model.num_calls == 3
+
+
+def test_best_effort_honest_shortfall_is_captured():
+    """An honest best-effort shortfall is captured, not refused.
+
+    The plan does not reach the goal (terminated=False), so the
+    evaluator marks it legitimate=False - there is no genuine cascade to
+    certify. But it is not a reward hack, so under a best-effort
+    submission it is captured and executes for its honest reward instead
+    of being forfeited.
+    """
+    model = _Model()
+    goal = {GroundAtom(_ReachedHi, [_block])}
+    text, ctx = _run_tool(model,
+                          evaluator=_StubEvaluator(goal, legit=False),
+                          rollouts=3,
+                          plan_text=_SHORTFALL_PLAN_TEXT,
+                          best_effort=True)
+    assert "Captured as the current answer" in text
+    assert "best-effort: goal NOT reached" in text
+    assert "will not count as a certified solve" in text
+    assert "NOT CAPTURED" not in text
+    assert ctx.solved_plan is not None
+    assert ctx.solved_plan_reached_goal is False
+    assert "Goal achieved: False" in text
+
+
+def test_best_effort_reward_hack_is_still_refused():
+    """A best-effort submission does NOT rescue a reward hack: the plan reaches
+    the goal atoms (terminated=True) but via an illegitimate route, so it is
+    refused even with capture_best_effort_plan set."""
+    model = _Model()
+    goal = {GroundAtom(_ReachedHi, [_block])}
+    text, ctx = _run_tool(model,
+                          evaluator=_StubEvaluator(goal, legit=False),
+                          rollouts=3,
+                          best_effort=True)
+    assert "NOT CAPTURED" in text
+    assert "stub: the cascade was staged" in text
+    assert "Captured as the current answer" not in text
+    assert ctx.solved_plan is None

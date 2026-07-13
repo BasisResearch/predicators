@@ -1818,6 +1818,15 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 logging.debug("Task-evaluator verdict failed: %s", e)
         evaluator_rejected = (verdict is not None and not verdict["legitimate"]
                               and not eval_coarse)
+        # An evaluator rejection only disqualifies a capture when the goal
+        # atoms actually hold via an illegitimate route - a reward hack (e.g.
+        # the agent knocked the target over directly). An honest shortfall,
+        # where the rollout simply fails to reach the goal, is ALSO
+        # legitimate=False (there is no genuine cascade to certify), but that
+        # is exactly what a best-effort submission is meant to capture, so it
+        # must not be conflated with a reward hack.
+        reward_hack = (evaluator_rejected and verdict is not None
+                       and verdict["terminated"])
 
         # Multi-rollout validation of a capture candidate. The shared sim
         # env is nondeterministic across repeats (motion-planner sampling,
@@ -1909,13 +1918,15 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         # monitor won't flag a spurious divergence on a wrong annotation).
         # With capture_best_effort_plan (final-submission nudge after turn-cap
         # exhaustion) also capture a non-goal-reaching plan, but never let it
-        # displace a goal-reaching capture.
+        # displace a goal-reaching capture. The only illegitimacy that blocks
+        # a capture is a reward hack (goal atoms reached illegitimately); an
+        # honest best-effort shortfall is legitimate=False yet still captured
+        # (it executes for its honest reward instead of forfeiting the task).
         best_effort_capture = (ctx.capture_best_effort_plan
                                and not ctx.solved_plan_reached_goal)
         if (ctx.capture_goal_reaching_plans and task_idx == "current"
-                and (goal_achieved or best_effort_capture)
-                and not evaluator_rejected and flaky_detail is None
-                and grounded_plan):
+                and (goal_achieved or best_effort_capture) and not reward_hack
+                and flaky_detail is None and grounded_plan):
             captured_sketch = []
             for i, st in enumerate(sketch_steps):
                 post = (result.steps[i].post_state
@@ -1946,7 +1957,9 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                           if s.subgoal_atoms or s.subgoal_neg_atoms)
             best_effort_note = ("" if goal_achieved else
                                 " (best-effort: goal NOT reached, accepted "
-                                "because the attempt budget is exhausted)")
+                                "because the attempt budget is exhausted; it "
+                                "executes for its honest reward but will not "
+                                "count as a certified solve)")
             lines.append(f"Captured as the current answer{best_effort_note}: "
                          f"{len(grounded_plan)} steps, "
                          f"{n_annot} with subgoal annotations for closed-loop "
@@ -1967,14 +1980,13 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 "impacts closer to the middle of the fall path) and "
                 "resubmit.")
         elif (ctx.capture_goal_reaching_plans and task_idx == "current"
-              and (goal_achieved or best_effort_capture)
-              and evaluator_rejected):
-            # Loudly refuse the capture (including a best-effort one: an
-            # illegitimate plan can never be a certified solve, and
-            # executing it only topples blues for negative reward): the
-            # rollout reaches the goal atoms but the evaluator's
-            # certificate rejects it, and the real evaluator applies the
-            # same certificate.
+              and reward_hack):
+            # Loudly refuse a reward hack: the rollout reaches the goal atoms
+            # but the evaluator's certificate rejects the route (e.g. the
+            # target was knocked over directly), and the real evaluator
+            # applies the same certificate, so it can never count as a solve.
+            # This refusal stands even under a best-effort submission - an
+            # honest shortfall is captured above, but a fake solve is not.
             assert verdict is not None
             lines.append(
                 "NOT CAPTURED: the task evaluator rejects this rollout as "
