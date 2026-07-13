@@ -167,7 +167,7 @@ ENVS:
       domino_real_start_id: 6
       domino_real_target_id: 5
       pybullet_closed_fingers: 0.02  # clamp the 0.029m real domino
-      domino_real_execute_real: False
+      real_robot_execute: False
   # # heavy-block (immovable obstacle) domino tasks - MASS-only mismatch.
   # domino_heavy:
   #   NAME: "pybullet_domino"

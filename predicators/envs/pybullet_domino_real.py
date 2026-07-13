@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pybullet as p
@@ -18,8 +18,11 @@ from predicators.envs.pybullet_domino.real_geometry import Pose6D, \
     domino_upright_yaw, domino_world_z_offset, pose_base_to_world
 from predicators.pybullet_helpers.objects import create_object, \
     create_pybullet_block
+from predicators.pybullet_helpers.real_robot_bridge import \
+    RealRobotBridgeClient
 from predicators.settings import CFG
-from predicators.structs import EnvironmentTask, GroundAtom
+from predicators.structs import Action, EnvironmentTask, GroundAtom, \
+    Observation
 
 
 class PyBulletDominoRealEnv(PyBulletDominoEnv):
@@ -28,11 +31,86 @@ class PyBulletDominoRealEnv(PyBulletDominoEnv):
 
     def __init__(self, use_gui: bool = False, **kwargs: Any) -> None:
         self._z_off = domino_world_z_offset(CFG.domino_real_table_z)
+        # Real (test-mode) execution state. Dominoes are placed in
+        # scene order, so slot i <-> capture id self._scene_ids[i].
+        self._real_mode = False
+        self._action_buffer: List[Action] = []
+        self._bridge: Optional[RealRobotBridgeClient] = None
+        with open(CFG.domino_real_scene, encoding="utf-8") as f:
+            self._scene_ids = [int(d["id"]) for d in json.load(f)["dominoes"]]
         super().__init__(use_gui=use_gui, **kwargs)
 
     @classmethod
     def get_name(cls) -> str:
         return "pybullet_domino_real"
+
+    # -- real (test-mode) execution (open-loop) --------------------
+    # Open-loop: the internal sim rolls each option out (its predicators
+    # BiRRT-planned policy is the trajectory generator) and, at the option
+    # boundary, the buffered joint trajectory is executed on the Franka (when
+    # real_robot_execute). The env state stays the sim's prediction -- no
+    # option-boundary re-perception yet. Dry-run == pure sim.
+    def reset(self,
+              train_or_test: str,
+              task_idx: int,
+              render: bool = False) -> Observation:
+        self._real_mode = (train_or_test == "test")
+        self._action_buffer = []
+        if self._real_mode and CFG.real_robot_execute and \
+                self._bridge is None:
+            self._bridge = RealRobotBridgeClient(CFG.real_robot_bridge_host,
+                                                 CFG.real_robot_bridge_port)
+        obs = super().reset(train_or_test, task_idx, render=render)
+        if self._real_mode and CFG.real_robot_execute:
+            assert self._bridge is not None
+            # Home the real arm to the env-home joint config the option
+            # trajectories are planned from, so the first option's streamed
+            # waypoints start where the robot is (else the drift guard trips).
+            pyb = self._pybullet_robot
+            fingers = {pyb.left_finger_joint_idx, pyb.right_finger_joint_idx}
+            home_arm = [
+                float(v) for i, v in enumerate(pyb.get_joints())
+                if i not in fingers
+            ]
+            self._bridge.go_home(home_arm)
+        return obs
+
+    def step(self, action: Action, render_obs: bool = False) -> Observation:
+        obs = super().step(action, render_obs=render_obs)
+        if not (self._real_mode and action.has_option()):
+            return obs
+        self._action_buffer.append(action)
+        if not CFG.real_robot_ship_whole_episode and \
+                action.get_option().terminal(obs):  # option boundary
+            self._flush_real_actions()
+        return obs
+
+    def flush_real_execution(self) -> None:
+        """Ship the whole episode's buffered trajectory to the robot (no-op if
+        the buffer is empty, or when shipping per option).
+
+        Callers driving the real arm must call this once the rollout is
+        done; the buffer spans the WHOLE episode so the gripper split
+        sees every action at once.
+        """
+        self._flush_real_actions()
+
+    def _flush_real_actions(self) -> None:
+        """Split the buffered actions into move/gripper segments and execute.
+
+        The split must see a whole episode (or at least a whole pick-
+        place) in ONE call: it emits a gripper segment on a finger
+        transition, tracked from the START of the call. Splitting per
+        option restarts that tracking, so a Place -- which begins
+        already holding the domino from the Pick -- re-emits a leading
+        ``close``, i.e. a SECOND force-grasp on the already-clamped
+        domino. That leaves the Franka Hand stuck and the later release
+        is dropped.
+        """
+        actions, self._action_buffer = self._action_buffer, []
+        if actions and CFG.real_robot_execute:
+            assert self._bridge is not None
+            self._bridge.execute_actions(actions, self._pybullet_robot)
 
     # -- geometry + pybullet build + decoration -----------------------------
     @classmethod

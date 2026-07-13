@@ -497,6 +497,21 @@ class GlobalSettings:
     domino_restricted_push = False
     # Use skill_factories-based option implementations
     domino_use_skill_factories = True
+    # --- real-robot bridge (any env driving a real arm; see
+    # pybullet_helpers.real_robot_bridge) ------------------------------------
+    # When True, a real-robot env's TEST-mode rollout is executed on the arm;
+    # default False = safe dry-run (pure sim, no motion).
+    real_robot_execute = False
+    # Roll the WHOLE episode out in sim, then ship every segment to the robot in
+    # one call (the caller flushes via env.flush_real_execution). The gripper
+    # split must span the whole plan: shipping per option restarts its finger
+    # tracking, so a Place re-grasps the object it is already holding and the
+    # gripper then drops the release. False = ship at each option boundary.
+    real_robot_ship_whole_episode = True
+    # The robot-side bridge server holds the live robot connection; the env
+    # holds a thin client. Only connected when real_robot_execute.
+    real_robot_bridge_host = "127.0.0.1"
+    real_robot_bridge_port = 5555
     # --- real-world domino bench (pybullet_domino_real env) ------------------
     # The reconstructed-scene JSON (robot_base frame) the pybullet_domino_real
     # env builds its single train/test task from; the env sizes its domino
@@ -517,14 +532,6 @@ class GlobalSettings:
     domino_real_domino_dims = [0.15, 0.07,
                                0.029]  # (L, W, H) -> height,width,depth
     domino_real_decorate = True  # spawn extended-table tile + robot pedestal
-    # When True the env's TEST-mode rollout executes option boundaries on the
-    # real Franka; default False = safe dry-run (build segments +
-    # replay-perceive).
-    domino_real_execute_real = False
-    # Robot-side bridge server (holds the ZED provider + RobotInterface); the
-    # env holds a thin client. Only connected when domino_real_execute_real.
-    domino_real_bridge_host = "127.0.0.1"
-    domino_real_bridge_port = 5555
     # Reach-limited "minimum-blocks" task mode: generate start/target pairs
     # spaced so that toppling requires bridging near the reach limit, and
     # attach each task a ``DominoEvaluator``. Success = toppling the target
