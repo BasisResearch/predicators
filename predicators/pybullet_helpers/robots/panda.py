@@ -10,10 +10,7 @@ from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot
 from predicators.settings import CFG
 
-# The Franka's canonical "ready" configuration, i.e. the one libfranka and
-# the real robot's driver home to. The gripper points straight down about
-# 0.31 m in front of and 0.49 m above the base, with every joint far from
-# its limit.
+# The Franka's canonical "ready" configuration.
 PANDA_HOME_ARM_JOINTS = [
     0.0,
     -np.pi / 4,
@@ -26,8 +23,7 @@ PANDA_HOME_ARM_JOINTS = [
 
 # The tool_link pose induced by PANDA_HOME_ARM_JOINTS, in the base frame.
 # Precomputed so that callers can ask where the Panda's home is before a URDF
-# is loaded; test_panda_home_ee_pose_matches_forward_kinematics keeps it
-# honest.
+# is loaded.
 PANDA_HOME_EE_POSE_IN_BASE = Pose(position=(0.3069, 0.0, 0.4903),
                                   orientation=(0.0, 1.0, 0.0, 0.0))
 

@@ -23,9 +23,7 @@ _ROBOT_TO_CLS: Dict[str, Type[SingleArmPyBulletRobot]] = {
     "panda": PandaPyBulletRobot,
 }
 
-# Used if home position is not specified during robot creation, and the robot
-# does not define a home configuration of its own. This was tuned for the
-# Fetch, whose reach is much longer than the Panda's.
+# Tuned for the Fetch robot, which does not specify a home position.
 _DEFAULT_EE_HOME_POSITION: Pose3D = (1.35, 0.6, 0.7)
 
 

@@ -397,10 +397,10 @@ class PyBulletEnv(BaseEnv):
         """Point robot_init_{x,y,z} at the robot's home configuration, for
         robots that have one (home_position is None for robots that do not).
 
-        Envs specify robot_init_{x,y,z} for the Fetch, whose reach is much
-        longer than the Panda's. A robot with a home configuration ignores
-        them and starts where it rests instead. Robots without a home 
-        configuration (the Fetch) keep the env's positions.
+        Envs specify robot_init_{x,y,z} for the Fetch, whose reach is
+        much longer than the Panda's. A robot with a home configuration
+        ignores them and starts where it rests instead. Robots without a
+        home configuration (the Fetch) keep the env's positions.
         """
         if cls not in _ENV_TO_ROBOT_INIT_POS:
             _ENV_TO_ROBOT_INIT_POS[cls] = (cls.robot_init_x, cls.robot_init_y,
