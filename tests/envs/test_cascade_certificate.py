@@ -59,6 +59,7 @@ def _build_states(
     held_spans: Optional[Dict[str, Tuple[int, int]]] = None,
     yaws: Optional[Dict[str, float]] = None,
     robot_xyz: Optional[Tuple[float, float, float]] = None,
+    robot_profile: Optional[Sequence[Tuple[float, float, float]]] = None,
 ) -> List[State]:
     """Build a trajectory of ``num_steps + 1`` states.
 
@@ -68,9 +69,11 @@ def _build_states(
     sequence for a domino (e.g. a relocation); ``held_spans[name] =
     (a, b)`` sets is_held on state indices [a, b]; ``yaws`` overrides
     the default 0 yaw; ``robot_xyz`` adds a robot object parked at that
-    end-effector position for the whole episode.
+    end-effector position for the whole episode, or ``robot_profile``
+    adds one that moves along a per-step (x, y, z) sequence.
     """
-    robot = Object("robot", _ROBOT_TYPE) if robot_xyz is not None else None
+    add_robot = robot_xyz is not None or robot_profile is not None
+    robot = Object("robot", _ROBOT_TYPE) if add_robot else None
     states = []
     for t in range(num_steps + 1):
         data = {}
@@ -96,7 +99,8 @@ def _build_states(
                 [x, y, 0.475, yaw, roll, *_color_for(name)[:3], held],
                 dtype=np.float32)
         if robot is not None:
-            data[robot] = np.array(robot_xyz, dtype=np.float32)
+            xyz = robot_profile[t] if robot_profile is not None else robot_xyz
+            data[robot] = np.array(xyz, dtype=np.float32)
         states.append(State(data))
     return states
 
@@ -645,6 +649,85 @@ def test_graze_with_robot_clear_passes():
                            },
                            robot_xyz=(1.2, 1.5, 0.9))
     step_options = _options([("Push", ("robot", "green"), 0, 7)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason
+
+
+def test_graze_with_robot_arriving_during_fall_fails():
+    """A grazing knock where the EE is just outside strike range at the onset
+    but drives into the block as it topples: charged to the robot.
+
+    The run_20260713_172940 task-2 hack: the pushed green falls flat and
+    only grazes the first blue (0.017 m clearance); the Push option's
+    gripper is 0.094 m away - outside strike range - at the onset, then
+    keeps closing to 0.013 m over the next five steps while the blue
+    topples. The onset-only strike window missed it; the forward scan
+    through the block's fall catches it. Modeled with a gradual blue1
+    roll (so the fall spans several steps) and a moving EE.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    num = 30
+    onset = 16
+    # blue1 topples gradually from the onset, reaching flat ~7 steps later.
+    roll_seq = [0.0] * (num + 1)
+    for i, r in enumerate((0.2, 0.4, 0.6, 0.9, 1.2, 1.45, 1.55)):
+        roll_seq[onset + i] = -r
+    for t in range(onset + 7, num + 1):
+        roll_seq[t] = -1.5708
+    # EE is 0.42 m from blue1 at the onset, drives to 0.04 m during the
+    # fall (steps 19-21), then retreats.
+    ee = [(1.20, 1.09, 0.5)] * (num + 1)
+    for t in range(19, 22):
+        ee[t] = (0.82, 1.09, 0.5)
+    states = _build_states(objs,
+                           num, {
+                               "green": 5,
+                               "target": 11
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "target": (0.7, 1.098),
+                               "blue1": (0.78, 1.09)
+                           },
+                           roll_profiles={"blue1": roll_seq},
+                           robot_profile=ee)
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], num)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "blue1" in reason and "robot" in reason
+
+
+def test_graze_with_robot_retreating_during_fall_passes():
+    """The same grazing knock with the EE clear through the whole fall: passes.
+
+    A legitimate corner graze, not a robot strike. Guards against the
+    forward-through-fall scan over-charging a gripper
+    that merely passes by after a genuine knock - here it never enters
+    strike range, so the graze stands.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    num = 30
+    onset = 16
+    roll_seq = [0.0] * (num + 1)
+    for i, r in enumerate((0.2, 0.4, 0.6, 0.9, 1.2, 1.45, 1.55)):
+        roll_seq[onset + i] = -r
+    for t in range(onset + 7, num + 1):
+        roll_seq[t] = -1.5708
+    # EE stays 0.42 m away and retreats upward - never in strike range.
+    ee = [(1.20, 1.09, 0.5 + 0.02 * t) for t in range(num + 1)]
+    states = _build_states(objs,
+                           num, {
+                               "green": 5,
+                               "target": 11
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "target": (0.7, 1.098),
+                               "blue1": (0.78, 1.09)
+                           },
+                           roll_profiles={"blue1": roll_seq},
+                           robot_profile=ee)
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], num)
     ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
     assert ok, reason
 

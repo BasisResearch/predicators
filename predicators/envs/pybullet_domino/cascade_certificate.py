@@ -71,6 +71,16 @@ ROBOT_STRIKE_Z_SLACK = 0.3
 # How many steps before a topple onset the striking contact may have
 # been sampled (observed strikes register within 1-2 steps).
 ROBOT_STRIKE_LOOKBACK_STEPS = 2
+# When the topple is a grazing cascade attribution, the striking contact
+# may also be sampled AFTER the onset, anywhere while the block is still
+# going down: a bulldozing gripper keeps closing on the block through its
+# whole fall (run_20260713_172940 task 2: the EE was 0.094 m away at the
+# onset - just outside strike range - then drove to 0.013 m over the next
+# five steps as the block toppled). The forward scan runs from the onset
+# to the block's peak-roll step (its fall having stopped by then),
+# capped for safety. It is a no-op once the block is flat, so a robot
+# that only passes by after a genuine knock is never charged.
+ROBOT_STRIKE_FALL_CAP_STEPS = 10
 
 # Minimum base displacement for a standing block to count as a shoved
 # relay in rule (b)'s one-hop attribution, and for a movable blue to
@@ -281,13 +291,50 @@ def _knock_gap(states: Sequence[State], predecessor: Object, onset_p: int,
     return geometry.rect_gap(corridor, _footprint(onset_state, domino))
 
 
-def _robot_strike_nearby(states: Sequence[State], robot: Object,
-                         domino: Object, onset: int) -> bool:
-    """Was the robot end-effector in strike range of ``domino`` at (or just
-    before) its topple onset?"""
+def _fall_peak_step(states: Sequence[State], domino: Object,
+                    onset: int) -> int:
+    """Step of ``domino``'s peak |roll| after its topple onset.
+
+    That step is where its fall has stopped (flat or leaning); it caps a
+    window of ``ROBOT_STRIKE_FALL_CAP_STEPS`` steps past the onset. A
+    block that keeps toppling reads a larger |roll| each step until it
+    hits the ground; the peak marks the end of the active fall, after
+    which a nearby end-effector is a passer-by, not the cause. A block
+    already at its final roll (e.g. the synthetic step-function
+    trajectories the tests use) peaks at the onset itself, so the
+    forward strike scan collapses to the onset and adds nothing.
+    """
+    peak = onset
+    peak_roll = abs(states[min(onset, len(states) - 1)].get(domino, "roll"))
+    for t in range(onset + 1,
+                   min(onset + ROBOT_STRIKE_FALL_CAP_STEPS + 1, len(states))):
+        roll = abs(states[t].get(domino, "roll"))
+        if roll > peak_roll:
+            peak_roll = roll
+            peak = t
+    return peak
+
+
+def _robot_strike_nearby(states: Sequence[State],
+                         robot: Object,
+                         domino: Object,
+                         onset: int,
+                         through_fall: bool = False) -> bool:
+    """Was the robot end-effector in strike range of ``domino`` around its
+    topple onset?
+
+    Scans from ``ROBOT_STRIKE_LOOKBACK_STEPS`` before the onset through
+    the onset. With ``through_fall`` the scan also runs forward to the
+    block's peak-roll step (``_fall_peak_step``), catching a gripper
+    that was just outside strike range at the onset but kept driving
+    into the block as it toppled. Solid-overlap knocks never reach this
+    check, so the forward scan only ever second-guesses grazing
+    attributions.
+    """
     height, _, _ = _domino_dims()
+    end = _fall_peak_step(states, domino, onset) if through_fall else onset
     for t in range(max(0, onset - ROBOT_STRIKE_LOOKBACK_STEPS),
-                   min(onset + 1, len(states))):
+                   min(end + 1, len(states))):
         state = states[t]
         dist = math.hypot(
             state.get(robot, "x") - state.get(domino, "x"),
@@ -437,9 +484,11 @@ def check_cascade_legitimacy(
            does a swept bystander that never moved;
       (c)  when the only cascade explanation for a topple is a grazing
            one (positive modeled clearance) and the robot end-effector
-           was in strike range of the block at its onset, the robot -
-           not the cascade - is charged with the topple and the episode
-           fails. Solid corridor overlaps are exempt: in tight staged
+           was in strike range of the block at its onset - or anywhere
+           through the block's fall, catching a gripper that keeps
+           driving into it after the onset - the robot, not the cascade,
+           is charged with the topple and the episode fails. Solid
+           corridor overlaps are exempt: in tight staged
            chains the end-effector legitimately finishes the push within
            centimeters of the first relay. The relay path is guarded the
            same way at both of its seams: a grazing relay-to-block
@@ -585,7 +634,8 @@ def check_cascade_legitimacy(
                     "was not knocked over by the cascade")
             r, corridor_gap, contact_gap, slide_start = relay
             if contact_gap > GRAZE_CONTACT_EPS and robots and \
-                    _robot_strike_nearby(states, robots[0], d, t):
+                    _robot_strike_nearby(states, robots[0], d, t,
+                                         through_fall=True):
                 return False, (
                     f"{d.name} started falling at step {t} with the robot "
                     f"end-effector within {ROBOT_STRIKE_XY} m of it while "
@@ -604,7 +654,7 @@ def check_cascade_legitimacy(
             legit.add(d)
             continue
         if best_gap > GRAZE_CONTACT_EPS and robots and _robot_strike_nearby(
-                states, robots[0], d, t):
+                states, robots[0], d, t, through_fall=True):
             return False, (
                 f"{d.name} started falling at step {t} with the robot "
                 f"end-effector within {ROBOT_STRIKE_XY} m of it while the "
