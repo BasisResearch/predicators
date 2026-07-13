@@ -1578,7 +1578,12 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "include_atoms to control output. If the plan reaches the goal on the "
         "CURRENT task (omit task_idx), it is captured as your answer, and the "
         "per-step subgoals make it execute closed-loop (monitored, with "
-        "replan-on-divergence).",
+        "replan-on-divergence). Capture is gated: a goal-reaching plan is "
+        "re-run several times (simulation varies across runs) and a FLAKY "
+        "plan is reported instead of captured - add margin and resubmit. "
+        "When the task has an evaluator, a goal-reaching plan the evaluator "
+        "marks legitimate=False is NOT captured (the real evaluator applies "
+        "the same certificate, so it could never count as a solve).",
         {
             "type": "object",
             "properties": {
@@ -1675,13 +1680,18 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             types.update(pred.types)
         types.update(o.type for o in task.init)
         try:
+            # strict: the `plan` argument is pure plan text, so a line that
+            # fails to parse is an error the agent must see - silently
+            # dropping it (the freeform default) executes a different plan
+            # than the agent asked for.
             sketch_steps = bilevel_sketch.parse_sketch_from_text(
                 plan_text,
                 task,
                 predicates=all_predicates,
                 options=all_options,
                 types=types,
-                parse_continuous_params=True)
+                parse_continuous_params=True,
+                strict=True)
         except Exception as e:  # pylint: disable=broad-except
             return _error_result(f"Could not parse plan: {e}")
         if not sketch_steps:
@@ -1786,6 +1796,111 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                           and result.actions_to_goal <= horizon)
         goal_achieved = (goal_reached and result.clean_to_goal
                          and within_horizon)
+        # Task-evaluator verdict on this belief-sim rollout, computed BEFORE
+        # capture: the real evaluator applies the same certificate, so a
+        # goal-reaching but illegitimate plan can never count as a solve and
+        # must not be captured as the answer (run_20260712_173955 tasks 1-2:
+        # flagged-illegitimate captures stood all session and were executed
+        # only to be rejected). Failure-tolerant: verdict stays None when the
+        # task has no evaluator or nothing executed. A coarse verdict
+        # (option-boundary states only) can falsely reject a legitimate
+        # cascade, so it never blocks capture.
+        evaluator = _resolve_task_evaluator(ctx, task_idx)
+        verdict: Optional[Dict[str, Any]] = None
+        if evaluator is not None and len(eval_states) > 1:
+            try:
+                verdict = evaluate_states_with(evaluator, eval_states,
+                                               eval_labels)
+            except Exception as e:  # pylint: disable=broad-except
+                logging.debug("Task-evaluator verdict failed: %s", e)
+        evaluator_rejected = (verdict is not None and not verdict["legitimate"]
+                              and not eval_coarse)
+
+        # Multi-rollout validation of a capture candidate. The shared sim
+        # env is nondeterministic across repeats (motion-planner sampling,
+        # physics-solver state), which is the same variability the real
+        # rollout will sample - a plan that only sometimes succeeds here is
+        # a margin-free plan that will likely fail on the real env
+        # (run_20260712_192457 task 1: a sim-validated 2-hop relay died on a
+        # ~9mm placement drift). So a goal-reaching plan is captured only
+        # after every one of CFG.agent_plan_validation_rollouts total
+        # rollouts succeeds; a flaky repeat is reported to the agent, who
+        # still has the session to add margin and resubmit.
+        def _validation_rollout() -> Tuple[bool, str]:
+            """One extra rollout of the exact plan; (ok, failure detail)."""
+            v_states: List[State] = [task.init]
+            v_labels: List[Any] = []
+            v_coarse = False
+
+            def _collect(_i: int, outcome: Any) -> None:
+                nonlocal v_coarse
+                if outcome.post_state is None:
+                    return
+                opt = outcome.option
+                label = (opt.name, tuple(o.name for o in opt.objects))
+                step_traj = getattr(ctx.option_model, "last_trajectory", None)
+                if step_traj is not None and len(step_traj.states) >= 2:
+                    v_states.extend(step_traj.states[1:])
+                    v_labels.extend([label] * len(step_traj.actions))
+                else:
+                    v_states.append(outcome.post_state)
+                    v_labels.append(label)
+                    v_coarse = True
+
+            r = bilevel_sketch.execute_plan_forward(task,
+                                                    grounded_plan,
+                                                    model,
+                                                    predicates=all_predicates,
+                                                    sketch=sketch_steps,
+                                                    on_step=_collect,
+                                                    stop_on_failure=True)
+            if r.first_failure_idx is not None:
+                fr = r.steps[r.first_failure_idx].failure_reason
+                opt = r.steps[r.first_failure_idx].option
+                return False, (f"step {r.first_failure_idx} "
+                               f"({opt.name}) failed: {fr}")
+            if not r.goal_reached:
+                missing = task.goal - utils.abstract(r.final_state,
+                                                     ctx.predicates)
+                missing_str = ", ".join(str(a) for a in sorted(missing))
+                detail = f" (missing: {{{missing_str}}})" if missing else ""
+                return False, f"goal not reached{detail}"
+            if not (r.actions_to_goal is not None
+                    and r.actions_to_goal <= horizon):
+                return False, (f"goal reached only after "
+                               f"{r.actions_to_goal} low-level steps, past "
+                               f"the episode horizon ({horizon})")
+            # Same legitimacy rule as the first rollout: a non-coarse
+            # illegitimate verdict fails the validation.
+            if evaluator is not None and len(v_states) > 1 and not v_coarse:
+                try:
+                    v = evaluate_states_with(evaluator, v_states, v_labels)
+                    if not v["legitimate"]:
+                        return False, ("the task evaluator rejected this "
+                                       f"rollout ({v['reason']})")
+                except Exception as e:  # pylint: disable=broad-except
+                    logging.debug("Validation-rollout verdict failed: %s", e)
+            return True, ""
+
+        flaky_detail: Optional[str] = None
+        validation_note = ""
+        n_rollouts = max(1, CFG.agent_plan_validation_rollouts)
+        if (ctx.capture_goal_reaching_plans and task_idx == "current"
+                and goal_achieved and not evaluator_rejected and grounded_plan
+                and n_rollouts > 1):
+            for repeat_idx in range(2, n_rollouts + 1):
+                ok, why = _validation_rollout()
+                if not ok:
+                    flaky_detail = (f"rollout {repeat_idx}/{n_rollouts} "
+                                    f"FAILED: {why}")
+                    break
+            else:
+                validation_note = (
+                    f" Validated {n_rollouts}/{n_rollouts} rollouts (the "
+                    "simulator's motion planning and physics stepping vary "
+                    "across runs; repeats sample that execution "
+                    "variability).")
+
         # Capture a goal-reaching plan on the current task with a sketch that
         # keeps only the subgoals that actually held (so the closed-loop
         # monitor won't flag a spurious divergence on a wrong annotation).
@@ -1795,7 +1910,9 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         best_effort_capture = (ctx.capture_best_effort_plan
                                and not ctx.solved_plan_reached_goal)
         if (ctx.capture_goal_reaching_plans and task_idx == "current"
-                and (goal_achieved or best_effort_capture) and grounded_plan):
+                and (goal_achieved or best_effort_capture)
+                and not evaluator_rejected and flaky_detail is None
+                and grounded_plan):
             captured_sketch = []
             for i, st in enumerate(sketch_steps):
                 post = (result.steps[i].post_state
@@ -1830,7 +1947,38 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             lines.append(f"Captured as the current answer{best_effort_note}: "
                          f"{len(grounded_plan)} steps, "
                          f"{n_annot} with subgoal annotations for closed-loop "
-                         "monitoring.")
+                         f"monitoring.{validation_note}")
+        elif (ctx.capture_goal_reaching_plans and task_idx == "current"
+              and goal_achieved and not evaluator_rejected
+              and flaky_detail is not None):
+            # Loudly refuse a flaky capture: the agent still has this
+            # session to add margin and resubmit, which beats discovering
+            # the flakiness as a failed real episode.
+            lines.append(
+                f"FLAKY (plan NOT captured): the plan reached the goal on "
+                f"rollout 1 but {flaky_detail}. The simulator's motion "
+                "planning and physics stepping vary across runs, and the "
+                "real environment samples the same variability - a plan "
+                "that only sometimes succeeds in simulation will likely "
+                "fail for real. Add margin (e.g. tighter spacing, aim "
+                "impacts closer to the middle of the fall path) and "
+                "resubmit.")
+        elif (ctx.capture_goal_reaching_plans and task_idx == "current"
+              and (goal_achieved or best_effort_capture)
+              and evaluator_rejected):
+            # Loudly refuse the capture (including a best-effort one: an
+            # illegitimate plan can never be a certified solve, and
+            # executing it only topples blues for negative reward): the
+            # rollout reaches the goal atoms but the evaluator's
+            # certificate rejects it, and the real evaluator applies the
+            # same certificate.
+            assert verdict is not None
+            lines.append(
+                "NOT CAPTURED: the task evaluator rejects this rollout as "
+                f"illegitimate ({verdict['reason']}). The real evaluator "
+                "applies the same certificate, so executing this plan "
+                "cannot count as a solve. Find a plan the evaluator marks "
+                "legitimate=True.")
         elif (ctx.capture_goal_reaching_plans and task_idx != "current"
               and goal_achieved):
             # Loudly flag a success that cannot count: agents have burned
@@ -1852,18 +2000,11 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             goal_str = ", ".join(str(g) for g in sorted(task.goal))
             lines.append(f"Goal: {{{goal_str}}}")
         lines.append(f"Goal achieved: {goal_achieved}")
-        # Task-evaluator verdict on this belief-sim rollout
-        # (reward/terminated/legitimacy). Failure-tolerant: skipped
-        # silently when the task has no evaluator or nothing executed.
-        evaluator = _resolve_task_evaluator(ctx, task_idx)
-        if evaluator is not None and len(eval_states) > 1:
-            try:
-                verdict = evaluate_states_with(evaluator, eval_states,
-                                               eval_labels)
-                lines.append(
-                    _format_evaluator_verdict(verdict, coarse=eval_coarse))
-            except Exception as e:  # pylint: disable=broad-except
-                logging.debug("Task-evaluator verdict failed: %s", e)
+        # Task-evaluator verdict line (verdict computed above, before the
+        # capture decision it gates).
+        if verdict is not None:
+            lines.append(_format_evaluator_verdict(verdict,
+                                                   coarse=eval_coarse))
         # Goal atoms hold but the plan needs more low-level steps than the
         # episode horizon allows: say so and that it was NOT captured, so the
         # agent shortens the plan instead of stopping on a false positive.
@@ -2236,6 +2377,9 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         if not plan_text:
             return _error_result("`plan` is required (option-skeleton text).")
         try:
+            # strict: the `plan` argument is pure sketch text (see
+            # evaluate_option_plan) - unparseable lines must error, not be
+            # silently dropped.
             sketch = bilevel_sketch.parse_sketch_from_text(
                 plan_text,
                 task,
@@ -2244,6 +2388,7 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                 types=types,
                 parse_continuous_params=CFG.
                 agent_bilevel_use_llm_initial_params,
+                strict=True,
             )
         except Exception as e:  # pylint: disable=broad-except
             return _error_result(f"Could not parse plan sketch: {e}")
