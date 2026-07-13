@@ -8,6 +8,7 @@ whether to re-query the approach at each time step based on the states.
 
 The name "CogMan" is due to Leslie Kaelbling.
 """
+import dataclasses
 import logging
 import time
 import traceback
@@ -22,7 +23,7 @@ from predicators.envs.pybullet_env import PyBulletEnv
 from predicators.execution_monitoring import BaseExecutionMonitor
 from predicators.perception import BasePerceiver
 from predicators.settings import CFG
-from predicators.structs import Action, Dataset, EnvironmentTask, GroundAtom, \
+from predicators.structs import Action, Dataset, EnvironmentTask, \
     InteractionRequest, InteractionResult, LowLevelTrajectory, Metrics, \
     Observation, State, Task, Video, _Option
 
@@ -36,7 +37,7 @@ class CogMan:
         self._perceiver = perceiver
         self._exec_monitor = execution_monitor
         self._current_policy: Optional[Callable[[State], Action]] = None
-        self._current_goal: Optional[Set[GroundAtom]] = None
+        self._current_solve_task: Optional[Task] = None
         self._override_policy: Optional[Callable[[State], Action]] = None
         self._termination_fn: Optional[Callable[[State], bool]] = None
         self._current_env_task: Optional[EnvironmentTask] = None
@@ -52,7 +53,7 @@ class CogMan:
         self._approach.reset_for_new_episode()
         task = self._perceiver.reset(env_task)
         self._current_env_task = env_task
-        self._current_goal = task.goal
+        self._current_solve_task = task
         self._reset_policy(task)
         self._exec_monitor.reset(task)
         self._exec_monitor.update_approach_info(
@@ -84,8 +85,11 @@ class CogMan:
         # Check if we should replan.
         if self._exec_monitor.step(state):
             logging.info("[CogMan] Replanning triggered.")
-            assert self._current_goal is not None
-            task = Task(state, self._current_goal)
+            assert self._current_solve_task is not None
+            # Re-solve the episode's task from the current state; every
+            # non-init Task field (goal, goal_nl, evaluator) must survive
+            # a mid-episode replan.
+            task = dataclasses.replace(self._current_solve_task, init=state)
             self._reset_policy(task)
             self._exec_monitor.reset(task)
             self._exec_monitor.update_approach_info(
