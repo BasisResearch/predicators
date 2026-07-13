@@ -26,7 +26,7 @@ _GREEN = DominoComponent.start_domino_color
 _BLUE = DominoComponent.domino_color
 _PURPLE = DominoComponent.target_domino_color
 
-# Past fallen_threshold (pi/6 ~= 0.524). Negative: with the env's yaw
+# Past fallen_threshold (10 deg ~= 0.175). Negative: with the env's yaw
 # convention a NEGATIVE roll falls along (-sin yaw, cos yaw), i.e. +y at
 # yaw 0, which is the direction the synthetic chains below progress.
 _FALLEN_ROLL = -0.6
@@ -707,7 +707,7 @@ def test_placement_wobble_ignored():
     num = 30
     profile = [0.0] * (num + 1)
     for t in range(4, 7):
-        profile[t] = 0.35  # ~20 deg: tilting, not fallen
+        profile[t] = 0.12  # ~7 deg: tilting, not fallen
     states = _build_states(objs,
                            num, {
                                "green": 12,
