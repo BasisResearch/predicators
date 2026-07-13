@@ -351,8 +351,6 @@ class PyBulletEnv(BaseEnv):
 
         Called by initialize_pybullet().
         """
-        robot_ee_orn = cls.get_robot_ee_home_orn()
-
         if cls.robot_base_pos is None or cls.robot_base_orn is None:
             base_pose = None
         else:
@@ -360,11 +358,37 @@ class PyBulletEnv(BaseEnv):
 
         cls._sync_robot_init_pos_with_home(base_pose)
         ee_home = Pose((cls.robot_init_x, cls.robot_init_y, cls.robot_init_z),
-                       robot_ee_orn)
+                       cls.get_robot_ee_init_orn())
 
         return create_single_arm_pybullet_robot(CFG.pybullet_robot,
                                                 physics_client_id, ee_home,
                                                 base_pose)
+
+    @classmethod
+    def get_robot_ee_init_orn(cls) -> Quaternion:
+        """The end-effector orientation the robot's initial state encodes.
+
+        The robot must home to the orientation its initial state describes.
+        Otherwise it homes to one orientation and every state reset runs IK to
+        another: reaching the same position under a rolled orientation puts
+        the arm in a different IK branch, which for the Panda means a
+        contorted one (the wrist roll costs more than a shoulder swing under
+        IK's closest-solution metric, so it swings the shoulder).
+
+        Mirrors how _extract_robot_state builds the orientation, per angle:
+        from the robot's roll/tilt/wrist features where it has them, and from
+        get_robot_ee_home_orn() where it does not.
+        """
+        robot_type = getattr(cls, "_robot_type", None)
+        if robot_type is None:
+            return cls.get_robot_ee_home_orn()
+        names = robot_type.feature_names
+        default_roll, default_tilt, default_wrist = p.getEulerFromQuaternion(
+            cls.get_robot_ee_home_orn())
+        roll = cls.robot_init_roll if "roll" in names else default_roll
+        tilt = cls.robot_init_tilt if "tilt" in names else default_tilt
+        wrist = cls.robot_init_wrist if "wrist" in names else default_wrist
+        return p.getQuaternionFromEuler([roll, tilt, wrist])
 
     @classmethod
     def _sync_robot_init_pos_with_home(cls, base_pose: Optional[Pose]) -> None:
