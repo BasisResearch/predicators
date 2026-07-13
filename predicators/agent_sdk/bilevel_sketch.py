@@ -245,10 +245,11 @@ def build_solve_prompt(
     finds all continuous params" to "propose your best continuous params in
     ``[...]`` per step; the search refines them and samples on failure".
 
-    ``require_tool_validation`` tells the agent it MUST drive
-    ``refine_plan_sketch`` to a SUCCESS on the current task (its captured,
-    forward-validated plan is the only output) — used when the approach has
-    no refinement fallback. When False, validation is merely encouraged.
+    ``require_tool_validation`` tells the agent it MUST submit a
+    goal-reaching ``evaluate_option_plan`` run on the current task (the
+    captured, validated plan is the only output) - used when the approach
+    has no refinement fallback. When False, validation is merely
+    encouraged.
     """
     init_state = task.init
     objects = list(init_state)

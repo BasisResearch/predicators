@@ -335,10 +335,10 @@ class AgentBilevelApproach(AgentPlannerApproach):
 
             if not CFG.agent_bilevel_refine_fallback:
                 # Default: no approach-side fallback. The agent must itself
-                # reach a refine_plan_sketch SUCCESS (captured above) so we
-                # never execute a plan it didn't verify; if it ended without
-                # one, re-query with feedback instead of refining its
-                # unvalidated sketch.
+                # reach a confirmed evaluate_option_plan capture (consumed
+                # above) so we never execute a plan it didn't verify; if it
+                # ended without one, re-query with feedback instead of
+                # refining its unvalidated sketch.
                 logging.info(
                     "[%s] Attempt %d ended without a validated plan; "
                     "re-querying the agent.", self._run_id, sketch_attempt)
@@ -357,9 +357,11 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 prior_failures.append(
                     "You finished without a validated plan. You MUST run "
                     "evaluate_option_plan on the current task (omit task_idx) "
-                    "until it reaches the goal; that captured run is your "
-                    "submitted answer, and a plan given only as text is "
-                    "discarded. refine_plan_sketch SUCCESS also counts.")
+                    "until it confirms a capture; that captured run is your "
+                    "submitted answer. A plan given only as text is "
+                    "discarded, and refine_plan_sketch does NOT submit - it "
+                    "only finds parameters for you to submit via "
+                    "evaluate_option_plan.")
                 continue
 
             sketch_lines = bilevel_sketch.format_sketch_lines(sketch)
@@ -810,11 +812,12 @@ class AgentBilevelApproach(AgentPlannerApproach):
     def _consume_validated_plan(self) -> Optional[Callable[[State], Action]]:
         """Return a policy from an agent-validated plan, or None.
 
-        ``refine_plan_sketch`` records a refined + forward-validated
-        plan on the current solve task into the tool context. Returning
-        that exact simulator-verified plan guarantees the agent's tool-
-        validated answer is what executes, and skips a re-refinement
-        that — with a different seed — might not reproduce it.
+        ``evaluate_option_plan`` records a captured (goal-reaching,
+        validated) plan on the current solve task into the tool context.
+        Returning that exact simulator-verified plan guarantees the
+        agent's tool-validated answer is what executes, and avoids a
+        fresh refinement that with a different seed might not reproduce
+        it.
         """
         plan = self._tool_context.solved_plan
         sketch = self._tool_context.solved_sketch
