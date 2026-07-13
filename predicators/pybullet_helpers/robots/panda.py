@@ -1,11 +1,35 @@
 """Franka Emika Panda robot."""
-from typing import Optional
+from typing import List, Optional
+
+import numpy as np
 
 from predicators import utils
+from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.ikfast import IKFastInfo
 from predicators.pybullet_helpers.robots.single_arm import \
     SingleArmPyBulletRobot
 from predicators.settings import CFG
+
+# The Franka's canonical "ready" configuration, i.e. the one libfranka and
+# the real robot's driver home to. The gripper points straight down about
+# 0.31 m in front of and 0.49 m above the base, with every joint far from
+# its limit.
+PANDA_HOME_ARM_JOINTS = [
+    0.0,
+    -np.pi / 4,
+    0.0,
+    -3 * np.pi / 4,
+    0.0,
+    np.pi / 2,
+    np.pi / 4,
+]
+
+# The tool_link pose induced by PANDA_HOME_ARM_JOINTS, in the base frame.
+# Precomputed so that callers can ask where the Panda's home is before a URDF
+# is loaded; test_panda_home_ee_pose_matches_forward_kinematics keeps it
+# honest.
+PANDA_HOME_EE_POSE_IN_BASE = Pose(position=(0.3069, 0.0, 0.4903),
+                                  orientation=(0.0, 1.0, 0.0, 0.0))
 
 
 class PandaPyBulletRobot(SingleArmPyBulletRobot):
@@ -14,6 +38,14 @@ class PandaPyBulletRobot(SingleArmPyBulletRobot):
     @classmethod
     def get_name(cls) -> str:
         return "panda"
+
+    @classmethod
+    def home_arm_joint_positions(cls) -> Optional[List[float]]:
+        return list(PANDA_HOME_ARM_JOINTS)
+
+    @classmethod
+    def home_ee_pose_in_base(cls) -> Optional[Pose]:
+        return PANDA_HOME_EE_POSE_IN_BASE
 
     @classmethod
     def urdf_path(cls) -> str:

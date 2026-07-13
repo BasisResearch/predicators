@@ -9,6 +9,8 @@ from predicators import utils
 from predicators.pybullet_helpers.geometry import Pose
 from predicators.pybullet_helpers.joint import get_joint_infos, get_joints
 from predicators.pybullet_helpers.robots import PandaPyBulletRobot
+from predicators.pybullet_helpers.robots.panda import PANDA_HOME_ARM_JOINTS, \
+    PANDA_HOME_EE_POSE_IN_BASE
 
 
 @pytest.fixture(scope="function", name="panda")
@@ -122,3 +124,61 @@ def test_panda_pybullet_robot_inverse_kinematics(panda):
                                                validate=True)
     recovered_pose = panda.forward_kinematics(joint_positions)
     assert np.allclose(recovered_pose.position, pose.position)
+
+
+def test_panda_home_ee_pose_matches_forward_kinematics(panda):
+    """PANDA_HOME_EE_POSE_IN_BASE must stay in sync with the home joints.
+
+    It is precomputed so that callers can locate the home pose without a
+    URDF, so nothing else would catch it drifting.
+    """
+    home_joints = list(PANDA_HOME_ARM_JOINTS) + [
+        panda.open_fingers, panda.open_fingers
+    ]
+    home_pose = panda.forward_kinematics(home_joints)
+    assert np.allclose(home_pose.position,
+                       PANDA_HOME_EE_POSE_IN_BASE.position,
+                       atol=1e-3)
+    assert np.allclose(np.abs(home_pose.orientation),
+                       np.abs(PANDA_HOME_EE_POSE_IN_BASE.orientation),
+                       atol=1e-3)
+
+
+def test_panda_homes_to_canonical_configuration(physics_client_id):
+    """With no home pose requested, the Panda homes to the Franka's canonical
+    configuration."""
+    utils.reset_config({"pybullet_control_mode": "reset"})
+    panda = PandaPyBulletRobot(physics_client_id=physics_client_id)
+    assert np.allclose(panda.initial_joint_positions[:7],
+                       PANDA_HOME_ARM_JOINTS,
+                       atol=1e-3)
+    assert np.allclose(panda.get_state()[:3],
+                       PANDA_HOME_EE_POSE_IN_BASE.position,
+                       atol=1e-3)
+
+
+def test_panda_home_keeps_canonical_arm_under_rolled_orientation(
+        physics_client_id):
+    """The home configuration keeps its canonical arm shape when the home
+    orientation is rolled about the gripper axis, as every env's is: the free
+    wrist joint absorbs the roll.
+
+    Plain IK would instead swing the shoulder, since a wrist roll costs
+    more than a shoulder swing under its closest-solution metric.
+    """
+    utils.reset_config({"pybullet_control_mode": "reset"})
+    # The canonical home pose, rolled 90 degrees about the (downward) gripper
+    # axis -- i.e. the top-down grasp orientation the envs use.
+    rolled_home_pose = Pose(PANDA_HOME_EE_POSE_IN_BASE.position,
+                            (0.7071, 0.7071, 0.0, 0.0))
+    panda = PandaPyBulletRobot(rolled_home_pose, physics_client_id)
+    home_joints = panda.initial_joint_positions
+    # The arm joints are canonical...
+    assert np.allclose(home_joints[:6], PANDA_HOME_ARM_JOINTS[:6], atol=0.2)
+    # ...and the wrist took the roll.
+    assert np.isclose(home_joints[6],
+                      PANDA_HOME_ARM_JOINTS[6] + np.pi / 2,
+                      atol=0.2)
+    assert np.allclose(panda.get_state()[:3],
+                       rolled_home_pose.position,
+                       atol=1e-3)
