@@ -635,11 +635,14 @@ def evaluate_states_with(
         step_options: Optional[Sequence[Any]]) -> Dict[str, Any]:
     """Score a state/option-label sequence with a task's ``TaskEvaluator``.
 
-    The single verdict surface for every agent-facing consumer (plan
-    reports, the ``run_python`` helper): only booleans/scalars/reasons
-    leave this function, never the evaluator object. Both functions are
-    physics-independent, so verdicts on belief-sim rollouts are exactly
-    as trustworthy as the belief sim itself.
+    The single verdict surface: only booleans/scalars/reasons leave this
+    function, never the evaluator object. Both functions run on plain
+    states with no physics, so verdicts on belief-sim rollouts are
+    exactly as trustworthy as the belief sim itself.
+    ``legitimate``/``reason`` are HARNESS-INTERNAL (capture gating,
+    logs): agent-facing surfaces expose only the public gym-style pair
+    (terminated, reward), so the agent must infer the scoring rules
+    from the stated objective and the rewards its rollouts earn.
     """
     ok, reason = evaluator._certify(states, step_options)  # pylint: disable=protected-access
     return {
@@ -653,15 +656,17 @@ def evaluate_states_with(
 def _format_evaluator_verdict(verdict: Dict[str, Any],
                               *,
                               coarse: bool = False) -> str:
-    """One report line for an evaluator verdict on a belief-sim rollout."""
-    legit = verdict["legitimate"]
-    legit_str = "True" if legit else f"False ({verdict['reason']})"
+    """One report line for an evaluator verdict on a belief-sim rollout.
+
+    Emits only the public (terminated, reward) pair; the certificate's
+    legitimacy bool and reason stay harness-internal.
+    """
     line = (f"Task evaluator (belief-sim rollout - trustworthy only insofar "
             f"as your simulator is): terminated={verdict['terminated']}, "
-            f"legitimate={legit_str}, reward={verdict['reward']:.2f}")
+            f"reward={verdict['reward']:.2f}")
     if coarse:
         line += ("\n  NOTE: per-step states were unavailable for part of the "
-                 "rollout, so the legitimacy verdict is coarse (computed on "
+                 "rollout, so the verdict is coarse (computed on "
                  "option-boundary states only).")
     return line
 
@@ -1585,8 +1590,9 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "re-run several times (simulation varies across runs) and a FLAKY "
         "plan is reported instead of captured - add margin and resubmit. "
         "When the task has an evaluator, a goal-reaching plan the evaluator "
-        "marks legitimate=False is NOT captured (the real evaluator applies "
-        "the same certificate, so it could never count as a solve).",
+        "still scores as a non-solve (no success credit in its reward) is "
+        "NOT captured (the real env applies the same scoring, so it could "
+        "never count as a solve).",
         {
             "type": "object",
             "properties": {
@@ -1888,8 +1894,10 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 try:
                     v = evaluate_states_with(evaluator, v_states, v_labels)
                     if not v["legitimate"]:
-                        return False, ("the task evaluator rejected this "
-                                       f"rollout ({v['reason']})")
+                        return False, (
+                            "this rollout reached the goal atoms but the "
+                            "task evaluator scored it as a non-solve "
+                            f"(reward={v['reward']:.2f})")
                 except Exception as e:  # pylint: disable=broad-except
                     logging.debug("Validation-rollout verdict failed: %s", e)
             return True, ""
@@ -1959,7 +1967,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                                 " (best-effort: goal NOT reached, accepted "
                                 "because the attempt budget is exhausted; it "
                                 "executes for its honest reward but will not "
-                                "count as a certified solve)")
+                                "count as a solve)")
             lines.append(f"Captured as the current answer{best_effort_note}: "
                          f"{len(grounded_plan)} steps, "
                          f"{n_annot} with subgoal annotations for closed-loop "
@@ -1989,11 +1997,12 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             # honest shortfall is captured above, but a fake solve is not.
             assert verdict is not None
             lines.append(
-                "NOT CAPTURED: the task evaluator rejects this rollout as "
-                f"illegitimate ({verdict['reason']}). The real evaluator "
-                "applies the same certificate, so executing this plan "
-                "cannot count as a solve. Find a plan the evaluator marks "
-                "legitimate=True.")
+                "NOT CAPTURED: the rollout reaches the goal atoms but the "
+                "task evaluator scores it as a non-solve "
+                f"(reward={verdict['reward']:.2f}, no success credit). The "
+                "real env applies the same scoring, so executing this plan "
+                "cannot count as a solve. Find a plan whose rollout the "
+                "evaluator rewards as a success.")
         elif (ctx.capture_goal_reaching_plans and task_idx != "current"
               and goal_achieved):
             # Loudly flag a success that cannot count: agents have burned
@@ -3387,8 +3396,8 @@ def create_synthesis_tools(
         "is_goal_state (callable: state, task_idx -> bool — a "
         "ground-truth black-box reward), np, ParamSpec, and (when the "
         "env defines task evaluators) evaluate_trajectory(states, "
-        "actions=None, task_idx=0) -> {terminated, reward, legitimate, "
-        "reason} — the env's ground-truth episode scoring. print() output "
+        "actions=None, task_idx=0) -> {terminated, reward} — the env's "
+        "ground-truth episode scoring. print() output "
         "is returned. The namespace persists across calls. If output "
         "exceeds ~30k chars it is saved to "
         "`tool_outputs/run_python/call_NNNN.txt` in the sandbox and only "

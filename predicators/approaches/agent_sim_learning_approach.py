@@ -684,9 +684,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
             }
             # Env ground-truth scoring, next to is_goal_state (see
             # Task.evaluator). Verdict-only surface: dict of
-            # terminated/reward/legitimate/reason on a concrete state
-            # sequence - real trajectories or the agent's own simulator
-            # rollouts (there the verdict is only as good as the sim).
+            # terminated/reward on a concrete state sequence - real
+            # trajectories or the agent's own simulator rollouts (there
+            # the verdict is only as good as the sim).
             if any(t.evaluator is not None for t in self._train_tasks):
                 exec_ns["evaluate_trajectory"] = \
                     self._make_evaluate_trajectory_fn()
@@ -1733,12 +1733,14 @@ the tools."""
         exec namespace (next to ``is_goal_state``).
 
         The returned function scores a concrete state sequence with the
-        task's env-defined ``TaskEvaluator`` and returns only verdicts
-        (dict of terminated/reward/legitimate/reason) - never the
-        evaluator itself. ``actions`` may be ``Action`` objects (labeled
-        via their producing options), pre-built ``(option_name,
-        object_names)`` labels, or ``None`` (kinematics-only legitimacy
-        rules).
+        task's env-defined ``TaskEvaluator`` and returns only the public
+        gym-style pair (dict of terminated/reward) - never the evaluator
+        itself, and never the certificate's internal legitimacy verdict
+        or reason (the agent infers the scoring rules from the stated
+        objective and the rewards it observes). ``actions`` may be
+        ``Action`` objects (labeled via their producing options),
+        pre-built ``(option_name, object_names)`` labels, or ``None``
+        (kinematics-only scoring).
         """
         tasks = self._train_tasks
 
@@ -1761,7 +1763,12 @@ the tools."""
                     step_options = step_option_labels(acts)
                 else:
                     step_options = acts
-            return evaluate_states_with(evaluator, list(states), step_options)
+            verdict = evaluate_states_with(evaluator, list(states),
+                                           step_options)
+            return {
+                "terminated": verdict["terminated"],
+                "reward": verdict["reward"],
+            }
 
         return evaluate_trajectory
 
@@ -1798,8 +1805,6 @@ the tools."""
                     bool(traj.env_terminated) and not traj.env_rejected)
                 tail += (f" — env reward={traj.env_reward:.2f} "
                          f"(success={success})")
-            if traj.env_rejected:
-                tail += "; the supervisor REJECTED this episode"
             lines.append(f"  [{idx}] {kind}, {task_str}{tail}")
         return "\n".join(lines) + "\n"
 
@@ -1827,7 +1832,7 @@ env-computed reward. In `run_python`, \
 state sequence with the same ground-truth evaluator - a collected \
 trajectory's `states`/`actions`, or a rollout of YOUR simulator \
 (there the verdict is only as trustworthy as your simulator). It \
-returns {{terminated, reward, legitimate, reason}}.
+returns {{terminated, reward}}.
 
 """
 
@@ -2215,8 +2220,8 @@ iterations.
 `ParamSpec` in scope; when the learn message states a task objective, \
 `evaluate_trajectory(states, actions=None, task_idx=0)` scores a state \
 sequence with the env's ground-truth evaluator (returns terminated / \
-reward / legitimate / reason; on your own simulator's rollouts the \
-verdict is only as good as the simulator). **Does not** define rules.
+reward; on your own simulator's rollouts the verdict is only as good \
+as the simulator). **Does not** define rules.
 - `evaluate_step_fit` — per-step prediction accuracy: SSE on the step \
 transitions at `init_value` params, plus post-fit SSE and fitted \
 parameters from a parameter fit. Cheap; the inner-loop signal.
