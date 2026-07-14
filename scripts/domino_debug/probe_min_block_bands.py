@@ -171,7 +171,7 @@ def _main() -> None:
         results = probe_turn(env, mbu, args.frictions, cells, args.budget,
                              args.reps)
     if args.out:
-        with open(args.out, "w") as fh:
+        with open(args.out, "w", encoding="utf-8") as fh:
             json.dump(results, fh, indent=1)
         print(f"saved {args.out}")
 
