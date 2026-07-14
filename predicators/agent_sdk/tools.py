@@ -19,7 +19,7 @@ from predicators.agent_sdk.proposal_parser import ProposalBundle, \
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, LowLevelTrajectory, Object, \
-    OptionSampler, ParameterizedOption, Predicate, State, Task, Type
+    ParameterizedOption, ParameterizedSampler, Predicate, State, Task, Type
 
 MCP_SERVER_NAME = "predicator_tools"
 
@@ -169,11 +169,11 @@ class ToolContext:
     # None ⇒ plain feasibility search (default).
     atom_disagreement_fn: Optional[Callable[[State, Any], float]] = None
     # Synthesized per-skill samplers (option name -> sampler), synced from
-    # the learning approach when agent_sim_learn_synthesize_samplers is on.
+    # the learning approach when agent_sim_learn_parameterized_samplers is on.
     # The agent_bilevel explorer and synthesis tools pass these into
     # refinement so continuous-parameter search aims at each step's subgoal
     # instead of drawing uniformly. Empty ⇒ uniform sampling (default).
-    option_samplers: Dict[str, OptionSampler] = field(default_factory=dict)
+    parameterized_samplers: Dict[str, ParameterizedSampler] = field(default_factory=dict)
     current_task: Optional[Task] = None
     iteration_proposals: ProposalBundle = field(default_factory=ProposalBundle)
     planning_results: Dict[str, Any] = field(default_factory=dict)
@@ -2533,7 +2533,7 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                         agent_bilevel_max_samples_per_step,
                         check_subgoals=CFG.agent_bilevel_check_subgoals,
                         log_state=CFG.agent_bilevel_log_state,
-                        option_samplers=ctx.option_samplers or None,
+                        parameterized_samplers=ctx.parameterized_samplers or None,
                         run_id="planner_refine",
                         timeout_source=timeout_source,
                     )

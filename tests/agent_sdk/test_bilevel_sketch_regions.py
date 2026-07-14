@@ -17,7 +17,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.bilevel_sketch import SketchStep
+from predicators.agent_sdk.bilevel_sketch import GroundSampler, SketchStep
 from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
@@ -84,7 +84,10 @@ def _region_step(center, width, subgoal=True):
         objects=[_block],
         subgoal_atoms={GroundAtom(_ReachedHi, [_block])} if subgoal else None,
         initial_params=np.array([center], dtype=np.float32),
-        initial_params_width=np.array([width], dtype=np.float32))
+        ground_sampler=GroundSampler(center=np.array([center],
+                                                     dtype=np.float32),
+                                     width=np.array([width],
+                                                    dtype=np.float32)))
 
 
 def _refine(step, **kwargs):
@@ -121,7 +124,7 @@ def test_parse_region_happy_path():
         "Move(block0:block)[0.7] ~ [0.1] -> {ReachedHi(block0:block)}")
     assert len(sketch) == 1
     assert np.allclose(sketch[0].initial_params, [0.7])
-    assert np.allclose(sketch[0].initial_params_width, [0.1])
+    assert np.allclose(sketch[0].ground_sampler.width, [0.1])
     assert GroundAtom(_ReachedHi, [_block]) in sketch[0].subgoal_atoms
 
 
@@ -172,7 +175,7 @@ def test_parse_region_nonstrict_drops_bad_width_keeps_step():
     sketch = _parse("Move(block0:block)[0.7] ~ [0.1, 0.2]", strict=False)
     assert len(sketch) == 1
     assert np.allclose(sketch[0].initial_params, [0.7])
-    assert sketch[0].initial_params_width is None
+    assert sketch[0].ground_sampler is None
 
 
 def test_parse_region_ignored_when_params_disabled():
@@ -183,7 +186,7 @@ def test_parse_region_ignored_when_params_disabled():
         parse_continuous_params=False)
     assert len(sketch) == 1
     assert sketch[0].initial_params is None
-    assert sketch[0].initial_params_width is None
+    assert sketch[0].ground_sampler is None
     assert GroundAtom(_ReachedHi, [_block]) in sketch[0].subgoal_atoms
 
 
@@ -214,7 +217,7 @@ def test_format_step_line_shows_width_and_annotation_round_trips():
                     line.split("Move(block0)", maxsplit=1)[1])
     assert len(sketch) == 1
     assert np.allclose(sketch[0].initial_params, [0.85])
-    assert np.allclose(sketch[0].initial_params_width, [0.1])
+    assert np.allclose(sketch[0].ground_sampler.width, [0.1])
     assert GroundAtom(_ReachedHi, [_block]) in sketch[0].subgoal_atoms
 
 
@@ -242,7 +245,7 @@ def test_region_takes_precedence_over_sampler():
 
     plan, success, _ = _refine(_region_step(0.5, 0.5),
                                max_samples_per_step=200,
-                               option_samplers={"Move": sampler})
+                               parameterized_samplers={"Move": sampler})
     assert success
     assert float(plan[0].params[0]) >= 0.9
 
@@ -291,7 +294,7 @@ def test_region_step_not_capped_by_deterministic_sampler():
     sampler.deterministic = True
     plan, success, total = _refine(_region_step(0.5, 0.5),
                                    max_samples_per_step=200,
-                                   option_samplers={"Move": sampler})
+                                   parameterized_samplers={"Move": sampler})
     assert success
     # The failing center consumed the first attempt; regional draws (not a
     # single deterministic try) then found a passing value.

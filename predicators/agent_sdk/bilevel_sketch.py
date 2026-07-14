@@ -17,12 +17,13 @@ from typing import Any, Callable, Collection, Dict, List, Optional, Sequence, \
     Set, Tuple, Union, cast
 
 import numpy as np
+from gym.spaces import Box
 
 from predicators import utils
 from predicators.option_model import _OptionModelBase
 from predicators.planning import run_backtracking_refinement
 from predicators.structs import EnvironmentTask, GroundAtom, Object, \
-    OptionSampler, ParameterizedOption, Predicate, State, Task, Type, \
+    ParameterizedOption, ParameterizedSampler, Predicate, State, Task, Type, \
     _Option
 
 # Signature of an info-gain scorer: given a candidate post-state and the
@@ -125,6 +126,44 @@ class DeepestFailure:
 
 
 @dataclasses.dataclass
+class GroundSampler:
+    """Per-step (ground) sampler compiled from a sketch annotation.
+
+    The ground level of the two-level sampler hierarchy that
+    ``_draw_params`` consults: ground sampler (this, most specific) >
+    learned parameterized sampler (``parameterized_samplers``, keyed by
+    option name) > uniform. A parameterized sampler is authored once
+    and sees every ground call of its option; a ground sampler is
+    declared inline for ONE step of ONE sketch and dies with the call -
+    it lives on the ``SketchStep`` rather than in the option-name-keyed
+    registry, which could not hold different distributions for two
+    same-option steps in one sketch.
+
+    The only kind today is the uniform window that a ``~ [w1, w2]``
+    region annotation declares around the step's proposed params;
+    richer distribution kinds should extend this class rather than add
+    new special cases to the draw path.
+    """
+    center: np.ndarray
+    width: np.ndarray
+
+    def draw(self, rng: np.random.Generator, box: Box) -> np.ndarray:
+        """Draw uniform params inside the window, clipped to ``box``."""
+        center = np.clip(np.asarray(self.center, dtype=np.float32), box.low,
+                         box.high)
+        width = np.asarray(self.width, dtype=np.float32)
+        # uniform(x, x) returns x, so zero widths pin to the center.
+        return rng.uniform(np.maximum(center - width, box.low),
+                           np.minimum(center + width,
+                                      box.high)).astype(np.float32)
+
+    @property
+    def deterministic(self) -> bool:
+        """True when every draw is identical (an all-zero window)."""
+        return bool(np.all(np.asarray(self.width) == 0))
+
+
+@dataclasses.dataclass
 class SketchStep:
     """One step in an agent-produced plan sketch.
 
@@ -141,15 +180,12 @@ class SketchStep:
     # refinement tries these first (clipped to the option's box) on the first
     # arrival at this step, then falls back to the sampler/uniform draw.
     initial_params: Optional[np.ndarray] = None
-    # Optional per-dimension half-widths for ``initial_params`` (requires
-    # it), from a ``~ [w1, w2]`` region annotation. When set, the exact
-    # center is still tried once, and every later draw for this step is
-    # uniform from ``clip([center - w, center + w], option box)`` instead
-    # of the full box, taking precedence over any per-skill sampler. A
-    # region is a per-step, per-call sampler: it lives here rather than in
-    # the option-name-keyed ``option_samplers`` registry, which could not
-    # hold different windows for two same-option steps in one sketch.
-    initial_params_width: Optional[np.ndarray] = None
+    # Optional ground sampler for this step, compiled from a ``~ [w1, w2]``
+    # region annotation (requires ``initial_params``, its window center).
+    # When set, the exact center is still tried once, and every later draw
+    # for this step comes from the ground sampler instead of the full box,
+    # taking precedence over any learned parameterized sampler.
+    ground_sampler: Optional[GroundSampler] = None
 
 
 def format_step_line(
@@ -187,7 +223,8 @@ def format_sketch_lines(sketch: Sequence[SketchStep]) -> List[str]:
     """Render a plan sketch as one ``format_step_line`` per step.
 
     Each step shows its ``initial_params`` (if the LLM proposed any),
-    its region half-widths (if annotated) and its ``subgoal_atoms``.
+    its ground sampler's half-widths (if annotated) and its
+    ``subgoal_atoms``.
     """
     return [
         format_step_line(i,
@@ -195,7 +232,8 @@ def format_sketch_lines(sketch: Sequence[SketchStep]) -> List[str]:
                          s.objects,
                          params=s.initial_params,
                          subgoal_atoms=s.subgoal_atoms,
-                         params_width=s.initial_params_width)
+                         params_width=(s.ground_sampler.width if
+                                       s.ground_sampler is not None else None))
         for i, s in enumerate(sketch)
     ]
 
@@ -803,6 +841,8 @@ def parse_sketch_from_text(
                                       has_center=ip is not None
                                       and ip.size > 0,
                                       strict=strict)
+        ground_sampler = (GroundSampler(center=ip, width=width)
+                          if width is not None and ip is not None else None)
         if sg is not None:
             pos, neg = sg
             sketch.append(
@@ -811,14 +851,14 @@ def parse_sketch_from_text(
                            subgoal_atoms=pos if pos else None,
                            subgoal_neg_atoms=neg if neg else None,
                            initial_params=ip,
-                           initial_params_width=width))
+                           ground_sampler=ground_sampler))
         else:
             sketch.append(
                 SketchStep(option=option,
                            objects=objs,
                            subgoal_atoms=None,
                            initial_params=ip,
-                           initial_params_width=width))
+                           ground_sampler=ground_sampler))
     # Coverage diagnostic: unannotated steps are invisible to per-step
     # refinement validation, execution monitoring, and suffix replanning.
     unannotated = [
@@ -853,7 +893,7 @@ def refine_sketch(
     deepest_failure_holder: Optional[List[DeepestFailure]] = None,
     info_scorer: Optional[InfoScorer] = None,
     info_n_feasible_target: int = 1,
-    option_samplers: Optional[Dict[str, OptionSampler]] = None,
+    parameterized_samplers: Optional[Dict[str, ParameterizedSampler]] = None,
 ) -> Tuple[List[_Option], bool, int]:
     """Backtracking search over continuous parameters for a plan sketch.
 
@@ -909,17 +949,17 @@ def refine_sketch(
     that ``WaitOption`` terminates on the intended atom change rather
     than the first incidental one.
 
-    ``option_samplers`` maps an option name to a per-skill sampler
-    ``(state, subgoal_atoms, rng, objects) -> params`` (the NSRTSampler
-    signature, with the step subgoal in the atoms slot), used on both
-    plain and info-seeking draws to aim that option's parameters at the
-    subgoal instead of drawing uniformly. The return is clipped to the
-    option's box; a missing or misbehaving sampler falls back to uniform
-    sampling. A step whose sketch line carries a ``~ [widths]`` region
-    annotation bypasses the sampler entirely: after the one-shot center
-    try, its draws come uniform from the region window (see
-    ``SketchStep.initial_params_width``), the most specific prior
-    winning - region, then sampler, then uniform.
+    ``parameterized_samplers`` maps an option name to a parameterized
+    (per-skill) sampler ``(state, subgoal_atoms, rng, objects) ->
+    params`` (the NSRTSampler signature, with the step subgoal in the
+    atoms slot), used on both plain and info-seeking draws to aim that
+    option's parameters at the subgoal instead of drawing uniformly.
+    The return is clipped to the option's box; a missing or misbehaving
+    sampler falls back to uniform sampling. A step whose sketch line
+    carries a ``~ [widths]`` region annotation bypasses the sampler
+    entirely: after the one-shot center try, its draws come from the
+    step's ``GroundSampler``, the most specific prior winning - ground
+    sampler, then parameterized sampler, then uniform.
     """
     if not sketch:
         return [], False, 0
@@ -948,32 +988,24 @@ def refine_sketch(
     # tried directly on the plain path, or seeded into the info-seeking pool.
     # One-shot per step: on later attempts (resample after a failed subgoal
     # check, or re-descent after an upstream backtrack) the guess is not
-    # re-proposed/re-seeded and selection falls to the region/sampler/
-    # uniform/info-seeking path.
+    # re-proposed/re-seeded and selection falls to the ground-sampler/
+    # parameterized-sampler/uniform/info-seeking path.
     _llm_params_tried: Set[int] = set()
 
     def _draw_params(step: SketchStep, state: State,
                      rng_: np.random.Generator) -> np.ndarray:
         """Draw continuous params for a step's option.
 
-        Precedence: a per-step region annotation (uniform draw inside
-        the step's ``[center - w, center + w]`` window, clipped to the
-        option box) beats a registered per-skill sampler (keyed by
-        option name), which beats uniform ``sample_params`` — the
-        fallback also on a sampler error or wrong-shaped return.
+        Precedence, most specific first: the step's ground sampler (a
+        ``~ [widths]`` region annotation compiled into a
+        ``GroundSampler``), then the option's learned parameterized
+        sampler (keyed by option name), then uniform ``sample_params`` —
+        the fallback also on a sampler error or wrong-shaped return.
         """
-        if step.initial_params is not None and \
-                step.initial_params_width is not None:
-            box = step.option.params_space
-            center = np.clip(np.asarray(step.initial_params, dtype=np.float32),
-                             box.low, box.high)
-            width = np.asarray(step.initial_params_width, dtype=np.float32)
-            # uniform(x, x) returns x, so zero widths pin to the center.
-            return rng_.uniform(np.maximum(center - width, box.low),
-                                np.minimum(center + width,
-                                           box.high)).astype(np.float32)
-        sampler = (option_samplers.get(step.option.name)
-                   if option_samplers else None)
+        if step.ground_sampler is not None:
+            return step.ground_sampler.draw(rng_, step.option.params_space)
+        sampler = (parameterized_samplers.get(step.option.name)
+                   if parameterized_samplers else None)
         if sampler is not None:
             box = step.option.params_space
             expected = box.shape[0]
@@ -1027,15 +1059,14 @@ def refine_sketch(
         # state/rng); re-drawing it yields the identical option, so its step
         # gets a single attempt -- backtracking then skips straight past it
         # instead of wasting the full budget re-descending through it.
-        if step.initial_params is not None and \
-                step.initial_params_width is not None:
-            # A region step bypasses the sampler, so a deterministic
-            # sampler flag must not collapse it to one attempt. An
-            # all-zero width pins every draw to the center, which IS
-            # deterministic - one attempt suffices there too.
-            return bool(np.all(step.initial_params_width == 0))
-        sampler = (option_samplers.get(step.option.name)
-                   if option_samplers else None)
+        if step.ground_sampler is not None:
+            # A ground-sampler step bypasses the parameterized sampler,
+            # so a deterministic sampler flag must not collapse it to
+            # one attempt. An all-zero window pins every draw to the
+            # center, which IS deterministic - one attempt suffices.
+            return step.ground_sampler.deterministic
+        sampler = (parameterized_samplers.get(step.option.name)
+                   if parameterized_samplers else None)
         return bool(getattr(sampler, "deterministic", False))
 
     max_tries = []
@@ -1703,7 +1734,7 @@ def refine_and_validate_report(
     max_samples_per_step: int,
     check_subgoals: bool,
     log_state: bool = False,
-    option_samplers: Optional[Dict[str, OptionSampler]] = None,
+    parameterized_samplers: Optional[Dict[str, ParameterizedSampler]] = None,
     run_id: str = "refine",
     timeout_source: str = "explicit",
     extra_summary_lines: Optional[List[str]] = None,
@@ -1748,7 +1779,7 @@ def refine_and_validate_report(
         termination_reason=termination_reason,
         elapsed_holder=elapsed_holder,
         deepest_failure_holder=deepest_failure,
-        option_samplers=option_samplers,
+        parameterized_samplers=parameterized_samplers,
     )
 
     reason = termination_reason[0] if termination_reason else (

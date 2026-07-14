@@ -1,7 +1,12 @@
-"""Mixin providing per-skill sampler learning for the sim-learning approach.
+"""Parameterized (per-skill) sampler learning for the sim-learning approach.
+
+A parameterized sampler is keyed by option name and authored once; the
+ground level of the sampler hierarchy (per-step ``GroundSampler`` from a
+sketch ``~ [widths]`` region annotation) is not learned and lives in
+``bilevel_sketch``, overriding the parameterized sampler per step.
 
 Samplers are a first-class artifact of the base sim-learning approach
-(gated by ``CFG.agent_sim_learn_synthesize_samplers``), not a subclass
+(gated by ``CFG.agent_sim_learn_parameterized_samplers``), not a subclass
 extension like predicates — so they are woven into
 ``AgentSimLearningApproach._synthesize_with_agent`` and
 ``_learn_simulator`` directly rather than via the ``_extra_synthesis_*``
@@ -28,8 +33,8 @@ from predicators.agent_sdk.tools import _SnapshotTarget, \
 from predicators.code_sim_learning.training import ParamSpec
 from predicators.ground_truth_models import get_gt_samplers
 from predicators.settings import CFG
-from predicators.structs import Action, LowLevelTrajectory, OptionSampler, \
-    ParameterizedOption, Predicate, State, Task, Type
+from predicators.structs import Action, LowLevelTrajectory, \
+    ParameterizedOption, ParameterizedSampler, Predicate, State, Task, Type
 
 if TYPE_CHECKING:
     from predicators.agent_sdk.tools import ToolContext
@@ -57,7 +62,7 @@ class SamplerLearningMixin:
         _types: Set[Type]
         _fitted_params: Dict[str, float]
         _learning_mode: bool
-        _synthesized_samplers: Dict[str, OptionSampler]
+        _synthesized_samplers: Dict[str, ParameterizedSampler]
 
         def _learning_cycle_index(self) -> int:
             raise NotImplementedError
@@ -105,13 +110,13 @@ class SamplerLearningMixin:
         # known; this default is what the synthesis-session tool surface
         # reads.
         self._do_synthesize_samplers: bool = (
-            CFG.agent_sim_learn_synthesize_samplers
+            CFG.agent_sim_learn_parameterized_samplers
             and not CFG.agent_sim_learn_oracle_samplers)
 
     @staticmethod
     def _samplers_enabled() -> bool:
         """Whether per-skill samplers are used at all this run."""
-        return CFG.agent_sim_learn_synthesize_samplers
+        return CFG.agent_sim_learn_parameterized_samplers
 
     def _maybe_install_oracle_samplers(self) -> None:
         """Resolve sampler mode for this cycle and install GT ones if used.
@@ -236,8 +241,8 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
         for name in sorted(loaded):
             logger.info("  sampler: %s", name)
 
-    def _load_samplers_from_module_file(self,
-                                        path: str) -> Dict[str, OptionSampler]:
+    def _load_samplers_from_module_file(
+            self, path: str) -> Dict[str, ParameterizedSampler]:
         """Load LEARNED_SAMPLERS from ``path``; validate each entry.
 
         Mirrors ``_load_predicates_from_module_file``. Returns an empty

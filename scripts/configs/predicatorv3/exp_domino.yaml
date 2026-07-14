@@ -33,13 +33,17 @@ ENVS:
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
 APPROACHES:
+  # Ground-sampler (region) testing needs no dedicated arm: the
+  # `~ [w1, w2]` region annotation is part of the sketch grammar, so the
+  # base arm below already exercises it.
   agent_oracle_hybrid_sim:
     SKIP: False
-  # Sampler arm: agent_oracle_hybrid_sim plus agent-synthesized
-  # per-skill samplers (samplers.py via evaluate_sampler); measures what
-  # the reusable cross-task sampler prior adds over per-call regions.
+  # Parameterized-sampler arm: agent_oracle_hybrid_sim plus
+  # agent-synthesized per-skill samplers (samplers.py via
+  # evaluate_sampler); measures what the reusable cross-task sampler
+  # prior adds over per-call ground samplers. Parked for now.
   agent_oracle_hybrid_sim_sampler:
-    SKIP: False
+    SKIP: True
   agent_po_predicate_invention_al:
     SKIP: True
     FLAGS:
