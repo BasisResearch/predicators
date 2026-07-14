@@ -194,6 +194,7 @@ def test_legitimate_plan_passes_both_gates():
     assert "Captured as the current answer" in text
     assert "Validated 3/3 rollouts" in text
     assert "Task evaluator" in text and "reward=" in text
+    assert "solved=True" in text
     assert "legitimate" not in text
     assert ctx.solved_plan is not None
     assert model.num_calls == 3

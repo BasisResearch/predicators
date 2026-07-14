@@ -310,11 +310,12 @@ def test_evaluate_trajectory_helper(approach_cls):
     act.set_option(push.ground([], np.zeros(0, dtype=np.float32)))
 
     verdict = fn(states, [act], task_idx=0)
-    # Public gym-style pair only: the certificate's legitimacy bool and
-    # reason never cross into the agent's namespace.
+    # Public pair only: neither the certificate's legitimacy bool and
+    # reason nor terminated (agent-computable via is_goal_state) cross
+    # into the agent's namespace.
     assert verdict == {
-        "terminated": True,
         "reward": 0.0,  # bonus gated by the internal rejection
+        "solved": False,
     }
     assert evaluator.seen_options == [("Push", ())]
     # Pre-built labels pass through unchanged.

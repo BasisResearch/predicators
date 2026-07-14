@@ -450,6 +450,9 @@ def test_task_evaluator(state):
     assert reached._certify([state], None) == (True, "")
     assert reached.reward([state], None) == 1.0
     assert unreached.reward([state], None) == 0.0
+    # solved: the public episode-success bit = terminated AND certified.
+    assert reached.solved([state], None)
+    assert not unreached.solved([state], None)
     assert not reached.offline_metrics([state], None)
     assert reached.objective_description() == ""
     # step_option_labels: option-carrying actions get (name, objects)

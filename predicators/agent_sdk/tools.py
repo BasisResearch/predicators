@@ -641,14 +641,17 @@ def evaluate_states_with(
     states with no physics, so verdicts on belief-sim rollouts are
     exactly as trustworthy as the belief sim itself.
     ``legitimate``/``reason`` are HARNESS-INTERNAL (capture gating,
-    logs): agent-facing surfaces expose only the public gym-style pair
-    (terminated, reward), so the agent must infer the scoring rules
-    from the stated objective and the rewards its rollouts earn.
+    logs), and ``terminated`` is agent-computable from the public goal
+    atoms: agent-facing surfaces expose only the public (solved,
+    reward) pair - the standard RL end-of-episode observables - so the
+    agent must infer the scoring rules from the stated objective and
+    the outcomes its rollouts earn.
     """
     ok, reason = evaluator._certify(states, step_options)  # pylint: disable=protected-access
     return {
         "terminated": evaluator.terminated(states[-1]),
         "reward": evaluator.reward(states, step_options),
+        "solved": evaluator.solved(states, step_options),
         "legitimate": ok,
         "reason": reason,
     }
@@ -659,11 +662,12 @@ def _format_evaluator_verdict(verdict: Dict[str, Any],
                               coarse: bool = False) -> str:
     """One report line for an evaluator verdict on a belief-sim rollout.
 
-    Emits only the public (terminated, reward) pair; the certificate's
-    legitimacy bool and reason stay harness-internal.
+    Emits only the public (solved, reward) pair; the certificate's
+    legitimacy bool and reason stay harness-internal, and goal-atom
+    termination is already reported (and agent-computable) separately.
     """
     line = (f"Task evaluator (belief-sim rollout - trustworthy only insofar "
-            f"as your simulator is): terminated={verdict['terminated']}, "
+            f"as your simulator is): solved={verdict['solved']}, "
             f"reward={verdict['reward']:.2f}")
     if coarse:
         line += ("\n  NOTE: per-step states were unavailable for part of the "
@@ -1911,7 +1915,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                         return False, (
                             "this rollout reached the goal atoms but the "
                             "task evaluator scored it as a non-solve "
-                            f"(reward={v['reward']:.2f})")
+                            f"(solved=False, reward={v['reward']:.2f})")
                 except Exception as e:  # pylint: disable=broad-except
                     logging.debug("Validation-rollout verdict failed: %s", e)
             return True, ""
@@ -2012,11 +2016,11 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             assert verdict is not None
             lines.append(
                 "NOT CAPTURED: the rollout reaches the goal atoms but the "
-                "task evaluator scores it as a non-solve "
-                f"(reward={verdict['reward']:.2f}, no success credit). The "
-                "real env applies the same scoring, so executing this plan "
-                "cannot count as a solve. Find a plan whose rollout the "
-                "evaluator rewards as a success.")
+                "task evaluator scores it as a non-solve (solved=False, "
+                f"reward={verdict['reward']:.2f}). The real env applies the "
+                "same scoring, so executing this plan cannot count as a "
+                "solve. Find a plan whose rollout the evaluator scores "
+                "solved=True.")
         elif (ctx.capture_goal_reaching_plans and task_idx != "current"
               and goal_achieved):
             # Loudly flag a success that cannot count: agents have burned
@@ -2454,10 +2458,10 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         # budget. Without this gate the search happily converges onto
         # parameterizations the env would score as non-solves and reports
         # SUCCESS on them (run_20260713_172854 seed0 task1 test034). The
-        # gate reads ONLY the public (terminated, reward) pair - reward > 0
-        # iff the success credit was awarded, by the evaluator contract
-        # (block costs are bounded below the success bonus) - so it grants
-        # the search nothing the agent could not compute itself.
+        # gate reads ONLY the public (terminated, reward, solved) triple -
+        # the standard RL end-of-episode observables - so it grants the
+        # search nothing the agent could not compute itself, and it never
+        # depends on a reward sign convention.
         attempts = max(1, CFG.agent_bilevel_refine_evaluator_attempts)
         discarded_rewards: List[float] = []
         verdict_line: Optional[str] = None
@@ -2497,8 +2501,7 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
             if scored is None:
                 break
             verdict, coarse = scored
-            if coarse or not verdict["terminated"] or \
-                    verdict["reward"] > 0.0:
+            if coarse or not verdict["terminated"] or verdict["solved"]:
                 verdict_line = _format_evaluator_verdict(verdict,
                                                          coarse=coarse)
                 break
@@ -3472,7 +3475,7 @@ def create_synthesis_tools(
         "is_goal_state (callable: state, task_idx -> bool — a "
         "ground-truth black-box reward), np, ParamSpec, and (when the "
         "env defines task evaluators) evaluate_trajectory(states, "
-        "actions=None, task_idx=0) -> {terminated, reward} — the env's "
+        "actions=None, task_idx=0) -> {reward, solved} — the env's "
         "ground-truth episode scoring. print() output "
         "is returned. The namespace persists across calls. If output "
         "exceeds ~30k chars it is saved to "

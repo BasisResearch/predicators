@@ -128,6 +128,7 @@ def test_certified_refinement_reports_success():
     assert "SUCCESS" in text
     assert "Parameters found" in text
     assert "reward=" in text
+    assert "solved=True" in text
     assert "SCORED_NON_SOLVE" not in text
     assert "legitimate" not in text
 
