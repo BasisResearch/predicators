@@ -757,12 +757,16 @@ failed to reach the goal).
 
 {trajectory_listing}
 Each trajectory carries a `train_task_idx`. You can query the \
-ground-truth goal-check (a black-box binary reward) by calling \
+ground-truth goal-atom check by calling \
 `is_goal_state(state, task_idx)`. Equivalently \
-`train_tasks[task_idx].goal_holds(state)`. Use this to (1) confirm \
-which trajectories reached the goal and (2) treat failed \
-interaction trajectories as counterexamples — places where your \
-predicate or rule said "this should work" but the env disagreed.
+`train_tasks[task_idx].goal_holds(state)`. This checks a single \
+STATE for the goal atoms only — reaching the goal atoms does not by \
+itself mean an episode is solved; when a task objective is stated \
+below, score full trajectories with `evaluate_trajectory`. Use \
+`is_goal_state` to (1) confirm which trajectories reached the goal \
+atoms and (2) treat failed interaction trajectories as \
+counterexamples — places where your predicate or rule said "this \
+should work" but the env disagreed.
 
 {objective_block}{prior_state_block}Data-structure source code is at: \
 {structs_ref}
@@ -1802,10 +1806,10 @@ the tools."""
             tail = (f" — generated using {', '.join(provenance)}"
                     if provenance else "")
             if traj.env_reward is not None:
-                success = int(
+                solved = int(
                     bool(traj.env_terminated) and not traj.env_rejected)
                 tail += (f" — env reward={traj.env_reward:.2f} "
-                         f"(success={success})")
+                         f"(solved={solved})")
             lines.append(f"  [{idx}] {kind}, {task_str}{tail}")
         return "\n".join(lines) + "\n"
 
@@ -1833,7 +1837,9 @@ env-computed reward. In `run_python`, \
 state sequence with the same ground-truth evaluator - a collected \
 trajectory's `states`/`actions`, or a rollout of YOUR simulator \
 (there the verdict is only as trustworthy as your simulator). It \
-returns {{reward, solved}}.
+returns {{reward, solved}}. `solved` means the episode is scored as \
+a success; a rollout can reach the goal atoms and still be \
+solved=False.
 
 """
 

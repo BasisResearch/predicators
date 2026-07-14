@@ -82,7 +82,7 @@ def test_trajectory_listing_interaction_with_provenance(approach_cls):
 
 def test_trajectory_listing_supervisor_rejected(approach_cls):
     """A rejected episode surfaces only through its (reward, terminated)
-    pair: terminated with success=0 and no bonus in the reward. No
+    pair: terminated with solved=0 and no bonus in the reward. No
     REJECTED flag or violation specifics reach the roster - the rules
     live in the NL goal description, so the agent must infer the
     violation from its own trajectory rather than be told it.
@@ -94,7 +94,7 @@ def test_trajectory_listing_supervisor_rejected(approach_cls):
     out = approach_cls._format_trajectory_listing(trajs)
     lines = [l for l in out.splitlines() if l.startswith("  [")]
     assert "REJECTED" not in out
-    assert "env reward=-0.05 (success=0)" in lines[1]
+    assert "env reward=-0.05 (solved=0)" in lines[1]
     # No violation specifics leak into the roster line.
     assert "domino" not in lines[1]
     assert "push" not in lines[1].lower()
@@ -102,7 +102,7 @@ def test_trajectory_listing_supervisor_rejected(approach_cls):
 
 def test_trajectory_listing_env_reward(approach_cls):
     """Evaluated episodes show the env reward with a success flag; a rejected
-    topple counts as success=0 even though it terminated."""
+    topple counts as solved=0 even though it terminated."""
     trajs = [
         _mk_traj(is_demo=False, task_idx=0, reward=0.85, terminated=True),
         _mk_traj(is_demo=False, task_idx=1, reward=-0.05, terminated=True),
@@ -110,8 +110,8 @@ def test_trajectory_listing_env_reward(approach_cls):
     ]
     out = approach_cls._format_trajectory_listing(trajs)
     lines = [l for l in out.splitlines() if l.startswith("  [")]
-    assert "env reward=0.85 (success=1)" in lines[0]
-    assert "env reward=-0.05 (success=0)" in lines[1]
+    assert "env reward=0.85 (solved=1)" in lines[0]
+    assert "env reward=-0.05 (solved=0)" in lines[1]
     assert "REJECTED" not in lines[1]
     assert "reward" not in lines[2]
 
