@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from predicators.envs.pybullet_domino import geometry
 from predicators.settings import CFG
 from predicators.structs import Action, Object, State
 
@@ -73,6 +74,38 @@ def clear_probe_memo() -> None:
     _span_probe_memo.clear()
     _dogleg_probe_memo.clear()
     _swerve_probe_memo.clear()
+
+
+def _gap_ok(gap: float) -> bool:
+    """Whether a per-domino spacing is physically plausible: above body overlap
+    (``_MIN_GAP``) and below any measured topple reach (``_MAX_GAP``)."""
+    return _MIN_GAP < gap < _MAX_GAP
+
+
+def _place_even_run(comp: Any,
+                    od: dict,
+                    slot: int,
+                    base: np.ndarray,
+                    direction: np.ndarray,
+                    gap: float,
+                    count: int,
+                    yaw: float,
+                    start: int = 1) -> List[Tuple[float, float]]:
+    """Place ``count`` dominoes evenly along ``direction`` and return their xy.
+
+    Block ``i`` (of ``count``) goes at ``base + (start + i) * gap * direction``
+    into ``od[comp.dominos[slot + i]]`` at ``yaw``. ``start`` is the offset of
+    the first block from ``base`` in gaps (1 = one gap ahead, the common case;
+    0 = at ``base`` itself). Object slots ``slot .. slot + count - 1`` are
+    consumed; the caller advances its own slot cursor by ``count``.
+    """
+    pts: List[Tuple[float, float]] = []
+    for i in range(count):
+        p = base + (start + i) * gap * direction
+        od[comp.dominos[slot + i]] = comp.place_domino(slot + i, float(p[0]),
+                                                       float(p[1]), yaw)
+        pts.append((float(p[0]), float(p[1])))
+    return pts
 
 
 def _feat_index(domino_type: Any, feat: str) -> int:
@@ -301,16 +334,7 @@ def _assembled_state(env: Any, comp: Any, obj_dict: dict, target: Any,
     """State with the L-chain assembled and every other domino out of view."""
     from predicators.utils import \
         create_state_from_dict  # pylint: disable=import-outside-toplevel
-    robot_init = {
-        "x": env.robot_init_x,
-        "y": env.robot_init_y,
-        "z": env.robot_init_z,
-        "fingers": env.open_fingers,
-        "roll": env.robot_init_roll,
-        "tilt": env.robot_init_tilt,
-        "wrist": env.robot_init_wrist,
-    }
-    init_dict: dict = {env._robot: robot_init}
+    init_dict: dict = {env._robot: env.robot_init_state_dict()}
     for i, dom in enumerate(comp.dominos):
         if dom in obj_dict:
             d = obj_dict[dom]
@@ -376,7 +400,7 @@ def compute_k_star(env: Any,
         # Geometric prune: a per-gap beyond any topple reach (or below body
         # overlap) cannot work at any friction - skip the simulation.
         gap = span / (k + 1)
-        if not _MIN_GAP < gap < _MAX_GAP:
+        if not _gap_ok(gap):
             continue
         if _chain_topples(env, init_state, start, target, blues, k, push_opt):
             return k
@@ -416,7 +440,7 @@ def straight_span_k_star(env: Any,
     result: Optional[int] = None
     for k in range(budget + 1):
         gap = span / (k + 1)
-        if not _MIN_GAP < gap < _MAX_GAP:
+        if not _gap_ok(gap):
             continue
         od = {
             doms[0]:
@@ -424,9 +448,8 @@ def straight_span_k_star(env: Any,
             doms[1]:
             comp.place_domino(1, sx + span, sy, syaw, is_target_block=True),
         }
-        for i in range(k):
-            od[doms[2 + i]] = comp.place_domino(2 + i, sx + (i + 1) * gap, sy,
-                                                syaw)
+        _place_even_run(comp, od, 2, np.array([sx, sy]), np.array([1.0, 0.0]),
+                        gap, k, syaw)
         if _layout_topples(env, od, doms[0], doms[1], push_opt):
             result = k
             break
@@ -443,12 +466,24 @@ def _on_table(comp: Any, pts: List[Any]) -> bool:
 
 def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
                             target_pose: Any) -> Any:
-    """Yield candidate k-blue layouts for a cornered target.
+    """``_candidate_turn_layouts_labeled`` without the family label."""
+    for _fam, od, start, target in _candidate_turn_layouts_labeled(
+            comp, k, start_pose, target_pose):
+        yield od, start, target
 
-    Each candidate is ``(obj_dict, start, target)`` using ``comp.dominos[0]``
-    as the (green) start, ``dominos[1]`` as the (purple) target and
-    ``dominos[2:2+k]`` as blues - object identity is irrelevant here, only the
-    physics matters. Three sub-families:
+
+def _candidate_turn_layouts_labeled(comp: Any, k: int, start_pose: Any,
+                                    target_pose: Any) -> Any:
+    """Yield labeled candidate k-blue layouts for a cornered target.
+
+    Each candidate is ``(family, obj_dict, start, target)`` using
+    ``comp.dominos[0]`` as the (green) start, ``dominos[1]`` as the (purple)
+    target and ``dominos[2:2+k]`` as blues - object identity is irrelevant
+    here, only the physics matters. ``family`` names the sub-family below
+    (``"straight"`` / ``"corner"`` / ``"pair"``) so probe tooling can report
+    WHICH layout style topples - single natural corners are the style agents
+    actually build, so a task family whose only true-physics solution is the
+    knife-edge pair corner is agent-intractable. Three sub-families:
 
     * straight line: k blues evenly spaced from start to target with
       their fall axes ALONG the line - offered only within ~30 degrees
@@ -472,8 +507,7 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
     """
     sx, sy, syaw = (float(v) for v in start_pose)
     tx, ty, tyaw = (float(v) for v in target_pose)
-    dominos = comp.dominos
-    start, target = dominos[0], dominos[1]
+    start, target = comp.dominos[0], comp.dominos[1]
     s_pt = np.array([sx, sy])
     t_pt = np.array([tx, ty])
     # Push line of the start. State yaw is a CCW z-rotation
@@ -484,63 +518,75 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
     u_vec = np.array([np.sin(syaw), np.cos(syaw)])
     w_vec = t_pt - s_pt
 
-    def _base() -> dict:
+    def base() -> dict:
         return {
             start: comp.place_domino(0, sx, sy, syaw, is_start_block=True),
             target: comp.place_domino(1, tx, ty, tyaw, is_target_block=True),
         }
 
-    # (a) Straight line start -> target, evenly spaced. Only offered when
-    # the line stays within the measured ~33-degree per-knock propagation
-    # tolerance of the start's push axis (the swerve calibration sweep):
-    # beyond it the start's first hit is oblique and the cascade, when it
-    # topples at all, is contact-history knife-edge - a K* budget built
-    # on it is unreproducible in a fresh sim.
-    dist = float(np.linalg.norm(w_vec))
-    gap = dist / (k + 1)
-    u_dot_line = float(np.dot(w_vec, u_vec)) / max(dist, 1e-9)
-    if _MIN_GAP < gap < _MAX_GAP and u_dot_line > np.cos(np.radians(30.0)):
-        d_vec = w_vec / dist
-        # Fall axis along the line: yaw = arctan2(-dx, dy) makes the thin
-        # axis (-sin, cos) parallel to d_vec (arctan2(dx, dy) would mirror
-        # it across the y-axis for non-axis-aligned lines).
-        line_yaw = float(np.arctan2(-d_vec[0], d_vec[1]))
-        od = _base()
-        pts = []
-        for i in range(k):
-            p_pt = s_pt + (i + 1) * gap * d_vec
-            od[dominos[2 + i]] = comp.place_domino(2 + i, float(p_pt[0]),
-                                                   float(p_pt[1]), line_yaw)
-            pts.append((p_pt[0], p_pt[1]))
-        if _on_table(comp, pts):
-            yield od, start, target
-
+    yield from _straight_line_layouts(comp, k, start, target, base, s_pt,
+                                      u_vec, w_vec)
     if k < 2:
         return
     cross = float(u_vec[0] * w_vec[1] - u_vec[1] * w_vec[0])
     if abs(cross) < 1e-6:
         return  # target on the fall line: the straight family covers it
     t_dir = 1.0 if cross > 0 else -1.0
+    yield from _corner_layouts(comp, k, start, target, base, s_pt, t_pt, u_vec,
+                               syaw, t_dir)
+    yield from _pair_corner_layouts(comp, k, start, target, base, s_pt, t_pt,
+                                    u_vec, w_vec, syaw, t_dir)
 
-    # (b) Corner search: k1 entry blues, ONE natural-yaw corner blue, and
-    # k2 = k - 1 - k1 exit blues. The corner faces f of the way through
-    # the 90-deg turn (its local travel direction) - the agent-buildable
-    # layout style - with sim-calibrated approach/exit gaps (g1, g2).
+
+def _straight_line_layouts(comp: Any, k: int, start: Object, target: Object,
+                           base: Any, s_pt: np.ndarray, u_vec: np.ndarray,
+                           w_vec: np.ndarray) -> Any:
+    """Straight-line family (a): k blues evenly spaced start -> target.
+
+    Only offered when the line stays within the measured ~33-degree
+    per-knock propagation tolerance of the start's push axis (the swerve
+    calibration sweep): beyond it the start's first hit is oblique and the
+    cascade, when it topples at all, is contact-history knife-edge - a K*
+    budget built on it is unreproducible in a fresh sim.
+    """
+    dist = float(np.linalg.norm(w_vec))
+    gap = dist / (k + 1)
+    u_dot_line = float(np.dot(w_vec, u_vec)) / max(dist, 1e-9)
+    if _gap_ok(gap) and u_dot_line > np.cos(np.radians(30.0)):
+        d_vec = w_vec / dist
+        # Fall axis along the line: yaw = arctan2(-dx, dy) makes the thin
+        # axis (-sin, cos) parallel to d_vec.
+        line_yaw = geometry.yaw_along(d_vec[0], d_vec[1])
+        od = base()
+        pts = _place_even_run(comp, od, 2, s_pt, d_vec, gap, k, line_yaw)
+        if _on_table(comp, pts):
+            yield "straight", od, start, target
+
+
+def _corner_layouts(comp: Any, k: int, start: Object, target: Object,
+                    base: Any, s_pt: np.ndarray, t_pt: np.ndarray,
+                    u_vec: np.ndarray, syaw: float, t_dir: float) -> Any:
+    """Single-natural-corner family (b): k1 entry blues, ONE natural-yaw.
+
+    corner blue, and k2 = k - 1 - k1 exit blues.
+
+    The corner faces ``f`` of the way through the 90-deg turn (its local
+    travel direction) - the agent-buildable layout style - with
+    sim-calibrated approach/exit gaps (g1, g2). Sliding the corner along
+    the entry line via ``g_entry`` realises the "stretched corner" plans an
+    optimising agent would find.
+    """
     for k1 in range(k):
         k2 = k - 1 - k1
         # g_entry only matters when there ARE entry blues to space.
         entry_gaps = _ENTRY_GAPS if k1 > 0 else _ENTRY_GAPS[:1]
         for g_entry in entry_gaps:
             for f_yaw, g1, g2 in _CORNER_CONFIGS:
-                od = _base()
-                pts = []
+                od = base()
                 slot = 2
-                for i in range(k1):
-                    p_pt = s_pt + (i + 1) * g_entry * u_vec
-                    od[dominos[slot]] = comp.place_domino(
-                        slot, float(p_pt[0]), float(p_pt[1]), syaw)
-                    pts.append((p_pt[0], p_pt[1]))
-                    slot += 1
+                pts = _place_even_run(comp, od, slot, s_pt, u_vec, g_entry, k1,
+                                      syaw)
+                slot += k1
                 c_pt = s_pt + (k1 * g_entry + g1) * u_vec
                 # Natural mid-turn lean: rotating the block CCW by psi
                 # (yaw + psi) rotates its fall axis CCW by psi, which in
@@ -548,15 +594,13 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
                 psi = t_dir * f_yaw * np.pi / 2
                 c_yaw = syaw + psi
                 c_dir = np.array([np.sin(syaw - psi), np.cos(syaw - psi)])
-                od[dominos[slot]] = comp.place_domino(slot, float(c_pt[0]),
-                                                      float(c_pt[1]),
-                                                      float(c_yaw))
+                od[comp.dominos[slot]] = comp.place_domino(
+                    slot, float(c_pt[0]), float(c_pt[1]), float(c_yaw))
                 pts.append((c_pt[0], c_pt[1]))
                 slot += 1
                 if k2 == 0:
                     # Corner blue must topple the target directly.
-                    if not _MIN_GAP < float(
-                            np.linalg.norm(t_pt - c_pt)) < _MAX_GAP:
+                    if not _gap_ok(float(np.linalg.norm(t_pt - c_pt))):
                         continue
                 else:
                     # First exit blue one g2 past the corner along its fall
@@ -565,96 +609,96 @@ def _candidate_turn_layouts(comp: Any, k: int, start_pose: Any,
                     e_vec = t_pt - b1_pt
                     e_len = float(np.linalg.norm(e_vec))
                     per = e_len / k2
-                    if not _MIN_GAP < per < _MAX_GAP:
+                    if not _gap_ok(per):
                         continue
                     e_dir = e_vec / e_len
-                    e_yaw = float(np.arctan2(-e_dir[0], e_dir[1]))
-                    for j in range(k2):
-                        p_pt = b1_pt + j * per * e_dir
-                        od[dominos[slot]] = comp.place_domino(
-                            slot, float(p_pt[0]), float(p_pt[1]), e_yaw)
-                        pts.append((p_pt[0], p_pt[1]))
-                        slot += 1
+                    e_yaw = geometry.yaw_along(e_dir[0], e_dir[1])
+                    pts += _place_even_run(comp,
+                                           od,
+                                           slot,
+                                           b1_pt,
+                                           e_dir,
+                                           per,
+                                           k2,
+                                           e_yaw,
+                                           start=0)
+                    slot += k2
                 if _on_table(comp, pts):
-                    yield od, start, target
+                    yield "corner", od, start, target
 
-    # (c) Legacy 45-degree PAIR corner: d1 one corner-gap past the last
-    # entry blue ON the entry fall line, yaw stepped 45 degrees INTO the
-    # bend (fall axis along the mid-turn travel) with a half-width inward
-    # nudge; d2 one corner-gap along the 45-degree travel direction
-    # completing the turn (same nudge); k2 = k - 2 - k1 exit blues evenly
-    # to the target. Position transforms are verbatim from the legacy
-    # generator's turn placement. The entry per-gap is SOLVED so d2 lands
-    # on the target's perpendicular approach line (a sweep would
-    # misalign the exit run).
-    if k >= 3:
-        half_w = comp.domino_width / 2
-        d1_dir = syaw - t_dir * np.pi / 4  # travel one step into the turn
-        d1_dir_vec = np.array([np.sin(d1_dir), np.cos(d1_dir)])
-        d2_rot = syaw - t_dir * np.pi / 2  # post-turn travel direction
-        d1_nudge = t_dir * -half_w * np.array(
-            [np.cos(d1_dir), -np.sin(d1_dir)])
-        d2_nudge = t_dir * -half_w * np.array(
-            [np.cos(d2_rot), -np.sin(d2_rot)])
-        for g_c in (comp.pos_gap, 0.12):
-            # Advance of the whole pair along the entry fall line.
-            pair_adv = g_c * (1.0 + float(np.dot(d1_dir_vec, u_vec))) + \
-                float(np.dot(d1_nudge + d2_nudge, u_vec))
-            for k1 in range(1, k - 1):
-                k2 = k - 2 - k1
-                g_e = (float(np.dot(w_vec, u_vec)) - pair_adv) / k1
-                if not _MIN_GAP < g_e < _MAX_GAP:
-                    continue
-                last_pt = s_pt + k1 * g_e * u_vec
-                d1_pt = last_pt + g_c * u_vec + d1_nudge
-                d2_pt = d1_pt + g_c * d1_dir_vec + d2_nudge
-                e_vec = t_pt - d2_pt
-                e_len = float(np.linalg.norm(e_vec))
-                per = e_len / (k2 + 1)
-                if not _MIN_GAP < per < _MAX_GAP:
-                    continue
-                e_dir = e_vec / e_len
-                # Yaws follow the LEGACY parity exactly, so state yaw
-                # values step smoothly by 45 deg per block through the
-                # turn (e.g. pi/2 -> pi/4 -> 0), matching the
-                # pre-min-block generator's tasks. Because state yaw is
-                # a CCW z-rotation, yaw + t*pi/4 rotates d1's fall axis
-                # INTO the bend (thin axis along the mid-turn travel) --
-                # the natural alignment, and the only parity that
-                # redirects at friction 0.5 (2026-07-08 fresh-process
-                # sweep: the across-bend parity syaw - t*pi/4 dies in
-                # every probed configuration). d2's parity is
-                # outcome-free per the same sweep.
-                e_yaw = float(np.arctan2(-e_dir[0], e_dir[1]))
-                d1_yaw = syaw + t_dir * np.pi / 4
-                d2_yaw = syaw + t_dir * np.pi / 2
-                od = _base()
-                pts = []
-                slot = 2
-                for i in range(k1):
-                    p_pt = s_pt + (i + 1) * g_e * u_vec
-                    od[dominos[slot]] = comp.place_domino(
-                        slot, float(p_pt[0]), float(p_pt[1]), syaw)
-                    pts.append((p_pt[0], p_pt[1]))
-                    slot += 1
-                od[dominos[slot]] = comp.place_domino(slot, float(d1_pt[0]),
-                                                      float(d1_pt[1]),
-                                                      float(d1_yaw))
-                pts.append((d1_pt[0], d1_pt[1]))
-                slot += 1
-                od[dominos[slot]] = comp.place_domino(slot, float(d2_pt[0]),
-                                                      float(d2_pt[1]),
-                                                      float(d2_yaw))
-                pts.append((d2_pt[0], d2_pt[1]))
-                slot += 1
-                for j in range(k2):
-                    p_pt = d2_pt + (j + 1) * per * e_dir
-                    od[dominos[slot]] = comp.place_domino(
-                        slot, float(p_pt[0]), float(p_pt[1]), e_yaw)
-                    pts.append((p_pt[0], p_pt[1]))
-                    slot += 1
-                if _on_table(comp, pts):
-                    yield od, start, target
+
+def _pair_corner_layouts(comp: Any, k: int, start: Object, target: Object,
+                         base: Any, s_pt: np.ndarray, t_pt: np.ndarray,
+                         u_vec: np.ndarray, w_vec: np.ndarray, syaw: float,
+                         t_dir: float) -> Any:
+    """Legacy 45-degree PAIR-corner family (c).
+
+    d1 one corner-gap past the last entry blue ON the entry fall line, yaw
+    stepped 45 degrees INTO the bend (fall axis along the mid-turn travel)
+    with a half-width inward nudge; d2 one corner-gap along the 45-degree
+    travel direction completing the turn (same nudge); k2 = k - 2 - k1 exit
+    blues evenly to the target. Position transforms are verbatim from the
+    legacy generator's turn placement. The entry per-gap is SOLVED so d2
+    lands on the target's perpendicular approach line (a sweep would
+    misalign the exit run).
+    """
+    if k < 3:
+        return
+    half_w = comp.domino_width / 2
+    d1_dir = syaw - t_dir * np.pi / 4  # travel one step into the turn
+    d1_dir_vec = np.array([np.sin(d1_dir), np.cos(d1_dir)])
+    d2_rot = syaw - t_dir * np.pi / 2  # post-turn travel direction
+    d1_nudge = t_dir * -half_w * np.array([np.cos(d1_dir), -np.sin(d1_dir)])
+    d2_nudge = t_dir * -half_w * np.array([np.cos(d2_rot), -np.sin(d2_rot)])
+    for g_c in (comp.pos_gap, 0.12):
+        # Advance of the whole pair along the entry fall line.
+        pair_adv = g_c * (1.0 + float(np.dot(d1_dir_vec, u_vec))) + \
+            float(np.dot(d1_nudge + d2_nudge, u_vec))
+        for k1 in range(1, k - 1):
+            k2 = k - 2 - k1
+            g_e = (float(np.dot(w_vec, u_vec)) - pair_adv) / k1
+            if not _gap_ok(g_e):
+                continue
+            last_pt = s_pt + k1 * g_e * u_vec
+            d1_pt = last_pt + g_c * u_vec + d1_nudge
+            d2_pt = d1_pt + g_c * d1_dir_vec + d2_nudge
+            e_vec = t_pt - d2_pt
+            e_len = float(np.linalg.norm(e_vec))
+            per = e_len / (k2 + 1)
+            if not _gap_ok(per):
+                continue
+            e_dir = e_vec / e_len
+            # Yaws follow the LEGACY parity exactly, so state yaw values
+            # step smoothly by 45 deg per block through the turn (e.g.
+            # pi/2 -> pi/4 -> 0), matching the pre-min-block generator's
+            # tasks. Because state yaw is a CCW z-rotation, yaw + t*pi/4
+            # rotates d1's fall axis INTO the bend (thin axis along the
+            # mid-turn travel) -- the natural alignment, and the only
+            # parity that redirects at friction 0.5 (2026-07-08
+            # fresh-process sweep: the across-bend parity syaw - t*pi/4
+            # dies in every probed configuration). d2's parity is
+            # outcome-free per the same sweep.
+            e_yaw = geometry.yaw_along(e_dir[0], e_dir[1])
+            d1_yaw = syaw + t_dir * np.pi / 4
+            d2_yaw = syaw + t_dir * np.pi / 2
+            od = base()
+            slot = 2
+            pts = _place_even_run(comp, od, slot, s_pt, u_vec, g_e, k1, syaw)
+            slot += k1
+            od[comp.dominos[slot]] = comp.place_domino(slot, float(d1_pt[0]),
+                                                       float(d1_pt[1]),
+                                                       float(d1_yaw))
+            pts.append((d1_pt[0], d1_pt[1]))
+            slot += 1
+            od[comp.dominos[slot]] = comp.place_domino(slot, float(d2_pt[0]),
+                                                       float(d2_pt[1]),
+                                                       float(d2_yaw))
+            pts.append((d2_pt[0], d2_pt[1]))
+            slot += 1
+            pts += _place_even_run(comp, od, slot, d2_pt, e_dir, per, k2,
+                                   e_yaw)
+            if _on_table(comp, pts):
+                yield "pair", od, start, target
 
 
 # First-exit-blue gaps swept by the dogleg probe (distance from the gray
@@ -714,9 +758,9 @@ def heavy_dogleg_k_star(env: Any,
     if min(len1, len2) <= 0:
         return None
     d1_vec = (h_pt - s_pt) / len1
-    yaw1 = float(np.arctan2(d1_vec[0], d1_vec[1]))
+    yaw1 = geometry.heading_yaw(d1_vec[0], d1_vec[1])
     h_dir = np.array([np.sin(hyaw), np.cos(hyaw)])
-    bend = float((hyaw - syaw + np.pi) % (2 * np.pi) - np.pi)
+    bend = geometry.wrap_angle(hyaw - syaw)
     memo_key = (round(len1 / _SPAN_BUCKET), round(len2 / _SPAN_BUCKET),
                 round(bend, 2), budget, only_k,
                 tuple(sorted(comp._physical_param_override.items())))
@@ -729,7 +773,7 @@ def heavy_dogleg_k_star(env: Any,
         for k1 in range(k + 1):
             k2 = k - k1
             gap1 = len1 / (k1 + 1)
-            if not _MIN_GAP < gap1 < _MAX_GAP:
+            if not _gap_ok(gap1):
                 continue
             exit_gaps: Tuple[Optional[float], ...] = \
                 _DOGLEG_EXIT_GAPS if k2 > 0 else (None,)
@@ -743,14 +787,11 @@ def heavy_dogleg_k_star(env: Any,
                     comp.place_domino(0, hx, hy, hyaw, is_heavy_block=True),
                 }
                 slot = 2
-                for i in range(k1):
-                    p_pt = s_pt + (i + 1) * gap1 * d1_vec
-                    od[doms[slot]] = comp.place_domino(slot, float(p_pt[0]),
-                                                       float(p_pt[1]), yaw1)
-                    slot += 1
+                _place_even_run(comp, od, slot, s_pt, d1_vec, gap1, k1, yaw1)
+                slot += k1
                 if k2 == 0:
                     # The gray itself must reach the target.
-                    if not _MIN_GAP < len2 < _MAX_GAP:
+                    if not _gap_ok(len2):
                         continue
                 else:
                     assert g2 is not None
@@ -758,15 +799,20 @@ def heavy_dogleg_k_star(env: Any,
                     e_vec = t_pt - b1_pt
                     e_len = float(np.linalg.norm(e_vec))
                     per = e_len / k2
-                    if not _MIN_GAP < per < _MAX_GAP:
+                    if not _gap_ok(per):
                         continue
                     e_dir = e_vec / e_len
-                    e_yaw = float(np.arctan2(-e_dir[0], e_dir[1]))
-                    for j in range(k2):
-                        p_pt = b1_pt + j * per * e_dir
-                        od[doms[slot]] = comp.place_domino(
-                            slot, float(p_pt[0]), float(p_pt[1]), e_yaw)
-                        slot += 1
+                    e_yaw = geometry.yaw_along(e_dir[0], e_dir[1])
+                    _place_even_run(comp,
+                                    od,
+                                    slot,
+                                    b1_pt,
+                                    e_dir,
+                                    per,
+                                    k2,
+                                    e_yaw,
+                                    start=0)
+                    slot += k2
                 if _layout_topples(env, od, doms[0], doms[1], push_opt):
                     result = k
                     break
@@ -812,14 +858,14 @@ def _candidate_swerve_layouts(comp: Any, k: int, start_pose: Any,
     if span <= 0 or k < 2:
         return
     u_vec = (t_pt - s_pt) / span
-    line_yaw = float(np.arctan2(u_vec[0], u_vec[1]))
+    line_yaw = geometry.heading_yaw(u_vec[0], u_vec[1])
     steps = k + 1
     for phi_deg in _SWERVE_PHIS:
         for side in (1.0, -1.0):
             m_arr = np.radians(phi_deg) * side * np.sin(
                 2 * np.pi * (np.arange(steps) + 0.5) / steps)
             gap = span / float(np.sum(np.cos(m_arr)))
-            if not _MIN_GAP < gap < _MAX_GAP:
+            if not _gap_ok(gap):
                 continue
             od = {
                 dominos[0]:

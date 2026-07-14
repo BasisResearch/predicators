@@ -1,0 +1,23 @@
+# Thin launcher: differentiation pair on the retuned domino_high_friction
+# tasks - the GT-hybrid-sim agent at TRUE base-sim params (oracle upper
+# bound) vs at the BELIEVED params (naive uncalibrated baseline).
+# Expected on the 2026-07-12 retuned geometry: oracle solves 5/5 with
+# K*-sized builds (reward ~0.9 straights / ~0.8 turns at block cost
+# 0.1); the believed arm over-builds by one blue per task (reward lower
+# by ~0.1) or fails outright where its believed plan dies truly.
+# Usage: python scripts/local/launch_simp.py -c predicatorv3/exp_domino_hybrid_arms.yaml --parallel
+---
+includes:
+  - common.yaml
+  - envs/all.yaml
+  - approaches/all.yaml
+ENVS:
+  domino_high_friction:
+    SKIP: False
+    FLAGS:
+      excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
+APPROACHES:
+  agent_oracle_hybrid_sim:
+    SKIP: False
+  agent_believed_hybrid_sim:
+    SKIP: False

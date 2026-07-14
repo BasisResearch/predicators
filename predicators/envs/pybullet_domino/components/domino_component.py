@@ -71,11 +71,16 @@ class DominoComponent(DominoEnvComponent):
 
     # Domino thresholds
     domino_roll_threshold: ClassVar[float] = np.deg2rad(5)
-    # A free-standing domino tips over past atan(depth/height) ~= 5.7 deg,
-    # so any lean beyond 30 deg is only sustained by resting on another
-    # body, i.e. the domino was genuinely knocked over (counts propped
-    # "leaners" that a fully-flat criterion would miss).
-    fallen_threshold: ClassVar[float] = np.pi / 6  # 30 degrees
+    # A free-standing domino tips over past atan(depth/height) ~= 5.7 deg:
+    # beyond that its center of mass is past the pivot edge and gravity
+    # torque topples it, so an unheld lean past ~10 deg is either mid-fall
+    # (committed) or propped on another body - both mean the domino was
+    # genuinely knocked over. This counts propped "leaners" (e.g. a target
+    # coming to rest at ~20 deg against a still-standing neighbor) that a
+    # stricter criterion would miss. Recorded runs show unheld rolls are
+    # bimodal (< 3 deg placement jitter or > 79 deg full topples), so the
+    # 10 deg line sits in a wide empty band.
+    fallen_threshold: ClassVar[float] = np.deg2rad(10)
 
     # Domino colors
     start_domino_color: ClassVar[Tuple[float, float, float,

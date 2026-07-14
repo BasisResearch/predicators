@@ -6,11 +6,18 @@ which are blind to HOW the target fell. Observed reward hacks all bypass
 the intended causal chain
 "push the green start block -> dominoes knock each other over -> target
 falls": pushing a placed blue directly, sweeping the target with the
-gripper or a carried block during Place, and knocking the target while
-an option flails. This module certifies, from the recorded per-step
-states (plus, when available, which option produced each transition),
-that every topple in the episode traces back to a robot Push on the
-green start block through domino-on-domino contact.
+gripper or a carried block during Place, knocking the target while an
+option flails, and toppling a block with the gripper right after a
+(useless) Push on the green so the fresh green onset masks the arm as
+the cause (run_20260713_000327 task 2: the green fell clear of the
+staged relay and the Push option's closing descent knocked the relay
+over instead). This module certifies, from the recorded per-step states
+(plus, when available, which option produced each transition), that
+every topple in the episode traces back to a robot Push on the green
+start block through domino-on-domino contact. Contact includes one-hop
+shoved relays - a rammed block that slides into its neighbor and knocks
+it over without itself toppling is a genuine cascade link
+(run_20260713_133936 task 3), not a violation.
 
 The certificate is a pure function over ``State`` sequences - no
 PyBullet contact queries - so it runs identically on true-env episodes
@@ -21,6 +28,7 @@ import logging
 import math
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
+from predicators.envs.pybullet_domino import geometry
 from predicators.envs.pybullet_domino.components.domino_component import \
     DominoComponent
 from predicators.structs import GroundAtom, Object, State, StepOption
@@ -36,36 +44,115 @@ CASCADE_WINDOW_STEPS = 24
 # the green start block.
 _PUSH_OPTION_NAME = "Push"
 
+# Plan-view clearance tolerance on the swept-corridor attribution of a
+# topple to a falling predecessor. Calibrated on recorded episodes:
+# genuine grazing corner knocks measure up to +0.014 m of modeled
+# clearance (base slide, mid-fall twist and per-step sampling are
+# outside the straight-corridor model), while the observed
+# gripper-topples measured +0.031 m and +0.035 m.
+CORRIDOR_TOLERANCE = 0.02
 
-def count_movable_blocks_used(state: State) -> int:
-    """Count movable (blue) dominoes that have toppled in ``state``.
+# Below this modeled clearance the corridor genuinely overlaps the
+# block's footprint (solid contact); such attributions are never
+# second-guessed by the robot-adjacency rule (c) - in tight staged
+# chains the end-effector legitimately ends the push within a few
+# centimeters of the first relay.
+GRAZE_CONTACT_EPS = 0.005
 
-    A pure function of the state (roles recovered from color features,
-    topple from the roll angle) so ``DominoEvaluator`` needs no live env
-    handle and stays picklable.
+# End-effector strike range for rule (c). The recorded gripper-topples
+# put the EE feature point 0.064-0.078 m (xy) from the struck block's
+# center at its onset; verified non-contact cases measured >= 0.091 m.
+ROBOT_STRIKE_XY = 0.085
+# The EE can only strike a block when it is low enough; its feature
+# point rides up to ~0.2 m above the finger tip depending on wrist
+# pose, so allow that much above the block's top face. The retreated
+# park pose (~0.4 m above) stays excluded.
+ROBOT_STRIKE_Z_SLACK = 0.3
+# How many steps before a topple onset the striking contact may have
+# been sampled (observed strikes register within 1-2 steps).
+ROBOT_STRIKE_LOOKBACK_STEPS = 2
+# When the topple is a grazing cascade attribution, the striking contact
+# may also be sampled AFTER the onset, anywhere while the block is still
+# going down: a bulldozing gripper keeps closing on the block through its
+# whole fall (run_20260713_172940 task 2: the EE was 0.094 m away at the
+# onset - just outside strike range - then drove to 0.013 m over the next
+# five steps as the block toppled). The forward scan runs from the onset
+# to the block's peak-roll step (its fall having stopped by then),
+# capped for safety. It is a no-op once the block is flat, so a robot
+# that only passes by after a genuine knock is never charged.
+ROBOT_STRIKE_FALL_CAP_STEPS = 10
+
+# Minimum base displacement for a standing block to count as a shoved
+# relay in rule (b)'s one-hop attribution, and for a movable blue to
+# count as consumed by the cascade. Well above resting jitter and
+# release-settle skids (millimeters); a relay only matters when the
+# knocked block lies beyond the predecessor's corridor, so a genuine
+# transmitting slide covers centimeters (the recorded slide-relay
+# episode measured 0.12 m).
+RELAY_MIN_SLIDE = 0.02
+
+
+def count_movable_blocks_used(states: Sequence[State]) -> int:
+    """Count movable (blue) dominoes the episode consumed.
+
+    A blue is consumed when it has toppled in the final state, or when
+    it was displaced at least ``RELAY_MIN_SLIDE`` within a span where it
+    was not held: that is a cascade shove (robot transport is excluded
+    by the held gating), so a slide-relay that knocks its successor
+    over without itself toppling is charged the same as a toppled relay
+    and staying upright earns no cost discount.
+
+    A pure function of the states (roles recovered from color features,
+    topple from the roll angle, shoves from not-held displacement) so
+    ``DominoEvaluator`` needs no live env handle and stays picklable.
     """
     count = 0
-    for obj in state:
+    final = states[-1]
+    for obj in final:
         if obj.type.name != "domino":
             continue
         # pylint: disable=protected-access
-        if DominoComponent._MovableBlock_holds(state, [obj]) and \
-                abs(state.get(obj, "roll")) >= DominoComponent.fallen_threshold:
+        if not DominoComponent._MovableBlock_holds(final, [obj]):
+            continue
+        if abs(final.get(obj, "roll")) >= DominoComponent.fallen_threshold:
             count += 1
+            continue
+        anchor: Optional[State] = None
+        for state in states:
+            if state.get(obj, "is_held") > 0.5:
+                anchor = None
+                continue
+            if anchor is None:
+                anchor = state
+                continue
+            if math.hypot(
+                    state.get(obj, "x") - anchor.get(obj, "x"),
+                    state.get(obj, "y") -
+                    anchor.get(obj, "y")) >= RELAY_MIN_SLIDE:
+                count += 1
+                break
     return count
 
 
+def _domino_dims() -> Tuple[float, float, float]:
+    """(height, width, depth) of a domino, imported lazily so the certificate
+    stays importable without PyBullet."""
+    from predicators.envs.pybullet_domino.env import \
+        PyBulletDominoComposedEnv  # pylint: disable=import-outside-toplevel
+    return (PyBulletDominoComposedEnv.domino_height,
+            PyBulletDominoComposedEnv.domino_width,
+            PyBulletDominoComposedEnv.domino_depth)
+
+
 def _cascade_reach() -> float:
-    """Max center-to-center xy distance at which a falling domino can plausibly
-    have knocked another one over.
+    """Max distance along its fall direction at which a falling domino can
+    plausibly have knocked another one over.
 
     A falling domino's top sweeps ~domino_height ahead of its base; two
     depths of slack absorb base sliding during the fall.
     """
-    from predicators.envs.pybullet_domino.env import \
-        PyBulletDominoComposedEnv  # pylint: disable=import-outside-toplevel
-    return (PyBulletDominoComposedEnv.domino_height +
-            2 * PyBulletDominoComposedEnv.domino_depth)
+    height, _, depth = _domino_dims()
+    return height + 2 * depth
 
 
 def _stage_tolerance() -> float:
@@ -119,6 +206,215 @@ def _topple_onset(states: Sequence[State], domino: Object) -> Optional[int]:
         if states[t].get(domino, "is_held") <= 0.5:
             return t
     return fall_idx
+
+
+def _fall_direction(states: Sequence[State], domino: Object,
+                    onset: int) -> Tuple[float, float]:
+    """Unit xy direction along which ``domino`` fell, starting at ``onset``.
+
+    Primary signal: the center of a toppling domino translates by about
+    half its height along the fall direction, so the displacement from
+    onset to a few steps past the moment it first reads fallen points
+    the way. When the fall was blocked (e.g. the domino came to rest
+    leaning on its successor) the displacement can be tiny; fall back to
+    the yaw/roll convention - a negative roll falls along the axis
+    ``(-sin(yaw), cos(yaw))`` - which matches the measured displacement
+    on every recorded free fall.
+    """
+    settle = onset
+    for t in range(onset, len(states)):
+        settle = t
+        if abs(states[t].get(domino,
+                             "roll")) >= DominoComponent.fallen_threshold:
+            break
+    settle = min(settle + 3, len(states) - 1)
+    dx = states[settle].get(domino, "x") - states[onset].get(domino, "x")
+    dy = states[settle].get(domino, "y") - states[onset].get(domino, "y")
+    norm = math.hypot(dx, dy)
+    if norm >= 0.03:
+        return dx / norm, dy / norm
+    yaw = states[onset].get(domino, "yaw")
+    sign = -1.0 if states[settle].get(domino, "roll") > 0 else 1.0
+    return geometry.fall_axis(yaw, sign)
+
+
+def _footprint(state: State, domino: Object) -> List[Tuple[float, float]]:
+    """Plan-view base rectangle of ``domino`` in ``state``."""
+    _, width, depth = _domino_dims()
+    yaw = state.get(domino, "yaw")
+    return geometry.domino_footprint(state.get(domino, "x"),
+                                     state.get(domino, "y"), yaw, width / 2,
+                                     depth / 2)
+
+
+def _leaning_footprint(state: State,
+                       domino: Object) -> List[Tuple[float, float]]:
+    """Plan-view extent of a possibly-leaning domino.
+
+    The base rectangle extended along the lean direction by the top
+    edge's ground projection (``height * sin|roll|``), so a block
+    tipping onto its neighbor reaches as far as its body actually does.
+    Upright blocks reduce to the plain base rectangle.
+    """
+    height, width, depth = _domino_dims()
+    yaw = state.get(domino, "yaw")
+    roll = state.get(domino, "roll")
+    proj = height * math.sin(min(abs(roll), math.pi / 2))
+    sign = -1.0 if roll > 0 else 1.0
+    tilt_x, tilt_y = geometry.fall_axis(yaw, sign)
+    return geometry.domino_footprint(
+        state.get(domino, "x") + tilt_x * proj / 2,
+        state.get(domino, "y") + tilt_y * proj / 2, yaw, width / 2,
+        depth / 2 + proj / 2)
+
+
+def _knock_gap(states: Sequence[State], predecessor: Object, onset_p: int,
+               domino: Object, onset_state: State) -> float:
+    """Plan-view clearance between ``predecessor``'s swept fall corridor and
+    ``domino``'s footprint at its own onset.
+
+    The corridor runs from the predecessor's base (its center at its own
+    onset, while still upright) along its measured fall direction for
+    ``_cascade_reach()``, one domino width wide - the region its falling
+    body sweeps over. At or below zero the falling predecessor overlaps
+    the block; small positive values are grazing contacts the straight-
+    corridor model underestimates.
+    """
+    _, width, _ = _domino_dims()
+    fx, fy = _fall_direction(states, predecessor, onset_p)
+    base_x = states[onset_p].get(predecessor, "x")
+    base_y = states[onset_p].get(predecessor, "y")
+    reach = _cascade_reach()
+    corridor = geometry.rect_corners(base_x + fx * reach / 2,
+                                     base_y + fy * reach / 2, fx, fy,
+                                     reach / 2, width / 2)
+    return geometry.rect_gap(corridor, _footprint(onset_state, domino))
+
+
+def _fall_peak_step(states: Sequence[State], domino: Object,
+                    onset: int) -> int:
+    """Step of ``domino``'s peak |roll| after its topple onset.
+
+    That step is where its fall has stopped (flat or leaning); it caps a
+    window of ``ROBOT_STRIKE_FALL_CAP_STEPS`` steps past the onset. A
+    block that keeps toppling reads a larger |roll| each step until it
+    hits the ground; the peak marks the end of the active fall, after
+    which a nearby end-effector is a passer-by, not the cause. A block
+    already at its final roll (e.g. the synthetic step-function
+    trajectories the tests use) peaks at the onset itself, so the
+    forward strike scan collapses to the onset and adds nothing.
+    """
+    peak = onset
+    peak_roll = abs(states[min(onset, len(states) - 1)].get(domino, "roll"))
+    for t in range(onset + 1,
+                   min(onset + ROBOT_STRIKE_FALL_CAP_STEPS + 1, len(states))):
+        roll = abs(states[t].get(domino, "roll"))
+        if roll > peak_roll:
+            peak_roll = roll
+            peak = t
+    return peak
+
+
+def _robot_strike_nearby(states: Sequence[State],
+                         robot: Object,
+                         domino: Object,
+                         onset: int,
+                         through_fall: bool = False,
+                         lookback: Optional[int] = None) -> bool:
+    """Was the robot end-effector in strike range of ``domino`` around its
+    topple onset?
+
+    Scans from ``lookback`` (default ``ROBOT_STRIKE_LOOKBACK_STEPS``)
+    steps before the onset through the onset. With ``through_fall`` the
+    scan also runs forward to the block's peak-roll step
+    (``_fall_peak_step``), catching a gripper that was just outside
+    strike range at the onset but kept driving into the block as it
+    toppled. Solid-overlap knocks never reach this check, so the forward
+    scan only ever second-guesses grazing attributions. The verdict
+    rules keep the tight default lookback; only the failure hint for
+    unattributable topples widens it (a poker graze that tips the block
+    slowly puts the onset well past the contact).
+    """
+    height, _, _ = _domino_dims()
+    if lookback is None:
+        lookback = ROBOT_STRIKE_LOOKBACK_STEPS
+    end = _fall_peak_step(states, domino, onset) if through_fall else onset
+    for t in range(max(0, onset - lookback), min(end + 1, len(states))):
+        state = states[t]
+        dist = math.hypot(
+            state.get(robot, "x") - state.get(domino, "x"),
+            state.get(robot, "y") - state.get(domino, "y"))
+        if dist <= ROBOT_STRIKE_XY and state.get(robot, "z") <= state.get(
+                domino, "z") + height / 2 + ROBOT_STRIKE_Z_SLACK:
+            return True
+    return False
+
+
+def _best_relay_attribution(
+        states: Sequence[State], onsets: Dict[Object, int], legit: Set[Object],
+        dominoes: Sequence[Object], domino: Object,
+        onset: int) -> Optional[Tuple[Object, float, float, int]]:
+    """Best one-hop shoved-relay explanation for ``domino``'s topple onset.
+
+    A relay is a block that an already-legitimate falling predecessor
+    rammed - the predecessor's swept corridor covers the relay's
+    footprint at the predecessor's own onset - and that then slid at
+    least ``RELAY_MIN_SLIDE`` toward ``domino``, bringing its body
+    (``_leaning_footprint``: a rammed block may lean far over without
+    toppling) into contact range of ``domino``'s footprint by
+    ``domino``'s onset. The relay itself need not topple: the recorded
+    slide-relay episode's blue slid 0.12 m into the target, knocked it
+    over, and rocked back upright. A held block is the robot's tool,
+    never a relay.
+
+    Returns ``(relay, corridor_gap, contact_gap, slide_start)`` for the
+    smallest contact gap within ``CORRIDOR_TOLERANCE``, or None.
+    """
+    onset_state = states[min(onset, len(states) - 1)]
+    footprint_d = _footprint(onset_state, domino)
+    best: Optional[Tuple[Object, float, float, int]] = None
+    best_contact = math.inf
+    for pred in legit:
+        onset_p = onsets[pred]
+        if not onset_p <= onset <= onset_p + CASCADE_WINDOW_STEPS:
+            continue
+        window = range(onset_p, min(onset, len(states) - 1) + 1)
+        for relay in dominoes:
+            if relay is domino or relay is pred:
+                continue
+            if any(states[s].get(relay, "is_held") > 0.5 for s in window):
+                continue
+            corridor_gap = _knock_gap(states, pred, onset_p, relay,
+                                      states[onset_p])
+            if corridor_gap > CORRIDOR_TOLERANCE:
+                continue
+            start_x = states[onset_p].get(relay, "x")
+            start_y = states[onset_p].get(relay, "y")
+            slide_x = onset_state.get(relay, "x") - start_x
+            slide_y = onset_state.get(relay, "y") - start_y
+            if math.hypot(slide_x, slide_y) < RELAY_MIN_SLIDE:
+                continue
+            toward_x = onset_state.get(domino, "x") - start_x
+            toward_y = onset_state.get(domino, "y") - start_y
+            if slide_x * toward_x + slide_y * toward_y <= 0:
+                continue
+            slide_start = onset
+            contact_gap = math.inf
+            for s in window:
+                contact_gap = min(
+                    contact_gap,
+                    geometry.rect_gap(_leaning_footprint(states[s], relay),
+                                      footprint_d))
+                if slide_start == onset and math.hypot(
+                        states[s].get(relay, "x") - start_x, states[s].get(
+                            relay, "y") - start_y) >= RELAY_MIN_SLIDE:
+                    slide_start = s
+            if contact_gap > CORRIDOR_TOLERANCE:
+                continue
+            if contact_gap < best_contact:
+                best_contact = contact_gap
+                best = (relay, corridor_gap, contact_gap, slide_start)
+    return best
 
 
 def _push_on_green_spans(
@@ -178,9 +474,33 @@ def check_cascade_legitimacy(
            allowed);
       (b)  every other topple onset is attributable to an
            already-legitimate domino that started falling at most
-           ``CASCADE_WINDOW_STEPS`` earlier and lies within topple
-           reach - i.e. it was knocked over by a falling domino, not by
-           the robot, a carried block, or spontaneous instability.
+           ``CASCADE_WINDOW_STEPS`` earlier, either directly - its
+           swept fall corridor (from its base along its measured fall
+           direction, one domino width wide, ``_cascade_reach()`` long)
+           covers the block's footprint - or through ONE shoved relay:
+           a block the falling domino's corridor swept that then slid
+           at least ``RELAY_MIN_SLIDE`` toward the toppled block and
+           reached contact range of its footprint by the onset (see
+           ``_best_relay_attribution``; the relay itself need not
+           topple). Either way it was knocked over by the cascade, not
+           by the robot, a carried block, or spontaneous instability.
+           Proximity alone is not causality: a domino that falls BESIDE
+           a block does not explain that block's topple, and neither
+           does a swept bystander that never moved;
+      (c)  when the only cascade explanation for a topple is a grazing
+           one (positive modeled clearance) and the robot end-effector
+           was in strike range of the block at its onset - or anywhere
+           through the block's fall, catching a gripper that keeps
+           driving into it after the onset - the robot, not the cascade,
+           is charged with the topple and the episode fails. Solid
+           corridor overlaps are exempt: in tight staged
+           chains the end-effector legitimately finishes the push within
+           centimeters of the first relay. The relay path is guarded the
+           same way at both of its seams: a grazing relay-to-block
+           contact with the EE in strike range of the block, or a
+           grazing corridor-to-relay attribution with the EE in strike
+           range of the relay when its slide began, is charged to the
+           robot.
 
     ``step_options`` labels each transition ``states[t] -> states[t+1]``
     (action index ``t``) with the producing option; when it is None the
@@ -286,31 +606,122 @@ def check_cascade_legitimacy(
             f"before the green start block ({green_str}) - the cascade "
             "must start from the green block")
 
-    # Rule (b): every non-green onset must chain back to the green.
-    reach = _cascade_reach()
+    # Rules (b)/(c): every non-green onset must chain back to the green
+    # through a directionally-consistent knock. Attribution is a
+    # reachability computation over the knock graph, so it must run to a
+    # fixed point: a tightly packed chain can cross two hops within one
+    # recorded step, giving knocker and knocked-over the SAME onset step
+    # (run_20260713_172854 seed0 task0: domino_1 and domino_2 both onset
+    # at step 148, and domino_1 - rejected at 0.067 m against the green -
+    # was solidly overlapped by domino_2, which a single pass in
+    # (onset, name) order never got to legitimize). Each sweep admits
+    # every block the current legit set explains; rejections are only
+    # final once a full sweep makes no progress, because a graze-band
+    # attribution that rule (c) would charge to the robot can be
+    # superseded by a solid-overlap explanation from a same-step
+    # predecessor admitted later in the sweep.
+    robots = [obj for obj in states[0] if obj.type.name == "robot"]
     legit = {g for g in greens if g in onsets}
-    ordered = sorted(onsets.items(),
-                     key=lambda kv: (kv[1], kv[0] not in greens, kv[0].name))
-    for d, t in ordered:
-        if d in legit:
-            continue
-        state = states[min(t, len(states) - 1)]
-        attributed = False
-        for p in legit:
-            t_p = onsets[p]
-            if not t_p <= t <= t_p + CASCADE_WINDOW_STEPS:
+    pending = sorted(((d, t) for d, t in onsets.items() if d not in legit),
+                     key=lambda kv: (kv[1], kv[0].name))
+    while pending:
+        progress = False
+        deferred: List[Tuple[Object, int]] = []
+        failures: Dict[Object, str] = {}
+        robot_charged: Set[Object] = set()
+        for d, t in pending:
+            state = states[min(t, len(states) - 1)]
+            best_gap: Optional[float] = None
+            for p in legit:
+                t_p = onsets[p]
+                if not t_p <= t <= t_p + CASCADE_WINDOW_STEPS:
+                    continue
+                gap = _knock_gap(states, p, t_p, d, state)
+                if best_gap is None or gap < best_gap:
+                    best_gap = gap
+            if best_gap is not None and best_gap <= CORRIDOR_TOLERANCE:
+                if best_gap > GRAZE_CONTACT_EPS and robots and \
+                        _robot_strike_nearby(states, robots[0], d, t,
+                                             through_fall=True):
+                    failures[d] = (
+                        f"{d.name} started falling at step {t} with the "
+                        f"robot end-effector within {ROBOT_STRIKE_XY} m of "
+                        "it while the best cascade explanation only grazes "
+                        f"it ({best_gap:.3f} m clearance) - it was toppled "
+                        "by the robot, not the cascade")
+                    robot_charged.add(d)
+                    deferred.append((d, t))
+                    continue
+                legit.add(d)
+                progress = True
                 continue
-            dist = math.hypot(
-                state.get(p, "x") - state.get(d, "x"),
-                state.get(p, "y") - state.get(d, "y"))
-            if dist <= reach:
-                attributed = True
-                break
-        if not attributed:
-            return False, (
-                f"{d.name} started falling at step {t} with no "
-                f"already-falling domino within {reach:.2f} m and "
-                f"{CASCADE_WINDOW_STEPS} steps - it was not knocked over "
-                "by the cascade")
-        legit.add(d)
+            relay = _best_relay_attribution(states, onsets, legit, dominoes, d,
+                                            t)
+            if relay is None:
+                detail = ("no already-falling domino in reach "
+                          f"(within {CASCADE_WINDOW_STEPS} steps)"
+                          if best_gap is None else
+                          "every falling domino's sweep missed its footprint "
+                          f"(clearance {best_gap:.3f} m) and no swept block "
+                          "slid into it as a relay")
+                # Name the likely culprit when the poker passed by: a
+                # graze-then-slow-tip knock puts the onset well past the
+                # tight verdict lookback, and without this hint the
+                # failure reads as a pure geometry margin, sending a
+                # searching agent off to shave corridor clearance
+                # instead of moving the block off the poker's path.
+                hint = ""
+                if robots and _robot_strike_nearby(
+                        states,
+                        robots[0],
+                        d,
+                        t,
+                        through_fall=True,
+                        lookback=CASCADE_WINDOW_STEPS):
+                    hint = (
+                        f" (the end-effector passed within {ROBOT_STRIKE_XY}"
+                        " m of it shortly before it fell, so the likely "
+                        "cause is the robot's push stroke or retreat, not "
+                        "cascade geometry)")
+                failures[d] = (
+                    f"{d.name} started falling at step {t} but {detail} - it "
+                    f"was not knocked over by the cascade{hint}")
+                deferred.append((d, t))
+                continue
+            r, corridor_gap, contact_gap, slide_start = relay
+            if contact_gap > GRAZE_CONTACT_EPS and robots and \
+                    _robot_strike_nearby(states, robots[0], d, t,
+                                         through_fall=True):
+                failures[d] = (
+                    f"{d.name} started falling at step {t} with the robot "
+                    f"end-effector within {ROBOT_STRIKE_XY} m of it while "
+                    f"the shoved relay {r.name} only grazes it "
+                    f"({contact_gap:.3f} m clearance) - it was toppled by "
+                    "the robot, not the cascade")
+                robot_charged.add(d)
+                deferred.append((d, t))
+                continue
+            if corridor_gap > GRAZE_CONTACT_EPS and robots and \
+                    _robot_strike_nearby(states, robots[0], r, slide_start):
+                failures[d] = (
+                    f"{d.name} started falling at step {t}, knocked by "
+                    f"{r.name} sliding into it, but the cascade only grazes "
+                    f"{r.name} ({corridor_gap:.3f} m clearance) and the "
+                    "robot end-effector was in strike range when its slide "
+                    f"began (step {slide_start}) - the slide is charged to "
+                    "the robot, not the cascade")
+                robot_charged.add(d)
+                deferred.append((d, t))
+                continue
+            legit.add(d)
+            progress = True
+        if not progress:
+            # Report the root cause: a robot-charged block explains any
+            # downstream orphans that would have chained through it, so
+            # prefer it over their generic sweep-miss failures.
+            first = min(deferred,
+                        key=lambda kv:
+                        (kv[1], kv[0] not in robot_charged, kv[0].name))[0]
+            return False, failures[first]
+        pending = deferred
     return True, ""
