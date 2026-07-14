@@ -179,6 +179,18 @@ class SamplerLearningMixin:
     def _sampler_synthesis_message(self, paths: Dict[str, str]) -> str:
         """Instructions appended to the agent's first synthesis message."""
         path = paths["samplers_file_for_agent"]
+        # The ground channel exists only when its flag is on; do not
+        # describe it to sessions that cannot use it.
+        ground_note = ""
+        if CFG.agent_bilevel_ground_samplers:
+            ground_note = (
+                "\nSamplers here are the reusable cross-task prior: "
+                "refinement uses yours on every draw of that option, in "
+                "every sketch and every task. A sketch step that carries "
+                "its own `~` ground-sampler annotation (a `~ [widths]` "
+                "window or `~ name` from ground_samplers.py) bypasses "
+                "yours for that step (precedence: ground sampler > "
+                "parameterized sampler > uniform).")
         return f"""\
 ## Per-Skill Sampler Synthesis
 
@@ -205,11 +217,7 @@ or uniform draw,
 Return a `float32` array whose length matches the option's params box \
 (see `inspect_options` for the dimension and ranges); refinement clips it \
 to that box, so stay within the ranges.
-
-Samplers are the reusable cross-task prior: refinement uses yours on \
-every draw of that option, in every sketch and every task. A sketch step \
-that carries its own `~ [widths]` region annotation bypasses the sampler \
-for that step (precedence: per-step region > per-skill sampler > uniform).
+{ground_note}
 
 Aim the parameters at the subgoal geometrically (then add a little `rng` \
 jitter); do NOT just return uniform draws. Read the option signatures with \

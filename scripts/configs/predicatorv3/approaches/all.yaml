@@ -182,6 +182,35 @@ APPROACHES:
       execution_monitor: "subgoal_annotations"
       agent_bilevel_max_execution_replans: 2
       agent_sim_learn_parameterized_samplers: True
+  # agent_oracle_hybrid_sim + GROUND samplers: the agent may attach a
+  # per-step sampling prior to any sketch step - a uniform window
+  # `~ [w1, w2]` around its proposed params, or `~ name` referencing a
+  # function it wrote in ground_samplers.py (reloaded on every
+  # refine_plan_sketch call). No learning session; the channel is pure
+  # sketch grammar, enabled by agent_bilevel_ground_samplers. Compare
+  # against agent_oracle_hybrid_sim (which never sees the grammar) to
+  # measure what per-call ground sampling adds.
+  agent_oracle_hybrid_sim_ground_sampler:
+    NAME: "agent_sim_learning"
+    SKIP: True
+    FLAGS:
+      demonstrator: "oracle_process_planning"
+      bilevel_plan_without_sim: True # for the demonstrator
+      explorer: "agent_bilevel"
+      terminate_on_goal_reached_and_option_terminated: True
+      agent_sdk_use_local_sandbox: True
+      option_model_terminate_on_repeat: False
+      agent_planner_use_visualize_state: True
+      agent_planner_use_annotate_scene: True
+      option_model_use_gui: False
+      agent_bilevel_log_state: False
+      agent_sim_learn_oracle_sim_program: True
+      agent_sim_learn_oracle_sim_params: True
+      agent_bilevel_use_llm_initial_params: True
+      num_online_learning_cycles: 0
+      execution_monitor: "subgoal_annotations"
+      agent_bilevel_max_execution_replans: 2
+      agent_bilevel_ground_samplers: True
   # Oracle: GT predicates; learn the hybrid sim and its params.
   agent_sim_learning:
     NAME: "agent_sim_learning"

@@ -23,7 +23,7 @@ import numpy as np
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.bilevel_sketch import SketchStep as _SketchStep
-from predicators.agent_sdk.tools import BUILTIN_TOOLS
+from predicators.agent_sdk.tools import BUILTIN_TOOLS, _load_ground_sampler_fns
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_planner_approach import AgentPlannerApproach
 from predicators.execution_monitoring.subgoal_annotations_monitor import \
@@ -151,10 +151,14 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 job += (
                     " Where many values work, any reasonable parameter is "
                     "fine; where good values are hard to hit (tight "
-                    "tolerances), use refine_plan_sketch to search for one, "
-                    "and confine its search near your estimate by appending "
-                    "a region `~ [w1, w2]` of per-parameter half-widths "
-                    "after a step's `[params]`.")
+                    "tolerances), use refine_plan_sketch to search for one.")
+                if CFG.agent_bilevel_ground_samplers:
+                    job += (
+                        " Confine its search near your estimate by appending "
+                        "a region `~ [w1, w2]` of per-parameter half-widths "
+                        "after a step's `[params]`, or `~ my_sampler` naming "
+                        "a GROUND_SAMPLERS entry you wrote in "
+                        "ground_samplers.py for state-dependent regions.")
         else:
             # Fallback mode: the agent hands off a sketch and the approach's
             # backtracking search refines the continuous parameters.
@@ -228,6 +232,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             initial_image_section=self._initial_image_section(),
             propose_params=CFG.agent_bilevel_use_llm_initial_params,
             require_tool_validation=not CFG.agent_bilevel_refine_fallback,
+            ground_samplers=CFG.agent_bilevel_ground_samplers,
         )
 
     def _solve_prompt_tool_names(self) -> Optional[List[str]]:
@@ -493,6 +498,13 @@ class AgentBilevelApproach(AgentPlannerApproach):
         if not plan_text:
             raise ApproachFailure("Agent returned empty plan text.")
 
+        # Tolerant parse of the agent's final text; named `~ my_sampler`
+        # references resolve against the sandbox's ground_samplers.py (a
+        # broken file just drops the annotations here - this is the
+        # best-effort fallback path, not the strict tool path).
+        gs_fns, gs_err = _load_ground_sampler_fns(self._tool_context)
+        if gs_err is not None:
+            logging.warning("[%s] %s", self._run_id, gs_err)
         sketch = bilevel_sketch.parse_sketch_from_text(
             plan_text,
             task,
@@ -500,6 +512,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
             options=self._get_all_options(),
             types=self._types,
             parse_continuous_params=CFG.agent_bilevel_use_llm_initial_params,
+            parse_ground_samplers=CFG.agent_bilevel_ground_samplers,
+            ground_sampler_fns=gs_fns or None,
         )
 
         if not sketch:

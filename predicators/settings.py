@@ -1298,6 +1298,18 @@ class GlobalSettings:
     # uniform backtracking on failure. Default False keeps the param-free
     # sketch (search finds all continuous params).
     agent_bilevel_use_llm_initial_params = False
+    # When True, sketch steps may carry GROUND samplers - per-step, per-call
+    # sampling priors that override any learned parameterized sampler for
+    # that step (precedence: ground > parameterized > uniform). Two forms
+    # after a step's `[params]`: a uniform window `~ [w1, w2]`
+    # (per-dimension half-widths around the proposed params) or a named
+    # code sampler `~ my_sampler` referencing GROUND_SAMPLERS in the
+    # sandbox's ground_samplers.py, loaded fresh on each refine call
+    # (signature (state, subgoal_atoms, rng, objects) -> params, same as a
+    # parameterized sampler, so any state-conditioned region is
+    # expressible). Default False hides the grammar from the agent and
+    # rejects the annotations, keeping baseline arms free of the channel.
+    agent_bilevel_ground_samplers = False
     # When True, restore the approach-side refinement fallback: if the agent
     # finishes without a refine_plan_sketch-validated plan, the approach
     # refines its parsed sketch itself. Default False makes the agent's

@@ -21,7 +21,8 @@ from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.session_manager import AgentSessionManager, \
     run_query_sync
-from predicators.agent_sdk.tools import ToolContext, agent_render_resolution
+from predicators.agent_sdk.tools import ToolContext, \
+    _load_ground_sampler_fns, agent_render_resolution
 from predicators.explorers.base_explorer import BaseExplorer
 from predicators.settings import CFG
 from predicators.structs import Action, ExplorationStrategy, \
@@ -105,6 +106,7 @@ class AgentBilevelExplorer(BaseExplorer):
                 # The explorer refines its own sketch for exploration; it does
                 # not use the approach's tool-validated capture path.
                 require_tool_validation=False,
+                ground_samplers=CFG.agent_bilevel_ground_samplers,
             )
             responses = run_query_sync(self._agent_session,
                                        prompt,
@@ -113,6 +115,9 @@ class AgentBilevelExplorer(BaseExplorer):
             if not plan_text:
                 raise ValueError("agent returned empty plan text")
 
+            gs_fns, gs_err = _load_ground_sampler_fns(self._tool_context)
+            if gs_err is not None:
+                logging.warning("[explore] %s", gs_err)
             sketch = bilevel_sketch.parse_sketch_from_text(
                 plan_text,
                 task,
@@ -121,6 +126,8 @@ class AgentBilevelExplorer(BaseExplorer):
                 types=self._types,
                 parse_continuous_params=CFG.
                 agent_bilevel_use_llm_initial_params,
+                parse_ground_samplers=CFG.agent_bilevel_ground_samplers,
+                ground_sampler_fns=gs_fns or None,
             )
             if not sketch:
                 # Final message didn't parse into a sketch, but the agent may
@@ -225,7 +232,8 @@ class AgentBilevelExplorer(BaseExplorer):
                 run_id="agent_bilevel_explorer",
                 info_scorer=info_scorer,
                 info_n_feasible_target=info_n_feasible_target,
-                parameterized_samplers=self._tool_context.parameterized_samplers,
+                parameterized_samplers=self._tool_context.
+                parameterized_samplers,
             )
             # Record the honest verdict so get_interaction_requests can stamp
             # it onto this request: early stopping must not treat a task as

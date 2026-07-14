@@ -83,6 +83,43 @@ def load_learned_samplers(
     return valid, warnings, None
 
 
+def load_ground_samplers(
+    code: str,
+    context: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str], Optional[str]]:
+    """Exec sampler code and validate its ``GROUND_SAMPLERS`` dict.
+
+    Ground samplers are per-step sampling priors a sketch references by
+    name (``~ my_sampler``); unlike ``LEARNED_SAMPLERS`` they are keyed
+    by an arbitrary identifier rather than an option name, so any number
+    can coexist for the same option. Returns ``(valid_samplers,
+    warnings, error)``: ``error`` is non-None when the exec failed or
+    ``GROUND_SAMPLERS`` is missing or not a dict (nothing loads);
+    ``warnings`` describe skipped entries, whose key is not an
+    identifier or whose value is not callable (the rest load).
+    """
+    result, err = exec_code_safely(code, context, "GROUND_SAMPLERS")
+    if err is not None:
+        return {}, [], err
+    if not isinstance(result, dict):
+        return {}, [], ("GROUND_SAMPLERS must be a dict "
+                        "{sampler_name: sampler_fn}, got "
+                        f"{type(result).__name__}.")
+    valid: Dict[str, Any] = {}
+    warnings: List[str] = []
+    for name, fn in result.items():
+        if not isinstance(name, str) or not name.isidentifier():
+            warnings.append(f"Skipped {name!r} (keys must be identifiers "
+                            "so sketch lines can reference them).")
+            continue
+        if not callable(fn):
+            warnings.append(f"Skipped '{name}' (value is not callable, got "
+                            f"{type(fn).__name__}).")
+            continue
+        valid[name] = fn
+    return valid, warnings, None
+
+
 def build_exec_context(
         types: Set[Type],
         predicates: Set[Predicate],

@@ -139,16 +139,52 @@ class GroundSampler:
     registry, which could not hold different distributions for two
     same-option steps in one sketch.
 
-    The only kind today is the uniform window that a ``~ [w1, w2]``
-    region annotation declares around the step's proposed params;
-    richer distribution kinds should extend this class rather than add
-    new special cases to the draw path.
+    Two kinds, one per instance:
+    - window (``center`` + ``width`` set): the uniform box a
+      ``~ [w1, w2]`` region annotation declares around the step's
+      proposed params;
+    - code (``fn`` + ``name`` set): an agent-written function that a
+      ``~ my_sampler`` annotation references by name (loaded fresh per
+      refine call from the sandbox's ``GROUND_SAMPLERS``); it shares
+      the parameterized-sampler call signature, so it can shape any
+      state-conditioned distribution.
     """
-    center: np.ndarray
-    width: np.ndarray
+    center: Optional[np.ndarray] = None
+    width: Optional[np.ndarray] = None
+    fn: Optional[ParameterizedSampler] = None
+    name: str = ""
 
-    def draw(self, rng: np.random.Generator, box: Box) -> np.ndarray:
-        """Draw uniform params inside the window, clipped to ``box``."""
+    def __post_init__(self) -> None:
+        window = self.center is not None and self.width is not None
+        assert window != (self.fn is not None), \
+            "GroundSampler is either a window (center+width) or a code fn"
+
+    def draw(self, state: State, rng: np.random.Generator, box: Box,
+             objects: Sequence[Object],
+             subgoal_atoms: Set[GroundAtom]) -> Optional[np.ndarray]:
+        """Draw params from the window or the code fn, clipped to ``box``.
+
+        Returns ``None`` when a code fn misbehaves (raises or returns a
+        wrong-shaped array); the caller falls back to uniform sampling
+        for that draw, mirroring the parameterized-sampler fallback.
+        """
+        if self.fn is not None:
+            try:
+                raw = self.fn(state, subgoal_atoms, rng, list(objects))
+                params = np.asarray(raw, dtype=np.float32).reshape(-1)
+            except Exception as e:  # pylint: disable=broad-except
+                logging.warning(
+                    "Ground sampler '%s' raised %s: %s; falling back to "
+                    "uniform sampling for this draw.", self.name,
+                    type(e).__name__, e)
+                return None
+            if params.shape != (box.shape[0], ):
+                logging.warning(
+                    "Ground sampler '%s' returned shape %s, expected "
+                    "(%d,); falling back to uniform sampling for this "
+                    "draw.", self.name, params.shape, box.shape[0])
+                return None
+            return np.clip(params, box.low, box.high).astype(np.float32)
         center = np.clip(np.asarray(self.center, dtype=np.float32), box.low,
                          box.high)
         width = np.asarray(self.width, dtype=np.float32)
@@ -159,7 +195,14 @@ class GroundSampler:
 
     @property
     def deterministic(self) -> bool:
-        """True when every draw is identical (an all-zero window)."""
+        """True when every draw is identical.
+
+        An all-zero window pins to the center; a code fn may flag itself
+        with a ``deterministic`` attribute, exactly like a parameterized
+        sampler.
+        """
+        if self.fn is not None:
+            return bool(getattr(self.fn, "deterministic", False))
         return bool(np.all(np.asarray(self.width) == 0))
 
 
@@ -195,15 +238,16 @@ def format_step_line(
     params: Optional[Union[Sequence[float], np.ndarray]] = None,
     subgoal_atoms: Optional[Set[GroundAtom]] = None,
     params_width: Optional[Union[Sequence[float], np.ndarray]] = None,
+    sampler_name: Optional[str] = None,
 ) -> str:
     """Format one plan/sketch step as a single indented line.
 
     ``  <idx>: OptName(obj1, obj2)[p0, p1] ~ [w0, w1] -> {Atom, Atom}``
 
-    The ``[params]``, ``~ [widths]`` and ``-> {atoms}`` slots are
-    omitted when their argument is empty/None. Shared by the sketch-
-    and plan-formatting helpers below so every per-step line reads
-    identically.
+    The ``[params]``, ``~ [widths]`` / ``~ name`` and ``-> {atoms}``
+    slots are omitted when their argument is empty/None. Shared by the
+    sketch- and plan-formatting helpers below so every per-step line
+    reads identically.
     """
     objs = ", ".join(o.name for o in objects)
     line = f"  {idx}: {option_name}({objs})"
@@ -213,6 +257,8 @@ def format_step_line(
         if params_width is not None and len(params_width):
             wid = ", ".join(f"{w:.4f}" for w in params_width)
             line += f" ~ [{wid}]"
+    if sampler_name:
+        line += f" ~ {sampler_name}"
     if subgoal_atoms:
         atoms = ", ".join(str(a) for a in subgoal_atoms)
         line += f" -> {{{atoms}}}"
@@ -223,19 +269,22 @@ def format_sketch_lines(sketch: Sequence[SketchStep]) -> List[str]:
     """Render a plan sketch as one ``format_step_line`` per step.
 
     Each step shows its ``initial_params`` (if the LLM proposed any),
-    its ground sampler's half-widths (if annotated) and its
-    ``subgoal_atoms``.
+    its ground-sampler annotation (window half-widths or the referenced
+    sampler name) and its ``subgoal_atoms``.
     """
-    return [
-        format_step_line(i,
-                         s.option.name,
-                         s.objects,
-                         params=s.initial_params,
-                         subgoal_atoms=s.subgoal_atoms,
-                         params_width=(s.ground_sampler.width if
-                                       s.ground_sampler is not None else None))
-        for i, s in enumerate(sketch)
-    ]
+    lines = []
+    for i, s in enumerate(sketch):
+        gs = s.ground_sampler
+        lines.append(
+            format_step_line(i,
+                             s.option.name,
+                             s.objects,
+                             params=s.initial_params,
+                             subgoal_atoms=s.subgoal_atoms,
+                             params_width=gs.width if gs is not None else None,
+                             sampler_name=(gs.name if gs is not None
+                                           and gs.fn is not None else None)))
+    return lines
 
 
 def format_plan_lines(
@@ -294,8 +343,13 @@ def build_solve_prompt(
     initial_image_section: str = "",
     propose_params: bool = False,
     require_tool_validation: bool = False,
+    ground_samplers: bool = False,
 ) -> str:
     """Build the bilevel solve/explore prompt asking for a plan sketch.
+
+    ``ground_samplers`` is the caller-threaded value of
+    ``CFG.agent_bilevel_ground_samplers``; when False the prompt never
+    mentions the ``~`` annotation channel.
 
     Mirrors ``AgentBilevelApproach._build_solve_prompt`` but takes
     dependencies explicitly so explorers can reuse it.
@@ -444,6 +498,26 @@ def build_solve_prompt(
         "re-test.")
 
     if propose_params:
+        ground_sampler_guidance = ""
+        ground_sampler_format = ""
+        if ground_samplers:
+            ground_sampler_guidance = (
+                " Confine its search near your estimate by appending a "
+                "region `~ [w1, w2]` (per-parameter half-widths) after a "
+                "step's `[params]`: the exact center is tried first, then "
+                "every sample for that step stays inside "
+                "`[center - w, center + w]` instead of the full range. For "
+                "regions a fixed window cannot express (state-dependent or "
+                "curved), write a function in `ground_samplers.py` "
+                "(`GROUND_SAMPLERS = {\"my_sampler\": fn}`, "
+                "`fn(state, subgoal_atoms, rng, objects) -> params`) and "
+                "reference it as `~ my_sampler` instead; the file is "
+                "reloaded on every refine_plan_sketch call.")
+            ground_sampler_format = (
+                "\n(For refine_plan_sketch only, a step may add a search "
+                "region after its params: "
+                "`OptionName(obj1:type1)[p1, p2] ~ [w1, w2] -> {...}`, or "
+                "`... ~ my_sampler` naming a GROUND_SAMPLERS entry.)")
         sketch_kind_guidance = (
             "Generate a plan — the sequence of options with object arguments "
             "and continuous parameters in `[...]` per step (see each option's "
@@ -455,21 +529,15 @@ def build_solve_prompt(
             "- Where good values are hard to hit — tight tolerances or exact "
             "relative placements (e.g. positioning one object at a precise "
             "offset from another) — use `refine_plan_sketch` to search for a "
-            "working value (it's slower) and read the value it found. "
-            "Confine its search near your estimate by appending a region "
-            "`~ [w1, w2]` (per-parameter half-widths) after a step's "
-            "`[params]`: the exact center is tried first, then every "
-            "sample for that step stays inside `[center - w, center + w]` "
-            "instead of the full range.")
+            "working value (it's slower) and read the value it found." +
+            ground_sampler_guidance)
         format_block = (
             "Output the plan with one option per line in this format:\n"
             "  OptionName(obj1:type1, obj2:type2)[param1, param2] -> "
             "{Pred(obj1:type1), Pred2(obj1:type1, obj2:type2)}\n"
             "  Wait(robot:robot)[] -> "
-            "{Pred3(obj1:type1), NOT Pred4(obj1:type1, obj2:type2)}\n"
-            "(For refine_plan_sketch only, a step may add a search region "
-            "after its params: `OptionName(obj1:type1)[p1, p2] ~ [w1, w2] "
-            "-> {...}`.)")
+            "{Pred3(obj1:type1), NOT Pred4(obj1:type1, obj2:type2)}" +
+            ground_sampler_format)
     else:
         sketch_kind_guidance = (
             "Generate a plan sketch — the sequence of options with object "
@@ -677,16 +745,19 @@ def strip_subgoal_annotations(text: str) -> str:
     return _SUBGOAL_ANNOTATION_RE.sub('', text)
 
 
-# A `~ [w1, w2]` region annotation appended after a step's `[params]`
-# block: per-dimension half-widths around the proposed params. Stripped
-# before the canonical option-plan parser reads the `[params]` block
-# (that parser takes the text after the FIRST `[` and would misread the
-# widths as parameter text), and parsed separately per line.
-_REGION_ANNOTATION_RE = re.compile(r'\s*~\s*\[([^\]]*)\]')
+# A ground-sampler annotation appended after a step's `[params]` block:
+# either a window `~ [w1, w2]` (per-dimension half-widths around the
+# proposed params) or a named code sampler `~ my_sampler` (a
+# GROUND_SAMPLERS key). Stripped before the canonical option-plan parser
+# reads the `[params]` block (that parser takes the text after the FIRST
+# `[` and would misread the widths as parameter text), and parsed
+# separately per line. The raw token keeps its brackets so the resolver
+# can tell the two forms apart.
+_REGION_ANNOTATION_RE = re.compile(r'\s*~\s*(\[[^\]]*\]|[A-Za-z_]\w*)')
 
 
 def strip_region_annotations(text: str) -> str:
-    """Remove ``~ [widths]`` region annotations from every line."""
+    """Remove ``~ [widths]`` / ``~ name`` annotations from every line."""
     return _REGION_ANNOTATION_RE.sub('', text)
 
 
@@ -694,14 +765,15 @@ def parse_region_annotations(
     text: str,
     option_names: Set[str],
 ) -> List[List[str]]:
-    """Extract raw ``~ [widths]`` annotation bodies from plan text.
+    """Extract raw ground-sampler annotation tokens from plan text.
 
     Returns a list parallel to the option lines in ``text`` (same line
     filter as ``parse_subgoal_annotations``, so the two stay aligned
-    with the parsed options). Each entry lists the raw inner strings of
-    that line's ``~ [...]`` blocks, empty when the line has none.
-    Numeric and arity validation happen in ``_resolve_region_width``,
-    where the resolved option and strictness are known.
+    with the parsed options). Each entry lists that line's raw ``~``
+    tokens - ``[w1, w2]`` with brackets, or a bare sampler name - empty
+    when the line has none. Validation happens in
+    ``_resolve_ground_sampler``, where the resolved option, strictness,
+    and the loaded named samplers are known.
     """
     results: List[List[str]] = []
     for line in text.split('\n'):
@@ -716,50 +788,71 @@ def parse_region_annotations(
     return results
 
 
-def _resolve_region_width(
+def _resolve_ground_sampler(
     raw_blocks: List[str],
     step_idx: int,
     option: ParameterizedOption,
-    has_center: bool,
+    center: Optional[np.ndarray],
     strict: bool,
-) -> Optional[np.ndarray]:
-    """Validate one step's ``~ [widths]`` annotation into half-widths.
+    enabled: bool,
+    ground_sampler_fns: Optional[Dict[str, ParameterizedSampler]],
+) -> Optional[GroundSampler]:
+    """Validate one step's ``~`` annotation into a ``GroundSampler``.
 
-    Returns ``None`` when the step carries no region annotation. A bad
+    Returns ``None`` when the step carries no annotation. A bad
     annotation raises ``ValueError`` naming the step in strict mode; in
     tolerant mode it is dropped with a warning and the step is kept.
+    With ``enabled`` False (``agent_bilevel_ground_samplers`` off) any
+    annotation is itself an error, so baseline arms cannot use the
+    channel by accident. ``ground_sampler_fns`` maps the names that a
+    ``~ my_sampler`` form may reference.
     """
     if not raw_blocks:
         return None
 
-    def _bad(reason: str) -> Optional[np.ndarray]:
-        msg = (f"step {step_idx} ({option.name}): bad '~ [widths]' "
-               f"region annotation - {reason}")
+    def _bad(reason: str) -> Optional[GroundSampler]:
+        msg = (f"step {step_idx} ({option.name}): bad '~' ground-sampler "
+               f"annotation - {reason}")
         if strict:
             raise ValueError(msg)
-        logging.warning("Dropping region annotation: %s", msg)
+        logging.warning("Dropping ground-sampler annotation: %s", msg)
         return None
 
+    if not enabled:
+        return _bad("ground samplers are disabled "
+                    "(agent_bilevel_ground_samplers is off); remove the "
+                    "annotation")
     if len(raw_blocks) > 1:
-        return _bad("multiple '~ [...]' blocks on one line")
-    if not has_center:
+        return _bad("multiple '~' annotations on one line")
+    token = raw_blocks[0]
+    if not token.startswith('['):
+        # Named code sampler.
+        fns = ground_sampler_fns or {}
+        if token not in fns:
+            avail = (", ".join(sorted(fns))
+                     if fns else "none loaded - define GROUND_SAMPLERS in "
+                     "ground_samplers.py")
+            return _bad(f"unknown ground sampler '{token}' (available: "
+                        f"{avail})")
+        return GroundSampler(fn=fns[token], name=token)
+    if center is None:
         return _bad("'~ [widths]' requires proposed center params in "
                     "'[...]' on the same line")
-    tokens = [t.strip() for t in raw_blocks[0].split(',') if t.strip()]
+    tokens = [t.strip() for t in token[1:-1].split(',') if t.strip()]
     if not tokens:
         return _bad("empty '~ []' block; give one half-width per "
                     "parameter or omit the block")
     try:
         widths = np.asarray([float(t) for t in tokens], dtype=np.float32)
     except ValueError:
-        return _bad(f"non-numeric half-width in {raw_blocks[0]!r}")
+        return _bad(f"non-numeric half-width in {token!r}")
     expected = option.params_space.shape[0]
     if widths.shape[0] != expected:
         return _bad(f"{widths.shape[0]} half-width(s) but option "
                     f"{option.name} expects {expected}")
     if np.any(widths < 0):
         return _bad("half-widths must be >= 0")
-    return widths
+    return GroundSampler(center=center, width=widths)
 
 
 def parse_sketch_from_text(
@@ -771,6 +864,8 @@ def parse_sketch_from_text(
     types: Set[Type],
     parse_continuous_params: bool = False,
     strict: bool = False,
+    parse_ground_samplers: bool = True,
+    ground_sampler_fns: Optional[Dict[str, ParameterizedSampler]] = None,
 ) -> List[SketchStep]:
     """Parse plan-sketch text into ``SketchStep``s.
 
@@ -789,13 +884,19 @@ def parse_sketch_from_text(
     uses (``parse_model_output_into_option_plan`` with
     ``parse_continuous_params=True``) and stored as ``initial_params`` for
     the refinement to try first. Sketch lines also carry ``-> {subgoal}``
-    annotations and optional ``~ [w0, w1]`` region annotations (per
-    parameter half-widths around the proposed params; refinement tries
-    the exact center once, then confines every later draw for the step
-    to the window). Both would be misread as params text by that
-    parser, so they are stripped before parsing and read separately
-    from the original (a dropped line in tolerant mode misaligns them
-    the same way; ``strict`` tool inputs error instead).
+    annotations and optional ``~`` ground-sampler annotations (a window
+    ``~ [w0, w1]`` of per-parameter half-widths, or ``~ my_sampler``
+    naming an entry of ``ground_sampler_fns``; refinement tries the
+    exact center once, then draws the step from the ground sampler).
+    Both would be misread as params text by that parser, so they are
+    stripped before parsing and read separately from the original (a
+    dropped line in tolerant mode misaligns them the same way;
+    ``strict`` tool inputs error instead).
+
+    ``parse_ground_samplers`` is the caller-threaded value of
+    ``CFG.agent_bilevel_ground_samplers``: when False, any ``~``
+    annotation is a strict error / tolerant drop, keeping baseline arms
+    free of the channel.
     """
     cleaned_text = strip_code_fences(plan_text)
     objects = list(task.init)
@@ -835,14 +936,14 @@ def parse_sketch_from_text(
             # refinement search sample the parameters (strict parsing lets
             # the empty list through for exactly this case).
             ip = None
-        width = _resolve_region_width(regions[i] if i < len(regions) else [],
-                                      i,
-                                      option,
-                                      has_center=ip is not None
-                                      and ip.size > 0,
-                                      strict=strict)
-        ground_sampler = (GroundSampler(center=ip, width=width)
-                          if width is not None and ip is not None else None)
+        ground_sampler = _resolve_ground_sampler(
+            regions[i] if i < len(regions) else [],
+            i,
+            option,
+            center=ip if ip is not None and ip.size > 0 else None,
+            strict=strict,
+            enabled=parse_ground_samplers,
+            ground_sampler_fns=ground_sampler_fns)
         if sg is not None:
             pos, neg = sg
             sketch.append(
@@ -997,13 +1098,22 @@ def refine_sketch(
         """Draw continuous params for a step's option.
 
         Precedence, most specific first: the step's ground sampler (a
-        ``~ [widths]`` region annotation compiled into a
-        ``GroundSampler``), then the option's learned parameterized
-        sampler (keyed by option name), then uniform ``sample_params`` —
-        the fallback also on a sampler error or wrong-shaped return.
+        ``~`` annotation compiled into a ``GroundSampler``: uniform
+        window or named code fn), then the option's learned
+        parameterized sampler (keyed by option name), then uniform
+        ``sample_params`` — the fallback also on a sampler error or
+        wrong-shaped return (a misbehaving ground fn falls all the way
+        to uniform, not to the parameterized sampler, mirroring the
+        parameterized fallback).
         """
         if step.ground_sampler is not None:
-            return step.ground_sampler.draw(rng_, step.option.params_space)
+            drawn = step.ground_sampler.draw(state, rng_,
+                                             step.option.params_space,
+                                             step.objects, step.subgoal_atoms
+                                             or set())
+            if drawn is not None:
+                return drawn
+            return sample_params(step.option, rng_)
         sampler = (parameterized_samplers.get(step.option.name)
                    if parameterized_samplers else None)
         if sampler is not None:

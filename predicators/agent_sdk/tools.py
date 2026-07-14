@@ -14,8 +14,8 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, \
 import numpy as np
 
 from predicators.agent_sdk.proposal_parser import ProposalBundle, \
-    build_exec_context, exec_code_safely, load_learned_samplers, \
-    validate_predicate
+    build_exec_context, exec_code_safely, load_ground_samplers, \
+    load_learned_samplers, validate_predicate
 from predicators.option_model import _OptionModelBase
 from predicators.settings import CFG
 from predicators.structs import CausalProcess, LowLevelTrajectory, Object, \
@@ -173,7 +173,8 @@ class ToolContext:
     # The agent_bilevel explorer and synthesis tools pass these into
     # refinement so continuous-parameter search aims at each step's subgoal
     # instead of drawing uniformly. Empty ⇒ uniform sampling (default).
-    parameterized_samplers: Dict[str, ParameterizedSampler] = field(default_factory=dict)
+    parameterized_samplers: Dict[str, ParameterizedSampler] = field(
+        default_factory=dict)
     current_task: Optional[Task] = None
     iteration_proposals: ProposalBundle = field(default_factory=ProposalBundle)
     planning_results: Dict[str, Any] = field(default_factory=dict)
@@ -693,6 +694,55 @@ def _resolve_task_evaluator(ctx: ToolContext, task_idx: Union[int, str,
     if ctx.current_task is not None:
         return ctx.current_task.evaluator
     return None
+
+
+def _ground_samplers_path(ctx: ToolContext) -> Optional[str]:
+    """Host path of the agent-editable ``ground_samplers.py``.
+
+    Resolves the sandbox base the same way the sampler-learning mixin
+    does: the local sandbox lives under ``<log_dir>/sandbox``, the
+    docker sandbox at ``ctx.sandbox_dir``, else the log dir itself.
+    """
+    if CFG.agent_sdk_use_local_sandbox and ctx.log_dir:
+        base: Optional[str] = os.path.abspath(
+            os.path.join(ctx.log_dir, "sandbox"))
+    elif ctx.sandbox_dir:
+        base = ctx.sandbox_dir
+    else:
+        base = ctx.log_dir
+    if not base:
+        return None
+    return os.path.join(base, "ground_samplers.py")
+
+
+def _load_ground_sampler_fns(
+        ctx: ToolContext) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Load named ground samplers for ``~ my_sampler`` sketch references.
+
+    Reads ``ground_samplers.py`` fresh (the agent edits it between
+    calls) and validates its ``GROUND_SAMPLERS`` dict. Returns ``(fns,
+    error)``: a missing file, or the feature being disabled, is simply
+    ``({}, None)``; a broken file returns an error message for the agent
+    so it can fix the code instead of silently sampling uniformly.
+    """
+    if not CFG.agent_bilevel_ground_samplers:
+        return {}, None
+    path = _ground_samplers_path(ctx)
+    if path is None or not os.path.isfile(path):
+        return {}, None
+    with open(path, "r", encoding="utf-8") as f:
+        code = f.read()
+    exec_ctx = build_exec_context(
+        types=ctx.types,
+        predicates=ctx.predicates
+        | ctx.iteration_proposals.proposed_predicates,
+        options=ctx.options | ctx.iteration_proposals.proposed_options)
+    fns, warnings, err = load_ground_samplers(code, exec_ctx)
+    if err is not None:
+        return {}, f"Error loading {path}:\n{err}"
+    for warning in warnings:
+        logging.warning("ground_samplers.py: %s", warning)
+    return fns, None
 
 
 def _belief_rollout_verdict(
@@ -1595,6 +1645,13 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             f"Predicate {pred_name}({', '.join(object_names)}) "
             f"over trajectory {traj_idx}:\n" + "\n".join(results))
 
+    _gs_eval_doc = (
+        "Runs your exact params with NO sampling (a `~` ground-sampler "
+        "annotation - `~ [w1, w2]` region or `~ my_sampler` - is accepted "
+        "but IGNORED here; only refine_plan_sketch uses it). "
+        if CFG.agent_bilevel_ground_samplers else
+        "Runs your exact params with NO sampling. ")
+
     @tool(
         "evaluate_option_plan",
         "Execute a fully-specified plan on a task via the option model and "
@@ -1603,9 +1660,7 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
         "`Option(obj1:type1, obj2:type2)[param1, param2] -> {Atom(obj:type), "
         "...}` (typed object refs; EXACT continuous params in `[]`, `[]` for "
         "none; optional `-> {atoms}` subgoals, prefix NOT to require false). "
-        "Runs your exact params with NO sampling (a `~ [w1, w2]` region "
-        "annotation is accepted but IGNORED here - only refine_plan_sketch "
-        "searches the region). Use include_states/"
+        + _gs_eval_doc + "Use include_states/"
         "include_atoms to control output. If the plan reaches the goal on the "
         "CURRENT task (omit task_idx), it is captured as your answer, and the "
         "per-step subgoals make it execute closed-loop (monitored, with "
@@ -1716,6 +1771,9 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
             # fails to parse is an error the agent must see - silently
             # dropping it (the freeform default) executes a different plan
             # than the agent asked for.
+            gs_fns, gs_err = _load_ground_sampler_fns(ctx)
+            if gs_err is not None:
+                return _error_result(gs_err)
             sketch_steps = bilevel_sketch.parse_sketch_from_text(
                 plan_text,
                 task,
@@ -1723,7 +1781,9 @@ def _build_testing_tools(ctx: ToolContext, _text_result: Callable,
                 options=all_options,
                 types=types,
                 parse_continuous_params=True,
-                strict=True)
+                strict=True,
+                parse_ground_samplers=CFG.agent_bilevel_ground_samplers,
+                ground_sampler_fns=gs_fns or None)
         except Exception as e:  # pylint: disable=broad-except
             return _error_result(f"Could not parse plan: {e}")
         if not sketch_steps:
@@ -2358,6 +2418,26 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
 
         return _text_result("\n".join(lines))
 
+    _gs_refine_doc = (
+        "Confine a step's sampling with a GROUND SAMPLER after its "
+        "`[params]`: either a region `~ [w1, w2]` (per-parameter "
+        "half-widths; the exact center is tried first, then ALL further "
+        "samples for the step are drawn uniformly from "
+        "`[center - w, center + w]` clipped to the option's range - a zero "
+        "width pins every draw to the center), or `~ my_sampler` naming an "
+        "entry of `GROUND_SAMPLERS` in the sandbox file "
+        "`ground_samplers.py`, which you Write/Edit and which is reloaded "
+        "fresh on every call (each entry is "
+        "`fn(state, subgoal_atoms, rng, objects) -> params`, so it can "
+        "shape any state-dependent distribution). A ground sampler "
+        "overrides any learned per-skill sampler for that step. "
+        if CFG.agent_bilevel_ground_samplers else "")
+    _gs_refine_plan_doc = (
+        ", optionally followed by a ground sampler: `~ [w1, w2]` "
+        "half-widths around those params, or `~ my_sampler` naming a "
+        "GROUND_SAMPLERS entry in ground_samplers.py"
+        if CFG.agent_bilevel_ground_samplers else "")
+
     @tool(
         "refine_plan_sketch",
         "FIND continuous parameters for a plan SKETCH: run a backtracking "
@@ -2365,15 +2445,8 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         "the refined plan. Unlike evaluate_option_plan (which runs your EXACT "
         "params with no search), this takes a sketch and lets the search find "
         "params. You may seed it by appending `[p1, p2]` per step (use `[]` "
-        "for none); the search tries them first, then samples. Append a "
-        "region `~ [w1, w2]` (per-parameter half-widths) after a step's "
-        "`[params]` to confine that step's sampling: the exact center is "
-        "tried first, then ALL further samples for the step are drawn "
-        "uniformly from `[center - w, center + w]` (clipped to the option's "
-        "range) instead of the full range, overriding any learned per-skill "
-        "sampler for that step. Use a region when you believe in a "
-        "neighborhood but not an exact value; a zero width pins every draw "
-        "to the center. `plan` is one "
+        "for none); the search tries them first, then samples. " +
+        _gs_refine_doc + "`plan` is one "
         "option call per line with typed object references (`obj:type`) and "
         "every argument supplied; add `-> {Atom(obj:type, ...)}` subgoal "
         "annotations (effectively required after open-ended skills like Place, "
@@ -2400,9 +2473,8 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                     "line, typed `obj:type` references, every argument "
                     "supplied; optional `-> {Atom(...)}` subgoal per step, "
                     "and `[p1, p2]` proposed continuous params per step "
-                    "(`[]` for none) when param-proposing is enabled, "
-                    "optionally followed by a search region `~ [w1, w2]` "
-                    "of per-parameter half-widths around those params.",
+                    "(`[]` for none) when param-proposing is enabled" +
+                    _gs_refine_plan_doc + ".",
                 },
                 "task_idx": {
                     "type":
@@ -2473,6 +2545,13 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
             # strict: the `plan` argument is pure sketch text (see
             # evaluate_option_plan) - unparseable lines must error, not be
             # silently dropped.
+            # Named `~ my_sampler` references resolve against the agent's
+            # ground_samplers.py, reloaded fresh so edits between calls
+            # take effect; a broken file is surfaced instead of silently
+            # falling back to uniform draws.
+            gs_fns, gs_err = _load_ground_sampler_fns(ctx)
+            if gs_err is not None:
+                return _error_result(gs_err)
             sketch = bilevel_sketch.parse_sketch_from_text(
                 plan_text,
                 task,
@@ -2482,6 +2561,8 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                 parse_continuous_params=CFG.
                 agent_bilevel_use_llm_initial_params,
                 strict=True,
+                parse_ground_samplers=CFG.agent_bilevel_ground_samplers,
+                ground_sampler_fns=gs_fns or None,
             )
         except Exception as e:  # pylint: disable=broad-except
             return _error_result(f"Could not parse plan sketch: {e}")
