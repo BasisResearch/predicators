@@ -824,6 +824,77 @@ def test_tie_onsets_allowed():
     assert ok, reason
 
 
+def test_same_step_tie_attributes_through_knocker():
+    """Two non-green blocks sharing an onset step certify when the one that
+    sorts FIRST by name was knocked by the one that sorts second.
+
+    Regression for run_20260713_172854 seed0 task0: a tight staircase
+    crosses two hops within one recorded step, so knocker (domino_2) and
+    victim (domino_1) read the same onset. A single attribution pass in
+    (onset, name) order visited the victim while only the green was
+    legitimized (0.07 m clearance, rejected) and never considered the
+    knocker whose corridor overlaps the victim outright; iterating
+    attribution to a fixed point must accept the chain.
+    """
+    objs = _make_objects(["green", "blue1", "blue2", "target"])
+    states = _build_states(
+        objs,
+        30,
+        {
+            "green": 5,
+            "blue2": 9,  # knocker: solidly inside green's corridor
+            "blue1": 9,  # victim: only inside blue2's corridor
+            "target": 13
+        },
+        positions={
+            "green": (0.7, 1.0),
+            "blue2": (0.7, 1.098),
+            # 0.26 from green (clearance ~0.07, outside tolerance) but
+            # 0.162 from blue2 (inside its 0.18 m reach).
+            "blue1": (0.7, 1.26),
+            "target": (0.7, 1.358)
+        })
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason
+
+
+def test_unattributable_topple_names_passing_robot():
+    """An unattributable bystander topple with the end-effector having passed
+    in strike range well before the onset blames the robot in the message.
+
+    Regression for run_20260713_172854 seed2 task1: poker grazes tip a
+    block slowly, so its onset lands past the tight verdict lookback
+    and the old message blamed corridor clearance - sending the agent
+    off to shave a geometry margin that was never the cause. The
+    verdict stays False either way; only the explanation gains the
+    robot hint.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    contact, onset = 16, 26
+    profile = [(1.4, 1.5, 0.9)] * 31
+    for t in range(contact - 2, contact + 1):
+        profile[t] = (0.93, 1.3, 0.5)  # 0.03 m from the bystander
+    states = _build_states(objs,
+                           30, {
+                               "green": 5,
+                               "target": 11,
+                               "blue1": onset
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "target": (0.7, 1.098),
+                               "blue1": (0.9, 1.3)
+                           },
+                           robot_profile=profile)
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "blue1" in reason
+    assert "end-effector passed within" in reason
+    assert "push stroke or retreat" in reason
+
+
 def test_green_toppled_outside_push_fails():
     """Green falling long after its Push (e.g. swept by a later Place) violates
     (a1) even though it is the first onset."""

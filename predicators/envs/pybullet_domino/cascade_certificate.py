@@ -319,22 +319,27 @@ def _robot_strike_nearby(states: Sequence[State],
                          robot: Object,
                          domino: Object,
                          onset: int,
-                         through_fall: bool = False) -> bool:
+                         through_fall: bool = False,
+                         lookback: Optional[int] = None) -> bool:
     """Was the robot end-effector in strike range of ``domino`` around its
     topple onset?
 
-    Scans from ``ROBOT_STRIKE_LOOKBACK_STEPS`` before the onset through
-    the onset. With ``through_fall`` the scan also runs forward to the
-    block's peak-roll step (``_fall_peak_step``), catching a gripper
-    that was just outside strike range at the onset but kept driving
-    into the block as it toppled. Solid-overlap knocks never reach this
-    check, so the forward scan only ever second-guesses grazing
-    attributions.
+    Scans from ``lookback`` (default ``ROBOT_STRIKE_LOOKBACK_STEPS``)
+    steps before the onset through the onset. With ``through_fall`` the
+    scan also runs forward to the block's peak-roll step
+    (``_fall_peak_step``), catching a gripper that was just outside
+    strike range at the onset but kept driving into the block as it
+    toppled. Solid-overlap knocks never reach this check, so the forward
+    scan only ever second-guesses grazing attributions. The verdict
+    rules keep the tight default lookback; only the failure hint for
+    unattributable topples widens it (a poker graze that tips the block
+    slowly puts the onset well past the contact).
     """
     height, _, _ = _domino_dims()
+    if lookback is None:
+        lookback = ROBOT_STRIKE_LOOKBACK_STEPS
     end = _fall_peak_step(states, domino, onset) if through_fall else onset
-    for t in range(max(0, onset - ROBOT_STRIKE_LOOKBACK_STEPS),
-                   min(end + 1, len(states))):
+    for t in range(max(0, onset - lookback), min(end + 1, len(states))):
         state = states[t]
         dist = math.hypot(
             state.get(robot, "x") - state.get(domino, "x"),
@@ -602,24 +607,54 @@ def check_cascade_legitimacy(
             "must start from the green block")
 
     # Rules (b)/(c): every non-green onset must chain back to the green
-    # through a directionally-consistent knock.
+    # through a directionally-consistent knock. Attribution is a
+    # reachability computation over the knock graph, so it must run to a
+    # fixed point: a tightly packed chain can cross two hops within one
+    # recorded step, giving knocker and knocked-over the SAME onset step
+    # (run_20260713_172854 seed0 task0: domino_1 and domino_2 both onset
+    # at step 148, and domino_1 - rejected at 0.067 m against the green -
+    # was solidly overlapped by domino_2, which a single pass in
+    # (onset, name) order never got to legitimize). Each sweep admits
+    # every block the current legit set explains; rejections are only
+    # final once a full sweep makes no progress, because a graze-band
+    # attribution that rule (c) would charge to the robot can be
+    # superseded by a solid-overlap explanation from a same-step
+    # predecessor admitted later in the sweep.
     robots = [obj for obj in states[0] if obj.type.name == "robot"]
     legit = {g for g in greens if g in onsets}
-    ordered = sorted(onsets.items(),
-                     key=lambda kv: (kv[1], kv[0] not in greens, kv[0].name))
-    for d, t in ordered:
-        if d in legit:
-            continue
-        state = states[min(t, len(states) - 1)]
-        best_gap: Optional[float] = None
-        for p in legit:
-            t_p = onsets[p]
-            if not t_p <= t <= t_p + CASCADE_WINDOW_STEPS:
+    pending = sorted(((d, t) for d, t in onsets.items() if d not in legit),
+                     key=lambda kv: (kv[1], kv[0].name))
+    while pending:
+        progress = False
+        deferred: List[Tuple[Object, int]] = []
+        failures: Dict[Object, str] = {}
+        robot_charged: Set[Object] = set()
+        for d, t in pending:
+            state = states[min(t, len(states) - 1)]
+            best_gap: Optional[float] = None
+            for p in legit:
+                t_p = onsets[p]
+                if not t_p <= t <= t_p + CASCADE_WINDOW_STEPS:
+                    continue
+                gap = _knock_gap(states, p, t_p, d, state)
+                if best_gap is None or gap < best_gap:
+                    best_gap = gap
+            if best_gap is not None and best_gap <= CORRIDOR_TOLERANCE:
+                if best_gap > GRAZE_CONTACT_EPS and robots and \
+                        _robot_strike_nearby(states, robots[0], d, t,
+                                             through_fall=True):
+                    failures[d] = (
+                        f"{d.name} started falling at step {t} with the "
+                        f"robot end-effector within {ROBOT_STRIKE_XY} m of "
+                        "it while the best cascade explanation only grazes "
+                        f"it ({best_gap:.3f} m clearance) - it was toppled "
+                        "by the robot, not the cascade")
+                    robot_charged.add(d)
+                    deferred.append((d, t))
+                    continue
+                legit.add(d)
+                progress = True
                 continue
-            gap = _knock_gap(states, p, t_p, d, state)
-            if best_gap is None or gap < best_gap:
-                best_gap = gap
-        if best_gap is None or best_gap > CORRIDOR_TOLERANCE:
             relay = _best_relay_attribution(states, onsets, legit, dominoes, d,
                                             t)
             if relay is None:
@@ -629,37 +664,64 @@ def check_cascade_legitimacy(
                           "every falling domino's sweep missed its footprint "
                           f"(clearance {best_gap:.3f} m) and no swept block "
                           "slid into it as a relay")
-                return False, (
+                # Name the likely culprit when the poker passed by: a
+                # graze-then-slow-tip knock puts the onset well past the
+                # tight verdict lookback, and without this hint the
+                # failure reads as a pure geometry margin, sending a
+                # searching agent off to shave corridor clearance
+                # instead of moving the block off the poker's path.
+                hint = ""
+                if robots and _robot_strike_nearby(
+                        states,
+                        robots[0],
+                        d,
+                        t,
+                        through_fall=True,
+                        lookback=CASCADE_WINDOW_STEPS):
+                    hint = (
+                        f" (the end-effector passed within {ROBOT_STRIKE_XY}"
+                        " m of it shortly before it fell, so the likely "
+                        "cause is the robot's push stroke or retreat, not "
+                        "cascade geometry)")
+                failures[d] = (
                     f"{d.name} started falling at step {t} but {detail} - it "
-                    "was not knocked over by the cascade")
+                    f"was not knocked over by the cascade{hint}")
+                deferred.append((d, t))
+                continue
             r, corridor_gap, contact_gap, slide_start = relay
             if contact_gap > GRAZE_CONTACT_EPS and robots and \
                     _robot_strike_nearby(states, robots[0], d, t,
                                          through_fall=True):
-                return False, (
+                failures[d] = (
                     f"{d.name} started falling at step {t} with the robot "
                     f"end-effector within {ROBOT_STRIKE_XY} m of it while "
                     f"the shoved relay {r.name} only grazes it "
                     f"({contact_gap:.3f} m clearance) - it was toppled by "
                     "the robot, not the cascade")
+                robot_charged.add(d)
+                deferred.append((d, t))
+                continue
             if corridor_gap > GRAZE_CONTACT_EPS and robots and \
                     _robot_strike_nearby(states, robots[0], r, slide_start):
-                return False, (
+                failures[d] = (
                     f"{d.name} started falling at step {t}, knocked by "
                     f"{r.name} sliding into it, but the cascade only grazes "
                     f"{r.name} ({corridor_gap:.3f} m clearance) and the "
                     "robot end-effector was in strike range when its slide "
                     f"began (step {slide_start}) - the slide is charged to "
                     "the robot, not the cascade")
+                robot_charged.add(d)
+                deferred.append((d, t))
+                continue
             legit.add(d)
-            continue
-        if best_gap > GRAZE_CONTACT_EPS and robots and _robot_strike_nearby(
-                states, robots[0], d, t, through_fall=True):
-            return False, (
-                f"{d.name} started falling at step {t} with the robot "
-                f"end-effector within {ROBOT_STRIKE_XY} m of it while the "
-                f"best cascade explanation only grazes it "
-                f"({best_gap:.3f} m clearance) - it was toppled by the "
-                "robot, not the cascade")
-        legit.add(d)
+            progress = True
+        if not progress:
+            # Report the root cause: a robot-charged block explains any
+            # downstream orphans that would have chained through it, so
+            # prefer it over their generic sweep-miss failures.
+            first = min(deferred,
+                        key=lambda kv:
+                        (kv[1], kv[0] not in robot_charged, kv[0].name))[0]
+            return False, failures[first]
+        pending = deferred
     return True, ""
