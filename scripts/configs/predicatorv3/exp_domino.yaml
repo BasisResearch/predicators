@@ -8,31 +8,25 @@ includes:
   - common.yaml
   - envs/all.yaml
   - approaches/all.yaml
-# Agent-only env overrides: deep-merged on top of envs/all.yaml. These
-# excluded_predicates are dropped for "ours" runs but kept for oracle.yaml.
 ENVS:
   domino:
     SKIP: False
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
-      skip_initial_test: True
   # Forward (over-reach) arm: true friction 0.1, planner believes 0.5.
-  # Already run; flip SKIP to re-run it (or run both arms in one launch).
   domino_low_friction:
-    SKIP: True
+    SKIP: False
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
-      # The pre-loop test of the uncalibrated prior is predictably ~0/5 and
-      # costs ~100 min of agent time; skip it, keep per-cycle tests.
-      skip_initial_test: True
   # Reverse (under-reach) arm: true friction 0.5, planner believes 0.1.
   domino_high_friction:
-    SKIP: True
+    SKIP: False
     FLAGS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
-      skip_initial_test: True
 APPROACHES:
   agent_oracle_hybrid_sim:
     SKIP: False
   agent_po_predicate_invention_al:
     SKIP: True
+    FLAGS:
+      skip_initial_test: True
