@@ -1264,6 +1264,10 @@ class GlobalSettings:
     # Agent bilevel approach settings
     agent_bilevel_max_samples_per_step = 50  # param samples per step
     agent_bilevel_max_retries = 3  # re-query agent (new skeleton) on failure
+    # Total refine_plan_sketch attempts (fresh rng each) when a refined
+    # plan reaches the goal atoms but the task evaluator scores it as a
+    # non-solve; all attempts share the one tool-call timeout budget.
+    agent_bilevel_refine_evaluator_attempts = 3
     # reseed refinement on the same skeleton before re-querying the agent
     agent_bilevel_max_refine_retries = 5
     agent_bilevel_check_subgoals = True  # check subgoal atoms after each step
