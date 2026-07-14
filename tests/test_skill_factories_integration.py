@@ -43,9 +43,13 @@ _GUI_ON = False  # Set True for visual debugging
 # Pick: (grasp_z_offset,) in [0.0, 0.1] -- small offset so gripper
 # closes close to the object origin.
 _PICK_PARAMS = [0.01]
-# Push: (approach_distance, contact_z_offset) in [0, 0.06] x [0, 0.11]
-# -- zeros so robot pushes at the target position directly.
-_PUSH_PARAMS = [0.0, 0.0]
+# Push: (approach_distance, contact_z_offset) in [0, 0.10] x [0, 0.11]
+# -- a real stroke: zero approach makes the push degenerate (start point
+# == end point == target), leaving the toggle to the descending hand's
+# footprint, which is orientation-sensitive and marginal even with the
+# legacy front push (a [0, 0] faucet toggle ground for 399 steps vs 29
+# with a stroke, and burner2 failed outright on macOS).
+_PUSH_PARAMS = [0.05, 0.1]
 
 # ---------------------------------------------------------------------------
 # Generic mixin: set_state / get_state / execute_option

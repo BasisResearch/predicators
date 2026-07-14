@@ -412,6 +412,16 @@ class GlobalSettings:
 
     # skill phase parameters
     skill_phase_use_motion_planning = False
+    # EE yaw relative to the pushed object's yaw during Push. The default
+    # (0.0, "side push") leads with the gripper's narrow side, shrinking
+    # the swept width so the stroke and retreat are less likely to clip
+    # neighbors (verified equivalent to the legacy front push on domino
+    # chains and fan/boil switches, 2026-07-14). pi/2 restores the legacy
+    # front push (knuckles spanning the object's face). Side push makes
+    # the hand longer ALONG the approach axis, so pushes need a real
+    # approach distance (a zero-length stroke cannot drag a switch, and
+    # a too-small offset can put the descend waypoint in collision).
+    skill_push_ee_yaw_offset = 0.0
 
     # coffee env parameters
     coffee_num_cups_train = [1, 2]
@@ -1288,6 +1298,18 @@ class GlobalSettings:
     # uniform backtracking on failure. Default False keeps the param-free
     # sketch (search finds all continuous params).
     agent_bilevel_use_llm_initial_params = False
+    # When True, sketch steps may carry GROUND samplers - per-step, per-call
+    # sampling priors that override any learned parameterized sampler for
+    # that step (precedence: ground > parameterized > uniform). Two forms
+    # after a step's `[params]`: a uniform window `~ [w1, w2]`
+    # (per-dimension half-widths around the proposed params) or a named
+    # code sampler `~ my_sampler` referencing GROUND_SAMPLERS in the
+    # sandbox's ground_samplers.py, loaded fresh on each refine call
+    # (signature (state, subgoal_atoms, rng, objects) -> params, same as a
+    # parameterized sampler, so any state-conditioned region is
+    # expressible). Default False hides the grammar from the agent and
+    # rejects the annotations, keeping baseline arms free of the channel.
+    agent_bilevel_ground_samplers = False
     # When True, restore the approach-side refinement fallback: if the agent
     # finishes without a refine_plan_sketch-validated plan, the approach
     # refines its parsed sketch itself. Default False makes the agent's
@@ -1525,19 +1547,25 @@ class GlobalSettings:
     # this agent_ flag is outside the cache key's
     # domino_/pybullet_/skill_phase_ prefixes on purpose).
     agent_sim_learn_oracle_sim_params = False
-    # When True, the agent synthesizes per-skill (per-option) samplers that
-    # aim continuous option parameters at each sketch step's subgoal, instead
-    # of bilevel refinement drawing them uniformly from the option's box. The
-    # agent authors a versioned ``samplers.py`` (LEARNED_SAMPLERS keyed by
-    # option name) and tunes it with the ``evaluate_sampler`` tool. Sampler
-    # learning rides along in the sim/predicate synthesis session when one
-    # runs (oracle_sim_program=False); when no synthesis session runs
+    # When True, the agent learns PARAMETERIZED samplers - per-option
+    # (lifted-skill) functions that aim continuous option parameters at each
+    # sketch step's subgoal, instead of bilevel refinement drawing them
+    # uniformly from the option's box. The agent authors a versioned
+    # ``samplers.py`` (LEARNED_SAMPLERS keyed by option name) and tunes it
+    # with the ``evaluate_sampler`` tool. Sampler learning rides along in
+    # the sim/predicate synthesis session when one runs
+    # (oracle_sim_program=False); when no synthesis session runs
     # (oracle_sim_program=True) it gets a dedicated session of its own.
-    agent_sim_learn_synthesize_samplers = False
-    # When True (and synthesize_samplers is on), use ground-truth per-skill
-    # samplers from the env's GroundTruthSamplerFactory instead of having the
-    # agent learn them — if such samplers exist for the env; otherwise warn
-    # and fall back to synthesis. Mirrors agent_sim_learn_oracle_sim_program.
+    # The GROUND level of the sampler hierarchy needs no flag: a sketch
+    # step's ``~ [widths]`` region annotation compiles to a per-step
+    # GroundSampler that overrides the parameterized sampler for that step
+    # (ground > parameterized > uniform).
+    agent_sim_learn_parameterized_samplers = False
+    # When True (and parameterized_samplers is on), use ground-truth
+    # per-skill samplers from the env's GroundTruthSamplerFactory instead of
+    # having the agent learn them — if such samplers exist for the env;
+    # otherwise warn and fall back to synthesis. Mirrors
+    # agent_sim_learn_oracle_sim_program.
     agent_sim_learn_oracle_samplers = False
 
     # Names of env predicates kept (not stripped) for the

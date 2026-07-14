@@ -13,6 +13,8 @@ import numpy as np
 from gym.spaces import Box
 
 from predicators import utils
+from predicators.agent_sdk.proposal_parser import build_exec_context, \
+    load_ground_samplers
 from predicators.agent_sdk.tools import create_sampler_synthesis_tools
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
@@ -186,6 +188,42 @@ LEARNED_SAMPLERS = {"Move": _needs_subgoal}
     assert "ERROR" in text
     assert "subgoal_atoms=set()" in text
     assert "must not crash on an empty set" in text
+
+
+def test_load_ground_samplers_happy_and_bad_entries():
+    """GROUND_SAMPLERS loads callables; bad keys/values warn and drop."""
+    ctx = build_exec_context(types={_block_type},
+                             predicates={_Reached},
+                             options={_Move})
+    code = """\
+def _fn(state, subgoal_atoms, rng, objects):
+    del state, subgoal_atoms, objects
+    return np.array([0.5], dtype=np.float32)
+
+GROUND_SAMPLERS = {"hi_band": _fn, "not-an-identifier": _fn, "seven": 7}
+"""
+    fns, warnings, err = load_ground_samplers(code, ctx)
+    assert err is None
+    assert set(fns) == {"hi_band"}
+    assert len(warnings) == 2
+    assert any("identifiers" in w for w in warnings)
+    assert any("not callable" in w for w in warnings)
+
+
+def test_load_ground_samplers_errors():
+    """Exec failures and non-dict bindings load nothing, with an error."""
+    ctx = build_exec_context(types={_block_type},
+                             predicates={_Reached},
+                             options={_Move})
+    fns, _, err = load_ground_samplers("raise RuntimeError('boom')", ctx)
+    assert not fns
+    assert err is not None and "boom" in err
+    ctx = build_exec_context(types={_block_type},
+                             predicates={_Reached},
+                             options={_Move})
+    fns, _, err = load_ground_samplers("GROUND_SAMPLERS = [1]", ctx)
+    assert not fns
+    assert err is not None and "must be a dict" in err
 
 
 def test_sanity_check_wrong_shape_reports_error(tmp_path):

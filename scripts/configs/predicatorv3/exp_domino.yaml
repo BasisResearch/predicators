@@ -35,10 +35,11 @@ ENVS:
 APPROACHES:
   agent_oracle_hybrid_sim:
     SKIP: False
-  # Sampler arm: agent_oracle_hybrid_sim plus agent-synthesized
-  # per-skill samplers (samplers.py via evaluate_sampler); measures what
-  # the reusable cross-task sampler prior adds over per-call regions.
-  agent_oracle_hybrid_sim_sampler:
+  # Ground-sampler arm: agent_oracle_hybrid_sim plus the `~` ground
+  # sampler channel (agent_bilevel_ground_samplers): per-step windows
+  # `~ [w1, w2]` and named code samplers `~ name` from
+  # ground_samplers.py. The baseline arm above never sees the grammar.
+  agent_oracle_hybrid_sim_ground_sampler:
     SKIP: False
   agent_po_predicate_invention_al:
     SKIP: True

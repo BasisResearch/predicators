@@ -9,8 +9,8 @@ from predicators.ground_truth_models import GroundTruthProcessFactory, \
     GroundTruthSamplerFactory
 from predicators.settings import CFG
 from predicators.structs import Array, CausalProcess, EndogenousProcess, \
-    ExogenousProcess, GroundAtom, LiftedAtom, Object, OptionSampler, \
-    ParameterizedOption, Predicate, State, Type, Variable
+    ExogenousProcess, GroundAtom, LiftedAtom, Object, ParameterizedOption, \
+    ParameterizedSampler, Predicate, State, Type, Variable
 from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
     null_sampler, wrap_angle
 
@@ -341,7 +341,8 @@ class PyBulletDominoGroundTruthProcessFactory(GroundTruthProcessFactory):
 
 
 # ---------------------------------------------------------------------------
-# Grid-free per-skill samplers (NSRTSampler / OptionSampler signature) for
+# Grid-free per-skill samplers (NSRTSampler / ParameterizedSampler
+# signature) for
 # bilevel refinement. The NSRT samplers above read the placement off grid
 # ``loc``/``angle`` objects in ``objs``; these instead compute it
 # geometrically from the step's ``InFront`` subgoal (passed in the atoms
@@ -355,7 +356,7 @@ _DOMINO_TARGET_COLOR = (0.85, 0.7, 0.85)
 _DOMINO_COLOR_EPS = 1e-3
 
 
-def _deterministic(sampler: OptionSampler) -> OptionSampler:
+def _deterministic(sampler: ParameterizedSampler) -> ParameterizedSampler:
     """Flag a sampler as returning constant params (ignores state/rng).
 
     Backtracking refinement reads this flag to cap such a step's retries at
@@ -582,7 +583,7 @@ class PyBulletDominoGroundTruthSamplerFactory(GroundTruthSamplerFactory):
         }
 
     @classmethod
-    def get_samplers(cls, env_name: str) -> Dict[str, OptionSampler]:
+    def get_samplers(cls, env_name: str) -> Dict[str, ParameterizedSampler]:
         del env_name
         return {
             "Pick": _pick_option_sampler,

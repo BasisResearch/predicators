@@ -36,7 +36,7 @@ from predicators.option_model import _OptionModelBase, create_option_model
 from predicators.settings import CFG
 from predicators.structs import Action, Dataset, GroundAtom, \
     InteractionRequest, InteractionResult, LowLevelTrajectory, Object, \
-    OptionSampler, ParameterizedOption, Predicate, State, Task, Type
+    ParameterizedOption, ParameterizedSampler, Predicate, State, Task, Type
 
 
 class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
@@ -89,7 +89,7 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         # the base planner; learning subclasses populate it. Threaded into
         # bilevel refinement via _get_all_samplers() so continuous-parameter
         # search aims at each step's subgoal instead of drawing uniformly.
-        self._synthesized_samplers: Dict[str, OptionSampler] = {}
+        self._synthesized_samplers: Dict[str, ParameterizedSampler] = {}
         self._requests_train_task_idxs: Optional[List[int]] = None
         self._run_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         self._pre_test_conversation_log: Optional[List[Dict[str, Any]]] = None
@@ -177,7 +177,7 @@ class AgentPlannerApproach(AgentSessionMixin, BaseApproach):
         """Return the full set of predicates for abstraction."""
         return self._initial_predicates
 
-    def _get_all_samplers(self) -> Dict[str, OptionSampler]:
+    def _get_all_samplers(self) -> Dict[str, ParameterizedSampler]:
         """Return synthesized per-skill samplers (option name -> sampler).
 
         Empty by default; learning subclasses populate the backing
@@ -1019,7 +1019,7 @@ Output ONLY the option plan lines at the end, after any analysis."""
         self._tool_context.option_model = self._option_model
         # Synthesized samplers, so the explorer and synthesis tools thread the
         # same per-skill samplers into refinement that the approach uses.
-        self._tool_context.option_samplers = self._get_all_samplers()
+        self._tool_context.parameterized_samplers = self._get_all_samplers()
         # Wire the active-experiment info-gain scorer when a learning subclass
         # exposes one and info-seeking exploration is on. Syncing the bound
         # method (not a snapshot) keeps it pointed at the latest fit/ensemble.

@@ -141,7 +141,7 @@ def test_oracle_samplers_installed_when_available(monkeypatch):
     """With oracle_samplers on and GT available: install, skip synthesis."""
     monkeypatch.setattr(sampler_learning_mixin, "get_gt_samplers",
                         lambda _env: {"Move": _gt_sampler})
-    host = _host(agent_sim_learn_synthesize_samplers=True,
+    host = _host(agent_sim_learn_parameterized_samplers=True,
                  agent_sim_learn_oracle_samplers=True)
     host._maybe_install_oracle_samplers()  # pylint: disable=protected-access
     assert host._synthesized_samplers == {"Move": _gt_sampler}  # pylint: disable=protected-access
@@ -153,7 +153,7 @@ def test_oracle_samplers_fall_back_to_synthesis_when_none(monkeypatch):
     """With oracle_samplers on but no GT for the env: synthesize instead."""
     monkeypatch.setattr(sampler_learning_mixin, "get_gt_samplers",
                         lambda _env: {})
-    host = _host(agent_sim_learn_synthesize_samplers=True,
+    host = _host(agent_sim_learn_parameterized_samplers=True,
                  agent_sim_learn_oracle_samplers=True)
     host._maybe_install_oracle_samplers()  # pylint: disable=protected-access
     assert not host._synthesized_samplers  # pylint: disable=protected-access
@@ -167,7 +167,7 @@ def test_samplers_disabled_no_synthesis_no_install(monkeypatch):
         raise AssertionError("get_gt_samplers called with samplers disabled")
 
     monkeypatch.setattr(sampler_learning_mixin, "get_gt_samplers", _boom)
-    host = _host(agent_sim_learn_synthesize_samplers=False,
+    host = _host(agent_sim_learn_parameterized_samplers=False,
                  agent_sim_learn_oracle_samplers=False)
     host._maybe_install_oracle_samplers()  # pylint: disable=protected-access
     assert not host._synthesized_samplers  # pylint: disable=protected-access

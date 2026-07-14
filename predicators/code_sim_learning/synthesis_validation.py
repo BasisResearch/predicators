@@ -179,7 +179,7 @@ def run_refinement_for_synthesis(
         max_samples_per_step=CFG.agent_bilevel_max_samples_per_step,
         check_subgoals=CFG.agent_bilevel_check_subgoals,
         log_state=CFG.agent_bilevel_log_state,
-        option_samplers=approach._get_all_samplers(),
+        parameterized_samplers=approach._get_all_samplers(),
         run_id=f"{getattr(approach, '_run_id', 'sim_learn')}_validate",
         timeout_source=timeout_source,
         extra_summary_lines=[f"  Post-fit SSE: {fit_sse:.6f}"],

@@ -1,6 +1,6 @@
 """Tests for the domino ground-truth grid-free per-skill samplers.
 
-Exercises the ``OptionSampler``-signature samplers exposed by
+Exercises the ``ParameterizedSampler``-signature samplers exposed by
 ``PyBulletDominoGroundTruthSamplerFactory`` (in domino/processes.py).
 The ``Place`` sampler is checked against the *real* ``InFront`` /
 ``Upright`` classifiers (called via a lightweight stub ``self`` so no
