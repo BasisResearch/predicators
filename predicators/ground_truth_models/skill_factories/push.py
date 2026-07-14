@@ -55,12 +55,16 @@ from predicators.ground_truth_models.skill_factories.base import Phase, \
     PhaseAction, PhaseSkill, SkillConfig, TargetPoseFn, build_params_space
 from predicators.ground_truth_models.skill_factories.move_to import \
     make_move_to_phase
+from predicators.settings import CFG
 from predicators.structs import Array, Object, ParameterizedOption, State, Type
 
-# Canonical continuous parameters for Push.
+# Canonical continuous parameters for Push. The approach upper bound
+# leaves room for the side-oriented gripper (skill_push_ee_yaw_offset 0),
+# whose body extends along the approach axis: a descend waypoint closer
+# than ~0.07 m can itself collide with the pushed object.
 _PUSH_PARAMS = [
     ("approach_distance (dist behind target along facing dir to start push)",
-     0.00, 0.06),
+     0.00, 0.10),
     ("contact_z_offset (height above target z for contact)", 0.0, 0.11),
 ]
 
@@ -123,7 +127,7 @@ def create_push_skill(
         push_xy = obj_xy
         home_xy = np.array(cfg.robot_home_pos[:2])
         home_z = cfg.robot_home_pos[2]
-        ee_yaw = oyaw + np.pi / 2
+        ee_yaw = oyaw + CFG.skill_push_ee_yaw_offset
         return [
             (*behind_xy, cfg.transport_z, ee_yaw, "closed"),
             (*behind_xy, oz + s_offset_z, ee_yaw, "closed"),

@@ -412,6 +412,16 @@ class GlobalSettings:
 
     # skill phase parameters
     skill_phase_use_motion_planning = False
+    # EE yaw relative to the pushed object's yaw during Push. The default
+    # (0.0, "side push") leads with the gripper's narrow side, shrinking
+    # the swept width so the stroke and retreat are less likely to clip
+    # neighbors (verified equivalent to the legacy front push on domino
+    # chains and fan/boil switches, 2026-07-14). pi/2 restores the legacy
+    # front push (knuckles spanning the object's face). Side push makes
+    # the hand longer ALONG the approach axis, so pushes need a real
+    # approach distance (a zero-length stroke cannot drag a switch, and
+    # a too-small offset can put the descend waypoint in collision).
+    skill_push_ee_yaw_offset = 0.0
 
     # coffee env parameters
     coffee_num_cups_train = [1, 2]
