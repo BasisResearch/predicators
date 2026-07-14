@@ -195,6 +195,10 @@ obj9                11       12       13
     state5.simulator_state = "not dummy"
     assert not state4.allclose(state5)
 
+    # Restore the defaults so the override does not leak into whatever test
+    # happens to run after this module-scoped fixture (the CFG is global).
+    utils.reset_config()
+
     return state
 
 
