@@ -106,6 +106,25 @@ class _FeasiblePool:
 
 
 @dataclasses.dataclass
+class DeepestFailure:
+    """Deepest validation failure seen during backtracking refinement.
+
+    Captured at the moment of failure so it is a consistent record: the
+    grounded option carries the exact params that produced the failing
+    rollout, ``fail_reason`` is the validation message (missing subgoal
+    atoms, or an unreached task goal at the final step), and
+    ``post_state`` is that rollout's post-state (``None`` if it could
+    not be stashed). Surfaced by ``refine_and_validate_report`` so a
+    failed search returns the near-miss it got furthest with, not just
+    the stuck step's name.
+    """
+    step_idx: int
+    option: _Option
+    fail_reason: str
+    post_state: Optional[State] = None
+
+
+@dataclasses.dataclass
 class SketchStep:
     """One step in an agent-produced plan sketch.
 
@@ -831,6 +850,7 @@ def refine_sketch(
     step_samples_cumulative: Optional[List[int]] = None,
     termination_reason: Optional[List[str]] = None,
     elapsed_holder: Optional[List[float]] = None,
+    deepest_failure_holder: Optional[List[DeepestFailure]] = None,
     info_scorer: Optional[InfoScorer] = None,
     info_n_feasible_target: int = 1,
     option_samplers: Optional[Dict[str, OptionSampler]] = None,
@@ -840,6 +860,13 @@ def refine_sketch(
     Returns ``(refined_plan, success, total_samples)``. On success the
     plan is fully refined; on failure it is the longest prefix of
     refined options (``None`` entries dropped).
+
+    ``deepest_failure_holder`` is an out-holder (mirroring
+    ``termination_reason``): when given, the single deepest validation
+    failure seen during the search is appended as a ``DeepestFailure``
+    (params, reason, post-state), regardless of
+    ``truncate_on_subgoal_fail``. Callers use it to report the search's
+    best near-miss on failure.
 
     ``check_subgoals`` gates per-step subgoal-atom validation.
     ``check_final_goal`` gates the task-goal check on the final step.
@@ -906,6 +933,9 @@ def refine_sketch(
     # failure, so it is a *consistent* trajectory: run_backtracking_refinement
     # has already written plan[idx] for that attempt and the prefix
     # plan[:idx+1] reflects the exact grounded options that led to it.
+    # Consumed two ways: truncate_on_subgoal_fail (explorer mode) returns
+    # the prefix, and deepest_failure_holder reports the failing step's
+    # near-miss params/state to the caller on any failed search.
     deepest_fail_idx: List[int] = [-1]
     deepest_fail_prefix: List[List[Optional[_Option]]] = [[]]
 
@@ -1221,6 +1251,12 @@ def refine_sketch(
             return _ground(step, params)
         return _ground(step, _draw_params(step, state, rng_))
 
+    # Post-state of the most recent validation failure, stashed by
+    # validate_fn for wrapped_on_step_fail (which planning.py calls right
+    # after, in the same iteration, with the same idx - the only place the
+    # failing rollout's post-state is visible is validate_fn).
+    last_fail_post: List[Optional[Tuple[int, State]]] = [None]
+
     def validate_fn(idx: int, _pre_state: State, _option: _Option,
                     post_state: State, _num_actions: int) -> Tuple[bool, str]:
         step = sketch[idx]
@@ -1228,10 +1264,12 @@ def refine_sketch(
             current_atoms = utils.abstract(post_state, predicates)
             if not step.subgoal_atoms.issubset(current_atoms):
                 missing = step.subgoal_atoms - current_atoms
+                last_fail_post[0] = (idx, post_state)
                 return False, (f"subgoal missing: "
                                f"{{{', '.join(str(a) for a in missing)}}}")
         if check_final_goal and idx == n - 1:
             if not task.goal_holds(post_state):
+                last_fail_post[0] = (idx, post_state)
                 return False, "goal not reached"
         return True, ""
 
@@ -1244,13 +1282,24 @@ def refine_sketch(
         # (unmet subgoal, or unreached task goal at the final step) seen so
         # far along with a consistent snapshot of the prefix. A final-goal
         # failure is at idx==n-1, so its snapshot is the full plan — the
-        # experiment we want to execute in reality.
-        if (truncate_on_subgoal_fail
-                and (fail_reason.startswith("subgoal missing")
-                     or fail_reason == "goal not reached")
+        # experiment we want to execute in reality. The record is kept
+        # unconditionally (deepest_failure_holder consumers read it on any
+        # failed search); only the truncation RETURN below stays gated on
+        # truncate_on_subgoal_fail. Non-validation failures (not initiable,
+        # 0 actions, model errors) never update it.
+        if ((fail_reason.startswith("subgoal missing")
+             or fail_reason == "goal not reached")
                 and idx > deepest_fail_idx[0]):
             deepest_fail_idx[0] = idx
             deepest_fail_prefix[0] = list(cur_plan[:idx + 1])
+            if deepest_failure_holder is not None:
+                stash = last_fail_post[0]
+                post = stash[1] if stash and stash[0] == idx else None
+                opt = cur_plan[idx]
+                assert opt is not None
+                deepest_failure_holder.clear()
+                deepest_failure_holder.append(
+                    DeepestFailure(idx, opt, fail_reason, post))
         if on_step_fail is not None:
             on_step_fail(idx, cur_plan, fail_reason)
 
@@ -1303,14 +1352,19 @@ def refine_sketch(
     return refined, False, total_samples
 
 
-def _fmt_state_features(state: State) -> str:
-    """Compact one-line dump of every object's features.
+def _fmt_state_features(state: State,
+                        objects: Optional[Sequence[Object]] = None) -> str:
+    """Compact one-line dump of object features.
 
     Used by ``validate_plan_forward`` to trace how the continuous
-    rollout's state drifts step by step.
+    rollout's state drifts step by step, and by the deepest-failure
+    report line. ``objects`` restricts the dump to those objects
+    (default: every object in the state).
     """
     parts = []
-    for obj in sorted(state, key=lambda o: o.name):
+    objs = sorted(state, key=lambda o: o.name) if objects is None else list(
+        dict.fromkeys(objects))
+    for obj in objs:
         feats = ", ".join(f"{f}={state.get(obj, f):.4f}"
                           for f in obj.type.feature_names)
         parts.append(f"{obj.name}[{feats}]")
@@ -1664,7 +1718,10 @@ def refine_and_validate_report(
     plan (the longest refined prefix on failure). The report names the
     verdict (SUCCESS / TIMEOUT / SAMPLE_EXHAUSTED /
     FORWARD_VALIDATION_FAILED), per-step sample counts, the stuck step on
-    failure, and the forward-validation outcome.
+    failure, the deepest validation near-miss (the failing step's exact
+    params, the missing atoms, and the post-state of that rollout's
+    step objects) when refinement fails, and the forward-validation
+    outcome.
 
     ``extra_summary_lines`` are appended verbatim after the time line
     (e.g. a caller-specific ``Post-fit SSE`` line). Config-derived knobs
@@ -1675,6 +1732,7 @@ def refine_and_validate_report(
     step_samples_cumulative: List[int] = [0] * len(sketch)
     termination_reason: List[str] = []
     elapsed_holder: List[float] = []
+    deepest_failure: List[DeepestFailure] = []
     plan, success, n_samples = refine_sketch(
         task,
         sketch,
@@ -1689,6 +1747,7 @@ def refine_and_validate_report(
         step_samples_cumulative=step_samples_cumulative,
         termination_reason=termination_reason,
         elapsed_holder=elapsed_holder,
+        deepest_failure_holder=deepest_failure,
         option_samplers=option_samplers,
     )
 
@@ -1724,6 +1783,20 @@ def refine_and_validate_report(
         if stuck.subgoal_atoms:
             atoms = ", ".join(str(a) for a in stuck.subgoal_atoms)
             lines.append(f"    subgoals: {atoms}")
+    if not success and deepest_failure:
+        # The search's best near-miss: the exact params of the deepest
+        # rollout that executed but failed validation, so the caller can
+        # adjust the right step instead of restarting blind.
+        df = deepest_failure[0]
+        df_objs = ", ".join(o.name for o in df.option.objects)
+        df_params = ", ".join(f"{p:.4f}" for p in df.option.params)
+        lines.append(f"  Deepest failure: step {df.step_idx} "
+                     f"{df.option.name}({df_objs})[{df_params}] - "
+                     f"{df.fail_reason}")
+        if df.post_state is not None:
+            feats = _fmt_state_features(df.post_state,
+                                        objects=df.option.objects)
+            lines.append(f"    post-state: {feats}")
 
     # Forward validation: re-execute the refined plan continuously (state
     # carries forward across all options). Refinement's per-step resets
