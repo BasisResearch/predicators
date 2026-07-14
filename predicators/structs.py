@@ -984,6 +984,13 @@ class Task:
         # Verify types.
         for atom in self.goal:
             assert isinstance(atom, GroundAtom)
+        # An attached evaluator must judge THIS task's goal:
+        # ``evaluator.terminated`` and ``goal_holds`` are two views of
+        # one goal-atom set, and a mismatch (e.g. an evaluator built for
+        # the demonstrator goal attached to an alt-goal task) would make
+        # them silently disagree. replace_goal_with_alt_goal preserves
+        # this by dropping the evaluator together with the goal it holds.
+        assert self.evaluator is None or self.evaluator.goal == self.goal
 
     def goal_holds(
         self,
@@ -1076,7 +1083,14 @@ class TaskEvaluator:
         self.goal = goal
 
     def terminated(self, state: State) -> bool:
-        """Absorbing-state check: do the goal atoms hold?"""
+        """Absorbing-state check: do the goal atoms hold?
+
+        The evaluator-side view of ``Task.goal_holds`` (which is the
+        public, per-state check and additionally handles VLM
+        predicates); ``Task.__post_init__`` asserts the two judge one
+        and the same goal-atom set. Subclasses may override to terminate
+        on other absorbing states.
+        """
         return all(atom.holds(state) for atom in self.goal)
 
     def reward(self, states: Sequence[State],
