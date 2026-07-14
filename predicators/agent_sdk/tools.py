@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import time
 import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, \
@@ -687,12 +688,12 @@ def _resolve_task_evaluator(ctx: ToolContext, task_idx: Union[int, str,
     return None
 
 
-def _belief_rollout_verdict_line(ctx: ToolContext, task: Task,
-                                 task_idx: Union[int, str, None],
-                                 grounded_plan: List[Any],
-                                 predicates: Set[Predicate]) -> Optional[str]:
+def _belief_rollout_verdict(
+        ctx: ToolContext, task: Task, task_idx: Union[int, str, None],
+        grounded_plan: List[Any],
+        predicates: Set[Predicate]) -> Optional[Tuple[Dict[str, Any], bool]]:
     """Execute ``grounded_plan`` in the belief sim and score it with the task's
-    evaluator, returning a report line (or None).
+    evaluator, returning ``(verdict, coarse)`` or None.
 
     Used by ``refine_plan_sketch``, whose internal refinement rollouts
     don't expose per-step states; costs one extra plan rollout. Fully
@@ -732,10 +733,23 @@ def _belief_rollout_verdict_line(ctx: ToolContext, task: Task,
         if len(states) < 2:
             return None
         verdict = evaluate_states_with(evaluator, states, labels)
-        return _format_evaluator_verdict(verdict, coarse=coarse)
+        return verdict, coarse
     except Exception as e:  # pylint: disable=broad-except
         logging.debug("Belief-rollout evaluator verdict failed: %s", e)
         return None
+
+
+def _belief_rollout_verdict_line(ctx: ToolContext, task: Task,
+                                 task_idx: Union[int, str, None],
+                                 grounded_plan: List[Any],
+                                 predicates: Set[Predicate]) -> Optional[str]:
+    """Format the belief-rollout evaluator verdict as a report line."""
+    scored = _belief_rollout_verdict(ctx, task, task_idx, grounded_plan,
+                                     predicates)
+    if scored is None:
+        return None
+    verdict, coarse = scored
+    return _format_evaluator_verdict(verdict, coarse=coarse)
 
 
 def _save_option_to_sandbox(ctx: ToolContext, option_name: str,
@@ -2315,13 +2329,17 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
         "every argument supplied; add `-> {Atom(obj:type, ...)}` subgoal "
         "annotations (effectively required after open-ended skills like Place, "
         "and for Wait to say when it should end — prefix an atom with NOT to "
-        "require it become false). On SUCCESS it reports the exact PARAMETERS "
-        "it found per step — submit those via evaluate_option_plan, which is "
-        "the delivery path; refine_plan_sketch itself does NOT submit. Also "
-        "reports the verdict (SUCCESS / TIMEOUT / SAMPLE_EXHAUSTED with the "
-        "stuck step / FORWARD_VALIDATION_FAILED) and time used. Requires a "
-        "simulator (option model). Slower than evaluate_option_plan — use it "
-        "to find params for hard steps, not to submit.",
+        "require it become false). When the task has an evaluator, success is "
+        "also gated on its scoring: a parameterization that reaches the goal "
+        "atoms but scores as a non-solve (no success credit in its reward) is "
+        "discarded and the search resamples. On SUCCESS it reports the exact "
+        "PARAMETERS it found per step — submit those via evaluate_option_plan, "
+        "which is the delivery path; refine_plan_sketch itself does NOT "
+        "submit. Also reports the verdict (SUCCESS / TIMEOUT / "
+        "SAMPLE_EXHAUSTED with the stuck step / FORWARD_VALIDATION_FAILED / "
+        "SCORED_NON_SOLVE) and time used. Requires a simulator (option "
+        "model). Slower than evaluate_option_plan — use it to find params "
+        "for hard steps, not to submit.",
         {
             "type": "object",
             "properties": {
@@ -2428,24 +2446,84 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
             per_step=CFG.agent_bilevel_refinement_timeout_per_step,
             minimum=CFG.agent_bilevel_refinement_timeout_min)
 
-        try:
-            success, report, plan = bilevel_sketch.refine_and_validate_report(
-                task,
-                sketch,
-                ctx.option_model,
-                predicates=all_predicates,
-                timeout=timeout,
-                rng=np.random.default_rng(CFG.seed),
-                max_samples_per_step=CFG.agent_bilevel_max_samples_per_step,
-                check_subgoals=CFG.agent_bilevel_check_subgoals,
-                log_state=CFG.agent_bilevel_log_state,
-                option_samplers=ctx.option_samplers or None,
-                run_id="planner_refine",
-                timeout_source=timeout_source,
-            )
-        except Exception:  # pylint: disable=broad-except
-            tb = traceback.format_exc()
-            return _error_result(f"Refinement raised:\n{tb}")
+        # Refinement accepts a parameterization only if the task evaluator
+        # also scores its rollout as a solve: a candidate that reaches the
+        # goal atoms yet earns no success credit (e.g. the poker, not the
+        # cascade, toppled the target) is discarded and refinement is
+        # resampled with a fresh rng, all attempts sharing the one timeout
+        # budget. Without this gate the search happily converges onto
+        # parameterizations the env would score as non-solves and reports
+        # SUCCESS on them (run_20260713_172854 seed0 task1 test034). The
+        # gate reads ONLY the public (terminated, reward) pair - reward > 0
+        # iff the success credit was awarded, by the evaluator contract
+        # (block costs are bounded below the success bonus) - so it grants
+        # the search nothing the agent could not compute itself.
+        attempts = max(1, CFG.agent_bilevel_refine_evaluator_attempts)
+        discarded_rewards: List[float] = []
+        verdict_line: Optional[str] = None
+        non_solve = False
+        start = time.perf_counter()
+        success, report = False, ""
+        plan: List[Any] = []
+        for attempt in range(attempts):
+            remaining = timeout - (time.perf_counter() - start)
+            if attempt and remaining < 5.0:
+                break
+            try:
+                success, report, plan = \
+                    bilevel_sketch.refine_and_validate_report(
+                        task,
+                        sketch,
+                        ctx.option_model,
+                        predicates=all_predicates,
+                        timeout=remaining if attempt else timeout,
+                        rng=np.random.default_rng(CFG.seed + attempt),
+                        max_samples_per_step=CFG.
+                        agent_bilevel_max_samples_per_step,
+                        check_subgoals=CFG.agent_bilevel_check_subgoals,
+                        log_state=CFG.agent_bilevel_log_state,
+                        option_samplers=ctx.option_samplers or None,
+                        run_id="planner_refine",
+                        timeout_source=timeout_source,
+                    )
+            except Exception:  # pylint: disable=broad-except
+                tb = traceback.format_exc()
+                return _error_result(f"Refinement raised:\n{tb}")
+            non_solve = False
+            if not (success and plan):
+                break
+            scored = _belief_rollout_verdict(ctx, task, task_idx, plan,
+                                             all_predicates)
+            if scored is None:
+                break
+            verdict, coarse = scored
+            if coarse or not verdict["terminated"] or \
+                    verdict["reward"] > 0.0:
+                verdict_line = _format_evaluator_verdict(verdict,
+                                                         coarse=coarse)
+                break
+            discarded_rewards.append(verdict["reward"])
+            success = False
+            non_solve = True
+
+        rewards_str = ", ".join(f"{r:.2f}" for r in discarded_rewards)
+        if non_solve:
+            report = (
+                "FAILURE: SCORED_NON_SOLVE\n"
+                f"  Refinement found goal-atom-reaching parameters "
+                f"{len(discarded_rewards)} time(s), but the task evaluator "
+                f"scored every such rollout as a non-solve (rewards: "
+                f"{rewards_str}; no success credit). The real env applies "
+                "the same scoring, so these parameters can never count as "
+                "a solve - change the sketch (e.g. different placements or "
+                "orientations), not just the parameters.\n"
+                "Last attempt detail:\n" + report)
+        elif discarded_rewards:
+            report += (
+                f"\n  NOTE: {len(discarded_rewards)} earlier "
+                f"parameterization(s) reached the goal atoms but scored as "
+                f"non-solves (rewards: {rewards_str}) and were discarded; "
+                "the result above is from a resampled attempt.")
 
         # refine_plan_sketch is a parameter FINDER, not a submission path: on
         # success, append the parameters the search found per step so the
@@ -2459,8 +2537,6 @@ def _build_planning_tools(ctx: ToolContext, _text_result: Callable,
                 param_lines.append(f"  {i}: {gopt.name}({objs})[{par}]")
             report += ("\n\nParameters found (submit these exact values via "
                        "evaluate_option_plan):\n" + "\n".join(param_lines))
-            verdict_line = _belief_rollout_verdict_line(
-                ctx, task, task_idx, plan, all_predicates)
             if verdict_line is not None:
                 report += "\n" + verdict_line
 
