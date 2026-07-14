@@ -684,7 +684,7 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
             }
             # Env ground-truth scoring, next to is_goal_state (see
             # Task.evaluator). Verdict-only surface: dict of
-            # terminated/reward on a concrete state sequence - real
+            # reward/solved on a concrete state sequence - real
             # trajectories or the agent's own simulator rollouts (there
             # the verdict is only as good as the sim).
             if any(t.evaluator is not None for t in self._train_tasks):
@@ -1734,10 +1734,11 @@ the tools."""
 
         The returned function scores a concrete state sequence with the
         task's env-defined ``TaskEvaluator`` and returns only the public
-        gym-style pair (dict of terminated/reward) - never the evaluator
-        itself, and never the certificate's internal legitimacy verdict
-        or reason (the agent infers the scoring rules from the stated
-        objective and the rewards it observes). ``actions`` may be
+        pair (dict of reward/solved) - never the evaluator itself, and
+        never the certificate's internal legitimacy verdict or reason
+        (the agent infers the scoring rules from the stated objective
+        and the outcomes it observes; goal-atom termination it can
+        check itself via ``is_goal_state``). ``actions`` may be
         ``Action`` objects (labeled via their producing options),
         pre-built ``(option_name, object_names)`` labels, or ``None``
         (kinematics-only scoring).
@@ -1766,8 +1767,8 @@ the tools."""
             verdict = evaluate_states_with(evaluator, list(states),
                                            step_options)
             return {
-                "terminated": verdict["terminated"],
                 "reward": verdict["reward"],
+                "solved": verdict["solved"],
             }
 
         return evaluate_trajectory
@@ -1832,7 +1833,7 @@ env-computed reward. In `run_python`, \
 state sequence with the same ground-truth evaluator - a collected \
 trajectory's `states`/`actions`, or a rollout of YOUR simulator \
 (there the verdict is only as trustworthy as your simulator). It \
-returns {{terminated, reward}}.
+returns {{reward, solved}}.
 
 """
 
@@ -2219,8 +2220,8 @@ iterations.
 - `run_python(code)` — ad-hoc data exploration. `trajectories`, `np`, \
 `ParamSpec` in scope; when the learn message states a task objective, \
 `evaluate_trajectory(states, actions=None, task_idx=0)` scores a state \
-sequence with the env's ground-truth evaluator (returns terminated / \
-reward; on your own simulator's rollouts the verdict is only as good \
+sequence with the env's ground-truth evaluator (returns reward / \
+solved; on your own simulator's rollouts the verdict is only as good \
 as the simulator). **Does not** define rules.
 - `evaluate_step_fit` — per-step prediction accuracy: SSE on the step \
 transitions at `init_value` params, plus post-fit SSE and fitted \

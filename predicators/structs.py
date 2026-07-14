@@ -1041,9 +1041,12 @@ class TaskEvaluator:
     terminates). Legitimacy (``_certify``) gates only the success bonus
     inside ``reward``, so a rule-violating episode terminates with no
     bonus rather than "not counting" as terminal. ``_certify`` is
-    private by design: the agent contract is the (reward, terminated)
-    pair plus roster verdicts; env-side code (BaseEnv, logging) is the
-    sanctioned reader.
+    private by design: the agent contract is the public
+    (solved, reward) pair - both of which the real environment
+    genuinely reveals at episode end - plus roster verdicts;
+    ``terminated`` the agent computes itself from the public goal
+    atoms, and env-side code (BaseEnv, logging) is the sanctioned
+    reader of the certificate's bool/reason.
 
     The evaluator rides on the agent-facing ``Task``, so instances must
     be leak-free by construction: pure functions of the state
@@ -1057,7 +1060,12 @@ class TaskEvaluator:
     rules, ``reward`` for cost terms, ``offline_metrics`` for
     experimenter-only episode statistics, and ``objective_description``
     for an agent-showable NL statement of the reward. Defaults
-    reproduce the plain atom-set-goal semantics. Reward contract: a
+    reproduce the plain atom-set-goal semantics. ``solved`` is the
+    public episode-success bit (the standard RL end-of-episode success
+    flag; the roster's ``success=`` field): it never depends on a
+    reward sign convention, so consumers that need "did this episode
+    earn the success credit" (e.g. refinement's accept test) must read
+    it rather than compare ``reward`` against zero. Reward contract: a
     certified success must yield strictly positive reward and anything
     else at most zero (the domino evaluator asserts this), so success
     and rejection are decodable from the (reward, terminated) pair
@@ -1076,6 +1084,13 @@ class TaskEvaluator:
         """Episode reward: certified-success bonus (no cost by default)."""
         ok, _ = self._certify(states, step_options)
         return float(self.terminated(states[-1]) and ok)
+
+    def solved(self, states: Sequence[State],
+               step_options: Optional[Sequence[StepOption]]) -> bool:
+        """Public episode-success bit: goal atoms hold at the end AND the
+        success credit was awarded (the episode certifies)."""
+        ok, _ = self._certify(states, step_options)
+        return self.terminated(states[-1]) and ok
 
     def _certify(
             self, states: Sequence[State],
