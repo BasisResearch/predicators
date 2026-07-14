@@ -106,6 +106,25 @@ class _FeasiblePool:
 
 
 @dataclasses.dataclass
+class DeepestFailure:
+    """Deepest validation failure seen during backtracking refinement.
+
+    Captured at the moment of failure so it is a consistent record: the
+    grounded option carries the exact params that produced the failing
+    rollout, ``fail_reason`` is the validation message (missing subgoal
+    atoms, or an unreached task goal at the final step), and
+    ``post_state`` is that rollout's post-state (``None`` if it could
+    not be stashed). Surfaced by ``refine_and_validate_report`` so a
+    failed search returns the near-miss it got furthest with, not just
+    the stuck step's name.
+    """
+    step_idx: int
+    option: _Option
+    fail_reason: str
+    post_state: Optional[State] = None
+
+
+@dataclasses.dataclass
 class SketchStep:
     """One step in an agent-produced plan sketch.
 
@@ -122,6 +141,15 @@ class SketchStep:
     # refinement tries these first (clipped to the option's box) on the first
     # arrival at this step, then falls back to the sampler/uniform draw.
     initial_params: Optional[np.ndarray] = None
+    # Optional per-dimension half-widths for ``initial_params`` (requires
+    # it), from a ``~ [w1, w2]`` region annotation. When set, the exact
+    # center is still tried once, and every later draw for this step is
+    # uniform from ``clip([center - w, center + w], option box)`` instead
+    # of the full box, taking precedence over any per-skill sampler. A
+    # region is a per-step, per-call sampler: it lives here rather than in
+    # the option-name-keyed ``option_samplers`` registry, which could not
+    # hold different windows for two same-option steps in one sketch.
+    initial_params_width: Optional[np.ndarray] = None
 
 
 def format_step_line(
@@ -130,20 +158,25 @@ def format_step_line(
     objects: Sequence[Object],
     params: Optional[Union[Sequence[float], np.ndarray]] = None,
     subgoal_atoms: Optional[Set[GroundAtom]] = None,
+    params_width: Optional[Union[Sequence[float], np.ndarray]] = None,
 ) -> str:
     """Format one plan/sketch step as a single indented line.
 
-    ``  <idx>: OptName(obj1, obj2)[p0, p1] -> {Atom, Atom}``
+    ``  <idx>: OptName(obj1, obj2)[p0, p1] ~ [w0, w1] -> {Atom, Atom}``
 
-    The ``[params]`` and ``-> {atoms}`` slots are omitted when their
-    argument is empty/None. Shared by the sketch- and plan-formatting
-    helpers below so every per-step line reads identically.
+    The ``[params]``, ``~ [widths]`` and ``-> {atoms}`` slots are
+    omitted when their argument is empty/None. Shared by the sketch-
+    and plan-formatting helpers below so every per-step line reads
+    identically.
     """
     objs = ", ".join(o.name for o in objects)
     line = f"  {idx}: {option_name}({objs})"
     if params is not None and len(params):
         par = ", ".join(f"{p:.4f}" for p in params)
         line += f"[{par}]"
+        if params_width is not None and len(params_width):
+            wid = ", ".join(f"{w:.4f}" for w in params_width)
+            line += f" ~ [{wid}]"
     if subgoal_atoms:
         atoms = ", ".join(str(a) for a in subgoal_atoms)
         line += f" -> {{{atoms}}}"
@@ -153,15 +186,16 @@ def format_step_line(
 def format_sketch_lines(sketch: Sequence[SketchStep]) -> List[str]:
     """Render a plan sketch as one ``format_step_line`` per step.
 
-    Each step shows its ``initial_params`` (if the LLM proposed any) and
-    its ``subgoal_atoms``.
+    Each step shows its ``initial_params`` (if the LLM proposed any),
+    its region half-widths (if annotated) and its ``subgoal_atoms``.
     """
     return [
         format_step_line(i,
                          s.option.name,
                          s.objects,
                          params=s.initial_params,
-                         subgoal_atoms=s.subgoal_atoms)
+                         subgoal_atoms=s.subgoal_atoms,
+                         params_width=s.initial_params_width)
         for i, s in enumerate(sketch)
     ]
 
@@ -383,13 +417,21 @@ def build_solve_prompt(
             "- Where good values are hard to hit — tight tolerances or exact "
             "relative placements (e.g. positioning one object at a precise "
             "offset from another) — use `refine_plan_sketch` to search for a "
-            "working value (it's slower) and read the value it found.")
+            "working value (it's slower) and read the value it found. "
+            "Confine its search near your estimate by appending a region "
+            "`~ [w1, w2]` (per-parameter half-widths) after a step's "
+            "`[params]`: the exact center is tried first, then every "
+            "sample for that step stays inside `[center - w, center + w]` "
+            "instead of the full range.")
         format_block = (
             "Output the plan with one option per line in this format:\n"
             "  OptionName(obj1:type1, obj2:type2)[param1, param2] -> "
             "{Pred(obj1:type1), Pred2(obj1:type1, obj2:type2)}\n"
             "  Wait(robot:robot)[] -> "
-            "{Pred3(obj1:type1), NOT Pred4(obj1:type1, obj2:type2)}")
+            "{Pred3(obj1:type1), NOT Pred4(obj1:type1, obj2:type2)}\n"
+            "(For refine_plan_sketch only, a step may add a search region "
+            "after its params: `OptionName(obj1:type1)[p1, p2] ~ [w1, w2] "
+            "-> {...}`.)")
     else:
         sketch_kind_guidance = (
             "Generate a plan sketch — the sequence of options with object "
@@ -597,6 +639,92 @@ def strip_subgoal_annotations(text: str) -> str:
     return _SUBGOAL_ANNOTATION_RE.sub('', text)
 
 
+# A `~ [w1, w2]` region annotation appended after a step's `[params]`
+# block: per-dimension half-widths around the proposed params. Stripped
+# before the canonical option-plan parser reads the `[params]` block
+# (that parser takes the text after the FIRST `[` and would misread the
+# widths as parameter text), and parsed separately per line.
+_REGION_ANNOTATION_RE = re.compile(r'\s*~\s*\[([^\]]*)\]')
+
+
+def strip_region_annotations(text: str) -> str:
+    """Remove ``~ [widths]`` region annotations from every line."""
+    return _REGION_ANNOTATION_RE.sub('', text)
+
+
+def parse_region_annotations(
+    text: str,
+    option_names: Set[str],
+) -> List[List[str]]:
+    """Extract raw ``~ [widths]`` annotation bodies from plan text.
+
+    Returns a list parallel to the option lines in ``text`` (same line
+    filter as ``parse_subgoal_annotations``, so the two stay aligned
+    with the parsed options). Each entry lists the raw inner strings of
+    that line's ``~ [...]`` blocks, empty when the line has none.
+    Numeric and arity validation happen in ``_resolve_region_width``,
+    where the resolved option and strictness are known.
+    """
+    results: List[List[str]] = []
+    for line in text.split('\n'):
+        stripped = utils.strip_enumeration_prefix(line.strip())
+        if not stripped:
+            continue
+        first_token = stripped.split('(')[0]
+        if first_token not in option_names:
+            continue
+        results.append(
+            [m.group(1) for m in _REGION_ANNOTATION_RE.finditer(stripped)])
+    return results
+
+
+def _resolve_region_width(
+    raw_blocks: List[str],
+    step_idx: int,
+    option: ParameterizedOption,
+    has_center: bool,
+    strict: bool,
+) -> Optional[np.ndarray]:
+    """Validate one step's ``~ [widths]`` annotation into half-widths.
+
+    Returns ``None`` when the step carries no region annotation. A bad
+    annotation raises ``ValueError`` naming the step in strict mode; in
+    tolerant mode it is dropped with a warning and the step is kept.
+    """
+    if not raw_blocks:
+        return None
+
+    # pylint: disable-next=useless-return
+    def _bad(reason: str) -> Optional[np.ndarray]:
+        msg = (f"step {step_idx} ({option.name}): bad '~ [widths]' "
+               f"region annotation - {reason}")
+        if strict:
+            raise ValueError(msg)
+        logging.warning("Dropping region annotation: %s", msg)
+        return None
+
+    if len(raw_blocks) > 1:
+        return _bad("multiple '~ [...]' blocks on one line")
+    if not has_center:
+        return _bad("'~ [widths]' requires proposed center params in "
+                    "'[...]' on the same line")
+    tokens = [t.strip() for t in raw_blocks[0].split(',') if t.strip()]
+    if not tokens:
+        return _bad("empty '~ []' block; give one half-width per "
+                    "parameter or omit the block")
+    try:
+        widths = np.asarray([float(t) for t in tokens], dtype=np.float32)
+    except ValueError:
+        return _bad(f"non-numeric half-width in {raw_blocks[0]!r}")
+    expected = option.params_space.shape[0]
+    if widths.shape[0] != expected:
+        return _bad(f"{widths.shape[0]} half-width(s) but option "
+                    f"{option.name} expects {expected}")
+    if np.any(widths < 0):
+        return _bad("half-widths must be >= 0")
+    return widths
+
+
 def parse_sketch_from_text(
     plan_text: str,
     task: Task,
@@ -624,16 +752,24 @@ def parse_sketch_from_text(
     uses (``parse_model_output_into_option_plan`` with
     ``parse_continuous_params=True``) and stored as ``initial_params`` for
     the refinement to try first. Sketch lines also carry ``-> {subgoal}``
-    annotations, which that parser would misread as params text, so they
-    are stripped before parsing and read separately from the original.
+    annotations and optional ``~ [w0, w1]`` region annotations (per
+    parameter half-widths around the proposed params; refinement tries
+    the exact center once, then confines every later draw for the step
+    to the window). Both would be misread as params text by that
+    parser, so they are stripped before parsing and read separately
+    from the original (a dropped line in tolerant mode misaligns them
+    the same way; ``strict`` tool inputs error instead).
     """
     cleaned_text = strip_code_fences(plan_text)
     objects = list(task.init)
     option_names = {o.name for o in options}
 
-    # Strip subgoal annotations only when parsing params, so the `[params]`
-    # extraction in the canonical parser isn't confused by a `{...}` brace.
-    parse_text = (strip_subgoal_annotations(cleaned_text)
+    # Strip subgoal and region annotations only when parsing params, so the
+    # `[params]` extraction in the canonical parser isn't confused by a
+    # `{...}` brace or a second `[...]` block. (With params off the parser
+    # never reads past the `)`, so the annotations are inert there.)
+    parse_text = (strip_region_annotations(
+        strip_subgoal_annotations(cleaned_text))
                   if parse_continuous_params else cleaned_text)
     parsed = utils.parse_model_output_into_option_plan(
         parse_text,
@@ -648,6 +784,8 @@ def parse_sketch_from_text(
 
     subgoals = parse_subgoal_annotations(cleaned_text, predicates, objects,
                                          option_names)
+    regions = (parse_region_annotations(cleaned_text, option_names)
+               if parse_continuous_params else [])
 
     sketch: List[SketchStep] = []
     for i, (option, objs, params) in enumerate(parsed):
@@ -660,6 +798,12 @@ def parse_sketch_from_text(
             # refinement search sample the parameters (strict parsing lets
             # the empty list through for exactly this case).
             ip = None
+        width = _resolve_region_width(regions[i] if i < len(regions) else [],
+                                      i,
+                                      option,
+                                      has_center=ip is not None
+                                      and ip.size > 0,
+                                      strict=strict)
         if sg is not None:
             pos, neg = sg
             sketch.append(
@@ -667,13 +811,15 @@ def parse_sketch_from_text(
                            objects=objs,
                            subgoal_atoms=pos if pos else None,
                            subgoal_neg_atoms=neg if neg else None,
-                           initial_params=ip))
+                           initial_params=ip,
+                           initial_params_width=width))
         else:
             sketch.append(
                 SketchStep(option=option,
                            objects=objs,
                            subgoal_atoms=None,
-                           initial_params=ip))
+                           initial_params=ip,
+                           initial_params_width=width))
     # Coverage diagnostic: unannotated steps are invisible to per-step
     # refinement validation, execution monitoring, and suffix replanning.
     unannotated = [
@@ -705,6 +851,7 @@ def refine_sketch(
     step_samples_cumulative: Optional[List[int]] = None,
     termination_reason: Optional[List[str]] = None,
     elapsed_holder: Optional[List[float]] = None,
+    deepest_failure_holder: Optional[List[DeepestFailure]] = None,
     info_scorer: Optional[InfoScorer] = None,
     info_n_feasible_target: int = 1,
     option_samplers: Optional[Dict[str, OptionSampler]] = None,
@@ -714,6 +861,13 @@ def refine_sketch(
     Returns ``(refined_plan, success, total_samples)``. On success the
     plan is fully refined; on failure it is the longest prefix of
     refined options (``None`` entries dropped).
+
+    ``deepest_failure_holder`` is an out-holder (mirroring
+    ``termination_reason``): when given, the single deepest validation
+    failure seen during the search is appended as a ``DeepestFailure``
+    (params, reason, post-state), regardless of
+    ``truncate_on_subgoal_fail``. Callers use it to report the search's
+    best near-miss on failure.
 
     ``check_subgoals`` gates per-step subgoal-atom validation.
     ``check_final_goal`` gates the task-goal check on the final step.
@@ -762,7 +916,11 @@ def refine_sketch(
     plain and info-seeking draws to aim that option's parameters at the
     subgoal instead of drawing uniformly. The return is clipped to the
     option's box; a missing or misbehaving sampler falls back to uniform
-    sampling.
+    sampling. A step whose sketch line carries a ``~ [widths]`` region
+    annotation bypasses the sampler entirely: after the one-shot center
+    try, its draws come uniform from the region window (see
+    ``SketchStep.initial_params_width``), the most specific prior
+    winning - region, then sampler, then uniform.
     """
     if not sketch:
         return [], False, 0
@@ -776,6 +934,9 @@ def refine_sketch(
     # failure, so it is a *consistent* trajectory: run_backtracking_refinement
     # has already written plan[idx] for that attempt and the prefix
     # plan[:idx+1] reflects the exact grounded options that led to it.
+    # Consumed two ways: truncate_on_subgoal_fail (explorer mode) returns
+    # the prefix, and deepest_failure_holder reports the failing step's
+    # near-miss params/state to the caller on any failed search.
     deepest_fail_idx: List[int] = [-1]
     deepest_fail_prefix: List[List[Optional[_Option]]] = [[]]
 
@@ -788,18 +949,30 @@ def refine_sketch(
     # tried directly on the plain path, or seeded into the info-seeking pool.
     # One-shot per step: on later attempts (resample after a failed subgoal
     # check, or re-descent after an upstream backtrack) the guess is not
-    # re-proposed/re-seeded and selection falls to the sampler/uniform/
-    # info-seeking path.
+    # re-proposed/re-seeded and selection falls to the region/sampler/
+    # uniform/info-seeking path.
     _llm_params_tried: Set[int] = set()
 
     def _draw_params(step: SketchStep, state: State,
                      rng_: np.random.Generator) -> np.ndarray:
         """Draw continuous params for a step's option.
 
-        Uses a registered per-skill sampler (keyed by option name) when
-        present, else falls back to uniform ``sample_params`` — also on
-        a sampler error or wrong-shaped return.
+        Precedence: a per-step region annotation (uniform draw inside
+        the step's ``[center - w, center + w]`` window, clipped to the
+        option box) beats a registered per-skill sampler (keyed by
+        option name), which beats uniform ``sample_params`` — the
+        fallback also on a sampler error or wrong-shaped return.
         """
+        if step.initial_params is not None and \
+                step.initial_params_width is not None:
+            box = step.option.params_space
+            center = np.clip(np.asarray(step.initial_params, dtype=np.float32),
+                             box.low, box.high)
+            width = np.asarray(step.initial_params_width, dtype=np.float32)
+            # uniform(x, x) returns x, so zero widths pin to the center.
+            return rng_.uniform(np.maximum(center - width, box.low),
+                                np.minimum(center + width,
+                                           box.high)).astype(np.float32)
         sampler = (option_samplers.get(step.option.name)
                    if option_samplers else None)
         if sampler is not None:
@@ -855,6 +1028,13 @@ def refine_sketch(
         # state/rng); re-drawing it yields the identical option, so its step
         # gets a single attempt -- backtracking then skips straight past it
         # instead of wasting the full budget re-descending through it.
+        if step.initial_params is not None and \
+                step.initial_params_width is not None:
+            # A region step bypasses the sampler, so a deterministic
+            # sampler flag must not collapse it to one attempt. An
+            # all-zero width pins every draw to the center, which IS
+            # deterministic - one attempt suffices there too.
+            return bool(np.all(step.initial_params_width == 0))
         sampler = (option_samplers.get(step.option.name)
                    if option_samplers else None)
         return bool(getattr(sampler, "deterministic", False))
@@ -1072,6 +1252,12 @@ def refine_sketch(
             return _ground(step, params)
         return _ground(step, _draw_params(step, state, rng_))
 
+    # Post-state of the most recent validation failure, stashed by
+    # validate_fn for wrapped_on_step_fail (which planning.py calls right
+    # after, in the same iteration, with the same idx - the only place the
+    # failing rollout's post-state is visible is validate_fn).
+    last_fail_post: List[Optional[Tuple[int, State]]] = [None]
+
     def validate_fn(idx: int, _pre_state: State, _option: _Option,
                     post_state: State, _num_actions: int) -> Tuple[bool, str]:
         step = sketch[idx]
@@ -1079,10 +1265,12 @@ def refine_sketch(
             current_atoms = utils.abstract(post_state, predicates)
             if not step.subgoal_atoms.issubset(current_atoms):
                 missing = step.subgoal_atoms - current_atoms
+                last_fail_post[0] = (idx, post_state)
                 return False, (f"subgoal missing: "
                                f"{{{', '.join(str(a) for a in missing)}}}")
         if check_final_goal and idx == n - 1:
             if not task.goal_holds(post_state):
+                last_fail_post[0] = (idx, post_state)
                 return False, "goal not reached"
         return True, ""
 
@@ -1095,13 +1283,25 @@ def refine_sketch(
         # (unmet subgoal, or unreached task goal at the final step) seen so
         # far along with a consistent snapshot of the prefix. A final-goal
         # failure is at idx==n-1, so its snapshot is the full plan — the
-        # experiment we want to execute in reality.
-        if (truncate_on_subgoal_fail
-                and (fail_reason.startswith("subgoal missing")
-                     or fail_reason == "goal not reached")
+        # experiment we want to execute in reality. The record is kept
+        # unconditionally (deepest_failure_holder consumers read it on any
+        # failed search); only the truncation RETURN below stays gated on
+        # truncate_on_subgoal_fail. Non-validation failures (not initiable,
+        # 0 actions, model errors) never update it.
+        if ((fail_reason.startswith("subgoal missing")
+             or fail_reason == "goal not reached")
                 and idx > deepest_fail_idx[0]):
             deepest_fail_idx[0] = idx
             deepest_fail_prefix[0] = list(cur_plan[:idx + 1])
+            if deepest_failure_holder is not None:
+                stash = last_fail_post[0]
+                # pylint: disable-next=unsubscriptable-object
+                post = stash[1] if stash and stash[0] == idx else None
+                opt = cur_plan[idx]
+                assert opt is not None
+                deepest_failure_holder.clear()
+                deepest_failure_holder.append(
+                    DeepestFailure(idx, opt, fail_reason, post))
         if on_step_fail is not None:
             on_step_fail(idx, cur_plan, fail_reason)
 
@@ -1154,14 +1354,19 @@ def refine_sketch(
     return refined, False, total_samples
 
 
-def _fmt_state_features(state: State) -> str:
-    """Compact one-line dump of every object's features.
+def _fmt_state_features(state: State,
+                        objects: Optional[Sequence[Object]] = None) -> str:
+    """Compact one-line dump of object features.
 
     Used by ``validate_plan_forward`` to trace how the continuous
-    rollout's state drifts step by step.
+    rollout's state drifts step by step, and by the deepest-failure
+    report line. ``objects`` restricts the dump to those objects
+    (default: every object in the state).
     """
     parts = []
-    for obj in sorted(state, key=lambda o: o.name):
+    objs = sorted(state, key=lambda o: o.name) if objects is None else list(
+        dict.fromkeys(objects))
+    for obj in objs:
         feats = ", ".join(f"{f}={state.get(obj, f):.4f}"
                           for f in obj.type.feature_names)
         parts.append(f"{obj.name}[{feats}]")
@@ -1515,7 +1720,10 @@ def refine_and_validate_report(
     plan (the longest refined prefix on failure). The report names the
     verdict (SUCCESS / TIMEOUT / SAMPLE_EXHAUSTED /
     FORWARD_VALIDATION_FAILED), per-step sample counts, the stuck step on
-    failure, and the forward-validation outcome.
+    failure, the deepest validation near-miss (the failing step's exact
+    params, the missing atoms, and the post-state of that rollout's
+    step objects) when refinement fails, and the forward-validation
+    outcome.
 
     ``extra_summary_lines`` are appended verbatim after the time line
     (e.g. a caller-specific ``Post-fit SSE`` line). Config-derived knobs
@@ -1526,6 +1734,7 @@ def refine_and_validate_report(
     step_samples_cumulative: List[int] = [0] * len(sketch)
     termination_reason: List[str] = []
     elapsed_holder: List[float] = []
+    deepest_failure: List[DeepestFailure] = []
     plan, success, n_samples = refine_sketch(
         task,
         sketch,
@@ -1540,6 +1749,7 @@ def refine_and_validate_report(
         step_samples_cumulative=step_samples_cumulative,
         termination_reason=termination_reason,
         elapsed_holder=elapsed_holder,
+        deepest_failure_holder=deepest_failure,
         option_samplers=option_samplers,
     )
 
@@ -1575,6 +1785,20 @@ def refine_and_validate_report(
         if stuck.subgoal_atoms:
             atoms = ", ".join(str(a) for a in stuck.subgoal_atoms)
             lines.append(f"    subgoals: {atoms}")
+    if not success and deepest_failure:
+        # The search's best near-miss: the exact params of the deepest
+        # rollout that executed but failed validation, so the caller can
+        # adjust the right step instead of restarting blind.
+        df = deepest_failure[0]
+        df_objs = ", ".join(o.name for o in df.option.objects)
+        df_params = ", ".join(f"{p:.4f}" for p in df.option.params)
+        lines.append(f"  Deepest failure: step {df.step_idx} "
+                     f"{df.option.name}({df_objs})[{df_params}] - "
+                     f"{df.fail_reason}")
+        if df.post_state is not None:
+            feats = _fmt_state_features(df.post_state,
+                                        objects=df.option.objects)
+            lines.append(f"    post-state: {feats}")
 
     # Forward validation: re-execute the refined plan continuously (state
     # carries forward across all options). Refinement's per-step resets

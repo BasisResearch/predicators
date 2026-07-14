@@ -192,12 +192,19 @@ the env's NSRT samplers) where:
 - `subgoal_atoms` is the set of `GroundAtom`s the step must establish — \
 read the target relation here (e.g. an `InFront`/at-target atom names the \
 two objects whose geometry the placement must satisfy) and compute the \
-parameters that achieve it,
+parameters that achieve it. At steps with NO subgoal annotation this set \
+is EMPTY — the sampler must not crash on `set()`; fall back to a default \
+or uniform draw,
 - `rng` is a `numpy` `Generator` (use it for small jitter so retries differ),
 - `objects` is the list of typed objects bound to this option call.
 Return a `float32` array whose length matches the option's params box \
 (see `inspect_options` for the dimension and ranges); refinement clips it \
 to that box, so stay within the ranges.
+
+Samplers are the reusable cross-task prior: refinement uses yours on \
+every draw of that option, in every sketch and every task. A sketch step \
+that carries its own `~ [widths]` region annotation bypasses the sampler \
+for that step (precedence: per-step region > per-skill sampler > uniform).
 
 Aim the parameters at the subgoal geometrically (then add a little `rng` \
 jitter); do NOT just return uniform draws. Read the option signatures with \
@@ -235,12 +242,12 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
 
         Mirrors ``_load_predicates_from_module_file``. Returns an empty
         dict on missing file or exec failure (samplers are optional).
-        Skips entries keyed by an unknown option name or whose value is
-        not callable.
+        Validation (unknown option names, non-callables) is shared with
+        the ``evaluate_sampler`` tool via ``load_learned_samplers``.
         """
         # pylint: disable=import-outside-toplevel
         from predicators.agent_sdk.proposal_parser import build_exec_context, \
-            exec_code_safely
+            load_learned_samplers
         from predicators.agent_sdk.tools import _ParamsView
 
         # pylint: enable=import-outside-toplevel
@@ -263,28 +270,13 @@ as `cycle_XXX_vers_YYY_samplers.py`."""
                                      "ParamSpec": ParamSpec,
                                  })
 
-        result, err = exec_code_safely(code, ctx, "LEARNED_SAMPLERS")
+        option_names = {o.name for o in self._get_all_options()}
+        valid, warnings, err = load_learned_samplers(code, ctx, option_names)
         if err is not None:
             logger.warning("Failed to load %s:\n%s", path, err)
             return {}
-        if not isinstance(result, dict):
-            logger.warning("%s: LEARNED_SAMPLERS must be a dict, got %s.",
-                           path,
-                           type(result).__name__)
-            return {}
-
-        option_names = {o.name for o in self._get_all_options()}
-        valid: Dict[str, OptionSampler] = {}
-        for name, fn in result.items():
-            if name not in option_names:
-                logger.warning(
-                    "Skipped sampler '%s' (not a known option name).", name)
-                continue
-            if not callable(fn):
-                logger.warning("Skipped sampler '%s' (value is not callable).",
-                               name)
-                continue
-            valid[name] = fn
+        for warning in warnings:
+            logger.warning("%s: %s", path, warning)
         return valid
 
     def _synthesize_samplers_standalone(
