@@ -3526,17 +3526,22 @@ NSRTSampler = Callable[
 NSRTSamplerWithEpsilonIndicator = Callable[
     [State, Set[GroundAtom], np.random.Generator, Sequence[Object]],
     Tuple[Array, bool]]
-# Per-skill sampler consulted during bilevel-sketch refinement. Shares
-# NSRTSampler's call signature (state, atoms, rng, objects) so the two are
-# interchangeable, but the GroundAtom set it receives is the step's
-# *subgoal* (not the task goal), letting it aim continuous params at the
-# subgoal instead of drawing uniformly; at steps with no subgoal
-# annotation the set is empty, which the sampler must tolerate. Returns a
-# params array matching the option's params_space; refinement clips it to
-# that box and falls back to uniform on a wrong-shaped return. A sketch
-# step carrying a `~ [widths]` region annotation bypasses the sampler
-# (precedence: per-step region > per-skill sampler > uniform).
-OptionSampler = Callable[
+# Parameterized (per-skill) sampler consulted during bilevel-sketch
+# refinement: keyed by ParameterizedOption name, authored/learned once, and
+# consulted for every ground call of that option - though each call passes
+# the ground binding, so the function can (and should) specialize per
+# grounding. Shares NSRTSampler's call signature (state, atoms, rng,
+# objects) so the two are interchangeable, but the GroundAtom set it
+# receives is the step's *subgoal* (not the task goal), letting it aim
+# continuous params at the subgoal instead of drawing uniformly; at steps
+# with no subgoal annotation the set is empty, which the sampler must
+# tolerate. Returns a params array matching the option's params_space;
+# refinement clips it to that box and falls back to uniform on a
+# wrong-shaped return. The ground level of the hierarchy is
+# bilevel_sketch.GroundSampler, a per-step distribution compiled from a
+# `~ [widths]` region annotation (precedence: ground sampler >
+# parameterized sampler > uniform).
+ParameterizedSampler = Callable[
     [State, Set[GroundAtom], np.random.Generator, Sequence[Object]], Array]
 Metrics = DefaultDict[str, float]
 LiftedOrGroundAtom = TypeVar("LiftedOrGroundAtom", LiftedAtom, GroundAtom,

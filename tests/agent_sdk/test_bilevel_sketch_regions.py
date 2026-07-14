@@ -17,7 +17,7 @@ from gym.spaces import Box
 
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
-from predicators.agent_sdk.bilevel_sketch import SketchStep
+from predicators.agent_sdk.bilevel_sketch import GroundSampler, SketchStep
 from predicators.agent_sdk.tools import ToolContext, create_mcp_tools
 from predicators.structs import Action, GroundAtom, Object, \
     ParameterizedOption, Predicate, State, Task, Type
@@ -84,7 +84,10 @@ def _region_step(center, width, subgoal=True):
         objects=[_block],
         subgoal_atoms={GroundAtom(_ReachedHi, [_block])} if subgoal else None,
         initial_params=np.array([center], dtype=np.float32),
-        initial_params_width=np.array([width], dtype=np.float32))
+        ground_sampler=GroundSampler(center=np.array([center],
+                                                     dtype=np.float32),
+                                     width=np.array([width],
+                                                    dtype=np.float32)))
 
 
 def _refine(step, **kwargs):
@@ -121,7 +124,7 @@ def test_parse_region_happy_path():
         "Move(block0:block)[0.7] ~ [0.1] -> {ReachedHi(block0:block)}")
     assert len(sketch) == 1
     assert np.allclose(sketch[0].initial_params, [0.7])
-    assert np.allclose(sketch[0].initial_params_width, [0.1])
+    assert np.allclose(sketch[0].ground_sampler.width, [0.1])
     assert GroundAtom(_ReachedHi, [_block]) in sketch[0].subgoal_atoms
 
 
@@ -172,7 +175,7 @@ def test_parse_region_nonstrict_drops_bad_width_keeps_step():
     sketch = _parse("Move(block0:block)[0.7] ~ [0.1, 0.2]", strict=False)
     assert len(sketch) == 1
     assert np.allclose(sketch[0].initial_params, [0.7])
-    assert sketch[0].initial_params_width is None
+    assert sketch[0].ground_sampler is None
 
 
 def test_parse_region_ignored_when_params_disabled():
@@ -183,7 +186,7 @@ def test_parse_region_ignored_when_params_disabled():
         parse_continuous_params=False)
     assert len(sketch) == 1
     assert sketch[0].initial_params is None
-    assert sketch[0].initial_params_width is None
+    assert sketch[0].ground_sampler is None
     assert GroundAtom(_ReachedHi, [_block]) in sketch[0].subgoal_atoms
 
 
@@ -214,8 +217,86 @@ def test_format_step_line_shows_width_and_annotation_round_trips():
                     line.split("Move(block0)", maxsplit=1)[1])
     assert len(sketch) == 1
     assert np.allclose(sketch[0].initial_params, [0.85])
-    assert np.allclose(sketch[0].initial_params_width, [0.1])
+    assert np.allclose(sketch[0].ground_sampler.width, [0.1])
     assert GroundAtom(_ReachedHi, [_block]) in sketch[0].subgoal_atoms
+
+
+def test_parse_region_disabled_strict_errors():
+    """With parse_ground_samplers=False any `~` annotation is an error."""
+    with pytest.raises(ValueError, match="ground samplers are disabled"):
+        bilevel_sketch.parse_sketch_from_text(
+            "Move(block0:block)[0.7] ~ [0.1]",
+            _task_hi(),
+            predicates={_ReachedHi},
+            options={_Move},
+            types={_block_type},
+            parse_continuous_params=True,
+            strict=True,
+            parse_ground_samplers=False)
+
+
+def _hi_band_fn(state, subgoal_atoms, rng, objects):
+    del state, subgoal_atoms, objects
+    return np.array([0.9 + 0.05 * rng.random()], dtype=np.float32)
+
+
+def test_parse_named_ground_sampler():
+    """`~ name` resolves against ground_sampler_fns into a code sampler."""
+    sketch = bilevel_sketch.parse_sketch_from_text(
+        "Move(block0:block)[0.1] ~ hi_band -> {ReachedHi(block0:block)}",
+        _task_hi(),
+        predicates={_ReachedHi},
+        options={_Move},
+        types={_block_type},
+        parse_continuous_params=True,
+        strict=True,
+        ground_sampler_fns={"hi_band": _hi_band_fn})
+    assert len(sketch) == 1
+    gs = sketch[0].ground_sampler
+    assert gs is not None
+    assert gs.fn is _hi_band_fn
+    assert gs.name == "hi_band"
+    # The center seed is independent of the named sampler.
+    assert np.allclose(sketch[0].initial_params, [0.1])
+
+
+def test_parse_named_ground_sampler_no_center_ok():
+    """Unlike a window, a named sampler needs no center params."""
+    sketch = bilevel_sketch.parse_sketch_from_text(
+        "Move(block0:block)[] ~ hi_band",
+        _task_hi(),
+        predicates={_ReachedHi},
+        options={_Move},
+        types={_block_type},
+        parse_continuous_params=True,
+        strict=True,
+        ground_sampler_fns={"hi_band": _hi_band_fn})
+    assert len(sketch) == 1
+    assert sketch[0].initial_params is None
+    assert sketch[0].ground_sampler.fn is _hi_band_fn
+
+
+def test_parse_named_ground_sampler_unknown_errors():
+    """An unknown `~ name` is a strict error listing what is available."""
+    with pytest.raises(ValueError, match="unknown ground sampler 'nope'"):
+        bilevel_sketch.parse_sketch_from_text(
+            "Move(block0:block)[0.1] ~ nope",
+            _task_hi(),
+            predicates={_ReachedHi},
+            options={_Move},
+            types={_block_type},
+            parse_continuous_params=True,
+            strict=True,
+            ground_sampler_fns={"hi_band": _hi_band_fn})
+
+
+def test_format_step_line_shows_sampler_name():
+    """A named ground sampler renders as `~ name` after the params."""
+    line = bilevel_sketch.format_step_line(0,
+                                           "Move", [_block],
+                                           params=[0.1],
+                                           sampler_name="hi_band")
+    assert "[0.1000] ~ hi_band" in line
 
 
 # --------------------------------------------------------------------------- #
@@ -242,7 +323,7 @@ def test_region_takes_precedence_over_sampler():
 
     plan, success, _ = _refine(_region_step(0.5, 0.5),
                                max_samples_per_step=200,
-                               option_samplers={"Move": sampler})
+                               parameterized_samplers={"Move": sampler})
     assert success
     assert float(plan[0].params[0]) >= 0.9
 
@@ -291,7 +372,7 @@ def test_region_step_not_capped_by_deterministic_sampler():
     sampler.deterministic = True
     plan, success, total = _refine(_region_step(0.5, 0.5),
                                    max_samples_per_step=200,
-                                   option_samplers={"Move": sampler})
+                                   parameterized_samplers={"Move": sampler})
     assert success
     # The failing center consumed the first attempt; regional draws (not a
     # single deterministic try) then found a passing value.
@@ -299,15 +380,65 @@ def test_region_step_not_capped_by_deterministic_sampler():
     assert float(plan[0].params[0]) >= 0.9
 
 
+def _named_step(fn, name="named"):
+    return SketchStep(option=_Move,
+                      objects=[_block],
+                      subgoal_atoms={GroundAtom(_ReachedHi, [_block])},
+                      ground_sampler=GroundSampler(fn=fn, name=name))
+
+
+def test_named_ground_sampler_draws_from_fn():
+    """A code ground sampler owns the step's draws (state + subgoal seen)."""
+    seen = []
+
+    def fn(state, subgoal_atoms, rng, objects):
+        seen.append(
+            (state.get(_block,
+                       "x"), set(subgoal_atoms), [o.name for o in objects]))
+        return np.array([0.9 + 0.05 * rng.random()], dtype=np.float32)
+
+    plan, success, _ = _refine(_named_step(fn))
+    assert success
+    assert float(plan[0].params[0]) >= 0.9
+    x0, atoms, objs = seen[0]
+    assert x0 == 0.0
+    assert GroundAtom(_ReachedHi, [_block]) in atoms
+    assert objs == ["block0"]
+
+
+def test_named_ground_sampler_bad_shape_falls_back_to_uniform():
+    """A misbehaving code sampler falls back to uniform draws per draw."""
+
+    def bad(*_args):
+        return np.array([0.5, 0.5], dtype=np.float32)  # shape (2,) != (1,)
+
+    plan, success, _ = _refine(_named_step(bad), max_samples_per_step=200)
+    assert success  # uniform fallback still lands x >= 0.9
+    assert float(plan[0].params[0]) >= 0.9
+
+
+def test_named_ground_sampler_deterministic_flag_caps_step():
+    """A code ground sampler may flag itself deterministic (one attempt)."""
+
+    def fn(*_args):
+        return np.array([0.5], dtype=np.float32)  # never passes x >= 0.9
+
+    fn.deterministic = True
+    _, success, total = _refine(_named_step(fn))
+    assert not success
+    assert total == 1
+
+
 # --------------------------------------------------------------------------- #
 # Tool surfaces.
 # --------------------------------------------------------------------------- #
 
 
-def _run_tool(tool_name, args):
+def _run_tool(tool_name, args, ground_samplers=True, sandbox_dir=None):
     utils.reset_config({
         "agent_bilevel_use_llm_initial_params": True,
         "agent_bilevel_max_samples_per_step": 200,
+        "agent_bilevel_ground_samplers": ground_samplers,
     })
     task = _task_hi()
     ctx = ToolContext(
@@ -319,6 +450,7 @@ def _run_tool(tool_name, args):
         example_state=task.init,
         option_model=_FakeOptionModel(),
         current_task=task,
+        sandbox_dir=sandbox_dir,
     )
     tools = {
         t.name: t.handler
@@ -374,4 +506,69 @@ def test_evaluate_option_plan_ignores_region():
     # a searched/perturbed value could not be distinguished, so also check
     # the report is a plain execution (no refinement verdict lines).
     assert "Goal achieved: True" in text
+
+
+def test_refine_plan_sketch_tool_rejects_region_when_disabled():
+    """With agent_bilevel_ground_samplers off, the annotation is an error -
+    baseline arms cannot use the channel by accident."""
+    text = _run_tool("refine_plan_sketch", {
+        "plan": ("Move(block0:block)[0.85] ~ [0.1] -> "
+                 "{ReachedHi(block0:block)}"),
+        "timeout":
+        10,
+    },
+                     ground_samplers=False)
+    assert "Could not parse plan sketch" in text
+    assert "ground samplers are disabled" in text
+
+
+def test_refine_plan_sketch_tool_named_ground_sampler(tmp_path):
+    """A `~ name` reference loads GROUND_SAMPLERS from the sandbox and confines
+    the step's draws to the function's distribution."""
+    (tmp_path / "ground_samplers.py").write_text("""\
+def _hi_band(state, subgoal_atoms, rng, objects):
+    del state, subgoal_atoms, objects
+    return np.array([0.9 + 0.05 * rng.random()], dtype=np.float32)
+
+GROUND_SAMPLERS = {"hi_band": _hi_band}
+""",
+                                                 encoding="utf-8")
+    text = _run_tool("refine_plan_sketch", {
+        "plan": ("Move(block0:block)[0.1] ~ hi_band -> "
+                 "{ReachedHi(block0:block)}"),
+        "timeout":
+        10,
+    },
+                     sandbox_dir=str(tmp_path))
+    assert "SUCCESS" in text
+    param = float(text.split("Move(block0)[")[1].split("]")[0])
+    # The failing center 0.1 was tried once; the named sampler landed a
+    # value inside its own band.
+    assert 0.9 <= param <= 0.95
+
+
+def test_refine_plan_sketch_tool_unknown_named_sampler(tmp_path):
+    """An unresolvable `~ name` is a clear strict error, listing what is
+    loaded."""
+    text = _run_tool("refine_plan_sketch", {
+        "plan": "Move(block0:block)[0.1] ~ nope",
+        "timeout": 10,
+    },
+                     sandbox_dir=str(tmp_path))
+    assert "Could not parse plan sketch" in text
+    assert "unknown ground sampler 'nope'" in text
+
+
+def test_refine_plan_sketch_tool_broken_ground_samplers_file(tmp_path):
+    """A ground_samplers.py that fails to exec is surfaced as an error the
+    agent can fix, not silently ignored."""
+    (tmp_path / "ground_samplers.py").write_text("raise RuntimeError('bad')\n",
+                                                 encoding="utf-8")
+    text = _run_tool("refine_plan_sketch", {
+        "plan": "Move(block0:block)[0.95]",
+        "timeout": 10,
+    },
+                     sandbox_dir=str(tmp_path))
+    assert "Error loading" in text
+    assert "bad" in text
     assert "Parameters found" not in text

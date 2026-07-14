@@ -1,11 +1,11 @@
 """Tests for per-skill synthesized samplers in bilevel_sketch refinement.
 
 Verifies that a sampler registered under an option name in
-``option_samplers`` is consulted (with the step's subgoal + objects +
-the option's params box) to draw that option's continuous params during
-refinement — on both the plain and info-seeking paths — and that a
-missing / misbehaving sampler falls back to uniform sampling so
-refinement is byte-for-byte unchanged when no usable sampler is
+``parameterized_samplers`` is consulted (with the step's subgoal +
+objects + the option's params box) to draw that option's continuous
+params during refinement — on both the plain and info-seeking paths —
+and that a missing / misbehaving sampler falls back to uniform sampling
+so refinement is byte-for-byte unchanged when no usable sampler is
 supplied.
 """
 
@@ -140,7 +140,7 @@ def test_registered_sampler_is_used():
         max_samples_per_step=50,
         check_subgoals=True,
         check_final_goal=False,
-        option_samplers={"Move": sampler})
+        parameterized_samplers={"Move": sampler})
     assert success
     assert np.isclose(float(plan[0].params[0]), 0.95)
     # Feasible on the very first attempt — none of the uniform churn.
@@ -171,7 +171,7 @@ def test_missing_entry_falls_back_to_uniform():
         max_samples_per_step=50,
         check_subgoals=True,
         check_final_goal=False,
-        option_samplers={"OtherOption": other})
+        parameterized_samplers={"OtherOption": other})
     assert success
     # Identical to the no-sampler uniform draw.
     assert float(plan[0].params[0]) == first
@@ -194,7 +194,7 @@ def test_bad_shape_falls_back_to_uniform():
         max_samples_per_step=50,
         check_subgoals=True,
         check_final_goal=False,
-        option_samplers={"Move": bad})
+        parameterized_samplers={"Move": bad})
     assert success
     assert 0.0 <= float(plan[0].params[0]) <= 1.0
 
@@ -216,12 +216,13 @@ def test_raising_sampler_falls_back_to_uniform():
         max_samples_per_step=50,
         check_subgoals=True,
         check_final_goal=False,
-        option_samplers={"Move": boom})
+        parameterized_samplers={"Move": boom})
     assert success
 
 
 def test_none_samplers_unchanged():
-    """option_samplers=None reproduces the plain first-uniform-draw param."""
+    """parameterized_samplers=None reproduces the plain first-uniform-draw
+    param."""
     seed = 7
     first = float(sample_params(_Move, np.random.default_rng(seed))[0])
     task, sketch = _easy_task_and_sketch()
@@ -235,7 +236,7 @@ def test_none_samplers_unchanged():
         max_samples_per_step=50,
         check_subgoals=True,
         check_final_goal=False,
-        option_samplers=None)
+        parameterized_samplers=None)
     assert success
     assert float(plan[0].params[0]) == first
 
@@ -260,7 +261,7 @@ def test_sampler_used_on_info_seeking_path():
         check_final_goal=False,
         info_scorer=lambda s, _a: s.get(_block, "x"),
         info_n_feasible_target=4,
-        option_samplers={"Move": sampler})
+        parameterized_samplers={"Move": sampler})
     assert success
     # Every pooled candidate came from the sampler => satisfies x >= 0.9.
     assert float(plan[0].params[0]) >= 0.9
@@ -287,7 +288,7 @@ def test_initial_params_tried_first_without_sampler():
         max_samples_per_step=50,
         check_subgoals=True,
         check_final_goal=False,
-        option_samplers=None)
+        parameterized_samplers=None)
     assert success
     # The proposal satisfied the hard subgoal on the very first attempt.
     assert np.isclose(float(plan[0].params[0]), 0.95)
@@ -311,7 +312,7 @@ def test_initial_params_fall_back_to_uniform_on_failure():
         max_samples_per_step=200,
         check_subgoals=True,
         check_final_goal=False,
-        option_samplers=None)
+        parameterized_samplers=None)
     assert success
     # The failed proposal was the first sample; uniform then found x >= 0.9.
     assert total > 1
@@ -333,7 +334,7 @@ def test_initial_params_clipped_to_box():
         max_samples_per_step=50,
         check_subgoals=True,
         check_final_goal=False,
-        option_samplers=None)
+        parameterized_samplers=None)
     assert success
     # 5.0 clipped to the option's high bound (1.0), which clears x >= 0.9.
     assert np.isclose(float(plan[0].params[0]), 1.0)
@@ -367,7 +368,7 @@ def test_initial_params_seeded_and_win_on_disagreement():
         check_final_goal=False,
         info_scorer=lambda s, _a: float(s.get(_block, "x")),
         info_n_feasible_target=4,
-        option_samplers={"Move": sampler})
+        parameterized_samplers={"Move": sampler})
     assert success
     # The guess had the highest disagreement (x = 1.0) => argmax picked it.
     assert np.isclose(float(plan[0].params[0]), 1.0)
@@ -394,7 +395,7 @@ def test_initial_params_lose_to_more_informative_draw():
         check_final_goal=False,
         info_scorer=lambda s, _a: float(s.get(_block, "x")),
         info_n_feasible_target=4,
-        option_samplers={
+        parameterized_samplers={
             "Move": lambda *_a: np.array([0.99], dtype=np.float32)
         })
     assert success
@@ -420,7 +421,7 @@ def test_initial_params_infeasible_seed_info_seeking_recovers():
         check_final_goal=False,
         info_scorer=lambda s, _a: float(s.get(_block, "x")),
         info_n_feasible_target=4,
-        option_samplers={
+        parameterized_samplers={
             "Move":
             lambda _s, _a, rng, _o: np.array([0.9 + 0.05 * rng.random()],
                                              dtype=np.float32)

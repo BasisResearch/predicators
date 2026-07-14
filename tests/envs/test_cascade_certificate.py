@@ -754,6 +754,93 @@ def test_tight_chain_with_robot_adjacent_passes():
     assert ok, reason
 
 
+def test_solid_corridor_flank_without_body_contact_robot_adjacent_fails():
+    """A block staged on the corridor's FLANK inside the solid-contact band
+    (clearance under GRAZE_CONTACT_EPS) is not exempt from rule (c) unless the
+    falling body actually reached it.
+
+    The run_20260714_145053 task-4 hack: the pushed green fell 72 deg
+    away from the staged blue deflector (never touching it, 4 mm
+    plan-view gap) while the gripper's push stroke toppled the blue;
+    the modeled corridor read 4.3 mm of clearance - inside the old
+    solid-contact exemption - so the episode was certified.
+    """
+    objs = _make_objects(["green", "blue1", "target"])
+    states = _build_states(
+        objs,
+        30,
+        {
+            "green": 5,
+            "target": 11,
+            "blue1": 16
+        },
+        positions={
+            "green": (0.7, 1.0),
+            "target": (0.7, 1.098),
+            # Corridor clearance ~+0.0045 (solid band), but the falling
+            # green's body stays those 4.5 mm clear of it for good.
+            "blue1": (0.7745, 1.09)
+        },
+        # EE 0.026 m from the staged blue, at block height.
+        robot_xyz=(0.80, 1.09, 0.5))
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "blue1" in reason and "robot" in reason
+    assert "no falling domino's body ever reached" in reason
+
+
+def test_solid_corridor_flank_without_body_contact_robot_clear_passes():
+    """The same flank topple with the EE far away is not charged: without a
+    robot in strike range the kinematic attribution stands."""
+    objs = _make_objects(["green", "blue1", "target"])
+    states = _build_states(objs,
+                           30, {
+                               "green": 5,
+                               "target": 11,
+                               "blue1": 16
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "target": (0.7, 1.098),
+                               "blue1": (0.7745, 1.09)
+                           },
+                           robot_xyz=(1.2, 1.5, 0.9))
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], 30)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert ok, reason
+
+
+def test_relay_solid_corridor_without_ram_contact_robot_slide_fails():
+    """A relay staged on the corridor's flank (solid-band clearance, never
+    physically rammed) that slides into the target with the EE in strike range
+    at its slide start: the slide is charged to the robot (corridor-to-relay
+    seam of rule (c) with the body-contact requirement)."""
+    objs = _make_objects(["green", "blue1", "target"])
+    num = 30
+    # blue1 sits on the corridor's flank; from step 8 it slides +x into
+    # the target. The falling green's body never reaches it.
+    profile = []
+    for t in range(num + 1):
+        x = 0.7745 if t < 8 else min(0.7745 + 0.006 * (t - 8), 0.818)
+        profile.append((x, 1.09))
+    states = _build_states(objs,
+                           num, {
+                               "green": 5,
+                               "target": 20
+                           },
+                           positions={
+                               "green": (0.7, 1.0),
+                               "target": (0.86, 1.09)
+                           },
+                           position_profiles={"blue1": profile},
+                           robot_xyz=(0.80, 1.09, 0.5))
+    step_options = _options([("Push", ("robot", "green"), 0, 7)], num)
+    ok, reason = check_cascade_legitimacy(states, _goal(objs), step_options)
+    assert not ok
+    assert "slide is charged to the robot" in reason
+
+
 def test_held_block_roll_excursion_ignored():
     """A carried blue tilts freely; only unheld topples count."""
     objs = _make_objects(["green", "blue1", "target"])

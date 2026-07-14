@@ -23,7 +23,7 @@ import numpy as np
 from predicators import utils
 from predicators.agent_sdk import bilevel_sketch
 from predicators.agent_sdk.bilevel_sketch import SketchStep as _SketchStep
-from predicators.agent_sdk.tools import BUILTIN_TOOLS
+from predicators.agent_sdk.tools import BUILTIN_TOOLS, _load_ground_sampler_fns
 from predicators.approaches import ApproachFailure
 from predicators.approaches.agent_planner_approach import AgentPlannerApproach
 from predicators.execution_monitoring.subgoal_annotations_monitor import \
@@ -151,10 +151,14 @@ class AgentBilevelApproach(AgentPlannerApproach):
                 job += (
                     " Where many values work, any reasonable parameter is "
                     "fine; where good values are hard to hit (tight "
-                    "tolerances), use refine_plan_sketch to search for one, "
-                    "and confine its search near your estimate by appending "
-                    "a region `~ [w1, w2]` of per-parameter half-widths "
-                    "after a step's `[params]`.")
+                    "tolerances), use refine_plan_sketch to search for one.")
+                if CFG.agent_bilevel_ground_samplers:
+                    job += (
+                        " Confine its search near your estimate by appending "
+                        "a region `~ [w1, w2]` of per-parameter half-widths "
+                        "after a step's `[params]`, or `~ my_sampler` naming "
+                        "a GROUND_SAMPLERS entry you wrote in "
+                        "ground_samplers.py for state-dependent regions.")
         else:
             # Fallback mode: the agent hands off a sketch and the approach's
             # backtracking search refines the continuous parameters.
@@ -228,6 +232,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             initial_image_section=self._initial_image_section(),
             propose_params=CFG.agent_bilevel_use_llm_initial_params,
             require_tool_validation=not CFG.agent_bilevel_refine_fallback,
+            ground_samplers=CFG.agent_bilevel_ground_samplers,
         )
 
     def _solve_prompt_tool_names(self) -> Optional[List[str]]:
@@ -493,6 +498,13 @@ class AgentBilevelApproach(AgentPlannerApproach):
         if not plan_text:
             raise ApproachFailure("Agent returned empty plan text.")
 
+        # Tolerant parse of the agent's final text; named `~ my_sampler`
+        # references resolve against the sandbox's ground_samplers.py (a
+        # broken file just drops the annotations here - this is the
+        # best-effort fallback path, not the strict tool path).
+        gs_fns, gs_err = _load_ground_sampler_fns(self._tool_context)
+        if gs_err is not None:
+            logging.warning("[%s] %s", self._run_id, gs_err)
         sketch = bilevel_sketch.parse_sketch_from_text(
             plan_text,
             task,
@@ -500,6 +512,8 @@ class AgentBilevelApproach(AgentPlannerApproach):
             options=self._get_all_options(),
             types=self._types,
             parse_continuous_params=CFG.agent_bilevel_use_llm_initial_params,
+            parse_ground_samplers=CFG.agent_bilevel_ground_samplers,
+            ground_sampler_fns=gs_fns or None,
         )
 
         if not sketch:
@@ -681,7 +695,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
             check_subgoals=CFG.agent_bilevel_check_subgoals,
             log_state=CFG.agent_bilevel_log_state,
             run_id=self._run_id,
-            option_samplers=self._get_all_samplers(),
+            parameterized_samplers=self._get_all_samplers(),
             on_step_fail=on_step_fail,
         )
         return plan, success
@@ -776,7 +790,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
         "plan NOW via evaluate_option_plan on the current task (omit "
         "task_idx), using the best parameters you have already validated. "
         "It is captured as your answer even if it does not fully reach the "
-        "goal; then finish.")
+        "goal or does not score as a solve; then finish.")
 
     def _nudge_final_submission(
         self,
@@ -792,9 +806,10 @@ class AgentBilevelApproach(AgentPlannerApproach):
 
         With ``accept_best_effort`` (set when the attempt ended on the
         turn cap rather than an error) the submitted plan is captured
-        and executed even if its belief rollout does not reach the goal:
-        the budget is spent, and a partial plan beats forfeiting the
-        task after more full-budget retries.
+        and executed even if its belief rollout does not reach the goal,
+        is scored a non-solve by the task evaluator, or is flaky: the
+        budget is spent, and a partial plan beats forfeiting the task
+        after more full-budget retries.
         """
         nudge = (self._FINAL_SUBMIT_NUDGE_BEST_EFFORT
                  if accept_best_effort else self._FINAL_SUBMIT_NUDGE)
@@ -835,7 +850,7 @@ class AgentBilevelApproach(AgentPlannerApproach):
         # refinement path emits.
         lines = bilevel_sketch.format_plan_lines(plan, sketch=sketch)
         verdict = ("simulator-verified" if reached_goal is not False else
-                   "best-effort: belief rollout did NOT reach the goal")
+                   "best-effort: not a validated solve in the belief rollout")
         logging.info(
             "[%s] Using agent-validated plan from refine_plan_sketch "
             "(%d steps, %s):\n%s", self._run_id, len(plan), verdict,

@@ -16,11 +16,19 @@ from predicators.utils import ConstantDelay, DiscreteGaussianDelay, \
 
 def _push_sampler(state: State, goal: Set[GroundAtom],
                   rng: np.random.Generator, objs: Sequence[Object]) -> Array:
-    """Return fixed push params for fan switch push."""
+    """Return fixed push params for fan switch push.
+
+    Approach 0.075 sits in a measured window: with the side-oriented
+    gripper (default skill_push_ee_yaw_offset 0) the hand extends along
+    the approach axis, so below ~0.073 the descend waypoint collides
+    with an end-of-row switch (BiRRT goal-in-collision), while at 0.08
+    the far-side (Off-push) waypoint already stalls at the fetch arm's
+    reach limit. 0.075 toggles all four switches both ways.
+    """
     if not CFG.fan_use_skill_factories:
         return np.array([], dtype=np.float32)
     del state, goal, rng, objs
-    return np.array([0.05, 0.1], dtype=np.float32)
+    return np.array([0.075, 0.1], dtype=np.float32)
 
 
 class PyBulletFanGroundTruthProcessFactory(GroundTruthProcessFactory):

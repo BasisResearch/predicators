@@ -9,11 +9,15 @@ covering the two gates in front of ``ctx.solved_plan``:
   flaky plan is reported to the agent instead of captured;
 * task-evaluator legitimacy - a goal-reaching but ``legitimate=False``
   rollout is refused as a reward hack (the real evaluator applies the
-  same certificate), while an honest best-effort shortfall
-  (``terminated=False``) is captured despite also being
-  ``legitimate=False``. The refusal is internal: the agent-facing
-  report speaks only in (terminated, reward) terms and never leaks the
+  same certificate). The refusal is internal: the agent-facing report
+  speaks only in (terminated, reward) terms and never leaks the
   certificate's legitimacy bool or reason string.
+
+Under ``capture_best_effort_plan`` (the final-submission nudge) neither
+gate refuses: the submission is captured regardless - honest shortfall,
+certificate-rejected rollout, or flaky repeat - but is marked as NOT a
+validated solve (``solved_plan_reached_goal=False``), so it executes for
+its honest reward without counting as a solve.
 """
 
 import asyncio
@@ -225,18 +229,48 @@ def test_best_effort_honest_shortfall_is_captured():
     assert "Goal achieved: False" in text
 
 
-def test_best_effort_reward_hack_is_still_refused():
-    """A best-effort submission does NOT rescue a reward hack: the plan reaches
-    the goal atoms (terminated=True) but via an illegitimate route, so it is
-    refused even with capture_best_effort_plan set."""
+def test_best_effort_certificate_rejected_is_captured():
+    """A best-effort submission captures even a certificate-rejected rollout.
+
+    The plan reaches the goal atoms (terminated=True) but the evaluator
+    scores the route as a non-solve. Outside best-effort mode that is
+    refused as a reward hack, but at final submission the budget is
+    spent: the plan is captured to execute for its honest reward, marked
+    as NOT a validated solve (run_20260714_145053 task 4: this refusal
+    forfeited the task entirely).
+    """
     model = _Model()
     goal = {GroundAtom(_ReachedHi, [_block])}
     text, ctx = _run_tool(model,
                           evaluator=_StubEvaluator(goal, legit=False),
                           rollouts=3,
                           best_effort=True)
-    assert "NOT CAPTURED" in text
-    assert "scores it as a non-solve" in text
+    assert "Captured as the current answer" in text
+    assert "best-effort" in text
+    assert "will not count as a solve" in text
     assert "stub: the cascade was staged" not in text
-    assert "Captured as the current answer" not in text
-    assert ctx.solved_plan is None
+    assert "legitimate" not in text
+    assert "NOT CAPTURED" not in text
+    assert ctx.solved_plan is not None
+    assert ctx.solved_plan_reached_goal is False
+    # Certificate rejection skips the validation repeats.
+    assert model.num_calls == 1
+
+
+def test_best_effort_flaky_plan_is_captured():
+    """A best-effort submission captures a flaky plan instead of refusing.
+
+    Rollout 1 solves, rollout 2 misses. Outside best-effort mode that is
+    refused as FLAKY (the agent can add margin and resubmit), but at
+    final submission there is no budget left, so the plan is captured
+    with the flaky detail in the note and marked as NOT a validated
+    solve.
+    """
+    model = _Model(succeed_first_n=1)
+    text, ctx = _run_tool(model, rollouts=3, best_effort=True)
+    assert "Captured as the current answer" in text
+    assert "best-effort" in text
+    assert "rollout 2/3 FAILED" in text
+    assert "FLAKY (plan NOT captured)" not in text
+    assert ctx.solved_plan is not None
+    assert ctx.solved_plan_reached_goal is False

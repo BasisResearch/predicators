@@ -268,6 +268,40 @@ def _leaning_footprint(state: State,
         depth / 2 + proj / 2)
 
 
+def _body_reached(states: Sequence[State],
+                  predecessor: Object,
+                  onset_p: int,
+                  domino: Object,
+                  ref_t: int,
+                  fp_t: Optional[int] = None) -> bool:
+    """Did ``predecessor``'s actual body ever reach ``domino``?
+
+    Scans the predecessor's leaning footprint (its true per-step pose,
+    body projected along its lean) from its own topple onset to a few
+    steps past ``ref_t`` (the knocked block's onset, or a relay's slide
+    start) against ``domino``'s footprint at ``fp_t`` (default
+    ``ref_t``) - the last time it still stood where it was struck. A
+    genuine knock is physical contact, so the plan-view projections
+    overlap (gap <= 0) at the strike - and keep overlapping as the
+    predecessor settles into the space the struck block vacated. A
+    predecessor that fell BESIDE the block never overlaps it, however
+    well its modeled corridor covers the block on paper
+    (run_20260714_145053 task 4: the green fell 72 deg away from the
+    staged blue, stopping 4 mm short, while the gripper toppled the
+    blue - the corridor still measured 4.3 mm of clearance, inside the
+    solid-contact band).
+    """
+    if fp_t is None:
+        fp_t = ref_t
+    target_fp = _footprint(states[min(fp_t, len(states) - 1)], domino)
+    end = min(ref_t + 3, len(states) - 1)
+    for t in range(onset_p, end + 1):
+        if geometry.rect_gap(_leaning_footprint(states[t], predecessor),
+                             target_fp) <= 0.0:
+            return True
+    return False
+
+
 def _knock_gap(states: Sequence[State], predecessor: Object, onset_p: int,
                domino: Object, onset_state: State) -> float:
     """Plan-view clearance between ``predecessor``'s swept fall corridor and
@@ -353,7 +387,7 @@ def _robot_strike_nearby(states: Sequence[State],
 def _best_relay_attribution(
         states: Sequence[State], onsets: Dict[Object, int], legit: Set[Object],
         dominoes: Sequence[Object], domino: Object,
-        onset: int) -> Optional[Tuple[Object, float, float, int]]:
+        onset: int) -> Optional[Tuple[Object, float, float, int, Object]]:
     """Best one-hop shoved-relay explanation for ``domino``'s topple onset.
 
     A relay is a block that an already-legitimate falling predecessor
@@ -367,12 +401,13 @@ def _best_relay_attribution(
     over, and rocked back upright. A held block is the robot's tool,
     never a relay.
 
-    Returns ``(relay, corridor_gap, contact_gap, slide_start)`` for the
-    smallest contact gap within ``CORRIDOR_TOLERANCE``, or None.
+    Returns ``(relay, corridor_gap, contact_gap, slide_start,
+    predecessor)`` for the smallest contact gap within
+    ``CORRIDOR_TOLERANCE``, or None.
     """
     onset_state = states[min(onset, len(states) - 1)]
     footprint_d = _footprint(onset_state, domino)
-    best: Optional[Tuple[Object, float, float, int]] = None
+    best: Optional[Tuple[Object, float, float, int, Object]] = None
     best_contact = math.inf
     for pred in legit:
         onset_p = onsets[pred]
@@ -413,7 +448,7 @@ def _best_relay_attribution(
                 continue
             if contact_gap < best_contact:
                 best_contact = contact_gap
-                best = (relay, corridor_gap, contact_gap, slide_start)
+                best = (relay, corridor_gap, contact_gap, slide_start, pred)
     return best
 
 
@@ -487,20 +522,26 @@ def check_cascade_legitimacy(
            Proximity alone is not causality: a domino that falls BESIDE
            a block does not explain that block's topple, and neither
            does a swept bystander that never moved;
-      (c)  when the only cascade explanation for a topple is a grazing
-           one (positive modeled clearance) and the robot end-effector
-           was in strike range of the block at its onset - or anywhere
-           through the block's fall, catching a gripper that keeps
-           driving into it after the onset - the robot, not the cascade,
-           is charged with the topple and the episode fails. Solid
-           corridor overlaps are exempt: in tight staged
-           chains the end-effector legitimately finishes the push within
-           centimeters of the first relay. The relay path is guarded the
-           same way at both of its seams: a grazing relay-to-block
-           contact with the EE in strike range of the block, or a
-           grazing corridor-to-relay attribution with the EE in strike
-           range of the relay when its slide began, is charged to the
-           robot.
+      (c)  when the cascade explanation for a topple is not physically
+           corroborated and the robot end-effector was in strike range
+           of the block at its onset - or anywhere through the block's
+           fall, catching a gripper that keeps driving into it after
+           the onset - the robot, not the cascade, is charged with the
+           topple and the episode fails. "Physically corroborated"
+           means a solid corridor overlap (clearance at most
+           ``GRAZE_CONTACT_EPS``) AND the predecessor's actual body
+           (leaning footprint) reaching the block (``_body_reached``):
+           in tight staged chains the end-effector legitimately
+           finishes the push within centimeters of the first relay, but
+           a block staged on the corridor's flank can measure
+           solid-band clearance while the predecessor falls clear of it
+           and the gripper does the toppling (run_20260714_145053
+           task 4). The relay path is guarded the same way at both of
+           its seams: a grazing relay-to-block contact with the EE in
+           strike range of the block, or a corridor-to-relay
+           attribution that is grazing or never physically reached the
+           relay with the EE in strike range of the relay when its
+           slide began, is charged to the robot.
 
     ``step_options`` labels each transition ``states[t] -> states[t+1]``
     (action index ``t``) with the producing option; when it is None the
@@ -632,6 +673,7 @@ def check_cascade_legitimacy(
         for d, t in pending:
             state = states[min(t, len(states) - 1)]
             best_gap: Optional[float] = None
+            solid_reached = False
             for p in legit:
                 t_p = onsets[p]
                 if not t_p <= t <= t_p + CASCADE_WINDOW_STEPS:
@@ -639,15 +681,30 @@ def check_cascade_legitimacy(
                 gap = _knock_gap(states, p, t_p, d, state)
                 if best_gap is None or gap < best_gap:
                     best_gap = gap
+                # The rule (c) exemption needs more than a solid modeled
+                # corridor: the predecessor's body must actually have
+                # reached the block. A block staged on the corridor's
+                # flank can measure solid-band clearance while the
+                # predecessor falls clear of it and the gripper does the
+                # toppling (run_20260714_145053 task 4).
+                if robots and not solid_reached \
+                        and gap <= GRAZE_CONTACT_EPS \
+                        and _body_reached(states, p, t_p, d, t):
+                    solid_reached = True
             if best_gap is not None and best_gap <= CORRIDOR_TOLERANCE:
-                if best_gap > GRAZE_CONTACT_EPS and robots and \
+                if not solid_reached and robots and \
                         _robot_strike_nearby(states, robots[0], d, t,
                                              through_fall=True):
+                    if best_gap > GRAZE_CONTACT_EPS:
+                        detail = ("the best cascade explanation only grazes "
+                                  f"it ({best_gap:.3f} m clearance)")
+                    else:
+                        detail = ("the modeled fall corridor covers it but "
+                                  "no falling domino's body ever reached it")
                     failures[d] = (
                         f"{d.name} started falling at step {t} with the "
                         f"robot end-effector within {ROBOT_STRIKE_XY} m of "
-                        "it while the best cascade explanation only grazes "
-                        f"it ({best_gap:.3f} m clearance) - it was toppled "
+                        f"it while {detail} - it was toppled "
                         "by the robot, not the cascade")
                     robot_charged.add(d)
                     deferred.append((d, t))
@@ -688,7 +745,7 @@ def check_cascade_legitimacy(
                     f"was not knocked over by the cascade{hint}")
                 deferred.append((d, t))
                 continue
-            r, corridor_gap, contact_gap, slide_start = relay
+            r, corridor_gap, contact_gap, slide_start, pred_r = relay
             if contact_gap > GRAZE_CONTACT_EPS and robots and \
                     _robot_strike_nearby(states, robots[0], d, t,
                                          through_fall=True):
@@ -701,15 +758,32 @@ def check_cascade_legitimacy(
                 robot_charged.add(d)
                 deferred.append((d, t))
                 continue
-            if corridor_gap > GRAZE_CONTACT_EPS and robots and \
+            # The corridor-to-relay seam mirrors the direct seam: a
+            # solid modeled corridor over the relay is only trusted when
+            # the ramming predecessor's body actually reached the
+            # relay's staged pose (its footprint at the predecessor's
+            # onset, matching the corridor computation).
+            ram_reached = (corridor_gap <= GRAZE_CONTACT_EPS
+                           and _body_reached(states,
+                                             pred_r,
+                                             onsets[pred_r],
+                                             r,
+                                             slide_start,
+                                             fp_t=onsets[pred_r]))
+            if not ram_reached and robots and \
                     _robot_strike_nearby(states, robots[0], r, slide_start):
+                if corridor_gap > GRAZE_CONTACT_EPS:
+                    ram_detail = (f"the cascade only grazes {r.name} "
+                                  f"({corridor_gap:.3f} m clearance)")
+                else:
+                    ram_detail = ("no falling domino's body ever reached "
+                                  f"{r.name}")
                 failures[d] = (
                     f"{d.name} started falling at step {t}, knocked by "
-                    f"{r.name} sliding into it, but the cascade only grazes "
-                    f"{r.name} ({corridor_gap:.3f} m clearance) and the "
-                    "robot end-effector was in strike range when its slide "
-                    f"began (step {slide_start}) - the slide is charged to "
-                    "the robot, not the cascade")
+                    f"{r.name} sliding into it, but {ram_detail} and "
+                    "the robot end-effector was in strike range when its "
+                    f"slide began (step {slide_start}) - the slide is "
+                    "charged to the robot, not the cascade")
                 robot_charged.add(d)
                 deferred.append((d, t))
                 continue

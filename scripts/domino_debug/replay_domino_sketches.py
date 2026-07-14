@@ -54,7 +54,7 @@ _FLAGS = {
     "explorer": "agent_bilevel",
     "agent_sim_learn_oracle_sim_program": True,
     "agent_sim_learn_oracle_sim_params": True,
-    "agent_sim_learn_synthesize_samplers": True,
+    "agent_sim_learn_parameterized_samplers": True,
     "agent_sim_learn_oracle_samplers": True,
     "execution_monitor": "subgoal_annotations",
     "agent_bilevel_max_execution_replans": 2,
