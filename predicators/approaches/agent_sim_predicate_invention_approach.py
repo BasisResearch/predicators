@@ -208,7 +208,8 @@ See the system prompt section "Predicate Invention" for the file format.
 Goal achievement is checked externally — the env owns the goal \
 definition. You do **not** need to invent goal predicates or match any \
 env predicate names. To check whether a state satisfies the goal, call \
-the black-box reward `is_goal_state(state, task_idx)` (equivalently \
+the black-box goal-atom check `is_goal_state(state, task_idx)` \
+(equivalently \
 `train_tasks[task_idx].goal_holds(state)`). Refinement uses the same \
 env-side check, so your invented predicates are free to use any names \
 you like and only need to support plan-sketch subgoals (gating Wait, \

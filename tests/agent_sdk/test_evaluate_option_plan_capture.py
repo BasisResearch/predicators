@@ -11,7 +11,9 @@ covering the two gates in front of ``ctx.solved_plan``:
   rollout is refused as a reward hack (the real evaluator applies the
   same certificate), while an honest best-effort shortfall
   (``terminated=False``) is captured despite also being
-  ``legitimate=False``.
+  ``legitimate=False``. The refusal is internal: the agent-facing
+  report speaks only in (terminated, reward) terms and never leaks the
+  certificate's legitimacy bool or reason string.
 """
 
 import asyncio
@@ -166,14 +168,17 @@ def test_single_rollout_config_disables_repeats():
 
 def test_illegitimate_plan_is_not_captured_and_skips_repeats():
     """A non-coarse ``legitimate=False`` verdict refuses capture before any
-    validation repeats are spent."""
+    validation repeats are spent, reported in reward terms only: the
+    certificate's reason string never reaches the agent."""
     model = _Model()
     goal = {GroundAtom(_ReachedHi, [_block])}
     text, ctx = _run_tool(model,
                           evaluator=_StubEvaluator(goal, legit=False),
                           rollouts=3)
     assert "NOT CAPTURED" in text
-    assert "stub: the cascade was staged" in text
+    assert "scores it as a non-solve" in text
+    assert "stub: the cascade was staged" not in text
+    assert "legitimate" not in text
     assert "Captured as the current answer" not in text
     assert ctx.solved_plan is None
     assert model.num_calls == 1
@@ -188,7 +193,9 @@ def test_legitimate_plan_passes_both_gates():
                           rollouts=3)
     assert "Captured as the current answer" in text
     assert "Validated 3/3 rollouts" in text
-    assert "legitimate=True" in text
+    assert "Task evaluator" in text and "reward=" in text
+    assert "solved=True" in text
+    assert "legitimate" not in text
     assert ctx.solved_plan is not None
     assert model.num_calls == 3
 
@@ -211,7 +218,7 @@ def test_best_effort_honest_shortfall_is_captured():
                           best_effort=True)
     assert "Captured as the current answer" in text
     assert "best-effort: goal NOT reached" in text
-    assert "will not count as a certified solve" in text
+    assert "will not count as a solve" in text
     assert "NOT CAPTURED" not in text
     assert ctx.solved_plan is not None
     assert ctx.solved_plan_reached_goal is False
@@ -229,6 +236,7 @@ def test_best_effort_reward_hack_is_still_refused():
                           rollouts=3,
                           best_effort=True)
     assert "NOT CAPTURED" in text
-    assert "stub: the cascade was staged" in text
+    assert "scores it as a non-solve" in text
+    assert "stub: the cascade was staged" not in text
     assert "Captured as the current answer" not in text
     assert ctx.solved_plan is None

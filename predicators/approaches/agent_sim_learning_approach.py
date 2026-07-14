@@ -684,9 +684,9 @@ class AgentSimLearningApproach(SamplerLearningMixin, AgentBilevelApproach):
             }
             # Env ground-truth scoring, next to is_goal_state (see
             # Task.evaluator). Verdict-only surface: dict of
-            # terminated/reward/legitimate/reason on a concrete state
-            # sequence - real trajectories or the agent's own simulator
-            # rollouts (there the verdict is only as good as the sim).
+            # reward/solved on a concrete state sequence - real
+            # trajectories or the agent's own simulator rollouts (there
+            # the verdict is only as good as the sim).
             if any(t.evaluator is not None for t in self._train_tasks):
                 exec_ns["evaluate_trajectory"] = \
                     self._make_evaluate_trajectory_fn()
@@ -757,12 +757,16 @@ failed to reach the goal).
 
 {trajectory_listing}
 Each trajectory carries a `train_task_idx`. You can query the \
-ground-truth goal-check (a black-box binary reward) by calling \
+ground-truth goal-atom check by calling \
 `is_goal_state(state, task_idx)`. Equivalently \
-`train_tasks[task_idx].goal_holds(state)`. Use this to (1) confirm \
-which trajectories reached the goal and (2) treat failed \
-interaction trajectories as counterexamples — places where your \
-predicate or rule said "this should work" but the env disagreed.
+`train_tasks[task_idx].goal_holds(state)`. This checks a single \
+STATE for the goal atoms only — reaching the goal atoms does not by \
+itself mean an episode is solved; when a task objective is stated \
+below, score full trajectories with `evaluate_trajectory`. Use \
+`is_goal_state` to (1) confirm which trajectories reached the goal \
+atoms and (2) treat failed interaction trajectories as \
+counterexamples — places where your predicate or rule said "this \
+should work" but the env disagreed.
 
 {objective_block}{prior_state_block}Data-structure source code is at: \
 {structs_ref}
@@ -1733,12 +1737,15 @@ the tools."""
         exec namespace (next to ``is_goal_state``).
 
         The returned function scores a concrete state sequence with the
-        task's env-defined ``TaskEvaluator`` and returns only verdicts
-        (dict of terminated/reward/legitimate/reason) - never the
-        evaluator itself. ``actions`` may be ``Action`` objects (labeled
-        via their producing options), pre-built ``(option_name,
-        object_names)`` labels, or ``None`` (kinematics-only legitimacy
-        rules).
+        task's env-defined ``TaskEvaluator`` and returns only the public
+        pair (dict of reward/solved) - never the evaluator itself, and
+        never the certificate's internal legitimacy verdict or reason
+        (the agent infers the scoring rules from the stated objective
+        and the outcomes it observes; goal-atom termination it can
+        check itself via ``is_goal_state``). ``actions`` may be
+        ``Action`` objects (labeled via their producing options),
+        pre-built ``(option_name, object_names)`` labels, or ``None``
+        (kinematics-only scoring).
         """
         tasks = self._train_tasks
 
@@ -1761,7 +1768,12 @@ the tools."""
                     step_options = step_option_labels(acts)
                 else:
                     step_options = acts
-            return evaluate_states_with(evaluator, list(states), step_options)
+            verdict = evaluate_states_with(evaluator, list(states),
+                                           step_options)
+            return {
+                "reward": verdict["reward"],
+                "solved": verdict["solved"],
+            }
 
         return evaluate_trajectory
 
@@ -1794,12 +1806,10 @@ the tools."""
             tail = (f" — generated using {', '.join(provenance)}"
                     if provenance else "")
             if traj.env_reward is not None:
-                success = int(
+                solved = int(
                     bool(traj.env_terminated) and not traj.env_rejected)
                 tail += (f" — env reward={traj.env_reward:.2f} "
-                         f"(success={success})")
-            if traj.env_rejected:
-                tail += "; the supervisor REJECTED this episode"
+                         f"(solved={solved})")
             lines.append(f"  [{idx}] {kind}, {task_str}{tail}")
         return "\n".join(lines) + "\n"
 
@@ -1827,7 +1837,9 @@ env-computed reward. In `run_python`, \
 state sequence with the same ground-truth evaluator - a collected \
 trajectory's `states`/`actions`, or a rollout of YOUR simulator \
 (there the verdict is only as trustworthy as your simulator). It \
-returns {{terminated, reward, legitimate, reason}}.
+returns {{reward, solved}}. `solved` means the episode is scored as \
+a success; a rollout can reach the goal atoms and still be \
+solved=False.
 
 """
 
@@ -2214,9 +2226,9 @@ iterations.
 - `run_python(code)` — ad-hoc data exploration. `trajectories`, `np`, \
 `ParamSpec` in scope; when the learn message states a task objective, \
 `evaluate_trajectory(states, actions=None, task_idx=0)` scores a state \
-sequence with the env's ground-truth evaluator (returns terminated / \
-reward / legitimate / reason; on your own simulator's rollouts the \
-verdict is only as good as the simulator). **Does not** define rules.
+sequence with the env's ground-truth evaluator (returns reward / \
+solved; on your own simulator's rollouts the verdict is only as good \
+as the simulator). **Does not** define rules.
 - `evaluate_step_fit` — per-step prediction accuracy: SSE on the step \
 transitions at `init_value` params, plus post-fit SSE and fitted \
 parameters from a parameter fit. Cheap; the inner-loop signal.
