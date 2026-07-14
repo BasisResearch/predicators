@@ -80,6 +80,87 @@ def test_cogman_with_expected_atoms_monitor():
     assert not np.allclose(act.arr, next_act.arr)
 
 
+def test_cogman_replan_task_carries_all_task_fields():
+    """A monitor-triggered replan re-solves the episode's own task: the rebuilt
+    Task must keep goal_nl and evaluator, not just the goal atoms.
+
+    Regression test: the replan branch used to build a bare Task(state,
+    goal), which dropped the evaluator (so plan-capture legitimacy
+    gating silently skipped on mid-episode replans) and the NL goal
+    description.
+    """
+    env_name = "cover"
+    utils.reset_config({
+        "env": env_name,
+        "num_train_tasks": 0,
+        "num_test_tasks": 1,
+    })
+    env = get_or_create_env(env_name)
+    base_task = env.get_test_tasks()[0]
+    evaluator = TaskEvaluator(base_task.goal)
+    env_task = EnvironmentTask(base_task.init_obs,
+                               base_task.goal_description,
+                               goal_nl="mock goal description",
+                               evaluator=evaluator)
+    solved_tasks = []
+
+    def _policy(_state):
+        return Action(env.action_space.sample())
+
+    class _RecordingApproach:
+
+        def solve(self, task, timeout):
+            """Record every task CogMan asks to solve."""
+            del timeout  # unused
+            solved_tasks.append(task)
+            return _policy
+
+        @classmethod
+        def get_name(cls) -> str:
+            """Return mock approach name."""
+            return "mock"
+
+        def get_execution_monitoring_info(self) -> List[Any]:
+            """Just return empty list."""
+            return []
+
+        def reset_for_new_episode(self) -> None:
+            """No per-episode state."""
+
+    class _OneShotReplanMonitor:
+        """Suggests replanning exactly once, on the first step."""
+
+        def __init__(self):
+            self._fired = False
+
+        def reset(self, task):
+            """Keep _fired: CogMan re-resets the monitor right after a replan
+            and asserts it does not fire again."""
+
+        def step(self, state):
+            """Fire on the first call only."""
+            del state  # unused
+            if self._fired:
+                return False
+            self._fired = True
+            return True
+
+        def update_approach_info(self, info):
+            """Nothing to track."""
+
+    perceiver = create_perceiver("trivial")
+    cogman = CogMan(_RecordingApproach(), perceiver, _OneShotReplanMonitor())
+    cogman.reset(env_task)
+    act = cogman.step(env_task.init_obs)
+    assert act is not None
+    # One solve at reset, one on the monitor-triggered replan.
+    assert len(solved_tasks) == 2
+    replan_task = solved_tasks[1]
+    assert replan_task.goal == env_task.goal
+    assert replan_task.goal_nl == "mock goal description"
+    assert replan_task.evaluator is evaluator
+
+
 def test_run_episode_and_get_observations():
     """Tests for run_episode_and_get_observations()."""
     utils.reset_config({"env": "cover"})

@@ -245,10 +245,11 @@ def build_solve_prompt(
     finds all continuous params" to "propose your best continuous params in
     ``[...]`` per step; the search refines them and samples on failure".
 
-    ``require_tool_validation`` tells the agent it MUST drive
-    ``refine_plan_sketch`` to a SUCCESS on the current task (its captured,
-    forward-validated plan is the only output) — used when the approach has
-    no refinement fallback. When False, validation is merely encouraged.
+    ``require_tool_validation`` tells the agent it MUST submit a
+    goal-reaching ``evaluate_option_plan`` run on the current task (the
+    captured, validated plan is the only output) - used when the approach
+    has no refinement fallback. When False, validation is merely
+    encouraged.
     """
     init_state = task.init
     objects = list(init_state)
@@ -410,8 +411,11 @@ def build_solve_prompt(
             "(one option per line, `Option(obj:type)[params] -> {subgoals}`, "
             "with EXACT params) and run it on the CURRENT task (omit "
             "task_idx). When it reaches the goal, that plan is captured as "
-            "your answer, so do NOT finish until evaluate_option_plan reaches "
-            "the goal. It runs your EXACT parameters with no sampling. To find "
+            "your answer, so do NOT finish until evaluate_option_plan "
+            "CONFIRMS the capture. A goal-reaching plan is re-run several "
+            "times before capture (simulation varies across runs); if it is "
+            "reported FLAKY, add margin to the fragile step and resubmit. "
+            "It runs your EXACT parameters with no sampling. To find "
             "working parameters you MAY use `refine_plan_sketch` (it searches "
             "but is slower); read the parameters it reports and submit them "
             "via evaluate_option_plan. If a step does not reach its subgoal, "
@@ -601,12 +605,19 @@ def parse_sketch_from_text(
     options: Set[ParameterizedOption],
     types: Set[Type],
     parse_continuous_params: bool = False,
+    strict: bool = False,
 ) -> List[SketchStep]:
     """Parse plan-sketch text into ``SketchStep``s.
 
     Applies ``strip_code_fences`` first, then delegates option-plan
     parsing to ``utils.parse_model_output_into_option_plan`` and subgoal
     annotation parsing to ``parse_subgoal_annotations``.
+
+    ``strict`` is for tool inputs that are pure plan text: any line that
+    fails to parse raises ``ValueError`` naming the line, instead of the
+    default freeform tolerance (skip preamble, drop malformed lines,
+    truncate at the first non-option line). Without it, a dropped line
+    also silently misaligns the per-line subgoal annotations below.
 
     When ``parse_continuous_params`` is set, each step's ``[p0, p1, ...]``
     block is parsed by the SAME canonical parser the open-loop planner
@@ -629,7 +640,8 @@ def parse_sketch_from_text(
         objects,
         types,
         options,
-        parse_continuous_params=parse_continuous_params)
+        parse_continuous_params=parse_continuous_params,
+        strict=strict)
 
     if not parsed:
         return []
@@ -642,6 +654,12 @@ def parse_sketch_from_text(
         sg = subgoals[i] if i < len(subgoals) else None
         ip = (np.asarray(params, dtype=np.float32)
               if parse_continuous_params else None)
+        if ip is not None and ip.size == 0 and \
+                option.params_space.shape[0] > 0:
+            # Explicit `[]` on a parametrized option: "no seed" - let the
+            # refinement search sample the parameters (strict parsing lets
+            # the empty list through for exactly this case).
+            ip = None
         if sg is not None:
             pos, neg = sg
             sketch.append(

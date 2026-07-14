@@ -12,6 +12,7 @@ supplied.
 # pylint: disable=unused-import
 
 import numpy as np
+import pytest
 from gym.spaces import Box
 
 from predicators import utils  # noqa: F401  (settles import order)
@@ -461,6 +462,61 @@ def test_parse_sketch_zero_dim_empty_brackets():
         options={_Wait0},
         types={_block_type},
         parse_continuous_params=True)
+    assert len(sketch) == 1
+    assert sketch[0].initial_params is not None
+    assert sketch[0].initial_params.shape == (0, )
+
+
+def test_parse_sketch_strict_errors_on_bad_line():
+    """``strict=True`` raises on a line the parser would otherwise silently
+    drop or truncate at, so a tool never executes a different plan than the
+    agent wrote."""
+    with pytest.raises(ValueError, match="continuous parameter"):
+        bilevel_sketch.parse_sketch_from_text(
+            "Move(block0:block)[0.7, 0.8] -> {ReachedHi(block0:block)}",
+            _task_hi(),
+            predicates={_ReachedHi},
+            options={_Move},
+            types={_block_type},
+            parse_continuous_params=True,
+            strict=True)
+    with pytest.raises(ValueError, match="too many object arguments"):
+        bilevel_sketch.parse_sketch_from_text(
+            "Move(block0:block, block0:block)[0.7]",
+            _task_hi(),
+            predicates={_ReachedHi},
+            options={_Move},
+            types={_block_type},
+            parse_continuous_params=True,
+            strict=True)
+
+
+def test_parse_sketch_strict_empty_brackets_mean_no_seed():
+    """Under ``strict=True``, an explicit `[]` on a PARAMETRIZED option is the
+    documented "no seed": the line parses with ``initial_params`` None so
+    refinement samples the parameters (previously the count mismatch silently
+    truncated the sketch at that line)."""
+    sketch = bilevel_sketch.parse_sketch_from_text(
+        "Move(block0:block)[] -> {ReachedHi(block0:block)}",
+        _task_hi(),
+        predicates={_ReachedHi},
+        options={_Move},
+        types={_block_type},
+        parse_continuous_params=True,
+        strict=True)
+    assert len(sketch) == 1
+    assert sketch[0].initial_params is None
+    assert GroundAtom(_ReachedHi, [_block]) in sketch[0].subgoal_atoms
+    # A zero-param option's `[]` stays an exact (empty) param vector.
+    task = Task(State({_block: np.array([0.0], dtype=np.float32)}), set())
+    sketch = bilevel_sketch.parse_sketch_from_text(
+        "Wait0(block0:block)[]",
+        task,
+        predicates=set(),
+        options={_Wait0},
+        types={_block_type},
+        parse_continuous_params=True,
+        strict=True)
     assert len(sketch) == 1
     assert sketch[0].initial_params is not None
     assert sketch[0].initial_params.shape == (0, )

@@ -2920,9 +2920,12 @@ def strip_enumeration_prefix(line: str) -> str:
 
 
 def parse_model_output_into_option_plan(
-    model_prediction: str, objects: Collection[Object],
-    types: Collection[Type], options: Collection[ParameterizedOption],
-    parse_continuous_params: bool
+    model_prediction: str,
+    objects: Collection[Object],
+    types: Collection[Type],
+    options: Collection[ParameterizedOption],
+    parse_continuous_params: bool,
+    strict: bool = False
 ) -> List[Tuple[ParameterizedOption, Sequence[Object], Sequence[float]]]:
     """Assuming text for an option plan that is predicted as text by a large
     model, parse it into a sequence of ParameterizedOptions coupled with a list
@@ -2932,9 +2935,23 @@ def parse_model_output_into_option_plan(
     We assume the model's output is such that each line is formatted as
     option_name(obj0:type0, obj1:type1,...)[continuous_param0,
     continuous_param1, ...].
+
+    By default the parser tolerates freeform model output: preamble lines
+    are skipped, parsing stops at the first non-option line after the plan
+    starts, and malformed lines are dropped with only an INFO log. With
+    ``strict=True`` (for tool inputs that are pure plan text) any line
+    that fails to parse into a step raises ``ValueError`` naming the line
+    and the problem - silently dropping a step and executing the rest has
+    cost agents whole sessions of confusion.
     """
     option_plan: List[Tuple[ParameterizedOption, Sequence[Object],
                             Sequence[float]]] = []
+
+    def _reject(msg: str) -> None:
+        if strict:
+            raise ValueError(msg)
+        logging.info(msg)
+
     # Setup dictionaries enabling us to easily map names to specific
     # Python objects during parsing.
     option_name_to_option = {op.name: op for op in options}
@@ -2953,19 +2970,17 @@ def parse_model_output_into_option_plan(
             continue
         if option_name not in option_name_to_option.keys() or \
             "(" not in option_str:
-            if option_plan:
+            if option_plan or strict:
                 # Already found some options; stop on first non-option line.
-                logging.info(
-                    f"Line {option_str} output by model doesn't "
-                    "contain a valid option name. Terminating option plan "
-                    "parsing.")
+                _reject(f"Line {option_str} output by model doesn't "
+                        "contain a valid option name. Terminating option "
+                        "plan parsing.")
                 break
             # Skip preamble lines (analysis text before the plan starts).
             continue
         if parse_continuous_params and "[" not in option_str:
-            logging.info(
-                f"Line {option_str} output by model doesn't contain a "
-                "'[' and is thus improperly formatted.")
+            _reject(f"Line {option_str} output by model doesn't contain a "
+                    "'[' and is thus improperly formatted.")
             break
         option = option_name_to_option[option_name]
         # Now that we have the option, we need to parse out the objects
@@ -2974,11 +2989,14 @@ def parse_model_output_into_option_plan(
             start_index = option_str_stripped.index('(') + 1
             end_index = option_str_stripped.index(')', start_index)
         except ValueError:
-            logging.info(
+            _reject(
                 f"Line {option_str} output by model is improperly formatted.")
             break
-        typed_objects_str_list = option_str_stripped[
-            start_index:end_index].split(',')
+        # Empty parens (a 0-argument option) must yield zero object strings,
+        # not [''] (which would be rejected as a malformed object-type pair).
+        parens_content = option_str_stripped[start_index:end_index].strip()
+        typed_objects_str_list = (parens_content.split(',')
+                                  if parens_content else [])
         objs_list = []
         continuous_params_list = []
         malformed = False
@@ -2986,46 +3004,49 @@ def parse_model_output_into_option_plan(
             object_type_str_list = type_object_string.strip().split(':')
             # We expect this list to be [object_name, type_name].
             if len(object_type_str_list) != 2:
-                logging.info(f"Line {option_str} output by model has a "
-                             "malformed object-type list.")
+                _reject(f"Line {option_str} output by model has a "
+                        "malformed object-type list.")
                 malformed = True
                 break
             object_name = object_type_str_list[0]
             type_name = object_type_str_list[1]
             if object_name not in obj_name_to_obj.keys():
-                logging.info(f"Line {option_str} output by model has an "
-                             "invalid object name.")
+                _reject(f"Line {option_str} output by model has an "
+                        "invalid object name.")
                 malformed = True
                 break
             obj = obj_name_to_obj[object_name]
             # Check that the type of this object agrees
             # with what's expected given the ParameterizedOption.
             if type_name not in type_name_to_type:
-                logging.info(f"Line {option_str} output by model has an "
-                             "invalid type name.")
+                _reject(f"Line {option_str} output by model has an "
+                        "invalid type name.")
                 malformed = True
                 break
             try:
                 if option.types[i] not in type_name_to_type[
                         type_name].get_ancestors():
-                    logging.info(
-                        f"Line {option_str} output by model has an "
-                        "invalid type that doesn't agree with the option"
-                        f"{option}")
+                    _reject(f"Line {option_str} output by model has an "
+                            "invalid type that doesn't agree with the option"
+                            f"{option}")
                     malformed = True
                     break
             except IndexError:
                 # In this case, there's more supplied arguments than the
                 # option has.
-                logging.info(f"Line {option_str} output by model has an "
-                             "too many object arguments for option"
-                             f"{option}")
+                _reject(f"Line {option_str} output by model has "
+                        "too many object arguments for option "
+                        f"{option.name}, which expects "
+                        f"{len(option.types)} argument(s).")
                 malformed = True
                 break
             objs_list.append(obj)
         # The types of the objects match, but we haven't yet checked if
         # all arguments of the option have an associated object.
-        if len(objs_list) != len(option.types):
+        if not malformed and len(objs_list) != len(option.types):
+            _reject(f"Line {option_str} output by model supplies "
+                    f"{len(objs_list)} object argument(s) but option "
+                    f"{option.name} expects {len(option.types)}.")
             malformed = True
         # Now, we attempt to parse out the continuous parameters.
         if parse_continuous_params:
@@ -3038,18 +3059,31 @@ def parse_model_output_into_option_plan(
                 try:
                     curr_cont_param = float(stripped_continuous_param_str)
                 except ValueError:
-                    logging.info(f"Line {option_str} output by model has an "
-                                 "invalid continouous parameter that can't be"
-                                 "converted to a float.")
+                    _reject(f"Line {option_str} output by model has an "
+                            "invalid continouous parameter that can't be"
+                            "converted to a float.")
                     malformed = True
                     break
                 continuous_params_list.append(curr_cont_param)
-            if len(continuous_params_list) != option.params_space.shape[0]:
-                logging.info(f"Line {option_str} output by model has "
-                             "invalid continouous parameter(s) that don't "
-                             f"agree with {option}{option.params_space}.")
-                malformed = True
+            if malformed:
+                # A parameter failed to parse: stop parsing further lines
+                # (same truncation the count-mismatch below applies).
                 break
+            if len(continuous_params_list) != option.params_space.shape[0]:
+                if strict and not continuous_params_list:
+                    # An explicit empty `[]` is the tool sketch grammar's
+                    # "no seed": pass the empty list through and let the
+                    # caller interpret it (refinement samples the params;
+                    # exact-execution paths fail at grounding with a clear
+                    # message).
+                    pass
+                else:
+                    _reject(f"Line {option_str} output by model has "
+                            f"{len(continuous_params_list)} continuous "
+                            f"parameter(s) but option {option.name} expects "
+                            f"{option.params_space.shape[0]}.")
+                    malformed = True
+                    break
         if not malformed:
             option_plan.append((option, objs_list, continuous_params_list))
     return option_plan

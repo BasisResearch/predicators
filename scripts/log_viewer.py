@@ -1159,7 +1159,11 @@ def file_tree_html(run_abs: str, run_rel: str, rel: str = "") -> str:
                        f"({n_imgs} images, gallery)</span>"
                        "</a></div>")
             continue
-        out.append(f"<details><summary>{esc(d)}/ <span class='muted'>"
+        # Expand the top-level sandbox/ dir by default; it holds the
+        # test_images and session logs users reach for most often.
+        open_attr = " open" if not rel and d == "sandbox" else ""
+        out.append(f"<details{open_attr}><summary>{esc(d)}/ "
+                   f"<span class='muted'>"
                    f"({len(child_entries)})</span>"
                    "</summary>"
                    f"{file_tree_html(run_abs, run_rel, child_rel)}</details>")
@@ -1421,7 +1425,7 @@ def gallery_fragment(run_rel: str, dir_rel: str) -> str:
                     if os.path.splitext(f)[1].lower() in IMG_EXTS)
     groups: Dict[str, List[str]] = {}
     for f in images:
-        m = re.match(r"^(iter\d+_test\d+|task\d+)", f)
+        m = re.match(r"^(iter\d+(?:_task\d+)?_test\d+|task\d+)", f)
         groups.setdefault(m.group(1) if m else "(other)", []).append(f)
     out = [
         f"<h2>{esc(dir_rel)}/ <span class='muted'>"

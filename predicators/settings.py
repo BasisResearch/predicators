@@ -1309,6 +1309,14 @@ class GlobalSettings:
     # so plans with more steps automatically get more wall-clock budget.
     agent_bilevel_refinement_timeout_per_step = 30.0  # seconds per step
     agent_bilevel_refinement_timeout_min = 30.0  # floor on auto-scaled timeout
+    # Total number of belief-sim rollouts a goal-reaching plan must pass in
+    # evaluate_option_plan before it is captured as the agent's answer. The
+    # shared sim env is nondeterministic across repeats (motion-planner
+    # sampling, physics-solver state), so repeats sample the same execution
+    # variability the real rollout will - a flaky plan is reported to the
+    # agent in-session (where it can add margin and resubmit) instead of
+    # captured and discovered as a failed real episode. 1 disables repeats.
+    agent_plan_validation_rollouts = 3
     # Agent bilevel explorer settings. Separate from the solve-path budget
     # above because the explorer runs full backtracking while looking for
     # the deepest subgoal-failure to truncate at. Denominated in
