@@ -70,4 +70,4 @@ def create_single_arm_pybullet_robot(
         assert robot_name in _ROBOT_TO_BASE_POSE, \
             f"Base pose not specified for robot {robot_name}."
         base_pose = _ROBOT_TO_BASE_POSE[robot_name]
-    return cls(ee_home_pose, physics_client_id, base_pose=base_pose)
+    return cls(physics_client_id, ee_home_pose, base_pose=base_pose)

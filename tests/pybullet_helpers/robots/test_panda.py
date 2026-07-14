@@ -21,7 +21,7 @@ def _panda_fixture(physics_client_id) -> PandaPyBulletRobot:
 
     home_pose = Pose((0.5, 0.0, 0.5),
                      quaternion_from_euler(np.pi, 0, np.pi / 2))
-    panda = PandaPyBulletRobot(home_pose, physics_client_id)
+    panda = PandaPyBulletRobot(physics_client_id, home_pose)
     assert panda.get_name() == "panda"
     assert panda.physics_client_id == physics_client_id
     # Panda must have IKFast
@@ -171,7 +171,7 @@ def test_panda_home_keeps_canonical_arm_under_rolled_orientation(
     # axis -- i.e. the top-down grasp orientation the envs use.
     rolled_home_pose = Pose(PANDA_HOME_EE_POSE_IN_BASE.position,
                             (0.7071, 0.7071, 0.0, 0.0))
-    panda = PandaPyBulletRobot(rolled_home_pose, physics_client_id)
+    panda = PandaPyBulletRobot(physics_client_id, rolled_home_pose)
     home_joints = panda.initial_joint_positions
     # The arm joints are canonical...
     assert np.allclose(home_joints[:6], PANDA_HOME_ARM_JOINTS[:6], atol=0.2)

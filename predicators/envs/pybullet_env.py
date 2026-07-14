@@ -58,11 +58,12 @@ from predicators.structs import Action, Array, EnvironmentTask, Mask, Object, \
     Observation, State, Video
 from predicators.utils import PyBulletState
 
-# The robot_init_{x,y,z} each env class declares, saved before a robot with a
-# home configuration overwrites them (see _sync_robot_init_pos_with_home), so
-# that they can be restored for robots that have none.
-_ENV_TO_ROBOT_INIT_POS: Dict[Type["PyBulletEnv"], Tuple[float, float,
-                                                        float]] = {}
+# The robot_init_{x,y,z} values env classes declare, saved per declaring
+# class before a robot with a home configuration overwrites them (see
+# _sync_robot_init_pos_with_home), so that they can be restored for robots
+# that have none. Keyed per attribute so that a subclass inheriting a
+# parent's already-synced value can still recover what the parent declared.
+_DECLARED_ROBOT_INIT_POS: Dict[Tuple[Type["PyBulletEnv"], str], float] = {}
 
 
 class PyBulletEnv(BaseEnv):
@@ -379,6 +380,10 @@ class PyBulletEnv(BaseEnv):
         with their initial state's, but they have no canonical branch to
         protect, and their initial_joint_positions seed the oracle's motion
         planning -- so moving their home perturbs plans that work today.
+
+        Reads the class-level _robot_type. An env that only assigns
+        _robot_type in __init__ (e.g. blocks, coffee) is invisible here
+        and falls back to get_robot_ee_home_orn().
         """
         robot_type = getattr(cls, "_robot_type", None)
         if not has_home_config or robot_type is None:
@@ -402,12 +407,35 @@ class PyBulletEnv(BaseEnv):
         ignores them and starts where it rests instead. Robots without a
         home configuration (the Fetch) keep the env's positions.
         """
-        if cls not in _ENV_TO_ROBOT_INIT_POS:
-            _ENV_TO_ROBOT_INIT_POS[cls] = (cls.robot_init_x, cls.robot_init_y,
-                                           cls.robot_init_z)
+        declared = cls._declared_robot_init_pos()
         if home_position is None:
-            home_position = _ENV_TO_ROBOT_INIT_POS[cls]
-        cls.robot_init_x, cls.robot_init_y, cls.robot_init_z = home_position
+            home_position = declared
+        attrs = ("robot_init_x", "robot_init_y", "robot_init_z")
+        for attr, declared_value, value in zip(attrs, declared, home_position):
+            _DECLARED_ROBOT_INIT_POS.setdefault((cls, attr), declared_value)
+            setattr(cls, attr, value)
+
+    @classmethod
+    def _declared_robot_init_pos(cls) -> Pose3D:
+        """The robot_init_{x,y,z} this env declares, seeing through any values
+        a previous _sync_robot_init_pos_with_home wrote over them.
+
+        Resolved per attribute on the class that provides it, so that a
+        subclass does not mistake a parent's synced value for a declared
+        one.
+        """
+        values = []
+        for attr in ("robot_init_x", "robot_init_y", "robot_init_z"):
+            for klass in cls.__mro__:
+                if attr in vars(klass):
+                    values.append(
+                        _DECLARED_ROBOT_INIT_POS.get((klass, attr),
+                                                     vars(klass)[attr]))
+                    break
+            else:
+                raise AttributeError(
+                    f"{cls.__name__} does not declare {attr}.")
+        return (values[0], values[1], values[2])
 
     @classmethod
     def get_robot_ee_home_orn(cls) -> Quaternion:

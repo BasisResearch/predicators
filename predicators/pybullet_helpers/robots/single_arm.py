@@ -27,8 +27,8 @@ class SingleArmPyBulletRobot(abc.ABC):
 
     def __init__(
             self,
+            physics_client_id: int,
             ee_home_pose: Optional[Pose] = None,
-            physics_client_id: int = 0,
             base_pose: Pose = Pose.identity(),
     ) -> None:
         # The home positions and orientations should be "reasonable" because
@@ -295,11 +295,16 @@ class SingleArmPyBulletRobot(abc.ABC):
         Plain IK would pick the solution closest to the seed over *all*
         joints, which lets the free joint dominate: when the home
         orientation differs from the canonical one by a wrist roll (as
-        it does in every env, whose home orientation is also its grasp
-        orientation), the roll costs more than swinging the shoulder,
-        and IK returns a contorted arm with an unrolled wrist. Selecting
-        on the non-free joints only leaves the free joint to absorb the
-        roll and keeps the canonical arm shape.
+        it does in the real domino env, whose home orientation is also
+        its grasp orientation), the roll costs more than swinging the
+        shoulder, and IK returns a contorted arm with an unrolled
+        wrist. Selecting on the non-free joints only leaves the free
+        joint to absorb the roll and keeps the canonical arm shape.
+
+        When the home orientation differs by more than a roll (e.g. a
+        sideways pushing orientation), no solution holds the canonical
+        shape; the selection then returns the least contorted solution
+        available, which is still a reasonable home.
         """
         home = self.home_joint_positions
         ikfast_info = self.ikfast_info()
@@ -329,7 +334,11 @@ class SingleArmPyBulletRobot(abc.ABC):
         # Add the fingers back, which IK does not solve for.
         for finger_idx in sorted(finger_idxs):
             joint_positions.insert(finger_idx, self.open_fingers)
-        self._validate_joints_state(joint_positions, self._ee_home_pose)
+        try:
+            self._validate_joints_state(joint_positions, self._ee_home_pose)
+        except ValueError:
+            # A near-miss solution; fall back to plain IK in the caller.
+            return None
         self.set_joints(joint_positions)
         return joint_positions
 

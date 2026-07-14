@@ -166,7 +166,7 @@ def test_fetch_pybullet_robot(physics_client_id):
     ee_orn = p.getQuaternionFromEuler([0.0, np.pi / 2, -np.pi])
     ee_home_pose = Pose(ee_home_position, ee_orn)
     base_pose = Pose((0.75, 0.7441, 0.0))
-    robot = FetchPyBulletRobot(ee_home_pose, physics_client_id, base_pose)
+    robot = FetchPyBulletRobot(physics_client_id, ee_home_pose, base_pose)
     assert robot.get_name() == "fetch"
     assert robot.arm_joint_names == [
         'shoulder_pan_joint', 'shoulder_lift_joint', 'upperarm_roll_joint',
@@ -244,7 +244,7 @@ def test_reset_state_skips_ik_for_sign_flipped_quaternion(
     ee_orn = p.getQuaternionFromEuler([0.0, np.pi / 2, -np.pi])
     ee_home_pose = Pose(ee_home_position, ee_orn)
     base_pose = Pose((0.75, 0.7441, 0.0))
-    robot = FetchPyBulletRobot(ee_home_pose, physics_client_id, base_pose)
+    robot = FetchPyBulletRobot(physics_client_id, ee_home_pose, base_pose)
 
     # Capture the live (joints, EE pose) pair after a normal reset — this
     # mirrors what _get_state would record during trajectory collection.
