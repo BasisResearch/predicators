@@ -4,6 +4,7 @@ The dummy env classes below stay abstract (they implement none of the
 abstract methods), so they are never instantiated and never registered
 as real envs; only the classmethods under test are exercised.
 """
+# pylint: disable=protected-access
 
 import numpy as np
 import pybullet as p
@@ -69,6 +70,7 @@ def test_get_robot_ee_init_orn():
 
         @classmethod
         def get_robot_ee_home_orn(cls):
+            """A fixed default, bypassing the CFG lookup."""
             return default_orn
 
     # Without a home configuration, the env default is kept.
@@ -82,6 +84,7 @@ def test_get_robot_ee_init_orn():
 
         @classmethod
         def get_robot_ee_home_orn(cls):
+            """A fixed default, bypassing the CFG lookup."""
             return default_orn
 
     # An env with no class-level _robot_type keeps the default too.
