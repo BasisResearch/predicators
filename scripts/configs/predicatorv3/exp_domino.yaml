@@ -9,6 +9,15 @@ includes:
   - envs/all.yaml
   - approaches/all.yaml
 ENVS:
+  # InFront-provided A/B arm: same tasks as `domino`, but InFront stays
+  # in the agent's vocabulary (dropped from the exclusion string) so
+  # placement steps get a checkable chain-connectivity subgoal. NOTE:
+  # launch_simp runs the ENVS x APPROACHES cross-product - park arms
+  # here before launching if the full matrix is not wanted.
+  domino_infront:
+    SKIP: False
+    FLAGS:
+      excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright"
   domino:
     SKIP: False
     FLAGS:
@@ -25,6 +34,11 @@ ENVS:
       excluded_predicates: "InitialBlock,MovableBlock,Tilting,Upright,InFront"
 APPROACHES:
   agent_oracle_hybrid_sim:
+    SKIP: False
+  # Sampler arm: agent_oracle_hybrid_sim plus agent-synthesized
+  # per-skill samplers (samplers.py via evaluate_sampler); measures what
+  # the reusable cross-task sampler prior adds over per-call regions.
+  agent_oracle_hybrid_sim_sampler:
     SKIP: False
   agent_po_predicate_invention_al:
     SKIP: True
